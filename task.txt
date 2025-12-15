@@ -1,0 +1,18 @@
+ Phase 4: Financials & Specialized Services
+ Debt Management Module -- done
+ Exchange Service Module -- done
+ OMT/Whish Module -- done
+ Recharge Module (Alfa/MTC) -- done
+ Maintenance Module -- done
+ Expenses ModulePhase 5: Dashboard & Reporting
+ Interactive Dashboard -- done
+ Closing Shift & Reports
+ Settings Module
+ Notifications UI
+
+Phase 6: Sync & Cloud
+ Sync Engine
+ Backup System
+
+Phase 7: Polish & Distribution
+ Security & Installer

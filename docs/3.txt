@@ -1,0 +1,214 @@
+Note 3: Database Important Queries (Master List)
+
+1. Dashboard & Analytics (The "Manager View")
+Logic: Fetches live snapshots for the dashboard cards and calculates end-of-day numbers.
+A. Live Dashboard Stats (Top Cards)
+SQL
+
+SELECT
+    -- 1. Total Value of Stock (Cost Price)
+    (SELECT SUM(cost_price_usd * stock_quantity) FROM products WHERE is_active = 1) as stock_budget_value,
+    
+    -- 2. Total Items Count
+    (SELECT SUM(stock_quantity) FROM products WHERE is_active = 1) as stock_item_count,
+
+    -- 3. Total Unpaid Debt (Receivables)
+    (SELECT SUM(amount_usd) FROM debt_ledger) as total_debt_receivable,
+
+    -- 4. Virtual Stock (MTC + Alfa)
+    (SELECT SUM(stock_quantity) FROM products WHERE item_type IN ('Virtual_MTC', 'Virtual_Alfa')) as virtual_stock_usd
+;
+B. Calculate "System Expected" Cash (General Drawer) Logic: This tells you how much money SHOULD be in the drawer physically. We must exclude "Non-Cash" expenses (like broken items) because no money left the drawer for those.
+SQL
+
+SELECT 
+    (
+        -- 1. Cash from Direct Sales (Completed today)
+        SELECT COALESCE(SUM(paid_usd), 0) FROM sales 
+        WHERE date(created_at) = date('now') AND status = 'Completed'
+    ) 
+    + 
+    (
+        -- 2. Cash from Debt Payments (Money coming in)
+        SELECT COALESCE(SUM(ABS(amount_usd)), 0) FROM debt_ledger 
+        WHERE date(created_at) = date('now') AND transaction_type = 'Payment'
+    ) 
+    - 
+    (
+        -- 3. Cash Paid Out (Rent, Bills, Refunds)
+        -- CRITICAL: Only count expenses where money actually leaves the drawer ('Cash_Out')
+        SELECT COALESCE(SUM(amount_usd), 0) FROM expenses 
+        WHERE date(expense_date) = date('now') AND expense_type = 'Cash_Out'
+    ) 
+    AS total_expected_usd_in_general_drawer;
+C. Calculate Net Daily Profit Logic: Profit = (Sales Margin) - (All Expenses). Here, we MUST include "Non-Cash" losses (Pure Khsara) because they reduce your profit even if cash didn't leave.
+SQL
+
+SELECT 
+    (
+        -- Gross Profit from Sold Items
+        SELECT SUM((sold_price_usd - cost_price_snapshot_usd) * quantity)
+        FROM sale_items 
+        JOIN sales ON sale_items.sale_id = sales.id
+        WHERE date(sales.created_at) = date('now')
+    )
+    -
+    (
+        -- Total Expenses (Includes Bills AND Internal Breakage/Losses)
+        SELECT COALESCE(SUM(amount_usd), 0) FROM expenses 
+        WHERE date(expense_date) = date('now')
+    ) 
+    AS net_daily_profit;
+
+2. Sales & POS Module (The "Cashier View")
+Logic: Managing carts, scanning items, and creating receipts.
+A. Create a "Held" Cart (Pending Sale)
+SQL
+
+INSERT INTO sales (client_id, total_amount_usd, status, created_at)
+VALUES (3, 0.00, 'Pending', CURRENT_TIMESTAMP);
+-- Returns the new Sale ID (e.g., 1024)
+B. Add Item to Cart Logic: Links product to sale and captures the cost price snapshot.
+SQL
+
+INSERT INTO sale_items (sale_id, product_id, quantity, sold_price_usd, cost_price_snapshot_usd)
+SELECT 
+    1024,                   -- The Sale ID
+    id,                     -- Product ID
+    1,                      -- Quantity
+    selling_price_usd,      -- Selling Price
+    cost_price_usd          -- Cost Price (Snapshot)
+FROM products WHERE barcode = '123456789';
+C. Retrieve All "Held" Carts (Sidebar List)
+SQL
+
+SELECT 
+    s.id as sale_id, 
+    c.full_name, 
+    s.created_at 
+FROM sales s
+JOIN clients c ON s.client_id = c.id
+WHERE s.status = 'Pending';
+
+3. Debt Management Module
+Logic: Managing client balances and payments.
+A. Calculate Current Balance (Single Client)
+SQL
+
+CREATE VIEW view_client_current_balance AS
+SELECT 
+    client_id, 
+    SUM(amount_usd) as total_debt_usd
+FROM debt_ledger
+GROUP BY client_id;
+-- Usage: SELECT total_debt_usd FROM view_client_current_balance WHERE client_id = 5;
+B. Record a Debt Payment (Mixed Currency) Logic: Records payment, converting LBP to USD for the ledger.
+SQL
+
+INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, note, created_at)
+VALUES (
+    5,                                          -- Client ID
+    'Payment', 
+    -72.35,                                     -- Calculated in code: -(50 + (2000000 / Rate))
+    2000000,                                    -- Stored for reference
+    'Payment: $50 cash + 2M LBP', 
+    CURRENT_TIMESTAMP
+);
+C. Generate Client Statement (History)
+SQL
+
+SELECT 
+    created_at, 
+    transaction_type, 
+    note, 
+    amount_usd as change,
+    SUM(amount_usd) OVER (ORDER BY created_at ROWS UNBOUNDED PRECEDING) as running_balance
+FROM debt_ledger
+WHERE client_id = 5
+ORDER BY created_at DESC;
+
+4. Inventory, Stock & Maintenance
+Logic: Handling stock levels, virtual stock, and repairs.
+A. Deduct Stock (Finalize Sale)
+SQL
+
+UPDATE products
+SET stock_quantity = stock_quantity - (
+    SELECT quantity 
+    FROM sale_items 
+    WHERE sale_items.product_id = products.id AND sale_items.sale_id = 1024
+)
+WHERE id IN (SELECT product_id FROM sale_items WHERE sale_id = 1024);
+B. Add MTC/Alfa "Virtual" Stock
+SQL
+
+UPDATE products 
+SET stock_quantity = stock_quantity + 1000
+WHERE name = 'MTC Credit Inventory';
+C. Maintenance: Update Status & Finish Job
+SQL
+
+UPDATE maintenance_jobs
+SET 
+    cost_parts_usd = 20, 
+    cost_labor_usd = 10, 
+    price_to_client_usd = 50, 
+    status = 'Repaired', 
+    completed_at = CURRENT_TIMESTAMP
+WHERE id = 55;
+D. Maintenance: Deliver & Pay
+SQL
+
+-- 1. Mark Job as Done
+UPDATE maintenance_jobs SET status = 'Delivered_Paid' WHERE id = 55;
+
+-- 2. Create Sale Record (so it appears in daily cash)
+INSERT INTO sales (client_id, total_amount_usd, paid_usd, status)
+VALUES (
+    (SELECT client_id FROM maintenance_jobs WHERE id = 55),
+    (SELECT price_to_client_usd FROM maintenance_jobs WHERE id = 55),
+    (SELECT price_to_client_usd FROM maintenance_jobs WHERE id = 55),
+    'Completed'
+);
+
+5. Refunds & Losses (The New Module)
+Logic: Handling returns and broken items correctly in the drawer vs. profit.
+A. Refund - Case 1: Item Works (Return to Stock) Logic: Client gets money back, we get item back.
+SQL
+
+-- 1. Mark item as refunded in sales
+UPDATE sale_items SET is_refunded = 1 WHERE sale_id = 50 AND product_id = 99;
+
+-- 2. Add stock back
+UPDATE products SET stock_quantity = stock_quantity + 1 WHERE id = 99;
+
+-- 3. Record Cash Out (Deducts from Drawer)
+INSERT INTO expenses (description, category, expense_type, amount_usd)
+VALUES ('Refund Sale #50 - Item working', 'Refund', 'Cash_Out', 200);
+B. Refund - Case 2: Item Broken (Trash) Logic: Client gets money back, item is thrown away.
+SQL
+
+-- 1. Mark item as refunded
+UPDATE sale_items SET is_refunded = 1 WHERE sale_id = 50 AND product_id = 99;
+
+-- 2. DO NOT increase stock (Item is gone)
+
+-- 3. Record Cash Out (Deducts from Drawer)
+INSERT INTO expenses (description, category, expense_type, amount_usd)
+VALUES ('Refund Sale #50 - Item Broken', 'Refund_Damaged', 'Cash_Out', 200);
+C. "Pure Khsara" (Internal Breakage) Logic: You dropped a phone. No money leaves drawer, but profit drops.
+SQL
+
+-- 1. Remove from Stock
+UPDATE products SET stock_quantity = stock_quantity - 1 WHERE id = 101;
+
+-- 2. Record Loss (Does NOT affect Drawer, DOES affect Profit)
+INSERT INTO expenses (description, category, expense_type, amount_usd)
+VALUES ('Broken Samsung A50 by accident', 'Inventory_Loss', 'Non_Cash', 150); -- Cost price
+
+6. Client Search
+Logic: Searching by Name or Phone.
+SQL
+
+SELECT * FROM clients 
+WHERE full_name LIKE '%Ali%' OR phone_number LIKE '%70123456%';

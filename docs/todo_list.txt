@@ -1,0 +1,88 @@
+# Project Implementation Todo List
+
+## Phase 1: Foundation & Backend (Weeks 1-2)
+- [ ] **Project Setup**
+    - [ ] Initialize Electron + React + TypeScript + Vite project.
+    - [ ] Configure Tailwind CSS.
+    - [ ] Set up ESLint/Prettier for code quality.
+- [ ] **Database Setup (SQLite)**
+    - [ ] Install `better-sqlite3`.
+    - [ ] Implement Migration System (files to run SQL scripts on startup).
+    - [ ] Create all tables from `4.txt` (Settings, Users, Clients, Products, Sales, etc.).
+    - [ ] Seed default data (Admin user, default settings, test products).
+- [ ] **IPC Communication Bridge**
+    - [ ] Create `preload.ts` API context.
+    - [ ] Implement Typed IPC handlers (splitting Main Process DB logic from Renderer UI).
+
+## Phase 2: Core Modules & Inventory (Weeks 3-4)
+- [ ] **Authentication**
+    - [ ] Login Screen (Pin pad or Password).
+    - [ ] User Session management in Redux/Zustand.
+- [ ] **Main Layout**
+    - [ ] Sidebar Navigation (responsive).
+    - [ ] Top Bar (Status, Sync Indicator, Current Rate Display).
+- [ ] **Inventory Management**
+    - [ ] Product List View (Datatable with filters).
+    - [ ] "Add Product" Modal (Barcode generation, Stock tracking).
+    - [ ] "Edit Product" & "Adjust Stock" (with logging).
+    - [ ] Support for Polymorphic Types (Service vs Physical vs Virtual).
+- [ ] **Client Management**
+    - [ ] Client Directory.
+    - [ ] Add/Edit Client Modal.
+    - [ ] Client Purchase History view.
+
+## Phase 3: Point of Sale (POS) (Weeks 5-6)
+- [ ] **POS UI**
+    - [ ] Product Search (Barcode scan listener + Text search).
+    - [ ] Cart State Management (Add, Remove, Qty, Price Override if allowed).
+    - [ ] Hold/Retrieve Cart functionality.
+- [ ] **Checkout Logic**
+    - [ ] Payment Modal:
+        - [ ] Multi-currency support (USD input + LBP input).
+        - [ ] Dynamic Change calculation based on settings rate.
+    - [ ] Receipt Generation (Thermal printer layout).
+    - [ ] Transaction Commit (Atomic SQL transaction).
+
+## Phase 4: Financials & Specialized Services (Weeks 7-8)
+- [ ] **Exchange Service Module**
+    - [ ] Buy/Sell UI for USD/LBP/EUR.
+    - [ ] Drawer updates for Exchange.
+- [ ] **OMT/Whish Module**
+    - [ ] Separate OMT Drawer logic.
+    - [ ] Transaction logging for transfer services.
+- [ ] **Maintenance Module**
+    - [ ] Job Entry Form (Device, Pattern, Issue).
+    - [ ] Status Workflow (Received -> Fixed -> Delivered).
+    - [ ] Printing "Repair Ticket" for customer.
+- [ ] **Expenses Module**
+    - [ ] Expense Entry (Cash Out vs Internal Loss).
+    - [ ] Category Management.
+
+## Phase 5: Dashboard & Reporting (Weeks 9-10)
+- [ ] **Interactive Dashboard**
+    - [ ] Implement Recharts/Chart.js for Sales line graph.
+    - [ ] Live Cards: Daily Profit, Cash in Drawer, Stock Value.
+- [ ] **Closing Shift**
+    - [ ] "End of Day" wizard.
+    - [ ] Physical Count Input screen.
+    - [ ] Variance Report (Expected vs Actual).
+    - [ ] Generate Daily PDF Report.
+
+## Phase 6: Sync & Cloud (Weeks 11-12)
+- [ ] **Sync Engine**
+    - [ ] Implement `sync_queue` watcher in Main Process.
+    - [ ] Build Cloud API (Supabase/Postgres) endpoints.
+    - [ ] Batch upload logic (push local changes).
+    - [ ] Pull logic (get updates from other counters, if multi-PC).
+- [ ] **Backup System**
+    - [ ] Auto-backup to local external path.
+
+## Phase 7: Polish & Distribution (Week 13)
+- [ ] **Security**
+    - [ ] Implement Heartbeat/DRM check.
+    - [ ] Obfuscate code/ASAR packaging.
+- [ ] **Installer**
+    - [ ] Configure `electron-builder` (NSIS target for Windows).
+    - [ ] Create Desktop Icon and association.
+- [ ] **Manual Testing**
+    - [ ] Full dry run of a shop day (Opening -> Sales -> Repairs -> Closing).

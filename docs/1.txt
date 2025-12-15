@@ -1,0 +1,34 @@
+Note 1: Recommended Stack & Implementation Plan
+
+1. The Stack (Offline-First Desktop App)
+* Platform: Electron (Builds .exe for Windows).
+* Frontend: React.js + Tailwind CSS (Fast, modern UI).
+* Data Visualization: Recharts or Chart.js (For the Dashboard graphs).
+* Local Database: SQLite (better-sqlite3).
+* Cloud Sync: PostgreSQL (Supabase/DigitalOcean).
+* Language: TypeScript.
+* WhatsApp Integration: whatsapp-web.js (Node.js library) or Twilio API. (Start with whatsapp-web.js to run it off the shop phone without per-message costs).
+
+2. Client Delivery & Control
+* Delivery: Provide a Setup.exe built via Electron-Builder.
+* Updates: Use electron-updater to push fixes via GitHub releases.
+* Payment Enforcement:
+    * Heartbeat DRM: App checks a secure server API (/check-license) on startup.
+    * Lockout: If subscription unpaid, app switches to "Read Only" mode (can view history, cannot sell).
+
+3. Implementation Roadmap
+1. Phase 1: Database & Backend (Electron/SQLite)
+    * Set up SQLite with the schema from Note 1.
+    * Create the "IPC Bridge" (allows React to talk to SQLite).
+2. Phase 2: The Dashboard & Inventory
+    * Build the "Default Screen" (Dashboard) fetching stats from Note 3.
+    * Build "Product Entry" and "Stock Management".
+3. Phase 3: The POS (Point of Sale)
+    * Build the Cart logic (Hold/Scan/Pay).
+    * Implement the "Dual Drawer" logic.
+4. Phase 4: Advanced Features
+    * Implement Refund Logic (Menu: "Return to Stock" vs "Trash").
+    * Implement Currency Exchange forms in Opening/Closing.
+5. Phase 5: WhatsApp & Sync
+    * Integrate WhatsApp library for debt alerts.
+    * Build the background Sync Queue to upload data to Cloud.
