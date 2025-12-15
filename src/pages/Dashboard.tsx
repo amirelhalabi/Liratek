@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { DollarSign, ShoppingBag, Users, AlertTriangle, TrendingUp, Package, Clock } from 'lucide-react';
+import { appEvents } from '../utils/appEvents';
 
 export default function Dashboard() {
     const [stats, setStats] = useState({
@@ -12,28 +13,38 @@ export default function Dashboard() {
     const [recentActivity, setRecentActivity] = useState<any[]>([]);
     const [topProducts, setTopProducts] = useState<any[]>([]);
 
+    const loadData = async () => {
+        try {
+            const [statsData, chartData, activityData, productsData] = await Promise.all([
+                window.api.getDashboardStats(),
+                window.api.getSalesChart(),
+                window.api.getRecentActivity(),
+                window.api.getTopProducts()
+            ]);
+
+            setStats(statsData);
+            setSalesChart(chartData);
+            setRecentActivity(activityData);
+            setTopProducts(productsData);
+        } catch (error) {
+            // console.error('Failed to load dashboard data:', error);
+        }
+    };
+
     useEffect(() => {
-        const loadData = async () => {
-            try {
-                const [statsData, chartData, activityData, productsData] = await Promise.all([
-                    window.api.getDashboardStats(),
-                    window.api.getSalesChart(),
-                    window.api.getRecentActivity(),
-                    window.api.getTopProducts()
-                ]);
-
-                setStats(statsData);
-                setSalesChart(chartData);
-                setRecentActivity(activityData);
-                setTopProducts(productsData);
-            } catch (error) {
-                // console.error('Failed to load dashboard data:', error);
-            }
-        };
-
         loadData();
         const interval = setInterval(loadData, 30000); // 30s refresh
-        return () => clearInterval(interval);
+
+        // Listen for sale completion event to refresh immediately
+        const unsubscribe = appEvents.on('sale:completed', () => {
+            console.log('[DASHBOARD] Sale completed, refreshing stats...');
+            loadData();
+        });
+
+        return () => {
+            clearInterval(interval);
+            unsubscribe();
+        };
     }, []);
 
     const maxChartValue = Math.max(...salesChart.map(d => d.amount), 100);

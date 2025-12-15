@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Search, User, ArrowDownLeft } from 'lucide-react';
+import { EXCHANGE_RATE } from '../../config/constants';
 // import { useAuth } from '../../contexts/AuthContext';
 
 export default function Debts() {
@@ -8,12 +9,13 @@ export default function Debts() {
     const [history, setHistory] = useState<any[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [showRepaymentModal, setShowRepaymentModal] = useState(false);
+    const [totalDebt, setTotalDebt] = useState(0);
 
     // Repayment State
     const [repayAmountUSD, setRepayAmountUSD] = useState<string>('');
     const [repayAmountLBP, setRepayAmountLBP] = useState<string>('');
     const [repayNote, setRepayNote] = useState('');
-    const [exchangeRate] = useState(89500); // Default, should fetch
+    const [exchangeRate] = useState(EXCHANGE_RATE);
 
     useEffect(() => {
         loadDebtors();
@@ -23,6 +25,7 @@ export default function Debts() {
     useEffect(() => {
         if (selectedClient) {
             loadHistory(selectedClient.id);
+            loadClientTotal(selectedClient.id);
         }
     }, [selectedClient]);
 
@@ -44,6 +47,15 @@ export default function Debts() {
         }
     };
 
+    const loadClientTotal = async (clientId: number) => {
+        try {
+            const total = await window.api.getClientDebtTotal(clientId);
+            setTotalDebt(total || 0);
+        } catch (error) {
+            console.error('Failed to load client total:', error);
+        }
+    };
+
     const handleProcessRepayment = async () => {
         if (!selectedClient) return;
 
@@ -61,7 +73,7 @@ export default function Debts() {
                 amountUSD: usd,
                 amountLBP: lbp,
                 note: repayNote,
-                exchangeRate: exchangeRate // Should be dynamic
+                exchangeRate: exchangeRate
             });
 
             if (result.success) {
@@ -72,9 +84,7 @@ export default function Debts() {
                 setRepayNote('');
                 loadDebtors();
                 loadHistory(selectedClient.id);
-                // Update selected client balance locally or re-fetch logic needed?
-                // loadDebtors updates list, but selectedClient object is stale.
-                // We'll just rely on the list update for now or re-find.
+                loadClientTotal(selectedClient.id);
             } else {
                 alert('Error: ' + result.error);
             }
@@ -144,7 +154,7 @@ export default function Debts() {
                         <div className="p-6 border-b border-slate-700 flex justify-between items-center bg-slate-800/50">
                             <div>
                                 <h2 className="text-2xl font-bold text-white">{selectedClient.full_name}</h2>
-                                <p className="text-slate-400">Total Debt: <span className="text-red-400 font-bold">${selectedClient.total_debt_usd.toFixed(2)}</span></p>
+                                <p className="text-slate-400">Total Debt: <span className="text-red-400 font-bold">${totalDebt.toFixed(2)}</span></p>
                             </div>
                             <button
                                 onClick={() => setShowRepaymentModal(true)}
@@ -166,36 +176,53 @@ export default function Debts() {
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-700/50">
-                                    {history.map(item => (
-                                        <tr key={item.id} className="group hover:bg-slate-700/20">
-                                            <td className="py-3 text-slate-300">
-                                                {new Date(item.created_at).toLocaleDateString()}
-                                                <div className="text-xs text-slate-500">
-                                                    {new Date(item.created_at).toLocaleTimeString()}
-                                                </div>
-                                            </td>
-                                            <td className="py-3">
-                                                <span className={`px-2 py-1 rounded text-xs font-bold ${item.amount_usd > 0
-                                                    ? 'bg-red-500/20 text-red-400'
-                                                    : 'bg-emerald-500/20 text-emerald-400'
-                                                    }`}>
-                                                    {item.amount_usd > 0 ? 'Debt' : 'Repayment'}
-                                                </span>
-                                            </td>
-                                            <td className="py-3 text-slate-400 text-sm">
-                                                {item.note || '-'}
-                                                {item.amount_lbp > 0 && (
-                                                    <div className="text-xs text-slate-500 mt-0.5">
-                                                        Paid LBP {item.amount_lbp.toLocaleString()}
-                                                    </div>
+                                    {history.map((item, index) => {
+                                        // Show "Paid Fully" breakpoint if this is the transition from unpaid to paid
+                                        const showPaidFullyBreakpoint = index > 0 && history[index - 1].is_paid === false && item.is_paid === true;
+                                        
+                                        return (
+                                            <tr key={item.id}>
+                                                {/* Paid Fully Breakpoint */}
+                                                {showPaidFullyBreakpoint && (
+                                                    <td colSpan={4} className="py-3">
+                                                        <div className="flex items-center gap-3 text-emerald-400">
+                                                            <div className="flex-1 h-px bg-emerald-500/30"></div>
+                                                            <span className="text-xs font-bold px-3 py-1 bg-emerald-500/10 rounded-full">PAID FULLY</span>
+                                                            <div className="flex-1 h-px bg-emerald-500/30"></div>
+                                                        </div>
+                                                    </td>
                                                 )}
-                                            </td>
-                                            <td className={`py-3 text-right font-mono font-bold ${item.amount_usd > 0 ? 'text-red-400' : 'text-emerald-400'
-                                                }`}>
-                                                {item.amount_usd > 0 ? '+' : ''}{item.amount_usd.toFixed(2)}
-                                            </td>
-                                        </tr>
-                                    ))}
+                                                <tr key={`entry-${item.id}`} className="group hover:bg-slate-700/20">
+                                                    <td className="py-3 text-slate-300">
+                                                        {new Date(item.created_at).toLocaleDateString()}
+                                                        <div className="text-xs text-slate-500">
+                                                            {new Date(item.created_at).toLocaleTimeString()}
+                                                        </div>
+                                                    </td>
+                                                    <td className="py-3">
+                                                        <span className={`px-2 py-1 rounded text-xs font-bold ${item.amount_usd > 0
+                                                            ? 'bg-red-500/20 text-red-400'
+                                                            : 'bg-emerald-500/20 text-emerald-400'
+                                                            }`}>
+                                                            {item.amount_usd > 0 ? 'Debt' : 'Repayment'}
+                                                        </span>
+                                                    </td>
+                                                    <td className="py-3 text-slate-400 text-sm">
+                                                        {item.note || '-'}
+                                                        {item.amount_lbp > 0 && (
+                                                            <div className="text-xs text-slate-500 mt-0.5">
+                                                                Paid LBP {item.amount_lbp.toLocaleString()}
+                                                            </div>
+                                                        )}
+                                                    </td>
+                                                    <td className={`py-3 text-right font-mono font-bold ${item.amount_usd > 0 ? 'text-red-400' : 'text-emerald-400'
+                                                        }`}>
+                                                        {item.amount_usd > 0 ? '+' : ''}{item.amount_usd.toFixed(2)}
+                                                    </td>
+                                                </tr>
+                                            </tr>
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                         </div>

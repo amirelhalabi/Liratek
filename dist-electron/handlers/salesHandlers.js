@@ -126,34 +126,40 @@ function registerSalesHandlers() {
     // Dashboard Stats
     electron_1.ipcMain.handle('sales:get-dashboard-stats', () => {
         try {
-            // 1. Total Sales Today (USD)
-            const todayStart = new Date();
-            todayStart.setHours(0, 0, 0, 0);
-            // Format to YYYY-MM-DD HH:MM:SS (UTC) because toISOString() uses 'T' and 'Z' which breaks SQLite string compare
-            const todayStr = todayStart.toISOString().replace('T', ' ').replace('Z', '');
+            // Get today's date in local timezone (YYYY-MM-DD)
+            const today = new Date().toISOString().split('T')[0];
+            // 1. Total Sales Today (USD) - includes completed sales + repayments
             const salesResult = db.prepare(`
                 SELECT SUM(paid_usd + (paid_lbp / exchange_rate_snapshot)) as total 
                 FROM sales 
-                WHERE created_at >= ?
-            `).get(todayStr);
-            // 2. Orders Count Today
+                WHERE DATE(created_at) = ? AND status = 'completed'
+            `).get(today);
+            // 2. Total Repayments Today
+            const repaymentResult = db.prepare(`
+                SELECT SUM(ABS(amount_usd)) as total
+                FROM debt_ledger
+                WHERE DATE(created_at) = ? AND transaction_type = 'Repayment'
+            `).get(today);
+            const totalSalesWithRepayments = (salesResult.total || 0) + (repaymentResult.total || 0);
+            // 3. Orders Count Today
             const ordersResult = db.prepare(`
                 SELECT COUNT(*) as count 
                 FROM sales 
-                WHERE created_at >= ?
-            `).get(todayStr);
-            // 3. Active Clients Count
+                WHERE DATE(created_at) = ? AND status = 'completed'
+            `).get(today);
+            // 4. Active Clients Count
             const clientsResult = db.prepare(`
                 SELECT COUNT(*) as count FROM clients
             `).get();
-            // 4. Low Stock Items Count
+            // 5. Low Stock Items Count
             const stockResult = db.prepare(`
                 SELECT COUNT(*) as count 
                 FROM products 
                 WHERE stock_quantity <= min_stock_level AND is_active = 1
             `).get();
+            console.log(`[SALES] Dashboard stats - Today: ${today}, Sales: $${salesResult.total}, Repayments: $${repaymentResult.total}, Total: $${totalSalesWithRepayments}`);
             return {
-                totalSales: salesResult.total || 0,
+                totalSales: totalSalesWithRepayments,
                 ordersCount: ordersResult.count || 0,
                 activeClients: clientsResult.count || 0,
                 lowStockCount: stockResult.count || 0

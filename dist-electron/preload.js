@@ -34,6 +34,7 @@ electron_1.contextBridge.exposeInMainWorld('api', {
     // Debt
     getDebtors: () => electron_1.ipcRenderer.invoke('debt:get-debtors'),
     getClientDebtHistory: (clientId) => electron_1.ipcRenderer.invoke('debt:get-client-history', clientId),
+    getClientDebtTotal: (clientId) => electron_1.ipcRenderer.invoke('debt:get-client-total', clientId),
     addRepayment: (data) => electron_1.ipcRenderer.invoke('debt:add-repayment', data),
     // Exchange
     addExchangeTransaction: (data) => electron_1.ipcRenderer.invoke('exchange:add-transaction', data),

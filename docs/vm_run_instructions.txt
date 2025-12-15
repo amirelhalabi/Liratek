@@ -7,7 +7,7 @@ Since you are developing on a Mac but targeting Windows, you cannot "run" the `.
 2.  **Install Windows 11 ARM:** Parallels will download and install this automatically with one click.
 3.  **Setup Shared Folders:**
     *   Parallels usually shares your Mac `Documents` folder with Windows automatically.
-    *   Your project code at `/Users/amir/Documents/proj` will be accessible in Windows at `\\Mac\Home\Documents\proj` or `Z:\Documents\proj`.
+    *   Your project code at `/Users/amir/Documents/liratek` will be accessible in Windows at `\\Mac\Home\Documents\liratek` or `Z:\Documents\liratek`.
 
 ## Option 2: UTM (Free / Open Source)
 1.  **Download UTM:** https://mac.getutm.app/
@@ -36,15 +36,15 @@ You can build a Windows `.exe` *from* your Mac, then copy it to the VM to test.
 
 ### Method B: Develop on Mac, Run on Windows (Hot Reload) - **BEST for Layout Testing**
 To test OS-specific features (like printing or file system paths) live:
-1.  **On Mac:** Keep your code in `/Users/amir/Documents/proj`.
+1.  **On Mac:** Keep your code in `/Users/amir/Documents/liratek`.
 2.  **On Windows VM:**
     *   Install **Node.js**: https://nodejs.org/ (Download Windows Installer).
     *   Install **Git**: https://git-scm.com/download/win.
     *   Open PowerShell or Command Prompt.
     *   Navigate to the shared folder:
-        `cd Z:\Documents\proj` (Parallels)
+        `cd Z:\Documents\liratek` (Parallels)
     *   Install dependencies (if `node_modules` causes issues across OS, delete it and run `npm install` *inside* Windows).
-        *   *Tip:* It's often safer to copy the project folder to the Windows Desktop (`C:\Users\User\Desktop\proj`) to avoid "Shared Folder" permission/symlink issues with `node_modules`.
+        *   *Tip:* It's often safer to copy the project folder to the Windows Desktop (`C:\Users\User\Desktop\liratek`) to avoid "Shared Folder" permission/symlink issues with `node_modules`.
     *   Run the app:
         `npm start`
 3.  **Result:** The Electron app opens inside Windows with Hot Reloading. You edit code on Mac, save, and the Windows app updates instantly.

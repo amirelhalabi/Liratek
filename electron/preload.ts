@@ -38,6 +38,7 @@ contextBridge.exposeInMainWorld('api', {
     // Debt
     getDebtors: () => ipcRenderer.invoke('debt:get-debtors'),
     getClientDebtHistory: (clientId: number) => ipcRenderer.invoke('debt:get-client-history', clientId),
+    getClientDebtTotal: (clientId: number) => ipcRenderer.invoke('debt:get-client-total', clientId),
     addRepayment: (data: any) => ipcRenderer.invoke('debt:add-repayment', data),
 
     // Exchange

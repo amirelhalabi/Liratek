@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { X, User, DollarSign } from 'lucide-react';
+import { EXCHANGE_RATE } from '../../../config/constants';
 import type { Client } from '../../../types';
 
 interface CheckoutModalProps {
@@ -19,7 +20,7 @@ export default function CheckoutModal({ totalAmount, onClose, onComplete, onSave
     const [discount, setDiscount] = useState(0);
     const [paidUSD, setPaidUSD] = useState(0);
     const [paidLBP, setPaidLBP] = useState(0);
-    const [exchangeRate] = useState(89000); // Default, should fetch from settings
+    const [exchangeRate] = useState(EXCHANGE_RATE);
 
     useEffect(() => {
         // Fetch clients for search
@@ -96,11 +97,24 @@ export default function CheckoutModal({ totalAmount, onClose, onComplete, onSave
     };
 
     const handleComplete = async () => {
-        // Validation: Debt requires a complete profile (either selected client, or new client with both fields)
+        // Validation: Debt requires a complete profile (either selected client with phone, or new client with both name and phone)
         if (remaining > 0.05) {
-            if (!selectedClient && !isNewClientInfoComplete) {
-                alert(`To open a debt (partial payment), you must provide the client's ${secondaryLabel.toLowerCase()}.`);
-                return;
+            // Check if selected client has a phone number
+            if (selectedClient && selectedClient.id > 0) {
+                if (!selectedClient.phone_number || selectedClient.phone_number.trim() === '') {
+                    alert('Selected client does not have a phone number. Please add a phone number before proceeding with debt.');
+                    return;
+                }
+            } 
+            // Check if new client info is complete
+            else if (!selectedClient) {
+                const hasName = clientSearch.trim().length > 0;
+                const hasPhone = secondaryInput.trim().length > 0;
+                
+                if (!hasName || !hasPhone) {
+                    alert('To create a debt, please provide both client name and phone number.');
+                    return;
+                }
             }
         }
 

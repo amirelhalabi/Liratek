@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.registerDebtHandlers = registerDebtHandlers;
 const electron_1 = require("electron");
 const db_1 = require("../db");
+const EXCHANGE_RATE = 89000; // 1 USD = 89,000 LBP
 function registerDebtHandlers() {
     const db = (0, db_1.getDatabase)();
     // Get all clients with outstanding debt > 0
@@ -23,6 +24,7 @@ function registerDebtHandlers() {
                 HAVING total_debt_usd > 0.01
                 ORDER BY total_debt_usd DESC
             `).all();
+            console.log(`[DEBT] Loaded ${debtors.length} debtors with outstanding debts`);
             return debtors;
         }
         catch (error) {
@@ -30,7 +32,7 @@ function registerDebtHandlers() {
             return [];
         }
     });
-    // Get specific client history
+    // Get specific client history (ALL debts, including paid ones)
     electron_1.ipcMain.handle('debt:get-client-history', (_event, clientId) => {
         try {
             const history = db.prepare(`
@@ -42,11 +44,39 @@ function registerDebtHandlers() {
                 WHERE dl.client_id = ?
                 ORDER BY dl.created_at DESC
             `).all(clientId);
-            return history;
+            // Calculate running balance to determine which debts are "paid"
+            let runningBalance = 0;
+            const historyWithStatus = history.map((item) => {
+                runningBalance += item.amount_usd;
+                return {
+                    ...item,
+                    running_balance: runningBalance,
+                    is_paid: runningBalance <= 0.01
+                };
+            });
+            console.log(`[DEBT] Loaded history for client ${clientId}: ${history.length} entries`);
+            return historyWithStatus;
         }
         catch (error) {
             console.error('Failed to get debt history:', error);
             return [];
+        }
+    });
+    // Get total debts for a specific client (for dashboard/header)
+    electron_1.ipcMain.handle('debt:get-client-total', (_event, clientId) => {
+        try {
+            const result = db.prepare(`
+                SELECT SUM(amount_usd) as total_debt_usd
+                FROM debt_ledger
+                WHERE client_id = ?
+            `).get(clientId);
+            const total = result.total_debt_usd || 0;
+            console.log(`[DEBT] Total debt for client ${clientId}: $${total.toFixed(2)}`);
+            return total;
+        }
+        catch (error) {
+            console.error('Failed to get client total:', error);
+            return 0;
         }
     });
     // Add Repayment
@@ -58,6 +88,7 @@ function registerDebtHandlers() {
             // Logic: Debt = +100. Repayment = 50. Balance = 100 + (-50) = 50.
             const valueInUSD = amountUSD + (amountLBP / exchangeRate);
             const ledgerAmount = -Math.abs(valueInUSD); // Ensure it's negative
+            const actualLBP = amountLBP; // Store the actual LBP amount, not negative
             const stmt = db.prepare(`
                 INSERT INTO debt_ledger (
                     client_id, 
@@ -68,7 +99,8 @@ function registerDebtHandlers() {
                     created_at
                 ) VALUES (?, 'Repayment', ?, ?, ?, CURRENT_TIMESTAMP)
             `);
-            const result = stmt.run(clientId, ledgerAmount, amountLBP, note || 'Manual Repayment');
+            const result = stmt.run(clientId, ledgerAmount, actualLBP, note || 'Manual Repayment');
+            console.log(`[DEBT] Repayment recorded - Client: ${clientId}, USD: $${amountUSD}, LBP: ${amountLBP}, Rate: ${exchangeRate}`);
             return { success: true, id: result.lastInsertRowid };
         }
         catch (error) {

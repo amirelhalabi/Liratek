@@ -3,6 +3,7 @@ import { FileText, X } from 'lucide-react';
 import ProductSearch from './components/ProductSearch';
 import Cart from './components/Cart';
 import CheckoutModal from './components/CheckoutModal';
+import { appEvents } from '../../utils/appEvents';
 import type { Product, CartItem, SaleRequest } from '../../types';
 
 export default function POS() {
@@ -118,8 +119,9 @@ export default function POS() {
                 setIsCheckoutOpen(false);
                 setCartItems([]);
                 setCurrentDraftId(undefined);
-                // In future: navigate to receipt or show success toast
                 alert('Sale completed successfully!');
+                // Emit event to refresh dashboard immediately
+                appEvents.emit('sale:completed', result);
             } else {
                 alert('Sale failed: ' + result.error);
             }
