@@ -5,7 +5,7 @@ const electron_1 = require("electron");
 const db_1 = require("../db");
 function registerExchangeHandlers() {
     const db = (0, db_1.getDatabase)();
-    // Add Transaction
+    // Add Transaction (Drawer B - General Drawer)
     electron_1.ipcMain.handle('exchange:add-transaction', (_event, data) => {
         try {
             const stmt = db.prepare(`
@@ -14,6 +14,20 @@ function registerExchangeHandlers() {
                 ) VALUES ('EXCHANGE', ?, ?, ?, ?, ?, ?, ?)
             `);
             const result = stmt.run(data.fromCurrency, data.toCurrency, data.amountIn, data.amountOut, data.rate, data.clientName || null, data.note || null);
+            // Log to activity logs (Drawer B - General)
+            const logStmt = db.prepare(`
+                INSERT INTO activity_logs (user_id, action, details, created_at)
+                VALUES (1, 'Exchange Transaction', ?, CURRENT_TIMESTAMP)
+            `);
+            logStmt.run(JSON.stringify({
+                drawer: 'General_Drawer_B',
+                from: data.fromCurrency,
+                to: data.toCurrency,
+                amountIn: data.amountIn,
+                amountOut: data.amountOut,
+                rate: data.rate
+            }));
+            console.log(`[EXCHANGE] ${data.fromCurrency} -> ${data.toCurrency}: ${data.amountIn} -> ${data.amountOut} (Rate: ${data.rate}) [Drawer B]`);
             return { success: true, id: result.lastInsertRowid };
         }
         catch (error) {

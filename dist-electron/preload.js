@@ -6,6 +6,10 @@ electron_1.contextBridge.exposeInMainWorld('api', {
     getSettings: () => electron_1.ipcRenderer.invoke('db:get-settings'),
     getSetting: (key) => electron_1.ipcRenderer.invoke('db:get-setting', key),
     updateSetting: (key, value) => electron_1.ipcRenderer.invoke('db:update-setting', key, value),
+    // Expenses
+    addExpense: (data) => electron_1.ipcRenderer.invoke('db:add-expense', data),
+    getTodayExpenses: () => electron_1.ipcRenderer.invoke('db:get-today-expenses'),
+    deleteExpense: (id) => electron_1.ipcRenderer.invoke('db:delete-expense', id),
     // Auth operations
     login: (username, password) => electron_1.ipcRenderer.invoke('auth:login', username, password),
     logout: (userId) => electron_1.ipcRenderer.invoke('auth:logout', userId),
@@ -18,6 +22,7 @@ electron_1.contextBridge.exposeInMainWorld('api', {
     updateProduct: (product) => electron_1.ipcRenderer.invoke('inventory:update-product', product),
     deleteProduct: (id) => electron_1.ipcRenderer.invoke('inventory:delete-product', id),
     adjustStock: (id, quantity) => electron_1.ipcRenderer.invoke('inventory:adjust-stock', id, quantity),
+    getLowStockProducts: () => electron_1.ipcRenderer.invoke('inventory:get-low-stock-products'),
     // Client operations
     getClients: (search) => electron_1.ipcRenderer.invoke('clients:get-all', search),
     getClient: (id) => electron_1.ipcRenderer.invoke('clients:get-one', id),
@@ -27,15 +32,28 @@ electron_1.contextBridge.exposeInMainWorld('api', {
     // Sales operations
     processSale: (saleData) => electron_1.ipcRenderer.invoke('sales:process', saleData),
     getDashboardStats: () => electron_1.ipcRenderer.invoke('sales:get-dashboard-stats'),
+    getDrawerBalances: () => electron_1.ipcRenderer.invoke('dashboard:get-drawer-balances'),
+    getProfitSalesChart: (type) => electron_1.ipcRenderer.invoke('dashboard:get-profit-sales-chart', type),
     getDrafts: () => electron_1.ipcRenderer.invoke('sales:get-drafts'),
-    getSalesChart: () => electron_1.ipcRenderer.invoke('sales:get-sales-chart'),
-    getRecentActivity: () => electron_1.ipcRenderer.invoke('sales:get-recent-activity'),
+    getTodaysSales: () => electron_1.ipcRenderer.invoke('sales:get-todays-sales'),
     getTopProducts: () => electron_1.ipcRenderer.invoke('sales:get-top-products'),
     // Debt
+    getDebtSummary: () => electron_1.ipcRenderer.invoke('dashboard:get-debt-summary'),
     getDebtors: () => electron_1.ipcRenderer.invoke('debt:get-debtors'),
     getClientDebtHistory: (clientId) => electron_1.ipcRenderer.invoke('debt:get-client-history', clientId),
     getClientDebtTotal: (clientId) => electron_1.ipcRenderer.invoke('debt:get-client-total', clientId),
     addRepayment: (data) => electron_1.ipcRenderer.invoke('debt:add-repayment', data),
+    // Closing operations
+    closing: {
+        getSystemExpectedBalances: () => electron_1.ipcRenderer.invoke('closing:get-system-expected-balances'),
+        createDailyClosing: (data) => electron_1.ipcRenderer.invoke('closing:create-daily-closing', data),
+        getDailyStatsSnapshot: () => electron_1.ipcRenderer.invoke('closing:get-daily-stats-snapshot'),
+    },
+    // Settings operations
+    settings: {
+        getAll: () => electron_1.ipcRenderer.invoke('settings:get-all'),
+        update: (key, value) => electron_1.ipcRenderer.invoke('settings:update', key, value),
+    },
     // Exchange
     addExchangeTransaction: (data) => electron_1.ipcRenderer.invoke('exchange:add-transaction', data),
     getExchangeHistory: () => electron_1.ipcRenderer.invoke('exchange:get-history'),

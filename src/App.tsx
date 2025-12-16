@@ -5,10 +5,11 @@ import Dashboard from './pages/Dashboard';
 import ProductList from './pages/Inventory/ProductList';
 import ClientList from './pages/Clients/ClientList';
 import POS from './pages/POS';
-import Debts from './pages/Debts'; // Added import for Debts
+import Debts from './pages/Debts';
 import Exchange from './pages/Exchange';
 import Services from './pages/Services';
 import Recharge from './pages/Recharge';
+import Expenses from './pages/Expenses';
 import Maintenance from './pages/Maintenance';
 import MainLayout from './components/Layout/MainLayout';
 import './index.css';
@@ -101,6 +102,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <Maintenance />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/expenses"
+        element={
+          <ProtectedRoute>
+            <Expenses />
           </ProtectedRoute>
         }
       />

@@ -1,0 +1,23 @@
+next todo:
+3-continue to PLAN.MD phases that are not finished 
+
+Concrete subtasks from plan.md to proceed next:
+- Phase 5: Dashboard & Reporting
+  - 5.1 Closing Shift polish: integrate Save + Print report flow, add PDF export using Electron printToPDF, and store report path.
+  - 5.2 Variance handling: enforce blind count (enter physical before showing expected), add confirmation and variance notes.
+  - 5.3 Dashboard enhancements: add Stock Budget (cost) and Stock Count cards; show Virtual Stock (MTC + Alfa) from recharge module.
+  - 5.4 Settings Module UI: implement screens for system settings (shop name, currency, exchange rate), with read/write via window.api.settings.
+
+- Phase 6: Sync & Cloud
+  - 6.1 Implement sync_queue processor in Electron main that batches and marks synced items.
+  - 6.2 Create basic cloud API client placeholder and env-driven toggle; no-op if offline.
+  - 6.3 Add local backup on closing: dump sqlite file copy to backup folder.
+
+- Phase 7: Polish & Distribution
+  - 7.1 Security hardening: hide cost price for staff, role-based UI gates.
+  - 7.2 Electron-builder config for Windows (NSIS) and packaging script.
+  - 7.3 Manual testing checklist for a full shop day flow.
+
+Deferred test items (to revisit later):
+- A) Add unit tests for appEvents emitter (on/off/emit behavior and cleanup).
+- B) Fix and stabilize electron/handlers/__tests__/dbHandlers.test.ts with deterministic mocking.

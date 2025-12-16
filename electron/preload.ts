@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld('api', {
     updateProduct: (product: any) => ipcRenderer.invoke('inventory:update-product', product),
     deleteProduct: (id: number) => ipcRenderer.invoke('inventory:delete-product', id),
     adjustStock: (id: number, quantity: number) => ipcRenderer.invoke('inventory:adjust-stock', id, quantity),
+    getLowStockProducts: () => ipcRenderer.invoke('inventory:get-low-stock-products'),
 
     // Client operations
     getClients: (search?: string) => ipcRenderer.invoke('clients:get-all', search),

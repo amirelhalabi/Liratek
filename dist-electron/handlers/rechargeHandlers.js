@@ -20,7 +20,7 @@ function registerRechargeHandlers() {
             return { mtc: 0, alfa: 0 };
         }
     });
-    // Process Recharge Transaction
+    // Process Recharge Transaction (Drawer B - General Drawer)
     electron_1.ipcMain.handle('recharge:process', (_event, data) => {
         const db = (0, db_1.getDatabase)();
         try {
@@ -58,6 +58,20 @@ function registerRechargeHandlers() {
                     VALUES (?, ?, ?, ?, ?)
                 `).run(saleId, product.id, data.amount, data.price, data.cost);
             }
+            // Log to activity logs (Drawer B - General)
+            const logStmt = db.prepare(`
+                INSERT INTO activity_logs (user_id, action, details, created_at)
+                VALUES (1, 'Recharge Transaction', ?, CURRENT_TIMESTAMP)
+            `);
+            logStmt.run(JSON.stringify({
+                drawer: 'General_Drawer_B',
+                provider: data.provider,
+                type: data.type,
+                amount: data.amount,
+                price: data.price,
+                cost: data.cost
+            }));
+            console.log(`[RECHARGE] ${data.provider} ${data.type}: ${data.amount} @ $${data.price} [Drawer B]`);
             return { success: true, saleId };
         }
         catch (error) {

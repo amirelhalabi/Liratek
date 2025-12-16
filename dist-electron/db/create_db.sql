@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS sales (
     change_given_usd DECIMAL(10, 2) DEFAULT 0,
     change_given_lbp DECIMAL(15, 2) DEFAULT 0,
     exchange_rate_snapshot DECIMAL(15, 2),
+    drawer_name TEXT DEFAULT 'General_Drawer_B',
     status TEXT DEFAULT 'completed',
     note TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,

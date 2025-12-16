@@ -4,7 +4,7 @@ import { getDatabase } from '../db';
 export function registerMaintenanceHandlers(): void {
     const db = getDatabase();
 
-    // Add / Update Maintenance Job
+    // Add / Update Maintenance Job (Drawer B - General Drawer)
     ipcMain.handle('maintenance:save', (_event, job: any) => {
         try {
             const processTransaction = db.transaction(() => {
@@ -45,6 +45,21 @@ export function registerMaintenanceHandlers(): void {
                         job.paid_usd, job.paid_lbp, job.exchange_rate, job.status, job.note,
                         job.id
                     );
+
+                    // Log status change
+                    if (job.status === 'Delivered_Paid' || job.status === 'Delivered') {
+                        const logStmt = db.prepare(`
+                            INSERT INTO activity_logs (user_id, action, details, created_at)
+                            VALUES (1, 'Maintenance Job Completed', ?, CURRENT_TIMESTAMP)
+                        `);
+                        logStmt.run(JSON.stringify({
+                            drawer: 'General_Drawer_B',
+                            device: job.device_name,
+                            amount_usd: job.final_amount_usd,
+                            status: job.status
+                        }));
+                        console.log(`[MAINTENANCE] Job ${job.id} completed: ${job.device_name} - $${job.final_amount_usd} [Drawer B]`);
+                    }
                     return { success: true, id: job.id };
                 } else {
                     // Insert
@@ -60,6 +75,18 @@ export function registerMaintenanceHandlers(): void {
                         job.cost_usd, job.price_usd, job.discount_usd, job.final_amount_usd,
                         job.paid_usd, job.paid_lbp, job.exchange_rate, job.status, job.note
                     );
+
+                    // Log new job
+                    const logStmt = db.prepare(`
+                        INSERT INTO activity_logs (user_id, action, details, created_at)
+                        VALUES (1, 'Maintenance Job Created', ?, CURRENT_TIMESTAMP)
+                    `);
+                    logStmt.run(JSON.stringify({
+                        drawer: 'General_Drawer_B',
+                        device: job.device_name,
+                        price_usd: job.price_usd
+                    }));
+                    console.log(`[MAINTENANCE] New job: ${job.device_name} - $${job.price_usd} [Drawer B]`);
                     return { success: true, id: res.lastInsertRowid };
                 }
             });

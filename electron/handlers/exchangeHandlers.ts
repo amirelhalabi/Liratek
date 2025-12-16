@@ -4,7 +4,7 @@ import { getDatabase } from '../db';
 export function registerExchangeHandlers(): void {
     const db = getDatabase();
 
-    // Add Transaction
+    // Add Transaction (Drawer B - General Drawer)
     ipcMain.handle('exchange:add-transaction', (_event, data: {
         fromCurrency: string;
         toCurrency: string;
@@ -31,6 +31,21 @@ export function registerExchangeHandlers(): void {
                 data.note || null
             );
 
+            // Log to activity logs (Drawer B - General)
+            const logStmt = db.prepare(`
+                INSERT INTO activity_logs (user_id, action, details, created_at)
+                VALUES (1, 'Exchange Transaction', ?, CURRENT_TIMESTAMP)
+            `);
+            logStmt.run(JSON.stringify({
+                drawer: 'General_Drawer_B',
+                from: data.fromCurrency,
+                to: data.toCurrency,
+                amountIn: data.amountIn,
+                amountOut: data.amountOut,
+                rate: data.rate
+            }));
+
+            console.log(`[EXCHANGE] ${data.fromCurrency} -> ${data.toCurrency}: ${data.amountIn} -> ${data.amountOut} (Rate: ${data.rate}) [Drawer B]`);
             return { success: true, id: result.lastInsertRowid };
         } catch (error: any) {
             console.error('Failed to add exchange transaction:', error);

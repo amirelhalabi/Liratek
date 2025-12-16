@@ -2,10 +2,12 @@ import { useState, useEffect } from 'react';
 import { DollarSign, Users, TrendingUp, Clock, Inbox, BarChart2 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import { appEvents } from '../utils/appEvents';
+import Closing from './Closing'; // Import Closing component
 
 type ChartType = 'Sales' | 'Profit';
 
 export default function Dashboard() {
+    const [isClosingModalOpen, setIsClosingModalOpen] = useState(false); // State to control Closing modal visibility
     const [stats, setStats] = useState({
         totalSalesUSD: 0,
         totalSalesLBP: 0,
@@ -71,12 +73,22 @@ export default function Dashboard() {
             console.log('[DASHBOARD] Sale completed, refreshing stats...');
             loadData();
         });
+        appEvents.on('openClosingModal', handleOpenClosingModal);
 
         return () => {
             clearInterval(interval);
             unsubscribe();
+            appEvents.off('openClosingModal', handleOpenClosingModal); // Clean up event listener
         };
     }, [chartType]);
+
+    const handleOpenClosingModal = () => {
+        setIsClosingModalOpen(true);
+    };
+
+    const handleCloseClosingModal = () => {
+        setIsClosingModalOpen(false);
+    };
 
     const statCards = [
         { label: 'Total Sales (Today)', value: `${stats.totalSalesUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, secondaryValue: `${stats.totalSalesLBP.toLocaleString()} LBP`, icon: DollarSign, color: 'text-emerald-400', bg: 'bg-emerald-400/10' },
@@ -243,6 +255,10 @@ export default function Dashboard() {
                     </div>
                 </div>
             </div>
+
+            {isClosingModalOpen && (
+                <Closing isOpen={isClosingModalOpen} onClose={handleCloseClosingModal} />
+            )}
         </div>
     );
 }

@@ -12,9 +12,11 @@ import {
     PanelLeft,
     BookOpen,
     Send,
-    Smartphone
+    Smartphone,
+    SquareActivity // Imported SquareActivity icon
 } from 'lucide-react';
 import clsx from 'clsx';
+import { appEvents } from '../../utils/appEvents'; // Import appEvents
 
 interface SidebarProps {
     isCollapsed: boolean;
@@ -33,8 +35,13 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
         { to: '/recharge', icon: Smartphone, label: 'Recharge' },
         { to: '/expenses', icon: Banknote, label: 'Expenses' },
         { to: '/maintenance', icon: Wrench, label: 'Maintenance' },
+        // REMOVED: { to: '/closing', icon: SquareActivity, label: 'Closing' }, // New Closing page link
         { to: '/settings', icon: Settings, label: 'Settings' },
     ];
+
+    const handleClosingClick = () => {
+        appEvents.emit('openClosingModal');
+    };
 
     return (
         <aside
@@ -85,6 +92,44 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
                         )}
                     </NavLink>
                 ))}
+                {/* Closing Button - opens modal on Dashboard */}
+                <button
+                    onClick={handleClosingClick}
+                    className={clsx(
+                        "flex items-center gap-3 px-3 py-3 rounded-xl transition-all font-medium whitespace-nowrap w-full",
+                        "text-slate-400 hover:bg-slate-800 hover:text-white",
+                        isCollapsed ? "justify-center" : ""
+                    )}
+                    title={isCollapsed ? "Closing" : undefined}
+                >
+                    <SquareActivity size={20} className="min-w-[20px]" />
+                    {!isCollapsed && (
+                        <span className="opacity-100 transition-opacity duration-200">
+                            Closing
+                        </span>
+                    )}
+                </button>
+                {/* Settings NavLink */}
+                <NavLink
+                    to="/settings"
+                    className={({ isActive }) =>
+                        clsx(
+                            "flex items-center gap-3 px-3 py-3 rounded-xl transition-all font-medium whitespace-nowrap",
+                            isActive
+                                ? "bg-violet-600 text-white shadow-lg shadow-violet-900/20"
+                                : "text-slate-400 hover:bg-slate-800 hover:text-white",
+                            isCollapsed ? "justify-center" : ""
+                        )
+                    }
+                    title={isCollapsed ? "Settings" : undefined}
+                >
+                    <Settings size={20} className="min-w-[20px]" />
+                    {!isCollapsed && (
+                        <span className="opacity-100 transition-opacity duration-200">
+                            Settings
+                        </span>
+                    )}
+                </NavLink>
             </nav>
 
             <div className="p-4 border-t border-slate-700 text-center text-xs text-slate-500 overflow-hidden">

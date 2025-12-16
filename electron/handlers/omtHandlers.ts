@@ -4,7 +4,7 @@ import { getDatabase } from '../db';
 export function registerOMTHandlers(): void {
     const db = getDatabase();
 
-    // Add Transaction
+    // Add Transaction (Drawer A for OMT, Drawer B for WHISH/BOB/OTHER)
     ipcMain.handle('omt:add-transaction', (_event, data: {
         provider: 'OMT' | 'WHISH' | 'BOB' | 'OTHER';
         serviceType: 'SEND' | 'RECEIVE' | 'BILL_PAYMENT';
@@ -36,6 +36,23 @@ export function registerOMTHandlers(): void {
                 data.note || null
             );
 
+            // Determine which drawer this affects
+            const drawer = data.provider === 'OMT' ? 'OMT_Drawer_A' : 'General_Drawer_B';
+
+            // Log to activity logs
+            const logStmt = db.prepare(`
+                INSERT INTO activity_logs (user_id, action, details, created_at)
+                VALUES (1, 'Financial Service Transaction', ?, CURRENT_TIMESTAMP)
+            `);
+            logStmt.run(JSON.stringify({
+                drawer,
+                provider: data.provider,
+                serviceType: data.serviceType,
+                commission_usd: data.commissionUSD,
+                commission_lbp: data.commissionLBP
+            }));
+
+            console.log(`[OMT/WHISH] ${data.provider} - ${data.serviceType}: Commission $${data.commissionUSD} [${drawer}]`);
             return { success: true, id: result.lastInsertRowid };
         } catch (error: any) {
             console.error('Failed to add financial service transaction:', error);

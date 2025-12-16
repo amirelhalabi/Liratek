@@ -44,6 +44,7 @@ export interface SaleRequest {
     change_given_usd?: number;
     change_given_lbp?: number;
     exchange_rate: number;
+    drawer_name?: string; // Drawer assignment (Drawer A or B)
 
     // Draft Support
     id?: number; // If present, updates existing sale/draft

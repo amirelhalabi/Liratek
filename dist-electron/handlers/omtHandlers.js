@@ -5,7 +5,7 @@ const electron_1 = require("electron");
 const db_1 = require("../db");
 function registerOMTHandlers() {
     const db = (0, db_1.getDatabase)();
-    // Add Transaction
+    // Add Transaction (Drawer A for OMT, Drawer B for WHISH/BOB/OTHER)
     electron_1.ipcMain.handle('omt:add-transaction', (_event, data) => {
         try {
             const stmt = db.prepare(`
@@ -15,6 +15,21 @@ function registerOMTHandlers() {
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             `);
             const result = stmt.run(data.provider, data.serviceType, data.amountUSD || 0, data.amountLBP || 0, data.commissionUSD || 0, data.commissionLBP || 0, data.clientName || null, data.referenceNumber || null, data.note || null);
+            // Determine which drawer this affects
+            const drawer = data.provider === 'OMT' ? 'OMT_Drawer_A' : 'General_Drawer_B';
+            // Log to activity logs
+            const logStmt = db.prepare(`
+                INSERT INTO activity_logs (user_id, action, details, created_at)
+                VALUES (1, 'Financial Service Transaction', ?, CURRENT_TIMESTAMP)
+            `);
+            logStmt.run(JSON.stringify({
+                drawer,
+                provider: data.provider,
+                serviceType: data.serviceType,
+                commission_usd: data.commissionUSD,
+                commission_lbp: data.commissionLBP
+            }));
+            console.log(`[OMT/WHISH] ${data.provider} - ${data.serviceType}: Commission $${data.commissionUSD} [${drawer}]`);
             return { success: true, id: result.lastInsertRowid };
         }
         catch (error) {

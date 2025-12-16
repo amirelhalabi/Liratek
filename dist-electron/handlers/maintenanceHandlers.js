@@ -5,7 +5,7 @@ const electron_1 = require("electron");
 const db_1 = require("../db");
 function registerMaintenanceHandlers() {
     const db = (0, db_1.getDatabase)();
-    // Add / Update Maintenance Job
+    // Add / Update Maintenance Job (Drawer B - General Drawer)
     electron_1.ipcMain.handle('maintenance:save', (_event, job) => {
         try {
             const processTransaction = db.transaction(() => {
@@ -42,6 +42,20 @@ function registerMaintenanceHandlers() {
                         WHERE id = ?
                     `);
                     stmt.run(finalClientId, job.client_name, job.device_name, job.issue_description, job.cost_usd, job.price_usd, job.discount_usd, job.final_amount_usd, job.paid_usd, job.paid_lbp, job.exchange_rate, job.status, job.note, job.id);
+                    // Log status change
+                    if (job.status === 'Delivered_Paid' || job.status === 'Delivered') {
+                        const logStmt = db.prepare(`
+                            INSERT INTO activity_logs (user_id, action, details, created_at)
+                            VALUES (1, 'Maintenance Job Completed', ?, CURRENT_TIMESTAMP)
+                        `);
+                        logStmt.run(JSON.stringify({
+                            drawer: 'General_Drawer_B',
+                            device: job.device_name,
+                            amount_usd: job.final_amount_usd,
+                            status: job.status
+                        }));
+                        console.log(`[MAINTENANCE] Job ${job.id} completed: ${job.device_name} - $${job.final_amount_usd} [Drawer B]`);
+                    }
                     return { success: true, id: job.id };
                 }
                 else {
@@ -54,6 +68,17 @@ function registerMaintenanceHandlers() {
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     `);
                     const res = stmt.run(finalClientId, job.client_name, job.device_name, job.issue_description, job.cost_usd, job.price_usd, job.discount_usd, job.final_amount_usd, job.paid_usd, job.paid_lbp, job.exchange_rate, job.status, job.note);
+                    // Log new job
+                    const logStmt = db.prepare(`
+                        INSERT INTO activity_logs (user_id, action, details, created_at)
+                        VALUES (1, 'Maintenance Job Created', ?, CURRENT_TIMESTAMP)
+                    `);
+                    logStmt.run(JSON.stringify({
+                        drawer: 'General_Drawer_B',
+                        device: job.device_name,
+                        price_usd: job.price_usd
+                    }));
+                    console.log(`[MAINTENANCE] New job: ${job.device_name} - $${job.price_usd} [Drawer B]`);
                     return { success: true, id: res.lastInsertRowid };
                 }
             });

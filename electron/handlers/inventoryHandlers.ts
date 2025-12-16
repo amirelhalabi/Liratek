@@ -125,5 +125,20 @@ export function registerInventoryHandlers(): void {
         } catch (error: any) {
             return { success: false, error: error.message };
         }
+    }); // Missing closing brace added here
+    // Get low stock products
+    ipcMain.handle('inventory:get-low-stock-products', () => {
+        try {
+            const lowStockProducts = db.prepare(`
+                SELECT id, name, stock_quantity, min_stock_level
+                FROM products
+                WHERE stock_quantity <= min_stock_level AND is_active = 1
+                ORDER BY name ASC
+            `).all();
+            return lowStockProducts;
+        } catch (error: any) {
+            console.error('Failed to get low stock products:', error);
+            return [];
+        }
     });
 }

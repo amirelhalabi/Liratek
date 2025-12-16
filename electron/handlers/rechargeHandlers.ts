@@ -20,7 +20,7 @@ export function registerRechargeHandlers(): void {
         }
     });
 
-    // Process Recharge Transaction
+    // Process Recharge Transaction (Drawer B - General Drawer)
     ipcMain.handle('recharge:process', (_event, data: {
         provider: 'MTC' | 'Alfa';
         type: 'CREDIT_TRANSFER' | 'VOUCHER' | 'DAYS';
@@ -73,6 +73,21 @@ export function registerRechargeHandlers(): void {
                 `).run(saleId, product.id, data.amount, data.price, data.cost);
             }
 
+            // Log to activity logs (Drawer B - General)
+            const logStmt = db.prepare(`
+                INSERT INTO activity_logs (user_id, action, details, created_at)
+                VALUES (1, 'Recharge Transaction', ?, CURRENT_TIMESTAMP)
+            `);
+            logStmt.run(JSON.stringify({
+                drawer: 'General_Drawer_B',
+                provider: data.provider,
+                type: data.type,
+                amount: data.amount,
+                price: data.price,
+                cost: data.cost
+            }));
+
+            console.log(`[RECHARGE] ${data.provider} ${data.type}: ${data.amount} @ $${data.price} [Drawer B]`);
             return { success: true, saleId };
         } catch (error: any) {
             console.error('Recharge failed:', error);

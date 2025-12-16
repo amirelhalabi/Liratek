@@ -1,8 +1,14 @@
-// Type definitions for window.api
 export interface ElectronAPI {
-    getSettings: () => Promise<Array<{ key_name: string; value: string }>>;
-    getSetting: (key: string) => Promise<{ value: string } | undefined>;
-    updateSetting: (key: string, value: string) => Promise<{ success: boolean }>;
+    // Settings
+    settings: {
+        getAll: () => Promise<Array<{ key_name: string; value: string }>>;
+        update: (key: string, value: string) => Promise<{ success: boolean }>;
+    };
+
+    // Expenses
+    addExpense: (data: { description: string; category: string; expense_type: string; amount_usd: number; amount_lbp: number; expense_date: string }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    getTodayExpenses: () => Promise<any[]>;
+    deleteExpense: (id: number) => Promise<{ success: boolean; error?: string }>;
 
     // Auth
     login: (username: string, password: string) => Promise<{ success: boolean; user?: { id: number; username: string; role: string }; error?: string }>;
@@ -27,17 +33,20 @@ export interface ElectronAPI {
 
     // Sales
     processSale: (saleData: any) => Promise<{ success: boolean; saleId?: number; error?: string }>;
-    getDashboardStats: () => Promise<{ totalSales: number; ordersCount: number; activeClients: number; lowStockCount: number }>;
+    getDashboardStats: () => Promise<{ totalSalesUSD: number; totalSalesLBP: number; ordersCount: number; activeClients: number; lowStockCount: number }>;
+    getProfitSalesChart: (type: 'Sales' | 'Profit') => Promise<any[]>; // Updated
+    getTodaysSales: () => Promise<any[]>; // Updated
     getDrafts: () => Promise<any[]>;
-    getSalesChart: () => Promise<{ date: string; amount: number }[]>;
-    getRecentActivity: () => Promise<{ id: number; client_name: string; final_amount_usd: number; status: string; created_at: string }[]>;
     getTopProducts: () => Promise<{ name: string; total_quantity: number; total_revenue: number }[]>;
-
+    getDrawerBalances: () => Promise<{ generalDrawer: { usd: number; lbp: number; }; omtDrawer: { usd: number; lbp: number; }; }>; // New
+    
     // Debt
-    getDebtors: () => Promise<{ id: number; full_name: string; phone_number: string; total_debt_usd: number }[]>;
+    getDebtSummary: () => Promise<{ totalDebt: number; topDebtors: any[] }>; // New
+    getDebtors: () => Promise<{ id: number; full_name: string; phone_number: string; total_debt: number }[]>;
     getClientDebtHistory: (clientId: number) => Promise<any[]>;
-    addRepayment: (data: { clientId: number; amountUSD: number; amountLBP: number; note?: string; exchangeRate: number }) => Promise<{ success: boolean; id?: number; error?: string }>;
-
+    addRepayment: (data: { clientId: number; amountUSD: number; amountLBP: number; note?: string; }) => Promise<{ success: boolean; id?: number; error?: string }>; // Updated
+    getClientDebtTotal(clientId: number): Promise<number>;
+    
     // Exchange
     addExchangeTransaction: (data: { 
         fromCurrency: string; 
@@ -84,6 +93,37 @@ export interface ElectronAPI {
     saveMaintenanceJob: (job: any) => Promise<{ success: boolean; id?: number; error?: string }>;
     getMaintenanceJobs: (statusFilter?: string) => Promise<any[]>;
     deleteMaintenanceJob: (id: number) => Promise<{ success: boolean; error?: string }>;
+
+    // Closing
+    closing: {
+        getSystemExpectedBalances: () => Promise<{
+            generalDrawer: { usd: number; lbp: number; eur: number };
+            omtDrawer: { usd: number; lbp: number; eur: number };
+        }>;
+        createDailyClosing: (data: {
+            closing_date: string;
+            drawer_name: string;
+            opening_balance_usd: number;
+            opening_balance_lbp: number;
+            physical_usd: number;
+            physical_lbp: number;
+            physical_eur: number;
+            system_expected_usd: number;
+            system_expected_lbp: number;
+            variance_usd: number;
+            notes?: string;
+        }) => Promise<{ success: boolean; id?: number; error?: string }>;
+        getDailyStatsSnapshot: () => Promise<{
+            salesCount: number;
+            totalSalesUSD: number;
+            totalSalesLBP: number;
+            debtPaymentsUSD: number;
+            debtPaymentsLBP: number;
+            totalExpensesUSD: number;
+            totalExpensesLBP: number;
+            totalProfitUSD: number;
+        }>;
+    };
 }
 
 declare global {

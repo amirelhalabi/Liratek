@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import Sidebar from './Sidebar';
 import TopBar from './TopBar';
+import NotificationCenter from '../NotificationCenter'; // Import NotificationCenter
 
 interface MainLayoutProps {
     children: ReactNode;
@@ -28,6 +29,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
                     {children}
                 </main>
             </div>
+            <NotificationCenter /> {/* Render NotificationCenter here */}
         </div>
     );
 }

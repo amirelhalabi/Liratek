@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Settings as SettingsIcon, Save, X, Lock } from 'lucide-react';
 
 export default function Settings() {
@@ -21,12 +21,12 @@ export default function Settings() {
             const settings = await window.api.settings.getAll(); // Changed to use new API
             const settingsMap = new Map(settings.map((s: { key_name: string; value: string; }) => [s.key_name, s.value]));
 
-            setShopName(settingsMap.get('shop_name') || '');
-            setReceiptHeaderText(settingsMap.get('receipt_header_text') || '');
-            setExchangeRate(settingsMap.get('exchange_rate_usd_lbp') || '');
-            setDrawerLimitGeneral(settingsMap.get('drawer_limit_general') || '');
-            setDrawerLimitOMT(settingsMap.get('drawer_limit_omt') || '');
-            setWhatsAppApiKey(settingsMap.get('whatsapp_api_key') || '');
+            setShopName((settingsMap.get('shop_name') as string) || '');
+            setReceiptHeaderText((settingsMap.get('receipt_header_text') as string) || '');
+            setExchangeRate((settingsMap.get('exchange_rate_usd_lbp') as string) || '');
+            setDrawerLimitGeneral((settingsMap.get('drawer_limit_general') as string) || '');
+            setDrawerLimitOMT((settingsMap.get('drawer_limit_omt') as string) || '');
+            setWhatsAppApiKey((settingsMap.get('whatsapp_api_key') as string) || '');
         } catch (error) {
             console.error('Failed to load settings:', error);
             alert('Failed to load settings.');
