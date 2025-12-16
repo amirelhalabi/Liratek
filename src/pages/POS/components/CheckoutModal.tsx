@@ -185,6 +185,12 @@ export default function CheckoutModal({ totalAmount, onClose, onComplete, onSave
         }
     };
 
+
+
+
+
+    const drawerNameDisplay = DRAWER_B === 'General_Drawer_B' ? 'General Drawer' : String(DRAWER_B).replace(/_/g, ' ');
+
     return (
         <>
             <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
@@ -458,7 +464,7 @@ export default function CheckoutModal({ totalAmount, onClose, onComplete, onSave
                     <div className="px-6 py-3 bg-slate-800/50 border-t border-slate-700 flex items-center gap-2 text-sm">
                         <Inbox size={16} className="text-blue-400" />
                         <span className="text-slate-300">
-                            This sale will be recorded in: <span className="font-bold text-blue-300">{DRAWER_B === 'General_Drawer_B' ? 'General Drawer' : DRAWER_B.replace(/_/g, ' ')}</span>
+                            This sale will be recorded in: <span className="font-bold text-blue-300">{drawerNameDisplay}</span>
                         </span>
                     </div>
 
