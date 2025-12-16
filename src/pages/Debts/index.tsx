@@ -133,7 +133,10 @@ export default function Debts() {
                         <label className="block text-sm font-medium text-slate-400 mb-2">Show Debts:</label>
                         <select
                             value={debtFilter}
-                            onChange={(e) => setDebtFilter(e.target.value as DebtFilter)}
+                            onChange={(e) => {
+                                setDebtFilter(e.target.value as DebtFilter);
+                                setSelectedClient(null); // Reset selected client
+                            }}
                             className="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-red-500"
                         >
                             <option value="ongoing">Ongoing</option>
