@@ -1,31 +1,63 @@
 import { useState, useEffect } from 'react';
-import { DollarSign, ShoppingBag, Users, AlertTriangle, TrendingUp, Package, Clock } from 'lucide-react';
+import { DollarSign, Users, TrendingUp, Clock, Inbox, BarChart2 } from 'lucide-react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import { appEvents } from '../utils/appEvents';
+
+type ChartType = 'Sales' | 'Profit';
 
 export default function Dashboard() {
     const [stats, setStats] = useState({
-        totalSales: 0,
+        totalSalesUSD: 0,
+        totalSalesLBP: 0,
         ordersCount: 0,
         activeClients: 0,
-        lowStockCount: 0
     });
-    const [salesChart, setSalesChart] = useState<{ date: string; amount: number }[]>([]);
-    const [recentActivity, setRecentActivity] = useState<any[]>([]);
-    const [topProducts, setTopProducts] = useState<any[]>([]);
+    const [drawerBalances, setDrawerBalances] = useState({
+        generalDrawer: { usd: 0, lbp: 0 },
+        omtDrawer: { usd: 0, lbp: 0 }
+    });
+    const [chartData, setChartData] = useState<any[]>([]);
+    const [todaysSales, setTodaysSales] = useState<any[]>([]);
+    const [debtSummary, setDebtSummary] = useState<{ totalDebt: number; topDebtors: any[] }>({ totalDebt: 0, topDebtors: [] });
+    const [chartType, setChartType] = useState<ChartType>('Sales');
+
+    // State for dynamic Y-axis domains
+    const [maxUsdSales, setMaxUsdSales] = useState(0);
+    const [maxLbpSales, setMaxLbpSales] = useState(0);
 
     const loadData = async () => {
         try {
-            const [statsData, chartData, activityData, productsData] = await Promise.all([
+            const [statsData, profitChartData, salesTodayData, drawerData, debtData] = await Promise.all([
                 window.api.getDashboardStats(),
-                window.api.getSalesChart(),
-                window.api.getRecentActivity(),
-                window.api.getTopProducts()
+                window.api.getProfitSalesChart(chartType),
+                window.api.getTodaysSales(),
+                window.api.getDrawerBalances(),
+                window.api.getDebtSummary(),
             ]);
 
             setStats(statsData);
-            setSalesChart(chartData);
-            setRecentActivity(activityData);
-            setTopProducts(productsData);
+            const formattedChartData = profitChartData.map((d: any) => ({ ...d, date: new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) }));
+            setChartData(formattedChartData);
+            setTodaysSales(salesTodayData);
+            if (drawerData) {
+                setDrawerBalances(drawerData);
+            }
+            if (debtData) {
+                setDebtSummary(debtData);
+            }
+
+            // Calculate max values for Y-axis domain
+            if (chartType === 'Sales' && formattedChartData.length > 0) {
+                const currentMaxUsd = Math.max(...formattedChartData.map((d: any) => d.usd));
+                const currentMaxLbp = Math.max(...formattedChartData.map((d: any) => d.lbp));
+
+                // Round up USD to the next thousand
+                setMaxUsdSales(Math.ceil(currentMaxUsd / 1000) * 1000);
+                
+                // Round up LBP to the next 80,000,000
+                setMaxLbpSales(Math.ceil(currentMaxLbp / 80000000) * 80000000);
+            }
+
         } catch (error) {
             // console.error('Failed to load dashboard data:', error);
         }
@@ -35,7 +67,6 @@ export default function Dashboard() {
         loadData();
         const interval = setInterval(loadData, 30000); // 30s refresh
 
-        // Listen for sale completion event to refresh immediately
         const unsubscribe = appEvents.on('sale:completed', () => {
             console.log('[DASHBOARD] Sale completed, refreshing stats...');
             loadData();
@@ -45,15 +76,14 @@ export default function Dashboard() {
             clearInterval(interval);
             unsubscribe();
         };
-    }, []);
-
-    const maxChartValue = Math.max(...salesChart.map(d => d.amount), 100);
+    }, [chartType]);
 
     const statCards = [
-        { label: 'Total Sales (Today)', value: `$${stats.totalSales.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, icon: DollarSign, color: 'text-emerald-400', bg: 'bg-emerald-400/10' },
-        { label: 'Orders Processed', value: stats.ordersCount.toString(), icon: ShoppingBag, color: 'text-blue-400', bg: 'bg-blue-400/10' },
-        { label: 'Active Clients', value: stats.activeClients.toString(), icon: Users, color: 'text-violet-400', bg: 'bg-violet-400/10' },
-        { label: 'Low Stock Items', value: stats.lowStockCount.toString(), icon: AlertTriangle, color: 'text-amber-400', bg: 'bg-amber-400/10' },
+        { label: 'Total Sales (Today)', value: `${stats.totalSalesUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, secondaryValue: `${stats.totalSalesLBP.toLocaleString()} LBP`, icon: DollarSign, color: 'text-emerald-400', bg: 'bg-emerald-400/10' },
+        { label: 'Orders Processed', value: stats.ordersCount.toString(), icon: DollarSign, color: 'text-blue-400', bg: 'bg-blue-400/10' },
+        { label: 'Total Debt', value: `${debtSummary.totalDebt.toLocaleString(undefined, { maximumFractionDigits: 0 })}`, icon: Users, color: 'text-red-400', bg: 'bg-red-400/10' },
+        { label: 'General Drawer', value: `${drawerBalances.generalDrawer.usd.toLocaleString(undefined, { maximumFractionDigits: 0 })}`, secondaryValue: `${drawerBalances.generalDrawer.lbp.toLocaleString()} LBP`, icon: Inbox, color: 'text-sky-400', bg: 'bg-sky-400/10' },
+        { label: 'OMT Drawer', value: `${drawerBalances.omtDrawer.usd.toLocaleString(undefined, { maximumFractionDigits: 0 })}`, secondaryValue: `${drawerBalances.omtDrawer.lbp.toLocaleString()} LBP`, icon: Inbox, color: 'text-rose-400', bg: 'bg-rose-400/10' },
     ];
 
     return (
@@ -63,8 +93,7 @@ export default function Dashboard() {
                 Dashboard
             </h1>
 
-            {/* Stats Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
                 {statCards.map((stat) => (
                     <div key={stat.label} className="bg-slate-800 p-5 rounded-xl border border-slate-700/50 shadow-lg hover:border-slate-600 transition-colors">
                         <div className="flex items-center justify-between mb-3">
@@ -73,59 +102,125 @@ export default function Dashboard() {
                             </div>
                         </div>
                         <h3 className="text-slate-500 text-xs font-medium uppercase tracking-wider">{stat.label}</h3>
-                        <p className="text-2xl font-bold text-white mt-1">{stat.value}</p>
+                        <div className="flex items-baseline gap-2">
+                            <p className="text-2xl font-bold text-white mt-1">{stat.value}</p>
+                            {stat.secondaryValue && <p className="text-sm font-semibold text-slate-400">{stat.secondaryValue}</p>}
+                        </div>
                     </div>
                 ))}
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Sales Chart (Left - Takes 2 cols) */}
                 <div className="lg:col-span-2 bg-slate-800 p-6 rounded-xl border border-slate-700/50 shadow-lg flex flex-col">
-                    <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
-                        <DollarSign size={18} className="text-emerald-400" />
-                        Revenue (Last 7 Days)
-                    </h3>
-
-                    <div className="flex-1 flex justify-between gap-4 h-64 w-full">
-                        {salesChart.map((day) => {
-                            const heightPercentage = Math.max((day.amount / maxChartValue) * 100, 0);
-                            const dateLabel = new Date(day.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-
-                            return (
-                                <div key={day.date} className="flex-1 flex flex-col items-center gap-2 group h-full">
-                                    <div className="w-full bg-slate-700/30 rounded-t-lg relative flex items-end flex-1 overflow-hidden hover:bg-slate-700/50 transition-colors cursor-pointer">
-                                        <div
-                                            className="w-full bg-emerald-500/80 hover:bg-emerald-400 transition-all rounded-t-lg"
-                                            style={{ height: `${heightPercentage}%` }}
-                                        ></div>
-                                        {/* Tooltip */}
-                                        <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-xs py-1 px-2 rounded opacity-0 group-hover:opacity-100 transition-opacity border border-slate-600 whitespace-nowrap z-10 pointer-events-none">
-                                            ${day.amount.toFixed(2)}
-                                        </div>
-                                    </div>
-                                    <span className="text-xs text-slate-500 font-medium">{dateLabel}</span>
-                                </div>
-                            );
-                        })}
-                        {salesChart.length === 0 && (
-                            <div className="w-full h-full flex items-center justify-center text-slate-500 text-sm">
-                                No sales data for the last 7 days.
-                            </div>
-                        )}
+                    <div className="flex justify-between items-center mb-6">
+                        <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                            <DollarSign size={18} className="text-emerald-400" />
+                            {chartType} Trend (Last 30 Days)
+                        </h3>
+                        <select 
+                            value={chartType}
+                            onChange={(e) => setChartType(e.target.value as ChartType)}
+                            className="bg-slate-700 text-xs text-white rounded p-1 border border-slate-600 focus:ring-violet-500 focus:border-violet-500"
+                        >
+                            <option value="Sales">Sales</option>
+                            <option value="Profit">Profit</option>
+                        </select>
+                    </div>
+                    <div className="flex-1 h-80 w-full min-h-0">
+                        <ResponsiveContainer width="100%" height={320}>
+                            <LineChart data={chartData} margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
+                                <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.1} />
+                                <XAxis dataKey="date" tick={{ fill: '#94a3b8' }} fontSize={12} />
+                                {chartType === 'Sales' ? (
+                                    <>
+                                        <YAxis 
+                                            yAxisId="left" 
+                                            orientation="left" 
+                                            stroke="#34d399" 
+                                            tick={{ fill: '#34d399' }} 
+                                            fontSize={12} 
+                                            tickFormatter={(value) => `${(value/1000).toFixed(0)}k`} 
+                                            domain={[0, maxUsdSales > 0 ? maxUsdSales : 'auto']} // Dynamic domain for USD
+                                        />
+                                        <YAxis 
+                                            yAxisId="right" 
+                                            orientation="right" 
+                                            stroke="#8b5cf6" 
+                                            tick={{ fill: '#8b5cf6' }} 
+                                            fontSize={12} 
+                                            tickFormatter={(value) => `${(value/80000000).toFixed(1)} Unit`} // Adjusted LBP formatter
+                                            domain={[0, maxLbpSales > 0 ? maxLbpSales : 'auto']} // Dynamic domain for LBP
+                                        />
+                                    </>
+                                ) : (
+                                    <YAxis tick={{ fill: '#94a3b8' }} fontSize={12} tickFormatter={(value) => `${value}`} />
+                                )}
+                                <Tooltip
+                                    contentStyle={{ 
+                                        backgroundColor: 'rgba(30, 41, 59, 0.9)', 
+                                        borderColor: '#475569',
+                                        color: '#cbd5e1'
+                                    }}
+                                    labelStyle={{ fontWeight: 'bold' }}
+                                    formatter={(value: any, name: any) => {
+                                        if (name === 'LBP Sales') {
+                                            return [`${value.toLocaleString()} LBP`, name];
+                                        }
+                                        return [`${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`, name];
+                                    }}
+                                />
+                                <Legend />
+                                {chartType === 'Sales' ? (
+                                    <>
+                                        <Line yAxisId="left" type="monotone" dataKey="usd" name="USD Sales" stroke="#34d399" strokeWidth={2} />
+                                        <Line yAxisId="right" type="monotone" dataKey="lbp" name="LBP Sales" stroke="#8b5cf6" strokeWidth={2} />
+                                    </>
+                                ) : (
+                                    <Line type="monotone" dataKey="profit" name="Profit" stroke="#34d399" strokeWidth={2} />
+                                )}
+                            </LineChart>
+                        </ResponsiveContainer>
                     </div>
                 </div>
 
-                {/* Right Column: Recent & Top Products */}
                 <div className="space-y-6">
-                    {/* Recent Activity */}
+                    <div className="bg-slate-800 p-5 rounded-xl border border-slate-700/50 shadow-lg">
+                        <h3 className="text-md font-bold text-white mb-4 flex items-center gap-2">
+                            <BarChart2 size={16} className="text-red-400" />
+                            Top Debtors
+                        </h3>
+                        <div className="h-40">
+                           <ResponsiveContainer width="100%" height={160}>
+                                <BarChart data={debtSummary.topDebtors} layout="vertical" margin={{ top: 0, right: 30, left: 0, bottom: 0 }}>
+                                    <XAxis type="number" hide />
+                                    <YAxis 
+                                        dataKey="full_name" 
+                                        type="category" 
+                                        axisLine={false}
+                                        tickLine={false}
+                                        tick={{ fill: '#a1a1aa', fontSize: 12 }} 
+                                        width={80}
+                                        style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                                    />
+                                    <Tooltip
+                                        cursor={{ fill: 'rgba(156, 163, 175, 0.1)' }}
+                                        formatter={(value: any) => (typeof value === 'number' ? `${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : value)}
+                                        contentStyle={{ backgroundColor: 'rgba(30, 41, 59, 0.9)', borderColor: '#475569' }}
+                                    />
+                                    <Bar dataKey="total_debt" name="Debt" fill="#ef4444" barSize={10} />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
+                    </div>
+
                     <div className="bg-slate-800 p-5 rounded-xl border border-slate-700/50 shadow-lg">
                         <h3 className="text-md font-bold text-white mb-4 flex items-center gap-2">
                             <Clock size={16} className="text-blue-400" />
-                            Recent Sales
+                            Today's Sales
                         </h3>
                         <div className="space-y-3">
-                            {recentActivity.length > 0 ? (
-                                recentActivity.map((sale) => (
+                            {todaysSales.length > 0 ? (
+                                todaysSales.map((sale) => (
                                     <div key={sale.id} className="flex items-center justify-between p-3 bg-slate-700/20 rounded-lg hover:bg-slate-700/40 transition-colors">
                                         <div className="flex flex-col">
                                             <span className="text-sm font-medium text-slate-200">
@@ -135,47 +230,14 @@ export default function Dashboard() {
                                                 {new Date(sale.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                             </span>
                                         </div>
-                                        <div className="text-emerald-400 font-bold text-sm">
-                                            +${sale.final_amount_usd.toFixed(2)}
+                                        <div className="text-right">
+                                            {sale.paid_usd > 0 && <p className="text-emerald-400 font-bold text-sm">+${sale.paid_usd.toFixed(2)}</p>}
+                                            {sale.paid_lbp > 0 && <p className="text-sky-400 font-semibold text-xs">+{sale.paid_lbp.toLocaleString()} LBP</p>}
                                         </div>
                                     </div>
                                 ))
                             ) : (
-                                <p className="text-xs text-slate-500 text-center py-4">No recent activity.</p>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* Top Products */}
-                    <div className="bg-slate-800 p-5 rounded-xl border border-slate-700/50 shadow-lg">
-                        <h3 className="text-md font-bold text-white mb-4 flex items-center gap-2">
-                            <Package size={16} className="text-amber-400" />
-                            Top Products
-                        </h3>
-                        <div className="space-y-3">
-                            {topProducts.length > 0 ? (
-                                topProducts.map((product, idx) => (
-                                    <div key={idx} className="flex items-center justify-between p-2">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-6 h-6 rounded-full bg-slate-700 flex items-center justify-center text-xs font-bold text-slate-400">
-                                                {idx + 1}
-                                            </div>
-                                            <div className="flex flex-col">
-                                                <span className="text-sm text-slate-300 line-clamp-1 max-w-[120px]" title={product.name}>
-                                                    {product.name}
-                                                </span>
-                                                <span className="text-[10px] text-slate-500">
-                                                    {product.total_quantity} sold
-                                                </span>
-                                            </div>
-                                        </div>
-                                        <span className="text-xs font-medium text-slate-400">
-                                            ${product.total_revenue.toFixed(0)}
-                                        </span>
-                                    </div>
-                                ))
-                            ) : (
-                                <p className="text-xs text-slate-500 text-center py-4">No top products yet.</p>
+                                <p className="text-xs text-slate-500 text-center py-4">No sales yet today.</p>
                             )}
                         </div>
                     </div>

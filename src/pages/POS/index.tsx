@@ -14,6 +14,7 @@ export default function POS() {
     const [currentDraftId, setCurrentDraftId] = useState<number | undefined>(undefined);
     const [isDraftsOpen, setIsDraftsOpen] = useState(false);
     const [drafts, setDrafts] = useState<any[]>([]);
+    const [checkoutDraftData, setCheckoutDraftData] = useState<any>(null);
 
     const fetchDrafts = async () => {
         const data = await window.api.getDrafts();
@@ -96,6 +97,24 @@ export default function POS() {
 
         setCartItems(items);
         setCurrentDraftId(draft.id);
+        
+        // Restore payment fields to CheckoutModal
+        setCheckoutDraftData({
+            selectedClient: draft.client_id ? {
+                id: draft.client_id,
+                full_name: draft.client_name || '',
+                phone_number: draft.client_phone || '',
+            } : null,
+            clientSearchInput: draft.client_name || '',
+            clientSearchSecondary: draft.client_phone || '',
+            discount: draft.discount_usd || 0,
+            paidUSD: draft.paid_usd || 0,
+            paidLBP: draft.paid_lbp || 0,
+            changeGivenUSD: draft.change_given_usd || 0,
+            changeGivenLBP: draft.change_given_lbp || 0,
+            exchangeRate: draft.exchange_rate_snapshot || 89000
+        });
+        
         setIsDraftsOpen(false);
         setIsCheckoutOpen(true);
     };
@@ -166,6 +185,8 @@ export default function POS() {
                     onClose={() => setIsCheckoutOpen(false)}
                     onComplete={handleCompleteSale}
                     onSaveDraft={handleSaveDraft}
+                    draftData={checkoutDraftData}
+                    onRestoreDraftComplete={() => setCheckoutDraftData(null)}
                 />
             )}
 

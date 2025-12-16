@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { X, User, DollarSign } from 'lucide-react';
-import { EXCHANGE_RATE } from '../../../config/constants';
+import { X, User, DollarSign, Printer, Inbox } from 'lucide-react';
+import { EXCHANGE_RATE, DRAWER_B } from '../../../config/constants';
+import { formatReceipt58mm, type ReceiptData } from '../../../utils/receiptFormatter';
 import type { Client } from '../../../types';
 
 interface CheckoutModalProps {
@@ -8,13 +9,17 @@ interface CheckoutModalProps {
     onClose: () => void;
     onComplete: (paymentData: any) => Promise<void>;
     onSaveDraft: (paymentData: any) => Promise<void>;
+    draftData?: any;
+    onRestoreDraftComplete?: () => void;
 }
 
-export default function CheckoutModal({ totalAmount, onClose, onComplete, onSaveDraft }: CheckoutModalProps) {
+export default function CheckoutModal({ totalAmount, onClose, onComplete, onSaveDraft, draftData, onRestoreDraftComplete }: CheckoutModalProps) {
     const [isLoading, setIsLoading] = useState(false);
     const [clients, setClients] = useState<Client[]>([]);
     const [selectedClient, setSelectedClient] = useState<Client | null>(null);
     const [clientSearch, setClientSearch] = useState('');
+    const [showReceiptPreview, setShowReceiptPreview] = useState(false);
+    const [receiptPreview, setReceiptPreview] = useState('');
 
     // Payment State
     const [discount, setDiscount] = useState(0);
@@ -32,6 +37,21 @@ export default function CheckoutModal({ totalAmount, onClose, onComplete, onSave
 
         // Use timeout to simulate fetching settings for exchange rate, or valid future implementation
     }, []);
+
+    // Restore draft data when it's provided
+    useEffect(() => {
+        if (draftData) {
+            setSelectedClient(draftData.selectedClient);
+            setClientSearch(draftData.clientSearchInput);
+            setSecondaryInput(draftData.clientSearchSecondary);
+            setDiscount(draftData.discount);
+            setPaidUSD(draftData.paidUSD);
+            setPaidLBP(draftData.paidLBP);
+            setChangeGivenUSD(draftData.changeGivenUSD);
+            setChangeGivenLBP(draftData.changeGivenLBP);
+            onRestoreDraftComplete?.();
+        }
+    }, [draftData, onRestoreDraftComplete]);
 
     // Filter clients for dropdown
     const filteredClients = clients.filter(c =>
@@ -53,8 +73,13 @@ export default function CheckoutModal({ totalAmount, onClose, onComplete, onSave
     const [changeGivenUSD, setChangeGivenUSD] = useState(0);
     const [changeGivenLBP, setChangeGivenLBP] = useState(0);
 
-    // Validation for Debt
-    const isNewClientInfoComplete = !!secondaryInput.trim();
+    // Validation for Debt: both primary (clientSearch) and secondary (secondaryInput) must be filled for new clients
+    const isNewClientInfoComplete = clientSearch.trim().length > 0 && secondaryInput.trim().length > 0;
+
+    // Determine whether creating a debt is allowed: existing client must have phone, new client must have both fields
+    const canCreateDebt = selectedClient
+        ? !!(selectedClient.phone_number && selectedClient.phone_number.trim().length > 0)
+        : isNewClientInfoComplete;
 
     const finalAmount = Math.max(0, totalAmount - discount);
     const totalPaidInUSD = paidUSD + (paidLBP / exchangeRate);
@@ -92,30 +117,16 @@ export default function CheckoutModal({ totalAmount, onClose, onComplete, onSave
             payment_lbp: paidLBP,
             change_given_usd: changeGivenUSD,
             change_given_lbp: changeGivenLBP,
-            exchange_rate: exchangeRate
+            exchange_rate: exchangeRate,
+            drawer_name: DRAWER_B // POS sales always go to Drawer B (General)
         };
     };
 
     const handleComplete = async () => {
-        // Validation: Debt requires a complete profile (either selected client with phone, or new client with both name and phone)
-        if (remaining > 0.05) {
-            // Check if selected client has a phone number
-            if (selectedClient && selectedClient.id > 0) {
-                if (!selectedClient.phone_number || selectedClient.phone_number.trim() === '') {
-                    alert('Selected client does not have a phone number. Please add a phone number before proceeding with debt.');
-                    return;
-                }
-            } 
-            // Check if new client info is complete
-            else if (!selectedClient) {
-                const hasName = clientSearch.trim().length > 0;
-                const hasPhone = secondaryInput.trim().length > 0;
-                
-                if (!hasName || !hasPhone) {
-                    alert('To create a debt, please provide both client name and phone number.');
-                    return;
-                }
-            }
+        // Validation: Debt requires a complete profile for new debts
+        if (remaining > 0.05 && !canCreateDebt) {
+            alert('To create or leave a debt, please ensure the client has a phone number (existing client) or provide both name and phone (new client).');
+            return;
         }
 
         setIsLoading(true);
@@ -137,9 +148,47 @@ export default function CheckoutModal({ totalAmount, onClose, onComplete, onSave
         }
     };
 
+    const generateReceiptPreview = () => {
+        const receipt: ReceiptData = {
+            shop_name: 'Corner Tech',
+            receipt_number: `RCP-${Date.now()}`,
+            client_name: selectedClient?.full_name || clientSearch || 'Walk-in Customer',
+            client_phone: selectedClient?.phone_number || secondaryInput,
+            items: [], // Note: cart items not available in this component, would need to be passed
+            subtotal: totalAmount,
+            discount: discount,
+            total: finalAmount,
+            payment_usd: paidUSD,
+            payment_lbp: paidLBP,
+            change_usd: changeGivenUSD,
+            change_lbp: changeGivenLBP,
+            exchange_rate: exchangeRate,
+            timestamp: new Date().toISOString(),
+            operator: 'Staff'
+        };
+
+        const formattedReceipt = formatReceipt58mm(receipt);
+        setReceiptPreview(formattedReceipt);
+        setShowReceiptPreview(true);
+    };
+
+    const handlePrintReceipt = () => {
+        // For now, open system print dialog
+        if (receiptPreview) {
+            const printWindow = window.open('', '', 'width=400,height=600');
+            if (printWindow) {
+                printWindow.document.write(`<pre style="font-family: monospace; font-size: 12px;">${receiptPreview}</pre>`);
+                printWindow.document.close();
+                printWindow.print();
+                printWindow.close();
+            }
+        }
+    };
+
     return (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
-            <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-7xl shadow-2xl flex overflow-hidden h-[85vh]">
+        <>
+            <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+                <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-7xl shadow-2xl flex overflow-hidden h-[85vh]">
 
                 {/* Left: Summary & Client */}
                 <div className="w-1/2 bg-slate-800 p-8 border-r border-slate-700 flex flex-col">
@@ -184,7 +233,7 @@ export default function CheckoutModal({ totalAmount, onClose, onComplete, onSave
                                         {filteredClients.map(client => (
                                             <button
                                                 key={client.id}
-                                                onClick={() => { setSelectedClient(client); setClientSearch(client.full_name); }}
+                                                onClick={() => { setSelectedClient(client); setClientSearch(client.full_name); setSecondaryInput(client.phone_number || ''); }}
                                                 className="w-full text-left p-3 hover:bg-slate-700 text-slate-200 border-b border-slate-700/50 last:border-0"
                                             >
                                                 <div className="font-medium">{client.full_name}</div>
@@ -212,9 +261,18 @@ export default function CheckoutModal({ totalAmount, onClose, onComplete, onSave
 
                         {/* Helper Text */}
                         {!selectedClient && clientSearch.length > 0 && filteredClients.length === 0 && (
-                            <div className="text-xs text-slate-500 mb-4 ml-1">
-                                Creating new client. <span className="text-violet-400">Add {secondaryLabel.toLowerCase()} to enable debt.</span>
-                            </div>
+                            <>
+                                <div className="text-xs text-slate-500 mb-4 ml-1">
+                                    Creating new client. <span className="text-violet-400">Add {secondaryLabel.toLowerCase()} to enable debt.</span>
+                                </div>
+
+                                {/* Show explicit validation hint when there is a remaining amount (debt) and new-client info is incomplete */}
+                                {remaining > 0.05 && !canCreateDebt && (
+                                    <div className="text-sm text-red-400 mb-4 ml-1">
+                                        Debts require a valid client phone. Provide both name and phone for new clients.
+                                    </div>
+                                )}
+                            </>
                         )}
 
                         {/* Row 2: Order Summary Table (Full Width) */}
@@ -396,6 +454,14 @@ export default function CheckoutModal({ totalAmount, onClose, onComplete, onSave
                         </div>
                     </div>
 
+                    {/* Drawer Info */}
+                    <div className="px-6 py-3 bg-slate-800/50 border-t border-slate-700 flex items-center gap-2 text-sm">
+                        <Inbox size={16} className="text-blue-400" />
+                        <span className="text-slate-300">
+                            This sale will be recorded in: <span className="font-bold text-blue-300">Drawer B (General)</span>
+                        </span>
+                    </div>
+
                     <div className="mt-6 flex gap-3">
                         <button
                             onClick={onClose}
@@ -411,15 +477,66 @@ export default function CheckoutModal({ totalAmount, onClose, onComplete, onSave
                             Save Draft
                         </button>
                         <button
+                            onClick={generateReceiptPreview}
+                            disabled={isLoading}
+                            className="px-4 py-4 rounded-xl text-blue-300 hover:text-blue-100 hover:bg-blue-900/30 transition-colors font-medium border border-blue-500/30 flex items-center gap-2"
+                        >
+                            <Printer size={18} />
+                            Preview
+                        </button>
+                        <button
                             onClick={handleComplete}
                             disabled={isLoading}
                             className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-lg shadow-lg shadow-emerald-900/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
                         >
-                            {isLoading ? 'Processing...' : 'Complete & Print'}
+                            {isLoading ? 'Processing...' : 'Complete Sale'}
                         </button>
                     </div>
                 </div>
             </div>
         </div>
+
+        {/* Receipt Preview Modal */}
+        {showReceiptPreview && (
+            <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 p-4">
+                <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+                    <div className="p-6 border-b border-slate-700 flex justify-between items-center">
+                        <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+                            <Printer size={24} className="text-blue-400" />
+                            Receipt Preview
+                        </h2>
+                        <button
+                            onClick={() => setShowReceiptPreview(false)}
+                            className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+                        >
+                            <X size={20} />
+                        </button>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto p-6">
+                        <pre className="font-mono text-xs text-slate-300 bg-slate-800/50 p-4 rounded-lg overflow-x-auto">
+                            {receiptPreview}
+                        </pre>
+                    </div>
+
+                    <div className="p-6 border-t border-slate-700 flex gap-3">
+                        <button
+                            onClick={() => setShowReceiptPreview(false)}
+                            className="flex-1 px-4 py-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg font-medium transition-colors"
+                        >
+                            Close
+                        </button>
+                        <button
+                            onClick={handlePrintReceipt}
+                            className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold active:scale-95 transition-all flex items-center justify-center gap-2"
+                        >
+                            <Printer size={18} />
+                            Print
+                        </button>
+                    </div>
+                </div>
+            </div>
+            )}
+        </>
     );
 }
