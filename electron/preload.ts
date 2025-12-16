@@ -6,6 +6,11 @@ contextBridge.exposeInMainWorld('api', {
     getSetting: (key: string) => ipcRenderer.invoke('db:get-setting', key),
     updateSetting: (key: string, value: string) => ipcRenderer.invoke('db:update-setting', key, value),
 
+    // Expenses
+    addExpense: (data: any) => ipcRenderer.invoke('db:add-expense', data),
+    getTodayExpenses: () => ipcRenderer.invoke('db:get-today-expenses'),
+    deleteExpense: (id: number) => ipcRenderer.invoke('db:delete-expense', id),
+
     // Auth operations
     login: (username: string, password: string) => ipcRenderer.invoke('auth:login', username, password),
     logout: (userId: number) => ipcRenderer.invoke('auth:logout', userId),
@@ -30,16 +35,24 @@ contextBridge.exposeInMainWorld('api', {
     // Sales operations
     processSale: (saleData: any) => ipcRenderer.invoke('sales:process', saleData),
     getDashboardStats: () => ipcRenderer.invoke('sales:get-dashboard-stats'),
+    getDrawerBalances: () => ipcRenderer.invoke('dashboard:get-drawer-balances'),
+    getProfitSalesChart: (type: 'Sales' | 'Profit') => ipcRenderer.invoke('dashboard:get-profit-sales-chart', type),
     getDrafts: () => ipcRenderer.invoke('sales:get-drafts'),
-    getSalesChart: () => ipcRenderer.invoke('sales:get-sales-chart'),
-    getRecentActivity: () => ipcRenderer.invoke('sales:get-recent-activity'),
+    getTodaysSales: () => ipcRenderer.invoke('sales:get-todays-sales'),
     getTopProducts: () => ipcRenderer.invoke('sales:get-top-products'),
 
     // Debt
+    getDebtSummary: () => ipcRenderer.invoke('dashboard:get-debt-summary'),
     getDebtors: () => ipcRenderer.invoke('debt:get-debtors'),
     getClientDebtHistory: (clientId: number) => ipcRenderer.invoke('debt:get-client-history', clientId),
     getClientDebtTotal: (clientId: number) => ipcRenderer.invoke('debt:get-client-total', clientId),
     addRepayment: (data: any) => ipcRenderer.invoke('debt:add-repayment', data),
+
+    // Closing operations
+    closing: {
+        getSystemExpectedBalances: () => ipcRenderer.invoke('closing:get-system-expected-balances'),
+        createDailyClosing: (data: any) => ipcRenderer.invoke('closing:create-daily-closing', data),
+    },
 
     // Exchange
     addExchangeTransaction: (data: any) => ipcRenderer.invoke('exchange:add-transaction', data),
