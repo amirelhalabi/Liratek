@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Search, User, ArrowDownLeft } from 'lucide-react';
-import { EXCHANGE_RATE } from '../../config/constants';
 // import { useAuth } from '../../contexts/AuthContext';
+
+type DebtFilter = 'ongoing' | 'closed' | 'all';
 
 export default function Debts() {
     const [debtors, setDebtors] = useState<any[]>([]);
@@ -10,12 +11,12 @@ export default function Debts() {
     const [searchTerm, setSearchTerm] = useState('');
     const [showRepaymentModal, setShowRepaymentModal] = useState(false);
     const [totalDebt, setTotalDebt] = useState(0);
+    const [debtFilter, setDebtFilter] = useState<DebtFilter>('ongoing'); // New state for filter
 
     // Repayment State
     const [repayAmountUSD, setRepayAmountUSD] = useState<string>('');
     const [repayAmountLBP, setRepayAmountLBP] = useState<string>('');
     const [repayNote, setRepayNote] = useState('');
-    const [exchangeRate] = useState(EXCHANGE_RATE);
 
     useEffect(() => {
         loadDebtors();
@@ -31,7 +32,8 @@ export default function Debts() {
 
     const loadDebtors = async () => {
         try {
-            const data = await window.api.getDebtors();
+            // Now getDebtors returns all clients with debt history
+            const data = await window.api.getDebtors(); 
             setDebtors(data);
         } catch (error) {
             console.error('Failed to load debtors:', error);
@@ -72,8 +74,7 @@ export default function Debts() {
                 clientId: selectedClient.id,
                 amountUSD: usd,
                 amountLBP: lbp,
-                note: repayNote,
-                exchangeRate: exchangeRate
+                note: repayNote
             });
 
             if (result.success) {
@@ -94,10 +95,19 @@ export default function Debts() {
         }
     };
 
-    const filteredDebtors = debtors.filter(d =>
-        d.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        d.phone_number?.includes(searchTerm)
-    );
+    const filteredDebtors = debtors.filter(d => {
+        const matchesSearch = d.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                              d.phone_number?.includes(searchTerm);
+        
+        if (!matchesSearch) return false;
+
+        if (debtFilter === 'ongoing') {
+            return d.total_debt > 0.01;
+        } else if (debtFilter === 'closed') {
+            return d.total_debt <= 0.01;
+        }
+        return true; // 'all' filter
+    });
 
     return (
         <div className="flex h-[calc(100vh-theme(spacing.16))] gap-6 -m-4 p-4 overflow-hidden">
@@ -106,7 +116,7 @@ export default function Debts() {
                 <div className="p-4 border-b border-slate-700 space-y-4">
                     <h2 className="text-xl font-bold text-white flex items-center gap-2">
                         <User className="text-red-400" />
-                        Outstanding Debts
+                        Client Debts
                     </h2>
                     <div className="relative">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
@@ -117,6 +127,19 @@ export default function Debts() {
                             onChange={e => setSearchTerm(e.target.value)}
                             className="w-full bg-slate-900 border border-slate-600 rounded-lg pl-10 pr-4 py-2 text-white focus:outline-none focus:border-red-500"
                         />
+                    </div>
+                    {/* New filter dropdown */}
+                    <div className="mt-4">
+                        <label className="block text-sm font-medium text-slate-400 mb-2">Show Debts:</label>
+                        <select
+                            value={debtFilter}
+                            onChange={(e) => setDebtFilter(e.target.value as DebtFilter)}
+                            className="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-red-500"
+                        >
+                            <option value="ongoing">Ongoing</option>
+                            <option value="closed">Closed</option>
+                            <option value="all">All</option>
+                        </select>
                     </div>
                 </div>
 
@@ -136,7 +159,7 @@ export default function Debts() {
                                     <div className="text-xs text-slate-500">{client.phone_number || 'No Phone'}</div>
                                 </div>
                                 <div className="text-red-400 font-bold">
-                                    ${client.total_debt_usd.toFixed(2)}
+                                    ${client.total_debt.toFixed(2)}
                                 </div>
                             </div>
                         </button>
@@ -181,18 +204,20 @@ export default function Debts() {
                                         const showPaidFullyBreakpoint = index > 0 && history[index - 1].is_paid === false && item.is_paid === true;
                                         
                                         return (
-                                            <tr key={item.id}>
+                                            <React.Fragment key={item.id}>
                                                 {/* Paid Fully Breakpoint */}
                                                 {showPaidFullyBreakpoint && (
-                                                    <td colSpan={4} className="py-3">
-                                                        <div className="flex items-center gap-3 text-emerald-400">
-                                                            <div className="flex-1 h-px bg-emerald-500/30"></div>
-                                                            <span className="text-xs font-bold px-3 py-1 bg-emerald-500/10 rounded-full">PAID FULLY</span>
-                                                            <div className="flex-1 h-px bg-emerald-500/30"></div>
-                                                        </div>
-                                                    </td>
+                                                    <tr>
+                                                        <td colSpan={4} className="py-3">
+                                                            <div className="flex items-center gap-3 text-emerald-400">
+                                                                <div className="flex-1 h-px bg-emerald-500/30"></div>
+                                                                <span className="text-xs font-bold px-3 py-1 bg-emerald-500/10 rounded-full">PAID FULLY</span>
+                                                                <div className="flex-1 h-px bg-emerald-500/30"></div>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
                                                 )}
-                                                <tr key={`entry-${item.id}`} className="group hover:bg-slate-700/20">
+                                                <tr className="group hover:bg-slate-700/20">
                                                     <td className="py-3 text-slate-300">
                                                         {new Date(item.created_at).toLocaleDateString()}
                                                         <div className="text-xs text-slate-500">
@@ -220,7 +245,7 @@ export default function Debts() {
                                                         {item.amount_usd > 0 ? '+' : ''}{item.amount_usd.toFixed(2)}
                                                     </td>
                                                 </tr>
-                                            </tr>
+                                            </React.Fragment>
                                         );
                                     })}
                                 </tbody>

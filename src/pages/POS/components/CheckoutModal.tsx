@@ -458,7 +458,7 @@ export default function CheckoutModal({ totalAmount, onClose, onComplete, onSave
                     <div className="px-6 py-3 bg-slate-800/50 border-t border-slate-700 flex items-center gap-2 text-sm">
                         <Inbox size={16} className="text-blue-400" />
                         <span className="text-slate-300">
-                            This sale will be recorded in: <span className="font-bold text-blue-300">Drawer B (General)</span>
+                            This sale will be recorded in: <span className="font-bold text-blue-300">{DRAWER_B === 'General_Drawer_B' ? 'General Drawer' : DRAWER_B.replace(/_/g, ' ')}</span>
                         </span>
                     </div>
 
