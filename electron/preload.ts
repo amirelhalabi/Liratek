@@ -15,6 +15,11 @@ contextBridge.exposeInMainWorld('api', {
     login: (username: string, password: string) => ipcRenderer.invoke('auth:login', username, password),
     logout: (userId: number) => ipcRenderer.invoke('auth:logout', userId),
     getCurrentUser: (userId: number) => ipcRenderer.invoke('auth:get-current-user', userId),
+    getNonAdminUsers: () => ipcRenderer.invoke('users:get-non-admins'),
+    setUserActive: (id: number, is_active: number) => ipcRenderer.invoke('users:set-active', { id, is_active }),
+    setUserRole: (id: number, role: 'admin' | 'staff') => ipcRenderer.invoke('users:set-role', { id, role }),
+    createUser: (username: string, password: string, role: 'admin' | 'staff') => ipcRenderer.invoke('users:create', { username, password, role }),
+    setUserPassword: (id: number, password: string) => ipcRenderer.invoke('users:set-password', { id, password }),
 
     // Inventory operations
     getProducts: (search?: string) => ipcRenderer.invoke('inventory:get-products', search),
@@ -25,6 +30,7 @@ contextBridge.exposeInMainWorld('api', {
     deleteProduct: (id: number) => ipcRenderer.invoke('inventory:delete-product', id),
     adjustStock: (id: number, quantity: number) => ipcRenderer.invoke('inventory:adjust-stock', id, quantity),
     getLowStockProducts: () => ipcRenderer.invoke('inventory:get-low-stock-products'),
+    getInventoryStockStats: () => ipcRenderer.invoke('inventory:get-stock-stats'),
 
     // Client operations
     getClients: (search?: string) => ipcRenderer.invoke('clients:get-all', search),
@@ -53,7 +59,9 @@ contextBridge.exposeInMainWorld('api', {
     closing: {
         getSystemExpectedBalances: () => ipcRenderer.invoke('closing:get-system-expected-balances'),
         createDailyClosing: (data: any) => ipcRenderer.invoke('closing:create-daily-closing', data),
+        updateDailyClosing: (data: any) => ipcRenderer.invoke('closing:update-daily-closing', data),
         getDailyStatsSnapshot: () => ipcRenderer.invoke('closing:get-daily-stats-snapshot'),
+        setOpeningBalances: (data: { closing_date: string; amounts: Array<{ drawer_name: string; currency_code: string; opening_amount: number }>; }) => ipcRenderer.invoke('closing:set-opening-balances', data),
     },
 
     // Settings operations
@@ -62,9 +70,32 @@ contextBridge.exposeInMainWorld('api', {
         update: (key: string, value: string) => ipcRenderer.invoke('settings:update', key, value),
     },
 
+    // Diagnostics
+    diagnostics: {
+        getSyncErrors: () => ipcRenderer.invoke('diagnostics:get-sync-errors'),
+    },
+
+    // Reports
+    report: {
+        generatePDF: (html: string, filename?: string) => ipcRenderer.invoke('report:generate-pdf', { html, filename }),
+        backupDatabase: () => ipcRenderer.invoke('report:backup-db'),
+    },
+
     // Exchange
     addExchangeTransaction: (data: any) => ipcRenderer.invoke('exchange:add-transaction', data),
     getExchangeHistory: () => ipcRenderer.invoke('exchange:get-history'),
+    rates: {
+        list: () => ipcRenderer.invoke('rates:list'),
+        set: (from_code: string, to_code: string, rate: number) => ipcRenderer.invoke('rates:set', { from_code, to_code, rate })
+    },
+
+    // Currencies
+    currencies: {
+        list: () => ipcRenderer.invoke('currencies:list'),
+        create: (code: string, name: string) => ipcRenderer.invoke('currencies:create', { code, name }),
+        update: (data: { id: number; code?: string; name?: string; is_active?: number }) => ipcRenderer.invoke('currencies:update', data),
+        delete: (id: number) => ipcRenderer.invoke('currencies:delete', id),
+    },
 
     // OMT/Whish Financial Services
     addOMTTransaction: (data: any) => ipcRenderer.invoke('omt:add-transaction', data),

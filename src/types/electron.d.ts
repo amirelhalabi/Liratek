@@ -14,6 +14,11 @@ export interface ElectronAPI {
     login: (username: string, password: string) => Promise<{ success: boolean; user?: { id: number; username: string; role: string }; error?: string }>;
     logout: (userId: number) => Promise<{ success: boolean }>;
     getCurrentUser: (userId: number) => Promise<{ id: number; username: string; role: string } | null>;
+    getNonAdminUsers: () => Promise<Array<{ id: number; username: string; role: string; is_active: number }>>;
+    setUserActive: (id: number, is_active: number) => Promise<{ success: boolean; error?: string }>;
+    setUserRole: (id: number, role: 'admin' | 'staff') => Promise<{ success: boolean; error?: string }>;
+    createUser: (username: string, password: string, role: 'admin' | 'staff') => Promise<{ success: boolean; id?: number; error?: string }>;
+    setUserPassword: (id: number, password: string) => Promise<{ success: boolean; error?: string }>;
 
     // Inventory
     getProducts: (search?: string) => Promise<any[]>;
@@ -23,7 +28,7 @@ export interface ElectronAPI {
     updateProduct: (product: any) => Promise<{ success: boolean; error?: string }>;
     deleteProduct: (id: number) => Promise<{ success: boolean; error?: string }>;
     adjustStock: (id: number, quantity: number) => Promise<{ success: boolean; error?: string }>;
-
+    getInventoryStockStats: () => Promise<{ stock_budget_usd: number; stock_count: number }>;
     // Clients
     getClients: (search?: string) => Promise<any[]>;
     getClient: (id: number) => Promise<any>;
@@ -48,6 +53,12 @@ export interface ElectronAPI {
     getClientDebtTotal(clientId: number): Promise<number>;
     
     // Exchange
+    currencies: {
+        list: () => Promise<Array<{ id: number; code: string; name: string; is_active: number }>>;
+        create: (code: string, name: string) => Promise<{ success: boolean; id?: number; error?: string }>;
+        update: (data: { id: number; code?: string; name?: string; is_active?: number }) => Promise<{ success: boolean; error?: string }>;
+        delete: (id: number) => Promise<{ success: boolean; error?: string }>;
+    };
     addExchangeTransaction: (data: { 
         fromCurrency: string; 
         toCurrency: string; 
@@ -58,6 +69,11 @@ export interface ElectronAPI {
         note?: string 
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     getExchangeHistory: () => Promise<any[]>;
+    rates: {
+        list: () => Promise<Array<{ id: number; from_code: string; to_code: string; rate: number; updated_at: string }>>;
+        set: (from_code: string, to_code: string, rate: number) => Promise<{ success: boolean; error?: string }>;
+    };
+
 
     // OMT/Whish Financial Services
     addOMTTransaction: (data: { 
@@ -94,25 +110,36 @@ export interface ElectronAPI {
     getMaintenanceJobs: (statusFilter?: string) => Promise<any[]>;
     deleteMaintenanceJob: (id: number) => Promise<{ success: boolean; error?: string }>;
 
+    // Diagnostics
+    diagnostics: {
+        getSyncErrors: () => Promise<Array<{ id: number; endpoint: string; error: string; created_at: string }>>;
+    };
+
+    // Reports
+    report: {
+        generatePDF: (html: string, filename?: string) => Promise<{ success: boolean; path?: string; error?: string }>;
+        backupDatabase: () => Promise<{ success: boolean; path?: string; error?: string }>;
+    };
+
     // Closing
     closing: {
         getSystemExpectedBalances: () => Promise<{
             generalDrawer: { usd: number; lbp: number; eur: number };
             omtDrawer: { usd: number; lbp: number; eur: number };
         }>;
+        setOpeningBalances: (data: {
+            closing_date: string;
+            amounts: Array<{ drawer_name: string; currency_code: string; opening_amount: number }>;
+            user_id?: number;
+        }) => Promise<{ success: boolean; id?: number; error?: string }>;
         createDailyClosing: (data: {
             closing_date: string;
-            drawer_name: string;
-            opening_balance_usd: number;
-            opening_balance_lbp: number;
-            physical_usd: number;
-            physical_lbp: number;
-            physical_eur: number;
-            system_expected_usd: number;
-            system_expected_lbp: number;
-            variance_usd: number;
-            notes?: string;
+            amounts: Array<{ drawer_name: string; currency_code: string; physical_amount: number; opening_amount?: number }>;
+            user_id?: number;
+            variance_notes?: string;
+            report_path?: string;
         }) => Promise<{ success: boolean; id?: number; error?: string }>;
+        updateDailyClosing: (data: { id: number; physical_usd?: number; physical_lbp?: number; physical_eur?: number; system_expected_usd?: number; system_expected_lbp?: number; variance_usd?: number; notes?: string; report_path?: string; user_id?: number; }) => Promise<{ success: boolean; error?: string }>;
         getDailyStatsSnapshot: () => Promise<{
             salesCount: number;
             totalSalesUSD: number;

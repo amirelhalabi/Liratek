@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { generateClosingReport } from '../../utils/closingReportGenerator'; // Import the utility
-import { X } from 'lucide-react'; // Import close icon
+import { X } from 'lucide-react';
+import { appEvents } from '../../utils/appEvents'; // Import close icon
 
 export default function Closing({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
     const [step, setStep] = useState(1);
@@ -11,6 +12,13 @@ export default function Closing({ isOpen, onClose }: { isOpen: boolean; onClose:
         eur: 0,
     });
     // Placeholder for system expected values
+    const drawerTypes: Array<'General' | 'OMT' | 'MTC' | 'Alfa'> = ['General','OMT','MTC','Alfa'];
+    const [currencies, setCurrencies] = useState<Array<{ code: string; name: string }>>([]);
+    const [physicalText, setPhysicalText] = useState<Record<string, Record<string, string>>>({});
+    const setDrawerCurrencyText = (drawer: string, code: string, value: string) => {
+        setPhysicalText(prev => ({ ...prev, [drawer]: { ...prev[drawer], [code]: value } }));
+    };
+
     const [systemExpected, setSystemExpected] = useState({
         usd: 0,
         lbp: 0,
@@ -27,6 +35,22 @@ export default function Closing({ isOpen, onClose }: { isOpen: boolean; onClose:
             return;
         }
 
+        // Load currencies
+        const loadCurrencies = async () => {
+            try {
+                const list = await window.api.currencies.list();
+                const active = list.filter((c:any)=>c.is_active===1).map((c:any)=>({ code: c.code, name: c.name }));
+                setCurrencies(active);
+                const init: Record<string, Record<string, string>> = {};
+                for (const d of drawerTypes) {
+                    init[d] = {};
+                    for (const c of active) init[d][c.code] = '';
+                }
+                setPhysicalText(init);
+            } catch {}
+        };
+
+        // Enforce blind count: only fetch expected after entering counts (step >= 3)
         const fetchSystemExpectedBalances = async () => {
             try {
                 const balances = await window.api.closing.getSystemExpectedBalances();
@@ -41,36 +65,38 @@ export default function Closing({ isOpen, onClose }: { isOpen: boolean; onClose:
             }
         };
 
-        fetchSystemExpectedBalances();
-    }, [drawerType, isOpen]); // Refetch when drawerType changes or modal opens
+        if (step >= 3) {
+            fetchSystemExpectedBalances();
+        }
+        loadCurrencies();
+    }, [drawerType, isOpen, step]); // Refetch when drawerType changes and after step 3
 
     const nextStep = () => setStep(prev => prev + 1);
     const prevStep = () => setStep(prev => prev - 1);
 
+    const [varianceNotes, setVarianceNotes] = useState('');
+
     const handleConfirmClosing = async () => {
         const closing_date = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-        const drawer_name = `${drawerType}_Drawer_${drawerType === 'General' ? 'B' : 'A'}`;
-
-        const opening_balance_usd = 0; // To be fetched from previous closing record in future
-        const opening_balance_lbp = 0; // To be fetched from previous closing record in future
-
-        const dataToSend = {
-            closing_date,
-            drawer_name,
-            opening_balance_usd,
-            opening_balance_lbp,
-            physical_usd: physicalCount.usd,
-            physical_lbp: physicalCount.lbp,
-            physical_eur: physicalCount.eur,
-            system_expected_usd: systemExpected.usd,
-            system_expected_lbp: systemExpected.lbp,
-            variance_usd: physicalCount.usd - systemExpected.usd,
-            notes: `Daily closing for ${drawerType} Drawer on ${closing_date}`,
-        };
+        // Aggregated model now; amounts per drawer/currency are sent below
 
         try {
-            const result = await window.api.closing.createDailyClosing(dataToSend);
+            const amountsArray = [] as Array<{ drawer_name: string; currency_code: string; physical_amount: number }>;
+            for (const d of drawerTypes) {
+                for (const c of currencies) {
+                    const raw = physicalText[d]?.[c.code] ?? '';
+                    const parsed = raw === '' ? 0 : parseFloat(raw);
+                    amountsArray.push({ drawer_name: d, currency_code: c.code, physical_amount: isNaN(parsed) ? 0 : parsed });
+                }
+            }
+            const result = await window.api.closing.createDailyClosing({ closing_date, amounts: amountsArray, variance_notes: varianceNotes, report_path: lastReportPath || undefined, user_id: (window as any).currentUserId });
             if (result.success) {
+                // Try backup after successful save
+                try {
+                    const backup = await window.api.report.backupDatabase();
+                    console.log('Backup result:', backup);
+                } catch (_e) {}
+                appEvents.emit('closing:confirmed');
                 alert('Closing confirmed and saved successfully!');
                 onClose(); // Close modal on success
             } else {
@@ -79,6 +105,40 @@ export default function Closing({ isOpen, onClose }: { isOpen: boolean; onClose:
         } catch (error) {
             console.error('Error confirming closing:', error);
             alert('An unexpected error occurred during closing.');
+        }
+    };
+
+    const [lastReportPath, setLastReportPath] = useState<string | null>(null);
+
+    const handleGeneratePDFReport = async () => {
+        const closing_date = new Date().toISOString().split('T')[0];
+        const drawer_name = `${drawerType}_Drawer_${drawerType === 'General' ? 'B' : 'A'}`;
+        try {
+            const dailyStats = await window.api.closing.getDailyStatsSnapshot();
+            const reportData = {
+                closing_date,
+                drawer_name,
+                physical_usd: physicalCount.usd,
+                physical_lbp: physicalCount.lbp,
+                physical_eur: physicalCount.eur,
+                system_expected_usd: systemExpected.usd,
+                system_expected_lbp: systemExpected.lbp,
+                variance_usd: physicalCount.usd - systemExpected.usd,
+                variance_lbp: physicalCount.lbp - systemExpected.lbp,
+                variance_eur: physicalCount.eur - systemExpected.eur,
+            };
+            const reportText = generateClosingReport(reportData, dailyStats);
+            const html = `<html><body><pre style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap;">${reportText.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</pre></body></html>`;
+            const result = await window.api.report.generatePDF(html, `closing_${closing_date}_${drawer_name}.pdf`);
+            if (result.success) {
+                setLastReportPath(result.path || null);
+                alert(`PDF saved to: ${result.path}`);
+            } else {
+                alert('Failed to generate PDF: ' + result.error);
+            }
+        } catch (error) {
+            console.error('Error generating PDF:', error);
+            alert('Failed to generate PDF.');
         }
     };
 
@@ -150,34 +210,20 @@ export default function Closing({ isOpen, onClose }: { isOpen: boolean; onClose:
                         <div className="space-y-4">
                             <h2 className="text-xl text-violet-400">Step 2: Enter Physical Count ({drawerType} Drawer)</h2>
                             <p className="text-slate-300">Enter the physical cash count for each currency.</p>
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-400 mb-2">USD</label>
-                                    <input
-                                        type="number"
-                                        value={physicalCount.usd}
-                                        onChange={(e) => setPhysicalCount({ ...physicalCount, usd: parseFloat(e.target.value) || 0 })}
-                                        className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2 text-white"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-400 mb-2">LBP</label>
-                                    <input
-                                        type="number"
-                                        value={physicalCount.lbp}
-                                        onChange={(e) => setPhysicalCount({ ...physicalCount, lbp: parseFloat(e.target.value) || 0 })}
-                                        className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2 text-white"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-400 mb-2">EUR</label>
-                                    <input
-                                        type="number"
-                                        value={physicalCount.eur}
-                                        onChange={(e) => setPhysicalCount({ ...physicalCount, eur: parseFloat(e.target.value) || 0 })}
-                                        className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2 text-white"
-                                    />
-                                </div>
+                            <div className="space-y-4">
+                                {drawerTypes.map(d => (
+                                    <div key={d} className="border border-slate-700 rounded-lg p-3">
+                                        <div className="font-semibold text-white mb-2">{d} Drawer</div>
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                            {currencies.map(c => (
+                                                <div key={c.code}>
+                                                    <label className="block text-sm text-slate-400 mb-1">{c.code}</label>
+                                                    <input type="number" value={physicalText[d]?.[c.code] ?? ''} onChange={(e)=> setDrawerCurrencyText(d, c.code, e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white" />
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
                             <div className="flex gap-4 mt-6">
                                 <button onClick={prevStep} className="px-6 py-3 bg-slate-700 text-slate-300 rounded-lg font-bold hover:bg-slate-600">
@@ -194,12 +240,35 @@ export default function Closing({ isOpen, onClose }: { isOpen: boolean; onClose:
                         <div className="space-y-4">
                             <h2 className="text-xl text-violet-400">Step 3: Variance Overview</h2>
                             <p className="text-slate-300">Compare physical count with system's expected values.</p>
-                            <div className="grid grid-cols-2 gap-4 text-slate-200">
+                            <div className="space-y-4 text-slate-200">
                                 <div>
-                                    <p className="font-semibold">Currency</p>
-                                    <p>USD:</p>
-                                    <p>LBP:</p>
-                                    <p>EUR:</p>
+                                    <div className="border border-slate-700 rounded-lg overflow-hidden">
+                                        <table className="w-full text-left text-sm">
+                                            <thead className="bg-slate-900 text-slate-400">
+                                                <tr>
+                                                    <th className="p-2">Currency</th>
+                                                    <th className="p-2">Physical Total</th>
+                                                    <th className="p-2">Expected</th>
+                                                    <th className="p-2">Variance</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {currencies.map(c => {
+                                                    const total = drawerTypes.reduce((sum, d) => sum + (parseFloat(physicalText[d]?.[c.code] || '0') || 0), 0);
+                                                    const expected = c.code === 'USD' ? systemExpected.usd : c.code === 'LBP' ? systemExpected.lbp : 0;
+                                                    const variance = total - expected;
+                                                    return (
+                                                        <tr key={c.code} className="border-t border-slate-800">
+                                                            <td className="p-2">{c.code}</td>
+                                                            <td className="p-2">{c.code === 'LBP' ? total.toLocaleString() : total.toFixed(2)}</td>
+                                                            <td className="p-2">{c.code === 'LBP' ? expected.toLocaleString() : expected.toFixed(2)}</td>
+                                                            <td className={`p-2 ${variance !== 0 ? 'text-red-400' : 'text-emerald-400'}`}>{c.code === 'LBP' ? variance.toLocaleString() : variance.toFixed(2)}</td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
                                 </div>
                                 <div>
                                     <p className="font-semibold">Physical Count</p>
@@ -235,7 +304,7 @@ export default function Closing({ isOpen, onClose }: { isOpen: boolean; onClose:
                         <div className="space-y-4">
                             <h2 className="text-xl text-violet-400">Step 4: Review & Confirm</h2>
                             <p className="text-slate-300">Please review the closing details before confirming.</p>
-                            <div className="text-slate-200 space-y-2">
+                            <div className="text-slate-200 space-y-4">
                                 <p><span className="font-semibold">Drawer Selected:</span> {drawerType} Drawer</p>
                                 <p><span className="font-semibold">Physical USD:</span> ${physicalCount.usd.toFixed(2)}</p>
                                 <p><span className="font-semibold">Physical LBP:</span> {physicalCount.lbp.toLocaleString()} LBP</p>
@@ -248,8 +317,19 @@ export default function Closing({ isOpen, onClose }: { isOpen: boolean; onClose:
                                 <button onClick={prevStep} className="px-6 py-3 bg-slate-700 text-slate-300 rounded-lg font-bold hover:bg-slate-600">
                                     Back
                                 </button>
+                                <div className="flex-1">
+                                    <label className="block text-sm text-slate-400 mb-1">Variance Notes</label>
+                                    <textarea
+                                        value={varianceNotes}
+                                        onChange={(e) => setVarianceNotes(e.target.value)}
+                                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white min-h-24"
+                                    />
+                                </div>
                                 <button onClick={handleGenerateReport} className="px-6 py-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-500">
-                                    Generate Report
+                                    Preview Report
+                                </button>
+                                <button onClick={handleGeneratePDFReport} className="px-6 py-3 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-500">
+                                    Save PDF
                                 </button>
                                 <button onClick={handleConfirmClosing} className="px-6 py-3 bg-emerald-600 text-white rounded-lg font-bold hover:bg-emerald-500">
                                     Confirm Closing

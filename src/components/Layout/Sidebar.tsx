@@ -13,10 +13,12 @@ import {
     BookOpen,
     Send,
     Smartphone,
-    SquareActivity // Imported SquareActivity icon
+    SquareActivity, // Imported SquareActivity icon
+    Play
 } from 'lucide-react';
 import clsx from 'clsx';
 import { appEvents } from '../../utils/appEvents'; // Import appEvents
+import { useAuth } from '../../contexts/AuthContext';
 
 interface SidebarProps {
     isCollapsed: boolean;
@@ -24,6 +26,8 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
+    const { user } = useAuth();
+    const isAdmin = user?.role === 'admin';
     const navItems = [
         { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
         { to: '/pos', icon: ShoppingCart, label: 'Point of Sale' },
@@ -41,6 +45,10 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
 
     const handleClosingClick = () => {
         appEvents.emit('openClosingModal');
+    };
+
+    const handleOpeningClick = () => {
+        appEvents.emit('openOpeningModal');
     };
 
     return (
@@ -92,7 +100,26 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
                         )}
                     </NavLink>
                 ))}
-                {/* Closing Button - opens modal on Dashboard */}
+                {/* Opening and Closing Buttons - admin only */}
+                {isAdmin && (
+                <button
+                    onClick={handleOpeningClick}
+                    className={clsx(
+                        "flex items-center gap-3 px-3 py-3 rounded-xl transition-all font-medium whitespace-nowrap w-full",
+                        "text-slate-400 hover:bg-slate-800 hover:text-white",
+                        isCollapsed ? "justify-center" : ""
+                    )}
+                    title={isCollapsed ? "Opening" : undefined}
+                >
+                    <Play size={20} className="min-w-[20px]" />
+                    {!isCollapsed && (
+                        <span className="opacity-100 transition-opacity duration-200">
+                            Opening
+                        </span>
+                    )}
+                </button>
+                )}
+                {isAdmin && (
                 <button
                     onClick={handleClosingClick}
                     className={clsx(
@@ -109,27 +136,7 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
                         </span>
                     )}
                 </button>
-                {/* Settings NavLink */}
-                <NavLink
-                    to="/settings"
-                    className={({ isActive }) =>
-                        clsx(
-                            "flex items-center gap-3 px-3 py-3 rounded-xl transition-all font-medium whitespace-nowrap",
-                            isActive
-                                ? "bg-violet-600 text-white shadow-lg shadow-violet-900/20"
-                                : "text-slate-400 hover:bg-slate-800 hover:text-white",
-                            isCollapsed ? "justify-center" : ""
-                        )
-                    }
-                    title={isCollapsed ? "Settings" : undefined}
-                >
-                    <Settings size={20} className="min-w-[20px]" />
-                    {!isCollapsed && (
-                        <span className="opacity-100 transition-opacity duration-200">
-                            Settings
-                        </span>
-                    )}
-                </NavLink>
+               )}
             </nav>
 
             <div className="p-4 border-t border-slate-700 text-center text-xs text-slate-500 overflow-hidden">

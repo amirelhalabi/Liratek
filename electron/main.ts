@@ -12,6 +12,10 @@ import { registerExchangeHandlers } from './handlers/exchangeHandlers';
 import { registerOMTHandlers } from './handlers/omtHandlers';
 import { registerRechargeHandlers } from './handlers/rechargeHandlers';
 import { registerMaintenanceHandlers } from './handlers/maintenanceHandlers';
+import { registerReportHandlers } from './handlers/reportHandlers';
+import { registerCurrencyHandlers } from './handlers/currencyHandlers';
+import { registerRateHandlers } from './handlers/rateHandlers';
+import { startSyncProcessor } from './sync';
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -56,6 +60,12 @@ app.whenReady().then(() => {
     registerOMTHandlers();
     registerRechargeHandlers();
     registerMaintenanceHandlers();
+    registerReportHandlers();
+    registerCurrencyHandlers();
+    registerRateHandlers();
+
+    // Start sync processor (Phase 6)
+    startSyncProcessor();
 
     createWindow();
 

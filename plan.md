@@ -1,5 +1,79 @@
 # Liratek: Phases 4–7 Implementation Plan
 
+## Progress Update (Current)
+
+- Phase 5: Dashboard & Reporting
+  - Completed:
+    - [x] Opening modal saving to daily_closings via IPC
+    - [x] Opening/Closing global via layout-level events
+    - [x] Blind count enforcement in Closing
+    - [x] Report export (PDF) and DB backup hooks
+    - [x] Dashboard LBP axis in M (tooltip consistent)
+    - [x] Stock budget, stock count, virtual stock cards
+    - [x] OMT expected balances in closing:get-system-expected-balances
+    - [x] Role-based UI gating (admin-only)
+    - [x] Currency management (admin CRUD) and dynamic currencies in Exchange
+    - [x] List non-admin users API
+    - Opening modal implemented, persists opening balances to daily_closings via IPC (closing:set-opening-balances)
+    - Closing modal globally accessible via layout-level events; Opening/Closing buttons in sidebar work from any route
+    - Enforced blind count in Closing (system expected only after physical step)
+    - Report export (PDF) and DB backup hooks wired on closing
+    - Dashboard LBP axis in millions (M), tooltip uses M consistently
+    - Stock budget (cost), stock count, and virtual stock cards added
+    - OMT expected balances integrated into closing:get-system-expected-balances (uses financial_services)
+  - Remaining:
+    - Variance notes + user audit fields (who opened/closed, timestamps)
+    - Auto-attach generated report path to closing record
+
+- Phase 6: Sync & Cloud
+  - Completed:
+    - [x] Basic sync processor with retries (env-gated)
+    - [x] Error telemetry into sync_errors table
+    - [x] Optional pull endpoint support
+    - Basic sync processor (runs on interval; placeholder upload; dequeues sync_queue in batches)
+  - Remaining:
+    - Cloud API client (env-gated) for push/pull
+    - Basic retry/backoff + error telemetry
+    - Optional pull/merge strategy and conflict handling
+
+- Phase 7: Security & Packaging
+  - Completed:
+    - [x] Electron-builder (NSIS) config and build scripts (yarn build:app, ci:build:win)
+    - Role-based UI: Opening/Closing and cost display hidden for non-admin users
+    - Electron-builder (NSIS) configuration and build script (yarn build:app) added
+  - Remaining:
+    - App icons/resources and signing (Windows code signing)
+    - DRM/License heartbeat (optional per docs)
+    - Manual testing checklist / QA scripts
+
+## Suggestions / Next Priorities
+- Closing polish
+  - [x] Add userId to opening/closing records; track created_by/updated_by and timestamps (daily_closings fields added, opening/closing handlers set created_by/updated_by)
+  - [x] Persist variance notes and report file path (variance notes UI + report_path persisted on save)
+  - [x] Multi-drawer, multi-currency amounts for Opening & Closing (General, OMT, MTC, Alfa; dynamic currencies)
+  - [x] Dynamic per-currency variance summary table in Closing Step 3
+  - [ ] Extend system expected balances per-currency (beyond USD/LBP), and per drawer
+- Sync
+  - [x] Implement retry with exponential backoff; write failures to a sync_errors table
+  - [x] Optional pull endpoint support (SYNC_PULL_ENDPOINT)
+  - [ ] Implement a minimal REST client (POST /sync/batch, GET /sync/updates) with env toggle
+- Packaging
+  - [x] Add basic platform icon config (mac icon set) and scripts; NSIS retained
+  - [ ] Add full icon assets and versioning/release notes; CI job to publish artifacts (Windows/mac)
+- Security/Roles
+  - [x] Scrypt-based password hashing with migration for legacy
+  - [x] Role gates (admin-only) for sensitive features (Opening/Closing, cost visibility)
+  - [ ] Expand roles: can_view_cost, can_open_close_drawer, can_edit_settings (fine-grained)
+- Observability
+  - [x] Diagnostics page for sync_errors
+  - [ ] Add electron-log and a log viewer under Settings > Diagnostics
+
+## New Tasks Added
+- OMT Expected Balances: done in closing:get-system-expected-balances using financial_services SEND/RECEIVE for provider OMT
+- Packaging: Added electron-builder (NSIS) config and build:app script (uses yarn dlx to avoid global install)
+
+
+
 ## Overview
 Phase 4 (Financials) is largely complete. Phase 5 needs the End-of-Day Closing Shift wizard and reporting. Phases 6–7 focus on data sync, cloud backup, security & distribution. Each phase is organized into 4–6 focused tasks to keep the app lean and functional.
 

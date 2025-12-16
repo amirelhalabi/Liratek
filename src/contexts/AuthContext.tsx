@@ -51,6 +51,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             if (result.success && result.user) {
                 setUser(result.user);
                 localStorage.setItem('userId', result.user.id.toString());
+                try {
+                    const { appEvents } = await import('../utils/appEvents');
+                    appEvents.emit('openOpeningModal');
+                } catch {}
                 return { success: true };
             }
             return { success: false, error: result.error };

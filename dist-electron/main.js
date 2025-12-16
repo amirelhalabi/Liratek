@@ -16,6 +16,10 @@ const exchangeHandlers_1 = require("./handlers/exchangeHandlers");
 const omtHandlers_1 = require("./handlers/omtHandlers");
 const rechargeHandlers_1 = require("./handlers/rechargeHandlers");
 const maintenanceHandlers_1 = require("./handlers/maintenanceHandlers");
+const reportHandlers_1 = require("./handlers/reportHandlers");
+const currencyHandlers_1 = require("./handlers/currencyHandlers");
+const rateHandlers_1 = require("./handlers/rateHandlers");
+const sync_1 = require("./sync");
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 if (require('electron-squirrel-startup')) {
@@ -56,6 +60,11 @@ electron_1.app.whenReady().then(() => {
     (0, omtHandlers_1.registerOMTHandlers)();
     (0, rechargeHandlers_1.registerRechargeHandlers)();
     (0, maintenanceHandlers_1.registerMaintenanceHandlers)();
+    (0, reportHandlers_1.registerReportHandlers)();
+    (0, currencyHandlers_1.registerCurrencyHandlers)();
+    (0, rateHandlers_1.registerRateHandlers)();
+    // Start sync processor (Phase 6)
+    (0, sync_1.startSyncProcessor)();
     createWindow();
     electron_1.app.on('activate', () => {
         if (electron_1.BrowserWindow.getAllWindows().length === 0) {

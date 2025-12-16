@@ -126,6 +126,23 @@ export function registerInventoryHandlers(): void {
             return { success: false, error: error.message };
         }
     }); // Missing closing brace added here
+    // Get Inventory Stock Stats (budget and count)
+    ipcMain.handle('inventory:get-stock-stats', () => {
+        try {
+            const row = db.prepare(`
+                SELECT 
+                    COALESCE(SUM(cost_price_usd * stock_quantity), 0) AS stock_budget_usd,
+                    COALESCE(SUM(stock_quantity), 0) AS stock_count
+                FROM products
+                WHERE is_active = 1
+            `).get() as { stock_budget_usd: number; stock_count: number };
+            return row;
+        } catch (error: any) {
+            console.error('Failed to get stock stats:', error);
+            return { stock_budget_usd: 0, stock_count: 0 };
+        }
+    });
+
     // Get low stock products
     ipcMain.handle('inventory:get-low-stock-products', () => {
         try {

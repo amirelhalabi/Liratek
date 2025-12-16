@@ -1,5 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, Save, X, Lock } from 'lucide-react';
+import { Settings as SettingsIcon, Save, X, Lock, Users as UsersIcon } from 'lucide-react';
+import UsersManager from './UsersManager';
+import Diagnostics from './Diagnostics';
+import CurrencyManager from './CurrencyManager';
+import RatesManager from './RatesManager';
 
 export default function Settings() {
     const [shopName, setShopName] = useState('');
@@ -131,6 +135,26 @@ export default function Settings() {
                         />
                     </div>
                 </div>
+            </div>
+
+            <div className="bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-lg">
+                <h2 className="text-xl font-semibold text-white mb-4">Exchange Currencies</h2>
+                <CurrencyManager />
+            </div>
+
+            <div className="bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-lg">
+                <h2 className="text-xl font-semibold text-white mb-4">Exchange Rates</h2>
+                <RatesManager />
+            </div>
+
+            <div className="bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-lg">
+                <h2 className="text-xl font-semibold text-white mb-4">Diagnostics</h2>
+                <Diagnostics />
+            </div>
+
+            <div className="bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-lg">
+                <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2"><UsersIcon size={18} /> Users</h2>
+                <UsersManager />
             </div>
 
             <div className="bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-lg opacity-50 cursor-not-allowed">

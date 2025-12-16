@@ -1,29 +1,70 @@
 import { useState, useEffect } from 'react';
 import { RefreshCw, ArrowRightLeft, History, ArrowRight } from 'lucide-react';
 
-type Currency = 'USD' | 'LBP' | 'EUR';
+type Currency = { id: number; code: string; name: string; is_active: number };
+
+type RateRow = { from_code: string; to_code: string; rate: number };
 
 export default function Exchange() {
     const [transactions, setTransactions] = useState<any[]>([]);
 
     // Exchange State
-    const [fromCurrency, setFromCurrency] = useState<Currency>('USD');
-    const [toCurrency, setToCurrency] = useState<Currency>('LBP');
+    const [currencies, setCurrencies] = useState<Currency[]>([]);
+    const [fromCurrency, setFromCurrency] = useState<string>('USD');
+    const [toCurrency, setToCurrency] = useState<string>('LBP');
     
     const [amountIn, setAmountIn] = useState<string>('');
     const [amountOut, setAmountOut] = useState<string>('');
     const [rate, setRate] = useState<string>('89500');
+    const [rates, setRates] = useState<RateRow[]>([]);
     
     const [clientName, setClientName] = useState('');
 
     useEffect(() => {
         loadHistory();
+        loadCurrencies();
     }, []);
+
+    useEffect(() => {
+        const loadRates = async () => {
+            try {
+                const list = await window.api.rates.list();
+                setRates(list);
+            } catch (e) {
+                console.error('Failed to load rates', e);
+            }
+        };
+        loadRates();
+    }, []);
+
+    const findRate = (from: string, to: string): number | undefined => {
+        if (from === to) return 1;
+        const direct = rates.find(r => r.from_code === from && r.to_code === to)?.rate;
+        if (direct !== undefined) return direct;
+        const viaToUsd = rates.find(r => r.from_code === from && r.to_code === 'USD')?.rate;
+        const viaFromUsd = rates.find(r => r.from_code === 'USD' && r.to_code === to)?.rate;
+        if (viaToUsd !== undefined && viaFromUsd !== undefined) return viaToUsd * viaFromUsd;
+        return undefined;
+    };
 
     // Auto-calculate output when input or rate changes
     useEffect(() => {
         calculateOutput();
     }, [amountIn, rate, fromCurrency, toCurrency]);
+
+    const loadCurrencies = async () => {
+        try {
+            const list = await window.api.currencies.list();
+            const active = list.filter((c: any) => c.is_active === 1);
+            setCurrencies(active);
+            if (active.length >= 2) {
+                setFromCurrency(active[0].code);
+                setToCurrency(active[1].code);
+            }
+        } catch (e) {
+            console.error('Failed to load currencies', e);
+        }
+    };
 
     const loadHistory = async () => {
         try {
@@ -36,9 +77,9 @@ export default function Exchange() {
 
     const calculateOutput = () => {
         const val = parseFloat(amountIn);
-        const r = parseFloat(rate);
+        const rParsed = parseFloat(rate);
         
-        if (isNaN(val) || isNaN(r) || r === 0) {
+        if (isNaN(val) || isNaN(rParsed) || rParsed === 0) {
             setAmountOut('');
             return;
         }
@@ -52,17 +93,20 @@ export default function Exchange() {
         
         let result = 0;
 
-        if (fromCurrency === 'USD' && toCurrency === 'LBP') {
-            result = val * r;
+        const mr = findRate(fromCurrency, toCurrency);
+        if (mr !== undefined) {
+            result = val * mr;
+        } else if (fromCurrency === 'USD' && toCurrency === 'LBP') {
+            result = val * rParsed;
         } else if (fromCurrency === 'LBP' && toCurrency === 'USD') {
-            result = val / r;
+            result = val / rParsed;
         } else if (fromCurrency === 'EUR' && toCurrency === 'USD') {
-            result = val * r; // e.g. 1.05
+            result = val * rParsed; // e.g. 1.05
         } else if (fromCurrency === 'USD' && toCurrency === 'EUR') {
-            result = val / r;
+            result = val / rParsed;
         } else {
             // Fallback: Direct multiplication
-            result = val * r;
+            result = val * rParsed;
         }
 
         // Formatting
@@ -115,7 +159,7 @@ export default function Exchange() {
         }
     };
 
-    const getCurrencyIcon = (curr: Currency) => {
+    const getCurrencyIcon = (curr: string) => {
         switch (curr) {
             case 'USD': return '$';
             case 'EUR': return '€';
@@ -139,17 +183,17 @@ export default function Exchange() {
                         <div className="flex-1">
                             <label className="block text-xs font-medium text-slate-400 mb-1 uppercase">From</label>
                             <div className="grid grid-cols-3 gap-1 bg-slate-900 p-1 rounded-lg">
-                                {(['USD', 'LBP', 'EUR'] as Currency[]).map(c => (
+                                {currencies.map(c => (
                                     <button
-                                        key={c}
-                                        onClick={() => setFromCurrency(c)}
+                                        key={c.id}
+                                        onClick={() => setFromCurrency(c.code)}
                                         className={`py-2 rounded text-xs font-bold transition-all ${
-                                            fromCurrency === c 
+                                            fromCurrency === c.code 
                                             ? 'bg-slate-700 text-white shadow' 
                                             : 'text-slate-500 hover:text-slate-300'
                                         }`}
                                     >
-                                        {c}
+                                        {c.code}
                                     </button>
                                 ))}
                             </div>
@@ -165,17 +209,17 @@ export default function Exchange() {
                         <div className="flex-1">
                             <label className="block text-xs font-medium text-slate-400 mb-1 uppercase">To</label>
                             <div className="grid grid-cols-3 gap-1 bg-slate-900 p-1 rounded-lg">
-                                {(['USD', 'LBP', 'EUR'] as Currency[]).map(c => (
+                                {currencies.map(c => (
                                     <button
-                                        key={c}
-                                        onClick={() => setToCurrency(c)}
+                                        key={c.id}
+                                        onClick={() => setToCurrency(c.code)}
                                         className={`py-2 rounded text-xs font-bold transition-all ${
-                                            toCurrency === c 
+                                            toCurrency === c.code 
                                             ? 'bg-slate-700 text-white shadow' 
                                             : 'text-slate-500 hover:text-slate-300'
                                         }`}
                                     >
-                                        {c}
+                                        {c.code}
                                     </button>
                                 ))}
                             </div>

@@ -1,10 +1,13 @@
 import { useState, useEffect } from 'react';
 import { Plus, Search, Package, Edit2, Trash2 } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
 import ProductForm from './ProductForm';
 import type { Product } from '../../types';
 
 export default function ProductList() {
     const [products, setProducts] = useState<Product[]>([]);
+    const { user } = useAuth();
+    const isAdmin = user?.role === 'admin';
     const [search, setSearch] = useState('');
     const [loading, setLoading] = useState(true);
     const [isFormOpen, setIsFormOpen] = useState(false);
@@ -98,7 +101,7 @@ export default function ProductList() {
                             <th className="p-4 border-b border-slate-700">Info</th>
                             <th className="p-4 border-b border-slate-700">Category</th>
                             <th className="p-4 border-b border-slate-700">Added Date</th>
-                            <th className="p-4 border-b border-slate-700">Cost</th>
+                            {isAdmin && <th className="p-4 border-b border-slate-700">Cost</th>}
                             <th className="p-4 border-b border-slate-700">Retail</th>
                             <th className="p-4 border-b border-slate-700">Stock</th>
                             <th className="p-4 border-b border-slate-700 text-right">Actions</th>
@@ -107,11 +110,11 @@ export default function ProductList() {
                     <tbody className="divide-y divide-slate-700 text-sm">
                         {loading ? (
                             <tr>
-                                <td colSpan={6} className="p-8 text-center text-slate-500">Loading inventory...</td>
+                                <td colSpan={isAdmin ? 7 : 6} className="p-8 text-center text-slate-500">Loading inventory...</td>
                             </tr>
                         ) : products.length === 0 ? (
                             <tr>
-                                <td colSpan={6} className="p-8 text-center text-slate-500">No products found.</td>
+                                <td colSpan={isAdmin ? 7 : 6} className="p-8 text-center text-slate-500">No products found.</td>
                             </tr>
                         ) : (
                             products.map((product) => (
@@ -128,7 +131,9 @@ export default function ProductList() {
                                     <td className="p-4 text-slate-400 text-xs">
                                         {product.created_at ? new Date(product.created_at).toLocaleDateString() : '-'}
                                     </td>
-                                    <td className="p-4 text-slate-400">${product.cost_price.toFixed(2)}</td>
+                                    {isAdmin && (
+                                        <td className="p-4 text-slate-400">${product.cost_price.toFixed(2)}</td>
+                                    )}
                                     <td className="p-4 text-green-400 font-medium">${product.retail_price.toFixed(2)}</td>
                                     <td className="p-4">
                                         <div className={`font-medium ${product.stock_quantity <= product.min_stock_level ? 'text-red-400' : 'text-slate-300'}`}>

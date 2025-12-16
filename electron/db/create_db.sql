@@ -130,8 +130,18 @@ CREATE TABLE IF NOT EXISTS daily_closings (
     system_expected_usd DECIMAL(15, 2),
     system_expected_lbp DECIMAL(15, 2),
     variance_usd DECIMAL(15, 2),
-    notes TEXT
+    notes TEXT,
+    report_path TEXT,
+    created_by INTEGER,
+    updated_by INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (created_by) REFERENCES users(id),
+    FOREIGN KEY (updated_by) REFERENCES users(id)
 );
+
+-- Seed admin user if not exists (simple username, role)
+INSERT OR IGNORE INTO users (id, username, password_hash, role, is_active) VALUES (1, 'admin', '', 'admin', 1);
 
 -- Sync Queue
 CREATE TABLE IF NOT EXISTS sync_queue (
@@ -141,6 +151,27 @@ CREATE TABLE IF NOT EXISTS sync_queue (
     action_type TEXT,
     payload_json TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Sync Errors
+CREATE TABLE IF NOT EXISTS sync_errors (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    endpoint TEXT,
+    payload_json TEXT,
+    error TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Daily Closing Amounts (per drawer and currency)
+CREATE TABLE IF NOT EXISTS daily_closing_amounts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    closing_id INTEGER NOT NULL,
+    drawer_name TEXT NOT NULL, -- General, OMT, MTC, Alfa
+    currency_code TEXT NOT NULL,
+    opening_amount REAL DEFAULT 0,
+    physical_amount REAL DEFAULT 0,
+    UNIQUE(closing_id, drawer_name, currency_code),
+    FOREIGN KEY (closing_id) REFERENCES daily_closings(id)
 );
 
 -- Activity Logs
@@ -153,6 +184,25 @@ CREATE TABLE IF NOT EXISTS activity_logs (
     details_json TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+-- Currencies (for Exchange)
+CREATE TABLE IF NOT EXISTS currencies (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT UNIQUE NOT NULL, -- e.g., USD, LBP, EUR
+    name TEXT NOT NULL,
+    is_active BOOLEAN DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Exchange Rates (cross-rate matrix)
+CREATE TABLE IF NOT EXISTS exchange_rates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    from_code TEXT NOT NULL,
+    to_code TEXT NOT NULL,
+    rate REAL NOT NULL,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(from_code, to_code)
 );
 
 -- Exchange Transactions

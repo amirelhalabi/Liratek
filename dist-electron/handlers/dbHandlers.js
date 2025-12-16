@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.registerDatabaseHandlers = registerDatabaseHandlers;
 const electron_1 = require("electron");
 const db_1 = require("../db");
+const zod_1 = require("zod");
 function registerDatabaseHandlers() {
     const db = (0, db_1.getDatabase)();
     // Helper function to get all settings
@@ -23,6 +24,62 @@ function registerDatabaseHandlers() {
     // Get system settings
     electron_1.ipcMain.handle('db:get-settings', () => {
         return _getSettings();
+    });
+    // Set Opening balances (upsert into daily_closings)
+    electron_1.ipcMain.handle('closing:set-opening-balances', (_event, data) => {
+        try {
+            const schema = zod_1.z.object({
+                closing_date: zod_1.z.string().min(8),
+                user_id: zod_1.z.number().optional(),
+                amounts: zod_1.z.array(zod_1.z.object({
+                    drawer_name: zod_1.z.string().min(1),
+                    currency_code: zod_1.z.string().min(1),
+                    opening_amount: zod_1.z.number().nonnegative()
+                }))
+            });
+            const parsed = schema.safeParse(data);
+            if (!parsed.success)
+                return { success: false, error: 'Invalid payload' };
+            const payload = parsed.data;
+            // We will use a single closing record per date (drawer_name aggregated in detail table)
+            const exists = db.prepare(`SELECT id FROM daily_closings WHERE closing_date = ? AND drawer_name = 'AGGREGATED'`).get(payload.closing_date);
+            if (exists && exists.id) {
+                // Upsert amounts
+                const up = db.prepare(`INSERT INTO daily_closing_amounts (closing_id, drawer_name, currency_code, opening_amount, physical_amount)
+                    VALUES (?, ?, ?, ?, 0)
+                    ON CONFLICT(closing_id, drawer_name, currency_code) DO UPDATE SET opening_amount=excluded.opening_amount`);
+                const tx = db.transaction((rows) => {
+                    for (const r of rows)
+                        up.run(exists.id, r.drawer_name, r.currency_code, r.opening_amount);
+                });
+                tx(payload.amounts);
+                // Audit
+                db.prepare(`INSERT INTO activity_logs (user_id, action, details_json, created_at) VALUES (?, 'OPENING', ?, CURRENT_TIMESTAMP)`).run(payload.user_id || 1, JSON.stringify({ opening: payload.amounts }));
+                return { success: true, id: exists.id };
+            }
+            else {
+                const stmt = db.prepare(`
+                    INSERT INTO daily_closings (
+                        closing_date, drawer_name, opening_balance_usd, opening_balance_lbp, physical_eur, notes
+                    ) VALUES (?, 'AGGREGATED', 0, 0, 0, 'Opening set')
+                `);
+                const res = stmt.run(payload.closing_date);
+                const up = db.prepare(`INSERT INTO daily_closing_amounts (closing_id, drawer_name, currency_code, opening_amount, physical_amount)
+                    VALUES (?, ?, ?, ?, 0)
+                    ON CONFLICT(closing_id, drawer_name, currency_code) DO UPDATE SET opening_amount=excluded.opening_amount`);
+                const tx = db.transaction((rows) => {
+                    for (const r of rows)
+                        up.run(res.lastInsertRowid, r.drawer_name, r.currency_code, r.opening_amount);
+                });
+                tx(payload.amounts);
+                db.prepare(`INSERT INTO activity_logs (user_id, action, details_json, created_at) VALUES (?, 'OPENING', ?, CURRENT_TIMESTAMP)`).run(payload.user_id || 1, JSON.stringify({ opening: payload.amounts }));
+                return { success: true, id: res.lastInsertRowid };
+            }
+        }
+        catch (error) {
+            console.error('Failed to set opening balances:', error);
+            return { success: false, error: error.message };
+        }
     });
     // Alias for settings:get-all
     electron_1.ipcMain.handle('settings:get-all', (_event) => _getSettings());
@@ -130,9 +187,23 @@ function registerDatabaseHandlers() {
             // Calculate net balance for General Drawer B
             const expectedUsd = (salesResult.total_usd_sales || 0) + (repaymentsResult.total_usd_repayments || 0) - (expensesResult.total_usd_expenses || 0);
             const expectedLbp = (salesResult.total_lbp_sales || 0) + (repaymentsResult.total_lbp_repayments || 0) - (expensesResult.total_lbp_expenses || 0);
-            // Placeholder for OMT Drawer A - for now, just return 0, implementation will be in omtHandlers.ts
-            const expectedOmtUsd = 0;
-            const expectedOmtLbp = 0;
+            // OMT Drawer A expected balances based on financial_services
+            const omtInflows = db.prepare(`
+                SELECT 
+                    COALESCE(SUM(amount_usd), 0) as total_usd,
+                    COALESCE(SUM(amount_lbp), 0) as total_lbp
+                FROM financial_services
+                WHERE DATE(created_at) = ? AND provider = 'OMT' AND service_type = 'RECEIVE'
+            `).get(today);
+            const omtOutflows = db.prepare(`
+                SELECT 
+                    COALESCE(SUM(amount_usd), 0) as total_usd,
+                    COALESCE(SUM(amount_lbp), 0) as total_lbp
+                FROM financial_services
+                WHERE DATE(created_at) = ? AND provider = 'OMT' AND service_type = 'SEND'
+            `).get(today);
+            const expectedOmtUsd = (omtInflows?.total_usd || 0) - (omtOutflows?.total_usd || 0);
+            const expectedOmtLbp = (omtInflows?.total_lbp || 0) - (omtOutflows?.total_lbp || 0);
             return {
                 generalDrawer: {
                     usd: expectedUsd,
@@ -158,25 +229,90 @@ function registerDatabaseHandlers() {
     electron_1.ipcMain.handle('closing:create-daily-closing', (_event, data) => {
         try {
             const db = (0, db_1.getDatabase)();
+            const schema = zod_1.z.object({
+                closing_date: zod_1.z.string().min(8),
+                user_id: zod_1.z.number().optional(),
+                variance_notes: zod_1.z.string().optional(),
+                report_path: zod_1.z.string().optional(),
+                system_expected_usd: zod_1.z.number().optional(),
+                system_expected_lbp: zod_1.z.number().optional(),
+                amounts: zod_1.z.array(zod_1.z.object({
+                    drawer_name: zod_1.z.string().min(1),
+                    currency_code: zod_1.z.string().min(1),
+                    physical_amount: zod_1.z.number().nonnegative(),
+                    opening_amount: zod_1.z.number().nonnegative().optional()
+                }))
+            });
+            const parsed = schema.safeParse(data);
+            if (!parsed.success)
+                return { success: false, error: 'Invalid payload' };
+            const payload = parsed.data;
             const stmt = db.prepare(`
                 INSERT INTO daily_closings (
                     closing_date, drawer_name, opening_balance_usd, opening_balance_lbp,
                     physical_usd, physical_lbp, physical_eur, system_expected_usd,
                     system_expected_lbp, variance_usd, notes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, 'AGGREGATED', 0, 0, 0, 0, 0, ?, ?, 0, ?)
             `);
-            const result = stmt.run(data.closing_date, data.drawer_name, data.opening_balance_usd, data.opening_balance_lbp, data.physical_usd, data.physical_lbp, data.physical_eur, data.system_expected_usd, data.system_expected_lbp, data.variance_usd, data.notes || null);
+            const result = stmt.run(payload.closing_date, payload.system_expected_usd || 0, payload.system_expected_lbp || 0, payload.variance_notes || null);
+            // Insert per-drawer/currency amounts
+            const up = db.prepare(`INSERT INTO daily_closing_amounts (closing_id, drawer_name, currency_code, opening_amount, physical_amount)
+                VALUES (?, ?, ?, COALESCE(?,0), COALESCE(?,0))
+                ON CONFLICT(closing_id, drawer_name, currency_code) DO UPDATE SET physical_amount=excluded.physical_amount, opening_amount=COALESCE(daily_closing_amounts.opening_amount, excluded.opening_amount)`);
+            const tx = db.transaction((rows) => {
+                for (const r of rows)
+                    up.run(result.lastInsertRowid, r.drawer_name, r.currency_code, r.opening_amount, r.physical_amount);
+            });
+            tx(payload.amounts);
             // Log to activity logs
             const logStmt = db.prepare(`
                 INSERT INTO activity_logs (user_id, action, table_name, record_id, details_json, created_at)
                 VALUES (1, 'CREATE_DAILY_CLOSING', 'daily_closings', ?, ?, CURRENT_TIMESTAMP)
             `);
-            logStmt.run(result.lastInsertRowid, JSON.stringify(data));
-            console.log(`[CLOSING] Daily closing created for ${data.closing_date} - ${data.drawer_name}`);
+            logStmt.run(result.lastInsertRowid, JSON.stringify({ amounts: payload.amounts }));
+            console.log(`[CLOSING] Daily closing created for ${payload.closing_date}`);
             return { success: true, id: result.lastInsertRowid };
         }
         catch (error) {
             console.error('Failed to create daily closing:', error);
+            return { success: false, error: error.message };
+        }
+    });
+    // Diagnostics: list sync_errors
+    electron_1.ipcMain.handle('diagnostics:get-sync-errors', () => {
+        try {
+            const db = (0, db_1.getDatabase)();
+            const rows = db.prepare('SELECT id, endpoint, error, created_at FROM sync_errors ORDER BY id DESC LIMIT 200').all();
+            return rows;
+        }
+        catch (e) {
+            return { error: e.message };
+        }
+    });
+    // Update existing daily closing (sets updated_by and updated_at)
+    electron_1.ipcMain.handle('closing:update-daily-closing', (_event, data) => {
+        try {
+            const db = (0, db_1.getDatabase)();
+            const current = db.prepare('SELECT * FROM daily_closings WHERE id = ?').get(data.id);
+            if (!current)
+                return { success: false, error: 'Not found' };
+            const stmt = db.prepare(`UPDATE daily_closings SET
+                physical_usd = COALESCE(?, physical_usd),
+                physical_lbp = COALESCE(?, physical_lbp),
+                physical_eur = COALESCE(?, physical_eur),
+                system_expected_usd = COALESCE(?, system_expected_usd),
+                system_expected_lbp = COALESCE(?, system_expected_lbp),
+                variance_usd = COALESCE(?, variance_usd),
+                notes = COALESCE(?, notes),
+                report_path = COALESCE(?, report_path),
+                updated_by = ?,
+                updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?`);
+            stmt.run(data.physical_usd, data.physical_lbp, data.physical_eur, data.system_expected_usd, data.system_expected_lbp, data.variance_usd, data.notes, data.report_path, data.user_id || 1, data.id);
+            return { success: true };
+        }
+        catch (error) {
+            console.error('Failed to update daily closing:', error);
             return { success: false, error: error.message };
         }
     });

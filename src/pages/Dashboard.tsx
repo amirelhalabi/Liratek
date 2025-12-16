@@ -2,17 +2,17 @@ import { useState, useEffect } from 'react';
 import { DollarSign, Users, TrendingUp, Clock, Inbox, BarChart2 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import { appEvents } from '../utils/appEvents';
-import Closing from './Closing'; // Import Closing component
-
 type ChartType = 'Sales' | 'Profit';
 
 export default function Dashboard() {
-    const [isClosingModalOpen, setIsClosingModalOpen] = useState(false); // State to control Closing modal visibility
     const [stats, setStats] = useState({
         totalSalesUSD: 0,
         totalSalesLBP: 0,
         ordersCount: 0,
         activeClients: 0,
+        stockBudgetUSD: 0,
+        stockCount: 0,
+        virtualStockCredits: 0,
     });
     const [drawerBalances, setDrawerBalances] = useState({
         generalDrawer: { usd: 0, lbp: 0 },
@@ -29,15 +29,22 @@ export default function Dashboard() {
 
     const loadData = async () => {
         try {
-            const [statsData, profitChartData, salesTodayData, drawerData, debtData] = await Promise.all([
+            const [statsData, profitChartData, salesTodayData, drawerData, debtData, stockStats, rechargeStock] = await Promise.all([
                 window.api.getDashboardStats(),
                 window.api.getProfitSalesChart(chartType),
                 window.api.getTodaysSales(),
                 window.api.getDrawerBalances(),
                 window.api.getDebtSummary(),
+                window.api.getInventoryStockStats(),
+                window.api.getRechargeStock(),
             ]);
 
-            setStats(statsData);
+            setStats({
+                ...statsData,
+                stockBudgetUSD: stockStats?.stock_budget_usd || 0,
+                stockCount: stockStats?.stock_count || 0,
+                virtualStockCredits: (rechargeStock?.mtc || 0) + (rechargeStock?.alfa || 0),
+            });
             const formattedChartData = profitChartData.map((d: any) => ({ ...d, date: new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) }));
             setChartData(formattedChartData);
             setTodaysSales(salesTodayData);
@@ -56,8 +63,8 @@ export default function Dashboard() {
                 // Round up USD to the next thousand
                 setMaxUsdSales(Math.ceil(currentMaxUsd / 1000) * 1000);
                 
-                // Round up LBP to the next 80,000,000
-                setMaxLbpSales(Math.ceil(currentMaxLbp / 80000000) * 80000000);
+                // Round up LBP to the next million
+                setMaxLbpSales(Math.ceil(currentMaxLbp / 1_000_000) * 1_000_000);
             }
 
         } catch (error) {
@@ -69,31 +76,25 @@ export default function Dashboard() {
         loadData();
         const interval = setInterval(loadData, 30000); // 30s refresh
 
+        // Subscribe to refresh events
         const unsubscribe = appEvents.on('sale:completed', () => {
             console.log('[DASHBOARD] Sale completed, refreshing stats...');
             loadData();
         });
-        appEvents.on('openClosingModal', handleOpenClosingModal);
 
         return () => {
             clearInterval(interval);
             unsubscribe();
-            appEvents.off('openClosingModal', handleOpenClosingModal); // Clean up event listener
         };
     }, [chartType]);
-
-    const handleOpenClosingModal = () => {
-        setIsClosingModalOpen(true);
-    };
-
-    const handleCloseClosingModal = () => {
-        setIsClosingModalOpen(false);
-    };
 
     const statCards = [
         { label: 'Total Sales (Today)', value: `${stats.totalSalesUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, secondaryValue: `${stats.totalSalesLBP.toLocaleString()} LBP`, icon: DollarSign, color: 'text-emerald-400', bg: 'bg-emerald-400/10' },
         { label: 'Orders Processed', value: stats.ordersCount.toString(), icon: DollarSign, color: 'text-blue-400', bg: 'bg-blue-400/10' },
         { label: 'Total Debt', value: `${debtSummary.totalDebt.toLocaleString(undefined, { maximumFractionDigits: 0 })}`, icon: Users, color: 'text-red-400', bg: 'bg-red-400/10' },
+        { label: 'Stock Budget (USD)', value: `$${stats.stockBudgetUSD.toLocaleString(undefined, { maximumFractionDigits: 0 })}`, icon: BarChart2, color: 'text-amber-400', bg: 'bg-amber-400/10' },
+        { label: 'Stock Count', value: `${stats.stockCount.toLocaleString()}`, icon: Inbox, color: 'text-teal-400', bg: 'bg-teal-400/10' },
+        { label: 'Virtual Stock (MTC+Alfa Credits)', value: `${stats.virtualStockCredits.toLocaleString()}`, icon: Inbox, color: 'text-indigo-400', bg: 'bg-indigo-400/10' },
         { label: 'General Drawer', value: `${drawerBalances.generalDrawer.usd.toLocaleString(undefined, { maximumFractionDigits: 0 })}`, secondaryValue: `${drawerBalances.generalDrawer.lbp.toLocaleString()} LBP`, icon: Inbox, color: 'text-sky-400', bg: 'bg-sky-400/10' },
         { label: 'OMT Drawer', value: `${drawerBalances.omtDrawer.usd.toLocaleString(undefined, { maximumFractionDigits: 0 })}`, secondaryValue: `${drawerBalances.omtDrawer.lbp.toLocaleString()} LBP`, icon: Inbox, color: 'text-rose-400', bg: 'bg-rose-400/10' },
     ];
@@ -160,7 +161,7 @@ export default function Dashboard() {
                                             stroke="#8b5cf6" 
                                             tick={{ fill: '#8b5cf6' }} 
                                             fontSize={12} 
-                                            tickFormatter={(value) => `${(value/80000000).toFixed(1)} Unit`} // Adjusted LBP formatter
+                                            tickFormatter={(value) => `${(value/1_000_000).toFixed(1)}M`} // Show in millions of LBP
                                             domain={[0, maxLbpSales > 0 ? maxLbpSales : 'auto']} // Dynamic domain for LBP
                                         />
                                     </>
@@ -256,9 +257,6 @@ export default function Dashboard() {
                 </div>
             </div>
 
-            {isClosingModalOpen && (
-                <Closing isOpen={isClosingModalOpen} onClose={handleCloseClosingModal} />
-            )}
         </div>
     );
 }

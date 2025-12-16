@@ -1,11 +1,22 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { appEvents } from '../../utils/appEvents';
 import { LogOut, Bell, Search, X } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
 export default function TopBar() {
     const { user, logout } = useAuth();
     const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+    const [awaitingLogout, setAwaitingLogout] = useState(false);
 
+    useEffect(() => {
+        const off = appEvents.on('closing:confirmed', () => {
+            if (awaitingLogout) {
+                setAwaitingLogout(false);
+                logout();
+            }
+        });
+        return () => off();
+    }, [awaitingLogout, logout]);
     return (
         <header className="h-16 bg-slate-800 border-b border-slate-700 flex items-center justify-between px-6 relative z-50">
             {/* Search Bar (Global) */}
@@ -61,7 +72,7 @@ export default function TopBar() {
                     </div>
 
                     <button
-                        onClick={logout}
+                        onClick={() => { setAwaitingLogout(true); appEvents.emit('openClosingModal'); }}
                         className="p-2 text-slate-400 hover:text-red-400 transition-colors"
                         title="Logout"
                     >

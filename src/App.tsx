@@ -11,6 +11,7 @@ import Services from './pages/Services';
 import Recharge from './pages/Recharge';
 import Expenses from './pages/Expenses';
 import Maintenance from './pages/Maintenance';
+import Settings from './pages/Settings';
 import MainLayout from './components/Layout/MainLayout';
 import './index.css';
 
@@ -110,6 +111,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <Expenses />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/settings"
+        element={
+          <ProtectedRoute>
+            <Settings />
           </ProtectedRoute>
         }
       />
