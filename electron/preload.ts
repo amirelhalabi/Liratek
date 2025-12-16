@@ -52,6 +52,13 @@ contextBridge.exposeInMainWorld('api', {
     closing: {
         getSystemExpectedBalances: () => ipcRenderer.invoke('closing:get-system-expected-balances'),
         createDailyClosing: (data: any) => ipcRenderer.invoke('closing:create-daily-closing', data),
+        getDailyStatsSnapshot: () => ipcRenderer.invoke('closing:get-daily-stats-snapshot'),
+    },
+
+    // Settings operations
+    settings: {
+        getAll: () => ipcRenderer.invoke('settings:get-all'),
+        update: (key: string, value: string) => ipcRenderer.invoke('settings:update', key, value),
     },
 
     // Exchange

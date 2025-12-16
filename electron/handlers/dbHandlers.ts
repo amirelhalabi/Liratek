@@ -2,33 +2,36 @@ import { ipcMain } from 'electron';
 import { getDatabase } from '../db';
 
 export function registerDatabaseHandlers(): void {
-    // Get system settings
-    ipcMain.handle('db:get-settings', () => {
-        const db = getDatabase();
-        const settings = db.prepare('SELECT * FROM system_settings').all();
-        return settings;
-    });
-
-    // Get setting by key
-    ipcMain.handle('db:get-setting', (_event, key: string) => {
-        const db = getDatabase();
-        const setting = db.prepare('SELECT value FROM system_settings WHERE key_name = ?').get(key);
-        return setting;
-    });
-
-    // Update setting
-    ipcMain.handle('db:update-setting', (_event, key: string, value: string) => {
-        const db = getDatabase();
-        const stmt = db.prepare(`
-      INSERT INTO system_settings (key_name, value) 
-      VALUES (?, ?) 
-      ON CONFLICT(key_name) 
-      DO UPDATE SET value = ?, updated_at = CURRENT_TIMESTAMP
-    `);
-        stmt.run(key, value, value);
-        return { success: true };
-    });
-
+        // Get system settings
+        ipcMain.handle('db:get-settings', () => {
+            const db = getDatabase();
+            const settings = db.prepare('SELECT * FROM system_settings').all();
+            return settings;
+        });
+        // Alias for settings:get-all
+        ipcMain.handle('settings:get-all', (_event) => ipcMain.invoke('db:get-settings'));
+    
+        // Get setting by key
+        ipcMain.handle('db:get-setting', (_event, key: string) => {
+            const db = getDatabase();
+            const setting = db.prepare('SELECT value FROM system_settings WHERE key_name = ?').get(key);
+            return setting;
+        });
+    
+        // Update setting
+        ipcMain.handle('db:update-setting', (_event, key: string, value: string) => {
+            const db = getDatabase();
+            const stmt = db.prepare(`
+          INSERT INTO system_settings (key_name, value)
+          VALUES (?, ?)
+          ON CONFLICT(key_name)
+          DO UPDATE SET value = ?, updated_at = CURRENT_TIMESTAMP
+        `);
+            stmt.run(key, value, value);
+            return { success: true };
+        });
+        // Alias for settings:update
+        ipcMain.handle('settings:update', (_event, key: string, value: string) => ipcRenderer.invoke('db:update-setting', key, value));
     // Add Expense
     ipcMain.handle('db:add-expense', (_event, data: { description: string; category: string; expense_type: string; amount_usd: number; amount_lbp: number; expense_date: string }) => {
         try {
@@ -209,5 +212,73 @@ export function registerDatabaseHandlers(): void {
             return { success: false, error: error.message };
         }
     });
-}
 
+    // New IPC handler for fetching daily stats snapshot for the closing report
+    ipcMain.handle('closing:get-daily-stats-snapshot', async () => {
+        try {
+            const db = getDatabase();
+            const today = new Date().toISOString().split('T')[0]; // Get current date in YYYY-MM-DD format
+
+            // 1. Sales Count and Total Sales
+            const salesStats = db.prepare(`
+                SELECT
+                    COUNT(id) as sales_count,
+                    SUM(final_amount_usd) as total_sales_usd,
+                    SUM(paid_lbp) as total_sales_lbp -- Assuming paid_lbp reflects LBP sales amount
+                FROM sales
+                WHERE DATE(created_at) = ? AND status = 'completed'
+            `).get(today) as { sales_count: number; total_sales_usd: number; total_sales_lbp: number };
+
+            // 2. Debt Payments (Repayments)
+            const debtPayments = db.prepare(`
+                SELECT
+                    SUM(ABS(amount_usd)) as total_debt_payments_usd,
+                    SUM(ABS(amount_lbp)) as total_debt_payments_lbp
+                FROM debt_ledger
+                WHERE DATE(created_at) = ? AND transaction_type = 'Repayment'
+            `).get(today) as { total_debt_payments_usd: number; total_debt_payments_lbp: number };
+
+            // 3. Expenses
+            const expensesStats = db.prepare(`
+                SELECT
+                    SUM(amount_usd) as total_expenses_usd,
+                    SUM(amount_lbp) as total_expenses_lbp
+                FROM expenses
+                WHERE DATE(expense_date) = ?
+            `).get(today) as { total_expenses_usd: number; total_expenses_lbp: number };
+
+            // 4. Profit
+            const profitStats = db.prepare(`
+                SELECT
+                    SUM(si.sold_price_usd - si.cost_price_snapshot_usd) as total_profit_usd
+                FROM sales s
+                JOIN sale_items si ON s.id = si.sale_id
+                WHERE DATE(s.created_at) = ? AND s.status = 'completed'
+                      AND (s.paid_usd + (s.paid_lbp / s.exchange_rate_snapshot)) >= s.final_amount_usd -- Only consider fully paid sales for profit
+            `).get(today) as { total_profit_usd: number };
+
+            return {
+                salesCount: salesStats.sales_count || 0,
+                totalSalesUSD: salesStats.total_sales_usd || 0,
+                totalSalesLBP: salesStats.total_sales_lbp || 0,
+                debtPaymentsUSD: debtPayments.total_debt_payments_usd || 0,
+                debtPaymentsLBP: debtPayments.total_debt_payments_lbp || 0,
+                totalExpensesUSD: expensesStats.total_expenses_usd || 0,
+                totalExpensesLBP: expensesStats.total_expenses_lbp || 0,
+                totalProfitUSD: profitStats.total_profit_usd || 0,
+            };
+        } catch (error: any) {
+            console.error('Failed to get daily stats snapshot:', error);
+            return {
+                salesCount: 0,
+                totalSalesUSD: 0,
+                totalSalesLBP: 0,
+                debtPaymentsUSD: 0,
+                debtPaymentsLBP: 0,
+                totalExpensesUSD: 0,
+                totalExpensesLBP: 0,
+                totalProfitUSD: 0,
+            };
+        }
+    });
+}
