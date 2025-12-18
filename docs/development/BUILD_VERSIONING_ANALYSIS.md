@@ -368,7 +368,7 @@ const dbPath = app.getPath('userData');
 ## 10. Build Output Analysis
 
 ### Current Builds Working:
-- ✅ **Windows x64** - `LiraTek Setup 1.0.0.exe` (98 MB)
+- ✅ **Windows x64** - `LiraTek-1.0.0-x64.exe` (94 MB)
 - ✅ **macOS ARM64** - `LiraTek-1.0.0-arm64.dmg` (122 MB)
 
 ### Not Configured:

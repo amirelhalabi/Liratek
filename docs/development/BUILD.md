@@ -177,7 +177,7 @@ npm run build:win:x64
 ```
 
 **Output:**
-- `release/LiraTek Setup 1.0.0.exe` - NSIS installer (~100 MB)
+- `release/LiraTek-1.0.0-x64.exe` - NSIS installer (~94 MB)
 
 **Features:**
 - One-click installation
@@ -471,7 +471,7 @@ Before creating a release:
 
 ### Verification
 - [ ] Check `release/` folder contains:
-  - [ ] `LiraTek Setup 1.0.0.exe` (~100 MB)
+  - [ ] `LiraTek-1.0.0-x64.exe` (~94 MB)
   - [ ] `LiraTek-1.0.0-arm64.dmg` (~120 MB)
   - [ ] `LiraTek-1.0.0-x64.dmg` (~120 MB) (if built)
 - [ ] Test Windows installer on Windows 10/11
