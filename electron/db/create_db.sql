@@ -258,3 +258,14 @@ CREATE TABLE IF NOT EXISTS maintenance (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (client_id) REFERENCES clients(id)
 );
+
+-- Mobile Recharges (Touch/Alfa)
+CREATE TABLE IF NOT EXISTS recharges (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    carrier TEXT CHECK(carrier IN ('Touch', 'Alfa')) NOT NULL,
+    amount_usd DECIMAL(10, 2) NOT NULL,
+    phone_number TEXT,
+    client_name TEXT,
+    note TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);

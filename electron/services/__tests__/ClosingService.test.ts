@@ -286,6 +286,8 @@ describe("ClosingService", () => {
       expect(result).toEqual({
         generalDrawer: { usd: 0, lbp: 0, eur: 0 },
         omtDrawer: { usd: 0, lbp: 0, eur: 0 },
+        mtcDrawer: { usd: 0, lbp: 0, eur: 0 },
+        alfaDrawer: { usd: 0, lbp: 0, eur: 0 },
       });
     });
 
