@@ -75,7 +75,7 @@ export default function CheckoutModal({
 
   // Heuristic: Is the search mainly digits?
   const isSearchPhone =
-    /^\+?[\d\s\-]+$/.test(clientSearch) && clientSearch.length > 0;
+    /^\+?[\d\s-]+$/.test(clientSearch) && clientSearch.length > 0;
 
   // Derived Label & Placeholder
   const secondaryLabel = isSearchPhone ? "Full Name" : "Phone Number";
@@ -106,7 +106,7 @@ export default function CheckoutModal({
 
   const getPaymentData = () => {
     // Determine effective client details
-    let finalClientId =
+    const finalClientId =
       selectedClient?.id && selectedClient.id > 0 ? selectedClient.id : null;
     let finalClientName: string | undefined;
     let finalClientPhone: string | undefined;

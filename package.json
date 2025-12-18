@@ -1,7 +1,10 @@
 {
   "name": "liratek",
+  "productName": "LiraTek",
+  "description": "Point of Sale system for Lebanese phone shops with multi-currency support",
+  "author": "Amir <amir@liratek.com>",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "main": "dist-electron/main.js",
   "workspaces": [
@@ -27,7 +30,8 @@
     "ci:build:mac": "yarn dlx electron-builder@^25.1.8 --mac dmg zip",
     "lint": "eslint .",
     "preview": "vite preview",
-    "reset:sales-debt": "node scripts/reset-sales-debt.js"
+    "reset:sales-debt": "node scripts/reset-sales-debt.js",
+    "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
     "@types/recharts": "^2.0.1",
@@ -60,7 +64,6 @@
     "concurrently": "^9.2.1",
     "electron": "^39.2.7",
     "electron-builder": "^25.1.8",
-    "electron-rebuild": "^3.2.9",
     "electron-squirrel-startup": "^1.0.1",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
@@ -78,7 +81,6 @@
     "vite": "^7.3.0",
     "wait-on": "^9.0.3"
   },
-  "postinstall": "electron-builder install-app-deps",
   "build": {
     "publish": [
       {
@@ -87,16 +89,21 @@
       }
     ],
     "asar": true,
-    "appId": "com.liratek.cornertech",
-    "productName": "Corner Tech POS",
+    "appId": "com.liratek.pos",
+    "productName": "LiraTek",
     "files": [
-      "dist/**",
+      "dist/index.html",
+      "dist/assets/**",
+      "dist/vite.svg",
       "dist-electron/**",
+      "!dist-electron/**/*.test.js",
+      "!dist-electron/**/__tests__/**",
       "node_modules/**",
       "package.json"
     ],
     "directories": {
-      "buildResources": "build"
+      "buildResources": "build",
+      "output": "release"
     },
     "mac": {
       "icon": "build/icon.icns",

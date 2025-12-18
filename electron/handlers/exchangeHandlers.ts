@@ -6,6 +6,7 @@
 
 import { ipcMain } from 'electron';
 import { getExchangeService } from '../services';
+import { exchangeLogger } from '../utils/logger';
 import type { CreateExchangeData } from '../database/repositories';
 
 export function registerExchangeHandlers(): void {
@@ -13,6 +14,7 @@ export function registerExchangeHandlers(): void {
 
   // Add Transaction (Drawer B - General Drawer)
   ipcMain.handle('exchange:add-transaction', (_event, data: CreateExchangeData) => {
+    exchangeLogger.info({ fromCurrency: data.fromCurrency, toCurrency: data.toCurrency, amountIn: data.amountIn }, 'Processing exchange');
     return exchangeService.addTransaction(data);
   });
 

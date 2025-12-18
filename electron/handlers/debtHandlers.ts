@@ -7,6 +7,7 @@
 
 import { ipcMain } from 'electron';
 import { getDebtService } from '../services';
+import { debtLogger } from '../utils/logger';
 
 interface RepaymentData {
   clientId: number;
@@ -35,6 +36,7 @@ export function registerDebtHandlers(): void {
 
   // Add a repayment
   ipcMain.handle('debt:add-repayment', (_event, data: RepaymentData) => {
+    debtLogger.info({ clientId: data.clientId, amountUSD: data.amountUSD, amountLBP: data.amountLBP }, "Adding repayment");
     return debtService.addRepayment(data);
   });
 

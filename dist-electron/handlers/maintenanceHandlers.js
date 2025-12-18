@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.registerMaintenanceHandlers = registerMaintenanceHandlers;
 const electron_1 = require("electron");
 const MaintenanceService_1 = require("../services/MaintenanceService");
+const logger_1 = require("../utils/logger");
 function registerMaintenanceHandlers() {
     const service = new MaintenanceService_1.MaintenanceService();
     // Add / Update Maintenance Job (Drawer B - General Drawer)
@@ -14,6 +15,7 @@ function registerMaintenanceHandlers() {
                 return { success: false, error: auth.error };
         }
         catch { }
+        logger_1.maintenanceLogger.info({ jobId: job.id, device: job.device_type }, "Saving maintenance job");
         return service.saveJob(job);
     });
     // Get Jobs
@@ -29,6 +31,7 @@ function registerMaintenanceHandlers() {
                 return { success: false, error: auth.error };
         }
         catch { }
+        logger_1.maintenanceLogger.info({ jobId: id }, "Deleting maintenance job");
         return service.deleteJob(id);
     });
 }

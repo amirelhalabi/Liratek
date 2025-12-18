@@ -9,14 +9,17 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.registerSalesHandlers = registerSalesHandlers;
 const electron_1 = require("electron");
 const services_1 = require("../services");
+const logger_1 = require("../utils/logger");
 function registerSalesHandlers() {
     const salesService = (0, services_1.getSalesService)();
     // Process a sale (create or update)
     electron_1.ipcMain.handle('sales:process', (_event, sale) => {
+        logger_1.salesLogger.debug({ saleId: sale.id, status: sale.status }, 'Processing sale');
         return salesService.processSale(sale);
     });
     // Get Drafts
     electron_1.ipcMain.handle('sales:get-drafts', () => {
+        logger_1.salesLogger.debug('Getting drafts');
         return salesService.getDrafts();
     });
     // Dashboard Stats
@@ -25,6 +28,7 @@ function registerSalesHandlers() {
     });
     // Chart Data (Sales or Profit for last 30 days)
     electron_1.ipcMain.handle('dashboard:get-profit-sales-chart', (_event, type) => {
+        logger_1.salesLogger.debug({ type }, 'Getting chart data');
         return salesService.getChartData(type);
     });
     // Drawer Balances

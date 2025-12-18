@@ -9,6 +9,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.registerDebtHandlers = registerDebtHandlers;
 const electron_1 = require("electron");
 const services_1 = require("../services");
+const logger_1 = require("../utils/logger");
 function registerDebtHandlers() {
     const debtService = (0, services_1.getDebtService)();
     // Get all debtors with their totals
@@ -25,6 +26,7 @@ function registerDebtHandlers() {
     });
     // Add a repayment
     electron_1.ipcMain.handle('debt:add-repayment', (_event, data) => {
+        logger_1.debtLogger.info({ clientId: data.clientId, amountUSD: data.amountUSD, amountLBP: data.amountLBP }, "Adding repayment");
         return debtService.addRepayment(data);
     });
     // Dashboard debt summary

@@ -106,7 +106,7 @@ export default function Dashboard() {
         // Round up LBP to the next million
         setMaxLbpSales(Math.ceil(currentMaxLbp / 1_000_000) * 1_000_000);
       }
-    } catch (error) {
+    } catch (_error) {
       // console.error('Failed to load dashboard data:', error);
     }
   };

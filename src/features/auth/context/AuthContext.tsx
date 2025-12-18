@@ -1,6 +1,7 @@
-// eslint-disable-next-line react-refresh/only-export-components
+ 
 import { createContext, useContext, useState, useEffect } from "react";
 import type { ReactNode } from "react";
+import { appEvents } from "../../../shared/utils/appEvents";
 
 interface User {
   id: number;
@@ -49,10 +50,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (result.success && result.user) {
         setUser(result.user);
         // Session token is now stored encrypted on the backend
-        try {
-          const { appEvents } = await import("../../../shared/utils/appEvents");
-          appEvents.emit("openOpeningModal");
-        } catch {}
+        appEvents.emit("openOpeningModal");
         return { success: true };
       }
       return { success: false, error: result.error };

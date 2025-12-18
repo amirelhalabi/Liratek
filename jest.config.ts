@@ -5,7 +5,7 @@ const config: Config = {
   testEnvironment: "node",
   moduleFileExtensions: ["ts", "tsx", "js", "jsx", "json", "node"],
   roots: ["<rootDir>/electron", "<rootDir>/src"], // Look for tests in electron and src folders
-  testRegex: "(/__tests__/.*|(\.|)(test|spec))\.tsx?$", // Match .test.ts or .spec.ts files
+  testRegex: "(/__tests__/.*|(.|)(test|spec))\\.tsx?$", // Match .test.ts or .spec.ts files
   // For mocking Electron's ipcMain/ipcRenderer and database
   moduleNameMapper: {
     "^electron$": "<rootDir>/__mocks__/electron.ts",

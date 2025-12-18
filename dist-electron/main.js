@@ -21,14 +21,21 @@ const currencyHandlers_1 = require("./handlers/currencyHandlers");
 const rateHandlers_1 = require("./handlers/rateHandlers");
 const sync_1 = require("./sync");
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-if (require("electron-squirrel-startup")) {
-    electron_1.app.quit();
+if (process.platform === "win32") {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const squirrelStartup = require("electron-squirrel-startup");
+    if (squirrelStartup) {
+        electron_1.app.quit();
+    }
 }
 function createWindow() {
+    // Icon path for development (not needed in packaged macOS app)
+    const iconPath = path_1.default.join(__dirname, "../resources/icon.png");
     const mainWindow = new electron_1.BrowserWindow({
         width: 1280,
         height: 800,
+        // Only set icon on non-macOS or development (macOS uses .icns from bundle)
+        ...(process.platform !== "darwin" && !electron_1.app.isPackaged && { icon: iconPath }),
         webPreferences: {
             preload: path_1.default.join(__dirname, "preload.js"),
             nodeIntegration: false,
@@ -45,6 +52,13 @@ function createWindow() {
     }
 }
 electron_1.app.whenReady().then(() => {
+    // Set app name for macOS dock
+    electron_1.app.setName("LiraTek");
+    // Set dock icon on macOS (only in development, packaged app uses .icns)
+    if (process.platform === "darwin" && electron_1.app.dock && !electron_1.app.isPackaged) {
+        const iconPath = path_1.default.join(__dirname, "../resources/icon.png");
+        electron_1.app.dock.setIcon(iconPath);
+    }
     // Initialize database and run migrations
     console.log("Initializing database...");
     (0, migrate_1.runMigrations)();
@@ -77,7 +91,7 @@ electron_1.app.whenReady().then(() => {
         const { autoUpdater } = require("electron-updater");
         autoUpdater.checkForUpdatesAndNotify();
     }
-    catch (e) {
+    catch (_e) {
         console.log("[Updater] Skipped (module not installed)");
     }
     createWindow();

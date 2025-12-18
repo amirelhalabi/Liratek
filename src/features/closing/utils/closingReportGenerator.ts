@@ -40,7 +40,7 @@ export function generateClosingReport(
     return `${varianceSign}${Math.abs(variance).toFixed(2)} ${currency} (${variance < 0 ? "-" : ""}${percentage.toFixed(2)}%) - ${status}`;
   };
 
-  let reportContent = `
+  const reportContent = `
 --- Daily Closing Report ---
 Date: ${closingData.closing_date}
 Drawer: ${closingData.drawer_name}

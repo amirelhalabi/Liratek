@@ -7,6 +7,7 @@
 
 import { ipcMain } from "electron";
 import { getInventoryService } from "../services";
+import { inventoryLogger } from "../utils/logger";
 
 // =============================================================================
 // Types
@@ -45,7 +46,7 @@ export function registerInventoryHandlers(): void {
   ipcMain.handle("inventory:get-product", (_event, id: number) => {
     try {
       return service.getProductById(id);
-    } catch (error) {
+    } catch (_error) {
       return null;
     }
   });
@@ -68,6 +69,7 @@ export function registerInventoryHandlers(): void {
       if (!auth.ok) return { success: false, error: auth.error };
     } catch {}
 
+    inventoryLogger.debug({ barcode: product.barcode, name: product.name }, "Creating product");
     return service.createProduct({
       barcode: product.barcode,
       name: product.name,

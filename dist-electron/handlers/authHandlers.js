@@ -16,6 +16,7 @@ const db_1 = require("../db");
 const AuthService_1 = require("../services/AuthService");
 const crypto_1 = require("../utils/crypto");
 const errors_1 = require("../utils/errors");
+const logger_1 = require("../utils/logger");
 // =============================================================================
 // Handler Registration
 // =============================================================================
@@ -33,18 +34,18 @@ function registerAuthHandlers() {
         if (!row || !row.password_hash || row.password_hash === "") {
             const hash = (0, crypto_1.hashPassword)("admin123");
             db.prepare("UPDATE users SET password_hash = ? WHERE id = 1").run(hash);
-            console.log("[AUTH] Admin default password set (admin123). Please change it.");
+            logger_1.authLogger.info("Admin default password set (admin123). Please change it.");
         }
     }
     catch (e) {
-        console.warn("[AUTH] Admin seed warning:", e);
+        logger_1.authLogger.warn({ error: e }, "Admin seed warning");
     }
     // ---------------------------------------------------------------------------
     // Login Handler
     // ---------------------------------------------------------------------------
     electron_1.ipcMain.handle("auth:login", async (event, username, password) => {
         try {
-            console.log(`[AUTH] Login attempt for username: "${username}"`);
+            logger_1.authLogger.debug({ username }, "Login attempt");
             const result = await authService.login(username, password);
             if (!result.success || !result.user) {
                 return { success: false, error: "Invalid username or password" };
@@ -59,9 +60,9 @@ function registerAuthHandlers() {
                 sessionToken = storeEncryptedSession(result.user.id);
             }
             catch (e) {
-                console.warn("[AUTH] Failed to set session:", e);
+                logger_1.authLogger.warn({ error: e }, "Failed to set session");
             }
-            console.log(`[AUTH] Login successful for user: ${username}`);
+            logger_1.authLogger.info({ username, userId: result.user.id }, "Login successful");
             return {
                 success: true,
                 user: result.user,
@@ -69,7 +70,7 @@ function registerAuthHandlers() {
             };
         }
         catch (error) {
-            console.error("[AUTH] Login error:", error);
+            logger_1.authLogger.error({ error, username }, "Login error");
             return {
                 success: false,
                 error: (0, errors_1.isAppError)(error) ? error.message : "An unexpected error occurred during login",
@@ -81,7 +82,7 @@ function registerAuthHandlers() {
     // ---------------------------------------------------------------------------
     electron_1.ipcMain.handle("auth:logout", (_event, userId) => {
         try {
-            console.log(`[AUTH] Logout for user ID: ${userId}`);
+            logger_1.authLogger.debug({ userId }, "Logout");
             // Clear encrypted session
             try {
                 const { clearEncryptedSession, clearSession } = require("../session");
@@ -89,14 +90,14 @@ function registerAuthHandlers() {
                 clearSession(_event.sender.id);
             }
             catch (e) {
-                console.warn("[AUTH] Failed to clear session:", e);
+                logger_1.authLogger.warn({ error: e }, "Failed to clear session");
             }
             // Log activity
             logActivity(db, userId, "LOGOUT");
             return { success: true };
         }
         catch (error) {
-            console.error("[AUTH] Logout error:", error);
+            logger_1.authLogger.error({ error, userId }, "Logout error");
             return { success: false, error: "Failed to logout" };
         }
     });
@@ -108,19 +109,19 @@ function registerAuthHandlers() {
             const { getEncryptedSession, setSession } = require("../session");
             const stored = getEncryptedSession();
             if (!stored) {
-                console.log("[AUTH] No stored session found");
+                logger_1.authLogger.debug("No stored session found");
                 return { success: false, error: "No session" };
             }
             const user = authService.getUserById(stored.userId);
             if (!user) {
-                console.log("[AUTH] Stored session user not found or inactive");
+                logger_1.authLogger.debug({ userId: stored.userId }, "Stored session user not found or inactive");
                 const { clearEncryptedSession } = require("../session");
                 clearEncryptedSession();
                 return { success: false, error: "User not found" };
             }
             // Restore in-memory session
             setSession(event.sender.id, user.id, user.role);
-            console.log(`[AUTH] Session restored for user: ${user.username}`);
+            logger_1.authLogger.info({ username: user.username, userId: user.id }, "Session restored");
             return {
                 success: true,
                 user: {
@@ -131,7 +132,7 @@ function registerAuthHandlers() {
             };
         }
         catch (error) {
-            console.error("[AUTH] Restore session error:", error);
+            logger_1.authLogger.error({ error }, "Restore session error");
             return { success: false, error: "Failed to restore session" };
         }
     });
@@ -141,11 +142,11 @@ function registerAuthHandlers() {
     electron_1.ipcMain.handle("auth:get-current-user", (_event, userId) => {
         try {
             const user = authService.getUserById(userId);
-            console.log(`[AUTH] Get current user for ID: ${userId} - ${user ? "found" : "not found"}`);
+            logger_1.authLogger.debug({ userId, found: !!user }, "Get current user");
             return user || null;
         }
         catch (error) {
-            console.error("[AUTH] Get current user error:", error);
+            logger_1.authLogger.error({ error, userId }, "Get current user error");
             return null;
         }
     });
@@ -165,7 +166,7 @@ function registerAuthHandlers() {
             return { success: false, error: result.error || "Failed to create user" };
         }
         catch (error) {
-            console.error("[AUTH] Create user error:", error);
+            logger_1.authLogger.error({ error, username: data.username }, "Create user error");
             return { success: false, error: (0, errors_1.isAppError)(error) ? error.message : "Failed to create user" };
         }
     });
@@ -181,7 +182,7 @@ function registerAuthHandlers() {
             return { success: result.success, error: result.error };
         }
         catch (error) {
-            console.error("[AUTH] Set password error:", error);
+            logger_1.authLogger.error({ error, userId: data.id }, "Set password error");
             return { success: false, error: (0, errors_1.isAppError)(error) ? error.message : "Failed to set password" };
         }
     });
@@ -198,7 +199,7 @@ function registerAuthHandlers() {
             return users.filter(u => u.role !== "admin");
         }
         catch (error) {
-            console.error("[AUTH] List non-admin users error:", error);
+            logger_1.authLogger.error({ error }, "List non-admin users error");
             return [];
         }
     });
@@ -222,7 +223,7 @@ function registerAuthHandlers() {
             return { success: true };
         }
         catch (error) {
-            console.error("[AUTH] Set active error:", error);
+            logger_1.authLogger.error({ error, userId: data.id, is_active: data.is_active }, "Set active error");
             return { success: false, error: (0, errors_1.isAppError)(error) ? error.message : "Failed to update user status" };
         }
     });
@@ -241,7 +242,7 @@ function registerAuthHandlers() {
             return { success: true };
         }
         catch (error) {
-            console.error("[AUTH] Set role error:", error);
+            logger_1.authLogger.error({ error, userId: data.id, role: data.role }, "Set role error");
             return { success: false, error: (0, errors_1.isAppError)(error) ? error.message : "Failed to update role" };
         }
     });
@@ -257,7 +258,7 @@ function logActivity(db, userId, action) {
         db.prepare(`INSERT INTO activity_logs (user_id, action, details_json) VALUES (?, ?, ?)`).run(userId, action, JSON.stringify({ timestamp: new Date().toISOString() }));
     }
     catch (e) {
-        console.warn(`[AUTH] Failed to log ${action} activity:`, e);
+        logger_1.authLogger.warn({ error: e, action, userId }, "Failed to log activity");
     }
 }
 /**

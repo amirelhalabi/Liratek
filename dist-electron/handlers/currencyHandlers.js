@@ -9,6 +9,7 @@ exports.registerCurrencyHandlers = registerCurrencyHandlers;
 const electron_1 = require("electron");
 const services_1 = require("../services");
 const session_1 = require("../session");
+const logger_1 = require("../utils/logger");
 function registerCurrencyHandlers() {
     const currencyService = (0, services_1.getCurrencyService)();
     // List all currencies
@@ -20,6 +21,7 @@ function registerCurrencyHandlers() {
         const auth = (0, session_1.requireRole)(event.sender.id, ['admin']);
         if (!auth.ok)
             return { success: false, error: auth.error };
+        logger_1.settingsLogger.info({ code: data.code, name: data.name }, 'Creating currency');
         return currencyService.createCurrency(data);
     });
     // Update a currency (admin only)
@@ -27,6 +29,7 @@ function registerCurrencyHandlers() {
         const auth = (0, session_1.requireRole)(event.sender.id, ['admin']);
         if (!auth.ok)
             return { success: false, error: auth.error };
+        logger_1.settingsLogger.info({ id: data.id }, 'Updating currency');
         const { id, ...updateData } = data;
         return currencyService.updateCurrency(id, updateData);
     });
@@ -35,6 +38,7 @@ function registerCurrencyHandlers() {
         const auth = (0, session_1.requireRole)(event.sender.id, ['admin']);
         if (!auth.ok)
             return { success: false, error: auth.error };
+        logger_1.settingsLogger.info({ id }, 'Deleting currency');
         return currencyService.deleteCurrency(id);
     });
 }

@@ -7,6 +7,7 @@
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { getRateService } from '../services';
 import { requireRole } from '../session';
+import { settingsLogger } from '../utils/logger';
 import type { SetRateData } from '../database/repositories';
 
 export function registerRateHandlers(): void {
@@ -22,6 +23,7 @@ export function registerRateHandlers(): void {
     const auth = requireRole(event.sender.id, ['admin']);
     if (!auth.ok) return { success: false, error: auth.error };
 
+    settingsLogger.info({ fromCode: data.from_code, toCode: data.to_code, rate: data.rate }, 'Setting rate');
     return rateService.setRate(data);
   });
 }

@@ -8,6 +8,7 @@
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { getClientService } from '../services';
 import { requireRole } from '../session';
+import { clientLogger } from '../utils/logger';
 
 interface ClientData {
   id?: number;
@@ -32,6 +33,7 @@ export function registerClientHandlers(): void {
 
   // Create client
   ipcMain.handle('clients:create', (_event, client: ClientData) => {
+    clientLogger.debug({ name: client.full_name }, "Creating client");
     return clientService.createClient({
       full_name: client.full_name,
       phone_number: client.phone_number,
@@ -61,6 +63,7 @@ export function registerClientHandlers(): void {
       return { success: false, error: auth.error };
     }
     
+    clientLogger.info({ clientId: id }, "Deleting client");
     return clientService.deleteClient(id);
   });
 }

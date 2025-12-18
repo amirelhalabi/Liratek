@@ -1,5 +1,6 @@
 import { ipcMain } from "electron";
 import { ReportService } from "../services/ReportService";
+import { dbLogger } from "../utils/logger";
 
 export function registerReportHandlers(): void {
   const service = new ReportService();
@@ -13,6 +14,7 @@ export function registerReportHandlers(): void {
         if (!auth.ok) return { success: false, error: auth.error } as any;
       } catch {}
 
+      dbLogger.info({ filename: data.filename }, 'Generating PDF report');
       return service.generatePdf(data.html, data.filename);
     }
   );
@@ -25,6 +27,7 @@ export function registerReportHandlers(): void {
       if (!auth.ok) return { success: false, error: auth.error } as any;
     } catch {}
 
+    dbLogger.info('Creating database backup');
     return service.backupDatabase();
   });
 }

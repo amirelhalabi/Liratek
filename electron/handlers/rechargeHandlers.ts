@@ -7,6 +7,7 @@
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { getRechargeService } from '../services';
 import { requireRole } from '../session';
+import { rechargeLogger } from '../utils/logger';
 import type { RechargeData } from '../database/repositories';
 
 export function registerRechargeHandlers(): void {
@@ -22,6 +23,7 @@ export function registerRechargeHandlers(): void {
     const auth = requireRole(event.sender.id, ['admin']);
     if (!auth.ok) return { success: false, error: auth.error };
 
+    rechargeLogger.info({ provider: data.provider, type: data.type, amount: data.amount }, 'Processing recharge');
     return rechargeService.processRecharge(data);
   });
 }

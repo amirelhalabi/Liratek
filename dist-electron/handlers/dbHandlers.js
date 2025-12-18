@@ -7,6 +7,7 @@ const SettingsService_1 = require("../services/SettingsService");
 const ExpenseService_1 = require("../services/ExpenseService");
 const ClosingService_1 = require("../services/ClosingService");
 const ActivityService_1 = require("../services/ActivityService");
+const logger_1 = require("../utils/logger");
 function registerDatabaseHandlers() {
     const settingsService = new SettingsService_1.SettingsService();
     const expenseService = new ExpenseService_1.ExpenseService();
@@ -34,6 +35,7 @@ function registerDatabaseHandlers() {
                 return { success: false, error: auth.error };
         }
         catch { }
+        logger_1.settingsLogger.info({ key }, "Updating setting");
         return settingsService.updateSetting(key, value);
     });
     // Alias for settings:update
@@ -57,6 +59,7 @@ function registerDatabaseHandlers() {
                 return { success: false, error: auth.error };
         }
         catch { }
+        logger_1.expenseLogger.info({ category: data.category, amountUSD: data.amount_usd }, "Adding expense");
         return expenseService.addExpense(data);
     });
     // Get Today's Expenses
@@ -96,6 +99,7 @@ function registerDatabaseHandlers() {
         const parsed = schema.safeParse(data);
         if (!parsed.success)
             return { success: false, error: "Invalid payload" };
+        logger_1.closingLogger.info({ date: parsed.data.closing_date }, "Setting opening balances");
         return closingService.setOpeningBalances(parsed.data);
     });
     // Get system expected balances
@@ -128,6 +132,7 @@ function registerDatabaseHandlers() {
         const parsed = schema.safeParse(data);
         if (!parsed.success)
             return { success: false, error: "Invalid payload" };
+        logger_1.closingLogger.info({ date: parsed.data.closing_date }, "Creating daily closing");
         return closingService.createDailyClosing(parsed.data);
     });
     // Update existing daily closing

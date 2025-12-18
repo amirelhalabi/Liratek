@@ -10,6 +10,7 @@ exports.registerClientHandlers = registerClientHandlers;
 const electron_1 = require("electron");
 const services_1 = require("../services");
 const session_1 = require("../session");
+const logger_1 = require("../utils/logger");
 function registerClientHandlers() {
     const clientService = (0, services_1.getClientService)();
     // Get all clients (with search)
@@ -22,6 +23,7 @@ function registerClientHandlers() {
     });
     // Create client
     electron_1.ipcMain.handle('clients:create', (_event, client) => {
+        logger_1.clientLogger.debug({ name: client.full_name }, "Creating client");
         return clientService.createClient({
             full_name: client.full_name,
             phone_number: client.phone_number,
@@ -48,6 +50,7 @@ function registerClientHandlers() {
         if (!auth.ok) {
             return { success: false, error: auth.error };
         }
+        logger_1.clientLogger.info({ clientId: id }, "Deleting client");
         return clientService.deleteClient(id);
     });
 }

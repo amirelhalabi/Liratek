@@ -58,7 +58,7 @@ export function startSyncProcessor() {
             } else {
               throw new Error(`HTTP ${res.status}`);
             }
-          } catch (e) {
+          } catch (_e) {
             const delay = 500 * Math.pow(2, attempt - 1);
             console.warn(
               `[SYNC] Upload attempt ${attempt} failed, retrying in ${delay}ms`,

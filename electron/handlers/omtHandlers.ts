@@ -6,6 +6,7 @@
 
 import { ipcMain } from 'electron';
 import { getFinancialService } from '../services';
+import { financialLogger } from '../utils/logger';
 import type { CreateFinancialServiceData } from '../database/repositories';
 
 export function registerOMTHandlers(): void {
@@ -13,6 +14,7 @@ export function registerOMTHandlers(): void {
 
   // Add Transaction (Drawer A for OMT, Drawer B for WHISH/BOB/OTHER)
   ipcMain.handle('omt:add-transaction', (_event, data: CreateFinancialServiceData) => {
+    financialLogger.info({ provider: data.provider, serviceType: data.serviceType, amountUSD: data.amountUSD }, 'Processing financial service transaction');
     return financialService.addTransaction(data);
   });
 

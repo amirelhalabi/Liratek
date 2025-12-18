@@ -9,6 +9,7 @@ exports.registerRateHandlers = registerRateHandlers;
 const electron_1 = require("electron");
 const services_1 = require("../services");
 const session_1 = require("../session");
+const logger_1 = require("../utils/logger");
 function registerRateHandlers() {
     const rateService = (0, services_1.getRateService)();
     // List all rates
@@ -20,6 +21,7 @@ function registerRateHandlers() {
         const auth = (0, session_1.requireRole)(event.sender.id, ['admin']);
         if (!auth.ok)
             return { success: false, error: auth.error };
+        logger_1.settingsLogger.info({ fromCode: data.from_code, toCode: data.to_code, rate: data.rate }, 'Setting rate');
         return rateService.setRate(data);
     });
 }

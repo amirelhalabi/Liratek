@@ -7,6 +7,7 @@
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { getCurrencyService } from '../services';
 import { requireRole } from '../session';
+import { settingsLogger } from '../utils/logger';
 import type { CreateCurrencyData, UpdateCurrencyData } from '../database/repositories';
 
 export function registerCurrencyHandlers(): void {
@@ -22,6 +23,7 @@ export function registerCurrencyHandlers(): void {
     const auth = requireRole(event.sender.id, ['admin']);
     if (!auth.ok) return { success: false, error: auth.error };
 
+    settingsLogger.info({ code: data.code, name: data.name }, 'Creating currency');
     return currencyService.createCurrency(data);
   });
 
@@ -30,6 +32,7 @@ export function registerCurrencyHandlers(): void {
     const auth = requireRole(event.sender.id, ['admin']);
     if (!auth.ok) return { success: false, error: auth.error };
 
+    settingsLogger.info({ id: data.id }, 'Updating currency');
     const { id, ...updateData } = data;
     return currencyService.updateCurrency(id, updateData);
   });
@@ -39,6 +42,7 @@ export function registerCurrencyHandlers(): void {
     const auth = requireRole(event.sender.id, ['admin']);
     if (!auth.ok) return { success: false, error: auth.error };
 
+    settingsLogger.info({ id }, 'Deleting currency');
     return currencyService.deleteCurrency(id);
   });
 }

@@ -17,15 +17,23 @@ import { registerRateHandlers } from "./handlers/rateHandlers";
 import { startSyncProcessor } from "./sync";
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-if (require("electron-squirrel-startup")) {
-  app.quit();
+if (process.platform === "win32") {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const squirrelStartup = require("electron-squirrel-startup");
+  if (squirrelStartup) {
+    app.quit();
+  }
 }
 
 function createWindow() {
+  // Icon path for development (not needed in packaged macOS app)
+  const iconPath = path.join(__dirname, "../resources/icon.png");
+  
   const mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
+    // Only set icon on non-macOS or development (macOS uses .icns from bundle)
+    ...(process.platform !== "darwin" && !app.isPackaged && { icon: iconPath }),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       nodeIntegration: false,
@@ -43,6 +51,15 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  // Set app name for macOS dock
+  app.setName("LiraTek");
+  
+  // Set dock icon on macOS (only in development, packaged app uses .icns)
+  if (process.platform === "darwin" && app.dock && !app.isPackaged) {
+    const iconPath = path.join(__dirname, "../resources/icon.png");
+    app.dock.setIcon(iconPath);
+  }
+
   // Initialize database and run migrations
   console.log("Initializing database...");
   runMigrations();
@@ -77,7 +94,7 @@ app.whenReady().then(() => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { autoUpdater } = require("electron-updater");
     autoUpdater.checkForUpdatesAndNotify();
-  } catch (e) {
+  } catch (_e) {
     console.log("[Updater] Skipped (module not installed)");
   }
 

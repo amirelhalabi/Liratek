@@ -7,6 +7,7 @@
 
 import { ipcMain } from 'electron';
 import { getSalesService } from '../services';
+import { salesLogger } from '../utils/logger';
 import type { SaleRequest } from '../database/repositories';
 
 export function registerSalesHandlers(): void {
@@ -14,11 +15,13 @@ export function registerSalesHandlers(): void {
 
   // Process a sale (create or update)
   ipcMain.handle('sales:process', (_event, sale: SaleRequest) => {
+    salesLogger.debug({ saleId: sale.id, status: sale.status }, 'Processing sale');
     return salesService.processSale(sale);
   });
 
   // Get Drafts
   ipcMain.handle('sales:get-drafts', () => {
+    salesLogger.debug('Getting drafts');
     return salesService.getDrafts();
   });
 
@@ -29,6 +32,7 @@ export function registerSalesHandlers(): void {
 
   // Chart Data (Sales or Profit for last 30 days)
   ipcMain.handle('dashboard:get-profit-sales-chart', (_event, type: 'Sales' | 'Profit') => {
+    salesLogger.debug({ type }, 'Getting chart data');
     return salesService.getChartData(type);
   });
 

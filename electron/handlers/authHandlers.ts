@@ -14,6 +14,7 @@ import { getDatabase } from "../db";
 import { getAuthService } from "../services/AuthService";
 import { hashPassword } from "../utils/crypto";
 import { isAppError } from "../utils/errors";
+import { authLogger } from "../utils/logger";
 
 // =============================================================================
 // Handler Registration
@@ -36,10 +37,10 @@ export function registerAuthHandlers(): void {
     if (!row || !row.password_hash || row.password_hash === "") {
       const hash = hashPassword("admin123");
       db.prepare("UPDATE users SET password_hash = ? WHERE id = 1").run(hash);
-      console.log("[AUTH] Admin default password set (admin123). Please change it.");
+      authLogger.info("Admin default password set (admin123). Please change it.");
     }
   } catch (e) {
-    console.warn("[AUTH] Admin seed warning:", e);
+    authLogger.warn({ error: e }, "Admin seed warning");
   }
 
   // ---------------------------------------------------------------------------
@@ -47,7 +48,7 @@ export function registerAuthHandlers(): void {
   // ---------------------------------------------------------------------------
   ipcMain.handle("auth:login", async (event, username: string, password: string) => {
     try {
-      console.log(`[AUTH] Login attempt for username: "${username}"`);
+      authLogger.debug({ username }, "Login attempt");
       
       const result = await authService.login(username, password);
       
@@ -65,17 +66,17 @@ export function registerAuthHandlers(): void {
         setSession(event.sender.id, result.user.id, result.user.role);
         sessionToken = storeEncryptedSession(result.user.id);
       } catch (e) {
-        console.warn("[AUTH] Failed to set session:", e);
+        authLogger.warn({ error: e }, "Failed to set session");
       }
 
-      console.log(`[AUTH] Login successful for user: ${username}`);
+      authLogger.info({ username, userId: result.user.id }, "Login successful");
       return {
         success: true,
         user: result.user,
         sessionToken,
       };
     } catch (error) {
-      console.error("[AUTH] Login error:", error);
+      authLogger.error({ error, username }, "Login error");
       return {
         success: false,
         error: isAppError(error) ? error.message : "An unexpected error occurred during login",
@@ -88,7 +89,7 @@ export function registerAuthHandlers(): void {
   // ---------------------------------------------------------------------------
   ipcMain.handle("auth:logout", (_event, userId: number) => {
     try {
-      console.log(`[AUTH] Logout for user ID: ${userId}`);
+      authLogger.debug({ userId }, "Logout");
 
       // Clear encrypted session
       try {
@@ -96,7 +97,7 @@ export function registerAuthHandlers(): void {
         clearEncryptedSession();
         clearSession(_event.sender.id);
       } catch (e) {
-        console.warn("[AUTH] Failed to clear session:", e);
+        authLogger.warn({ error: e }, "Failed to clear session");
       }
 
       // Log activity
@@ -104,7 +105,7 @@ export function registerAuthHandlers(): void {
 
       return { success: true };
     } catch (error) {
-      console.error("[AUTH] Logout error:", error);
+      authLogger.error({ error, userId }, "Logout error");
       return { success: false, error: "Failed to logout" };
     }
   });
@@ -118,14 +119,14 @@ export function registerAuthHandlers(): void {
       const stored = getEncryptedSession();
       
       if (!stored) {
-        console.log("[AUTH] No stored session found");
+        authLogger.debug("No stored session found");
         return { success: false, error: "No session" };
       }
 
       const user = authService.getUserById(stored.userId);
 
       if (!user) {
-        console.log("[AUTH] Stored session user not found or inactive");
+        authLogger.debug({ userId: stored.userId }, "Stored session user not found or inactive");
         const { clearEncryptedSession } = require("../session");
         clearEncryptedSession();
         return { success: false, error: "User not found" };
@@ -133,7 +134,7 @@ export function registerAuthHandlers(): void {
 
       // Restore in-memory session
       setSession(event.sender.id, user.id, user.role);
-      console.log(`[AUTH] Session restored for user: ${user.username}`);
+      authLogger.info({ username: user.username, userId: user.id }, "Session restored");
 
       return {
         success: true,
@@ -144,7 +145,7 @@ export function registerAuthHandlers(): void {
         },
       };
     } catch (error) {
-      console.error("[AUTH] Restore session error:", error);
+      authLogger.error({ error }, "Restore session error");
       return { success: false, error: "Failed to restore session" };
     }
   });
@@ -155,10 +156,10 @@ export function registerAuthHandlers(): void {
   ipcMain.handle("auth:get-current-user", (_event, userId: number) => {
     try {
       const user = authService.getUserById(userId);
-      console.log(`[AUTH] Get current user for ID: ${userId} - ${user ? "found" : "not found"}`);
+      authLogger.debug({ userId, found: !!user }, "Get current user");
       return user || null;
     } catch (error) {
-      console.error("[AUTH] Get current user error:", error);
+      authLogger.error({ error, userId }, "Get current user error");
       return null;
     }
   });
@@ -184,7 +185,7 @@ export function registerAuthHandlers(): void {
         }
         return { success: false, error: result.error || "Failed to create user" };
       } catch (error) {
-        console.error("[AUTH] Create user error:", error);
+        authLogger.error({ error, username: data.username }, "Create user error");
         return { success: false, error: isAppError(error) ? error.message : "Failed to create user" };
       }
     },
@@ -203,7 +204,7 @@ export function registerAuthHandlers(): void {
         const result = await authService.resetPassword(data.id, data.password, "admin");
         return { success: result.success, error: result.error };
       } catch (error) {
-        console.error("[AUTH] Set password error:", error);
+        authLogger.error({ error, userId: data.id }, "Set password error");
         return { success: false, error: isAppError(error) ? error.message : "Failed to set password" };
       }
     },
@@ -221,7 +222,7 @@ export function registerAuthHandlers(): void {
       const users = authService.getAllUsers();
       return users.filter(u => u.role !== "admin");
     } catch (error) {
-      console.error("[AUTH] List non-admin users error:", error);
+      authLogger.error({ error }, "List non-admin users error");
       return [];
     }
   });
@@ -246,7 +247,7 @@ export function registerAuthHandlers(): void {
         }
         return { success: true };
       } catch (error) {
-        console.error("[AUTH] Set active error:", error);
+        authLogger.error({ error, userId: data.id, is_active: data.is_active }, "Set active error");
         return { success: false, error: isAppError(error) ? error.message : "Failed to update user status" };
       }
     },
@@ -268,7 +269,7 @@ export function registerAuthHandlers(): void {
         db.prepare(`UPDATE users SET role = ? WHERE id = ?`).run(role, data.id);
         return { success: true };
       } catch (error) {
-        console.error("[AUTH] Set role error:", error);
+        authLogger.error({ error, userId: data.id, role: data.role }, "Set role error");
         return { success: false, error: isAppError(error) ? error.message : "Failed to update role" };
       }
     },
@@ -288,7 +289,7 @@ function logActivity(db: ReturnType<typeof getDatabase>, userId: number, action:
       `INSERT INTO activity_logs (user_id, action, details_json) VALUES (?, ?, ?)`
     ).run(userId, action, JSON.stringify({ timestamp: new Date().toISOString() }));
   } catch (e) {
-    console.warn(`[AUTH] Failed to log ${action} activity:`, e);
+    authLogger.warn({ error: e, action, userId }, "Failed to log activity");
   }
 }
 

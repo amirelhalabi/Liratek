@@ -19,21 +19,50 @@ A modern, desktop-based Point of Sale (POS) and inventory management system buil
 ## 🚀 Getting Started
 
 ```bash
-# Install
-npm install
+# Install dependencies
+yarn install
 
 # Development (Vite + Electron with hot reload)
-npm run dev
+yarn dev
 
-# Build for production
-npm run build
+# Build frontend + electron
+yarn build
+
+# Build macOS DMG (Apple Silicon)
+yarn build:mac
+
+# Build Windows EXE
+yarn build:app
+
+# Run tests
+yarn test
 
 # Lint code
-npm run lint
+yarn lint
 
 # Reset sales & debts (preserves customers & inventory)
-npm run reset:sales-debt
+yarn reset:sales-debt
 ```
+
+### Build Outputs
+
+After building, installers are located in the `release/` folder:
+- **macOS**: `LiraTek-{version}-arm64.dmg` 
+- **Windows**: `LiraTek-{version}-x64.exe`
+
+### Creating a Release
+
+Push a version tag to trigger automated builds:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+This will:
+1. Run tests and typecheck
+2. Build for Windows x64, macOS Intel, macOS ARM
+3. Create a GitHub Release with all installers attached
 
 ---
 
@@ -293,6 +322,16 @@ Prefixed output in terminal:
 
 ## 📊 Recent Changes
 
+### Latest Updates
+
+1. ✅ **App Icon**: Custom dollar bill icon for macOS dock and app bundle
+2. ✅ **Build System**: Electron-builder for macOS DMG and Windows EXE
+3. ✅ **CI/CD**: GitHub Actions workflows for automated builds and tests
+   - `ci.yml` - Runs tests, typecheck, lint on push/PR
+   - `build.yml` - Creates releases for Windows x64, macOS Intel, macOS ARM
+4. ✅ **App Naming**: Renamed from "Corner Tech POS" to "LiraTek"
+5. ✅ **Pino Logging**: Structured logging with file rotation in electron handlers
+
 ### Fixed Issues
 
 1. ✅ **Phone validation**: Debt creation requires customer phone
@@ -301,6 +340,7 @@ Prefixed output in terminal:
 4. ✅ **Debt data**: Complete repayment info stored (USD + LBP)
 5. ✅ **Debt view**: Shows all debts with paid/unpaid status + total amount
 6. ✅ **Dashboard refresh**: Real-time update after sale via event emitter
+7. ✅ **Production builds**: Fixed asset paths for Electron file:// protocol
 
 ---
 
@@ -310,4 +350,4 @@ For issues: Check logs, verify database state, restart app
 
 ---
 
-**Version**: 0.0.0 | **Updated**: December 2025
+**Version**: 1.0.0 | **Updated**: June 2025

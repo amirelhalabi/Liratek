@@ -9,6 +9,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.registerInventoryHandlers = registerInventoryHandlers;
 const electron_1 = require("electron");
 const services_1 = require("../services");
+const logger_1 = require("../utils/logger");
 // =============================================================================
 // Handler Registration
 // =============================================================================
@@ -26,7 +27,7 @@ function registerInventoryHandlers() {
         try {
             return service.getProductById(id);
         }
-        catch (error) {
+        catch (_error) {
             return null;
         }
     });
@@ -47,6 +48,7 @@ function registerInventoryHandlers() {
                 return { success: false, error: auth.error };
         }
         catch { }
+        logger_1.inventoryLogger.debug({ barcode: product.barcode, name: product.name }, "Creating product");
         return service.createProduct({
             barcode: product.barcode,
             name: product.name,

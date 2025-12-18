@@ -4,6 +4,7 @@ import { SettingsService } from "../services/SettingsService";
 import { ExpenseService } from "../services/ExpenseService";
 import { ClosingService } from "../services/ClosingService";
 import { ActivityService } from "../services/ActivityService";
+import { settingsLogger, expenseLogger, closingLogger } from "../utils/logger";
 
 export function registerDatabaseHandlers(): void {
   const settingsService = new SettingsService();
@@ -35,6 +36,7 @@ export function registerDatabaseHandlers(): void {
       const auth = requireRole(e.sender.id, ["admin"]);
       if (!auth.ok) return { success: false, error: auth.error };
     } catch {}
+    settingsLogger.info({ key }, "Updating setting");
     return settingsService.updateSetting(key, value);
   });
 
@@ -69,6 +71,7 @@ export function registerDatabaseHandlers(): void {
         const auth = requireRole(e.sender.id, ["admin"]);
         if (!auth.ok) return { success: false, error: auth.error };
       } catch {}
+      expenseLogger.info({ category: data.category, amountUSD: data.amount_usd }, "Adding expense");
       return expenseService.addExpense(data);
     }
   );
@@ -112,6 +115,7 @@ export function registerDatabaseHandlers(): void {
     const parsed = schema.safeParse(data);
     if (!parsed.success) return { success: false, error: "Invalid payload" };
 
+    closingLogger.info({ date: parsed.data.closing_date }, "Setting opening balances");
     return closingService.setOpeningBalances(parsed.data);
   });
 
@@ -147,6 +151,7 @@ export function registerDatabaseHandlers(): void {
     const parsed = schema.safeParse(data);
     if (!parsed.success) return { success: false, error: "Invalid payload" };
 
+    closingLogger.info({ date: parsed.data.closing_date }, "Creating daily closing");
     return closingService.createDailyClosing(parsed.data);
   });
 

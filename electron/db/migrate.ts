@@ -2,7 +2,7 @@ import { getDatabase } from "./index";
 import fs from "fs";
 import path from "path";
 
-interface Migration {
+interface _Migration {
   id: number;
   name: string;
   applied_at: string;
