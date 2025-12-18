@@ -150,7 +150,7 @@ export default function Opening({
             {drawerTypes.map((drawer) => (
               <div
                 key={drawer}
-                className={`border-2 rounded-xl p-5 transition-all hover:shadow-lg ${getDrawerColor(drawer)}`}
+                className={`border-2 rounded-xl p-5 transition-all hover:shadow-lg relative ${getDrawerColor(drawer)}`}
               >
                 {/* Drawer Header */}
                 <div className="flex items-center gap-3 mb-4">
@@ -169,10 +169,10 @@ export default function Opening({
                 </div>
 
                 {/* Currency Inputs */}
-                <div className="space-y-3">
+                <div className="space-y-3 relative z-10">
                   {currencies.map((currency) => (
-                    <div key={currency.code} className="flex items-center gap-3">
-                      <label className="text-sm font-semibold text-slate-300 w-16">
+                    <div key={currency.code} className="flex items-center gap-3 relative">
+                      <label className="text-sm font-semibold text-slate-300 w-16 flex-shrink-0">
                         {currency.code}
                       </label>
                       <input
@@ -185,7 +185,7 @@ export default function Opening({
                         }
                         placeholder="0.00"
                         autoComplete="off"
-                        className="flex-1 bg-slate-900/50 border border-slate-600 rounded-lg px-4 py-2.5 text-white text-lg font-mono placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition"
+                        className="flex-1 relative z-10 bg-slate-900 border-2 border-slate-600 rounded-lg px-4 py-2.5 text-white text-lg font-mono placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-violet-500 transition cursor-text"
                       />
                     </div>
                   ))}

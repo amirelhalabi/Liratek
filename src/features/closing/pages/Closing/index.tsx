@@ -192,10 +192,10 @@ export default function Closing({
                       </div>
                     </div>
 
-                    <div className="space-y-3">
+                    <div className="space-y-3 relative z-10">
                       {currencies.map((currency) => (
-                        <div key={currency.code} className="flex items-center gap-3">
-                          <label className="text-sm font-semibold text-slate-300 w-16">
+                        <div key={currency.code} className="flex items-center gap-3 relative">
+                          <label className="text-sm font-semibold text-slate-300 w-16 flex-shrink-0">
                             {currency.code}
                           </label>
                           <input
@@ -208,7 +208,7 @@ export default function Closing({
                             }
                             placeholder="0.00"
                             autoComplete="off"
-                            className="flex-1 bg-slate-900/50 border border-slate-600 rounded-lg px-4 py-2.5 text-white text-lg font-mono placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition"
+                            className="flex-1 relative z-10 bg-slate-900 border-2 border-slate-600 rounded-lg px-4 py-2.5 text-white text-lg font-mono placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition cursor-text"
                           />
                         </div>
                       ))}
@@ -230,7 +230,7 @@ export default function Closing({
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {drawerTypes.map((drawer) => (
-                  <div key={drawer} className={`border-2 rounded-xl p-5 ${getDrawerColor(drawer)}`}>
+                  <div key={drawer} className={`border-2 rounded-xl p-5 relative ${getDrawerColor(drawer)}`}>
                     <div className="flex items-center gap-3 mb-4">
                       <div className="bg-white/10 p-2 rounded-lg text-white">
                         {getDrawerIcon(drawer)}
@@ -238,7 +238,7 @@ export default function Closing({
                       <h3 className="font-bold text-lg text-white">{drawer}</h3>
                     </div>
 
-                    <div className="space-y-3">
+                    <div className="space-y-3 relative z-10">
                       {currencies.map((currency) => {
                         const physical = physicalAmounts[drawer]?.[currency.code] || 0;
                         const expected = getExpectedAmount(drawer, currency.code);
