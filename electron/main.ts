@@ -17,13 +17,14 @@ import { registerRateHandlers } from "./handlers/rateHandlers";
 import { startSyncProcessor } from "./sync";
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
-if (process.platform === "win32") {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const squirrelStartup = require("electron-squirrel-startup");
-  if (squirrelStartup) {
-    app.quit();
-  }
-}
+// NOTE: This is for Squirrel.Windows installer. We use NSIS, so this is disabled.
+// if (process.platform === "win32") {
+//   // eslint-disable-next-line @typescript-eslint/no-require-imports
+//   const squirrelStartup = require("electron-squirrel-startup");
+//   if (squirrelStartup) {
+//     app.quit();
+//   }
+// }
 
 function createWindow() {
   // Icon path for development (not needed in packaged macOS app)

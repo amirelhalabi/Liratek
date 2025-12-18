@@ -24,9 +24,12 @@
     "dev:vite": "vite",
     "dev:electron": "wait-on tcp:5173 && tsc -p electron/tsconfig.json && mkdir -p dist-electron/db && cp electron/db/create_db.sql dist-electron/db/ && cp electron/package.json dist-electron/ && ELECTRON_RENDERER_URL=http://localhost:5173 electron .",
     "build": "tsc -b && vite build && tsc -p electron/tsconfig.json && mkdir -p dist-electron/db && cp electron/db/create_db.sql dist-electron/db/ && cp electron/package.json dist-electron/",
-    "build:app": "yarn dlx electron-builder@^25.1.8 --win nsis",
-    "ci:build:win": "yarn dlx electron-builder@^25.1.8 --win nsis",
-    "build:mac": "yarn dlx electron-builder@^25.1.8 --mac dmg zip",
+    "build:win:x64": "yarn dlx electron-builder@^25.1.8 --win nsis --x64",
+    "build:mac:arm64": "yarn dlx electron-builder@^25.1.8 --mac dmg zip --arm64",
+    "build:mac:x64": "yarn dlx electron-builder@^25.1.8 --mac dmg zip --x64",
+    "build:mac:universal": "yarn dlx electron-builder@^25.1.8 --mac dmg zip --universal",
+    "build:all": "npm run build && yarn dlx electron-builder@^25.1.8 --mac --win",
+    "ci:build:win": "yarn dlx electron-builder@^25.1.8 --win nsis --x64",
     "ci:build:mac": "yarn dlx electron-builder@^25.1.8 --mac dmg zip",
     "lint": "eslint .",
     "preview": "vite preview",
@@ -89,8 +92,12 @@
       }
     ],
     "asar": true,
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**/*"
+    ],
     "appId": "com.liratek.pos",
     "productName": "LiraTek",
+    "npmRebuild": true,
     "files": [
       "dist/index.html",
       "dist/assets/**",
@@ -111,13 +118,15 @@
         {
           "target": "dmg",
           "arch": [
-            "arm64"
+            "arm64",
+            "x64"
           ]
         },
         {
           "target": "zip",
           "arch": [
-            "arm64"
+            "arm64",
+            "x64"
           ]
         }
       ]
@@ -131,6 +140,9 @@
             "x64"
           ]
         }
+      ],
+      "electronLanguages": [
+        "en-US"
       ]
     },
     "nsis": {

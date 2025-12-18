@@ -21,13 +21,14 @@ const currencyHandlers_1 = require("./handlers/currencyHandlers");
 const rateHandlers_1 = require("./handlers/rateHandlers");
 const sync_1 = require("./sync");
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
-if (process.platform === "win32") {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const squirrelStartup = require("electron-squirrel-startup");
-    if (squirrelStartup) {
-        electron_1.app.quit();
-    }
-}
+// NOTE: This is for Squirrel.Windows installer. We use NSIS, so this is disabled.
+// if (process.platform === "win32") {
+//   // eslint-disable-next-line @typescript-eslint/no-require-imports
+//   const squirrelStartup = require("electron-squirrel-startup");
+//   if (squirrelStartup) {
+//     app.quit();
+//   }
+// }
 function createWindow() {
     // Icon path for development (not needed in packaged macOS app)
     const iconPath = path_1.default.join(__dirname, "../resources/icon.png");

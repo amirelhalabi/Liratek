@@ -17,6 +17,9 @@ dist
 dist-electron
 dist-ssr
 build
+!build/icon.ico
+!build/icon.icns
+!build/icon.png
 out
 *.local
 
@@ -62,6 +65,8 @@ Thumbs.db
 
 # Electron
 release
+!release/*.exe
+!release/*.dmg
 *.asar
 *.snap
 
