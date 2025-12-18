@@ -6,6 +6,6 @@ export const ipcMain = {
 };
 
 export const app = {
-    getPath: jest.fn(() => '/tmp'),
-    isPackaged: false,
+  getPath: jest.fn(() => "/tmp"),
+  isPackaged: false,
 };

@@ -1,450 +1,49 @@
+/**
+ * Sales IPC Handlers
+ * 
+ * Thin wrapper over SalesService for IPC communication.
+ * Handles: IPC message routing to service
+ */
+
 import { ipcMain } from 'electron';
-import { getDatabase } from '../db';
-
-interface SaleItem {
-    product_id: number;
-    quantity: number;
-    price: number;
-}
-
-interface SaleRequest {
-    client_id: number | null;
-    client_name?: string;
-    client_phone?: string;
-    items: SaleItem[];
-    total_amount: number;
-    discount: number;
-    final_amount: number;
-    payment_usd: number;
-    payment_lbp: number;
-    change_given_usd?: number;
-    change_given_lbp?: number;
-    exchange_rate: number;
-    drawer_name?: string;
-    id?: number;
-    status?: 'completed' | 'draft' | 'cancelled';
-    note?: string;
-}
+import { getSalesService } from '../services';
+import type { SaleRequest } from '../database/repositories';
 
 export function registerSalesHandlers(): void {
-    const db = getDatabase();
+  const salesService = getSalesService();
 
-    ipcMain.handle('sales:process', (_event, sale: SaleRequest) => {
-        try {
-            // Use a transaction for data integrity
-            const processTransaction = db.transaction(() => {
-                let finalClientId = sale.client_id;
-                const status = sale.status || 'completed';
+  // Process a sale (create or update)
+  ipcMain.handle('sales:process', (_event, sale: SaleRequest) => {
+    return salesService.processSale(sale);
+  });
 
-                // 0. Auto-create client if name provided but no ID
-                if (!finalClientId && sale.client_name) {
-                    try {
-                        const createClient = db.prepare(`
-                            INSERT INTO clients (full_name, phone_number, whatsapp_opt_in)
-                            VALUES (?, ?, 0)
-                        `);
-                        // Use provided phone or NULL
-                        const clientResult = createClient.run(sale.client_name, sale.client_phone || null);
-                        finalClientId = clientResult.lastInsertRowid as number;
-                    } catch (e) {
-                        console.error('Auto-create client failed', e);
-                    }
-                }
+  // Get Drafts
+  ipcMain.handle('sales:get-drafts', () => {
+    return salesService.getDrafts();
+  });
 
-                let saleId = sale.id;
+  // Dashboard Stats
+  ipcMain.handle('sales:get-dashboard-stats', () => {
+    return salesService.getDashboardStats();
+  });
 
-                if (saleId) {
-                    // UPDATE Existing (e.g., Draft -> Complete or Draft -> Draft Update)
-                    const updateStmt = db.prepare(`
-                        UPDATE sales SET 
-                            client_id = ?, total_amount_usd = ?, discount_usd = ?, final_amount_usd = ?, 
-                            paid_usd = ?, paid_lbp = ?, change_given_usd = ?, change_given_lbp = ?, 
-                            exchange_rate_snapshot = ?, drawer_name = ?, status = ?, note = ?
-                        WHERE id = ?
-                    `);
-                    updateStmt.run(
-                        finalClientId,
-                        sale.total_amount,
-                        sale.discount,
-                        sale.final_amount,
-                        sale.payment_usd,
-                        sale.payment_lbp,
-                        sale.change_given_usd || 0,
-                        sale.change_given_lbp || 0,
-                        sale.exchange_rate,
-                        sale.drawer_name || 'General_Drawer_B',
-                        status,
-                        sale.note || null,
-                        saleId
-                    );
+  // Chart Data (Sales or Profit for last 30 days)
+  ipcMain.handle('dashboard:get-profit-sales-chart', (_event, type: 'Sales' | 'Profit') => {
+    return salesService.getChartData(type);
+  });
 
-                    // Clear old items to re-insert new ones (simple approach for drafts)
-                    db.prepare('DELETE FROM sale_items WHERE sale_id = ?').run(saleId);
-                } else {
-                    // INSERT New
-                    const saleStmt = db.prepare(`
-                        INSERT INTO sales (
-                            client_id, total_amount_usd, discount_usd, final_amount_usd, 
-                            paid_usd, paid_lbp, change_given_usd, change_given_lbp, exchange_rate_snapshot,
-                            drawer_name, status, note
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    `);
+  // Drawer Balances
+  ipcMain.handle('dashboard:get-drawer-balances', () => {
+    return salesService.getDrawerBalances();
+  });
 
-                    const saleResult = saleStmt.run(
-                        finalClientId,
-                        sale.total_amount,
-                        sale.discount,
-                        sale.final_amount,
-                        sale.payment_usd,
-                        sale.payment_lbp,
-                        sale.change_given_usd || 0,
-                        sale.change_given_lbp || 0,
-                        sale.exchange_rate,
-                        sale.drawer_name || 'General_Drawer_B',
-                        status,
-                        sale.note || null
-                    );
-                    saleId = saleResult.lastInsertRowid as number;
-                }
+  // Today's Sales for Dashboard card
+  ipcMain.handle('sales:get-todays-sales', () => {
+    return salesService.getTodaysSales();
+  });
 
-                // 2. Process Items & Update Stock
-                const itemStmt = db.prepare(`
-                    INSERT INTO sale_items (
-                        sale_id, product_id, quantity, sold_price_usd, cost_price_snapshot_usd
-                    ) VALUES (?, ?, ?, ?, (SELECT cost_price_usd FROM products WHERE id = ?))
-                `);
-
-                const stockStmt = db.prepare(`
-                    UPDATE products 
-                    SET stock_quantity = stock_quantity - ? 
-                    WHERE id = ?
-                `);
-
-                for (const item of sale.items) {
-                    // Insert Line Item
-                    itemStmt.run(
-                        saleId,
-                        item.product_id,
-                        item.quantity,
-                        item.price,
-                        item.product_id
-                    );
-
-                    // Update Stock: ONLY IF COMPLETED
-                    if (status === 'completed') {
-                        stockStmt.run(item.quantity, item.product_id);
-                    }
-                }
-
-                // 3. Handle Debt (If Partial Payment AND Completed)
-                if (status === 'completed') {
-                    const totalPaidUSD = sale.payment_usd + (sale.payment_lbp / sale.exchange_rate);
-                    if (sale.final_amount - totalPaidUSD > 0.05) {
-                        if (!finalClientId) {
-                            throw new Error('Cannot create debt for anonymous client');
-                        }
-                        const debtAmount = sale.final_amount - totalPaidUSD;
-
-                        const debtStmt = db.prepare(`
-                            INSERT INTO debt_ledger (
-                                client_id, transaction_type, amount_usd, sale_id, note
-                            ) VALUES (?, 'Sale Debt', ?, ?, 'Balance from Sale')
-                        `);
-                        debtStmt.run(finalClientId, debtAmount, saleId);
-                    }
-                }
-
-                return { success: true, saleId };
-            });
-
-            const result = processTransaction();
-            
-            // Log drawer assignment and sale completion
-            if (result.success) {
-                const drawerName = sale.drawer_name || 'General_Drawer_B';
-                const finalAmount = sale.final_amount || 0;
-                const logStmt = db.prepare(`
-                    INSERT INTO activity_logs (user_id, action, table_name, record_id, details_json)
-                    VALUES (?, ?, 'sales', ?, ?)
-                `);
-                logStmt.run(
-                    1, // Default user ID (would be session user in production)
-                    'SALE',
-                    result.saleId,
-                    JSON.stringify({
-                        drawer: drawerName,
-                        amount_usd: sale.payment_usd,
-                        amount_lbp: sale.payment_lbp,
-                        status: sale.status || 'completed'
-                    })
-                );
-                
-                // Console log for debugging
-                console.log(`[SALES] ${drawerName} - Sale #${result.saleId}: $${finalAmount.toFixed(2)} [${sale.status || 'completed'}]`);
-            }
-            
-            return result;
-
-        } catch (error: any) {
-            console.error('Sale transaction failed:', error);
-            return { success: false, error: error.message };
-        }
-    });
-
-    // Get Drafts
-    ipcMain.handle('sales:get-drafts', () => {
-        try {
-            const drafts = db.prepare(`
-                SELECT s.*, c.full_name as client_name, c.phone_number as client_phone 
-                FROM sales s 
-                LEFT JOIN clients c ON s.client_id = c.id
-                WHERE s.status = 'draft'
-                ORDER BY s.created_at DESC
-            `).all();
-
-            // Fetch items for each draft (this could be optimized with JSON_GROUP_ARRAY if needed, but simple loop is fine for few drafts)
-            const draftsWithItems = drafts.map((draft: any) => {
-                const items = db.prepare(`
-                    SELECT si.*, p.name, p.barcode 
-                    FROM sale_items si
-                    JOIN products p ON si.product_id = p.id
-                    WHERE si.sale_id = ?
-                `).all(draft.id);
-
-                return { ...draft, items };
-            });
-
-            return draftsWithItems;
-        } catch (error) {
-            console.error('Failed to get drafts', error);
-            return [];
-        }
-    });
-
-    // Dashboard Stats
-    ipcMain.handle('sales:get-dashboard-stats', () => {
-        try {
-            // 1. Total Sales Today (USD & LBP) - includes completed sales + repayments
-            const salesResult = db.prepare(`
-                SELECT 
-                    SUM(paid_usd) as total_usd,
-                    SUM(paid_lbp) as total_lbp
-                FROM sales 
-                WHERE DATE(created_at, 'localtime') = DATE('now', 'localtime') AND status = 'completed'
-            `).get() as { total_usd: number; total_lbp: number };
-
-            // 2. Total Repayments Today
-            const repaymentResult = db.prepare(`
-                SELECT 
-                    SUM(ABS(amount_usd)) as total_usd,
-                    SUM(ABS(amount_lbp)) as total_lbp
-                FROM debt_ledger
-                WHERE DATE(created_at, 'localtime') = DATE('now', 'localtime') AND transaction_type = 'Repayment'
-            `).get() as { total_usd: number; total_lbp: number };
-
-            const totalSalesUSD = (salesResult.total_usd || 0) + (repaymentResult.total_usd || 0);
-            const totalSalesLBP = (salesResult.total_lbp || 0) + (repaymentResult.total_lbp || 0);
-
-            // 3. Orders Count Today
-            const ordersResult = db.prepare(`
-                SELECT COUNT(*) as count 
-                FROM sales 
-                WHERE DATE(created_at, 'localtime') = DATE('now', 'localtime') AND status = 'completed'
-            `).get() as { count: number };
-
-            // 4. Active Clients Count
-            const clientsResult = db.prepare(`
-                SELECT COUNT(*) as count FROM clients
-            `).get() as { count: number };
-
-            // 5. Low Stock Items Count
-            const stockResult = db.prepare(`
-                SELECT COUNT(*) as count 
-                FROM products 
-                WHERE stock_quantity <= min_stock_level AND is_active = 1
-            `).get() as { count: number };
-
-            const todayDate = new Date().toLocaleDateString();
-            console.log(`[SALES] Dashboard stats - Today: ${todayDate}, Sales: $${totalSalesUSD} USD / ${totalSalesLBP.toLocaleString()} LBP`);
-
-            return {
-                totalSalesUSD,
-                totalSalesLBP,
-                ordersCount: ordersResult.count || 0,
-                activeClients: clientsResult.count || 0,
-                lowStockCount: stockResult.count || 0
-            };
-        } catch (error) {
-            console.error('Failed to get dashboard stats:', error);
-            return {
-                totalSalesUSD: 0,
-                totalSalesLBP: 0,
-                ordersCount: 0,
-                activeClients: 0,
-                lowStockCount: 0
-            };
-        }
-    });
-
-    // Get Sales Chart Data (Last 30 Days Profit vs Sales)
-    ipcMain.handle('dashboard:get-profit-sales-chart', (_event, type: 'Sales' | 'Profit') => {
-        const db = getDatabase();
-        const datesStmt = db.prepare(`
-            WITH RECURSIVE dates(date) AS (
-                VALUES(date('now', 'localtime', '-29 days'))
-                UNION ALL
-                SELECT date(date, '+1 day')
-                FROM dates
-                WHERE date < date('now', 'localtime')
-            )
-            SELECT date FROM dates
-        `);
-
-        const dates = datesStmt.all().map((row: any) => row.date);
-        
-        if (type === 'Sales') {
-            const salesData = db.prepare(`
-                SELECT 
-                    DATE(created_at, 'localtime') as date,
-                    SUM(paid_usd) as daily_usd,
-                    SUM(paid_lbp) as daily_lbp
-                FROM sales
-                WHERE status = 'completed' AND DATE(created_at, 'localtime') >= ?
-                GROUP BY date
-            `).all(dates[0]);
-
-            const repaymentData = db.prepare(`
-                SELECT 
-                    DATE(created_at, 'localtime') as date,
-                    SUM(ABS(amount_usd)) as daily_usd,
-                    SUM(ABS(amount_lbp)) as daily_lbp
-                FROM debt_ledger
-                WHERE transaction_type = 'Repayment' AND DATE(created_at, 'localtime') >= ?
-                GROUP BY date
-            `).all(dates[0]);
-
-            const combined = new Map<string, { usd: number, lbp: number }>();
-            [...salesData, ...repaymentData].forEach((row: any) => {
-                const entry = combined.get(row.date) || { usd: 0, lbp: 0 };
-                entry.usd += row.daily_usd || 0;
-                entry.lbp += row.daily_lbp || 0;
-                combined.set(row.date, entry);
-            });
-
-            return dates.map(date => ({
-                date,
-                usd: combined.get(date)?.usd || 0,
-                lbp: combined.get(date)?.lbp || 0,
-            }));
-        }
-
-        // Default to Profit
-        const profitData = db.prepare(`
-            SELECT
-                DATE(s.created_at, 'localtime') as profit_date,
-                SUM(si.sold_price_usd - si.cost_price_snapshot_usd) as profit
-            FROM sales s
-            JOIN sale_items si ON s.id = si.sale_id
-            WHERE s.status = 'completed' AND (s.paid_usd + (s.paid_lbp / s.exchange_rate_snapshot)) >= s.final_amount_usd
-                  AND DATE(s.created_at, 'localtime') >= ?
-            GROUP BY profit_date
-        `).all(dates[0]);
-        
-        const profitMap = new Map<string, number>();
-        profitData.forEach((row: any) => {
-            profitMap.set(row.profit_date, row.profit);
-        });
-
-        return dates.map(date => ({
-            date,
-            profit: profitMap.get(date) || 0,
-        }));
-    });
-
-    ipcMain.handle('dashboard:get-drawer-balances', () => {
-        const db = getDatabase();
-        const today = new Date().toISOString().split('T')[0];
-
-        // General Drawer B
-        const generalDrawerSales = db.prepare(`
-            SELECT 
-                SUM(paid_usd) as total_usd, 
-                SUM(paid_lbp) as total_lbp 
-            FROM sales 
-            WHERE DATE(created_at) = ? AND status = 'completed' AND drawer_name = 'General_Drawer_B'
-        `).get(today) as { total_usd: number, total_lbp: number };
-
-        const generalDrawerExpenses = db.prepare(`
-            SELECT 
-                SUM(amount_usd) as total_usd, 
-                SUM(amount_lbp) as total_lbp 
-            FROM expenses 
-            WHERE DATE(expense_date) = ?
-        `).get(today) as { total_usd: number, total_lbp: number };
-
-        const generalDrawer = {
-            usd: (generalDrawerSales?.total_usd || 0) - (generalDrawerExpenses?.total_usd || 0),
-            lbp: (generalDrawerSales?.total_lbp || 0) - (generalDrawerExpenses?.total_lbp || 0)
-        };
-        
-        // OMT Drawer A
-        const omtInflows = db.prepare(`
-            SELECT 
-                SUM(amount_usd) as total_usd, 
-                SUM(amount_lbp) as total_lbp 
-            FROM financial_services 
-            WHERE DATE(created_at) = ? AND provider = 'OMT' AND service_type = 'RECEIVE'
-        `).get(today) as { total_usd: number, total_lbp: number };
-
-        const omtOutflows = db.prepare(`
-            SELECT 
-                SUM(amount_usd) as total_usd, 
-                SUM(amount_lbp) as total_lbp 
-            FROM financial_services 
-            WHERE DATE(created_at) = ? AND provider = 'OMT' AND service_type = 'SEND'
-        `).get(today) as { total_usd: number, total_lbp: number };
-        
-        const omtDrawer = {
-            usd: (omtInflows?.total_usd || 0) - (omtOutflows?.total_usd || 0),
-            lbp: (omtInflows?.total_lbp || 0) - (omtOutflows?.total_lbp || 0)
-        };
-
-        return { generalDrawer, omtDrawer };
-    });
-
-    // Get Today's Sales for Dashboard card
-    ipcMain.handle('sales:get-todays-sales', () => {
-        const stmt = db.prepare(`
-            SELECT 
-                s.id,
-                c.full_name as client_name,
-                s.paid_usd,
-                s.paid_lbp,
-                s.created_at
-            FROM sales s
-            LEFT JOIN clients c ON s.client_id = c.id
-            WHERE s.status = 'completed' AND DATE(s.created_at, 'localtime') = DATE('now', 'localtime')
-            ORDER BY s.created_at DESC
-            LIMIT 5
-        `);
-        return stmt.all();
-    });
-
-    // Get Top Products
-    ipcMain.handle('sales:get-top-products', () => {
-        const stmt = db.prepare(`
-            SELECT 
-                p.name,
-                COALESCE(SUM(si.quantity), 0) as total_quantity,
-                COALESCE(SUM(si.sold_price_usd * si.quantity), 0) as total_revenue
-            FROM sale_items si
-            JOIN products p ON si.product_id = p.id
-            JOIN sales s ON si.sale_id = s.id
-            WHERE s.status = 'completed'
-            GROUP BY p.id
-            ORDER BY total_quantity DESC
-            LIMIT 5
-        `);
-        return stmt.all();
-    });
+  // Top Products
+  ipcMain.handle('sales:get-top-products', () => {
+    return salesService.getTopProducts();
+  });
 }

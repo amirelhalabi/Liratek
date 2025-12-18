@@ -6,13 +6,13 @@ A modern, desktop-based Point of Sale (POS) and inventory management system buil
 
 ## 📋 Quick Reference
 
-| Section | Details |
-|---------|---------|
-| **Tech Stack** | React 19, TypeScript, Electron 39, Better SQLite3, Tailwind CSS, Vite |
-| **Entry Points** | Frontend: `src/main.tsx` \| Desktop: `electron/main.ts` |
-| **Database** | `~/Library/Application Support/liratek/phone_shop.db` |
-| **Default Login** | `admin` / `admin123` |
-| **Exchange Rate** | 1 USD = 89,000 LBP (constant in `src/config/constants.ts`) |
+| Section           | Details                                                               |
+| ----------------- | --------------------------------------------------------------------- |
+| **Tech Stack**    | React 19, TypeScript, Electron 39, Better SQLite3, Tailwind CSS, Vite |
+| **Entry Points**  | Frontend: `src/main.tsx` \| Desktop: `electron/main.ts`               |
+| **Database**      | `~/Library/Application Support/liratek/phone_shop.db`                 |
+| **Default Login** | `admin` / `admin123`                                                  |
+| **Exchange Rate** | 1 USD = 89,000 LBP (constant in `src/config/constants.ts`)            |
 
 ---
 
@@ -40,6 +40,7 @@ npm run reset:sales-debt
 ## 📁 Project Structure
 
 ### Frontend (`src/`)
+
 - **pages/**: Login, Dashboard, POS, Inventory, Clients, Debts, Exchange, Maintenance, Recharge, Services
 - **components/Layout/**: Sidebar, TopBar, MainLayout (navigation)
 - **contexts/AuthContext.tsx**: Login state management
@@ -47,6 +48,7 @@ npm run reset:sales-debt
 - **utils/appEvents.ts**: App-wide event emitter for real-time dashboard updates
 
 ### Backend (`electron/`)
+
 - **main.ts**: Electron app entry point, creates window, registers IPC handlers
 - **preload.ts**: IPC bridge exposing `window.api.*` methods to frontend
 - **db/**: SQLite database initialization and schema
@@ -70,19 +72,21 @@ npm run reset:sales-debt
 **sales** - Transactions (status: completed/draft/cancelled)  
 **sale_items** - Line items in each sale  
 **debt_ledger** - Customer debts & repayments
+
 - Positive amount = debt created
 - Negative amount = repayment
 - Running balance determines if debt is "paid"
 
 **maintenance, expenses, exchange_transactions, financial_services** - Additional operations  
 **system_settings** - App configuration  
-**activity_logs** - Audit trail  
+**activity_logs** - Audit trail
 
 ---
 
 ## ✨ Features
 
 ### 1. Point of Sale
+
 - Product search (name/barcode)
 - Multi-item cart with quantity adjustment
 - Discounts
@@ -92,17 +96,20 @@ npm run reset:sales-debt
 - Auto stock deduction on completion
 
 ### 2. Inventory
+
 - Add/edit/delete products
 - Stock tracking with low-stock alerts
 - Barcode & IMEI management
 - Cost + selling price
 
 ### 3. Clients
+
 - Create/manage profiles
 - Phone number tracking (required for debt)
 - History view
 
 ### 4. Debts
+
 - Full ledger view (all debts, paid & unpaid)
 - Running balance calculation
 - "Paid Fully" visual status indicator
@@ -111,6 +118,7 @@ npm run reset:sales-debt
 - Debt deletion preserves customer
 
 ### 5. Dashboard
+
 - **Total Sales (Today)**: Sum of completed sales + repayments
 - Orders count
 - Active clients
@@ -121,11 +129,13 @@ npm run reset:sales-debt
 - **Real-time refresh** after sale completion via event emitter
 
 ### 6. Multi-Currency
+
 - Standardized rate: 1 USD = 89,000 LBP
 - Used consistently in checkout, debts, repayments
 - Currency exchange transactions (buy/sell)
 
 ### 7. Additional
+
 - Device maintenance/repair tracking
 - Mobile recharge management (Alfa/MTC)
 - Financial services (OMT, Whish)
@@ -154,13 +164,17 @@ Debt:            getDebtors(), getClientDebtHistory(id), getClientDebtTotal(id),
 ## ⚙️ Configuration
 
 ### Exchange Rate
+
 **File**: `src/config/constants.ts`
+
 ```typescript
 export const EXCHANGE_RATE = 89000; // 1 USD = 89,000 LBP
 ```
+
 Updated in all files: CheckoutModal, Debts, debtHandlers, salesHandlers
 
 ### Database Path
+
 ```
 macOS:   ~/Library/Application Support/liratek/phone_shop.db
 Windows: %APPDATA%\liratek\phone_shop.db
@@ -172,6 +186,7 @@ Linux:   ~/.config/liratek/phone_shop.db
 ## 🔄 Data Flow
 
 ### Sale Completion Flow
+
 1. User selects products in POS → adds to cart
 2. Opens checkout modal
 3. **Phone Validation**: If creating debt, customer must have phone
@@ -182,6 +197,7 @@ Linux:   ~/.config/liratek/phone_shop.db
 8. Total sales updated to include repayments
 
 ### Debt Flow
+
 1. Create debt from POS or manual entry
 2. Store as positive amount in `debt_ledger`
 3. Repayment stored as negative amount
@@ -194,6 +210,7 @@ Linux:   ~/.config/liratek/phone_shop.db
 ## 🧪 Testing & Cleanup
 
 ### Reset Sales & Debts
+
 Removes all sales and debts while keeping customers & products:
 
 ```bash
@@ -201,6 +218,7 @@ npm run reset:sales-debt
 ```
 
 **What it does:**
+
 - Creates backup: `phone_shop.db.backup`
 - Clears: `sales`, `sale_items`, `debt_ledger` tables
 - Resets auto-increment sequences
@@ -213,11 +231,14 @@ npm run reset:sales-debt
 ## 🐛 Debugging
 
 ### DevTools
+
 - **macOS**: `Cmd + Option + I`
 - **Windows/Linux**: `Ctrl + Shift + I`
 
 ### Console Logs
+
 Prefixed output in terminal:
+
 - `[AUTH]` - Authentication operations
 - `[SALES]` - Sales & dashboard stats
 - `[DEBT]` - Debt transactions
@@ -225,19 +246,20 @@ Prefixed output in terminal:
 
 ### Common Issues
 
-| Issue | Solution |
-|-------|----------|
-| "Autofill.enable" error | Harmless DevTools warning, ignore |
-| Login fails | Check admin user: `sqlite3 "db_path" "SELECT * FROM users;"` |
-| Phone validation on debt | Customer must have phone number - edit profile to add |
-| Database locked | Close all Electron instances, check Activity Monitor |
-| Dashboard not updating | Check browser console for fetch errors, restart app |
+| Issue                    | Solution                                                     |
+| ------------------------ | ------------------------------------------------------------ |
+| "Autofill.enable" error  | Harmless DevTools warning, ignore                            |
+| Login fails              | Check admin user: `sqlite3 "db_path" "SELECT * FROM users;"` |
+| Phone validation on debt | Customer must have phone number - edit profile to add        |
+| Database locked          | Close all Electron instances, check Activity Monitor         |
+| Dashboard not updating   | Check browser console for fetch errors, restart app          |
 
 ---
 
 ## 🏗️ Architecture Notes
 
 ### Frontend
+
 - React hooks + Context API for state
 - Event emitter (`appEvents`) for cross-component communication
 - Tailwind CSS for styling
@@ -245,6 +267,7 @@ Prefixed output in terminal:
 - IPC bridge (`window.api`) for backend calls
 
 ### Backend
+
 - Electron IPC handlers (synchronous)
 - Better SQLite3 for embedded database
 - Logging with console (prefixed)
@@ -252,12 +275,14 @@ Prefixed output in terminal:
 - Activity logging for audit trail
 
 ### Debt Logic
+
 - Ledger-based: each transaction is a row
 - Running balance calculated on fetch
 - Positive = debt created, Negative = repayment
 - Paid status determined by cumulative balance
 
 ### Dashboard Stats
+
 - `getDashboardStats()` query:
   - Sales: COUNT + SUM from `sales` table (completed only)
   - Repayments: SUM(ABS) from `debt_ledger` (transaction_type='Repayment')
@@ -269,6 +294,7 @@ Prefixed output in terminal:
 ## 📊 Recent Changes
 
 ### Fixed Issues
+
 1. ✅ **Phone validation**: Debt creation requires customer phone
 2. ✅ **Dashboard total**: Now includes repayment amounts
 3. ✅ **Exchange rate**: Standardized to 89000 LBP per USD across all files

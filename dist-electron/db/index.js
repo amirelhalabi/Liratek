@@ -11,11 +11,11 @@ const electron_1 = require("electron");
 let db = null;
 function getDatabase() {
     if (!db) {
-        const userDataPath = electron_1.app.getPath('userData');
-        const dbPath = path_1.default.join(userDataPath, 'phone_shop.db');
+        const userDataPath = electron_1.app.getPath("userData");
+        const dbPath = path_1.default.join(userDataPath, "phone_shop.db");
         db = new better_sqlite3_1.default(dbPath);
         // Enable WAL mode for better performance
-        db.pragma('journal_mode = WAL');
+        db.pragma("journal_mode = WAL");
         console.log(`Database initialized at: ${dbPath}`);
     }
     return db;

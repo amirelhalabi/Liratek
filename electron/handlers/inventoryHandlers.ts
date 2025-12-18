@@ -1,161 +1,158 @@
-import { ipcMain } from 'electron';
-import { getDatabase } from '../db';
+/**
+ * Inventory IPC Handlers
+ * 
+ * Thin wrapper around InventoryService for IPC communication.
+ * Handles authentication checks and delegates to service layer.
+ */
 
-interface Product {
-    id?: number;
-    barcode: string;
-    name: string;
-    category: string;
-    cost_price: number;
-    retail_price: number;
-    whish_price: number;
-    stock_quantity: number;
-    min_stock_level: number;
-    image_url?: string;
+import { ipcMain } from "electron";
+import { getInventoryService } from "../services";
+
+// =============================================================================
+// Types
+// =============================================================================
+
+interface ProductInput {
+  id?: number;
+  barcode: string;
+  name: string;
+  category: string;
+  cost_price: number;
+  retail_price: number;
+  whish_price?: number;
+  stock_quantity?: number;
+  min_stock_level?: number;
+  image_url?: string;
 }
 
+// =============================================================================
+// Handler Registration
+// =============================================================================
+
 export function registerInventoryHandlers(): void {
-    const db = getDatabase();
+  const service = getInventoryService();
 
-    // Get all products (optional filter by name/barcode)
-    ipcMain.handle('inventory:get-products', (_event, search?: string) => {
-        let query = `SELECT 
-            id, barcode, name, category, stock_quantity, min_stock_level, image_url, is_active, created_at,
-            cost_price_usd as cost_price, 
-            selling_price_usd as retail_price
-            FROM products WHERE is_active = 1`;
-        const params: (string | number)[] = [];
+  // ---------------------------------------------------------------------------
+  // Product Queries (No auth required for read operations)
+  // ---------------------------------------------------------------------------
 
-        if (search) {
-            query += ` AND (name LIKE ? OR barcode LIKE ? OR category LIKE ?)`;
-            const term = `%${search}%`;
-            params.push(term, term, term);
-        }
+  // Get all products (optional filter by name/barcode)
+  ipcMain.handle("inventory:get-products", (_event, search?: string) => {
+    return service.getProducts(search);
+  });
 
-        query += ` ORDER BY name ASC`;
-        return db.prepare(query).all(...params);
+  // Get single product by ID
+  ipcMain.handle("inventory:get-product", (_event, id: number) => {
+    try {
+      return service.getProductById(id);
+    } catch (error) {
+      return null;
+    }
+  });
+
+  // Get product by barcode
+  ipcMain.handle("inventory:get-product-by-barcode", (_event, barcode: string) => {
+    return service.getProductByBarcode(barcode);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Product CRUD (Admin only)
+  // ---------------------------------------------------------------------------
+
+  // Create product
+  ipcMain.handle("inventory:create-product", (e, product: ProductInput) => {
+    // Auth check
+    try {
+      const { requireRole } = require("../session");
+      const auth = requireRole(e.sender.id, ["admin"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+    } catch {}
+
+    return service.createProduct({
+      barcode: product.barcode,
+      name: product.name,
+      category: product.category,
+      cost_price: product.cost_price,
+      retail_price: product.retail_price,
+      stock_quantity: product.stock_quantity,
+      min_stock_level: product.min_stock_level,
+      image_url: product.image_url,
     });
+  });
 
-    // Get single product
-    ipcMain.handle('inventory:get-product', (_event, id: number) => {
-        return db.prepare(`SELECT * FROM products WHERE id = ?`).get(id);
+  // Update product
+  ipcMain.handle("inventory:update-product", (e, product: ProductInput) => {
+    // Auth check
+    try {
+      const { requireRole } = require("../session");
+      const auth = requireRole(e.sender.id, ["admin"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+    } catch {}
+
+    if (!product.id) {
+      return { success: false, error: "Product ID required" };
+    }
+
+    return service.updateProduct(product.id, {
+      barcode: product.barcode,
+      name: product.name,
+      category: product.category,
+      cost_price: product.cost_price,
+      retail_price: product.retail_price,
+      min_stock_level: product.min_stock_level ?? 5,
+      image_url: product.image_url,
     });
+  });
 
-    // Get product by barcode
-    ipcMain.handle('inventory:get-product-by-barcode', (_event, barcode: string) => {
-        return db.prepare(`SELECT * FROM products WHERE barcode = ? AND is_active = 1`).get(barcode);
-    });
+  // Soft delete product
+  ipcMain.handle("inventory:delete-product", (e, id: number) => {
+    // Auth check
+    try {
+      const { requireRole } = require("../session");
+      const auth = requireRole(e.sender.id, ["admin"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+    } catch {}
 
-    // Create product
-    ipcMain.handle('inventory:create-product', (_event, product: Product) => {
-        try {
-            const stmt = db.prepare(`
-        INSERT INTO products (
-          barcode, name, category, cost_price_usd, selling_price_usd, 
-          stock_quantity, min_stock_level, image_url, item_type, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-      `);
+    return service.deleteProduct(id);
+  });
 
-            const result = stmt.run(
-                product.barcode,
-                product.name,
-                product.category,
-                product.cost_price, // Maps to cost_price_usd
-                product.retail_price, // Maps to selling_price_usd
-                product.stock_quantity || 0,
-                product.min_stock_level || 5,
-                product.image_url || null,
-                'Product' // Default item_type
-            );
+  // ---------------------------------------------------------------------------
+  // Stock Management (Admin only)
+  // ---------------------------------------------------------------------------
 
-            return { success: true, id: result.lastInsertRowid };
-        } catch (error: any) {
-            console.error('Create product error:', error);
-            if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
-                return { success: false, error: 'Barcode already exists' };
-            }
-            return { success: false, error: error.message };
-        }
-    });
+  // Adjust stock (absolute set)
+  ipcMain.handle("inventory:adjust-stock", (e, id: number, newQuantity: number) => {
+    // Auth check
+    try {
+      const { requireRole } = require("../session");
+      const auth = requireRole(e.sender.id, ["admin"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+    } catch {}
 
-    // Update product
-    ipcMain.handle('inventory:update-product', (_event, product: Product) => {
-        try {
-            if (!product.id) return { success: false, error: 'Product ID required' };
+    return service.adjustStock(id, newQuantity);
+  });
 
-            const stmt = db.prepare(`
-            UPDATE products SET
-            barcode = ?, name = ?, category = ?, cost_price_usd = ?, 
-            selling_price_usd = ?, min_stock_level = ?, image_url = ?
-            WHERE id = ?
-        `);
+  // ---------------------------------------------------------------------------
+  // Reporting (No auth required)
+  // ---------------------------------------------------------------------------
 
-            stmt.run(
-                product.barcode,
-                product.name,
-                product.category,
-                product.cost_price,
-                product.retail_price,
-                product.min_stock_level || 5,
-                product.image_url || null,
-                product.id
-            );
+  // Get Inventory Stock Stats (budget and count)
+  ipcMain.handle("inventory:get-stock-stats", () => {
+    try {
+      return service.getStockStats();
+    } catch (error: any) {
+      console.error("Failed to get stock stats:", error);
+      return { stock_budget_usd: 0, stock_count: 0 };
+    }
+  });
 
-            return { success: true };
-        } catch (error: any) {
-            return { success: false, error: error.message };
-        }
-    });
-
-    // Soft delete product
-    ipcMain.handle('inventory:delete-product', (_event, id: number) => {
-        try {
-            db.prepare(`UPDATE products SET is_active = 0 WHERE id = ?`).run(id);
-            return { success: true };
-        } catch (error: any) {
-            return { success: false, error: error.message };
-        }
-    });
-
-    // Adjust stock (absolute set or relative adjust could be implemented, keeping simple for now)
-    ipcMain.handle('inventory:adjust-stock', (_event, id: number, newQuantity: number) => {
-        try {
-            db.prepare(`UPDATE products SET stock_quantity = ? WHERE id = ?`).run(newQuantity, id);
-            return { success: true };
-        } catch (error: any) {
-            return { success: false, error: error.message };
-        }
-    }); // Missing closing brace added here
-    // Get Inventory Stock Stats (budget and count)
-    ipcMain.handle('inventory:get-stock-stats', () => {
-        try {
-            const row = db.prepare(`
-                SELECT 
-                    COALESCE(SUM(cost_price_usd * stock_quantity), 0) AS stock_budget_usd,
-                    COALESCE(SUM(stock_quantity), 0) AS stock_count
-                FROM products
-                WHERE is_active = 1
-            `).get() as { stock_budget_usd: number; stock_count: number };
-            return row;
-        } catch (error: any) {
-            console.error('Failed to get stock stats:', error);
-            return { stock_budget_usd: 0, stock_count: 0 };
-        }
-    });
-
-    // Get low stock products
-    ipcMain.handle('inventory:get-low-stock-products', () => {
-        try {
-            const lowStockProducts = db.prepare(`
-                SELECT id, name, stock_quantity, min_stock_level
-                FROM products
-                WHERE stock_quantity <= min_stock_level AND is_active = 1
-                ORDER BY name ASC
-            `).all();
-            return lowStockProducts;
-        } catch (error: any) {
-            console.error('Failed to get low stock products:', error);
-            return [];
-        }
-    });
+  // Get low stock products
+  ipcMain.handle("inventory:get-low-stock-products", () => {
+    try {
+      return service.getLowStockProducts();
+    } catch (error: any) {
+      console.error("Failed to get low stock products:", error);
+      return [];
+    }
+  });
 }

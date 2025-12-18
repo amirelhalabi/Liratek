@@ -1,26 +1,27 @@
-import { ipcMain } from 'electron';
-import { getDatabase } from '../db';
+/**
+ * Rate IPC Handlers
+ * 
+ * Thin wrapper over RateService for IPC communication.
+ */
+
+import { ipcMain, IpcMainInvokeEvent } from 'electron';
+import { getRateService } from '../services';
+import { requireRole } from '../session';
+import type { SetRateData } from '../database/repositories';
 
 export function registerRateHandlers(): void {
-  const db = getDatabase();
+  const rateService = getRateService();
 
+  // List all rates
   ipcMain.handle('rates:list', () => {
-    try {
-      const rows = db.prepare(`SELECT id, from_code, to_code, rate, updated_at FROM exchange_rates ORDER BY from_code, to_code`).all();
-      return rows;
-    } catch (e: any) {
-      return { error: e.message };
-    }
+    return rateService.listRates();
   });
 
-  ipcMain.handle('rates:set', (_e, data: { from_code: string; to_code: string; rate: number }) => {
-    try {
-      const stmt = db.prepare(`INSERT INTO exchange_rates (from_code, to_code, rate) VALUES (?, ?, ?)
-        ON CONFLICT(from_code, to_code) DO UPDATE SET rate=excluded.rate, updated_at=CURRENT_TIMESTAMP`);
-      stmt.run(data.from_code.toUpperCase(), data.to_code.toUpperCase(), data.rate);
-      return { success: true };
-    } catch (e: any) {
-      return { success: false, error: e.message };
-    }
+  // Set a rate (admin only)
+  ipcMain.handle('rates:set', (event: IpcMainInvokeEvent, data: SetRateData) => {
+    const auth = requireRole(event.sender.id, ['admin']);
+    if (!auth.ok) return { success: false, error: auth.error };
+
+    return rateService.setRate(data);
   });
 }

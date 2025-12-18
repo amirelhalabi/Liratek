@@ -1,54 +1,40 @@
 "use strict";
+/**
+ * Currency IPC Handlers
+ *
+ * Thin wrapper over CurrencyService for IPC communication.
+ */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.registerCurrencyHandlers = registerCurrencyHandlers;
 const electron_1 = require("electron");
-const db_1 = require("../db");
+const services_1 = require("../services");
+const session_1 = require("../session");
 function registerCurrencyHandlers() {
-    const db = (0, db_1.getDatabase)();
+    const currencyService = (0, services_1.getCurrencyService)();
+    // List all currencies
     electron_1.ipcMain.handle('currencies:list', () => {
-        try {
-            const rows = db.prepare(`SELECT id, code, name, is_active FROM currencies ORDER BY code ASC`).all();
-            return rows;
-        }
-        catch (e) {
-            return { error: e.message };
-        }
+        return currencyService.listCurrencies();
     });
-    electron_1.ipcMain.handle('currencies:create', (_e, data) => {
-        try {
-            const stmt = db.prepare(`INSERT INTO currencies (code, name, is_active) VALUES (?, ?, 1)`);
-            const res = stmt.run(data.code.toUpperCase(), data.name);
-            return { success: true, id: res.lastInsertRowid };
-        }
-        catch (e) {
-            if (e.code === 'SQLITE_CONSTRAINT_UNIQUE') {
-                return { success: false, error: 'Currency code already exists' };
-            }
-            return { success: false, error: e.message };
-        }
+    // Create a currency (admin only)
+    electron_1.ipcMain.handle('currencies:create', (event, data) => {
+        const auth = (0, session_1.requireRole)(event.sender.id, ['admin']);
+        if (!auth.ok)
+            return { success: false, error: auth.error };
+        return currencyService.createCurrency(data);
     });
-    electron_1.ipcMain.handle('currencies:update', (_e, data) => {
-        try {
-            const current = db.prepare(`SELECT * FROM currencies WHERE id = ?`).get(data.id);
-            if (!current)
-                return { success: false, error: 'Not found' };
-            const code = (data.code ?? current.code).toUpperCase();
-            const name = data.name ?? current.name;
-            const isActive = data.is_active ?? current.is_active;
-            db.prepare(`UPDATE currencies SET code = ?, name = ?, is_active = ? WHERE id = ?`).run(code, name, isActive, data.id);
-            return { success: true };
-        }
-        catch (e) {
-            return { success: false, error: e.message };
-        }
+    // Update a currency (admin only)
+    electron_1.ipcMain.handle('currencies:update', (event, data) => {
+        const auth = (0, session_1.requireRole)(event.sender.id, ['admin']);
+        if (!auth.ok)
+            return { success: false, error: auth.error };
+        const { id, ...updateData } = data;
+        return currencyService.updateCurrency(id, updateData);
     });
-    electron_1.ipcMain.handle('currencies:delete', (_e, id) => {
-        try {
-            db.prepare(`DELETE FROM currencies WHERE id = ?`).run(id);
-            return { success: true };
-        }
-        catch (e) {
-            return { success: false, error: e.message };
-        }
+    // Delete a currency (admin only)
+    electron_1.ipcMain.handle('currencies:delete', (event, id) => {
+        const auth = (0, session_1.requireRole)(event.sender.id, ['admin']);
+        if (!auth.ok)
+            return { success: false, error: auth.error };
+        return currencyService.deleteCurrency(id);
     });
 }

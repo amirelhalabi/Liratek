@@ -1,0 +1,1032 @@
+================================================================================
+                    LIRATEK POS SYSTEM - DOCUMENTATION
+================================================================================
+                        Consolidated Reference Guide
+                           Last Updated: December 2025
+================================================================================
+
+This document consolidates all legacy documentation files into a single reference.
+For the active restructuring plan, see RESTRUCTURE-plan.md
+
+================================================================================
+                        TABLE OF CONTENTS
+================================================================================
+1. PROJECT OVERVIEW & STACK
+2. SYSTEM ARCHITECTURE & BUSINESS LOGIC
+3. DATABASE QUERIES REFERENCE
+4. DATABASE SCHEMA
+5. PROJECT MANAGER ADDITIONS
+6. CREDENTIALS & ACCESS
+7. GIT SETUP INSTRUCTIONS
+8. IMPLEMENTATION TASK LIST
+9. DEVELOPMENT PROGRESS
+10. VM SETUP INSTRUCTIONS (Windows Testing)
+
+================================================================================
+SECTION 1: PROJECT OVERVIEW & STACK
+================================================================================
+
+Project Name: Multi-Service POS & Management System
+Target Business: Money Transfer (OMT/Whish), Exchange, Mobile Shop, and General Services.
+
+--------------------------------------------------------------------------------
+1.1 The Technology Stack (Offline-First Desktop App)
+--------------------------------------------------------------------------------
+
+* Platform: Electron (Builds .exe for Windows)
+* Frontend: React.js + Tailwind CSS (Fast, modern UI)
+* Data Visualization: Recharts or Chart.js (For the Dashboard graphs)
+* Local Database: SQLite (better-sqlite3)
+* Cloud Sync: PostgreSQL (Supabase/DigitalOcean)
+* Language: TypeScript
+* WhatsApp Integration: whatsapp-web.js (Node.js library) or Twilio API
+  - Start with whatsapp-web.js to run it off the shop phone without per-message costs
+
+--------------------------------------------------------------------------------
+1.2 Client Delivery & Control
+--------------------------------------------------------------------------------
+
+* Delivery: Provide a Setup.exe built via Electron-Builder
+* Updates: Use electron-updater to push fixes via GitHub releases
+* Payment Enforcement:
+    * Heartbeat DRM: App checks a secure server API (/check-license) on startup
+    * Lockout: If subscription unpaid, app switches to "Read Only" mode 
+      (can view history, cannot sell)
+
+--------------------------------------------------------------------------------
+1.3 Implementation Roadmap (Original Plan)
+--------------------------------------------------------------------------------
+
+Phase 1: Database & Backend (Electron/SQLite)
+    * Set up SQLite with the schema
+    * Create the "IPC Bridge" (allows React to talk to SQLite)
+
+Phase 2: The Dashboard & Inventory
+    * Build the "Default Screen" (Dashboard) fetching stats
+    * Build "Product Entry" and "Stock Management"
+
+Phase 3: The POS (Point of Sale)
+    * Build the Cart logic (Hold/Scan/Pay)
+    * Implement the "Dual Drawer" logic
+
+Phase 4: Advanced Features
+    * Implement Refund Logic (Menu: "Return to Stock" vs "Trash")
+    * Implement Currency Exchange forms in Opening/Closing
+
+Phase 5: WhatsApp & Sync
+    * Integrate WhatsApp library for debt alerts
+    * Build the background Sync Queue to upload data to Cloud
+
+
+================================================================================
+SECTION 2: SYSTEM ARCHITECTURE & BUSINESS LOGIC
+================================================================================
+
+--------------------------------------------------------------------------------
+2.1 The Default Dashboard (Startup Screen)
+--------------------------------------------------------------------------------
+
+The system must launch immediately into a high-level analytics view.
+
+* Main Visual: A line chart showing Daily Profit vs. Total Sales over the last 30 days
+* Live Status Cards (Date Filter: Today by default):
+    1. Stock Budget (Cost): Total value of all items currently on shelves (Cost Price)
+    2. Stock Count: Total number of physical items
+    3. Debt Receivable: Total money currently owed to the shop by clients
+    4. Virtual Stock: Total $ amount available in MTC + Alfa accounts combined
+    5. General Drawer: Current Theoretical Cash (USD + LBP + EUR)
+    6. OMT Drawer: Current Theoretical Cash (Strictly OMT funds)
+
+--------------------------------------------------------------------------------
+2.2 Core Financial Logic & Cash Flow
+--------------------------------------------------------------------------------
+
+The system handles a high-frequency retail environment with complex multi-currency flows.
+
+DUAL CASH DRAWER LOGIC (The "Jarour" System):
+    * Drawer A (OMT): Strictly for OMT transactions (In/Out). Segregated balance.
+    * Drawer B (General/Exchange): The "Master" drawer. Handles stock sales, mobile 
+      recharge, Whish, Loto, government services, and all operational expenses.
+
+MULTI-CURRENCY SUPPORT:
+    * All transactions handle USD and LBP simultaneously
+    * Exchange Service adds EUR support
+    * Dynamic Exchange Rate: Admin must be able to change the daily rate easily
+    * Cross-Currency Logic: If a client owes $8 but pays $7 + 100,000 LBP, the system 
+      calculates the remaining change based on the set rate
+
+EXPENSE & LOSS LOGIC (Crucial Distinction):
+    * Type 1: Cash Expenses (e.g., Shop Rent, Coffee, Bills)
+      - Money physically leaves the shop
+      - This is deducted from the General Drawer balance
+    
+    * Type 2: "Pure Khsara" (Internal Breakage)
+      - If you break a phone or an item expires
+      - Effect: The item is removed from stock
+      - Drawer Effect: ZERO. No cash left the drawer
+      - Profit Effect: NEGATIVE. The cost of the item is recorded as a loss against daily profit
+
+OPENING/CLOSING SHIFTS:
+    * Opening: Input starting cash for OMT and General (USD, LBP, EUR)
+    * Closing: User counts actual physical cash. System compares "System Expected" vs. 
+      "Physical Actual" and records the variance.
+
+--------------------------------------------------------------------------------
+2.3 Inventory, Stock & Refund Management
+--------------------------------------------------------------------------------
+
+ITEM TYPES:
+    * Standard (Barcode): Phones, accessories. Action: Scan to add.
+    * Custom (No Barcode): Services. Action: Manual entry.
+    * Phones (IMEI Tracking): Must record IMEI, Color, Warranty Expiry, and Status.
+
+REFUND LOGIC (The 2 Scenarios):
+When a client returns an item, the system prompts for the condition:
+
+    Scenario A: Return to Stock (Item Works):
+        * Stock: Quantity increases (+1)
+        * Money: Deducted from General Drawer (refunded to client)
+
+    Scenario B: Damaged/Malfunctional (Item is Trash):
+        * Stock: Quantity does not increase (or moves to a 'Damaged' bin)
+        * Money: Deducted from General Drawer (refunded to client)
+        * Expense: System automatically creates a "Refund_Damaged" expense record
+
+--------------------------------------------------------------------------------
+2.4 Point of Sale (POS) Dashboard
+--------------------------------------------------------------------------------
+
+Optimized for speed and multiple client flows.
+
+CLIENT MANAGEMENT:
+    * Search: Input field must accept Client Name OR Phone Number
+    * Queue/Hold: Ability to "Pause" a client's cart, serve someone else, and resume
+
+UI LAYOUT:
+    * Top Left: Sale Items Table (Qty, Price USD/LBP)
+    * Top Right: Action Buttons (Pay, Debt, Hold)
+    * Bottom Left: Payment Input (USD/LBP checkboxes for quick entry)
+    * Bottom Right: Change Calculation
+
+--------------------------------------------------------------------------------
+2.5 Services Modules
+--------------------------------------------------------------------------------
+
+A. MONEY TRANSFER:
+    * OMT: Balances affect Drawer A
+    * Whish: Balances affect Drawer B (General)
+
+B. MOBILE RECHARGE (MTC & Alfa):
+    * Tabs: Distinct tabs for Blue (MTC) and Red (Alfa)
+    * Inventory: Tracks "Virtual Stock" ($ credits) available in the shop's accounts
+    * Methods: Credit Transfer (Days/Dollars) or Voucher/App
+
+C. CURRENCY EXCHANGE:
+    * Function: Buying/Selling USD, LBP, EUR
+    * Effect: Increases one currency in Drawer B, decreases another
+
+D. LOTO & GOV SERVICES:
+    * Tracks ticket sales vs. payouts
+    * Calculates defined Cost vs. Sale Price = Profit
+
+--------------------------------------------------------------------------------
+2.6 Maintenance Module
+--------------------------------------------------------------------------------
+
+* Records: Client Name, Device, Issue
+* Financials: Cost of Parts + Cost of Labor = Total Price
+* Status Workflow: Received -> Pending -> Repaired -> Delivered/Paid
+
+--------------------------------------------------------------------------------
+2.7 Debt Management (Dyoun)
+--------------------------------------------------------------------------------
+
+* Excel Migration: Tool to parse existing legacy debt files
+* Recording: Button in POS to "Charge to Debt"
+* Repayment: Log Date, Amount Paid (USD/LBP)
+* WhatsApp Integration (Future):
+    * Checkbox in client profile: "Opt-in for WhatsApp"
+    * Triggers:
+        * Debt Reminder: "Hello [Name], your total due is $[Amount]."
+        * Offers: Bulk send new price lists
+
+--------------------------------------------------------------------------------
+2.8 Technical & Sync Strategy
+--------------------------------------------------------------------------------
+
+PLATFORM: Windows Desktop Application (Electron)
+
+NETWORK STRATEGY (Offline First):
+    * Runs locally on SQLite
+    * Sync: Every action (Sale, Payment) is saved to a local sync_queue
+    * Background Process: Pushes queue to Cloud DB every 5 minutes when internet available
+
+BACKUP: 
+    * Local DB acts as a rolling archive (60 days)
+    * Cloud DB retains permanent history
+
+SECURITY ROLES:
+    * Admin: Full Access (Profit, Settings, Stock Edit)
+    * Staff: POS Only, Read-Only Stock, No History/Profit access
+
+
+================================================================================
+SECTION 3: DATABASE QUERIES REFERENCE
+================================================================================
+
+--------------------------------------------------------------------------------
+3.1 Dashboard & Analytics (The "Manager View")
+--------------------------------------------------------------------------------
+
+Logic: Fetches live snapshots for the dashboard cards and calculates end-of-day numbers.
+
+A. LIVE DASHBOARD STATS (Top Cards):
+
+SELECT
+    -- 1. Total Value of Stock (Cost Price)
+    (SELECT SUM(cost_price_usd * stock_quantity) FROM products WHERE is_active = 1) as stock_budget_value,
+    
+    -- 2. Total Items Count
+    (SELECT SUM(stock_quantity) FROM products WHERE is_active = 1) as stock_item_count,
+
+    -- 3. Total Unpaid Debt (Receivables)
+    (SELECT SUM(amount_usd) FROM debt_ledger) as total_debt_receivable,
+
+    -- 4. Virtual Stock (MTC + Alfa)
+    (SELECT SUM(stock_quantity) FROM products WHERE item_type IN ('Virtual_MTC', 'Virtual_Alfa')) as virtual_stock_usd
+;
+
+
+B. CALCULATE "SYSTEM EXPECTED" CASH (General Drawer):
+Logic: This tells you how much money SHOULD be in the drawer physically.
+We must exclude "Non-Cash" expenses (like broken items) because no money left the drawer for those.
+
+SELECT 
+    (
+        -- 1. Cash from Direct Sales (Completed today)
+        SELECT COALESCE(SUM(paid_usd), 0) FROM sales 
+        WHERE date(created_at) = date('now') AND status = 'Completed'
+    ) 
+    + 
+    (
+        -- 2. Cash from Debt Payments (Money coming in)
+        SELECT COALESCE(SUM(ABS(amount_usd)), 0) FROM debt_ledger 
+        WHERE date(created_at) = date('now') AND transaction_type = 'Payment'
+    ) 
+    - 
+    (
+        -- 3. Cash Paid Out (Rent, Bills, Refunds)
+        -- CRITICAL: Only count expenses where money actually leaves the drawer ('Cash_Out')
+        SELECT COALESCE(SUM(amount_usd), 0) FROM expenses 
+        WHERE date(expense_date) = date('now') AND expense_type = 'Cash_Out'
+    ) 
+    AS total_expected_usd_in_general_drawer;
+
+
+C. CALCULATE NET DAILY PROFIT:
+Logic: Profit = (Sales Margin) - (All Expenses). 
+Here, we MUST include "Non-Cash" losses (Pure Khsara) because they reduce profit even if cash didn't leave.
+
+SELECT 
+    (
+        -- Gross Profit from Sold Items
+        SELECT SUM((sold_price_usd - cost_price_snapshot_usd) * quantity)
+        FROM sale_items 
+        JOIN sales ON sale_items.sale_id = sales.id
+        WHERE date(sales.created_at) = date('now')
+    )
+    -
+    (
+        -- Total Expenses (Includes Bills AND Internal Breakage/Losses)
+        SELECT COALESCE(SUM(amount_usd), 0) FROM expenses 
+        WHERE date(expense_date) = date('now')
+    ) 
+    AS net_daily_profit;
+
+--------------------------------------------------------------------------------
+3.2 Sales & POS Module (The "Cashier View")
+--------------------------------------------------------------------------------
+
+A. CREATE A "HELD" CART (Pending Sale):
+
+INSERT INTO sales (client_id, total_amount_usd, status, created_at)
+VALUES (3, 0.00, 'Pending', CURRENT_TIMESTAMP);
+-- Returns the new Sale ID (e.g., 1024)
+
+
+B. ADD ITEM TO CART:
+Logic: Links product to sale and captures the cost price snapshot.
+
+INSERT INTO sale_items (sale_id, product_id, quantity, sold_price_usd, cost_price_snapshot_usd)
+SELECT 
+    1024,                   -- The Sale ID
+    id,                     -- Product ID
+    1,                      -- Quantity
+    selling_price_usd,      -- Selling Price
+    cost_price_usd          -- Cost Price (Snapshot)
+FROM products WHERE barcode = '123456789';
+
+
+C. RETRIEVE ALL "HELD" CARTS (Sidebar List):
+
+SELECT 
+    s.id as sale_id, 
+    c.full_name, 
+    s.created_at 
+FROM sales s
+JOIN clients c ON s.client_id = c.id
+WHERE s.status = 'Pending';
+
+--------------------------------------------------------------------------------
+3.3 Debt Management Module
+--------------------------------------------------------------------------------
+
+A. CALCULATE CURRENT BALANCE (Single Client):
+
+CREATE VIEW view_client_current_balance AS
+SELECT 
+    client_id, 
+    SUM(amount_usd) as total_debt_usd
+FROM debt_ledger
+GROUP BY client_id;
+-- Usage: SELECT total_debt_usd FROM view_client_current_balance WHERE client_id = 5;
+
+
+B. RECORD A DEBT PAYMENT (Mixed Currency):
+Logic: Records payment, converting LBP to USD for the ledger.
+
+INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, note, created_at)
+VALUES (
+    5,                                          -- Client ID
+    'Payment', 
+    -72.35,                                     -- Calculated in code: -(50 + (2000000 / Rate))
+    2000000,                                    -- Stored for reference
+    'Payment: $50 cash + 2M LBP', 
+    CURRENT_TIMESTAMP
+);
+
+
+C. GENERATE CLIENT STATEMENT (History):
+
+SELECT 
+    created_at, 
+    transaction_type, 
+    note, 
+    amount_usd as change,
+    SUM(amount_usd) OVER (ORDER BY created_at ROWS UNBOUNDED PRECEDING) as running_balance
+FROM debt_ledger
+WHERE client_id = 5
+ORDER BY created_at DESC;
+
+--------------------------------------------------------------------------------
+3.4 Inventory, Stock & Maintenance
+--------------------------------------------------------------------------------
+
+A. DEDUCT STOCK (Finalize Sale):
+
+UPDATE products
+SET stock_quantity = stock_quantity - (
+    SELECT quantity 
+    FROM sale_items 
+    WHERE sale_items.product_id = products.id AND sale_items.sale_id = 1024
+)
+WHERE id IN (SELECT product_id FROM sale_items WHERE sale_id = 1024);
+
+
+B. ADD MTC/ALFA "VIRTUAL" STOCK:
+
+UPDATE products 
+SET stock_quantity = stock_quantity + 1000
+WHERE name = 'MTC Credit Inventory';
+
+
+C. MAINTENANCE: UPDATE STATUS & FINISH JOB:
+
+UPDATE maintenance_jobs
+SET 
+    cost_parts_usd = 20, 
+    cost_labor_usd = 10, 
+    price_to_client_usd = 50, 
+    status = 'Repaired', 
+    completed_at = CURRENT_TIMESTAMP
+WHERE id = 55;
+
+
+D. MAINTENANCE: DELIVER & PAY:
+
+-- 1. Mark Job as Done
+UPDATE maintenance_jobs SET status = 'Delivered_Paid' WHERE id = 55;
+
+-- 2. Create Sale Record (so it appears in daily cash)
+INSERT INTO sales (client_id, total_amount_usd, paid_usd, status)
+VALUES (
+    (SELECT client_id FROM maintenance_jobs WHERE id = 55),
+    (SELECT price_to_client_usd FROM maintenance_jobs WHERE id = 55),
+    (SELECT price_to_client_usd FROM maintenance_jobs WHERE id = 55),
+    'Completed'
+);
+
+--------------------------------------------------------------------------------
+3.5 Refunds & Losses
+--------------------------------------------------------------------------------
+
+A. REFUND - CASE 1: ITEM WORKS (Return to Stock):
+Logic: Client gets money back, we get item back.
+
+-- 1. Mark item as refunded in sales
+UPDATE sale_items SET is_refunded = 1 WHERE sale_id = 50 AND product_id = 99;
+
+-- 2. Add stock back
+UPDATE products SET stock_quantity = stock_quantity + 1 WHERE id = 99;
+
+-- 3. Record Cash Out (Deducts from Drawer)
+INSERT INTO expenses (description, category, expense_type, amount_usd)
+VALUES ('Refund Sale #50 - Item working', 'Refund', 'Cash_Out', 200);
+
+
+B. REFUND - CASE 2: ITEM BROKEN (Trash):
+Logic: Client gets money back, item is thrown away.
+
+-- 1. Mark item as refunded
+UPDATE sale_items SET is_refunded = 1 WHERE sale_id = 50 AND product_id = 99;
+
+-- 2. DO NOT increase stock (Item is gone)
+
+-- 3. Record Cash Out (Deducts from Drawer)
+INSERT INTO expenses (description, category, expense_type, amount_usd)
+VALUES ('Refund Sale #50 - Item Broken', 'Refund_Damaged', 'Cash_Out', 200);
+
+
+C. "PURE KHSARA" (Internal Breakage):
+Logic: You dropped a phone. No money leaves drawer, but profit drops.
+
+-- 1. Remove from Stock
+UPDATE products SET stock_quantity = stock_quantity - 1 WHERE id = 101;
+
+-- 2. Record Loss (Does NOT affect Drawer, DOES affect Profit)
+INSERT INTO expenses (description, category, expense_type, amount_usd)
+VALUES ('Broken Samsung A50 by accident', 'Inventory_Loss', 'Non_Cash', 150); -- Cost price
+
+--------------------------------------------------------------------------------
+3.6 Client Search
+--------------------------------------------------------------------------------
+
+SELECT * FROM clients 
+WHERE full_name LIKE '%Ali%' OR phone_number LIKE '%70123456%';
+
+
+================================================================================
+SECTION 4: DATABASE SCHEMA
+================================================================================
+
+-- ==========================================
+-- 1. CONFIGURATION & SETTINGS
+-- ==========================================
+CREATE TABLE system_settings (
+    key_name TEXT PRIMARY KEY,
+    value TEXT, -- Stores default currency, shop name, WhatsApp API keys
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ==========================================
+-- 2. USERS
+-- ==========================================
+CREATE TABLE users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE,
+    password_hash TEXT,
+    role TEXT DEFAULT 'staff', -- 'admin' or 'staff'
+    is_active BOOLEAN DEFAULT 1
+);
+
+-- ==========================================
+-- 3. CLIENTS MANAGEMENT
+-- ==========================================
+CREATE TABLE clients (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    full_name TEXT NOT NULL,
+    phone_number TEXT UNIQUE, -- Indexed for fast searching
+    notes TEXT,
+    whatsapp_opt_in BOOLEAN DEFAULT 1, -- For future WhatsApp integration
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ==========================================
+-- 4. INVENTORY & SERVICES (PRODUCTS)
+-- ==========================================
+CREATE TABLE products (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    barcode TEXT UNIQUE, 
+    name TEXT NOT NULL,
+    item_type TEXT NOT NULL, -- 'Physical', 'Service', 'Virtual_MTC', 'Virtual_Alfa'
+    cost_price_usd DECIMAL(10, 2) DEFAULT 0,
+    selling_price_usd DECIMAL(10, 2) DEFAULT 0,
+    stock_quantity INTEGER DEFAULT 0,
+    imei TEXT, 
+    color TEXT,
+    warranty_expiry DATE,
+    status TEXT DEFAULT 'Active', -- 'Active', 'Sold', 'Damaged_In_Stock', 'Returned_To_Vendor'
+    is_active BOOLEAN DEFAULT 1
+);
+
+-- ==========================================
+-- 5. SALES HEADERS (The Receipt)
+-- ==========================================
+CREATE TABLE sales (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_id INTEGER,
+    total_amount_usd DECIMAL(10, 2),
+    discount_usd DECIMAL(10, 2) DEFAULT 0,
+    final_amount_usd DECIMAL(10, 2),
+    paid_usd DECIMAL(10, 2) DEFAULT 0,
+    paid_lbp DECIMAL(15, 2) DEFAULT 0,
+    exchange_rate_snapshot DECIMAL(15, 2),
+    status TEXT DEFAULT 'Completed', -- 'Completed', 'Pending', 'Refunded', 'Partial_Refund'
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (client_id) REFERENCES clients(id)
+);
+
+-- ==========================================
+-- 6. SALE ITEMS (Line Items)
+-- ==========================================
+CREATE TABLE sale_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sale_id INTEGER NOT NULL,
+    product_id INTEGER NOT NULL,
+    quantity INTEGER DEFAULT 1,
+    sold_price_usd DECIMAL(10, 2),
+    cost_price_snapshot_usd DECIMAL(10, 2),
+    is_refunded BOOLEAN DEFAULT 0, -- Tracks if this specific line item was returned
+    FOREIGN KEY (sale_id) REFERENCES sales(id),
+    FOREIGN KEY (product_id) REFERENCES products(id)
+);
+
+-- ==========================================
+-- 7. DEBT LEDGER
+-- ==========================================
+CREATE TABLE debt_ledger (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_id INTEGER NOT NULL,
+    transaction_type TEXT NOT NULL, -- 'Sale_Credit', 'Payment'
+    amount_usd DECIMAL(10, 2),
+    amount_lbp DECIMAL(15, 2), 
+    sale_id INTEGER, 
+    note TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (client_id) REFERENCES clients(id),
+    FOREIGN KEY (sale_id) REFERENCES sales(id)
+);
+
+-- ==========================================
+-- 8. MAINTENANCE / REPAIRS
+-- ==========================================
+CREATE TABLE maintenance_jobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_id INTEGER,
+    device_model TEXT,
+    issue_description TEXT,
+    cost_parts_usd DECIMAL(10, 2),
+    cost_labor_usd DECIMAL(10, 2),
+    price_to_client_usd DECIMAL(10, 2),
+    status TEXT DEFAULT 'Received',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    completed_at DATETIME,
+    FOREIGN KEY (client_id) REFERENCES clients(id)
+);
+
+-- ==========================================
+-- 9. EXPENSES & LOSSES
+-- ==========================================
+CREATE TABLE expenses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    description TEXT,
+    category TEXT, -- 'Shop_Supply', 'Bill', 'Inventory_Loss', 'Refund_Damaged'
+    expense_type TEXT, -- 'Cash_Out' (affects drawer), 'Non_Cash' (affects only profit)
+    amount_usd DECIMAL(10, 2),
+    amount_lbp DECIMAL(15, 2),
+    expense_date DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ==========================================
+-- 10. DAILY CLOSINGS (CHECKPOINTS)
+-- ==========================================
+CREATE TABLE daily_closings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    closing_date DATE,
+    drawer_name TEXT, -- 'General_Drawer', 'OMT_Drawer'
+    
+    -- Opening Counts
+    opening_balance_usd DECIMAL(15, 2),
+    opening_balance_lbp DECIMAL(15, 2),
+    
+    -- Closing Counts (Physical)
+    physical_usd DECIMAL(15, 2),
+    physical_lbp DECIMAL(15, 2),
+    physical_eur DECIMAL(15, 2), -- Added for Exchange Services
+    
+    -- System Calculations
+    system_expected_usd DECIMAL(15, 2),
+    system_expected_lbp DECIMAL(15, 2),
+    
+    variance_usd DECIMAL(15, 2),
+    notes TEXT
+);
+
+-- ==========================================
+-- 11. SYNC QUEUE
+-- ==========================================
+CREATE TABLE sync_queue (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    table_name TEXT,
+    record_id INTEGER,
+    action_type TEXT, 
+    payload_json TEXT, 
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+
+================================================================================
+SECTION 5: PROJECT MANAGER ADDITIONS & RECOMMENDATIONS
+================================================================================
+
+--------------------------------------------------------------------------------
+5.1 Security & Audit Logs (Critical)
+--------------------------------------------------------------------------------
+
+* ACTION LOG: The current schema lacks a comprehensive "User Activity Log". If money 
+  goes missing, you need to know who opened the drawer, who edited a stock item, or 
+  who changed an exchange rate.
+  - Recommendation: Create an `activity_logs` table (user_id, action, timestamp, 
+    details_json). Log *everything* related to money or stock.
+
+* GRANULAR PERMISSIONS: "Admin vs Staff" is often too binary.
+  - Recommendation: Specific flags like `can_refund`, `can_view_cost_price`, `can_edit_debt`.
+
+* SHIFT HANDOVERS: "Blind Closing" is mentioned, but we should enforce a "Blind Count" 
+  where the staff enters what they *have* before seeing what the system *expects*.
+
+--------------------------------------------------------------------------------
+5.2 Hardware & Integration
+--------------------------------------------------------------------------------
+
+* THERMAL PRINTER TEMPLATE: Define the exact width (58mm vs 80mm) and ensure the 
+  receipt layout is customizable.
+
+* BARCODE SCANNER CONFIG: Ensure the app handles scanner input (keyboard wedge mode) 
+  correctly without submitting forms prematurely.
+
+* UPS (Uninterruptible Power Supply): Since this is a desktop app with a local DB, a 
+  power cut during a write operation could verify corruption (though SQLite is ACID 
+  compliance, OS crashes can be messy). Strongly recommend a UPS for the shop PC.
+
+--------------------------------------------------------------------------------
+5.3 Financial Robustness
+--------------------------------------------------------------------------------
+
+* EXCHANGE RATE HISTORY: You store a snapshot in sales, but having a historical graph 
+  of the Rate changes helps analyze profit trends vs currency fluctuation.
+
+* DRAWER LIMIT ALERTS: Notification if the physical cash in the drawer exceeds a 
+  certain limit (security risk), prompting a "Safe Drop".
+
+--------------------------------------------------------------------------------
+5.4 User Experience (UX)
+--------------------------------------------------------------------------------
+
+* OFFLINE INDICATOR: A clear visual cue when the app is "Offline" vs "Syncing" vs "Synced".
+
+* KEYBOARD SHORTCUTS: Speed is key in a phone shop. Implement global hotkeys:
+    - F1: New Sale
+    - F2: Search Product
+    - F5: Sync Now
+    - Esc: Clear/Cancel
+
+* "QUICK CASH" BUTTONS: In the payment modal, add buttons for common bills (e.g., $10, 
+  $20, $50, 1M LBP, 2M LBP) to calculate change instantly.
+
+--------------------------------------------------------------------------------
+5.5 Data & Backup
+--------------------------------------------------------------------------------
+
+* LOCAL BACKUP STRATEGY: Don't rely solely on Cloud Sync. The app should auto-dump a 
+  `.sqlite.bak` file to a secondary folder (e.g., an external HDD or Google Drive folder 
+  on the PC) on every "Close Shift".
+
+--------------------------------------------------------------------------------
+5.6 Business Logic Gaps
+--------------------------------------------------------------------------------
+
+* WARRANTY PRINTING: The receipt for a sold phone should explicitly print the IMEI and 
+  Warranty Terms.
+
+* BUNDLES/KITS: Logic to sell a "Charger + Cable" bundle for a cheaper price than 
+  buying them separately.
+
+
+================================================================================
+SECTION 6: CREDENTIALS & ACCESS
+================================================================================
+
+--------------------------------------------------------------------------------
+6.1 Application Login (Default Admin)
+--------------------------------------------------------------------------------
+
+* Username: admin
+* Password: admin123
+
+> Note: The current implementation uses scrypt password hashing. The default password
+> is set on first run if the admin user has no password hash. Please change it.
+
+--------------------------------------------------------------------------------
+6.2 Database (SQLite)
+--------------------------------------------------------------------------------
+
+* Type: SQLite 3 (Local File)
+* Location: 
+    - Dev: Inside Electron User Data folder
+    - Prod (Windows): %APPDATA%/liratek/phone_shop.db
+    - Prod (macOS): ~/Library/Application Support/liratek/phone_shop.db
+* Credentials: None (File-based access mode)
+
+--------------------------------------------------------------------------------
+6.3 Development Accounts (Seeds)
+--------------------------------------------------------------------------------
+
+* The initial schema seeds one Admin user
+* You can manually add more users via the Settings > Users Manager UI or using a 
+  SQLite client (like DB Browser for SQLite)
+
+
+================================================================================
+SECTION 7: GIT SETUP INSTRUCTIONS
+================================================================================
+
+To set up a Git repository for this project using a specific (different) Git account, 
+follow these steps. These commands configure the user settings **locally** for this 
+repository so it doesn't affect your global Git configuration.
+
+--------------------------------------------------------------------------------
+7.1 Initialize the Repository
+--------------------------------------------------------------------------------
+
+Run this in the project root:
+
+    git init
+
+--------------------------------------------------------------------------------
+7.2 Configure the User for THIS Project Only
+--------------------------------------------------------------------------------
+
+Replace the placeholders with the username and email of the account you want to use.
+
+    git config user.name "Your New Username"
+    git config user.email "your.new.email@example.com"
+
+Note: Omitting the `--global` flag ensures these settings apply ONLY to this folder.
+
+--------------------------------------------------------------------------------
+7.3 Stage and Commit Your Files
+--------------------------------------------------------------------------------
+
+    git add .
+    git commit -m "Initial commit"
+
+--------------------------------------------------------------------------------
+7.4 Add Your Remote Repository
+--------------------------------------------------------------------------------
+
+First, create an empty repository on GitHub/GitLab/Bitbucket. Then, copy the URL 
+(HTTPS is recommended) and run:
+
+    git remote add origin <YOUR_REPO_URL>
+
+--------------------------------------------------------------------------------
+7.5 Push to the Remote
+--------------------------------------------------------------------------------
+
+    git branch -M main
+    git push -u origin main
+
+--------------------------------------------------------------------------------
+7.6 Authentication Tip
+--------------------------------------------------------------------------------
+
+When you push, if you are using HTTPS, it will ask for your username and password.
+
+* Username: The username of your different account.
+* Password: If you are using GitHub, you must use a **Personal Access Token (Classic)** 
+  instead of your actual account password.
+    - Go to GitHub Settings -> Developer Settings -> Personal access tokens -> Tokens (classic)
+    - Generate a new token with `repo` permissions
+    - Paste this token when the terminal asks for your password
+
+
+================================================================================
+SECTION 8: IMPLEMENTATION TASK LIST (Original Phases)
+================================================================================
+
+--------------------------------------------------------------------------------
+Phase 1: Foundation & Backend
+--------------------------------------------------------------------------------
+
+[x] Project Setup
+    [x] Initialize Electron + React + TypeScript + Vite project
+    [x] Configure Tailwind CSS
+    [x] Set up ESLint/Prettier for code quality
+
+[x] Database Setup (SQLite)
+    [x] Install better-sqlite3
+    [x] Implement Migration System
+    [x] Create all tables
+    [x] Seed default data
+
+[x] IPC Communication Bridge
+    [x] Create preload.ts API context
+    [x] Implement Typed IPC handlers
+
+--------------------------------------------------------------------------------
+Phase 2: Core Modules & Inventory
+--------------------------------------------------------------------------------
+
+[x] Authentication
+    [x] Login Screen
+    [x] User Session management
+
+[x] Main Layout
+    [x] Sidebar Navigation
+    [x] Top Bar (Status, Sync Indicator, Current Rate Display)
+
+[x] Inventory Management
+    [x] Product List View
+    [x] Add Product Modal
+    [x] Edit Product & Adjust Stock
+
+[x] Client Management
+    [x] Client Directory
+    [x] Add/Edit Client Modal
+    [x] Client Purchase History view
+
+--------------------------------------------------------------------------------
+Phase 3: Point of Sale (POS)
+--------------------------------------------------------------------------------
+
+[x] POS UI
+    [x] Product Search
+    [x] Cart State Management
+    [x] Hold/Retrieve Cart functionality
+
+[x] Checkout Logic
+    [x] Payment Modal with multi-currency support
+    [x] Receipt Generation
+    [x] Transaction Commit
+
+--------------------------------------------------------------------------------
+Phase 4: Financials & Specialized Services
+--------------------------------------------------------------------------------
+
+[x] Debt Management Module
+[x] Exchange Service Module
+[x] OMT/Whish Module
+[x] Recharge Module (Alfa/MTC)
+[x] Maintenance Module
+[x] Expenses Module
+
+--------------------------------------------------------------------------------
+Phase 5: Dashboard & Reporting
+--------------------------------------------------------------------------------
+
+[x] Interactive Dashboard
+[ ] Closing Shift & Reports (In Progress)
+[x] Settings Module
+[x] Notifications UI
+
+--------------------------------------------------------------------------------
+Phase 6: Sync & Cloud
+--------------------------------------------------------------------------------
+
+[ ] Sync Engine
+[ ] Backup System
+
+--------------------------------------------------------------------------------
+Phase 7: Polish & Distribution
+--------------------------------------------------------------------------------
+
+[ ] Security & Installer
+
+
+================================================================================
+SECTION 9: DEVELOPMENT PROGRESS
+================================================================================
+
+Current Status: Phase 5 (Dashboard & Reporting) - Closing Shift in progress
+
+Completed Features:
+- Full POS system with multi-currency support
+- Debt management with payment tracking
+- Exchange service (USD/LBP/EUR)
+- OMT/Whish money transfer
+- Mobile recharge (Alfa/MTC)
+- Device maintenance/repair tracking
+- Expense tracking
+- Interactive dashboard with charts
+- Settings & user management
+- Notification system
+
+In Progress:
+- Closing shift wizard
+- Daily report generation
+
+Pending:
+- Cloud sync engine
+- Backup system
+- Windows installer packaging
+
+
+================================================================================
+SECTION 10: VM SETUP INSTRUCTIONS (Windows Testing)
+================================================================================
+
+Since you are developing on a Mac but targeting Windows, you cannot "run" the .exe 
+directly on macOS. You need a virtualization layer.
+
+--------------------------------------------------------------------------------
+10.1 Option 1: Parallels Desktop (Recommended for Performance)
+--------------------------------------------------------------------------------
+
+1. Install Parallels Desktop (Paid software, but easiest integration)
+2. Install Windows 11 ARM: Parallels will download and install this automatically
+3. Setup Shared Folders:
+   - Parallels usually shares your Mac Documents folder with Windows automatically
+   - Your project at /Users/amir/Documents/liratek will be accessible in Windows at 
+     \\Mac\Home\Documents\liratek or Z:\Documents\liratek
+
+--------------------------------------------------------------------------------
+10.2 Option 2: UTM (Free / Open Source)
+--------------------------------------------------------------------------------
+
+1. Download UTM: https://mac.getutm.app/
+2. Download Windows 11 ARM ISO: You may need to fetch a VHDX image from the Microsoft 
+   Insider Preview (ARM64) or use the "CrystalFetch" tool inside UTM
+3. Install & Setup: Follow UTM instructions to create a Windows VM
+4. Spice Tools: Install "SPICE Guest Tools" in the Windows VM to enable copy/paste 
+   and shared folders
+
+--------------------------------------------------------------------------------
+10.3 Development Workflow
+--------------------------------------------------------------------------------
+
+METHOD A: Develop on Mac, Build on Mac (Cross-Compile)
+You can build a Windows .exe *from* your Mac, then copy it to the VM to test.
+
+1. On Mac Terminal:
+   
+   # Install Wine (required for some Windows build targets on Mac)
+   brew install wine-stable 
+
+   # Run the build command
+   npm run make -- --platform=win32 --arch=x64
+   # OR if using electron-builder explicitly:
+   electron-builder build --win --x64
+
+2. Transfer: Move the resulting .exe (in out/make or dist/) to the Windows VM via 
+   the shared folder
+
+3. Test: Double-click the .exe in Windows
+
+
+METHOD B: Develop on Mac, Run on Windows (Hot Reload) - BEST for Layout Testing
+To test OS-specific features (like printing or file system paths) live:
+
+1. On Mac: Keep your code in /Users/amir/Documents/liratek
+
+2. On Windows VM:
+   - Install Node.js: https://nodejs.org/ (Download Windows Installer)
+   - Install Git: https://git-scm.com/download/win
+   - Open PowerShell or Command Prompt
+   - Navigate to the shared folder: cd Z:\Documents\liratek (Parallels)
+   - Install dependencies (if node_modules causes issues across OS, delete it and 
+     run npm install *inside* Windows)
+   - Tip: It's often safer to copy the project folder to the Windows Desktop 
+     (C:\Users\User\Desktop\liratek) to avoid "Shared Folder" permission/symlink 
+     issues with node_modules
+   - Run the app: npm start
+
+3. Result: The Electron app opens inside Windows with Hot Reloading. You edit code 
+   on Mac, save, and the Windows app updates instantly.
+
+--------------------------------------------------------------------------------
+10.4 Final Production Build
+--------------------------------------------------------------------------------
+
+Always perform the Final "Gold" Build on the Windows VM itself to ensure native 
+dependencies (like better-sqlite3) are compiled correctly for Windows.
+
+1. Copy source code to Windows VM
+2. Run: npm install
+3. Run: npm run make / npm run build
+4. Take the output .setup.exe and distribute it
+
+
+================================================================================
+                            END OF DOCUMENT
+================================================================================
