@@ -37,6 +37,8 @@ export interface DrawerBalances {
 export interface SystemExpectedBalances {
   generalDrawer: DrawerBalances;
   omtDrawer: DrawerBalances;
+  mtcDrawer: DrawerBalances;
+  alfaDrawer: DrawerBalances;
 }
 
 export interface DailyStatsSnapshot {
@@ -311,10 +313,43 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
     const expectedOmtUsd = (omtInflows?.total_usd || 0) - (omtOutflows?.total_usd || 0);
     const expectedOmtLbp = (omtInflows?.total_lbp || 0) - (omtOutflows?.total_lbp || 0);
 
+    // MTC Drawer (recharge sales for Touch)
+    const mtcRecharges = this.db
+      .prepare(
+        `SELECT COALESCE(SUM(amount_usd), 0) as total_usd
+         FROM recharges
+         WHERE DATE(created_at) = ? AND carrier = 'Touch'`
+      )
+      .get(today) as { total_usd: number } | undefined;
+
+    // Alfa Drawer (recharge sales for Alfa)
+    const alfaRecharges = this.db
+      .prepare(
+        `SELECT COALESCE(SUM(amount_usd), 0) as total_usd
+         FROM recharges
+         WHERE DATE(created_at) = ? AND carrier = 'Alfa'`
+      )
+      .get(today) as { total_usd: number } | undefined;
+
     return {
       generalDrawer: { usd: expectedUsd, lbp: expectedLbp, eur: 0 },
       omtDrawer: { usd: expectedOmtUsd, lbp: expectedOmtLbp, eur: 0 },
+      mtcDrawer: { usd: mtcRecharges?.total_usd || 0, lbp: 0, eur: 0 },
+      alfaDrawer: { usd: alfaRecharges?.total_usd || 0, lbp: 0, eur: 0 },
     };
+  }
+
+  /**
+   * Check if opening balance exists for a specific date
+   */
+  hasOpeningBalanceForDate(date: string): boolean {
+    const sql = `
+      SELECT COUNT(*) as count 
+      FROM closing_amounts 
+      WHERE closing_date = ? AND opening_amount IS NOT NULL
+    `;
+    const result = this.db.prepare(sql).get(date) as { count: number };
+    return result.count > 0;
   }
 
   /**

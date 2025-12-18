@@ -18,6 +18,8 @@ interface AuthContextType {
     password: string,
   ) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
+  needsOpening: boolean;
+  clearOpeningFlag: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -25,6 +27,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [needsOpening, setNeedsOpening] = useState(false);
 
   // Restore session from encrypted storage on mount
   useEffect(() => {
@@ -50,6 +53,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (result.success && result.user) {
         setUser(result.user);
         // Session token is now stored encrypted on the backend
+        
+        // Check if opening balance needs to be set for today
+        try {
+          const hasOpening = await window.api.closing.hasOpeningBalanceToday();
+          setNeedsOpening(!hasOpening);
+        } catch (error) {
+          console.error("Failed to check opening balance:", error);
+          // Don't block login on this error
+        }
+        
         appEvents.emit("openOpeningModal");
         return { success: true };
       }
@@ -65,12 +78,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await window.api.logout(user.id);
     }
     setUser(null);
+    setNeedsOpening(false);
     // Encrypted session is cleared on the backend
+  };
+
+  const clearOpeningFlag = () => {
+    setNeedsOpening(false);
   };
 
   return (
     <AuthContext.Provider
-      value={{ user, isAuthenticated: !!user, isLoading, login, logout }}
+      value={{ user, isAuthenticated: !!user, isLoading, login, logout, needsOpening, clearOpeningFlag }}
     >
       {children}
     </AuthContext.Provider>

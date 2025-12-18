@@ -124,6 +124,16 @@ export function registerDatabaseHandlers(): void {
     return closingService.getSystemExpectedBalances();
   });
 
+  // Check if opening balance has been set for today
+  ipcMain.handle("closing:has-opening-balance-today", async () => {
+    try {
+      return closingService.hasOpeningBalanceToday();
+    } catch (error: any) {
+      closingLogger.error({ error: error.message }, "Error checking opening balance");
+      return false; // Default to false if error
+    }
+  });
+
   // Create daily closing
   ipcMain.handle("closing:create-daily-closing", (e, data: any) => {
     try {

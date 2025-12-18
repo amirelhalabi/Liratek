@@ -91,6 +91,14 @@ export class ClosingService {
   }
 
   /**
+   * Check if opening balance has been set for today
+   */
+  hasOpeningBalanceToday(): boolean {
+    const today = new Date().toISOString().split('T')[0];
+    return this.repo.hasOpeningBalanceForDate(today);
+  }
+
+  /**
    * Get system expected balances for today
    */
   getSystemExpectedBalances(): SystemExpectedBalances {
@@ -101,6 +109,8 @@ export class ClosingService {
       return {
         generalDrawer: { usd: 0, lbp: 0, eur: 0 },
         omtDrawer: { usd: 0, lbp: 0, eur: 0 },
+        mtcDrawer: { usd: 0, lbp: 0, eur: 0 },
+        alfaDrawer: { usd: 0, lbp: 0, eur: 0 },
       };
     }
   }

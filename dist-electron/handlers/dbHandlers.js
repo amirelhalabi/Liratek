@@ -106,6 +106,16 @@ function registerDatabaseHandlers() {
     electron_1.ipcMain.handle("closing:get-system-expected-balances", async () => {
         return closingService.getSystemExpectedBalances();
     });
+    // Check if opening balance has been set for today
+    electron_1.ipcMain.handle("closing:has-opening-balance-today", async () => {
+        try {
+            return closingService.hasOpeningBalanceToday();
+        }
+        catch (error) {
+            logger_1.closingLogger.error({ error: error.message }, "Error checking opening balance");
+            return false; // Default to false if error
+        }
+    });
     // Create daily closing
     electron_1.ipcMain.handle("closing:create-daily-closing", (e, data) => {
         try {

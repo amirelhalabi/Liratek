@@ -11,13 +11,12 @@ export default function Closing({
   onClose: () => void;
 }) {
   const [step, setStep] = useState(1);
-  const [drawerType, setDrawerType] = useState<"General" | "OMT">("General");
   const [physicalCount, setPhysicalCount] = useState({
     usd: 0,
     lbp: 0,
     eur: 0,
   });
-  // Placeholder for system expected values
+  // All drawer types - match Opening modal
   const drawerTypes: Array<"General" | "OMT" | "MTC" | "Alfa"> = [
     "General",
     "OMT",
@@ -51,7 +50,6 @@ export default function Closing({
     if (!isOpen) {
       // Reset state when modal is closed
       setStep(1);
-      setDrawerType("General");
       setPhysicalCount({ usd: 0, lbp: 0, eur: 0 });
       setSystemExpected({ usd: 0, lbp: 0, eur: 0 });
       return;
@@ -78,11 +76,8 @@ export default function Closing({
     const fetchSystemExpectedBalances = async () => {
       try {
         const balances = await window.api.closing.getSystemExpectedBalances();
-        if (drawerType === "General") {
-          setSystemExpected(balances.generalDrawer);
-        } else {
-          setSystemExpected(balances.omtDrawer);
-        }
+        // No longer needed - we'll calculate from all drawers
+        setSystemExpected(balances.generalDrawer);
       } catch (error) {
         console.error("Failed to fetch system expected balances:", error);
         // Optionally handle error in UI
@@ -93,7 +88,7 @@ export default function Closing({
       fetchSystemExpectedBalances();
     }
     loadCurrencies();
-  }, [drawerType, isOpen, step]); // Refetch when drawerType changes and after step 3
+  }, [isOpen, step]); // Removed drawerType dependency
 
   const nextStep = () => setStep((prev) => prev + 1);
   const prevStep = () => setStep((prev) => prev - 1);
@@ -150,7 +145,7 @@ export default function Closing({
 
   const handleGeneratePDFReport = async () => {
     const closing_date = new Date().toISOString().split("T")[0];
-    const drawer_name = `${drawerType}_Drawer_${drawerType === "General" ? "B" : "A"}`;
+    const drawer_name = "All_Drawers";
     try {
       const dailyStats = await window.api.closing.getDailyStatsSnapshot();
       const reportData = {
@@ -185,7 +180,7 @@ export default function Closing({
 
   const handleGenerateReport = async () => {
     const closing_date = new Date().toISOString().split("T")[0];
-    const drawer_name = `${drawerType}_Drawer_${drawerType === "General" ? "B" : "A"}`;
+    const drawer_name = "All_Drawers";
 
     try {
       const dailyStats = await window.api.closing.getDailyStatsSnapshot();
@@ -227,24 +222,10 @@ export default function Closing({
         <div className="p-6 flex-1">
           {step === 1 && (
             <div className="space-y-4">
-              <h2 className="text-xl text-violet-400">Step 1: Select Drawer</h2>
+              <h2 className="text-xl text-violet-400">Step 1: Physical Count</h2>
               <p className="text-slate-300">
-                Which drawer are you closing today?
+                Enter the physical cash count for ALL drawers (blind count - expected amounts will be shown after).
               </p>
-              <div className="flex gap-4">
-                <button
-                  onClick={() => setDrawerType("General")}
-                  className={`px-6 py-3 rounded-lg font-semibold ${drawerType === "General" ? "bg-violet-600 text-white" : "bg-slate-700 text-slate-300 hover:bg-violet-500 hover:text-white"}`}
-                >
-                  General Drawer
-                </button>
-                <button
-                  onClick={() => setDrawerType("OMT")}
-                  className={`px-6 py-3 rounded-lg font-semibold ${drawerType === "OMT" ? "bg-violet-600 text-white" : "bg-slate-700 text-slate-300 hover:bg-violet-500 hover:text-white"}`}
-                >
-                  OMT Drawer
-                </button>
-              </div>
               <button
                 onClick={nextStep}
                 className="mt-6 px-6 py-3 bg-emerald-600 text-white rounded-lg font-bold hover:bg-emerald-500"
@@ -257,10 +238,10 @@ export default function Closing({
           {step === 2 && (
             <div className="space-y-4">
               <h2 className="text-xl text-violet-400">
-                Step 2: Enter Physical Count ({drawerType} Drawer)
+                Step 2: Enter Physical Count (All Drawers)
               </h2>
               <p className="text-slate-300">
-                Enter the physical cash count for each currency.
+                Enter the physical cash count for each drawer and currency.
               </p>
               <div className="space-y-4">
                 {drawerTypes.map((d) => (
@@ -279,11 +260,13 @@ export default function Closing({
                           </label>
                           <input
                             type="number"
+                            step="0.01"
                             value={physicalText[d]?.[c.code] ?? ""}
                             onChange={(e) =>
                               setDrawerCurrencyText(d, c.code, e.target.value)
                             }
                             className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white"
+                            placeholder="0.00"
                           />
                         </div>
                       ))}
@@ -433,8 +416,8 @@ export default function Closing({
               </p>
               <div className="text-slate-200 space-y-4">
                 <p>
-                  <span className="font-semibold">Drawer Selected:</span>{" "}
-                  {drawerType} Drawer
+                  <span className="font-semibold">Drawers:</span>{" "}
+                  All Drawers (General, OMT, MTC, Alfa)
                 </p>
                 <p>
                   <span className="font-semibold">Physical USD:</span> $

@@ -1,4 +1,6 @@
 import { useState, useEffect } from "react";
+import { useAuth } from "../../auth/context/AuthContext";
+import Opening from "../../closing/pages/Opening";
 import {
   DollarSign,
   Users,
@@ -23,6 +25,9 @@ import { appEvents } from "../../../shared/utils/appEvents";
 type ChartType = "Sales" | "Profit";
 
 export default function Dashboard() {
+  const { needsOpening, clearOpeningFlag } = useAuth();
+  const [showOpening, setShowOpening] = useState(false);
+  
   const [stats, setStats] = useState({
     totalSalesUSD: 0,
     totalSalesLBP: 0,
@@ -127,6 +132,18 @@ export default function Dashboard() {
     };
   }, [chartType]);
 
+  // Auto-open Opening modal if needed after login
+  useEffect(() => {
+    if (needsOpening) {
+      setShowOpening(true);
+    }
+  }, [needsOpening]);
+
+  const handleCloseOpening = () => {
+    setShowOpening(false);
+    clearOpeningFlag();
+  };
+
   const statCards = [
     {
       label: "Total Sales (Today)",
@@ -190,8 +207,11 @@ export default function Dashboard() {
   ];
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
-      <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+    <>
+      <Opening isOpen={showOpening} onClose={handleCloseOpening} />
+      
+      <div className="space-y-6 animate-in fade-in duration-500">
+        <h1 className="text-2xl font-bold text-white flex items-center gap-2">
         <TrendingUp className="text-violet-500" />
         Dashboard
       </h1>
@@ -428,5 +448,6 @@ export default function Dashboard() {
         </div>
       </div>
     </div>
+    </>
   );
 }

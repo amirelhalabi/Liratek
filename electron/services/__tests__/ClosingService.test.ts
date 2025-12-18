@@ -265,6 +265,8 @@ describe("ClosingService", () => {
       const mockBalances: SystemExpectedBalances = {
         generalDrawer: { usd: 1500, lbp: 135000000, eur: 100 },
         omtDrawer: { usd: 500, lbp: 45000000, eur: 0 },
+        mtcDrawer: { usd: 200, lbp: 0, eur: 0 },
+        alfaDrawer: { usd: 150, lbp: 0, eur: 0 },
       };
       mockRepo.getSystemExpectedBalances.mockReturnValue(mockBalances);
 
@@ -291,6 +293,8 @@ describe("ClosingService", () => {
       const mockBalances: SystemExpectedBalances = {
         generalDrawer: { usd: 0, lbp: 0, eur: 0 },
         omtDrawer: { usd: 0, lbp: 0, eur: 0 },
+        mtcDrawer: { usd: 0, lbp: 0, eur: 0 },
+        alfaDrawer: { usd: 0, lbp: 0, eur: 0 },
       };
       mockRepo.getSystemExpectedBalances.mockReturnValue(mockBalances);
 

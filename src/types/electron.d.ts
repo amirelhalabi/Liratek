@@ -239,7 +239,10 @@ export interface ElectronAPI {
     getSystemExpectedBalances: () => Promise<{
       generalDrawer: { usd: number; lbp: number; eur: number };
       omtDrawer: { usd: number; lbp: number; eur: number };
+      mtcDrawer: { usd: number; lbp: number; eur: number };
+      alfaDrawer: { usd: number; lbp: number; eur: number };
     }>;
+    hasOpeningBalanceToday: () => Promise<boolean>;
     setOpeningBalances: (data: {
       closing_date: string;
       amounts: Array<{
