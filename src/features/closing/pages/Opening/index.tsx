@@ -49,6 +49,7 @@ export default function Opening({
   };
 
   const handleAmountChange = (drawer: string, code: string, value: string) => {
+    // Allow empty string for user input, will be saved as 0
     const numValue = value === "" ? 0 : parseFloat(value);
     setAmounts((prev) => ({
       ...prev,
@@ -57,6 +58,13 @@ export default function Opening({
         [code]: isNaN(numValue) ? 0 : numValue 
       },
     }));
+  };
+
+  // Get display value (show empty string instead of 0 for better UX)
+  const getDisplayValue = (drawer: string, code: string): string => {
+    const val = amounts[drawer]?.[code];
+    if (val === undefined || val === 0) return "";
+    return val.toString();
   };
 
   const handleSave = async () => {
@@ -171,11 +179,12 @@ export default function Opening({
                         type="number"
                         step="0.01"
                         min="0"
-                        value={amounts[drawer]?.[currency.code] || ""}
+                        value={getDisplayValue(drawer, currency.code)}
                         onChange={(e) =>
                           handleAmountChange(drawer, currency.code, e.target.value)
                         }
                         placeholder="0.00"
+                        autoComplete="off"
                         className="flex-1 bg-slate-900/50 border border-slate-600 rounded-lg px-4 py-2.5 text-white text-lg font-mono placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition"
                       />
                     </div>
