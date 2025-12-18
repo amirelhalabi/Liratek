@@ -220,5 +220,148 @@ liratek/
 
 ---
 
+## 🚀 Release Process (Automated)
+
+### How Releases Work
+
+Releases are **fully automated** via GitHub Actions when you push to the `main` branch.
+
+**Workflow:**
+1. Push code to `main` branch
+2. GitHub Actions automatically:
+   - Creates a semantic version tag
+   - Builds Windows x64, macOS ARM64, macOS Intel
+   - Creates GitHub release with changelog
+   - Uploads all installers
+
+**Configuration:**
+- **Workflow File:** `.github/workflows/release.yml`
+- **Trigger:** Push to `main` branch
+- **Build Time:** ~45 minutes (all platforms)
+
+### Manual Release (Legacy/Backup)
+
+If you need to create a manual release:
+
+1. **Go to GitHub Releases Page:**  
+   https://github.com/amirelhalabi/Liratek/releases/new
+
+2. **Create Tag:**
+   - Tag: `v1.x.x` (semantic versioning)
+   - Target: `main` branch
+
+3. **Release Title:**
+   ```
+   LiraTek v1.x.x - [Release Name] 🎉
+   ```
+
+4. **Upload Installers:**
+   - `LiraTek-1.x.x-x64.exe` (Windows)
+   - `LiraTek-1.x.x-arm64.dmg` (macOS Apple Silicon)
+   - `LiraTek-1.x.x.dmg` (macOS Intel)
+   - `LiraTek-1.x.x-mac.zip` (macOS Intel - ZIP)
+
+5. **Description Template:** See below
+
+---
+
+## 📝 GitHub Release Description Template
+
+```markdown
+# 🎉 LiraTek v1.x.x - [Release Name]
+
+A comprehensive Point of Sale system designed for Lebanese phone shops with advanced multi-currency support.
+
+---
+
+## 📦 Downloads
+
+### Windows
+**[LiraTek-1.x.x-x64.exe](LiraTek-1.x.x-x64.exe)** (~94 MB)
+- Windows 10/11 (64-bit)
+- One-click installer, no admin rights required
+
+### macOS Apple Silicon
+**[LiraTek-1.x.x-arm64.dmg](LiraTek-1.x.x-arm64.dmg)** (~122 MB)
+- macOS 12+ (M1/M2/M3 chips)
+- Native ARM64 performance
+
+### macOS Intel
+**[LiraTek-1.x.x.dmg](LiraTek-1.x.x.dmg)** (~127 MB)
+- macOS 12+ (Intel processors)
+
+**[LiraTek-1.x.x-mac.zip](LiraTek-1.x.x-mac.zip)** (~122 MB)
+- macOS 12+ (Intel) - ZIP alternative
+
+---
+
+## ✨ What's New in v1.x.x
+
+[List changes, features, and fixes here]
+
+---
+
+## 🚀 Installation
+
+### Windows
+1. Download `LiraTek-1.x.x-x64.exe`
+2. Run the installer
+3. Launch from Start Menu or Desktop
+
+### macOS
+1. Download the DMG for your Mac (ARM64 for M1/M2/M3, Intel for older Macs)
+2. Open DMG and drag to Applications
+3. **First Launch:** Right-click → Open (app is not notarized)
+4. Approve in System Settings > Privacy & Security if prompted
+
+---
+
+## 📋 System Requirements
+
+**Windows:** Windows 10/11 (64-bit), 4GB RAM, 500MB disk space  
+**macOS:** macOS 12+, 4GB RAM, 500MB disk space  
+**Display:** 1280x720 minimum
+
+---
+
+## 🛠️ Built With
+
+- Electron 39.2.7 - Cross-platform desktop framework
+- React 19.2.0 - Modern UI framework
+- TypeScript 5.9.3 - Type-safe development
+- SQLite - Local database (no cloud required)
+- Tailwind CSS 4.1.18 - Modern styling
+
+---
+
+## 🐛 Known Issues
+
+- **macOS:** App not notarized - requires manual approval on first launch (Right-click → Open)
+- First launch takes a few seconds for database initialization
+- Exchange rates require manual updates
+
+---
+
+## 💪 Support
+
+**Need help?**
+- [Report an Issue](https://github.com/amirelhalabi/Liratek/issues)
+- [Join Discussions](https://github.com/amirelhalabi/Liratek/discussions)
+
+When reporting bugs, please include:
+- OS and version
+- Steps to reproduce
+- Expected vs actual behavior
+- Screenshots if applicable
+
+---
+
+**Thank you for using LiraTek!** 🎉
+
+For the latest updates, watch this repository on GitHub.
+```
+
+---
+
 **Last Updated:** December 18, 2025  
 **Next Review:** January 2026 (post-v1.0 feedback collection)

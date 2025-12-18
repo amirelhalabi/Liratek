@@ -673,5 +673,113 @@ For issues or questions:
 
 ---
 
+## Appendix A: Icon Generation Reference
+
+### Current Status ✅
+- **Windows:** `build/icon.ico` (155 KB) - Multi-resolution ICO
+- **macOS:** `build/icon.icns` (1 MB) - ICNS format
+- **Source:** `build/icon.png` (184 KB) - PNG source
+
+### Generating Windows Icon (if needed)
+
+**Using ImageMagick:**
+```bash
+brew install imagemagick
+magick convert build/icon.png -define icon:auto-resize=256,128,64,48,32,16 build/icon.ico
+```
+
+**Using Online Converter:**
+- Upload to: https://convertio.co/png-ico/
+- Include sizes: 256x256, 128x128, 64x64, 48x48, 32x32, 16x16
+
+**Verify:**
+```bash
+ls -lh build/icon.ico
+file build/icon.ico
+```
+
+---
+
+## Appendix B: Build Configuration Analysis
+
+### Electron-Builder Configuration
+
+**Key Configuration (package.json):**
+```json
+{
+  "build": {
+    "appId": "com.liratek.pos",
+    "productName": "LiraTek",
+    "asar": true,
+    "asarUnpack": ["node_modules/better-sqlite3/**/*"],
+    "files": [
+      "dist/**",
+      "dist-electron/**",
+      "node_modules/**",
+      "package.json"
+    ],
+    "directories": {
+      "buildResources": "build",
+      "output": "release"
+    }
+  }
+}
+```
+
+### Build Artifacts
+
+**Expected Output Files:**
+- **Windows:** `LiraTek-1.0.0-x64.exe` (~94 MB)
+- **macOS ARM64:** `LiraTek-1.0.0-arm64.dmg` (~122 MB)
+- **macOS Intel:** `LiraTek-1.0.0.dmg` (~127 MB)
+- **macOS ZIP:** `LiraTek-1.0.0-mac.zip` (~122 MB)
+
+### Native Module Handling
+
+**better-sqlite3 Configuration:**
+```json
+{
+  "build": {
+    "asarUnpack": ["node_modules/better-sqlite3/**/*"],
+    "npmRebuild": true
+  }
+}
+```
+
+This ensures the native SQLite module works correctly in packaged apps.
+
+---
+
+## Appendix C: CI/CD Pipeline
+
+### GitHub Actions Workflows
+
+**1. CI Workflow (`.github/workflows/ci.yml`)**
+- Runs on push to `main` and `dev` branches
+- Linting, type checking, tests, and build verification
+
+**2. Build Workflow (`.github/workflows/build.yml`)**
+- Triggers on version tags (e.g., `v1.0.0`)
+- Builds for all platforms
+- Uploads artifacts
+
+**3. Release Workflow (`.github/workflows/release.yml`)**
+- Triggers on push to `main` branch
+- Automatically creates version tags
+- Builds all platforms
+- Creates GitHub release with artifacts
+
+### Automated Release Process
+
+When you push to `main`:
+1. GitHub Actions creates a new version tag
+2. Builds Windows x64, macOS ARM64, and macOS Intel
+3. Creates a GitHub release
+4. Uploads all installers automatically
+
+**No manual release steps needed!**
+
+---
+
 **Last Updated:** December 18, 2025  
 **Maintained By:** LiraTek Team

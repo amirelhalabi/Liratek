@@ -6,53 +6,38 @@
 
 This directory contains all project documentation organized by category.
 
-## 📁 Directory Structure
+## 📁 Simplified Structure
 
-### `/development`
-Development guides and technical documentation:
-- **BUILD.md** - Complete build instructions for all platforms
-- **BUILD_VERSIONING_ANALYSIS.md** - Versioning strategy and analysis
-- **agent-context.md** - AI agent context and project information
-- **documentationFile.txt** - Legacy documentation file
+All documentation consolidated into 6 core files:
 
-### `/release`
-Release management and distribution:
-- **HOW_TO_CREATE_RELEASE.md** - Step-by-step release process
-- **GITHUB_RELEASE_DESCRIPTION.md** - Release description template
-- **ICON_GENERATION_GUIDE.md** - Guide for generating app icons
-- **POST_ANALYSIS_ACTIONS.md** - Post-release analysis and actions
+### Core Documentation
+- **README.md** (this file) - Documentation index
+- **STATUS.md** - Project status, metrics, and release process
+- **BUILD.md** - Complete build guide with appendices
+- **PROJECT.md** - Comprehensive project plan (single source of truth)
+- **MARKETING.md** - Social media announcements and marketing content
+- **QUOTATION_TEMPLATE.md** - Business quotation template
 
-### `/marketing`
-Marketing materials and announcements:
-- **SOCIAL_MEDIA_ANNOUNCEMENTS.md** - Comprehensive social media launch content for multiple platforms
-
-### `/planning`
-Project planning and roadmap:
-- **projectPlan.md** - Overall project plan and milestones
-
-### `/templates`
-Reusable templates:
-- **quotation-template.md** - Template for customer quotations
+### Archive
+- **archive/** - Legacy and historical documentation (reference only)
 
 ## 🔗 Quick Links
 
 ### Essential
 - [Main README](../README.md) - Project overview and getting started
-- [Project Status](STATUS.md) - ✅ Current release status and metrics
+- [STATUS.md](STATUS.md) - ✅ Project status, metrics, and release process
 - [Release Notes](../RELEASE_NOTES_v1.0.0.md) - v1.0.0 release information
 
-### Development
-- [Build Guide](development/BUILD.md) - How to build from source
-- [Build & Versioning Analysis](development/BUILD_VERSIONING_ANALYSIS.md) - Technical analysis
-- [Project Plan](planning/projectPlan.md) - Comprehensive project documentation
+### Development & Building
+- [BUILD.md](BUILD.md) - Complete build guide for all platforms
+- [PROJECT.md](PROJECT.md) - Comprehensive project plan and architecture
 
-### Release Management
-- [Release Process](release/HOW_TO_CREATE_RELEASE.md) - ✅ Automated via GitHub Actions
-- [Icon Generation Guide](release/ICON_GENERATION_GUIDE.md) - ✅ Complete
-- [Post-Analysis Actions](release/POST_ANALYSIS_ACTIONS.md) - ✅ All items done
+### Marketing & Business
+- [MARKETING.md](MARKETING.md) - Social media announcements and launch content
+- [QUOTATION_TEMPLATE.md](QUOTATION_TEMPLATE.md) - Customer quotation template
 
-### Marketing
-- [Social Media Announcements](marketing/SOCIAL_MEDIA_ANNOUNCEMENTS.md) - Multi-platform launch content
+### Archive
+- [archive/](archive/) - Historical documentation and legacy files
 
 ## 📝 Contributing to Documentation
 
