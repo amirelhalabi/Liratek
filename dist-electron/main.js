@@ -16,35 +16,53 @@ const exchangeHandlers_1 = require("./handlers/exchangeHandlers");
 const omtHandlers_1 = require("./handlers/omtHandlers");
 const rechargeHandlers_1 = require("./handlers/rechargeHandlers");
 const maintenanceHandlers_1 = require("./handlers/maintenanceHandlers");
+const reportHandlers_1 = require("./handlers/reportHandlers");
+const currencyHandlers_1 = require("./handlers/currencyHandlers");
+const rateHandlers_1 = require("./handlers/rateHandlers");
+const sync_1 = require("./sync");
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-if (require('electron-squirrel-startup')) {
-    electron_1.app.quit();
+if (process.platform === "win32") {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const squirrelStartup = require("electron-squirrel-startup");
+    if (squirrelStartup) {
+        electron_1.app.quit();
+    }
 }
 function createWindow() {
+    // Icon path for development (not needed in packaged macOS app)
+    const iconPath = path_1.default.join(__dirname, "../resources/icon.png");
     const mainWindow = new electron_1.BrowserWindow({
         width: 1280,
         height: 800,
+        // Only set icon on non-macOS or development (macOS uses .icns from bundle)
+        ...(process.platform !== "darwin" && !electron_1.app.isPackaged && { icon: iconPath }),
         webPreferences: {
-            preload: path_1.default.join(__dirname, 'preload.js'),
+            preload: path_1.default.join(__dirname, "preload.js"),
             nodeIntegration: false,
             contextIsolation: true,
         },
     });
     // Load the local URL for development or the local file for production.
-    if (!electron_1.app.isPackaged && process.env['ELECTRON_RENDERER_URL']) {
-        mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL']);
+    if (!electron_1.app.isPackaged && process.env["ELECTRON_RENDERER_URL"]) {
+        mainWindow.loadURL(process.env["ELECTRON_RENDERER_URL"]);
         mainWindow.webContents.openDevTools();
     }
     else {
-        mainWindow.loadFile(path_1.default.join(__dirname, '../dist/index.html'));
+        mainWindow.loadFile(path_1.default.join(__dirname, "../dist/index.html"));
     }
 }
 electron_1.app.whenReady().then(() => {
+    // Set app name for macOS dock
+    electron_1.app.setName("LiraTek");
+    // Set dock icon on macOS (only in development, packaged app uses .icns)
+    if (process.platform === "darwin" && electron_1.app.dock && !electron_1.app.isPackaged) {
+        const iconPath = path_1.default.join(__dirname, "../resources/icon.png");
+        electron_1.app.dock.setIcon(iconPath);
+    }
     // Initialize database and run migrations
-    console.log('Initializing database...');
+    console.log("Initializing database...");
     (0, migrate_1.runMigrations)();
-    console.log('Database ready');
+    console.log("Database ready");
     // Register IPC handlers
     (0, dbHandlers_1.registerDatabaseHandlers)();
     (0, authHandlers_1.registerAuthHandlers)();
@@ -56,15 +74,35 @@ electron_1.app.whenReady().then(() => {
     (0, omtHandlers_1.registerOMTHandlers)();
     (0, rechargeHandlers_1.registerRechargeHandlers)();
     (0, maintenanceHandlers_1.registerMaintenanceHandlers)();
+    (0, reportHandlers_1.registerReportHandlers)();
+    (0, currencyHandlers_1.registerCurrencyHandlers)();
+    (0, rateHandlers_1.registerRateHandlers)();
+    // Start sync processor (Phase 6)
+    (0, sync_1.startSyncProcessor)();
+    // Session timeout purge
+    try {
+        const { purgeExpiredSessions } = require("./session");
+        setInterval(() => purgeExpiredSessions(Date.now()), 60 * 1000);
+    }
+    catch { }
+    // Auto-updater (scaffold)
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { autoUpdater } = require("electron-updater");
+        autoUpdater.checkForUpdatesAndNotify();
+    }
+    catch (_e) {
+        console.log("[Updater] Skipped (module not installed)");
+    }
     createWindow();
-    electron_1.app.on('activate', () => {
+    electron_1.app.on("activate", () => {
         if (electron_1.BrowserWindow.getAllWindows().length === 0) {
             createWindow();
         }
     });
 });
-electron_1.app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') {
+electron_1.app.on("window-all-closed", () => {
+    if (process.platform !== "darwin") {
         electron_1.app.quit();
     }
 });

@@ -1,5 +1,5 @@
 //tables
-sqlite3 "/Users/amir/Library/Application Support/proj/phone_shop.db"-- Migration 004
+sqlite3 "/Users/amir/Library/Application Support/liratek/phone_shop.db"-- Migration 004
 ALTER TABLE sales ADD COLUMN change_given_usd REAL DEFAULT 0;
 ALTER TABLE sales ADD COLUMN change_given_lbp REAL DEFAULT 0;
 
@@ -10,7 +10,7 @@ ALTER TABLE sales ADD COLUMN note TEXT;
 -- Existing Queries" 
 
 //products
-sqlite3 "/Users/amir/Library/Application Support/proj/phone_shop.db" -header -column "SELECT * FROM products;"
+sqlite3 "/Users/amir/Library/Application Support/liratek/phone_shop.db" -header -column "SELECT * FROM products;"
 
 //products schema
-sqlite3 "/Users/amir/Library/Application Support/proj/phone_shop.db" "PRAGMA table_info(products);"
+sqlite3 "/Users/amir/Library/Application Support/liratek/phone_shop.db" "PRAGMA table_info(products);"

@@ -1,93 +1,136 @@
 "use strict";
+/**
+ * Inventory IPC Handlers
+ *
+ * Thin wrapper around InventoryService for IPC communication.
+ * Handles authentication checks and delegates to service layer.
+ */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.registerInventoryHandlers = registerInventoryHandlers;
 const electron_1 = require("electron");
-const db_1 = require("../db");
+const services_1 = require("../services");
+const logger_1 = require("../utils/logger");
+// =============================================================================
+// Handler Registration
+// =============================================================================
 function registerInventoryHandlers() {
-    const db = (0, db_1.getDatabase)();
+    const service = (0, services_1.getInventoryService)();
+    // ---------------------------------------------------------------------------
+    // Product Queries (No auth required for read operations)
+    // ---------------------------------------------------------------------------
     // Get all products (optional filter by name/barcode)
-    electron_1.ipcMain.handle('inventory:get-products', (_event, search) => {
-        let query = `SELECT 
-            id, barcode, name, category, stock_quantity, min_stock_level, image_url, is_active, created_at,
-            cost_price_usd as cost_price, 
-            selling_price_usd as retail_price
-            FROM products WHERE is_active = 1`;
-        const params = [];
-        if (search) {
-            query += ` AND (name LIKE ? OR barcode LIKE ? OR category LIKE ?)`;
-            const term = `%${search}%`;
-            params.push(term, term, term);
-        }
-        query += ` ORDER BY name ASC`;
-        return db.prepare(query).all(...params);
+    electron_1.ipcMain.handle("inventory:get-products", (_event, search) => {
+        return service.getProducts(search);
     });
-    // Get single product
-    electron_1.ipcMain.handle('inventory:get-product', (_event, id) => {
-        return db.prepare(`SELECT * FROM products WHERE id = ?`).get(id);
+    // Get single product by ID
+    electron_1.ipcMain.handle("inventory:get-product", (_event, id) => {
+        try {
+            return service.getProductById(id);
+        }
+        catch (_error) {
+            return null;
+        }
     });
     // Get product by barcode
-    electron_1.ipcMain.handle('inventory:get-product-by-barcode', (_event, barcode) => {
-        return db.prepare(`SELECT * FROM products WHERE barcode = ? AND is_active = 1`).get(barcode);
+    electron_1.ipcMain.handle("inventory:get-product-by-barcode", (_event, barcode) => {
+        return service.getProductByBarcode(barcode);
     });
+    // ---------------------------------------------------------------------------
+    // Product CRUD (Admin only)
+    // ---------------------------------------------------------------------------
     // Create product
-    electron_1.ipcMain.handle('inventory:create-product', (_event, product) => {
+    electron_1.ipcMain.handle("inventory:create-product", (e, product) => {
+        // Auth check
         try {
-            const stmt = db.prepare(`
-        INSERT INTO products (
-          barcode, name, category, cost_price_usd, selling_price_usd, 
-          stock_quantity, min_stock_level, image_url, item_type, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-      `);
-            const result = stmt.run(product.barcode, product.name, product.category, product.cost_price, // Maps to cost_price_usd
-            product.retail_price, // Maps to selling_price_usd
-            product.stock_quantity || 0, product.min_stock_level || 5, product.image_url || null, 'Product' // Default item_type
-            );
-            return { success: true, id: result.lastInsertRowid };
+            const { requireRole } = require("../session");
+            const auth = requireRole(e.sender.id, ["admin"]);
+            if (!auth.ok)
+                return { success: false, error: auth.error };
         }
-        catch (error) {
-            console.error('Create product error:', error);
-            if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
-                return { success: false, error: 'Barcode already exists' };
-            }
-            return { success: false, error: error.message };
-        }
+        catch { }
+        logger_1.inventoryLogger.debug({ barcode: product.barcode, name: product.name }, "Creating product");
+        return service.createProduct({
+            barcode: product.barcode,
+            name: product.name,
+            category: product.category,
+            cost_price: product.cost_price,
+            retail_price: product.retail_price,
+            stock_quantity: product.stock_quantity,
+            min_stock_level: product.min_stock_level,
+            image_url: product.image_url,
+        });
     });
     // Update product
-    electron_1.ipcMain.handle('inventory:update-product', (_event, product) => {
+    electron_1.ipcMain.handle("inventory:update-product", (e, product) => {
+        // Auth check
         try {
-            if (!product.id)
-                return { success: false, error: 'Product ID required' };
-            const stmt = db.prepare(`
-            UPDATE products SET
-            barcode = ?, name = ?, category = ?, cost_price_usd = ?, 
-            selling_price_usd = ?, min_stock_level = ?, image_url = ?
-            WHERE id = ?
-        `);
-            stmt.run(product.barcode, product.name, product.category, product.cost_price, product.retail_price, product.min_stock_level || 5, product.image_url || null, product.id);
-            return { success: true };
+            const { requireRole } = require("../session");
+            const auth = requireRole(e.sender.id, ["admin"]);
+            if (!auth.ok)
+                return { success: false, error: auth.error };
         }
-        catch (error) {
-            return { success: false, error: error.message };
+        catch { }
+        if (!product.id) {
+            return { success: false, error: "Product ID required" };
         }
+        return service.updateProduct(product.id, {
+            barcode: product.barcode,
+            name: product.name,
+            category: product.category,
+            cost_price: product.cost_price,
+            retail_price: product.retail_price,
+            min_stock_level: product.min_stock_level ?? 5,
+            image_url: product.image_url,
+        });
     });
     // Soft delete product
-    electron_1.ipcMain.handle('inventory:delete-product', (_event, id) => {
+    electron_1.ipcMain.handle("inventory:delete-product", (e, id) => {
+        // Auth check
         try {
-            db.prepare(`UPDATE products SET is_active = 0 WHERE id = ?`).run(id);
-            return { success: true };
+            const { requireRole } = require("../session");
+            const auth = requireRole(e.sender.id, ["admin"]);
+            if (!auth.ok)
+                return { success: false, error: auth.error };
+        }
+        catch { }
+        return service.deleteProduct(id);
+    });
+    // ---------------------------------------------------------------------------
+    // Stock Management (Admin only)
+    // ---------------------------------------------------------------------------
+    // Adjust stock (absolute set)
+    electron_1.ipcMain.handle("inventory:adjust-stock", (e, id, newQuantity) => {
+        // Auth check
+        try {
+            const { requireRole } = require("../session");
+            const auth = requireRole(e.sender.id, ["admin"]);
+            if (!auth.ok)
+                return { success: false, error: auth.error };
+        }
+        catch { }
+        return service.adjustStock(id, newQuantity);
+    });
+    // ---------------------------------------------------------------------------
+    // Reporting (No auth required)
+    // ---------------------------------------------------------------------------
+    // Get Inventory Stock Stats (budget and count)
+    electron_1.ipcMain.handle("inventory:get-stock-stats", () => {
+        try {
+            return service.getStockStats();
         }
         catch (error) {
-            return { success: false, error: error.message };
+            console.error("Failed to get stock stats:", error);
+            return { stock_budget_usd: 0, stock_count: 0 };
         }
     });
-    // Adjust stock (absolute set or relative adjust could be implemented, keeping simple for now)
-    electron_1.ipcMain.handle('inventory:adjust-stock', (_event, id, newQuantity) => {
+    // Get low stock products
+    electron_1.ipcMain.handle("inventory:get-low-stock-products", () => {
         try {
-            db.prepare(`UPDATE products SET stock_quantity = ? WHERE id = ?`).run(newQuantity, id);
-            return { success: true };
+            return service.getLowStockProducts();
         }
         catch (error) {
-            return { success: false, error: error.message };
+            console.error("Failed to get low stock products:", error);
+            return [];
         }
     });
 }

@@ -4,14 +4,15 @@
     "target": "ES2023",
     "lib": ["ES2023"],
     "module": "ESNext",
-    "types": ["node"],
+    "types": ["node", "jest"],
     "skipLibCheck": true,
 
     /* Bundler mode */
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
-    "verbatimModuleSyntax": true,
-    "moduleDetection": "force",
+    // "verbatimModuleSyntax": true, // Removed due to Jest compatibility issues
+    "esModuleInterop": true,
+
     "noEmit": true,
 
     /* Linting */

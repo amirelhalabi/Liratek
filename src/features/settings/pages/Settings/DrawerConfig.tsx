@@ -1,0 +1,97 @@
+import { useEffect, useState } from "react";
+
+export default function DrawerConfig() {
+  const [drawerLimitGeneral, setDrawerLimitGeneral] = useState("");
+  const [drawerLimitOMT, setDrawerLimitOMT] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  const load = async () => {
+    setIsLoading(true);
+    try {
+      const settings = await window.api.settings.getAll();
+      const map = new Map(settings.map((s: any) => [s.key_name, s.value]));
+      setDrawerLimitGeneral((map.get("drawer_limit_general") as string) || "");
+      setDrawerLimitOMT((map.get("drawer_limit_omt") as string) || "");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const save = async () => {
+    setIsSaving(true);
+    try {
+      const gen = Number(drawerLimitGeneral);
+      const omt = Number(drawerLimitOMT);
+      if (!gen || gen <= 0) throw new Error("General drawer limit must be > 0");
+      if (!omt || omt <= 0) throw new Error("OMT drawer limit must be > 0");
+      await Promise.all([
+        window.api.settings.update("drawer_limit_general", drawerLimitGeneral),
+        window.api.settings.update("drawer_limit_omt", drawerLimitOMT),
+      ]);
+      (window as any).appEvents?.emit(
+        "notification:show",
+        "Drawer configuration saved",
+        "success",
+      );
+    } catch (e) {
+      console.error(e);
+      (window as any).appEvents?.emit(
+        "notification:show",
+        (e as any)?.message || "Failed to save",
+        "error",
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  if (isLoading) return <div className="text-slate-400">Loading...</div>;
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <label className="block text-sm text-slate-400 mb-2">
+          General Drawer Limit (USD)
+        </label>
+        <input
+          type="number"
+          value={drawerLimitGeneral}
+          onChange={(e) => setDrawerLimitGeneral(e.target.value)}
+          className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white"
+        />
+      </div>
+      <div>
+        <label className="block text-sm text-slate-400 mb-2">
+          OMT Drawer Limit (USD)
+        </label>
+        <input
+          type="number"
+          value={drawerLimitOMT}
+          onChange={(e) => setDrawerLimitOMT(e.target.value)}
+          className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white"
+        />
+      </div>
+      <div className="flex gap-2 justify-end">
+        <button
+          onClick={load}
+          disabled={isSaving}
+          className="px-4 py-2 rounded bg-slate-700 text-white"
+        >
+          Reset
+        </button>
+        <button
+          onClick={save}
+          disabled={isSaving}
+          className="px-4 py-2 rounded bg-violet-600 hover:bg-violet-500 text-white"
+        >
+          {isSaving ? "Saving..." : "Save"}
+        </button>
+      </div>
+    </div>
+  );
+}
