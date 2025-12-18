@@ -314,22 +314,36 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
     const expectedOmtLbp = (omtInflows?.total_lbp || 0) - (omtOutflows?.total_lbp || 0);
 
     // MTC Drawer (recharge sales for Touch)
-    const mtcRecharges = this.db
-      .prepare(
-        `SELECT COALESCE(SUM(amount_usd), 0) as total_usd
-         FROM recharges
-         WHERE DATE(created_at) = ? AND carrier = 'Touch'`
-      )
-      .get(today) as { total_usd: number } | undefined;
+    // Note: Recharges table may not exist yet - handle gracefully
+    let mtcRecharges: { total_usd: number } | undefined;
+    let alfaRecharges: { total_usd: number } | undefined;
+    
+    try {
+      mtcRecharges = this.db
+        .prepare(
+          `SELECT COALESCE(SUM(amount_usd), 0) as total_usd
+           FROM recharges
+           WHERE DATE(created_at) = ? AND carrier = 'Touch'`
+        )
+        .get(today) as { total_usd: number } | undefined;
+    } catch (error) {
+      // Table doesn't exist yet, default to 0
+      mtcRecharges = { total_usd: 0 };
+    }
 
     // Alfa Drawer (recharge sales for Alfa)
-    const alfaRecharges = this.db
-      .prepare(
-        `SELECT COALESCE(SUM(amount_usd), 0) as total_usd
-         FROM recharges
-         WHERE DATE(created_at) = ? AND carrier = 'Alfa'`
-      )
-      .get(today) as { total_usd: number } | undefined;
+    try {
+      alfaRecharges = this.db
+        .prepare(
+          `SELECT COALESCE(SUM(amount_usd), 0) as total_usd
+           FROM recharges
+           WHERE DATE(created_at) = ? AND carrier = 'Alfa'`
+        )
+        .get(today) as { total_usd: number } | undefined;
+    } catch (error) {
+      // Table doesn't exist yet, default to 0
+      alfaRecharges = { total_usd: 0 };
+    }
 
     return {
       generalDrawer: { usd: expectedUsd, lbp: expectedLbp, eur: 0 },
