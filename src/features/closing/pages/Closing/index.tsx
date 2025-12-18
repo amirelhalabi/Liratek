@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
-import { generateClosingReport } from "../../utils/closingReportGenerator";
-import { X } from "lucide-react";
+import { X, DollarSign, Wallet, Phone, CheckCircle, TrendingDown, TrendingUp, Minus } from "lucide-react";
 import { appEvents } from "../../../../shared/utils/appEvents";
 
 export default function Closing({
@@ -10,263 +9,198 @@ export default function Closing({
   isOpen: boolean;
   onClose: () => void;
 }) {
+  const drawerTypes: Array<"General" | "OMT" | "MTC" | "Alfa"> = ["General", "OMT", "MTC", "Alfa"];
+  
   const [step, setStep] = useState(1);
-  const [physicalCount, setPhysicalCount] = useState({
-    usd: 0,
-    lbp: 0,
-    eur: 0,
-  });
-  // All drawer types - match Opening modal
-  const drawerTypes: Array<"General" | "OMT" | "MTC" | "Alfa"> = [
-    "General",
-    "OMT",
-    "MTC",
-    "Alfa",
-  ];
-  const [currencies, setCurrencies] = useState<
-    Array<{ code: string; name: string }>
-  >([]);
-  const [physicalText, setPhysicalText] = useState<
-    Record<string, Record<string, string>>
-  >({});
-  const setDrawerCurrencyText = (
-    drawer: string,
-    code: string,
-    value: string,
-  ) => {
-    setPhysicalText((prev) => ({
+  const [currencies, setCurrencies] = useState<Array<{ code: string; name: string }>>([]);
+  const [physicalAmounts, setPhysicalAmounts] = useState<Record<string, Record<string, number>>>({});
+  const [systemExpected, setSystemExpected] = useState<any>(null);
+  const [varianceNotes, setVarianceNotes] = useState("");
+
+  useEffect(() => {
+    if (isOpen) {
+      loadCurrencies();
+      if (step >= 2) {
+        loadSystemExpected();
+      }
+    } else {
+      // Reset on close
+      setStep(1);
+      setPhysicalAmounts({});
+      setSystemExpected(null);
+      setVarianceNotes("");
+    }
+  }, [isOpen, step]);
+
+  const loadCurrencies = async () => {
+    try {
+      const list = await window.api.currencies.list();
+      const active = list
+        .filter((c: any) => c.is_active === 1)
+        .map((c: any) => ({ code: c.code, name: c.name }));
+      setCurrencies(active);
+      
+      // Initialize physical amounts
+      const init: Record<string, Record<string, number>> = {};
+      for (const d of drawerTypes) {
+        init[d] = {};
+        for (const c of active) {
+          init[d][c.code] = 0;
+        }
+      }
+      setPhysicalAmounts(init);
+    } catch (error) {
+      console.error("Failed to load currencies:", error);
+    }
+  };
+
+  const loadSystemExpected = async () => {
+    try {
+      const balances = await window.api.closing.getSystemExpectedBalances();
+      setSystemExpected(balances);
+    } catch (error) {
+      console.error("Failed to fetch expected balances:", error);
+    }
+  };
+
+  const handleAmountChange = (drawer: string, code: string, value: string) => {
+    const numValue = value === "" ? 0 : parseFloat(value);
+    setPhysicalAmounts((prev) => ({
       ...prev,
-      [drawer]: { ...prev[drawer], [code]: value },
+      [drawer]: { 
+        ...prev[drawer], 
+        [code]: isNaN(numValue) ? 0 : numValue 
+      },
     }));
   };
 
-  const [systemExpected, setSystemExpected] = useState({
-    usd: 0,
-    lbp: 0,
-    eur: 0,
-  });
+  const handleSave = async () => {
+    const closing_date = new Date().toISOString().split("T")[0];
+    const amounts = [] as Array<{
+      drawer_name: string;
+      currency_code: string;
+      physical_amount: number;
+    }>;
 
-  useEffect(() => {
-    if (!isOpen) {
-      // Reset state when modal is closed
-      setStep(1);
-      setPhysicalCount({ usd: 0, lbp: 0, eur: 0 });
-      setSystemExpected({ usd: 0, lbp: 0, eur: 0 });
-      return;
-    }
-
-    // Load currencies
-    const loadCurrencies = async () => {
-      try {
-        const list = await window.api.currencies.list();
-        const active = list
-          .filter((c: any) => c.is_active === 1)
-          .map((c: any) => ({ code: c.code, name: c.name }));
-        setCurrencies(active);
-        const init: Record<string, Record<string, string>> = {};
-        for (const d of drawerTypes) {
-          init[d] = {};
-          for (const c of active) init[d][c.code] = "";
-        }
-        setPhysicalText(init);
-      } catch {}
-    };
-
-    // Enforce blind count: only fetch expected after entering counts (step >= 3)
-    const fetchSystemExpectedBalances = async () => {
-      try {
-        const balances = await window.api.closing.getSystemExpectedBalances();
-        // No longer needed - we'll calculate from all drawers
-        setSystemExpected(balances.generalDrawer);
-      } catch (error) {
-        console.error("Failed to fetch system expected balances:", error);
-        // Optionally handle error in UI
+    for (const d of drawerTypes) {
+      for (const c of currencies) {
+        const amount = physicalAmounts[d]?.[c.code] ?? 0;
+        amounts.push({
+          drawer_name: d,
+          currency_code: c.code,
+          physical_amount: amount,
+        });
       }
-    };
-
-    if (step >= 3) {
-      fetchSystemExpectedBalances();
     }
-    loadCurrencies();
-  }, [isOpen, step]); // Removed drawerType dependency
-
-  const nextStep = () => setStep((prev) => prev + 1);
-  const prevStep = () => setStep((prev) => prev - 1);
-
-  const [varianceNotes, setVarianceNotes] = useState("");
-
-  const handleConfirmClosing = async () => {
-    const closing_date = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
-    // Aggregated model now; amounts per drawer/currency are sent below
 
     try {
-      const amountsArray = [] as Array<{
-        drawer_name: string;
-        currency_code: string;
-        physical_amount: number;
-      }>;
-      for (const d of drawerTypes) {
-        for (const c of currencies) {
-          const raw = physicalText[d]?.[c.code] ?? "";
-          const parsed = raw === "" ? 0 : parseFloat(raw);
-          amountsArray.push({
-            drawer_name: d,
-            currency_code: c.code,
-            physical_amount: isNaN(parsed) ? 0 : parsed,
-          });
-        }
-      }
-      const result = await window.api.closing.createDailyClosing({
+      const res = await window.api.closing.createDailyClosing({
         closing_date,
-        amounts: amountsArray,
+        amounts,
         variance_notes: varianceNotes,
-        report_path: lastReportPath || undefined,
-        user_id: (window as any).currentUserId,
       });
-      if (result.success) {
-        // Try backup after successful save
-        try {
-          const backup = await window.api.report.backupDatabase();
-          console.log("Backup result:", backup);
-        } catch (_e) {}
-        appEvents.emit("closing:confirmed");
-        alert("Closing confirmed and saved successfully!");
-        onClose(); // Close modal on success
+
+      if (res.success) {
+        alert("✅ Closing saved successfully for all drawers");
+        appEvents.emit("closing:completed", { closing_date, amounts });
+        onClose();
       } else {
-        alert("Failed to save closing: " + result.error);
+        alert("❌ Failed to save closing: " + res.error);
       }
     } catch (error) {
-      console.error("Error confirming closing:", error);
-      alert("An unexpected error occurred during closing.");
+      console.error("Failed to save closing:", error);
+      alert("❌ Failed to save closing.");
     }
   };
 
-  const [lastReportPath, setLastReportPath] = useState<string | null>(null);
+  // Helper to get expected amount for a drawer/currency
+  const getExpectedAmount = (drawer: string, currencyCode: string): number => {
+    if (!systemExpected) return 0;
+    const drawerKey = `${drawer.toLowerCase()}Drawer`;
+    return systemExpected[drawerKey]?.[currencyCode.toLowerCase()] || 0;
+  };
 
-  const handleGeneratePDFReport = async () => {
-    const closing_date = new Date().toISOString().split("T")[0];
-    const drawer_name = "All_Drawers";
-    try {
-      const dailyStats = await window.api.closing.getDailyStatsSnapshot();
-      const reportData = {
-        closing_date,
-        drawer_name,
-        physical_usd: physicalCount.usd,
-        physical_lbp: physicalCount.lbp,
-        physical_eur: physicalCount.eur,
-        system_expected_usd: systemExpected.usd,
-        system_expected_lbp: systemExpected.lbp,
-        variance_usd: physicalCount.usd - systemExpected.usd,
-        variance_lbp: physicalCount.lbp - systemExpected.lbp,
-        variance_eur: physicalCount.eur - systemExpected.eur,
-      };
-      const reportText = generateClosingReport(reportData, dailyStats);
-      const html = `<html><body><pre style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap;">${reportText.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</pre></body></html>`;
-      const result = await window.api.report.generatePDF(
-        html,
-        `closing_${closing_date}_${drawer_name}.pdf`,
-      );
-      if (result.success) {
-        setLastReportPath(result.path || null);
-        alert(`PDF saved to: ${result.path}`);
-      } else {
-        alert("Failed to generate PDF: " + result.error);
-      }
-    } catch (error) {
-      console.error("Error generating PDF:", error);
-      alert("Failed to generate PDF.");
+  const getDrawerIcon = (drawer: string) => {
+    switch (drawer) {
+      case "General": return <Wallet className="w-5 h-5" />;
+      case "OMT": return <DollarSign className="w-5 h-5" />;
+      case "MTC": return <Phone className="w-5 h-5" />;
+      case "Alfa": return <Phone className="w-5 h-5" />;
+      default: return <Wallet className="w-5 h-5" />;
     }
   };
 
-  const handleGenerateReport = async () => {
-    const closing_date = new Date().toISOString().split("T")[0];
-    const drawer_name = "All_Drawers";
-
-    try {
-      const dailyStats = await window.api.closing.getDailyStatsSnapshot();
-
-      const reportData = {
-        closing_date,
-        drawer_name,
-        physical_usd: physicalCount.usd,
-        physical_lbp: physicalCount.lbp,
-        physical_eur: physicalCount.eur,
-        system_expected_usd: systemExpected.usd,
-        system_expected_lbp: systemExpected.lbp,
-        variance_usd: physicalCount.usd - systemExpected.usd,
-        variance_lbp: physicalCount.lbp - systemExpected.lbp,
-        variance_eur: physicalCount.eur - systemExpected.eur,
-      };
-
-      const report = generateClosingReport(reportData, dailyStats);
-      alert("Generated Report:\n" + report);
-    } catch (error) {
-      console.error("Error generating report:", error);
-      alert("Failed to generate report.");
+  const getDrawerColor = (drawer: string) => {
+    switch (drawer) {
+      case "General": return "border-blue-500/30 bg-blue-500/5";
+      case "OMT": return "border-green-500/30 bg-green-500/5";
+      case "MTC": return "border-orange-500/30 bg-orange-500/5";
+      case "Alfa": return "border-red-500/30 bg-red-500/5";
+      default: return "border-slate-700 bg-slate-800/50";
     }
   };
 
-  if (!isOpen) return null; // Don't render anything if not open
+  if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 animate-in fade-in duration-300">
-      <div className="bg-slate-800 rounded-xl border border-slate-700 shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto flex flex-col">
-        <div className="flex justify-between items-center p-4 border-b border-slate-700">
-          <h1 className="text-xl font-bold text-white">
-            End-of-Day Closing Shift Wizard
-          </h1>
-          <button onClick={onClose} className="text-slate-400 hover:text-white">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+      <div className="bg-gradient-to-b from-slate-800 to-slate-900 rounded-2xl shadow-2xl w-full max-w-6xl max-h-[90vh] overflow-hidden border border-slate-700/50">
+        {/* Header */}
+        <div className="bg-gradient-to-r from-orange-600 to-red-600 px-6 py-5 flex items-center justify-between">
+          <div>
+            <h2 className="text-2xl font-bold text-white">🌙 Closing Shift</h2>
+            <p className="text-orange-100 text-sm mt-1">
+              Step {step} of 3: {step === 1 ? "Physical Count" : step === 2 ? "Review Variance" : "Confirm & Save"}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-white/80 hover:text-white hover:bg-white/10 rounded-lg p-2 transition"
+          >
             <X size={24} />
           </button>
         </div>
-        <div className="p-6 flex-1">
+
+        {/* Body */}
+        <div className="p-6 space-y-4 overflow-y-auto max-h-[calc(90vh-220px)]">
+          {/* Step 1: Physical Count (Blind) */}
           {step === 1 && (
             <div className="space-y-4">
-              <h2 className="text-xl text-violet-400">Step 1: Physical Count</h2>
-              <p className="text-slate-300">
-                Enter the physical cash count for ALL drawers (blind count - expected amounts will be shown after).
-              </p>
-              <button
-                onClick={nextStep}
-                className="mt-6 px-6 py-3 bg-emerald-600 text-white rounded-lg font-bold hover:bg-emerald-500"
-              >
-                Next
-              </button>
-            </div>
-          )}
+              <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4">
+                <p className="text-yellow-200 font-semibold">
+                  💡 <strong>Blind Count:</strong> Enter the physical cash you count WITHOUT looking at expected amounts.
+                </p>
+              </div>
 
-          {step === 2 && (
-            <div className="space-y-4">
-              <h2 className="text-xl text-violet-400">
-                Step 2: Enter Physical Count (All Drawers)
-              </h2>
-              <p className="text-slate-300">
-                Enter the physical cash count for each drawer and currency.
-              </p>
-              <div className="space-y-4">
-                {drawerTypes.map((d) => (
-                  <div
-                    key={d}
-                    className="border border-slate-700 rounded-lg p-3"
-                  >
-                    <div className="font-semibold text-white mb-2">
-                      {d} Drawer
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {drawerTypes.map((drawer) => (
+                  <div key={drawer} className={`border-2 rounded-xl p-5 ${getDrawerColor(drawer)}`}>
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="bg-white/10 p-2 rounded-lg text-white">
+                        {getDrawerIcon(drawer)}
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-lg text-white">{drawer}</h3>
+                        <p className="text-xs text-slate-400">Physical count</p>
+                      </div>
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                      {currencies.map((c) => (
-                        <div key={c.code}>
-                          <label className="block text-sm text-slate-400 mb-1">
-                            {c.code}
+
+                    <div className="space-y-3">
+                      {currencies.map((currency) => (
+                        <div key={currency.code} className="flex items-center gap-3">
+                          <label className="text-sm font-semibold text-slate-300 w-16">
+                            {currency.code}
                           </label>
                           <input
                             type="number"
                             step="0.01"
-                            value={physicalText[d]?.[c.code] ?? ""}
+                            min="0"
+                            value={physicalAmounts[drawer]?.[currency.code] || ""}
                             onChange={(e) =>
-                              setDrawerCurrencyText(d, c.code, e.target.value)
+                              handleAmountChange(drawer, currency.code, e.target.value)
                             }
-                            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white"
                             placeholder="0.00"
+                            className="flex-1 bg-slate-900/50 border border-slate-600 rounded-lg px-4 py-2.5 text-white text-lg font-mono placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition"
                           />
                         </div>
                       ))}
@@ -274,215 +208,133 @@ export default function Closing({
                   </div>
                 ))}
               </div>
-              <div className="flex gap-4 mt-6">
-                <button
-                  onClick={prevStep}
-                  className="px-6 py-3 bg-slate-700 text-slate-300 rounded-lg font-bold hover:bg-slate-600"
-                >
-                  Back
-                </button>
-                <button
-                  onClick={nextStep}
-                  className="px-6 py-3 bg-emerald-600 text-white rounded-lg font-bold hover:bg-emerald-500"
-                >
-                  Next
-                </button>
+            </div>
+          )}
+
+          {/* Step 2: Review Variance */}
+          {step === 2 && (
+            <div className="space-y-4">
+              <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4">
+                <p className="text-blue-200 font-semibold">
+                  📊 <strong>Variance Review:</strong> Compare your physical count with expected amounts.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {drawerTypes.map((drawer) => (
+                  <div key={drawer} className={`border-2 rounded-xl p-5 ${getDrawerColor(drawer)}`}>
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="bg-white/10 p-2 rounded-lg text-white">
+                        {getDrawerIcon(drawer)}
+                      </div>
+                      <h3 className="font-bold text-lg text-white">{drawer}</h3>
+                    </div>
+
+                    <div className="space-y-3">
+                      {currencies.map((currency) => {
+                        const physical = physicalAmounts[drawer]?.[currency.code] || 0;
+                        const expected = getExpectedAmount(drawer, currency.code);
+                        const variance = physical - expected;
+                        const hasVariance = Math.abs(variance) > 0.01;
+
+                        return (
+                          <div key={currency.code} className="bg-slate-900/30 rounded-lg p-3 space-y-1">
+                            <div className="flex justify-between items-center">
+                              <span className="text-sm font-semibold text-slate-300">{currency.code}</span>
+                              {hasVariance && (
+                                <span className={`text-xs font-bold ${variance > 0 ? 'text-green-400' : variance < 0 ? 'text-red-400' : 'text-slate-400'}`}>
+                                  {variance > 0 ? <TrendingUp className="w-4 h-4 inline" /> : variance < 0 ? <TrendingDown className="w-4 h-4 inline" /> : <Minus className="w-4 h-4 inline" />}
+                                  {variance > 0 ? '+' : ''}{variance.toFixed(2)}
+                                </span>
+                              )}
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 text-sm">
+                              <div>
+                                <span className="text-slate-500">Expected:</span>
+                                <span className="text-white font-mono ml-2">{expected.toFixed(2)}</span>
+                              </div>
+                              <div>
+                                <span className="text-slate-500">Physical:</span>
+                                <span className="text-white font-mono ml-2">{physical.toFixed(2)}</span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           )}
 
+          {/* Step 3: Confirm */}
           {step === 3 && (
             <div className="space-y-4">
-              <h2 className="text-xl text-violet-400">
-                Step 3: Variance Overview
-              </h2>
-              <p className="text-slate-300">
-                Compare physical count with system's expected values.
-              </p>
-              <div className="space-y-4 text-slate-200">
-                <div>
-                  <div className="border border-slate-700 rounded-lg overflow-hidden">
-                    <table className="w-full text-left text-sm">
-                      <thead className="bg-slate-900 text-slate-400">
-                        <tr>
-                          <th className="p-2">Currency</th>
-                          <th className="p-2">Physical Total</th>
-                          <th className="p-2">Expected</th>
-                          <th className="p-2">Variance</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {currencies.map((c) => {
-                          const total = drawerTypes.reduce(
-                            (sum, d) =>
-                              sum +
-                              (parseFloat(physicalText[d]?.[c.code] || "0") ||
-                                0),
-                            0,
-                          );
-                          const expected =
-                            c.code === "USD"
-                              ? systemExpected.usd
-                              : c.code === "LBP"
-                                ? systemExpected.lbp
-                                : 0;
-                          const variance = total - expected;
-                          return (
-                            <tr
-                              key={c.code}
-                              className="border-t border-slate-800"
-                            >
-                              <td className="p-2">{c.code}</td>
-                              <td className="p-2">
-                                {c.code === "LBP"
-                                  ? total.toLocaleString()
-                                  : total.toFixed(2)}
-                              </td>
-                              <td className="p-2">
-                                {c.code === "LBP"
-                                  ? expected.toLocaleString()
-                                  : expected.toFixed(2)}
-                              </td>
-                              <td
-                                className={`p-2 ${variance !== 0 ? "text-red-400" : "text-emerald-400"}`}
-                              >
-                                {c.code === "LBP"
-                                  ? variance.toLocaleString()
-                                  : variance.toFixed(2)}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-                <div>
-                  <p className="font-semibold">Physical Count</p>
-                  <p>${physicalCount.usd.toFixed(2)}</p>
-                  <p>{physicalCount.lbp.toLocaleString()} LBP</p>
-                  <p>€{physicalCount.eur.toFixed(2)}</p>
-                </div>
-                <div>
-                  <p className="font-semibold">System Expected</p>
-                  <p>${systemExpected.usd.toFixed(2)}</p>
-                  <p>{systemExpected.lbp.toLocaleString()} LBP</p>
-                  <p>€{systemExpected.eur.toFixed(2)}</p>
-                </div>
-                <div>
-                  <p className="font-semibold">Variance</p>
-                  <p
-                    className={`${physicalCount.usd - systemExpected.usd !== 0 ? "text-red-400" : "text-emerald-400"}`}
-                  >
-                    ${(physicalCount.usd - systemExpected.usd).toFixed(2)}
-                  </p>
-                  <p
-                    className={`${physicalCount.lbp - systemExpected.lbp !== 0 ? "text-red-400" : "text-emerald-400"}`}
-                  >
-                    {(physicalCount.lbp - systemExpected.lbp).toLocaleString()}{" "}
-                    LBP
-                  </p>
-                  <p
-                    className={`${physicalCount.eur - systemExpected.eur !== 0 ? "text-red-400" : "text-emerald-400"}`}
-                  >
-                    €{(physicalCount.eur - systemExpected.eur).toFixed(2)}
-                  </p>
-                </div>
+              <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-4">
+                <p className="text-green-200 font-semibold flex items-center gap-2">
+                  <CheckCircle className="w-5 h-5" />
+                  <strong>Ready to Save:</strong> Add any notes and confirm the closing.
+                </p>
               </div>
-              <div className="flex gap-4 mt-6">
-                <button
-                  onClick={prevStep}
-                  className="px-6 py-3 bg-slate-700 text-slate-300 rounded-lg font-bold hover:bg-slate-600"
-                >
-                  Back
-                </button>
-                <button
-                  onClick={nextStep}
-                  className="px-6 py-3 bg-emerald-600 text-white rounded-lg font-bold hover:bg-emerald-500"
-                >
-                  Next
-                </button>
+
+              <div className="bg-slate-800/50 rounded-xl p-5 border border-slate-700">
+                <label className="block text-sm font-semibold text-slate-300 mb-2">
+                  Variance Notes (Optional)
+                </label>
+                <textarea
+                  value={varianceNotes}
+                  onChange={(e) => setVarianceNotes(e.target.value)}
+                  placeholder="Explain any variances or issues..."
+                  rows={4}
+                  className="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              <div className="bg-slate-800/30 rounded-xl p-4 border border-slate-700">
+                <h4 className="font-bold text-white mb-2">Summary</h4>
+                <p className="text-slate-400 text-sm">
+                  Closing for <strong className="text-white">{drawerTypes.length} drawers</strong> with{" "}
+                  <strong className="text-white">{currencies.length} currencies</strong> each.
+                </p>
               </div>
             </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="bg-slate-900/50 px-6 py-4 flex gap-3 border-t border-slate-700">
+          {step > 1 && (
+            <button
+              onClick={() => setStep(step - 1)}
+              className="px-6 py-3 bg-slate-700 text-slate-300 font-semibold rounded-xl hover:bg-slate-600 transition"
+            >
+              ← Back
+            </button>
+          )}
+          
+          {step < 3 ? (
+            <button
+              onClick={() => setStep(step + 1)}
+              className="flex-1 px-6 py-3 bg-gradient-to-r from-blue-600 to-violet-600 text-white font-bold rounded-xl hover:from-blue-500 hover:to-violet-500 transition-all shadow-lg"
+            >
+              Next →
+            </button>
+          ) : (
+            <button
+              onClick={handleSave}
+              className="flex-1 px-6 py-3 bg-gradient-to-r from-emerald-600 to-green-600 text-white font-bold rounded-xl hover:from-emerald-500 hover:to-green-500 transition-all shadow-lg hover:shadow-emerald-500/20"
+            >
+              ✅ Save & Close Shift
+            </button>
           )}
 
-          {step === 4 && (
-            <div className="space-y-4">
-              <h2 className="text-xl text-violet-400">
-                Step 4: Review & Confirm
-              </h2>
-              <p className="text-slate-300">
-                Please review the closing details before confirming.
-              </p>
-              <div className="text-slate-200 space-y-4">
-                <p>
-                  <span className="font-semibold">Drawers:</span>{" "}
-                  All Drawers (General, OMT, MTC, Alfa)
-                </p>
-                <p>
-                  <span className="font-semibold">Physical USD:</span> $
-                  {physicalCount.usd.toFixed(2)}
-                </p>
-                <p>
-                  <span className="font-semibold">Physical LBP:</span>{" "}
-                  {physicalCount.lbp.toLocaleString()} LBP
-                </p>
-                <p>
-                  <span className="font-semibold">Physical EUR:</span> €
-                  {physicalCount.eur.toFixed(2)}
-                </p>
-                <p>
-                  <span className="font-semibold">Variance USD:</span> $
-                  {(physicalCount.usd - systemExpected.usd).toFixed(2)}
-                </p>
-                <p>
-                  <span className="font-semibold">Variance LBP:</span>{" "}
-                  {(physicalCount.lbp - systemExpected.lbp).toLocaleString()}{" "}
-                  LBP
-                </p>
-                <p>
-                  <span className="font-semibold">Variance EUR:</span> €
-                  {(physicalCount.eur - systemExpected.eur).toFixed(2)}
-                </p>
-              </div>
-              <div className="flex gap-4 mt-6">
-                <button
-                  onClick={prevStep}
-                  className="px-6 py-3 bg-slate-700 text-slate-300 rounded-lg font-bold hover:bg-slate-600"
-                >
-                  Back
-                </button>
-                <div className="flex-1">
-                  <label className="block text-sm text-slate-400 mb-1">
-                    Variance Notes
-                  </label>
-                  <textarea
-                    value={varianceNotes}
-                    onChange={(e) => setVarianceNotes(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white min-h-24"
-                  />
-                </div>
-                <button
-                  onClick={handleGenerateReport}
-                  className="px-6 py-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-500"
-                >
-                  Preview Report
-                </button>
-                <button
-                  onClick={handleGeneratePDFReport}
-                  className="px-6 py-3 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-500"
-                >
-                  Save PDF
-                </button>
-                <button
-                  onClick={handleConfirmClosing}
-                  className="px-6 py-3 bg-emerald-600 text-white rounded-lg font-bold hover:bg-emerald-500"
-                >
-                  Confirm Closing
-                </button>
-              </div>
-            </div>
-          )}
+          <button
+            onClick={onClose}
+            className="px-6 py-3 bg-slate-700 text-slate-300 font-semibold rounded-xl hover:bg-slate-600 transition"
+          >
+            Cancel
+          </button>
         </div>
       </div>
     </div>
