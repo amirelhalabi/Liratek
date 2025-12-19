@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { FileText, X } from "lucide-react";
 import ProductSearch from "./components/ProductSearch";
 import Cart from "./components/Cart";
@@ -18,15 +18,18 @@ export default function POS() {
   const [drafts, setDrafts] = useState<any[]>([]);
   const [checkoutDraftData, setCheckoutDraftData] = useState<any>(null);
 
-  const fetchDrafts = async () => {
+  const fetchDrafts = useCallback(async () => {
     const data = await window.api.getDrafts();
     setDrafts(data);
-  };
+  }, []);
 
   // Fetch drafts on mount and whenever modal/checkout state changes
   useEffect(() => {
-    fetchDrafts();
-  }, [isCheckoutOpen, isDraftsOpen]);
+    const t = setTimeout(() => {
+      fetchDrafts();
+    }, 0);
+    return () => clearTimeout(t);
+  }, [isCheckoutOpen, isDraftsOpen, fetchDrafts]);
 
   const handleAddToCart = (product: Product) => {
     setCartItems((prev) => {

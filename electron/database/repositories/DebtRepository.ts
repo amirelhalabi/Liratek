@@ -81,12 +81,13 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
 
   /**
    * Get debt history for a specific client
+   * Default: most recent first (DESC)
    */
   findClientHistory(clientId: number): DebtLedgerEntity[] {
     const stmt = this.db.prepare(`
       SELECT * FROM debt_ledger 
       WHERE client_id = ? 
-      ORDER BY created_at ASC
+      ORDER BY created_at DESC
     `);
     return stmt.all(clientId) as DebtLedgerEntity[];
   }

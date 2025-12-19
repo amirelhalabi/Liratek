@@ -1,11 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 
 export default function ActivityLogViewer() {
   const [logs, setLogs] = useState<Array<any>>([]);
   const [limit, setLimit] = useState("200");
   const [loading, setLoading] = useState(false);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const res = await (window as any).api.activity.getRecent?.(
@@ -15,11 +15,11 @@ export default function ActivityLogViewer() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [limit]);
 
   useEffect(() => {
     load();
-  }, []);
+  }, [load]);
 
   return (
     <div className="space-y-3">

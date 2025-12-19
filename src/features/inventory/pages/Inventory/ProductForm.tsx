@@ -55,7 +55,7 @@ export default function ProductForm({
     setIsLoading(true);
 
     try {
-      const payload = { ...formData, id: product?.id };
+      const payload = { ...formData, id: product?.id ?? 0 };
 
       let result;
       if (product) {

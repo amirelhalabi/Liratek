@@ -146,6 +146,8 @@ describe('SalesService', () => {
       const mockStats = {
         totalSalesUSD: 1500,
         totalSalesLBP: 1350000,
+        cashCollectedUSD: 1500,
+        cashCollectedLBP: 1350000,
         ordersCount: 25,
         activeClients: 10,
         lowStockCount: 3,
@@ -168,6 +170,8 @@ describe('SalesService', () => {
       expect(result).toEqual({
         totalSalesUSD: 0,
         totalSalesLBP: 0,
+        cashCollectedUSD: 0,
+        cashCollectedLBP: 0,
         ordersCount: 0,
         activeClients: 0,
         lowStockCount: 0,
@@ -179,6 +183,8 @@ describe('SalesService', () => {
       mockRepo.getDashboardStats.mockReturnValue({
         totalSalesUSD: 500,
         totalSalesLBP: 450000,
+        cashCollectedUSD: 500,
+        cashCollectedLBP: 450000,
         ordersCount: 5,
         activeClients: 2,
         lowStockCount: 1,

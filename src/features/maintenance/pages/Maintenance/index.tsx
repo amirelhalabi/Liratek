@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Wrench, Plus, DollarSign, Trash2 } from "lucide-react";
 import CheckoutModal from "../../../sales/pages/POS/components/CheckoutModal";
 
@@ -20,18 +20,21 @@ export default function Maintenance() {
   // Checkout State
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
 
-  useEffect(() => {
-    loadJobs();
-  }, [filter]);
-
-  const loadJobs = async () => {
+  const loadJobs = useCallback(async () => {
     try {
       const data = await window.api.getMaintenanceJobs(filter);
       setJobs(data);
     } catch (error) {
       console.error("Failed to load jobs:", error);
     }
-  };
+  }, [filter]);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      loadJobs();
+    }, 0);
+    return () => clearTimeout(t);
+  }, [loadJobs]);
 
   const handleNewJob = () => {
     setEditingJob(null);
@@ -63,6 +66,8 @@ export default function Maintenance() {
     }
   };
 
+  type Status = "Received" | "In_Progress" | "Ready" | "Delivered";
+
   const handleSaveDraft = async () => {
     // Save without checkout (Status: Received)
     const jobData = {
@@ -73,7 +78,7 @@ export default function Maintenance() {
       price_usd: parseFloat(price) || 0,
       client_name: clientName,
       client_phone: clientPhone,
-      status: editingJob?.status || "Received",
+      status: (editingJob?.status as Status) || "Received",
       // No payment details yet
       paid_usd: editingJob?.paid_usd || 0,
       paid_lbp: editingJob?.paid_lbp || 0,
@@ -111,7 +116,7 @@ export default function Maintenance() {
       paid_lbp: paymentData.payment_lbp,
       exchange_rate: paymentData.exchange_rate,
 
-      status: "Received", // Or 'Delivered' if fully paid? Let's keep it Received for now as repair needs to happen.
+      status: "Received" as Status, // Or 'Delivered' if fully paid? Let's keep it Received for now as repair needs to happen.
     };
 
     const result = await window.api.saveMaintenanceJob(jobData);

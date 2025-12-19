@@ -94,11 +94,12 @@
 
 | Category | Amount (USD) |
 |----------|--------------|
-| Software License | $500 |
-| Data Migration | $350 |
+| Software License | $600 |
+| Data Migration | $300 |
 | Hardware | $140 |
-| Installation & Training | $125 |
-| **Total** | **$1,115** |
+| Installation & Training | $100 |
+| **Developer Total (excl. Hardware)** | **$1,000** |
+| **Grand Total (incl. Hardware)** | **$1,140** |
 
 ---
 

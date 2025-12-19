@@ -14,6 +14,7 @@ interface RepaymentData {
   amountUSD: number;
   amountLBP: number;
   note?: string;
+  userId?: number;
 }
 
 export function registerDebtHandlers(): void {

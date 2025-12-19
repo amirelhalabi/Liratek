@@ -1,6 +1,7 @@
 import { ipcMain } from "electron";
 import { MaintenanceService } from "../services/MaintenanceService";
 import { maintenanceLogger } from "../utils/logger";
+/* eslint-disable @typescript-eslint/no-require-imports */
 
 export function registerMaintenanceHandlers(): void {
   const service = new MaintenanceService();

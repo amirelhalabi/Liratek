@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "../../auth/context/AuthContext";
 import Opening from "../../closing/pages/Opening";
 import {
@@ -8,6 +8,7 @@ import {
   Clock,
   Inbox,
   BarChart2,
+  Package,
 } from "lucide-react";
 import {
   LineChart,
@@ -31,29 +32,32 @@ export default function Dashboard() {
   const [stats, setStats] = useState({
     totalSalesUSD: 0,
     totalSalesLBP: 0,
+    cashCollectedUSD: 0,
+    cashCollectedLBP: 0,
     ordersCount: 0,
     activeClients: 0,
     stockBudgetUSD: 0,
     stockCount: 0,
-    virtualStockCredits: 0,
+    mtcCredits: 0,
+    alfaCredits: 0,
   });
   const [drawerBalances, setDrawerBalances] = useState({
     generalDrawer: { usd: 0, lbp: 0 },
     omtDrawer: { usd: 0, lbp: 0 },
   });
-  const [chartData, setChartData] = useState<any[]>([]);
-  const [todaysSales, setTodaysSales] = useState<any[]>([]);
-  const [debtSummary, setDebtSummary] = useState<{
-    totalDebt: number;
-    topDebtors: any[];
-  }>({ totalDebt: 0, topDebtors: [] });
+  type ChartPoint = { date: string; usd?: number; lbp?: number; profit?: number };
+  type TodaySale = { id: number; client_name: string | null; paid_usd: number; paid_lbp: number; created_at: string };
+  type DebtSummary = { totalDebt: number; topDebtors: { full_name: string; total_debt: number }[] };
+  const [chartData, setChartData] = useState<ChartPoint[]>([]);
+  const [todaysSales, setTodaysSales] = useState<TodaySale[]>([]);
+  const [debtSummary, setDebtSummary] = useState<DebtSummary>({ totalDebt: 0, topDebtors: [] });
   const [chartType, setChartType] = useState<ChartType>("Sales");
 
   // State for dynamic Y-axis domains
   const [maxUsdSales, setMaxUsdSales] = useState(0);
   const [maxLbpSales, setMaxLbpSales] = useState(0);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       const [
         statsData,
@@ -77,10 +81,10 @@ export default function Dashboard() {
         ...statsData,
         stockBudgetUSD: stockStats?.stock_budget_usd || 0,
         stockCount: stockStats?.stock_count || 0,
-        virtualStockCredits:
-          (rechargeStock?.mtc || 0) + (rechargeStock?.alfa || 0),
+        mtcCredits: rechargeStock?.mtc || 0,
+        alfaCredits: rechargeStock?.alfa || 0,
       });
-      const formattedChartData = profitChartData.map((d: any) => ({
+      const formattedChartData = profitChartData.map((d) => ({
         ...d,
         date: new Date(d.date).toLocaleDateString("en-US", {
           month: "short",
@@ -99,10 +103,10 @@ export default function Dashboard() {
       // Calculate max values for Y-axis domain
       if (chartType === "Sales" && formattedChartData.length > 0) {
         const currentMaxUsd = Math.max(
-          ...formattedChartData.map((d: any) => d.usd),
+          ...formattedChartData.map((d) => d.usd || 0),
         );
         const currentMaxLbp = Math.max(
-          ...formattedChartData.map((d: any) => d.lbp),
+          ...formattedChartData.map((d) => d.lbp || 0),
         );
 
         // Round up USD to the next thousand
@@ -114,10 +118,12 @@ export default function Dashboard() {
     } catch (_error) {
       // console.error('Failed to load dashboard data:', error);
     }
-  };
+  }, [chartType]);
 
   useEffect(() => {
-    loadData();
+    const t = setTimeout(() => {
+      loadData();
+    }, 0);
     const interval = setInterval(loadData, 30000); // 30s refresh
 
     // Subscribe to refresh events
@@ -127,82 +133,117 @@ export default function Dashboard() {
     });
 
     return () => {
+      clearTimeout(t);
       clearInterval(interval);
       unsubscribe();
     };
-  }, [chartType]);
+  }, [loadData]);
 
   // Auto-open Opening modal if needed after login
   useEffect(() => {
     if (needsOpening) {
-      setShowOpening(true);
+      const t = setTimeout(() => setShowOpening(true), 0);
+      return () => clearTimeout(t);
     }
   }, [needsOpening]);
+
+  // Allow opening the Opening modal from anywhere (e.g. Sidebar button)
+  useEffect(() => {
+    const off = appEvents.on("openOpeningModal", () => {
+      setShowOpening(true);
+    });
+    return () => off();
+  }, []);
+
 
   const handleCloseOpening = () => {
     setShowOpening(false);
     clearOpeningFlag();
   };
 
-  const statCards = [
+  // Financial Metrics (Row 1)
+  const financialCards = [
     {
-      label: "Total Sales (Today)",
-      value: `${stats.totalSalesUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-      secondaryValue: `${stats.totalSalesLBP.toLocaleString()} LBP`,
+      label: "Sales Revenue (Today)",
+      usdValue: stats.totalSalesUSD,
+      lbpValue: stats.totalSalesLBP,
       icon: DollarSign,
       color: "text-emerald-400",
       bg: "bg-emerald-400/10",
     },
     {
+      label: "Cash Collected (Today)",
+      usdValue: stats.cashCollectedUSD,
+      lbpValue: stats.cashCollectedLBP,
+      icon: DollarSign,
+      color: "text-green-400",
+      bg: "bg-green-400/10",
+    },
+    {
       label: "Orders Processed",
-      value: stats.ordersCount.toString(),
+      singleValue: stats.ordersCount.toString(),
       icon: DollarSign,
       color: "text-blue-400",
       bg: "bg-blue-400/10",
     },
     {
       label: "Total Debt",
-      value: `${debtSummary.totalDebt.toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
+      singleValue: `$${debtSummary.totalDebt.toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
       icon: Users,
       color: "text-red-400",
       bg: "bg-red-400/10",
     },
-    {
-      label: "Stock Budget (USD)",
-      value: `$${stats.stockBudgetUSD.toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
-      icon: BarChart2,
-      color: "text-amber-400",
-      bg: "bg-amber-400/10",
-    },
-    {
-      label: "Stock Count",
-      value: `${stats.stockCount.toLocaleString()}`,
-      icon: Inbox,
-      color: "text-teal-400",
-      bg: "bg-teal-400/10",
-    },
-    {
-      label: "Virtual Stock (MTC+Alfa Credits)",
-      value: `${stats.virtualStockCredits.toLocaleString()}`,
-      icon: Inbox,
-      color: "text-indigo-400",
-      bg: "bg-indigo-400/10",
-    },
+  ];
+
+  // Drawer Balances (Row 2)
+  const drawerCards = [
     {
       label: "General Drawer",
-      value: `${drawerBalances.generalDrawer.usd.toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
-      secondaryValue: `${drawerBalances.generalDrawer.lbp.toLocaleString()} LBP`,
+      usdValue: drawerBalances.generalDrawer.usd,
+      lbpValue: drawerBalances.generalDrawer.lbp,
       icon: Inbox,
       color: "text-sky-400",
       bg: "bg-sky-400/10",
     },
     {
       label: "OMT Drawer",
-      value: `${drawerBalances.omtDrawer.usd.toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
-      secondaryValue: `${drawerBalances.omtDrawer.lbp.toLocaleString()} LBP`,
+      usdValue: drawerBalances.omtDrawer.usd,
+      lbpValue: drawerBalances.omtDrawer.lbp,
       icon: Inbox,
       color: "text-rose-400",
       bg: "bg-rose-400/10",
+    },
+    {
+      label: "MTC Credits",
+      singleValue: `$${stats.mtcCredits?.toLocaleString(undefined, { maximumFractionDigits: 0 }) || '0'}`,
+      icon: Inbox,
+      color: "text-purple-400",
+      bg: "bg-purple-400/10",
+    },
+    {
+      label: "Alfa Credits",
+      singleValue: `$${stats.alfaCredits?.toLocaleString(undefined, { maximumFractionDigits: 0 }) || '0'}`,
+      icon: Inbox,
+      color: "text-pink-400",
+      bg: "bg-pink-400/10",
+    },
+  ];
+
+  // Stock Overview
+  const stockCards = [
+    {
+      label: "Stock Budget",
+      singleValue: `$${stats.stockBudgetUSD.toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
+      icon: BarChart2,
+      color: "text-amber-400",
+      bg: "bg-amber-400/10",
+    },
+    {
+      label: "Stock Count",
+      singleValue: `${stats.stockCount.toLocaleString()} items`,
+      icon: Package,
+      color: "text-teal-400",
+      bg: "bg-teal-400/10",
     },
   ];
 
@@ -216,28 +257,78 @@ export default function Dashboard() {
         Dashboard
       </h1>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-        {statCards.map((stat) => (
+      {/* Financial Metrics */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {financialCards.map((stat) => (
           <div
             key={stat.label}
-            className="bg-slate-800 p-5 rounded-xl border border-slate-700/50 shadow-lg hover:border-slate-600 transition-colors"
+            className="bg-slate-800 p-4 rounded-xl border border-slate-700/50 shadow-lg hover:border-slate-600 transition-colors"
           >
-            <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center justify-between mb-2">
               <div className={`p-2 rounded-lg ${stat.bg}`}>
-                <stat.icon className={`w-5 h-5 ${stat.color}`} />
+                <stat.icon className={`w-4 h-4 ${stat.color}`} />
               </div>
             </div>
-            <h3 className="text-slate-500 text-xs font-medium uppercase tracking-wider">
+            <h3 className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">
               {stat.label}
             </h3>
-            <div className="flex items-baseline gap-2">
-              <p className="text-2xl font-bold text-white mt-1">{stat.value}</p>
-              {stat.secondaryValue && (
-                <p className="text-sm font-semibold text-slate-400">
-                  {stat.secondaryValue}
-                </p>
-              )}
+            
+            {stat.singleValue && (
+              <p className="text-xl font-bold text-white">{stat.singleValue}</p>
+            )}
+            
+            {stat.usdValue !== undefined && stat.lbpValue !== undefined && (
+              <div className="flex items-center gap-2">
+                <div className="flex-1">
+                  <p className="text-base font-bold text-emerald-400">
+                    ${stat.usdValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  </p>
+                </div>
+                <div className="flex-1">
+                  <p className="text-base font-bold text-violet-400">
+                    {stat.lbpValue.toLocaleString()} LBP
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Drawer Balances */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {drawerCards.map((stat) => (
+          <div
+            key={stat.label}
+            className="bg-slate-800 p-4 rounded-xl border border-slate-700/50 shadow-lg hover:border-slate-600 transition-colors"
+          >
+            <div className="flex items-center justify-between mb-2">
+              <div className={`p-2 rounded-lg ${stat.bg}`}>
+                <stat.icon className={`w-4 h-4 ${stat.color}`} />
+              </div>
             </div>
+            <h3 className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">
+              {stat.label}
+            </h3>
+            
+            {stat.singleValue && (
+              <p className="text-xl font-bold text-white">{stat.singleValue}</p>
+            )}
+            
+            {stat.usdValue !== undefined && stat.lbpValue !== undefined && (
+              <div className="flex items-center gap-2">
+                <div className="flex-1">
+                  <p className="text-base font-bold text-emerald-400">
+                    ${stat.usdValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  </p>
+                </div>
+                <div className="flex-1">
+                  <p className="text-base font-bold text-violet-400">
+                    {stat.lbpValue.toLocaleString()} LBP
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -297,7 +388,7 @@ export default function Dashboard() {
                   <YAxis
                     tick={{ fill: "#94a3b8" }}
                     fontSize={12}
-                    tickFormatter={(value) => `${value}`}
+                    tickFormatter={(value) => `$${value}`}
                   />
                 )}
                 <Tooltip
@@ -307,13 +398,18 @@ export default function Dashboard() {
                     color: "#cbd5e1",
                   }}
                   labelStyle={{ fontWeight: "bold" }}
-                  formatter={(value: any, name: any) => {
-                    if (name === "LBP Sales") {
-                      return [`${value.toLocaleString()} LBP`, name];
+                  formatter={(value: number | string | undefined, name?: string) => {
+                    const valNum = typeof value === 'number' ? value : Number(value ?? 0);
+                    const label = name ?? '';
+                    if (label === "LBP Sales") {
+                      return [`${valNum.toLocaleString()} LBP`, label];
+                    }
+                    if (label === "Profit") {
+                      return [`$${valNum.toLocaleString(undefined, { maximumFractionDigits: 0 })}`, label];
                     }
                     return [
-                      `${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
-                      name,
+                      `${valNum.toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
+                      label,
                     ];
                   }}
                 />
@@ -351,14 +447,14 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="space-y-6">
-          <div className="bg-slate-800 p-5 rounded-xl border border-slate-700/50 shadow-lg">
+        <div className="flex flex-col h-full gap-4">
+          <div className="bg-slate-800 p-5 rounded-xl border border-slate-700/50 shadow-lg flex-1 flex flex-col">
             <h3 className="text-md font-bold text-white mb-4 flex items-center gap-2">
               <BarChart2 size={16} className="text-red-400" />
               Top Debtors
             </h3>
-            <div className="h-40">
-              <ResponsiveContainer width="100%" height={160}>
+            <div className="flex-1">
+              <ResponsiveContainer width="100%" height="100%">
                 <BarChart
                   data={debtSummary.topDebtors}
                   layout="vertical"
@@ -401,12 +497,12 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div className="bg-slate-800 p-5 rounded-xl border border-slate-700/50 shadow-lg">
+          <div className="bg-slate-800 p-5 rounded-xl border border-slate-700/50 shadow-lg flex-1 flex flex-col">
             <h3 className="text-md font-bold text-white mb-4 flex items-center gap-2">
               <Clock size={16} className="text-blue-400" />
               Today's Sales
             </h3>
-            <div className="space-y-3">
+            <div className="space-y-3 overflow-y-auto flex-1">
               {todaysSales.length > 0 ? (
                 todaysSales.map((sale) => (
                   <div
@@ -445,6 +541,34 @@ export default function Dashboard() {
               )}
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Stock Overview */}
+      <div>
+        <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+          <Package className="text-amber-400" />
+          Stock Overview
+        </h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {stockCards.map((stat) => (
+            <div
+              key={stat.label}
+              className="bg-slate-800 p-4 rounded-xl border border-slate-700/50 shadow-lg hover:border-slate-600 transition-colors"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <div className={`p-2 rounded-lg ${stat.bg}`}>
+                  <stat.icon className={`w-4 h-4 ${stat.color}`} />
+                </div>
+              </div>
+              <h3 className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">
+                {stat.label}
+              </h3>
+              {stat.singleValue && (
+                <p className="text-xl font-bold text-white">{stat.singleValue}</p>
+              )}
+            </div>
+          ))}
         </div>
       </div>
     </div>

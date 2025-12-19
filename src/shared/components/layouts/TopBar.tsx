@@ -5,15 +5,12 @@ import { useMemo } from "react";
 import { useAuth } from "../../../features/auth/context/AuthContext";
 
 function NotificationHistory() {
-  const [items, setItems] = useState<any[]>([]);
+  const [items, setItems] = useState<any[]>(() => ((window as any)?.notificationHistory || []));
   const [filter, setFilter] = useState<
     "all" | "error" | "warning" | "info" | "success"
   >("all");
   useEffect(() => {
-    const off = appEvents.on("notification:history", (h: any[]) =>
-      setItems(h || []),
-    );
-    setItems((window as any).notificationHistory || []);
+    const off = appEvents.on("notification:history", (h: any[]) => setItems(h || []));
     return () => off();
   }, []);
   const filtered = useMemo(

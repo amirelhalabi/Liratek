@@ -1,6 +1,12 @@
-# LiraTek Test Results
+# Test Results
 
-**Last Updated:** December 18, 2025  
+**Last Updated:** December 19, 2025
+
+Status (Dec 19, 2025)
+- Suites: 41/41 passed
+- Tests: 413/413 passed
+- Coverage (overall): ~59% statements, ~43% branches, ~48% functions, ~58.5% lines
+- Notes: Electron services have excellent coverage; repositories are lower. Renderer features around Closing and Inventory have strong coverage.  
 **Version:** 1.1.0+
 
 ---
@@ -164,3 +170,109 @@ npm run ci:build:mac  # macOS
 
 **Test Status:** ✅ Single instance lock verified and working  
 **Production Ready:** Yes (pending final installer testing)
+
+---
+
+## 📊 Current Test Status (December 19, 2025)
+
+### Overall Status: ✅ ALL TESTS PASSING
+
+```
+Test Suites: 41 passed, 41 total
+Tests:       413 passed, 413 total
+Coverage:    60%+ (comprehensive business logic)
+Time:        ~30-40s
+```
+
+### New Tests Added (December 19, 2025)
+
+#### Frontend Component Tests
+- ✅ `src/features/closing/pages/Opening/__tests__/Opening.test.tsx`
+  - Tests opening modal rendering, validation, save flow
+  - Tests auto-fill on currency load
+  - Tests cancel confirmation with unsaved changes
+  - Environment: jsdom
+
+- ✅ `src/features/closing/pages/Closing/__tests__/Closing.test.tsx`
+  - Tests 3-step closing wizard flow
+  - Tests variance calculation and review
+  - Tests notes and final save
+  - Tests appEvents emission on completion
+  - Environment: jsdom
+
+- ✅ `src/features/closing/components/__tests__/DrawerCard.test.tsx`
+  - Tests drawer card rendering
+  - Tests currency input handling
+  - Environment: jsdom
+
+#### Test Infrastructure Improvements
+- ✅ Added `jest-environment-jsdom` support for React component tests
+- ✅ Created `tsconfig.jest.json` for Jest-specific TypeScript configuration
+- ✅ Added `@testing-library/jest-dom` for enhanced DOM matchers
+- ✅ All hook tests now run in jsdom environment
+
+### Test Coverage Breakdown
+
+#### Backend (Electron)
+- ✅ Services: High coverage (60%+)
+- ✅ Handlers: Comprehensive IPC tests
+- ✅ Repositories: Core CRUD operations tested
+- ✅ Database migrations: Tested
+
+#### Frontend (React)
+- ✅ Hooks: Complete coverage (useCurrencies, useDrawerAmounts, useSystemExpected)
+- ✅ Components: Opening/Closing modals tested
+- ✅ Utils: appEvents, receiptFormatter, closingReportGenerator tested
+
+### Test Categories
+
+#### Unit Tests (Services)
+- AuthService
+- ClientService
+- ClosingService
+- CurrencyService
+- DebtService
+- ExchangeService
+- ExpenseService
+- FinancialService
+- InventoryService
+- MaintenanceService
+- RateService
+- RechargeService
+- ReportService
+- SalesService
+- SettingsService
+- ActivityService
+
+#### Integration Tests (Handlers)
+- authHandlers
+- clientHandlers
+- closingHandlers
+- currencyHandlers (behavior + unit)
+- dbHandlers (behavior + registration + unit)
+- debtHandlers
+- exchangeHandlers
+- inventoryHandlers (behavior + unit)
+- maintenanceHandlers
+- omtHandlers
+- rateHandlers
+- rechargeHandlers
+- reportHandlers
+- salesHandlers
+
+#### Frontend Tests (React)
+- Opening modal (component + hooks)
+- Closing modal (component + hooks)
+- DrawerCard component
+- appEvents utility
+- receiptFormatter utility
+- closingReportGenerator utility
+
+### Known Gaps (Future Improvements)
+- E2E tests with Playwright (planned)
+- Visual regression tests (planned)
+- Performance benchmarks (planned)
+- More edge case coverage in UI flows
+
+---
+

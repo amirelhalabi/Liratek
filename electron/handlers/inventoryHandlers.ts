@@ -8,6 +8,7 @@
 import { ipcMain } from "electron";
 import { getInventoryService } from "../services";
 import { inventoryLogger } from "../utils/logger";
+/* eslint-disable @typescript-eslint/no-require-imports */
 
 // =============================================================================
 // Types

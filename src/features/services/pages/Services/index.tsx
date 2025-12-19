@@ -33,9 +33,9 @@ interface Transaction {
   amount_lbp: number;
   commission_usd: number;
   commission_lbp: number;
-  client_name: string;
-  reference_number: string;
-  note: string;
+  client_name?: string;
+  reference_number?: string;
+  note?: string;
   created_at: string;
 }
 
@@ -68,7 +68,13 @@ export default function Services() {
         window.api.getOMTHistory(),
         window.api.getOMTAnalytics(),
       ]);
-      setTransactions(history);
+      setTransactions(
+        history.map((h) => ({
+          ...h,
+          provider: h.provider as Provider,
+          service_type: h.service_type as ServiceType,
+        })),
+      );
       setAnalytics(stats);
     } catch (error) {
       console.error("Failed to load data:", error);
@@ -232,7 +238,7 @@ export default function Services() {
 
       <div className="flex gap-6 h-[calc(100vh-theme(spacing.64))]">
         {/* Left: Form */}
-        <div className="w-1/3 min-w-[380px] bg-slate-800 rounded-xl border border-slate-700/50 shadow-lg p-6 flex flex-col">
+        <div className="w-1/3 min-w-[380px] max-h-[80vh] overflow-hidden bg-slate-800 rounded-xl border border-slate-700/50 shadow-lg p-4 flex flex-col">
           {/* Provider Selector */}
           <div className="flex gap-2 p-1 bg-slate-900 rounded-xl mb-6">
             {(["OMT", "WHISH"] as Provider[]).map((p) => (

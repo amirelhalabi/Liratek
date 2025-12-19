@@ -1,214 +1,212 @@
-import { useState, useEffect } from "react";
-import { useAuth } from "../../../auth/context/AuthContext";
-import { X, DollarSign, Wallet, Phone } from "lucide-react";
+/**
+ * Opening Modal - Simplified Design
+ * Matches platform design language
+ */
 
-export default function Opening({
-  isOpen,
-  onClose,
-}: {
+import { useEffect, useState } from "react";
+import { useAuth } from "../../../auth/context/AuthContext";
+import type { DrawerType } from "../../types";
+import { DRAWER_ORDER } from "../../config/drawers";
+import { useCurrencies } from "../../hooks/useCurrencies";
+import { useDrawerAmounts } from "../../hooks/useDrawerAmounts";
+import { DrawerCard } from "../../components/DrawerCard";
+import { X } from "lucide-react";
+
+interface OpeningProps {
   isOpen: boolean;
   onClose: () => void;
-}) {
-  const drawerTypes: Array<"General" | "OMT" | "MTC" | "Alfa"> = [
-    "General",
-    "OMT",
-    "MTC",
-    "Alfa",
-  ];
-  
-  const { user } = useAuth();
-  const [currencies, setCurrencies] = useState<Array<{ code: string; name: string }>>([]);
-  const [amounts, setAmounts] = useState<Record<string, Record<string, number>>>({});
+}
 
+export default function Opening({ isOpen, onClose }: OpeningProps) {
+  const { user } = useAuth();
+  const { currencies, loading: currenciesLoading, error: currenciesError } = useCurrencies();
+  const drawerAmounts = useDrawerAmounts({ currencies });
+  
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Initialize amounts when currencies are loaded
   useEffect(() => {
-    if (isOpen) {
-      loadCurrencies();
+    if (currencies.length > 0 && isOpen) {
+      drawerAmounts.initializeAmounts();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currencies, isOpen]);
+
+  // Reset state when modal closes
+  useEffect(() => {
+    if (!isOpen) {
+      drawerAmounts.reset();
+      setSaveError(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
-  const loadCurrencies = async () => {
-    try {
-      const list = await window.api.currencies.list();
-      const active = list
-        .filter((c: any) => c.is_active === 1)
-        .map((c: any) => ({ code: c.code, name: c.name }));
-      setCurrencies(active);
-      
-      // Initialize amounts structure with 0
-      const init: Record<string, Record<string, number>> = {};
-      for (const d of drawerTypes) {
-        init[d] = {};
-        for (const c of active) {
-          init[d][c.code] = 0;
-        }
-      }
-      setAmounts(init);
-    } catch (error) {
-      console.error("Failed to load currencies:", error);
-    }
-  };
-
-  const handleAmountChange = (drawer: string, code: string, value: string) => {
-    // Allow empty string for user input, will be saved as 0
+  const handleAmountChange = (drawer: DrawerType, code: string, value: string) => {
     const numValue = value === "" ? 0 : parseFloat(value);
-    setAmounts((prev) => ({
-      ...prev,
-      [drawer]: { 
-        ...prev[drawer], 
-        [code]: isNaN(numValue) ? 0 : numValue 
-      },
-    }));
-  };
-
-  // Get display value (show empty string instead of 0 for better UX)
-  const getDisplayValue = (drawer: string, code: string): string => {
-    const val = amounts[drawer]?.[code];
-    if (val === undefined || val === 0) return "";
-    return val.toString();
+    drawerAmounts.updateAmount(drawer, code, isNaN(numValue) ? 0 : numValue);
   };
 
   const handleSave = async () => {
-    const closing_date = new Date().toISOString().split("T")[0];
-    const dataToSave = [] as Array<{
-      drawer_name: string;
-      currency_code: string;
-      opening_amount: number;
-    }>;
-
-    for (const d of drawerTypes) {
-      for (const c of currencies) {
-        const amount = amounts[d]?.[c.code] ?? 0;
-        dataToSave.push({
-          drawer_name: d,
-          currency_code: c.code,
-          opening_amount: amount,
-        });
-      }
+    setSaveError(null);
+    
+    // Validate
+    const validation = drawerAmounts.validate();
+    if (!validation.isValid) {
+      setSaveError(validation.errors.join(", "));
+      return;
     }
+
+    if (!drawerAmounts.hasAnyAmounts) {
+      setSaveError("Please enter at least one amount before saving.");
+      return;
+    }
+
+    setSaving(true);
+    setSaveError(null);
+
+    const closingDate = new Date().toISOString().split("T")[0];
+    const amounts = DRAWER_ORDER.flatMap((drawer) =>
+      currencies.map((currency) => ({
+        drawer_name: drawer,
+        currency_code: currency.code,
+        opening_amount: drawerAmounts.amounts[drawer]?.[currency.code] ?? 0,
+      }))
+    );
 
     try {
-      const res = await window.api.closing.setOpeningBalances({
-        closing_date,
-        amounts: dataToSave,
+      const result = await window.api.closing.setOpeningBalances({
+        closing_date: closingDate,
+        amounts,
         user_id: user?.id,
       });
-      if (res.success) {
-        alert("✅ Opening balances saved successfully!");
+
+      if (result.success) {
+        alert("Opening balances saved successfully!");
         onClose();
       } else {
-        alert("❌ Failed: " + res.error);
+        setSaveError(result.error || "Failed to save opening balances");
       }
     } catch (error) {
-      console.error(error);
-      alert("❌ Failed to save opening balances.");
+      console.error("[Opening] Save error:", error);
+      setSaveError(error instanceof Error ? error.message : "An unexpected error occurred");
+    } finally {
+      setSaving(false);
     }
   };
 
-  const getDrawerIcon = (drawer: string) => {
-    switch (drawer) {
-      case "General": return <Wallet className="w-5 h-5" />;
-      case "OMT": return <DollarSign className="w-5 h-5" />;
-      case "MTC": return <Phone className="w-5 h-5" />;
-      case "Alfa": return <Phone className="w-5 h-5" />;
-      default: return <Wallet className="w-5 h-5" />;
-    }
-  };
-
-  const getDrawerColor = (drawer: string) => {
-    switch (drawer) {
-      case "General": return "border-blue-500/30 bg-blue-500/5";
-      case "OMT": return "border-green-500/30 bg-green-500/5";
-      case "MTC": return "border-orange-500/30 bg-orange-500/5";
-      case "Alfa": return "border-red-500/30 bg-red-500/5";
-      default: return "border-slate-700 bg-slate-800/50";
+  const handleCancel = () => {
+    if (drawerAmounts.hasAnyAmounts) {
+      if (confirm("You have unsaved changes. Are you sure you want to close?")) {
+        onClose();
+      }
+    } else {
+      onClose();
     }
   };
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-      <div className="bg-gradient-to-b from-slate-800 to-slate-900 rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden border border-slate-700/50">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-6xl max-h-[90vh] flex flex-col shadow-2xl">
         {/* Header */}
-        <div className="bg-gradient-to-r from-violet-600 to-blue-600 px-6 py-5 flex items-center justify-between">
+        <div className="flex justify-between items-center p-6 border-b border-slate-700 bg-slate-800">
           <div>
-            <h2 className="text-2xl font-bold text-white">☀️ Opening Shift</h2>
-            <p className="text-blue-100 text-sm mt-1">Set starting cash for all drawers</p>
+            <h2 className="text-2xl font-bold text-white">Opening</h2>
+            <p className="text-slate-400 text-sm mt-1">Set starting drawer amounts</p>
           </div>
           <button
-            onClick={onClose}
-            className="text-white/80 hover:text-white hover:bg-white/10 rounded-lg p-2 transition"
+            onClick={handleCancel}
+            disabled={saving}
+            className="text-slate-400 hover:text-white transition-colors disabled:opacity-50"
           >
             <X size={24} />
           </button>
         </div>
 
-        {/* Body */}
-        <div className="p-6 space-y-4 overflow-y-auto max-h-[calc(90vh-180px)]">
-          {/* All Drawers - Grid Layout */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {drawerTypes.map((drawer) => (
-              <div
-                key={drawer}
-                className={`border-2 rounded-xl p-5 transition-all hover:shadow-lg relative ${getDrawerColor(drawer)}`}
-              >
-                {/* Drawer Header */}
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="bg-white/10 p-2 rounded-lg text-white">
-                    {getDrawerIcon(drawer)}
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-lg text-white">{drawer}</h3>
-                    <p className="text-xs text-slate-400">
-                      {drawer === "General" && "Main cash register"}
-                      {drawer === "OMT" && "Money transfers"}
-                      {drawer === "MTC" && "Touch recharges"}
-                      {drawer === "Alfa" && "Alfa recharges"}
-                    </p>
-                  </div>
-                </div>
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+          {currenciesLoading && (
+            <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
+              <p className="text-blue-200 text-sm">Loading currencies...</p>
+            </div>
+          )}
 
-                {/* Currency Inputs */}
-                <div className="space-y-3 relative z-10">
-                  {currencies.map((currency) => (
-                    <div key={currency.code} className="flex items-center gap-3 relative">
-                      <label className="text-sm font-semibold text-slate-300 w-16 flex-shrink-0">
-                        {currency.code}
-                      </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={getDisplayValue(drawer, currency.code)}
-                        onChange={(e) =>
-                          handleAmountChange(drawer, currency.code, e.target.value)
-                        }
-                        placeholder="0.00"
-                        autoComplete="off"
-                        className="flex-1 relative z-10 bg-slate-900 border-2 border-slate-600 rounded-lg px-4 py-2.5 text-white text-lg font-mono placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-violet-500 transition cursor-text"
-                      />
-                    </div>
-                  ))}
-                </div>
+          {currenciesError && (
+            <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
+              <p className="text-red-200 text-sm">Error: {currenciesError}</p>
+            </div>
+          )}
+
+          {saveError && (
+            <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
+              <p className="text-red-200 text-sm">{saveError}</p>
+            </div>
+          )}
+
+          {!currenciesLoading && !currenciesError && currencies.length === 0 && (
+            <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
+              <p className="text-yellow-200 text-sm">
+                No active currencies found. Please enable at least one currency in Settings → Currency Manager.
+              </p>
+            </div>
+          )}
+
+          {!currenciesLoading && !currenciesError && currencies.length > 0 && (
+            <>
+              <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
+                <p className="text-slate-300 text-sm">
+                  Enter the starting cash amount for each drawer and currency.
+                </p>
               </div>
-            ))}
-          </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {DRAWER_ORDER.map((drawer) => {
+                  // MTC and Alfa only use USD (credits stored in shop's phone)
+                  const drawerCurrencies =
+                    drawer === "MTC" || drawer === "Alfa"
+                      ? currencies.filter((c) => c.code === "USD")
+                      : currencies;
+
+                  return (
+                    <DrawerCard
+                      key={drawer}
+                      drawer={drawer}
+                      currencies={drawerCurrencies}
+                      getDisplayValue={(d, c) => drawerAmounts.getDisplayValue(d, c)}
+                      onAmountChange={handleAmountChange}
+                      disabled={saving}
+                      focusRingColor="violet-500"
+                    />
+                  );
+                })}
+              </div>
+            </>
+          )}
         </div>
 
         {/* Footer */}
-        <div className="bg-slate-900/50 px-6 py-4 flex gap-3 border-t border-slate-700">
-          <button
-            onClick={handleSave}
-            className="flex-1 px-6 py-3 bg-gradient-to-r from-emerald-600 to-green-600 text-white font-bold rounded-xl hover:from-emerald-500 hover:to-green-500 transition-all shadow-lg hover:shadow-emerald-500/20"
-          >
-            ✅ Save & Start Day
-          </button>
-          <button
-            onClick={onClose}
-            className="px-6 py-3 bg-slate-700 text-slate-300 font-semibold rounded-xl hover:bg-slate-600 transition"
-          >
-            Cancel
-          </button>
+        <div className="border-t border-slate-700 p-6 bg-slate-800">
+          <div className="flex justify-end items-center gap-3">
+            <button
+              type="button"
+              onClick={handleCancel}
+              disabled={saving}
+              className="px-4 py-2 rounded-lg text-slate-300 hover:text-white hover:bg-slate-700 transition-colors disabled:opacity-50"
+            >
+              Cancel
+            </button>
+
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={saving || !drawerAmounts.hasAnyAmounts || currenciesLoading}
+              className="px-6 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {saving ? "Saving..." : "Save & Start Day"}
+            </button>
+          </div>
         </div>
       </div>
     </div>

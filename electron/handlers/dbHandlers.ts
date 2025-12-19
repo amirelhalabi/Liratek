@@ -5,6 +5,7 @@ import { ExpenseService } from "../services/ExpenseService";
 import { ClosingService } from "../services/ClosingService";
 import { ActivityService } from "../services/ActivityService";
 import { settingsLogger, expenseLogger, closingLogger } from "../utils/logger";
+/* eslint-disable @typescript-eslint/no-require-imports */
 
 export function registerDatabaseHandlers(): void {
   const settingsService = new SettingsService();

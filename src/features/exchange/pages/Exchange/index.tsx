@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { RefreshCw, ArrowRightLeft, History, ArrowRight } from "lucide-react";
 
 type Currency = { id: number; code: string; name: string; is_active: number };
@@ -6,7 +6,16 @@ type Currency = { id: number; code: string; name: string; is_active: number };
 type RateRow = { from_code: string; to_code: string; rate: number };
 
 export default function Exchange() {
-  const [transactions, setTransactions] = useState<any[]>([]);
+  type ExchangeTx = {
+    id: number;
+    created_at: string;
+    from_currency: string;
+    to_currency: string;
+    rate: number;
+    amount_in: string | number;
+    amount_out: string | number;
+  };
+  const [transactions, setTransactions] = useState<ExchangeTx[]>([]);
 
   // Exchange State
   const [currencies, setCurrencies] = useState<Currency[]>([]);
@@ -37,7 +46,7 @@ export default function Exchange() {
     loadRates();
   }, []);
 
-  const findRate = (from: string, to: string): number | undefined => {
+  const findRate = useCallback((from: string, to: string): number | undefined => {
     if (from === to) return 1;
     const direct = rates.find(
       (r) => r.from_code === from && r.to_code === to,
@@ -52,12 +61,43 @@ export default function Exchange() {
     if (viaToUsd !== undefined && viaFromUsd !== undefined)
       return viaToUsd * viaFromUsd;
     return undefined;
-  };
+  }, [rates]);
 
-  // Auto-calculate output when input or rate changes
+  const calculateOutput = useCallback(() => {
+    const val = parseFloat(amountIn);
+    const rParsed = parseFloat(rate);
+
+    if (isNaN(val) || isNaN(rParsed) || rParsed === 0) {
+      setAmountOut("");
+      return;
+    }
+
+    let result = 0;
+    const mr = findRate(fromCurrency, toCurrency);
+    if (mr !== undefined) {
+      result = val * mr;
+    } else if (fromCurrency === "USD" && toCurrency === "LBP") {
+      result = val * rParsed;
+    } else if (fromCurrency === "LBP" && toCurrency === "USD") {
+      result = val / rParsed;
+    } else if (fromCurrency === "EUR" && toCurrency === "USD") {
+      result = val * rParsed;
+    } else if (fromCurrency === "USD" && toCurrency === "EUR") {
+      result = val / rParsed;
+    } else {
+      result = val * rParsed;
+    }
+
+    if (toCurrency === "LBP") {
+      setAmountOut(result.toFixed(0));
+    } else {
+      setAmountOut(result.toFixed(2));
+    }
+  }, [amountIn, rate, fromCurrency, toCurrency, findRate]);
+
   useEffect(() => {
     calculateOutput();
-  }, [amountIn, rate, fromCurrency, toCurrency]);
+  }, [calculateOutput]);
 
   const loadCurrencies = async () => {
     try {
@@ -82,47 +122,7 @@ export default function Exchange() {
     }
   };
 
-  const calculateOutput = () => {
-    const val = parseFloat(amountIn);
-    const rParsed = parseFloat(rate);
-
-    if (isNaN(val) || isNaN(rParsed) || rParsed === 0) {
-      setAmountOut("");
-      return;
-    }
-
-    // Logic:
-    // USD -> LBP: Multiply by Rate
-    // LBP -> USD: Divide by Rate
-    // EUR -> USD: Multiply by Rate (Cross rate)
-    // For simplicity, let's assume Rate is always "Price of 1 Unit of FROM in terms of TO"
-    // EXCEPT for LBP pairs where we usually say "89500 LBP per USD"
-
-    let result = 0;
-
-    const mr = findRate(fromCurrency, toCurrency);
-    if (mr !== undefined) {
-      result = val * mr;
-    } else if (fromCurrency === "USD" && toCurrency === "LBP") {
-      result = val * rParsed;
-    } else if (fromCurrency === "LBP" && toCurrency === "USD") {
-      result = val / rParsed;
-    } else if (fromCurrency === "EUR" && toCurrency === "USD") {
-      result = val * rParsed; // e.g. 1.05
-    } else if (fromCurrency === "USD" && toCurrency === "EUR") {
-      result = val / rParsed;
-    } else {
-      // Fallback: Direct multiplication
-      result = val * rParsed;
-    }
-
-    // Formatting
-    if (toCurrency === "LBP") {
-      setAmountOut(result.toFixed(0));
-    } else {
-      setAmountOut(result.toFixed(2));
-    }
-  };
+  /* calculateOutput defined via useCallback above */
 
   const handleSwap = () => {
     setFromCurrency(toCurrency);
@@ -186,7 +186,7 @@ export default function Exchange() {
 
       <div className="flex gap-6 h-full min-h-0">
         {/* Left: Calculator */}
-        <div className="w-1/3 min-w-[380px] bg-slate-800 rounded-xl border border-slate-700/50 shadow-xl p-6 flex flex-col">
+        <div className="w-1/3 min-w-[380px] max-h-[80vh] overflow-hidden bg-slate-800 rounded-xl border border-slate-700/50 shadow-xl p-4 flex flex-col">
           {/* Currency Selectors */}
           <div className="flex items-center gap-2 mb-8">
             <div className="flex-1">
@@ -379,11 +379,11 @@ export default function Exchange() {
                       {tx.rate.toLocaleString()}
                     </td>
                     <td className="px-6 py-4 text-sm font-bold text-emerald-400 text-right">
-                      {parseFloat(tx.amount_in).toLocaleString()}{" "}
+                      {Number(tx.amount_in).toLocaleString()}{" "}
                       {tx.from_currency}
                     </td>
                     <td className="px-6 py-4 text-sm font-bold text-red-400 text-right">
-                      {parseFloat(tx.amount_out).toLocaleString()}{" "}
+                      {Number(tx.amount_out).toLocaleString()}{" "}
                       {tx.to_currency}
                     </td>
                   </tr>

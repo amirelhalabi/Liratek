@@ -4,6 +4,7 @@ exports.registerMaintenanceHandlers = registerMaintenanceHandlers;
 const electron_1 = require("electron");
 const MaintenanceService_1 = require("../services/MaintenanceService");
 const logger_1 = require("../utils/logger");
+/* eslint-disable @typescript-eslint/no-require-imports */
 function registerMaintenanceHandlers() {
     const service = new MaintenanceService_1.MaintenanceService();
     // Add / Update Maintenance Job (Drawer B - General Drawer)

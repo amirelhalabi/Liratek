@@ -1,4 +1,5 @@
 // jest.setup.ts
+import "@testing-library/jest-dom";
 import { resetAllMocks as resetBetterSqlite3Mocks } from "./__mocks__/better-sqlite3";
 import { ipcMain } from "./__mocks__/electron";
 

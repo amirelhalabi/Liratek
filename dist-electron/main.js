@@ -4,6 +4,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const electron_1 = require("electron");
+const session_1 = require("./session");
 const path_1 = __importDefault(require("path"));
 const migrate_1 = require("./db/migrate");
 const dbHandlers_1 = require("./handlers/dbHandlers");
@@ -32,7 +33,7 @@ if (!gotTheLock) {
 }
 else {
     // This is the first instance, set up the handler for when someone tries to open a second instance
-    electron_1.app.on("second-instance", (event, commandLine, workingDirectory) => {
+    electron_1.app.on("second-instance", () => {
         console.log("[SingleInstance] Attempted to open second instance. Focusing existing window.");
         // Someone tried to run a second instance, we should focus our window.
         const windows = electron_1.BrowserWindow.getAllWindows();
@@ -115,11 +116,7 @@ electron_1.app.whenReady().then(() => {
     // Start sync processor (Phase 6)
     (0, sync_1.startSyncProcessor)();
     // Session timeout purge
-    try {
-        const { purgeExpiredSessions } = require("./session");
-        setInterval(() => purgeExpiredSessions(Date.now()), 60 * 1000);
-    }
-    catch { }
+    setInterval(() => (0, session_1.purgeExpiredSessions)(Date.now()), 60 * 1000);
     // Auto-updater (scaffold)
     try {
         // eslint-disable-next-line @typescript-eslint/no-require-imports

@@ -326,7 +326,7 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
            WHERE DATE(created_at) = ? AND carrier = 'Touch'`
         )
         .get(today) as { total_usd: number } | undefined;
-    } catch (error) {
+    } catch (_error) {
       // Table doesn't exist yet, default to 0
       mtcRecharges = { total_usd: 0 };
     }
@@ -340,7 +340,7 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
            WHERE DATE(created_at) = ? AND carrier = 'Alfa'`
         )
         .get(today) as { total_usd: number } | undefined;
-    } catch (error) {
+    } catch (_error) {
       // Table doesn't exist yet, default to 0
       alfaRecharges = { total_usd: 0 };
     }

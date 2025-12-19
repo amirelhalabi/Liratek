@@ -458,6 +458,7 @@ Before creating a release:
 - [ ] Run `npm run typecheck` - No TypeScript errors
 - [ ] Run `npm test` - All tests pass
 - [ ] Run `npm run lint` - No linting errors
+  - Current (Dec 19, 2025): 0 errors, ~119 warnings (mostly `no-explicit-any` in repositories/services/UI and some preload)
 - [ ] Update version in `package.json`
 - [ ] Update `CHANGELOG.md` (if exists)
 - [ ] Commit all changes

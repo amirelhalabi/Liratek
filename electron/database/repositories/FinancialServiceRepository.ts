@@ -106,7 +106,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
    */
   logActivity(data: CreateFinancialServiceData, drawer: string): void {
     const logStmt = this.db.prepare(`
-      INSERT INTO activity_logs (user_id, action, details, created_at)
+      INSERT INTO activity_logs (user_id, action, details_json, created_at)
       VALUES (1, 'Financial Service Transaction', ?, CURRENT_TIMESTAMP)
     `);
     logStmt.run(

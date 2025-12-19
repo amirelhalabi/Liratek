@@ -57,13 +57,24 @@ export default function ClientForm({
     setIsLoading(true);
 
     try {
-      const payload = { ...formData, id: client?.id };
-
       let result;
       if (client) {
-        result = await window.api.updateClient(payload);
+        const updatePayload = {
+          id: client.id,
+          full_name: formData.full_name,
+          phone_number: formData.phone_number,
+          notes: formData.notes || undefined,
+          whatsapp_opt_in: formData.whatsapp_opt_in ? 1 : 0,
+        };
+        result = await window.api.updateClient(updatePayload);
       } else {
-        result = await window.api.createClient(payload);
+        const createPayload = {
+          full_name: formData.full_name,
+          phone_number: formData.phone_number,
+          notes: formData.notes || undefined,
+          whatsapp_opt_in: formData.whatsapp_opt_in ? 1 : 0,
+        };
+        result = await window.api.createClient(createPayload);
       }
 
       if (result.success) {

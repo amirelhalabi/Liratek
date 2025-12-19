@@ -4,6 +4,7 @@ exports.registerReportHandlers = registerReportHandlers;
 const electron_1 = require("electron");
 const ReportService_1 = require("../services/ReportService");
 const logger_1 = require("../utils/logger");
+/* eslint-disable @typescript-eslint/no-require-imports */
 function registerReportHandlers() {
     const service = new ReportService_1.ReportService();
     electron_1.ipcMain.handle("report:generate-pdf", async (event, data) => {

@@ -1,18 +1,22 @@
 import { useState, useEffect } from "react";
 import { X, User, DollarSign, Printer, Inbox } from "lucide-react";
 import { EXCHANGE_RATE, DRAWER_B } from "../../../../../config/constants";
+import { roundLBPUp } from "../../../../../config/denominations";
 import {
   formatReceipt58mm,
   type ReceiptData,
 } from "../../../utils/receiptFormatter";
-import type { Client } from "../../../../../types";
+import type { Client, CartItem, SaleRequest } from "../../../../../types";
+
+type PaymentData = Omit<SaleRequest, 'items' | 'status' | 'id'> & { cart?: CartItem[] } & { clientId?: number | null; paidUSD?: number; paidLBP?: number };
+
 
 interface CheckoutModalProps {
   totalAmount: number;
   onClose: () => void;
-  onComplete: (paymentData: any) => Promise<void>;
-  onSaveDraft: (paymentData: any) => Promise<void>;
-  draftData?: any;
+  onComplete: (paymentData: PaymentData) => Promise<void>;
+  onSaveDraft: (paymentData: PaymentData) => Promise<void>;
+  draftData?: any; // draftData persists UI state separate from PaymentData shape
   onRestoreDraftComplete?: () => void;
 }
 
@@ -50,15 +54,15 @@ export default function CheckoutModal({
 
   // Restore draft data when it's provided
   useEffect(() => {
-    if (draftData) {
+    if (draftData as any) {
       setSelectedClient(draftData.selectedClient);
       setClientSearch(draftData.clientSearchInput);
       setSecondaryInput(draftData.clientSearchSecondary);
-      setDiscount(draftData.discount);
-      setPaidUSD(draftData.paidUSD);
-      setPaidLBP(draftData.paidLBP);
-      setChangeGivenUSD(draftData.changeGivenUSD);
-      setChangeGivenLBP(draftData.changeGivenLBP);
+      setDiscount(draftData.discount ?? 0);
+      setPaidUSD(draftData.paidUSD ?? 0);
+      setPaidLBP(draftData.paidLBP ?? 0);
+      setChangeGivenUSD(draftData.changeGivenUSD ?? 0);
+      setChangeGivenLBP(draftData.changeGivenLBP ?? 0);
       onRestoreDraftComplete?.();
     }
   }, [draftData, onRestoreDraftComplete]);
@@ -505,15 +509,16 @@ export default function CheckoutModal({
                           const diff = change - totalGiven;
                           const absDiff = Math.abs(diff);
 
-                          // Smart Fix Handler
+                          // Smart Fix Handler - rounds to payable denominations
                           const handleSmartFix = () => {
-                            const floorUSD = Math.floor(change);
-                            const fractionUSD = change - floorUSD;
+                            const integerUSD = Math.floor(change);
+                            const fractionUSD = change - integerUSD;
                             const rawLBP = fractionUSD * exchangeRate;
-                            // Round to nearest 5,000 LBP as requested
-                            const roundedLBP = Math.round(rawLBP / 5000) * 5000;
+                            
+                            // Round LBP up to nearest 5,000 (smallest LBP bill)
+                            const roundedLBP = roundLBPUp(rawLBP);
 
-                            setChangeGivenUSD(floorUSD);
+                            setChangeGivenUSD(integerUSD);
                             setChangeGivenLBP(roundedLBP);
                           };
 

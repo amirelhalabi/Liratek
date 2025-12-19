@@ -101,7 +101,7 @@ export class RechargeRepository extends BaseRepository<{ id: number }> {
 
         // 3. Log to activity logs
         this.db.prepare(`
-          INSERT INTO activity_logs (user_id, action, details, created_at)
+          INSERT INTO activity_logs (user_id, action, details_json, created_at)
           VALUES (1, 'Recharge Transaction', ?, CURRENT_TIMESTAMP)
         `).run(JSON.stringify({
           drawer: 'General_Drawer_B',

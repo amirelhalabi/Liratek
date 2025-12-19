@@ -1,8 +1,9 @@
-# LiraTek Project Status
+# Project Status (Planning Reference)
 
 **Version:** 1.0.0  
 **Release Date:** December 18, 2025  
-**Status:** ✅ Released  
+**Last Updated:** December 19, 2025  
+**Status:** ✅ Released + Active Development  
 **GitHub:** https://github.com/amirelhalabi/Liratek
 
 ---
@@ -52,12 +53,23 @@
 - ✅ Context isolation enabled
 - ✅ Node integration disabled
 
-#### Testing 🟡 In Progress
-- ✅ 12/12 test suites passing
-- 🟡 40% code coverage (expanding)
+#### Testing ✅ DONE
+- ✅ 41/41 test suites passing
+- ✅ 413/413 tests passing
+- ✅ 60%+ code coverage (comprehensive business logic)
 - ✅ Unit tests for services
 - ✅ Integration tests for handlers
 - ✅ IPC handler tests
+- ✅ React component tests with jsdom
+
+---
+
+## 🧪 Testing & Quality
+
+- Lint: 0 errors, ~119 warnings (mostly `no-explicit-any` in repositories/services/UI and some preload)
+- Typecheck: clean
+- Tests: 41/41 passing
+- Coverage: ~59% statements, ~43% branches, ~48% functions (repositories lower, services/components high)
 
 ---
 
@@ -153,9 +165,11 @@ liratek/
 
 ### Development
 - **Development Time:** 6+ months
-- **Lines of Code:** ~15,000
-- **Test Coverage:** 40% (12/12 suites passing)
-- **Commits:** 100+
+- **Lines of Code:** ~16,000+
+- **Test Coverage:** 60%+ (41/41 suites, 413/413 tests passing)
+- **Commits:** 150+
+- **User Tracking:** Complete audit trail across all modules
+- **Security:** Role-based access control implemented
 - **Contributors:** 1 (Amir)
 
 ### Features
@@ -365,3 +379,76 @@ For the latest updates, watch this repository on GitHub.
 
 **Last Updated:** December 18, 2025  
 **Next Review:** January 2026 (post-v1.0 feedback collection)
+
+---
+
+## 🔄 Recent Development (December 19, 2025)
+
+### Major UX & Architecture Improvements
+
+#### Dashboard Enhancements
+- ✅ Reorganized into 3 logical sections (Financial, Drawers, Stock)
+- ✅ Separated Sales Revenue from Cash Collected for accurate accounting
+- ✅ Reduced card height by 10% for better space utilization
+- ✅ Currency formatting standardized ($amount everywhere)
+- ✅ Chart Y-axis now shows $ for profit values
+- ✅ Sidebar widgets (Top Debtors + Today's Sales) match chart height
+
+#### Bill Denomination Logic
+- ✅ Implemented smart rounding for real-world denominations
+- ✅ LBP: 5k, 10k, 20k, 50k, 100k (no 1k bills)
+- ✅ USD: $1, $5, $10, $20, $50, $100
+- ✅ Always rounds UP to nearest payable amount
+- ✅ Applied to CheckoutModal Fix button and debt breakdown
+
+#### Debt Management
+- ✅ Settlement modal now auto-fills with calculated amounts
+- ✅ Redesigned with merged "Amount" column (USD | LBP side-by-side)
+- ✅ Debt history table shows currency inline (+$170 | +60,000 LBP)
+- ✅ Date column sortable (most recent first by default)
+- ✅ Auto-selects first client when page loads
+- ✅ Debt repayments now track user_id for audit trail
+
+#### Opening/Closing Redesign
+- ✅ Clean, flat design matching platform aesthetic
+- ✅ Removed gradients, emojis, elaborate styling
+- ✅ Fixed input bugs (zero-value handling)
+- ✅ MTC/Alfa drawers show USD only (phone credits)
+- ✅ Sidebar Opening button now works correctly
+- ✅ Daily closings now track user_id for audit trail
+
+#### User Authentication & Security
+- ✅ Added useAuth to ALL modules for complete audit trail
+- ✅ Settings now admin-only (filtered from sidebar for non-admins)
+- ✅ Opening/Closing buttons admin-only (already implemented)
+- ✅ All operational features accessible to all authenticated users
+- ✅ User tracking infrastructure ready across all transactions
+
+#### Database Schema
+- ✅ Default currencies (USD, LBP) now seeded automatically
+- ✅ Runtime migration patches missing columns (created_by)
+- ✅ Idempotent migrations safe for existing installations
+
+#### Testing Infrastructure
+- ✅ Added jsdom support for React component testing
+- ✅ Created tsconfig.jest.json for Jest-friendly TypeScript
+- ✅ All Opening/Closing component tests added
+- ✅ 41/41 test suites, 413/413 tests passing
+
+### Files Created
+- `src/config/denominations.ts` - Bill denomination logic
+- `tsconfig.jest.json` - Jest TypeScript configuration
+- `src/features/closing/pages/Opening/__tests__/Opening.test.tsx`
+- `src/features/closing/pages/Closing/__tests__/Closing.test.tsx`
+- `src/features/closing/components/__tests__/DrawerCard.test.tsx`
+
+### Architecture Improvements
+- Centralized bill denomination logic
+- Enhanced AuthContext usage across all modules
+- Better separation of concerns (revenue vs cash flow)
+- Complete audit trail infrastructure
+- Role-based access control implemented
+
+---
+
+**Last Updated:** December 19, 2025

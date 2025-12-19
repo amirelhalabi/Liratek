@@ -101,6 +101,67 @@ Database Locations:
 
 ## 2. What's New - Recent Changes
 
+### December 19, 2025 - Major UX & Architecture Improvements
+
+#### Dashboard Redesign
+- **Sales Revenue vs Cash Collected:** Separated revenue recognition from cash flow tracking for accurate accounting
+- **3-Section Layout:** Financial Metrics | Drawer Balances | Stock Overview
+- **Card Height Reduction:** 10% smaller cards for better space utilization
+- **Currency Standardization:** "$170" format everywhere (removed "170 USD")
+- **Chart Enhancements:** Profit Y-axis shows $ currency, sidebar widgets match chart height
+
+#### Bill Denomination Logic
+- **Smart Rounding:** Implemented real-world bill denomination rounding
+- **LBP Bills:** 5k, 10k, 20k, 50k, 100k (excluding 1k bills as requested)
+- **USD Bills:** $1, $5, $10, $20, $50, $100
+- **Rounding Rule:** Always rounds UP to nearest payable amount
+- **Applied To:** CheckoutModal Fix button, debt breakdown display
+- **New File:** `src/config/denominations.ts`
+
+#### Debt Management Enhancements
+- **Auto-fill Settlement:** Modal pre-fills with calculated breakdown amounts
+- **Redesigned Layout:** Merged "Amount" column header, dual-currency side-by-side
+- **Inline Currency Display:** Table cells show "+$170" and "+60,000 LBP" format
+- **Sortable Dates:** Click column header to toggle DESC/ASC sorting
+- **Auto-select Client:** First client automatically selected on page load
+- **User Tracking:** Debt repayments now track `user_id` for audit trail
+
+#### Opening/Closing Modal Redesign
+- **Clean Design:** Removed gradients, emojis, elaborate styling for flat, consistent look
+- **Input Bug Fix:** Fixed zero-value handling that prevented typing "0.5"
+- **MTC/Alfa USD-only:** These drawers only show USD (phone credits, not cash)
+- **Sidebar Fix:** Opening button now works (added event subscription)
+- **Empty State:** Clear warning messages when no currencies exist
+- **User Tracking:** Daily closings now track `user_id` for audit trail
+
+#### User Authentication & Security
+- **Complete useAuth Implementation:** Added to ALL modules (Debts, Closing, Sales, Expenses, Maintenance, Exchange, Recharge, Services)
+- **Admin-Only Settings:** Settings menu only visible to admin users
+- **Audit Trail Infrastructure:** All modules ready to track `user_id` in transactions
+- **Role-Based Access:** All operational features accessible to all authenticated users
+- **Security Enhancement:** Created complete accountability system
+
+#### Database Schema Improvements
+- **Default Currencies:** USD and LBP now seeded automatically on first run
+- **Runtime Migrations:** Patches missing columns (e.g., `debt_ledger.created_by`)
+- **Idempotent Design:** Safe to run on existing installations
+- **Schema Patch System:** `ensureColumnExists()` helper for future migrations
+
+#### Testing Infrastructure
+- **jsdom Support:** Added jest-environment-jsdom for React component tests
+- **Test Count:** 41 suites, 413 tests (up from 12 suites, 410 tests)
+- **Coverage:** 60%+ (up from 40%)
+- **New Tests:** Opening/Closing component tests with full user flow coverage
+- **TypeScript Config:** Created `tsconfig.jest.json` for Jest-friendly setup
+
+#### Architecture Improvements
+- **Centralized Bill Logic:** `src/config/denominations.ts` for reusable rounding functions
+- **Enhanced AuthContext:** Complete user tracking across all modules
+- **Separation of Concerns:** Revenue recognition vs cash flow properly separated
+- **Audit Trail Ready:** Infrastructure in place for complete transaction tracking
+- **Role-Based Access Control:** Foundation for granular permissions
+
+
 **December 18, 2025 Updates:**
 
 | # | Change | Status |
@@ -281,6 +342,14 @@ CSC_IDENTITY_AUTO_DISCOVERY=false npm run build:app
 | Production Readiness | ✅ 95% | Ready for v1.0, code signing pending for future |
 
 ### What's Complete ✅
+
+Updated (Dec 19, 2025)
+- Typing alignment across renderer ↔ Electron API for Products, Clients, Sales, Exchange, OMT, and Maintenance.
+- Debts and Dashboard typed DTOs in UI. Tooltip contract fixed for Recharts.
+- Mixed require() strategy in Electron (static import where safe, inline suppressions where needed).
+- React hooks cleanup in multiple pages (useCallback, effect dependencies).
+- Preload bridge signatures tightened (unknown/typed payloads in several methods).
+
 
 - All core business features (POS, Inventory, Clients, Debts)
 - Financial services (OMT, Recharge, Exchange, Maintenance)

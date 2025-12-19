@@ -103,6 +103,8 @@ export class SalesService {
       return {
         totalSalesUSD: 0,
         totalSalesLBP: 0,
+        cashCollectedUSD: 0,
+        cashCollectedLBP: 0,
         ordersCount: 0,
         activeClients: 0,
         lowStockCount: 0

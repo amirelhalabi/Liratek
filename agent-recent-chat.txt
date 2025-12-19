@@ -1,0 +1,8 @@
+1-Error: table activity_logs has no column named details when i press record transaction in omt/whsih 
+- also the w-1/3 min-w-[380px] bg-slate-800 rounded-xl border border-slate-700/50 shadow-lg p-6 flex flex-col div for 
+omt and whish is not fitting in the screen, same for transaction history, make their height shorter and adjust them to always 
+fit the screen i dont want to see a scroll window
+
+2-change the quotation to be 1000 in total for the developer (me), excluding the hardware price
+3-determine the file we use to track whats done and whats next as for tasks to be implemented and improvements
+3-reduce the docs by removing the redundant files that relates to already done tasks (if it contains something not done yet - or future task suggerstion,and add them in the file determined at step 3 )

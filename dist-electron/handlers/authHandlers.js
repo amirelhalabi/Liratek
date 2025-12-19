@@ -55,6 +55,7 @@ function registerAuthHandlers() {
             // Bind session to this renderer (webContents)
             let sessionToken = null;
             try {
+                // eslint-disable-next-line @typescript-eslint/no-require-imports
                 const { setSession, storeEncryptedSession } = require("../session");
                 setSession(event.sender.id, result.user.id, result.user.role);
                 sessionToken = storeEncryptedSession(result.user.id);
@@ -85,6 +86,7 @@ function registerAuthHandlers() {
             logger_1.authLogger.debug({ userId }, "Logout");
             // Clear encrypted session
             try {
+                // eslint-disable-next-line @typescript-eslint/no-require-imports
                 const { clearEncryptedSession, clearSession } = require("../session");
                 clearEncryptedSession();
                 clearSession(_event.sender.id);
@@ -106,6 +108,7 @@ function registerAuthHandlers() {
     // ---------------------------------------------------------------------------
     electron_1.ipcMain.handle("auth:restore-session", (event) => {
         try {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
             const { getEncryptedSession, setSession } = require("../session");
             const stored = getEncryptedSession();
             if (!stored) {
@@ -115,6 +118,7 @@ function registerAuthHandlers() {
             const user = authService.getUserById(stored.userId);
             if (!user) {
                 logger_1.authLogger.debug({ userId: stored.userId }, "Stored session user not found or inactive");
+                // eslint-disable-next-line @typescript-eslint/no-require-imports
                 const { clearEncryptedSession } = require("../session");
                 clearEncryptedSession();
                 return { success: false, error: "User not found" };
@@ -266,6 +270,7 @@ function logActivity(db, userId, action) {
  */
 function requireAdminRole(senderId) {
     try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { requireRole } = require("../session");
         return requireRole(senderId, ["admin"]);
     }
@@ -278,6 +283,7 @@ function requireAdminRole(senderId) {
  */
 function getSessionInfo(senderId) {
     try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { getSession } = require("../session");
         return getSession(senderId);
     }

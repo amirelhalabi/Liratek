@@ -1,6 +1,7 @@
 import { ipcMain } from "electron";
 import { ReportService } from "../services/ReportService";
 import { dbLogger } from "../utils/logger";
+/* eslint-disable @typescript-eslint/no-require-imports */
 
 export function registerReportHandlers(): void {
   const service = new ReportService();

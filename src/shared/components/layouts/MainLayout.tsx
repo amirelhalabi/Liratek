@@ -4,7 +4,6 @@ import TopBar from "./TopBar";
 import NotificationCenter from "../ui/NotificationCenter";
 import { appEvents } from "../../utils/appEvents";
 import Closing from "../../../features/closing/pages/Closing";
-import Opening from "../../../features/closing/pages/Opening";
 import { useAuth } from "../../../features/auth/context/AuthContext";
 
 interface MainLayoutProps {
@@ -25,7 +24,6 @@ export default function MainLayout({ children }: MainLayoutProps) {
   };
 
   const [isClosingModalOpen, setIsClosingModalOpen] = useState(false);
-  const [isOpeningModalOpen, setIsOpeningModalOpen] = useState(false);
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   // Expose user id for downstream calls (Closing)
@@ -36,12 +34,8 @@ export default function MainLayout({ children }: MainLayoutProps) {
     const offClosing = appEvents.on("openClosingModal", () =>
       setIsClosingModalOpen(true),
     );
-    const offOpening = appEvents.on("openOpeningModal", () =>
-      setIsOpeningModalOpen(true),
-    );
     return () => {
       offClosing();
-      offOpening();
     };
   }, []);
 
@@ -59,12 +53,6 @@ export default function MainLayout({ children }: MainLayoutProps) {
         <Closing
           isOpen={isClosingModalOpen}
           onClose={() => setIsClosingModalOpen(false)}
-        />
-      )}
-      {isAdmin && isOpeningModalOpen && (
-        <Opening
-          isOpen={isOpeningModalOpen}
-          onClose={() => setIsOpeningModalOpen(false)}
         />
       )}
     </div>

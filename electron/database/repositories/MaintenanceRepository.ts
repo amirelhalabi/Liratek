@@ -135,7 +135,7 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
   ): void {
     this.db
       .prepare(
-        `INSERT INTO activity_logs (user_id, action, details, created_at)
+        `INSERT INTO activity_logs (user_id, action, details_json, created_at)
          VALUES (?, ?, ?, CURRENT_TIMESTAMP)`
       )
       .run(userId, action, JSON.stringify(details));

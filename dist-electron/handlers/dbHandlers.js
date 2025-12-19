@@ -8,6 +8,7 @@ const ExpenseService_1 = require("../services/ExpenseService");
 const ClosingService_1 = require("../services/ClosingService");
 const ActivityService_1 = require("../services/ActivityService");
 const logger_1 = require("../utils/logger");
+/* eslint-disable @typescript-eslint/no-require-imports */
 function registerDatabaseHandlers() {
     const settingsService = new SettingsService_1.SettingsService();
     const expenseService = new ExpenseService_1.ExpenseService();

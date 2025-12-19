@@ -76,6 +76,8 @@ export interface SaleRequest {
 export interface DashboardStats {
   totalSalesUSD: number;
   totalSalesLBP: number;
+  cashCollectedUSD: number;
+  cashCollectedLBP: number;
   ordersCount: number;
   activeClients: number;
   lowStockCount: number;
@@ -492,8 +494,12 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       `);
 
       return {
-        totalSalesUSD: (salesResult?.total_usd ?? 0) + (repaymentResult?.total_usd ?? 0),
-        totalSalesLBP: (salesResult?.total_lbp ?? 0) + (repaymentResult?.total_lbp ?? 0),
+        // Sales Revenue: Only sales created today (revenue recognition)
+        totalSalesUSD: salesResult?.total_usd ?? 0,
+        totalSalesLBP: salesResult?.total_lbp ?? 0,
+        // Cash Collected: Sales + debt repayments received today (cash flow)
+        cashCollectedUSD: (salesResult?.total_usd ?? 0) + (repaymentResult?.total_usd ?? 0),
+        cashCollectedLBP: (salesResult?.total_lbp ?? 0) + (repaymentResult?.total_lbp ?? 0),
         ordersCount: ordersResult?.count ?? 0,
         activeClients: clientsResult?.count ?? 0,
         lowStockCount: stockResult?.count ?? 0,

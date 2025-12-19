@@ -62,6 +62,7 @@ export function registerAuthHandlers(): void {
       // Bind session to this renderer (webContents)
       let sessionToken: string | null = null;
       try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { setSession, storeEncryptedSession } = require("../session");
         setSession(event.sender.id, result.user.id, result.user.role);
         sessionToken = storeEncryptedSession(result.user.id);
@@ -93,6 +94,7 @@ export function registerAuthHandlers(): void {
 
       // Clear encrypted session
       try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { clearEncryptedSession, clearSession } = require("../session");
         clearEncryptedSession();
         clearSession(_event.sender.id);
@@ -115,7 +117,8 @@ export function registerAuthHandlers(): void {
   // ---------------------------------------------------------------------------
   ipcMain.handle("auth:restore-session", (event) => {
     try {
-      const { getEncryptedSession, setSession } = require("../session");
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { getEncryptedSession, setSession } = require("../session");
       const stored = getEncryptedSession();
       
       if (!stored) {
@@ -127,6 +130,7 @@ export function registerAuthHandlers(): void {
 
       if (!user) {
         authLogger.debug({ userId: stored.userId }, "Stored session user not found or inactive");
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { clearEncryptedSession } = require("../session");
         clearEncryptedSession();
         return { success: false, error: "User not found" };
@@ -298,6 +302,7 @@ function logActivity(db: ReturnType<typeof getDatabase>, userId: number, action:
  */
 function requireAdminRole(senderId: number): { ok: boolean; error?: string } {
   try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { requireRole } = require("../session");
     return requireRole(senderId, ["admin"]);
   } catch {
@@ -310,6 +315,7 @@ function requireAdminRole(senderId: number): { ok: boolean; error?: string } {
  */
 function getSessionInfo(senderId: number): { userId: number; role: string } | null {
   try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { getSession } = require("../session");
     return getSession(senderId);
   } catch {

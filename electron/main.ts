@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog } from "electron";
+import { purgeExpiredSessions } from "./session";
 import path from "path";
 import { runMigrations } from "./db/migrate";
 import { registerDatabaseHandlers } from "./handlers/dbHandlers";
@@ -28,7 +29,7 @@ if (!gotTheLock) {
   app.quit();
 } else {
   // This is the first instance, set up the handler for when someone tries to open a second instance
-  app.on("second-instance", (event, commandLine, workingDirectory) => {
+  app.on("second-instance", () => {
     console.log("[SingleInstance] Attempted to open second instance. Focusing existing window.");
     
     // Someone tried to run a second instance, we should focus our window.
@@ -124,10 +125,7 @@ app.whenReady().then(() => {
   startSyncProcessor();
 
   // Session timeout purge
-  try {
-    const { purgeExpiredSessions } = require("./session");
-    setInterval(() => purgeExpiredSessions(Date.now()), 60 * 1000);
-  } catch {}
+  setInterval(() => purgeExpiredSessions(Date.now()), 60 * 1000);
 
   // Auto-updater (scaffold)
   try {

@@ -26,6 +26,7 @@ function getConfigPath(): string {
 
   // Production: relative to app resources
    
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { app } = require("electron");
   return path.join(app.getPath("userData"), "config");
 }

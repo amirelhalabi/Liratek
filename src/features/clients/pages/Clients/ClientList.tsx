@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Plus,
   Search,
@@ -17,7 +17,7 @@ export default function ClientList() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
 
-  const loadClients = async () => {
+  const loadClients = useCallback(async () => {
     setLoading(true);
     try {
       const data = await window.api.getClients(search);
@@ -27,14 +27,14 @@ export default function ClientList() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [search]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
       loadClients();
     }, 300);
     return () => clearTimeout(timer);
-  }, [search]);
+  }, [search, loadClients]);
 
   const handleEdit = (client: Client) => {
     setEditingClient(client);

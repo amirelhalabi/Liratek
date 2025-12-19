@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Plus, Search, Package, Edit2, Trash2 } from "lucide-react";
 import { useAuth } from "../../../auth/context/AuthContext";
 import ProductForm from "./ProductForm";
@@ -13,7 +13,7 @@ export default function ProductList() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
 
-  const loadProducts = async () => {
+  const loadProducts = useCallback(async () => {
     setLoading(true);
     try {
       const data = await window.api.getProducts(search);
@@ -23,7 +23,7 @@ export default function ProductList() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [search]);
 
   // Debounce search
   useEffect(() => {
@@ -31,7 +31,7 @@ export default function ProductList() {
       loadProducts();
     }, 300);
     return () => clearTimeout(timer);
-  }, [search]);
+  }, [search, loadProducts]);
 
   const handleEdit = (product: Product) => {
     setEditingProduct(product);
