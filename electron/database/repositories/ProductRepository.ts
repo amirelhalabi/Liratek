@@ -197,8 +197,9 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
       );
 
       return { id: result.lastInsertRowid as number };
-    } catch (error: any) {
-      if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+    } catch (error) {
+      const code = (error as { code?: string })?.code;
+      if (code === 'SQLITE_CONSTRAINT_UNIQUE') {
         throw new DatabaseError('Barcode already exists', { cause: error, code: 'DUPLICATE_BARCODE' });
       }
       throw new DatabaseError('Failed to create product', { cause: error });
@@ -234,8 +235,9 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
       );
 
       return result.changes > 0;
-    } catch (error: any) {
-      if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+    } catch (error) {
+      const code = (error as { code?: string })?.code;
+      if (code === 'SQLITE_CONSTRAINT_UNIQUE') {
         throw new DatabaseError('Barcode already exists', { cause: error, code: 'DUPLICATE_BARCODE' });
       }
       throw new DatabaseError('Failed to update product', { cause: error, entityId: id });
@@ -274,8 +276,9 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
       );
 
       return result.changes > 0;
-    } catch (error: any) {
-      if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+    } catch (error) {
+      const code = (error as { code?: string })?.code;
+      if (code === 'SQLITE_CONSTRAINT_UNIQUE') {
         throw new DatabaseError('Barcode already exists', { cause: error, code: 'DUPLICATE_BARCODE' });
       }
       throw new DatabaseError('Failed to update product', { cause: error, entityId: id });

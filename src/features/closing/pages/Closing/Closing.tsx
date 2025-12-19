@@ -109,7 +109,7 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
         closing_date: closingDate,
         amounts,
         variance_notes: notes,
-        user_id: user?.id,
+        ...(user?.id != null ? { user_id: user.id } : {}),
       });
 
       if (result.success) {
@@ -142,8 +142,18 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
   const totalSteps = 3;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-6xl max-h-[90vh] flex flex-col shadow-2xl">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) {
+          handleCancel();
+        }
+      }}
+    >
+      <div
+        className="bg-slate-900 border border-slate-700 rounded-xl overflow-hidden w-full max-w-6xl max-h-[90vh] flex flex-col shadow-2xl"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         {/* Header */}
         <div className="flex justify-between items-center p-6 border-b border-slate-700 bg-slate-800">
           <div>
@@ -262,7 +272,7 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
                             : drawer === "OMT" ? "omtDrawer"
                             : drawer === "MTC" ? "mtcDrawer"
                             : "alfaDrawer";
-                          const expected = (systemExpected as any)[drawerKey];
+                          const expected = systemExpected[drawerKey];
                           if (!expected) return 0;
                           
                           // Map currency code to field (usd, lbp, eur)

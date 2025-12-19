@@ -17,7 +17,7 @@ import {
   type ClientEntity,
   type CreateClientData
 } from '../database/repositories';
-import { NotFoundError } from '../utils/errors';
+import { NotFoundError, getRepoConstraintCode } from '../utils/errors';
 
 // =============================================================================
 // Types
@@ -111,19 +111,22 @@ export class ClientService {
     }
 
     try {
-      const result = this.clientRepo.createClient({
+      const createData = {
         full_name: data.full_name.trim(),
         phone_number: data.phone_number.trim(),
-        notes: data.notes?.trim(),
-        whatsapp_opt_in: data.whatsapp_opt_in,
-      });
+        ...(data.whatsapp_opt_in != null ? { whatsapp_opt_in: data.whatsapp_opt_in } : {}),
+        ...(data.notes != null ? { notes: data.notes.trim() } : {}),
+      };
+
+      const result = this.clientRepo.createClient(createData);
       return { success: true, id: result.id };
-    } catch (error: any) {
-      if (error.code === 'DUPLICATE_PHONE') {
+    } catch (error) {
+      const repoCode = getRepoConstraintCode(error);
+      if (repoCode === 'DUPLICATE_PHONE') {
         return { success: false, error: 'Phone number already registered' };
       }
       console.error('Create client error:', error);
-      return { success: false, error: error.message };
+      return { success: false, error: (error instanceof Error ? error.message : String(error)) };
     }
   }
 
@@ -154,15 +157,16 @@ export class ClientService {
       this.clientRepo.updateClientFull(id, {
         full_name: data.full_name,
         phone_number: data.phone_number,
-        notes: data.notes,
         whatsapp_opt_in: data.whatsapp_opt_in,
+        ...(data.notes != null ? { notes: data.notes } : {}),
       });
       return { success: true };
-    } catch (error: any) {
-      if (error.code === 'DUPLICATE_PHONE') {
+    } catch (error) {
+      const repoCode = getRepoConstraintCode(error);
+      if (repoCode === 'DUPLICATE_PHONE') {
         return { success: false, error: 'Phone number already in use by another client' };
       }
-      return { success: false, error: error.message };
+      return { success: false, error: (error instanceof Error ? error.message : String(error)) };
     }
   }
 
@@ -182,8 +186,8 @@ export class ClientService {
     try {
       this.clientRepo.delete(id);
       return { success: true };
-    } catch (error: any) {
-      return { success: false, error: error.message };
+    } catch (error) {
+      return { success: false, error: (error instanceof Error ? error.message : String(error)) };
     }
   }
 

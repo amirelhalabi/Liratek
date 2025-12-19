@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { appEvents } from "../../../../shared/utils/appEvents";
 
 export default function NotificationsConfig() {
   const [pollMs, setPollMs] = useState("60000");
@@ -8,7 +9,7 @@ export default function NotificationsConfig() {
 
   const load = async () => {
     const settings = await window.api.settings.getAll();
-    const map = new Map(settings.map((s: any) => [s.key_name, s.value]));
+    const map = new Map(settings.map((s) => [s.key_name, s.value]));
     setPollMs(String(map.get("notifications_poll_interval_ms") || "60000"));
     setWarnLow(Number(map.get("notifications_warn_low_stock") ?? 1) === 1);
     setWarnDrawer(
@@ -36,17 +37,9 @@ export default function NotificationsConfig() {
           warnDrawer ? "1" : "0",
         ),
       ]);
-      (window as any).appEvents?.emit(
-        "notification:show",
-        "Notification preferences saved",
-        "success",
-      );
-    } catch (e: any) {
-      (window as any).appEvents?.emit(
-        "notification:show",
-        e?.message || "Failed to save",
-        "error",
-      );
+      appEvents.emit("notification:show", "Notification preferences saved", "success");
+    } catch (e) {
+      appEvents.emit("notification:show", (e instanceof Error ? e.message : "Failed to save"), "error");
     } finally {
       setSaving(false);
     }

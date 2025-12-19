@@ -37,6 +37,13 @@ export default function Exchange() {
   useEffect(() => {
     const loadRates = async () => {
       try {
+        if (!window.api) {
+          setRates([
+            { from_code: "USD", to_code: "LBP", rate: 89500 },
+            { from_code: "EUR", to_code: "USD", rate: 1.08 },
+          ]);
+          return;
+        }
         const list = await window.api.rates.list();
         setRates(list);
       } catch (e) {
@@ -101,8 +108,18 @@ export default function Exchange() {
 
   const loadCurrencies = async () => {
     try {
+      if (!window.api) {
+        setCurrencies([
+          { id: 1, code: "USD", name: "US Dollar", is_active: 1 },
+          { id: 2, code: "LBP", name: "Lebanese Pound", is_active: 1 },
+          { id: 3, code: "EUR", name: "Euro", is_active: 1 },
+        ]);
+        setFromCurrency("USD");
+        setToCurrency("LBP");
+        return;
+      }
       const list = await window.api.currencies.list();
-      const active = list.filter((c: any) => c.is_active === 1);
+      const active = (list as Currency[]).filter((c) => c.is_active === 1);
       setCurrencies(active);
       if (active.length >= 2) {
         setFromCurrency(active[0].code);
@@ -115,6 +132,20 @@ export default function Exchange() {
 
   const loadHistory = async () => {
     try {
+      if (!window.api) {
+        setTransactions([
+          {
+            id: 1,
+            created_at: new Date().toISOString(),
+            from_currency: "USD",
+            to_currency: "LBP",
+            rate: 89500,
+            amount_in: 100,
+            amount_out: 8950000,
+          },
+        ]);
+        return;
+      }
       const history = await window.api.getExchangeHistory();
       setTransactions(history);
     } catch (error) {
@@ -142,6 +173,23 @@ export default function Exchange() {
     }
 
     try {
+      if (!window.api) {
+        setAmountIn("");
+        setAmountOut("");
+        setClientName("");
+        const newTx: ExchangeTx = {
+          id: Date.now(),
+          created_at: new Date().toISOString(),
+          from_currency: fromCurrency,
+          to_currency: toCurrency,
+          rate: r,
+          amount_in: inp,
+          amount_out: out,
+        };
+        setTransactions((prev) => [newTx, ...prev]);
+        return;
+      }
+
       const result = await window.api.addExchangeTransaction({
         fromCurrency,
         toCurrency,
@@ -178,15 +226,15 @@ export default function Exchange() {
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-theme(spacing.16))] gap-6 -m-4 p-4 overflow-hidden animate-in fade-in duration-500">
+    <div className="flex flex-col h-full min-h-0 gap-6 overflow-hidden animate-in fade-in duration-500">
       <h1 className="text-2xl font-bold text-white flex items-center gap-2">
         <RefreshCw className="text-violet-500" />
         Currency Exchange
       </h1>
 
-      <div className="flex gap-6 h-full min-h-0">
+      <div className="flex-1 min-h-0 flex gap-6">
         {/* Left: Calculator */}
-        <div className="w-1/3 min-w-[380px] max-h-[80vh] overflow-hidden bg-slate-800 rounded-xl border border-slate-700/50 shadow-xl p-4 flex flex-col">
+        <div className="w-1/3 min-w-[380px] h-full overflow-hidden bg-slate-800 rounded-xl border border-slate-700/50 shadow-xl p-4 flex flex-col">
           {/* Currency Selectors */}
           <div className="flex items-center gap-2 mb-8">
             <div className="flex-1">
@@ -198,11 +246,10 @@ export default function Exchange() {
                   <button
                     key={c.id}
                     onClick={() => setFromCurrency(c.code)}
-                    className={`py-2 rounded text-xs font-bold transition-all ${
-                      fromCurrency === c.code
-                        ? "bg-slate-700 text-white shadow"
-                        : "text-slate-500 hover:text-slate-300"
-                    }`}
+                    className={`py-2 rounded text-xs font-bold transition-all ${fromCurrency === c.code
+                      ? "bg-slate-700 text-white shadow"
+                      : "text-slate-500 hover:text-slate-300"
+                      }`}
                   >
                     {c.code}
                   </button>
@@ -226,11 +273,10 @@ export default function Exchange() {
                   <button
                     key={c.id}
                     onClick={() => setToCurrency(c.code)}
-                    className={`py-2 rounded text-xs font-bold transition-all ${
-                      toCurrency === c.code
-                        ? "bg-slate-700 text-white shadow"
-                        : "text-slate-500 hover:text-slate-300"
-                    }`}
+                    className={`py-2 rounded text-xs font-bold transition-all ${toCurrency === c.code
+                      ? "bg-slate-700 text-white shadow"
+                      : "text-slate-500 hover:text-slate-300"
+                      }`}
                   >
                     {c.code}
                   </button>
@@ -327,7 +373,7 @@ export default function Exchange() {
         </div>
 
         {/* Right: History */}
-        <div className="flex-1 bg-slate-800 rounded-xl border border-slate-700/50 shadow-xl overflow-hidden flex flex-col">
+        <div className="flex-1 min-h-0 bg-slate-800 rounded-xl border border-slate-700/50 shadow-xl overflow-hidden flex flex-col">
           <div className="p-4 border-b border-slate-700 bg-slate-800 flex items-center justify-between">
             <h2 className="font-bold text-white flex items-center gap-2">
               <History className="text-slate-400" size={18} />

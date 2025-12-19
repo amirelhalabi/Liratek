@@ -90,10 +90,10 @@ export class AuthService {
 
     // Return safe user (without password_hash)
     const safeUser = this.userRepo.findByIdSafe(user.id);
-    return {
-      success: true,
-      user: safeUser ?? undefined,
-    };
+    if (!safeUser) {
+      return { success: false, error: 'Failed to load user profile' };
+    }
+    return { success: true, user: safeUser };
   }
 
   // ---------------------------------------------------------------------------
@@ -142,11 +142,11 @@ export class AuthService {
 
     const user = this.userRepo.createUser(createData);
     const safeUser = this.userRepo.findByIdSafe(user.id);
+    if (!safeUser) {
+      return { success: false, error: 'Failed to load created user profile' };
+    }
 
-    return {
-      success: true,
-      user: safeUser ?? undefined,
-    };
+    return { success: true, user: safeUser };
   }
 
   /**

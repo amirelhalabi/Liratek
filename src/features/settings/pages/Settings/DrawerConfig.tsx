@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { appEvents } from "../../../../shared/utils/appEvents";
 
 export default function DrawerConfig() {
   const [drawerLimitGeneral, setDrawerLimitGeneral] = useState("");
@@ -10,7 +11,7 @@ export default function DrawerConfig() {
     setIsLoading(true);
     try {
       const settings = await window.api.settings.getAll();
-      const map = new Map(settings.map((s: any) => [s.key_name, s.value]));
+      const map = new Map(settings.map((s) => [s.key_name, s.value]));
       setDrawerLimitGeneral((map.get("drawer_limit_general") as string) || "");
       setDrawerLimitOMT((map.get("drawer_limit_omt") as string) || "");
     } finally {
@@ -29,18 +30,10 @@ export default function DrawerConfig() {
         window.api.settings.update("drawer_limit_general", drawerLimitGeneral),
         window.api.settings.update("drawer_limit_omt", drawerLimitOMT),
       ]);
-      (window as any).appEvents?.emit(
-        "notification:show",
-        "Drawer configuration saved",
-        "success",
-      );
+      appEvents.emit("notification:show", "Drawer configuration saved", "success");
     } catch (e) {
       console.error(e);
-      (window as any).appEvents?.emit(
-        "notification:show",
-        (e as any)?.message || "Failed to save",
-        "error",
-      );
+      appEvents.emit("notification:show", (e instanceof Error ? e.message : "Failed to save"), "error");
     } finally {
       setIsSaving(false);
     }

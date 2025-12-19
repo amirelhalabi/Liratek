@@ -53,9 +53,9 @@ export class FinancialService {
       );
 
       return { success: true, id: result.id };
-    } catch (error: any) {
+    } catch (error) {
       console.error('Failed to add financial service transaction:', error);
-      return { success: false, error: error.message };
+      return { success: false, error: (error instanceof Error ? error.message : String(error)) };
     }
   }
 

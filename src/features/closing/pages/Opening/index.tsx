@@ -78,7 +78,7 @@ export default function Opening({ isOpen, onClose }: OpeningProps) {
       const result = await window.api.closing.setOpeningBalances({
         closing_date: closingDate,
         amounts,
-        user_id: user?.id,
+        ...(user?.id != null ? { user_id: user.id } : {}),
       });
 
       if (result.success) {
@@ -108,8 +108,18 @@ export default function Opening({ isOpen, onClose }: OpeningProps) {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-6xl max-h-[90vh] flex flex-col shadow-2xl">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) {
+          handleCancel();
+        }
+      }}
+    >
+      <div
+        className="bg-slate-900 border border-slate-700 rounded-xl overflow-hidden w-full max-w-6xl max-h-[90vh] flex flex-col shadow-2xl"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         {/* Header */}
         <div className="flex justify-between items-center p-6 border-b border-slate-700 bg-slate-800">
           <div>

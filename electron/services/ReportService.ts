@@ -1,6 +1,7 @@
 import { BrowserWindow, app } from "electron";
 import path from "path";
 import fs from "fs";
+import { toErrorString } from "../utils/errors";
 
 export interface GeneratePdfResult {
   success: boolean;
@@ -58,9 +59,9 @@ export class ReportService {
       fs.writeFileSync(outPath, pdfBuffer);
 
       return { success: true, path: outPath };
-    } catch (error: any) {
+    } catch (error) {
       console.error("Failed to generate PDF report:", error);
-      return { success: false, error: error.message };
+      return { success: false, error: toErrorString(error) };
     } finally {
       win.destroy();
     }
@@ -84,9 +85,9 @@ export class ReportService {
       fs.copyFileSync(dbPath, outPath);
       
       return { success: true, path: outPath };
-    } catch (error: any) {
+    } catch (error) {
       console.error("Failed to backup database:", error);
-      return { success: false, error: error.message };
+      return { success: false, error: toErrorString(error) };
     }
   }
 }

@@ -5,6 +5,7 @@
  */
 
 import { BaseRepository } from './BaseRepository';
+import { DatabaseError } from '../../utils/errors';
 
 // =============================================================================
 // Entity Types
@@ -51,11 +52,22 @@ export class CurrencyRepository extends BaseRepository<CurrencyEntity> {
    * Create a new currency
    */
   createCurrency(data: CreateCurrencyData): { id: number } {
-    const stmt = this.db.prepare(
-      'INSERT INTO currencies (code, name, is_active) VALUES (?, ?, 1)'
-    );
-    const result = stmt.run(data.code.toUpperCase(), data.name);
-    return { id: Number(result.lastInsertRowid) };
+    try {
+      const stmt = this.db.prepare(
+        'INSERT INTO currencies (code, name, is_active) VALUES (?, ?, 1)'
+      );
+      const result = stmt.run(data.code.toUpperCase(), data.name);
+      return { id: Number(result.lastInsertRowid) };
+    } catch (error) {
+      const code = (error as { code?: string })?.code;
+      if (code === 'SQLITE_CONSTRAINT_UNIQUE') {
+        throw new DatabaseError('Currency code already exists', {
+          code: 'DUPLICATE_CURRENCY_CODE',
+          cause: error,
+        });
+      }
+      throw error;
+    }
   }
 
   /**

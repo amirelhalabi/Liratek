@@ -236,9 +236,9 @@ describe("MaintenanceService", () => {
 
         expect(mockRepo.createJob).toHaveBeenCalledWith({
           client_id: null,
-          client_name: undefined,
+          client_name: null,
           device_name: "Basic Phone",
-          issue_description: undefined,
+          issue_description: null,
           cost_usd: 0,
           price_usd: 0,
           discount_usd: 0,
@@ -247,7 +247,7 @@ describe("MaintenanceService", () => {
           paid_lbp: 0,
           exchange_rate: 0,
           status: "In Progress",
-          note: undefined,
+          note: null,
         });
       });
     });

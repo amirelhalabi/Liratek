@@ -118,6 +118,14 @@ export interface ChartDataPoint {
 // Repository
 // =============================================================================
 
+// Row DTOs for typed query results
+type SaleWithClientRow = SaleEntity & { client_name: string | null; client_phone: string | null };
+type SaleItemWithProductRow = SaleItemEntity & { name: string; barcode: string };
+type SumRow = { total_usd: number; total_lbp: number };
+type CountRow = { count: number };
+type DateRow = { date: string };
+type ProfitRow = { profit_date: string; profit: number };
+
 export class SalesRepository extends BaseRepository<SaleEntity> {
   constructor() {
     super('sales', { softDelete: false });
@@ -274,9 +282,9 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       });
 
       return processTransaction();
-    } catch (error: any) {
+    } catch (error) {
       console.error('Sale transaction failed:', error);
-      return { success: false, error: error.message };
+      return { success: false, error: (error instanceof Error ? error.message : String(error)) };
     }
   }
 
@@ -289,7 +297,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
    */
   findDrafts(): DraftSaleWithItems[] {
     try {
-      const drafts = this.query<SaleWithClient>(`
+      const drafts = this.query<SaleWithClientRow>(`
         SELECT s.*, c.full_name as client_name, c.phone_number as client_phone 
         FROM ${this.tableName} s 
         LEFT JOIN clients c ON s.client_id = c.id
@@ -298,7 +306,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       `);
 
       return drafts.map((draft) => {
-        const items = this.query<SaleItemWithProduct>(`
+        const items = this.query<SaleItemWithProductRow>(`
           SELECT si.*, p.name, p.barcode 
           FROM sale_items si
           JOIN products p ON si.product_id = p.id
@@ -459,7 +467,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
   getDashboardStats(): DashboardStats {
     try {
       // Total Sales Today
-      const salesResult = this.queryOne<{ total_usd: number; total_lbp: number }>(`
+      const salesResult = this.queryOne<SumRow>(`
         SELECT 
           SUM(paid_usd) as total_usd,
           SUM(paid_lbp) as total_lbp
@@ -468,7 +476,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       `);
 
       // Total Repayments Today
-      const repaymentResult = this.queryOne<{ total_usd: number; total_lbp: number }>(`
+      const repaymentResult = this.queryOne<SumRow>(`
         SELECT 
           SUM(ABS(amount_usd)) as total_usd,
           SUM(ABS(amount_lbp)) as total_lbp
@@ -477,17 +485,17 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       `);
 
       // Orders Count Today
-      const ordersResult = this.queryOne<{ count: number }>(`
+      const ordersResult = this.queryOne<CountRow>(`
         SELECT COUNT(*) as count 
         FROM ${this.tableName} 
         WHERE DATE(created_at, 'localtime') = DATE('now', 'localtime') AND status = 'completed'
       `);
 
       // Active Clients Count
-      const clientsResult = this.queryOne<{ count: number }>('SELECT COUNT(*) as count FROM clients');
+      const clientsResult = this.queryOne<CountRow>('SELECT COUNT(*) as count FROM clients');
 
       // Low Stock Items Count
-      const stockResult = this.queryOne<{ count: number }>(`
+      const stockResult = this.queryOne<CountRow>(`
         SELECT COUNT(*) as count 
         FROM products 
         WHERE stock_quantity <= min_stock_level AND is_active = 1
@@ -619,7 +627,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
   getChartData(type: 'Sales' | 'Profit'): ChartDataPoint[] {
     try {
       // Generate last 30 days
-      const datesResult = this.query<{ date: string }>(`
+      const datesResult = this.query<DateRow>(`
         WITH RECURSIVE dates(date) AS (
           VALUES(date('now', 'localtime', '-29 days'))
           UNION ALL
@@ -668,7 +676,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       }
 
       // Profit data
-      const profitData = this.query<{ profit_date: string; profit: number }>(`
+      const profitData = this.query<ProfitRow>(`
         SELECT
           DATE(s.created_at, 'localtime') as profit_date,
           SUM(si.sold_price_usd - si.cost_price_snapshot_usd) as profit

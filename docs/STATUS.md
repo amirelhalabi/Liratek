@@ -1,4 +1,8 @@
-# Project Status (Planning Reference)
+# Project Status (Deprecated)
+
+This document is deprecated. Please refer to docs/CURRENT_SPRINT.md for the canonical tracker of active work, backlog, and completed items.
+
+## Project Status (Historical Reference)
 
 **Version:** 1.0.0  
 **Release Date:** December 18, 2025  

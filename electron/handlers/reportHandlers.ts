@@ -12,7 +12,7 @@ export function registerReportHandlers(): void {
       try {
         const { requireRole } = require("../session");
         const auth = requireRole(event.sender.id, ["admin"]);
-        if (!auth.ok) return { success: false, error: auth.error } as any;
+        if (!auth.ok) return { success: false, error: auth.error };
       } catch {}
 
       dbLogger.info({ filename: data.filename }, 'Generating PDF report');
@@ -25,7 +25,7 @@ export function registerReportHandlers(): void {
     try {
       const { requireRole } = require("../session");
       const auth = requireRole(event.sender.id, ["admin"]);
-      if (!auth.ok) return { success: false, error: auth.error } as any;
+      if (!auth.ok) return { success: false, error: auth.error };
     } catch {}
 
     dbLogger.info('Creating database backup');

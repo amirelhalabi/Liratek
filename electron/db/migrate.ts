@@ -45,4 +45,11 @@ export function runMigrations(): void {
     "created_by",
     "ALTER TABLE debt_ledger ADD COLUMN created_by INTEGER;",
   );
+
+  // Ensure activity_logs has details_json for unified logging
+  ensureColumnExists(
+    "activity_logs",
+    "details_json",
+    "ALTER TABLE activity_logs ADD COLUMN details_json TEXT;",
+  );
 }

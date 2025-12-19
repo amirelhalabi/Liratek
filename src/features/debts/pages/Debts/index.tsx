@@ -100,7 +100,7 @@ export default function Debts() {
         amountUSD: usd,
         amountLBP: lbp,
         note: repayNote,
-        userId: user?.id,
+        ...(user?.id != null ? { userId: user.id } : {}),
       });
 
       if (result.success) {
@@ -160,7 +160,7 @@ export default function Debts() {
   }, [filteredDebtors, selectedClient]);
 
   return (
-    <div className="flex h-[calc(100vh-theme(spacing.16))] gap-6 -m-4 p-4 overflow-hidden">
+    <div className="flex h-full min-h-0 gap-6 overflow-hidden">
       {/* Left: Debtors List */}
       <div className="w-1/3 flex flex-col bg-slate-800 rounded-xl border border-slate-700 shadow-xl overflow-hidden">
         <div className="p-4 border-b border-slate-700 space-y-4">
@@ -402,8 +402,18 @@ export default function Debts() {
 
       {/* Repayment Modal */}
       {showRepaymentModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-md shadow-2xl">
+        <div
+          className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowRepaymentModal(false);
+            }
+          }}
+        >
+          <div
+            className="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-md shadow-2xl overflow-hidden"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
             <h3 className="text-xl font-bold text-white mb-4">
               Process Repayment
             </h3>

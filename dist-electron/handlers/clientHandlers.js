@@ -27,8 +27,8 @@ function registerClientHandlers() {
         return clientService.createClient({
             full_name: client.full_name,
             phone_number: client.phone_number,
-            notes: client.notes,
             whatsapp_opt_in: client.whatsapp_opt_in,
+            ...(client.notes != null ? { notes: client.notes } : {}),
         });
     });
     // Update client
@@ -39,8 +39,8 @@ function registerClientHandlers() {
         return clientService.updateClient(client.id, {
             full_name: client.full_name,
             phone_number: client.phone_number,
-            notes: client.notes,
             whatsapp_opt_in: client.whatsapp_opt_in,
+            ...(client.notes != null ? { notes: client.notes } : {}),
         });
     });
     // Delete client (admin only)

@@ -36,10 +36,10 @@ contextBridge.exposeInMainWorld("api", {
   getProductByBarcode: (barcode: string) =>
     ipcRenderer.invoke("inventory:get-product-by-barcode", barcode),
   createProduct: (
-    product: Omit<import("../src/types").Product, "id" | "created_at" | "is_active"> & { is_active?: number }
+    product: unknown
   ) => ipcRenderer.invoke("inventory:create-product", product),
   updateProduct: (
-    product: Partial<import("../src/types").Product> & { id: number }
+    product: unknown
   ) => ipcRenderer.invoke("inventory:update-product", product),
   deleteProduct: (id: number) =>
     ipcRenderer.invoke("inventory:delete-product", id),
@@ -54,10 +54,10 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.invoke("clients:get-all", search),
   getClient: (id: number) => ipcRenderer.invoke("clients:get-one", id),
   createClient: (
-    client: Omit<import("../src/types").Client, "id" | "created_at">
+    client: unknown
   ) => ipcRenderer.invoke("clients:create", client),
   updateClient: (
-    client: Partial<import("../src/types").Client> & { id: number }
+    client: unknown
   ) => ipcRenderer.invoke("clients:update", client),
   deleteClient: (id: number) => ipcRenderer.invoke("clients:delete", id),
 

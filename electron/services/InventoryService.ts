@@ -24,6 +24,7 @@ import {
   ValidationError, 
   NotFoundError 
 } from '../utils/errors';
+import { toErrorString, getRepoConstraintCode } from "../utils/errors";
 
 // =============================================================================
 // Types
@@ -138,12 +139,13 @@ export class InventoryService {
         category: data.category.trim(),
       });
       return { success: true, id: result.id };
-    } catch (error: any) {
-      if (error.code === 'DUPLICATE_BARCODE') {
+    } catch (error) {
+      const repoCode = getRepoConstraintCode(error);
+      if (repoCode === 'DUPLICATE_BARCODE') {
         return { success: false, error: 'Barcode already exists' };
       }
       console.error('Create product error:', error);
-      return { success: false, error: error.message };
+      return { success: false, error: toErrorString(error) };
     }
   }
 
@@ -181,14 +183,15 @@ export class InventoryService {
         cost_price: data.cost_price,
         retail_price: data.retail_price,
         min_stock_level: data.min_stock_level,
-        image_url: data.image_url,
+        ...(data.image_url != null ? { image_url: data.image_url } : {}),
       });
       return { success: true };
-    } catch (error: any) {
-      if (error.code === 'DUPLICATE_BARCODE') {
+    } catch (error) {
+      const code = (error as { code?: string })?.code;
+      if (code === 'DUPLICATE_BARCODE') {
         return { success: false, error: 'Barcode already exists' };
       }
-      return { success: false, error: error.message };
+      return { success: false, error: toErrorString(error) };
     }
   }
 
@@ -203,8 +206,8 @@ export class InventoryService {
     try {
       this.productRepo.softDeleteById(id);
       return { success: true };
-    } catch (error: any) {
-      return { success: false, error: error.message };
+    } catch (error) {
+      return { success: false, error: toErrorString(error) };
     }
   }
 
@@ -226,8 +229,8 @@ export class InventoryService {
     try {
       this.productRepo.adjustStock(id, newQuantity);
       return { success: true };
-    } catch (error: any) {
-      return { success: false, error: error.message };
+    } catch (error) {
+      return { success: false, error: toErrorString(error) };
     }
   }
 
@@ -242,8 +245,8 @@ export class InventoryService {
     try {
       this.productRepo.adjustStockDelta(id, delta);
       return { success: true };
-    } catch (error: any) {
-      return { success: false, error: error.message };
+    } catch (error) {
+      return { success: false, error: toErrorString(error) };
     }
   }
 

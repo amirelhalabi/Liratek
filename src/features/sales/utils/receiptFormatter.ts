@@ -227,7 +227,7 @@ export function formatReceipt80mm(data: ReceiptData): string {
 /**
  * Return receipt as JSON (for future API/network printing)
  */
-export function getReceiptJSON(data: ReceiptData): Record<string, any> {
+export function getReceiptJSON(data: ReceiptData): Record<string, unknown> {
   return {
     receipt_number: data.receipt_number,
     shop_name: data.shop_name,

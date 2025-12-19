@@ -153,6 +153,23 @@ describe("Opening modal", () => {
     expect(window.alert).toHaveBeenCalled();
   });
 
+  it("closes when clicking outside the modal", () => {
+    mockUseCurrencies.mockReturnValue({
+      currencies: [{ code: "USD", name: "US Dollar", is_active: 1 }],
+      loading: false,
+      error: null,
+    });
+    setupDrawerAmounts();
+
+    const { container } = render(<Opening isOpen={true} onClose={onClose} />);
+
+    // Backdrop is the first div inside the component (fixed inset-0 ...)
+    const backdrop = container.firstChild as HTMLElement;
+    fireEvent.mouseDown(backdrop);
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it("asks for confirmation when cancelling with unsaved changes", () => {
     jest.spyOn(window, "confirm").mockReturnValue(true);
 

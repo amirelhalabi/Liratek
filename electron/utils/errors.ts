@@ -84,10 +84,38 @@ export class NotFoundError extends AppError {
 /**
  * Database operation errors
  */
+export type RepoConstraintCode =
+  | "DUPLICATE_BARCODE"
+  | "DUPLICATE_PHONE"
+  | "DUPLICATE_CURRENCY_CODE";
+
+export type RepoErrorDetails = {
+  code?: RepoConstraintCode;
+  entityId?: number | string;
+  cause?: unknown;
+};
+
 export class DatabaseError extends AppError {
-  constructor(message: string, details?: unknown) {
+  declare readonly details?: RepoErrorDetails;
+
+  constructor(message: string, details?: RepoErrorDetails) {
     super("DATABASE_ERROR", message, 500, true, details);
   }
+}
+
+export function getRepoConstraintCode(err: unknown): RepoConstraintCode | undefined {
+  // New path: DatabaseError.details.code
+  if (err instanceof DatabaseError) {
+    return err.details?.code;
+  }
+
+  // Legacy path: some tests and older code use `error.code = 'DUPLICATE_*'`
+  const legacyCode = (err as { code?: unknown })?.code;
+  if (legacyCode === 'DUPLICATE_BARCODE' || legacyCode === 'DUPLICATE_PHONE' || legacyCode === 'DUPLICATE_CURRENCY_CODE') {
+    return legacyCode;
+  }
+
+  return undefined;
 }
 
 /**
@@ -168,10 +196,19 @@ export function handleError(error: unknown): {
  *   // handler code that can throw
  * }));
  */
-export function wrapHandler<T extends (...args: any[]) => Promise<any>>(
-  handler: T
-): (...args: Parameters<T>) => Promise<ReturnType<T> | ReturnType<typeof handleError>> {
-  return async (...args: Parameters<T>) => {
+export function toErrorString(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  try {
+    return typeof err === "string" ? err : JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
+}
+
+export function wrapHandler<Args extends unknown[], R>(
+  handler: (...args: Args) => Promise<R>
+): (...args: Args) => Promise<R | ReturnType<typeof handleError>> {
+  return async (...args: Args) => {
     try {
       return await handler(...args);
     } catch (error) {

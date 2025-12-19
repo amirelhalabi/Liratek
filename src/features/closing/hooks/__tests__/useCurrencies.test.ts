@@ -4,7 +4,7 @@
  * Tests for useCurrencies Hook
  */
 
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { useCurrencies } from "../useCurrencies";
 
 // Mock window.api
@@ -119,7 +119,9 @@ describe("useCurrencies", () => {
       { code: "EUR", name: "Euro", is_active: 1 },
     ]);
 
-    result.current.reload();
+    await act(async () => {
+      await result.current.reload();
+    });
 
     await waitFor(() => {
       expect(result.current.currencies[0].code).toBe("EUR");

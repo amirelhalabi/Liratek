@@ -48,9 +48,9 @@ export class ActivityService {
   getSyncErrors(limit?: number): SyncErrorEntity[] | { error: string } {
     try {
       return this.repo.getSyncErrors(limit);
-    } catch (error: any) {
+    } catch (error) {
       console.error("ActivityService.getSyncErrors error:", error);
-      return { error: error.message };
+      return { error: (error instanceof Error ? error.message : String(error)) };
     }
   }
 }

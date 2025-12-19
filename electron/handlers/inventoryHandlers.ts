@@ -77,9 +77,9 @@ export function registerInventoryHandlers(): void {
       category: product.category,
       cost_price: product.cost_price,
       retail_price: product.retail_price,
-      stock_quantity: product.stock_quantity,
-      min_stock_level: product.min_stock_level,
-      image_url: product.image_url,
+      ...(product.stock_quantity != null ? { stock_quantity: product.stock_quantity } : {}),
+      ...(product.min_stock_level != null ? { min_stock_level: product.min_stock_level } : {}),
+      ...(product.image_url != null ? { image_url: product.image_url } : {}),
     });
   });
 
@@ -103,7 +103,7 @@ export function registerInventoryHandlers(): void {
       cost_price: product.cost_price,
       retail_price: product.retail_price,
       min_stock_level: product.min_stock_level ?? 5,
-      image_url: product.image_url,
+      ...(product.image_url != null ? { image_url: product.image_url } : {}),
     });
   });
 
@@ -143,7 +143,7 @@ export function registerInventoryHandlers(): void {
   ipcMain.handle("inventory:get-stock-stats", () => {
     try {
       return service.getStockStats();
-    } catch (error: any) {
+    } catch (error) {
       console.error("Failed to get stock stats:", error);
       return { stock_budget_usd: 0, stock_count: 0 };
     }
@@ -153,7 +153,7 @@ export function registerInventoryHandlers(): void {
   ipcMain.handle("inventory:get-low-stock-products", () => {
     try {
       return service.getLowStockProducts();
-    } catch (error: any) {
+    } catch (error) {
       console.error("Failed to get low stock products:", error);
       return [];
     }

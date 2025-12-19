@@ -14,7 +14,7 @@ export interface ElectronAPI {
     amount_lbp: number;
     expense_date: string;
   }) => Promise<{ success: boolean; id?: number; error?: string }>;
-  getTodayExpenses: () => Promise<any[]>;
+  getTodayExpenses: () => Promise<Array<import("@liratek/shared").Expense>>;
   deleteExpense: (id: number) => Promise<{ success: boolean; error?: string }>;
 
   // Auth
@@ -58,14 +58,14 @@ export interface ElectronAPI {
   ) => Promise<{ success: boolean; error?: string }>;
 
   // Inventory
-  getProducts: (search?: string) => Promise<import('../types').Product[]>;
-  getProduct: (id: number) => Promise<import('../types').Product | null>;
-  getProductByBarcode: (barcode: string) => Promise<import('../types').Product | null>;
+  getProducts: (search?: string) => Promise<Array<import("@liratek/shared").Product>>;
+  getProduct: (id: number) => Promise<import("@liratek/shared").Product | null>;
+  getProductByBarcode: (barcode: string) => Promise<import("@liratek/shared").Product | null>;
   createProduct: (
-    product: Omit<import('../types').Product, 'id' | 'created_at' | 'is_active'> & { is_active?: number }
+    product: Omit<import("@liratek/shared").Product, 'id' | 'created_at' | 'is_active'> & { is_active?: number }
   ) => Promise<{ success: boolean; id?: number; error?: string }>;
   updateProduct: (
-    product: Partial<import('../types').Product> & { id: number }
+    product: Partial<import("@liratek/shared").Product> & { id: number }
   ) => Promise<{ success: boolean; error?: string }>;
   deleteProduct: (id: number) => Promise<{ success: boolean; error?: string }>;
   adjustStock: (
@@ -76,18 +76,19 @@ export interface ElectronAPI {
     stock_budget_usd: number;
     stock_count: number;
   }>;
+ getLowStockProducts: () => Promise<Array<import("@liratek/shared").Product>>;
   // Clients
-  getClients: (search?: string) => Promise<import('../types').Client[]>;
-  getClient: (id: number) => Promise<import('../types').Client | null>;
+  getClients: (search?: string) => Promise<Array<import("@liratek/shared").Client>>;
+  getClient: (id: number) => Promise<import("@liratek/shared").Client | null>;
   createClient: (
-    client: Omit<import('../types').Client, 'id' | 'created_at'>
+    client: Omit<import("@liratek/shared").Client, 'id' | 'created_at'>
   ) => Promise<{ success: boolean; id?: number; error?: string }>;
-  updateClient: (client: Partial<import('../types').Client> & { id: number }) => Promise<{ success: boolean; error?: string }>;
+  updateClient: (client: Partial<import("@liratek/shared").Client> & { id: number }) => Promise<{ success: boolean; error?: string }>;
   deleteClient: (id: number) => Promise<{ success: boolean; error?: string }>;
 
   // Sales
   processSale: (
-    saleData: import('../types').SaleRequest,
+    saleData: import("@liratek/shared").SaleRequest,
   ) => Promise<{ success: boolean; saleId?: number; error?: string }>;
   getDashboardStats: () => Promise<{
     totalSalesUSD: number;
@@ -100,7 +101,7 @@ export interface ElectronAPI {
   }>;
   getProfitSalesChart: (type: "Sales" | "Profit") => Promise<Array<{ date: string; usd?: number; lbp?: number; profit?: number }>>;
   getTodaysSales: () => Promise<Array<{ id: number; client_name: string | null; paid_usd: number; paid_lbp: number; created_at: string }>>;
-  getDrafts: () => Promise<Array<import('../types').SaleRequest & { id: number; status: 'draft' }>>;
+  getDrafts: () => Promise<Array<import("@liratek/shared").SaleRequest & { id: number; status: 'draft' }>>;
   getTopProducts: () => Promise<
     { name: string; total_quantity: number; total_revenue: number }[]
   >;
@@ -110,7 +111,7 @@ export interface ElectronAPI {
   }>; // New
 
   // Debt
-  getDebtSummary: () => Promise<{ totalDebt: number; topDebtors: any[] }>; // New
+  getDebtSummary: () => Promise<{ totalDebt: number; topDebtors: { full_name: string; total_debt: number }[] }>;
   getDebtors: () => Promise<
     {
       id: number;
@@ -119,7 +120,7 @@ export interface ElectronAPI {
       total_debt: number;
     }[]
   >;
-  getClientDebtHistory: (clientId: number) => Promise<any[]>;
+  getClientDebtHistory: (clientId: number) => Promise<Array<{ id: number; created_at: string; amount_usd: number; amount_lbp: number; note?: string; is_paid: boolean }>>;
   addRepayment: (data: {
     clientId: number;
     amountUSD: number;
@@ -214,6 +215,11 @@ export interface ElectronAPI {
   deleteMaintenanceJob: (
     id: number,
   ) => Promise<{ success: boolean; error?: string }>;
+
+  // Activity
+  activity: {
+    getRecent: (limit?: number) => Promise<Array<{ id: number; created_at: string; user_id: number | null; action: string; table_name: string; record_id: number | null; details_json?: string }>>;
+  };
 
   // Diagnostics
   diagnostics: {

@@ -2,6 +2,7 @@ import {
   MaintenanceRepository,
   MaintenanceJob,
 } from "../database/repositories/MaintenanceRepository";
+import { toErrorString } from "../utils/errors";
 
 export interface SaveJobParams {
   id?: number;
@@ -46,9 +47,9 @@ export class MaintenanceService {
 
         const jobData: MaintenanceJob = {
           client_id: clientId,
-          client_name: params.client_name,
+          client_name: params.client_name ?? null,
           device_name: params.device_name,
-          issue_description: params.issue_description,
+          issue_description: params.issue_description ?? null,
           cost_usd: params.cost_usd ?? 0,
           price_usd: params.price_usd ?? 0,
           discount_usd: params.discount_usd ?? 0,
@@ -57,7 +58,7 @@ export class MaintenanceService {
           paid_lbp: params.paid_lbp ?? 0,
           exchange_rate: params.exchange_rate ?? 0,
           status: params.status ?? "In Progress",
-          note: params.note,
+          note: params.note ?? null,
         };
 
         if (params.id) {
@@ -91,9 +92,9 @@ export class MaintenanceService {
           return { success: true, id: newId };
         }
       });
-    } catch (error: any) {
+    } catch (error) {
       console.error("MaintenanceService.saveJob error:", error);
-      return { success: false, error: error.message };
+      return { success: false, error: toErrorString(error) };
     }
   }
 
@@ -116,8 +117,8 @@ export class MaintenanceService {
     try {
       this.repo.deleteJob(id);
       return { success: true };
-    } catch (error: any) {
-      return { success: false, error: error.message };
+    } catch (error) {
+      return { success: false, error: toErrorString(error) };
     }
   }
 }

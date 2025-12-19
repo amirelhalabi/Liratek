@@ -2,15 +2,15 @@ import React, { useState, useEffect } from "react";
 import { appEvents } from "../../utils/appEvents";
 import { XCircle, CheckCircle, Info, AlertTriangle } from "lucide-react";
 
-interface Notification {
+export type NotificationItem = {
   id: string;
   message: string;
   type: "success" | "error" | "info" | "warning";
   duration?: number; // in milliseconds, defaults to 5000
-}
+};
 
 const NotificationCenter: React.FC = () => {
-  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
 
   useEffect(() => {
     const recent = new Map<string, number>();
@@ -26,7 +26,8 @@ const NotificationCenter: React.FC = () => {
       if (now - last < dedupeMs) return; // suppress duplicate
       recent.set(key, now);
       const id = now.toString();
-      const newNotification: Notification = { id, message, type, duration };
+      const newNotification: NotificationItem =
+        duration === undefined ? { id, message, type } : { id, message, type, duration };
       setNotifications((prev) => [...prev, newNotification]);
     };
 
@@ -42,14 +43,11 @@ const NotificationCenter: React.FC = () => {
 
   useEffect(() => {
     if (notifications.length > 0) {
-      (window as any).notificationHistory = [
-        ...((window as any).notificationHistory || []),
+      window.notificationHistory = [
+        ...(window.notificationHistory || []),
         notifications[notifications.length - 1],
       ].slice(-20);
-      appEvents.emit(
-        "notification:history",
-        (window as any).notificationHistory,
-      );
+      appEvents.emit("notification:history", window.notificationHistory);
       const timer = setTimeout(() => {
         setNotifications((prev) => prev.slice(1)); // Remove the oldest notification
       }, notifications[0].duration || 5000);
@@ -57,7 +55,7 @@ const NotificationCenter: React.FC = () => {
     }
   }, [notifications]);
 
-  const getIcon = (type: Notification["type"]) => {
+  const getIcon = (type: NotificationItem["type"]) => {
     switch (type) {
       case "success":
         return <CheckCircle className="text-emerald-500" />;
@@ -72,7 +70,7 @@ const NotificationCenter: React.FC = () => {
     }
   };
 
-  const getBgColorClass = (type: Notification["type"]) => {
+  const getBgColorClass = (type: NotificationItem["type"]) => {
     switch (type) {
       case "success":
         return "bg-emerald-900/80 border-emerald-500";

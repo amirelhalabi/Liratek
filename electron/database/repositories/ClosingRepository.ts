@@ -126,9 +126,9 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
         this.logActivity(userId, "OPENING", { opening: amounts });
         return { success: true, id: res.lastInsertRowid };
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error("Failed to set opening balances:", error);
-      return { success: false, error: error.message };
+      return { success: false, error: (error instanceof Error ? error.message : String(error)) };
     }
   }
 
@@ -188,9 +188,9 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
 
       console.log(`[CLOSING] Daily closing created for ${closingDate}`);
       return { success: true, id: result.lastInsertRowid };
-    } catch (error: any) {
+    } catch (error) {
       console.error("Failed to create daily closing:", error);
-      return { success: false, error: error.message };
+      return { success: false, error: (error instanceof Error ? error.message : String(error)) };
     }
   }
 
@@ -234,9 +234,9 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
         id
       );
       return { success: true };
-    } catch (error: any) {
+    } catch (error) {
       console.error("Failed to update daily closing:", error);
-      return { success: false, error: error.message };
+      return { success: false, error: (error instanceof Error ? error.message : String(error)) };
     }
   }
 

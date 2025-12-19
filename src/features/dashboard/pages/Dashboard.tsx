@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { useAuth } from "../../auth/context/AuthContext";
-import Opening from "../../closing/pages/Opening";
+import { appEvents } from "../../../shared/utils/appEvents";
 import {
   DollarSign,
   Users,
@@ -22,13 +21,9 @@ import {
   BarChart,
   Bar,
 } from "recharts";
-import { appEvents } from "../../../shared/utils/appEvents";
 type ChartType = "Sales" | "Profit";
 
 export default function Dashboard() {
-  const { needsOpening, clearOpeningFlag } = useAuth();
-  const [showOpening, setShowOpening] = useState(false);
-  
   const [stats, setStats] = useState({
     totalSalesUSD: 0,
     totalSalesLBP: 0,
@@ -139,28 +134,6 @@ export default function Dashboard() {
     };
   }, [loadData]);
 
-  // Auto-open Opening modal if needed after login
-  useEffect(() => {
-    if (needsOpening) {
-      const t = setTimeout(() => setShowOpening(true), 0);
-      return () => clearTimeout(t);
-    }
-  }, [needsOpening]);
-
-  // Allow opening the Opening modal from anywhere (e.g. Sidebar button)
-  useEffect(() => {
-    const off = appEvents.on("openOpeningModal", () => {
-      setShowOpening(true);
-    });
-    return () => off();
-  }, []);
-
-
-  const handleCloseOpening = () => {
-    setShowOpening(false);
-    clearOpeningFlag();
-  };
-
   // Financial Metrics (Row 1)
   const financialCards = [
     {
@@ -249,8 +222,6 @@ export default function Dashboard() {
 
   return (
     <>
-      <Opening isOpen={showOpening} onClose={handleCloseOpening} />
-      
       <div className="space-y-6 animate-in fade-in duration-500">
         <h1 className="text-2xl font-bold text-white flex items-center gap-2">
         <TrendingUp className="text-violet-500" />
@@ -476,7 +447,7 @@ export default function Dashboard() {
                   />
                   <Tooltip
                     cursor={{ fill: "rgba(156, 163, 175, 0.1)" }}
-                    formatter={(value: any) =>
+                    formatter={(value) =>
                       typeof value === "number"
                         ? `${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
                         : value

@@ -6,7 +6,6 @@ import {
   DailyStatsSnapshot,
   getClosingRepository,
 } from "../database/repositories/ClosingRepository";
-
 export interface ClosingResult {
   success: boolean;
   id?: number | bigint;
@@ -77,17 +76,19 @@ export class ClosingService {
    * Update an existing daily closing
    */
   updateDailyClosing(data: UpdateClosingData): ClosingResult {
-    return this.repo.updateDailyClosing(data.id, {
-      physical_usd: data.physical_usd,
-      physical_lbp: data.physical_lbp,
-      physical_eur: data.physical_eur,
-      system_expected_usd: data.system_expected_usd,
-      system_expected_lbp: data.system_expected_lbp,
-      variance_usd: data.variance_usd,
-      notes: data.notes,
-      report_path: data.report_path,
-      updated_by: data.user_id,
-    });
+    const patch: Partial<import("../database/repositories/ClosingRepository").DailyClosingEntity> = {
+      ...(data.physical_usd != null ? { physical_usd: data.physical_usd } : {}),
+      ...(data.physical_lbp != null ? { physical_lbp: data.physical_lbp } : {}),
+      ...(data.physical_eur != null ? { physical_eur: data.physical_eur } : {}),
+      ...(data.system_expected_usd != null ? { system_expected_usd: data.system_expected_usd } : {}),
+      ...(data.system_expected_lbp != null ? { system_expected_lbp: data.system_expected_lbp } : {}),
+      ...(data.variance_usd != null ? { variance_usd: data.variance_usd } : {}),
+      ...(data.notes != null ? { notes: data.notes } : {}),
+      ...(data.report_path != null ? { report_path: data.report_path } : {}),
+      ...(data.user_id != null ? { updated_by: data.user_id } : {}),
+    };
+
+    return this.repo.updateDailyClosing(data.id, patch);
   }
 
   /**
@@ -104,7 +105,7 @@ export class ClosingService {
   getSystemExpectedBalances(): SystemExpectedBalances {
     try {
       return this.repo.getSystemExpectedBalances();
-    } catch (error: any) {
+    } catch (error) {
       console.error("ClosingService.getSystemExpectedBalances error:", error);
       return {
         generalDrawer: { usd: 0, lbp: 0, eur: 0 },
@@ -121,7 +122,7 @@ export class ClosingService {
   getDailyStatsSnapshot(): DailyStatsSnapshot {
     try {
       return this.repo.getDailyStatsSnapshot();
-    } catch (error: any) {
+    } catch (error) {
       console.error("ClosingService.getDailyStatsSnapshot error:", error);
       return {
         salesCount: 0,

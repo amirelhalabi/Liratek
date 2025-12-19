@@ -8,7 +8,8 @@ import {
 } from "../../../utils/receiptFormatter";
 import type { Client, CartItem, SaleRequest } from "../../../../../types";
 
-type PaymentData = Omit<SaleRequest, 'items' | 'status' | 'id'> & { cart?: CartItem[] } & { clientId?: number | null; paidUSD?: number; paidLBP?: number };
+export type PaymentData = Omit<SaleRequest, 'items' | 'status' | 'id'> & { cart?: CartItem[] } & { clientId?: number | null; paidUSD?: number; paidLBP?: number };
+
 
 
 interface CheckoutModalProps {
@@ -16,9 +17,21 @@ interface CheckoutModalProps {
   onClose: () => void;
   onComplete: (paymentData: PaymentData) => Promise<void>;
   onSaveDraft: (paymentData: PaymentData) => Promise<void>;
-  draftData?: any; // draftData persists UI state separate from PaymentData shape
+  draftData?: CheckoutDraftData; // optional: only provided when restoring a draft
   onRestoreDraftComplete?: () => void;
 }
+
+export type CheckoutDraftData = {
+  selectedClient: Client | null;
+  clientSearchInput: string;
+  clientSearchSecondary: string;
+  discount: number;
+  paidUSD: number;
+  paidLBP: number;
+  changeGivenUSD: number;
+  changeGivenLBP: number;
+  exchangeRate: number;
+};
 
 export default function CheckoutModal({
   totalAmount,
@@ -54,7 +67,7 @@ export default function CheckoutModal({
 
   // Restore draft data when it's provided
   useEffect(() => {
-    if (draftData as any) {
+    if (draftData) {
       setSelectedClient(draftData.selectedClient);
       setClientSearch(draftData.clientSearchInput);
       setSecondaryInput(draftData.clientSearchSecondary);
@@ -130,8 +143,8 @@ export default function CheckoutModal({
 
     return {
       client_id: finalClientId,
-      client_name: finalClientName,
-      client_phone: finalClientPhone,
+      ...(finalClientName ? { client_name: finalClientName } : {}),
+      ...(finalClientPhone ? { client_phone: finalClientPhone } : {}),
       total_amount: totalAmount,
       discount: discount,
       final_amount: finalAmount,
@@ -219,8 +232,18 @@ export default function CheckoutModal({
 
   return (
     <>
-      <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
-        <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-7xl shadow-2xl flex overflow-hidden h-[85vh]">
+      <div
+        className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-in fade-in duration-200"
+        onMouseDown={(e) => {
+          if (e.target === e.currentTarget) {
+            onClose();
+          }
+        }}
+      >
+        <div
+          className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-7xl shadow-2xl flex overflow-hidden h-[85vh]"
+          onMouseDown={(e) => e.stopPropagation()}
+        >
           {/* Left: Summary & Client */}
           <div className="w-1/2 bg-slate-800 p-8 border-r border-slate-700 flex flex-col">
             <h2 className="text-2xl font-bold text-white mb-6">Checkout</h2>
@@ -613,8 +636,18 @@ export default function CheckoutModal({
 
       {/* Receipt Preview Modal */}
       {showReceiptPreview && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+        <div
+          className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 p-4"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowReceiptPreview(false);
+            }
+          }}
+        >
+          <div
+            className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
             <div className="p-6 border-b border-slate-700 flex justify-between items-center">
               <h2 className="text-2xl font-bold text-white flex items-center gap-2">
                 <Printer size={24} className="text-blue-400" />
