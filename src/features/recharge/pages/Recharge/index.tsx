@@ -101,7 +101,7 @@ export default function Recharge() {
         };
 
   return (
-    <div className="h-full min-h-0 flex flex-col gap-6 animate-in fade-in duration-500">
+    <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-white flex items-center gap-2">
           <Smartphone className={theme.text} />
@@ -131,7 +131,7 @@ export default function Recharge() {
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 flex gap-4">
+      <div className="flex gap-6 h-[calc(100vh-theme(spacing.48))]">
         {/* Left: Provider & Type Selection */}
         <div className="w-1/4 min-w-[250px] flex flex-col gap-4">
           {/* Provider Tabs */}
