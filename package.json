@@ -41,7 +41,7 @@
     "reset:sales-debt": "node scripts/reset-sales-debt.js",
 
     "postinstall": "node scripts/rebuild-native-deps.cjs",
-    "checks": "yarn typecheck && yarn lint && yarn format && yarn test:coverage && yarn build"
+    "checks": "yarn typecheck && yarn lint && yarn format:check && yarn test:coverage && yarn build"
   },
   "dependencies": {
     "@types/recharts": "^2.0.1",

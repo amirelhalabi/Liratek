@@ -7,8 +7,7 @@ import { useState, useCallback } from "react";
 import type { SystemExpectedBalances } from "../types";
 
 export function useSystemExpected() {
-  const [systemExpected, setSystemExpected] =
-    useState<SystemExpectedBalances | null>(null);
+  const [systemExpected, setSystemExpected] = useState<SystemExpectedBalances | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -19,10 +18,7 @@ export function useSystemExpected() {
       const balances = await window.api.closing.getSystemExpectedBalances();
       setSystemExpected(balances);
     } catch (err) {
-      const message =
-        err instanceof Error
-          ? err.message
-          : "Failed to fetch expected balances";
+      const message = err instanceof Error ? err.message : "Failed to fetch expected balances";
       setError(message);
       console.error("[useSystemExpected] Error:", err);
     } finally {
@@ -30,16 +26,12 @@ export function useSystemExpected() {
     }
   }, []);
 
-  const getExpectedAmount = useCallback(
-    (drawer: string, currencyCode: string): number => {
-      if (!systemExpected) return 0;
-      const drawerKey =
-        `${drawer.toLowerCase()}Drawer` as keyof SystemExpectedBalances;
-      const drawerBalances = systemExpected[drawerKey];
-      return drawerBalances?.[currencyCode.toLowerCase()] || 0;
-    },
-    [systemExpected],
-  );
+  const getExpectedAmount = useCallback((drawer: string, currencyCode: string): number => {
+    if (!systemExpected) return 0;
+    const drawerKey = `${drawer.toLowerCase()}Drawer` as keyof SystemExpectedBalances;
+    const drawerBalances = systemExpected[drawerKey];
+    return drawerBalances?.[currencyCode.toLowerCase()] || 0;
+  }, [systemExpected]);
 
   return {
     systemExpected,

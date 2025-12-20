@@ -19,13 +19,9 @@ interface OpeningProps {
 
 export default function Opening({ isOpen, onClose }: OpeningProps) {
   const { user } = useAuth();
-  const {
-    currencies,
-    loading: currenciesLoading,
-    error: currenciesError,
-  } = useCurrencies();
+  const { currencies, loading: currenciesLoading, error: currenciesError } = useCurrencies();
   const drawerAmounts = useDrawerAmounts({ currencies });
-
+  
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -46,18 +42,14 @@ export default function Opening({ isOpen, onClose }: OpeningProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
-  const handleAmountChange = (
-    drawer: DrawerType,
-    code: string,
-    value: string,
-  ) => {
+  const handleAmountChange = (drawer: DrawerType, code: string, value: string) => {
     const numValue = value === "" ? 0 : parseFloat(value);
     drawerAmounts.updateAmount(drawer, code, isNaN(numValue) ? 0 : numValue);
   };
 
   const handleSave = async () => {
     setSaveError(null);
-
+    
     // Validate
     const validation = drawerAmounts.validate();
     if (!validation.isValid) {
@@ -79,7 +71,7 @@ export default function Opening({ isOpen, onClose }: OpeningProps) {
         drawer_name: drawer,
         currency_code: currency.code,
         opening_amount: drawerAmounts.amounts[drawer]?.[currency.code] ?? 0,
-      })),
+      }))
     );
 
     try {
@@ -97,9 +89,7 @@ export default function Opening({ isOpen, onClose }: OpeningProps) {
       }
     } catch (error) {
       console.error("[Opening] Save error:", error);
-      setSaveError(
-        error instanceof Error ? error.message : "An unexpected error occurred",
-      );
+      setSaveError(error instanceof Error ? error.message : "An unexpected error occurred");
     } finally {
       setSaving(false);
     }
@@ -107,9 +97,7 @@ export default function Opening({ isOpen, onClose }: OpeningProps) {
 
   const handleCancel = () => {
     if (drawerAmounts.hasAnyAmounts) {
-      if (
-        confirm("You have unsaved changes. Are you sure you want to close?")
-      ) {
+      if (confirm("You have unsaved changes. Are you sure you want to close?")) {
         onClose();
       }
     } else {
@@ -136,9 +124,7 @@ export default function Opening({ isOpen, onClose }: OpeningProps) {
         <div className="flex justify-between items-center p-6 border-b border-slate-700 bg-slate-800">
           <div>
             <h2 className="text-2xl font-bold text-white">Opening</h2>
-            <p className="text-slate-400 text-sm mt-1">
-              Set starting drawer amounts
-            </p>
+            <p className="text-slate-400 text-sm mt-1">Set starting drawer amounts</p>
           </div>
           <button
             onClick={handleCancel}
@@ -169,16 +155,13 @@ export default function Opening({ isOpen, onClose }: OpeningProps) {
             </div>
           )}
 
-          {!currenciesLoading &&
-            !currenciesError &&
-            currencies.length === 0 && (
-              <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
-                <p className="text-yellow-200 text-sm">
-                  No active currencies found. Please enable at least one
-                  currency in Settings → Currency Manager.
-                </p>
-              </div>
-            )}
+          {!currenciesLoading && !currenciesError && currencies.length === 0 && (
+            <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
+              <p className="text-yellow-200 text-sm">
+                No active currencies found. Please enable at least one currency in Settings → Currency Manager.
+              </p>
+            </div>
+          )}
 
           {!currenciesLoading && !currenciesError && currencies.length > 0 && (
             <>
@@ -201,9 +184,7 @@ export default function Opening({ isOpen, onClose }: OpeningProps) {
                       key={drawer}
                       drawer={drawer}
                       currencies={drawerCurrencies}
-                      getDisplayValue={(d, c) =>
-                        drawerAmounts.getDisplayValue(d, c)
-                      }
+                      getDisplayValue={(d, c) => drawerAmounts.getDisplayValue(d, c)}
                       onAmountChange={handleAmountChange}
                       disabled={saving}
                       focusRingColor="violet-500"
@@ -230,9 +211,7 @@ export default function Opening({ isOpen, onClose }: OpeningProps) {
             <button
               type="button"
               onClick={handleSave}
-              disabled={
-                saving || !drawerAmounts.hasAnyAmounts || currenciesLoading
-              }
+              disabled={saving || !drawerAmounts.hasAnyAmounts || currenciesLoading}
               className="px-6 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {saving ? "Saving..." : "Save & Start Day"}

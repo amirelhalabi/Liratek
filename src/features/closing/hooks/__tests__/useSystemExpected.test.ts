@@ -58,7 +58,7 @@ describe("useSystemExpected", () => {
 
   it("should set loading state during fetch", async () => {
     mockGetSystemExpectedBalances.mockImplementation(
-      () => new Promise((resolve) => setTimeout(resolve, 100)),
+      () => new Promise((resolve) => setTimeout(resolve, 100))
     );
 
     const { result } = renderHook(() => useSystemExpected());

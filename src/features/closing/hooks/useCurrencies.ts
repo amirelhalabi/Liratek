@@ -22,15 +22,14 @@ export function useCurrencies() {
       const list = await window.api.currencies.list();
       const active = list
         .filter((c: Currency) => c.is_active === 1)
-        .map((c: Currency) => ({
-          code: c.code,
+        .map((c: Currency) => ({ 
+          code: c.code, 
           name: c.name,
-          is_active: c.is_active,
+          is_active: c.is_active 
         }));
       setCurrencies(active);
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Failed to load currencies";
+      const message = err instanceof Error ? err.message : "Failed to load currencies";
       setError(message);
       console.error("[useCurrencies] Error:", err);
     } finally {
