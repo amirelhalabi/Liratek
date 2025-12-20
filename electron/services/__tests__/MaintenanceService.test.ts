@@ -59,7 +59,7 @@ describe("MaintenanceService", () => {
             issue_description: "Cracked screen",
             price_usd: 150,
             status: "In Progress",
-          }),
+          })
         );
         expect(mockRepo.logActivity).toHaveBeenCalledWith(
           1,
@@ -68,7 +68,7 @@ describe("MaintenanceService", () => {
             drawer: "General_Drawer_B",
             device: "iPhone 14",
             price_usd: 150,
-          }),
+          })
         );
       });
 
@@ -88,14 +88,14 @@ describe("MaintenanceService", () => {
         expect(result).toEqual({ success: true, id: 2 });
         expect(mockRepo.findOrCreateClient).toHaveBeenCalledWith(
           "John Doe",
-          "1234567890",
+          "1234567890"
         );
         expect(mockRepo.createJob).toHaveBeenCalledWith(
           expect.objectContaining({
             client_id: 5,
             client_name: "John Doe",
             device_name: "Samsung S23",
-          }),
+          })
         );
       });
 
@@ -119,7 +119,7 @@ describe("MaintenanceService", () => {
           expect.objectContaining({
             client_id: null,
             device_name: "Pixel 7",
-          }),
+          })
         );
       });
 
@@ -140,7 +140,7 @@ describe("MaintenanceService", () => {
         expect(mockRepo.createJob).toHaveBeenCalledWith(
           expect.objectContaining({
             client_id: 10,
-          }),
+          })
         );
       });
     });
@@ -162,7 +162,7 @@ describe("MaintenanceService", () => {
           expect.objectContaining({
             device_name: "iPhone 14 Pro",
             price_usd: 200,
-          }),
+          })
         );
         expect(mockRepo.createJob).not.toHaveBeenCalled();
       });
@@ -186,7 +186,7 @@ describe("MaintenanceService", () => {
             device: "iPhone 14 Pro",
             amount_usd: 200,
             status: "Delivered_Paid",
-          }),
+          })
         );
       });
 
@@ -206,7 +206,7 @@ describe("MaintenanceService", () => {
           "Maintenance Job Completed",
           expect.objectContaining({
             status: "Delivered",
-          }),
+          })
         );
       });
 
@@ -271,9 +271,7 @@ describe("MaintenanceService", () => {
       });
 
       it("should return error when createJob fails", () => {
-        mockRepo.withTransaction.mockImplementation((fn: () => unknown) =>
-          fn(),
-        );
+        mockRepo.withTransaction.mockImplementation((fn: () => unknown) => fn());
         mockRepo.createJob.mockImplementation(() => {
           throw new Error("Insert failed");
         });
@@ -299,42 +297,8 @@ describe("MaintenanceService", () => {
   describe("getJobs", () => {
     it("should return all jobs when no filter is provided", () => {
       const mockJobs = [
-        {
-          id: 1,
-          device_name: "Phone 1",
-          status: "In Progress",
-          client_id: null,
-          client_name: null,
-          issue_description: null,
-          cost_usd: 0,
-          price_usd: 100,
-          discount_usd: 0,
-          final_amount_usd: 100,
-          paid_usd: 0,
-          paid_lbp: 0,
-          exchange_rate: 90000,
-          note: null,
-          created_at: "2025-01-15",
-          updated_at: "2025-01-15",
-        },
-        {
-          id: 2,
-          device_name: "Phone 2",
-          status: "Delivered",
-          client_id: null,
-          client_name: null,
-          issue_description: null,
-          cost_usd: 0,
-          price_usd: 150,
-          discount_usd: 0,
-          final_amount_usd: 150,
-          paid_usd: 150,
-          paid_lbp: 0,
-          exchange_rate: 90000,
-          note: null,
-          created_at: "2025-01-15",
-          updated_at: "2025-01-15",
-        },
+        { id: 1, device_name: "Phone 1", status: "In Progress", client_id: null, client_name: null, issue_description: null, cost_usd: 0, price_usd: 100, discount_usd: 0, final_amount_usd: 100, paid_usd: 0, paid_lbp: 0, exchange_rate: 90000, note: null, created_at: "2025-01-15", updated_at: "2025-01-15" },
+        { id: 2, device_name: "Phone 2", status: "Delivered", client_id: null, client_name: null, issue_description: null, cost_usd: 0, price_usd: 150, discount_usd: 0, final_amount_usd: 150, paid_usd: 150, paid_lbp: 0, exchange_rate: 90000, note: null, created_at: "2025-01-15", updated_at: "2025-01-15" },
       ];
       mockRepo.getJobs.mockReturnValue(mockJobs);
 
@@ -345,26 +309,7 @@ describe("MaintenanceService", () => {
     });
 
     it("should return filtered jobs by status", () => {
-      const mockJobs = [
-        {
-          id: 1,
-          device_name: "Phone 1",
-          status: "In Progress",
-          client_id: null,
-          client_name: null,
-          issue_description: null,
-          cost_usd: 0,
-          price_usd: 100,
-          discount_usd: 0,
-          final_amount_usd: 100,
-          paid_usd: 0,
-          paid_lbp: 0,
-          exchange_rate: 90000,
-          note: null,
-          created_at: "2025-01-15",
-          updated_at: "2025-01-15",
-        },
-      ];
+      const mockJobs = [{ id: 1, device_name: "Phone 1", status: "In Progress", client_id: null, client_name: null, issue_description: null, cost_usd: 0, price_usd: 100, discount_usd: 0, final_amount_usd: 100, paid_usd: 0, paid_lbp: 0, exchange_rate: 90000, note: null, created_at: "2025-01-15", updated_at: "2025-01-15" }];
       mockRepo.getJobs.mockReturnValue(mockJobs);
 
       const result = service.getJobs("In Progress");
