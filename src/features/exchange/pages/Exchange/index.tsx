@@ -235,7 +235,7 @@ export default function Exchange() {
         Currency Exchange
       </h1>
 
-      <div className="flex-1 min-h-0 flex gap-4">
+      <div className="flex-1 min-h-0 flex gap-6">
         {/* Left: Calculator */}
         <div className="w-1/3 min-w-[380px] h-full overflow-hidden bg-slate-800 rounded-xl border border-slate-700/50 shadow-xl p-4 flex flex-col">
           {/* Currency Selectors */}
