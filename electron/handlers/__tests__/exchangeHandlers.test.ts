@@ -36,11 +36,9 @@ describe("ExchangeHandlers", () => {
     // Mock service
     mockService = {
       addTransaction: jest.fn().mockReturnValue({ success: true, id: 1 }),
-      getHistory: jest
-        .fn()
-        .mockReturnValue([
-          { id: 1, from_currency: "USD", to_currency: "LBP", from_amount: 100 },
-        ]),
+      getHistory: jest.fn().mockReturnValue([
+        { id: 1, from_currency: "USD", to_currency: "LBP", from_amount: 100 },
+      ]),
     };
     (getExchangeService as jest.Mock).mockReturnValue(mockService);
 
@@ -49,14 +47,8 @@ describe("ExchangeHandlers", () => {
 
   describe("Handler Registration", () => {
     it("should register all exchange handlers", () => {
-      expect(ipcMain.handle).toHaveBeenCalledWith(
-        "exchange:add-transaction",
-        expect.any(Function),
-      );
-      expect(ipcMain.handle).toHaveBeenCalledWith(
-        "exchange:get-history",
-        expect.any(Function),
-      );
+      expect(ipcMain.handle).toHaveBeenCalledWith("exchange:add-transaction", expect.any(Function));
+      expect(ipcMain.handle).toHaveBeenCalledWith("exchange:get-history", expect.any(Function));
     });
   });
 
@@ -78,10 +70,7 @@ describe("ExchangeHandlers", () => {
     });
 
     it("should handle service errors", async () => {
-      mockService.addTransaction.mockReturnValue({
-        success: false,
-        error: "Insufficient funds",
-      });
+      mockService.addTransaction.mockReturnValue({ success: false, error: "Insufficient funds" });
 
       const handler = handlers.get("exchange:add-transaction")!;
       const result = await handler({}, { from_currency: "USD" });
