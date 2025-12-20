@@ -44,7 +44,7 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
   ];
 
   // Filter nav items based on role
-  const navItems = allNavItems.filter((item) => !item.adminOnly || isAdmin);
+  const navItems = allNavItems.filter(item => !item.adminOnly || isAdmin);
 
   const handleClosingClick = () => {
     appEvents.emit("openClosingModal");
