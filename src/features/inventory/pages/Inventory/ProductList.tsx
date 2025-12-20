@@ -60,7 +60,7 @@ export default function ProductList() {
   };
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white flex items-center gap-3">
@@ -80,120 +80,116 @@ export default function ProductList() {
         </button>
       </div>
 
-      <div className="flex flex-col gap-4">
-        {/* Toolbar */}
-        <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 flex gap-4">
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-2.5 text-slate-500 h-5 w-5" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by name, barcode..."
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-10 pr-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
-            />
-          </div>
-          {/* Add filters later (Category, etc) */}
+      {/* Toolbar */}
+      <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 flex gap-4">
+        <div className="relative flex-1 max-w-md">
+          <Search className="absolute left-3 top-2.5 text-slate-500 h-5 w-5" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by name, barcode..."
+            className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-10 pr-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
+          />
         </div>
+        {/* Add filters later (Category, etc) */}
+      </div>
 
-        {/* Table */}
-        <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden shadow-xl">
-          <table className="w-full text-left border-collapse">
-            <thead className="bg-slate-800/50 text-slate-400 text-xs uppercase font-semibold">
-              <tr>
-                <th className="p-4 border-b border-slate-700">Info</th>
-                <th className="p-4 border-b border-slate-700">Category</th>
-                <th className="p-4 border-b border-slate-700">Added Date</th>
-                {isAdmin && (
-                  <th className="p-4 border-b border-slate-700">Cost</th>
-                )}
-                <th className="p-4 border-b border-slate-700">Retail</th>
-                <th className="p-4 border-b border-slate-700">Stock</th>
-                <th className="p-4 border-b border-slate-700 text-right">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-700 text-sm">
-              {loading ? (
-                <tr>
-                  <td
-                    colSpan={isAdmin ? 7 : 6}
-                    className="p-8 text-center text-slate-500"
-                  >
-                    Loading inventory...
-                  </td>
-                </tr>
-              ) : products.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={isAdmin ? 7 : 6}
-                    className="p-8 text-center text-slate-500"
-                  >
-                    No products found.
-                  </td>
-                </tr>
-              ) : (
-                products.map((product) => (
-                  <tr
-                    key={product.id}
-                    className="hover:bg-slate-700/50 transition-colors"
-                  >
-                    <td className="p-4">
-                      <div className="font-medium text-white">
-                        {product.name}
-                      </div>
-                      <div className="text-slate-500 text-xs font-mono">
-                        {product.barcode}
-                      </div>
-                    </td>
-                    <td className="p-4 text-slate-300">
-                      <span className="px-2 py-1 rounded bg-slate-700 border border-slate-600 text-xs">
-                        {product.category}
-                      </span>
-                    </td>
-                    <td className="p-4 text-slate-400 text-xs">
-                      {product.created_at
-                        ? new Date(product.created_at).toLocaleDateString()
-                        : "-"}
-                    </td>
-                    {isAdmin && (
-                      <td className="p-4 text-slate-400">
-                        ${product.cost_price.toFixed(2)}
-                      </td>
-                    )}
-                    <td className="p-4 text-green-400 font-medium">
-                      ${product.retail_price.toFixed(2)}
-                    </td>
-                    <td className="p-4">
-                      <div
-                        className={`font-medium ${product.stock_quantity <= product.min_stock_level ? "text-red-400" : "text-slate-300"}`}
-                      >
-                        {product.stock_quantity} units
-                      </div>
-                    </td>
-                    <td className="p-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => handleEdit(product)}
-                          className="p-2 text-slate-400 hover:text-blue-400 hover:bg-blue-400/10 rounded transition-colors"
-                        >
-                          <Edit2 size={16} />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(product.id)}
-                          className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-400/10 rounded transition-colors"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+      {/* Table */}
+      <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden shadow-xl">
+        <table className="w-full text-left border-collapse">
+          <thead className="bg-slate-800/50 text-slate-400 text-xs uppercase font-semibold">
+            <tr>
+              <th className="p-4 border-b border-slate-700">Info</th>
+              <th className="p-4 border-b border-slate-700">Category</th>
+              <th className="p-4 border-b border-slate-700">Added Date</th>
+              {isAdmin && (
+                <th className="p-4 border-b border-slate-700">Cost</th>
               )}
-            </tbody>
-          </table>
-        </div>
+              <th className="p-4 border-b border-slate-700">Retail</th>
+              <th className="p-4 border-b border-slate-700">Stock</th>
+              <th className="p-4 border-b border-slate-700 text-right">
+                Actions
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-700 text-sm">
+            {loading ? (
+              <tr>
+                <td
+                  colSpan={isAdmin ? 7 : 6}
+                  className="p-8 text-center text-slate-500"
+                >
+                  Loading inventory...
+                </td>
+              </tr>
+            ) : products.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={isAdmin ? 7 : 6}
+                  className="p-8 text-center text-slate-500"
+                >
+                  No products found.
+                </td>
+              </tr>
+            ) : (
+              products.map((product) => (
+                <tr
+                  key={product.id}
+                  className="hover:bg-slate-700/50 transition-colors"
+                >
+                  <td className="p-4">
+                    <div className="font-medium text-white">{product.name}</div>
+                    <div className="text-slate-500 text-xs font-mono">
+                      {product.barcode}
+                    </div>
+                  </td>
+                  <td className="p-4 text-slate-300">
+                    <span className="px-2 py-1 rounded bg-slate-700 border border-slate-600 text-xs">
+                      {product.category}
+                    </span>
+                  </td>
+                  <td className="p-4 text-slate-400 text-xs">
+                    {product.created_at
+                      ? new Date(product.created_at).toLocaleDateString()
+                      : "-"}
+                  </td>
+                  {isAdmin && (
+                    <td className="p-4 text-slate-400">
+                      ${product.cost_price.toFixed(2)}
+                    </td>
+                  )}
+                  <td className="p-4 text-green-400 font-medium">
+                    ${product.retail_price.toFixed(2)}
+                  </td>
+                  <td className="p-4">
+                    <div
+                      className={`font-medium ${product.stock_quantity <= product.min_stock_level ? "text-red-400" : "text-slate-300"}`}
+                    >
+                      {product.stock_quantity} units
+                    </div>
+                  </td>
+                  <td className="p-4 text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        onClick={() => handleEdit(product)}
+                        className="p-2 text-slate-400 hover:text-blue-400 hover:bg-blue-400/10 rounded transition-colors"
+                      >
+                        <Edit2 size={16} />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(product.id)}
+                        className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-400/10 rounded transition-colors"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
       </div>
 
       {isFormOpen && (
