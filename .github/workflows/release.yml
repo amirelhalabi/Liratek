@@ -66,8 +66,8 @@ jobs:
         with:
           name: windows-installer
           path: |
-            release/*.exe
-            release/*.exe.blockmap
+            releases/**/*.exe
+            releases/**/*.exe.blockmap
 
   # build-mac-intel:
   #   needs: version-and-tag
@@ -145,9 +145,9 @@ jobs:
         with:
           name: macos-arm-installer
           path: |
-            release/*.dmg
-            release/*.zip
-            release/*.blockmap
+            releases/**/*.dmg
+            releases/**/*.zip
+            releases/**/*.blockmap
 
   create-release:
     needs: [version-and-tag, build-windows, build-mac-arm]

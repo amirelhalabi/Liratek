@@ -20,6 +20,10 @@ build
 out
 *.local
 
+# Electron builder outputs
+releases
+release
+
 # Test coverage
 coverage
 *.lcov
@@ -62,6 +66,7 @@ Thumbs.db
 
 # Electron
 release
+releases
 *.asar
 *.snap
 
