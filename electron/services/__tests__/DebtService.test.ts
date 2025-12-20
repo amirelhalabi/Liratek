@@ -1,19 +1,19 @@
 /**
  * DebtService Unit Tests
- *
+ * 
  * Tests all business logic in DebtService with mocked repository.
  */
 
-import { DebtService, resetDebtService } from "../DebtService";
-import { DebtRepository } from "../../database/repositories";
+import { DebtService, resetDebtService } from '../DebtService';
+import { DebtRepository } from '../../database/repositories';
 
 // Mock the repository module
-jest.mock("../../database/repositories", () => ({
+jest.mock('../../database/repositories', () => ({
   getDebtRepository: jest.fn(),
   DebtRepository: jest.fn(),
 }));
 
-describe("DebtService", () => {
+describe('DebtService', () => {
   let service: DebtService;
   let mockRepo: jest.Mocked<DebtRepository>;
 
@@ -36,11 +36,11 @@ describe("DebtService", () => {
   // Debtor Queries
   // ===========================================================================
 
-  describe("getDebtors", () => {
-    it("returns all debtors from repository", () => {
+  describe('getDebtors', () => {
+    it('returns all debtors from repository', () => {
       const mockDebtors = [
-        { client_id: 1, client_name: "John", total_debt_usd: 100 },
-        { client_id: 2, client_name: "Jane", total_debt_usd: 200 },
+        { client_id: 1, client_name: 'John', total_debt_usd: 100 },
+        { client_id: 2, client_name: 'Jane', total_debt_usd: 200 },
       ];
       mockRepo.findAllDebtors.mockReturnValue(mockDebtors as any);
 
@@ -51,11 +51,11 @@ describe("DebtService", () => {
     });
   });
 
-  describe("getClientHistory", () => {
-    it("returns debt history for client", () => {
+  describe('getClientHistory', () => {
+    it('returns debt history for client', () => {
       const mockHistory = [
-        { id: 1, client_id: 1, type: "sale", amount_usd: 50 },
-        { id: 2, client_id: 1, type: "repayment", amount_usd: -25 },
+        { id: 1, client_id: 1, type: 'sale', amount_usd: 50 },
+        { id: 2, client_id: 1, type: 'repayment', amount_usd: -25 },
       ];
       mockRepo.findClientHistory.mockReturnValue(mockHistory as any);
 
@@ -65,7 +65,7 @@ describe("DebtService", () => {
       expect(result).toEqual(mockHistory);
     });
 
-    it("returns empty array for invalid client ID", () => {
+    it('returns empty array for invalid client ID', () => {
       const result = service.getClientHistory(0);
 
       expect(mockRepo.findClientHistory).not.toHaveBeenCalled();
@@ -73,8 +73,8 @@ describe("DebtService", () => {
     });
   });
 
-  describe("getClientTotal", () => {
-    it("returns total debt for client", () => {
+  describe('getClientTotal', () => {
+    it('returns total debt for client', () => {
       mockRepo.getClientDebtTotal.mockReturnValue(1500);
 
       const result = service.getClientTotal(1);
@@ -83,7 +83,7 @@ describe("DebtService", () => {
       expect(result).toBe(1500);
     });
 
-    it("returns 0 for invalid client ID", () => {
+    it('returns 0 for invalid client ID', () => {
       const result = service.getClientTotal(0);
 
       expect(mockRepo.getClientDebtTotal).not.toHaveBeenCalled();
@@ -95,15 +95,15 @@ describe("DebtService", () => {
   // Repayment Operations
   // ===========================================================================
 
-  describe("addRepayment", () => {
-    it("processes repayment successfully", () => {
+  describe('addRepayment', () => {
+    it('processes repayment successfully', () => {
       mockRepo.addRepayment.mockReturnValue({ id: 123 });
 
       const result = service.addRepayment({
         clientId: 1,
         amountUSD: 50,
         amountLBP: 0,
-        note: "Partial payment",
+        note: 'Partial payment',
         userId: 10,
       });
 
@@ -111,14 +111,14 @@ describe("DebtService", () => {
         client_id: 1,
         amount_usd: 50,
         amount_lbp: 0,
-        note: "Partial payment",
+        note: 'Partial payment',
         created_by: 10,
       });
       expect(result).toEqual({ success: true, id: 123 });
     });
 
-    it("logs repayment on success", () => {
-      const consoleSpy = jest.spyOn(console, "log").mockImplementation();
+    it('logs repayment on success', () => {
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
       mockRepo.addRepayment.mockReturnValue({ id: 456 });
 
       service.addRepayment({
@@ -128,57 +128,52 @@ describe("DebtService", () => {
       });
 
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining(
-          "[DEBT] Repayment of $100 and 500000 LBP for client 1",
-        ),
+        expect.stringContaining('[DEBT] Repayment of $100 and 500000 LBP for client 1')
       );
       consoleSpy.mockRestore();
     });
 
-    it("returns error for missing client ID", () => {
+    it('returns error for missing client ID', () => {
       const result = service.addRepayment({
         clientId: 0,
         amountUSD: 50,
         amountLBP: 0,
       });
 
-      expect(result).toEqual({
-        success: false,
-        error: "Client ID is required",
-      });
+      expect(result).toEqual({ success: false, error: 'Client ID is required' });
       expect(mockRepo.addRepayment).not.toHaveBeenCalled();
     });
 
-    it("returns error for zero repayment amount", () => {
+    it('returns error for zero repayment amount', () => {
       const result = service.addRepayment({
         clientId: 1,
         amountUSD: 0,
         amountLBP: 0,
       });
 
-      expect(result).toEqual({
-        success: false,
-        error: "Repayment amount must be greater than zero",
+      expect(result).toEqual({ 
+        success: false, 
+        error: 'Repayment amount must be greater than zero' 
       });
       expect(mockRepo.addRepayment).not.toHaveBeenCalled();
     });
 
-    it("handles negative amounts as zero (must be positive)", () => {
+    it('handles negative amounts as zero (must be positive)', () => {
       const result = service.addRepayment({
         clientId: 1,
         amountUSD: -50,
         amountLBP: -1000,
       });
 
-      expect(result).toEqual({
-        success: false,
-        error: "Repayment amount must be greater than zero",
+      expect(result).toEqual({ 
+        success: false, 
+        error: 'Repayment amount must be greater than zero' 
       });
     });
 
-    it("handles repository error", () => {
+    it('handles repository error', () => {
       mockRepo.addRepayment.mockImplementation(() => {
-        throw new Error("DB error");
+        throw new Error('DB error');
       });
 
       const result = service.addRepayment({
@@ -187,10 +182,10 @@ describe("DebtService", () => {
         amountLBP: 0,
       });
 
-      expect(result).toEqual({ success: false, error: "DB error" });
+      expect(result).toEqual({ success: false, error: 'DB error' });
     });
 
-    it("handles null note correctly", () => {
+    it('handles null note correctly', () => {
       mockRepo.addRepayment.mockReturnValue({ id: 789 });
 
       service.addRepayment({
@@ -213,13 +208,15 @@ describe("DebtService", () => {
   // Dashboard Queries
   // ===========================================================================
 
-  describe("getDebtSummary", () => {
-    it("returns debt summary from repository", () => {
+  describe('getDebtSummary', () => {
+    it('returns debt summary from repository', () => {
       const mockSummary = {
         totalDebtUSD: 5000,
         totalDebtLBP: 2000000,
         debtorCount: 15,
-        topDebtors: [{ client_name: "John", total_debt: 500 }],
+        topDebtors: [
+          { client_name: 'John', total_debt: 500 },
+        ],
       };
       mockRepo.getDebtSummary.mockReturnValue(mockSummary as any);
 
