@@ -2,40 +2,13 @@ import { useState, useEffect } from "react";
 import { Wrench, Plus, DollarSign, Trash2 } from "lucide-react";
 import CheckoutModal from "../../../sales/pages/POS/components/CheckoutModal";
 
-type MaintenanceJob = {
-  id: number;
-  device_name: string;
-  issue_description: string;
-  created_at?: string;
-  cost_usd?: number;
-  price_usd?: number;
-  client_name?: string | null;
-  client_phone?: string | null;
-  status: string;
-  paid_usd?: number;
-  paid_lbp?: number;
-  discount_usd?: number;
-  final_amount_usd?: number;
-};
-
-type MaintenancePaymentData = {
-  client_id?: number | null;
-  client_name?: string;
-  client_phone?: string;
-  discount: number;
-  final_amount: number;
-  payment_usd: number;
-  payment_lbp: number;
-  exchange_rate: number;
-};
-
 export default function Maintenance() {
-  const [jobs, setJobs] = useState<MaintenanceJob[]>([]);
+  const [jobs, setJobs] = useState<any[]>([]);
   const [filter, setFilter] = useState("All");
 
   // Form State
   const [isFormOpen, setIsFormOpen] = useState(false);
-  const [editingJob, setEditingJob] = useState<MaintenanceJob | null>(null);
+  const [editingJob, setEditingJob] = useState<any>(null);
 
   const [deviceName, setDeviceName] = useState("");
   const [issue, setIssue] = useState("");
@@ -48,25 +21,17 @@ export default function Maintenance() {
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
 
   useEffect(() => {
-    let cancelled = false;
-
-    void (async () => {
-      try {
-        const data = await window.api.getMaintenanceJobs(filter);
-        if (!cancelled) {
-          setJobs(data);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          console.error("Failed to load jobs:", error);
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
+    loadJobs();
   }, [filter]);
+
+  const loadJobs = async () => {
+    try {
+      const data = await window.api.getMaintenanceJobs(filter);
+      setJobs(data);
+    } catch (error) {
+      console.error("Failed to load jobs:", error);
+    }
+  };
 
   const handleNewJob = () => {
     setEditingJob(null);
@@ -79,7 +44,7 @@ export default function Maintenance() {
     setIsFormOpen(true);
   };
 
-  const handleEdit = (job: MaintenanceJob) => {
+  const handleEdit = (job: any) => {
     setEditingJob(job);
     setDeviceName(job.device_name);
     setIssue(job.issue_description);
@@ -94,24 +59,21 @@ export default function Maintenance() {
   const handleDelete = async (id: number) => {
     if (confirm("Are you sure you want to delete this job?")) {
       await window.api.deleteMaintenanceJob(id);
-      const data = await window.api.getMaintenanceJobs(filter);
-      setJobs(data);
+      loadJobs();
     }
   };
-
-  type Status = "Received" | "In_Progress" | "Ready" | "Delivered";
 
   const handleSaveDraft = async () => {
     // Save without checkout (Status: Received)
     const jobData = {
-      ...(editingJob?.id != null ? { id: editingJob.id } : {}),
+      id: editingJob?.id,
       device_name: deviceName,
       issue_description: issue,
       cost_usd: parseFloat(cost) || 0,
       price_usd: parseFloat(price) || 0,
       client_name: clientName,
       client_phone: clientPhone,
-      status: (editingJob?.status as Status) || "Received",
+      status: editingJob?.status || "Received",
       // No payment details yet
       paid_usd: editingJob?.paid_usd || 0,
       paid_lbp: editingJob?.paid_lbp || 0,
@@ -122,28 +84,23 @@ export default function Maintenance() {
     const result = await window.api.saveMaintenanceJob(jobData);
     if (result.success) {
       setIsFormOpen(false);
-      const data = await window.api.getMaintenanceJobs(filter);
-      setJobs(data);
+      loadJobs();
     } else {
       alert("Error: " + result.error);
     }
   };
 
-  const handleCheckoutComplete = async (
-    paymentData: MaintenancePaymentData,
-  ) => {
+  const handleCheckoutComplete = async (paymentData: any) => {
     // Save with payment details
     const jobData = {
-      ...(editingJob?.id != null ? { id: editingJob.id } : {}),
+      id: editingJob?.id,
       device_name: deviceName,
       issue_description: issue,
       cost_usd: parseFloat(cost) || 0,
       price_usd: parseFloat(price) || 0,
 
       // Client info from checkout (might override form)
-      ...(paymentData.client_id != null
-        ? { client_id: paymentData.client_id }
-        : {}),
+      client_id: paymentData.client_id,
       client_name: paymentData.client_name || clientName,
       client_phone: paymentData.client_phone || clientPhone,
 
@@ -154,15 +111,14 @@ export default function Maintenance() {
       paid_lbp: paymentData.payment_lbp,
       exchange_rate: paymentData.exchange_rate,
 
-      status: "Received" as Status, // Or 'Delivered' if fully paid? Let's keep it Received for now as repair needs to happen.
+      status: "Received", // Or 'Delivered' if fully paid? Let's keep it Received for now as repair needs to happen.
     };
 
     const result = await window.api.saveMaintenanceJob(jobData);
     if (result.success) {
       setIsCheckoutOpen(false);
       setIsFormOpen(false);
-      const data = await window.api.getMaintenanceJobs(filter);
-      setJobs(data);
+      loadJobs();
     } else {
       alert("Error: " + result.error);
     }
@@ -184,7 +140,7 @@ export default function Maintenance() {
   };
 
   return (
-    <div className="h-full min-h-0 flex flex-col gap-6 animate-in fade-in duration-500">
+    <div className="space-y-6 animate-in fade-in duration-500 h-[calc(100vh-theme(spacing.16))] flex flex-col -m-4 p-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-white flex items-center gap-2">
           <Wrench className="text-amber-500" />
@@ -204,11 +160,7 @@ export default function Maintenance() {
         {["All", "Received", "In_Progress", "Ready", "Delivered"].map((s) => (
           <button
             key={s}
-            onClick={async () => {
-              setFilter(s);
-              const data = await window.api.getMaintenanceJobs(s);
-              setJobs(data);
-            }}
+            onClick={() => setFilter(s)}
             className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
               filter === s
                 ? "bg-slate-700 text-white"
@@ -242,9 +194,7 @@ export default function Maintenance() {
                   className="hover:bg-slate-700/20 transition-colors group"
                 >
                   <td className="px-6 py-4 text-sm text-slate-400 whitespace-nowrap">
-                    {job.created_at
-                      ? new Date(job.created_at).toLocaleDateString()
-                      : ""}
+                    {new Date(job.created_at).toLocaleDateString()}
                   </td>
                   <td className="px-6 py-4">
                     <div className="text-sm font-medium text-white">
@@ -266,9 +216,9 @@ export default function Maintenance() {
                   </td>
                   <td className="px-6 py-4">
                     <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(job.status || "")}`}
+                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(job.status)}`}
                     >
-                      {(job.status || "").replace("_", " ")}
+                      {job.status.replace("_", " ")}
                     </span>
                   </td>
                   <td className="px-6 py-4 text-sm font-bold text-white text-right">
@@ -313,18 +263,8 @@ export default function Maintenance() {
 
       {/* New/Edit Job Modal */}
       {isFormOpen && (
-        <div
-          className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) {
-              setIsFormOpen(false);
-            }
-          }}
-        >
-          <div
-            className="bg-slate-800 rounded-xl border border-slate-700 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]"
-            onMouseDown={(e) => e.stopPropagation()}
-          >
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-800 rounded-xl border border-slate-700 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
             <div className="p-4 border-b border-slate-700 flex items-center justify-between bg-slate-900/50">
               <h2 className="text-lg font-bold text-white flex items-center gap-2">
                 <Wrench className="text-amber-500" size={20} />
@@ -464,7 +404,6 @@ export default function Maintenance() {
               // Handle draft from checkout (e.g. if they added client info there)
               await handleCheckoutComplete(data);
             }}
-            onRestoreDraftComplete={() => {}}
           />
         </div>
       )}

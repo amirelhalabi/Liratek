@@ -1,7 +1,6 @@
 import { ipcMain } from "electron";
 import { ReportService } from "../services/ReportService";
 import { dbLogger } from "../utils/logger";
-/* eslint-disable @typescript-eslint/no-require-imports */
 
 export function registerReportHandlers(): void {
   const service = new ReportService();
@@ -12,12 +11,12 @@ export function registerReportHandlers(): void {
       try {
         const { requireRole } = require("../session");
         const auth = requireRole(event.sender.id, ["admin"]);
-        if (!auth.ok) return { success: false, error: auth.error };
+        if (!auth.ok) return { success: false, error: auth.error } as any;
       } catch {}
 
-      dbLogger.info({ filename: data.filename }, "Generating PDF report");
+      dbLogger.info({ filename: data.filename }, 'Generating PDF report');
       return service.generatePdf(data.html, data.filename);
-    },
+    }
   );
 
   // Backup database to Documents/LiratekBackups
@@ -25,10 +24,10 @@ export function registerReportHandlers(): void {
     try {
       const { requireRole } = require("../session");
       const auth = requireRole(event.sender.id, ["admin"]);
-      if (!auth.ok) return { success: false, error: auth.error };
+      if (!auth.ok) return { success: false, error: auth.error } as any;
     } catch {}
 
-    dbLogger.info("Creating database backup");
+    dbLogger.info('Creating database backup');
     return service.backupDatabase();
   });
 }

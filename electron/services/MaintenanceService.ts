@@ -2,7 +2,6 @@ import {
   MaintenanceRepository,
   MaintenanceJob,
 } from "../database/repositories/MaintenanceRepository";
-import { toErrorString } from "../utils/errors";
 
 export interface SaveJobParams {
   id?: number;
@@ -32,21 +31,14 @@ export class MaintenanceService {
   /**
    * Save (create or update) a maintenance job
    */
-  saveJob(params: SaveJobParams): {
-    success: boolean;
-    id?: number;
-    error?: string;
-  } {
+  saveJob(params: SaveJobParams): { success: boolean; id?: number; error?: string } {
     try {
       return this.repo.withTransaction(() => {
         // Handle client auto-creation if name provided but no ID
         let clientId = params.client_id ?? null;
         if (!clientId && params.client_name) {
           try {
-            clientId = this.repo.findOrCreateClient(
-              params.client_name,
-              params.client_phone,
-            );
+            clientId = this.repo.findOrCreateClient(params.client_name, params.client_phone);
           } catch (e) {
             console.error("Auto-create client failed", e);
           }
@@ -54,9 +46,9 @@ export class MaintenanceService {
 
         const jobData: MaintenanceJob = {
           client_id: clientId,
-          client_name: params.client_name ?? null,
+          client_name: params.client_name,
           device_name: params.device_name,
-          issue_description: params.issue_description ?? null,
+          issue_description: params.issue_description,
           cost_usd: params.cost_usd ?? 0,
           price_usd: params.price_usd ?? 0,
           discount_usd: params.discount_usd ?? 0,
@@ -65,7 +57,7 @@ export class MaintenanceService {
           paid_lbp: params.paid_lbp ?? 0,
           exchange_rate: params.exchange_rate ?? 0,
           status: params.status ?? "In Progress",
-          note: params.note ?? null,
+          note: params.note,
         };
 
         if (params.id) {
@@ -73,10 +65,7 @@ export class MaintenanceService {
           this.repo.updateJob(params.id, jobData);
 
           // Log status change for completion
-          if (
-            params.status === "Delivered_Paid" ||
-            params.status === "Delivered"
-          ) {
+          if (params.status === "Delivered_Paid" || params.status === "Delivered") {
             this.repo.logActivity(1, "Maintenance Job Completed", {
               drawer: "General_Drawer_B",
               device: params.device_name,
@@ -84,7 +73,7 @@ export class MaintenanceService {
               status: params.status,
             });
             console.log(
-              `[MAINTENANCE] Job ${params.id} completed: ${params.device_name} - $${params.final_amount_usd} [Drawer B]`,
+              `[MAINTENANCE] Job ${params.id} completed: ${params.device_name} - $${params.final_amount_usd} [Drawer B]`
             );
           }
           return { success: true, id: params.id };
@@ -97,14 +86,14 @@ export class MaintenanceService {
             price_usd: params.price_usd,
           });
           console.log(
-            `[MAINTENANCE] New job: ${params.device_name} - $${params.price_usd} [Drawer B]`,
+            `[MAINTENANCE] New job: ${params.device_name} - $${params.price_usd} [Drawer B]`
           );
           return { success: true, id: newId };
         }
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("MaintenanceService.saveJob error:", error);
-      return { success: false, error: toErrorString(error) };
+      return { success: false, error: error.message };
     }
   }
 
@@ -127,8 +116,8 @@ export class MaintenanceService {
     try {
       this.repo.deleteJob(id);
       return { success: true };
-    } catch (error) {
-      return { success: false, error: toErrorString(error) };
+    } catch (error: any) {
+      return { success: false, error: error.message };
     }
   }
 }

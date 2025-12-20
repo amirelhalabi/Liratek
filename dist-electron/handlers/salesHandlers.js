@@ -13,34 +13,34 @@ const logger_1 = require("../utils/logger");
 function registerSalesHandlers() {
     const salesService = (0, services_1.getSalesService)();
     // Process a sale (create or update)
-    electron_1.ipcMain.handle("sales:process", (_event, sale) => {
-        logger_1.salesLogger.debug({ saleId: sale.id, status: sale.status }, "Processing sale");
+    electron_1.ipcMain.handle('sales:process', (_event, sale) => {
+        logger_1.salesLogger.debug({ saleId: sale.id, status: sale.status }, 'Processing sale');
         return salesService.processSale(sale);
     });
     // Get Drafts
-    electron_1.ipcMain.handle("sales:get-drafts", () => {
-        logger_1.salesLogger.debug("Getting drafts");
+    electron_1.ipcMain.handle('sales:get-drafts', () => {
+        logger_1.salesLogger.debug('Getting drafts');
         return salesService.getDrafts();
     });
     // Dashboard Stats
-    electron_1.ipcMain.handle("sales:get-dashboard-stats", () => {
+    electron_1.ipcMain.handle('sales:get-dashboard-stats', () => {
         return salesService.getDashboardStats();
     });
     // Chart Data (Sales or Profit for last 30 days)
-    electron_1.ipcMain.handle("dashboard:get-profit-sales-chart", (_event, type) => {
-        logger_1.salesLogger.debug({ type }, "Getting chart data");
+    electron_1.ipcMain.handle('dashboard:get-profit-sales-chart', (_event, type) => {
+        logger_1.salesLogger.debug({ type }, 'Getting chart data');
         return salesService.getChartData(type);
     });
     // Drawer Balances
-    electron_1.ipcMain.handle("dashboard:get-drawer-balances", () => {
+    electron_1.ipcMain.handle('dashboard:get-drawer-balances', () => {
         return salesService.getDrawerBalances();
     });
     // Today's Sales for Dashboard card
-    electron_1.ipcMain.handle("sales:get-todays-sales", () => {
+    electron_1.ipcMain.handle('sales:get-todays-sales', () => {
         return salesService.getTodaysSales();
     });
     // Top Products
-    electron_1.ipcMain.handle("sales:get-top-products", () => {
+    electron_1.ipcMain.handle('sales:get-top-products', () => {
         return salesService.getTopProducts();
     });
 }

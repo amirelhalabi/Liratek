@@ -4,7 +4,6 @@ import {
   CreateExpenseData,
   getExpenseRepository,
 } from "../database/repositories/ExpenseRepository";
-import { toErrorString } from "../utils/errors";
 
 export interface ExpenseResult {
   success: boolean;
@@ -34,9 +33,9 @@ export class ExpenseService {
 
       console.log(`[EXPENSE] Added: ${data.category} - $${data.amount_usd}`);
       return { success: true, id };
-    } catch (error) {
+    } catch (error: any) {
       console.error("ExpenseService.addExpense error:", error);
-      return { success: false, error: toErrorString(error) };
+      return { success: false, error: error.message };
     }
   }
 
@@ -72,9 +71,9 @@ export class ExpenseService {
       }
 
       return { success: true };
-    } catch (error) {
+    } catch (error: any) {
       console.error("ExpenseService.deleteExpense error:", error);
-      return { success: false, error: toErrorString(error) };
+      return { success: false, error: error.message };
     }
   }
 }

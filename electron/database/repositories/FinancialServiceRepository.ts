@@ -1,11 +1,11 @@
 /**
  * Financial Service Repository
- *
+ * 
  * Handles all financial_services table operations (OMT, WHISH, BOB, etc.).
  * Uses BaseRepository for common functionality.
  */
 
-import { BaseRepository } from "./BaseRepository";
+import { BaseRepository } from './BaseRepository';
 
 // =============================================================================
 // Entity Types
@@ -13,8 +13,8 @@ import { BaseRepository } from "./BaseRepository";
 
 export interface FinancialServiceEntity {
   id: number;
-  provider: "OMT" | "WHISH" | "BOB" | "OTHER";
-  service_type: "SEND" | "RECEIVE" | "BILL_PAYMENT";
+  provider: 'OMT' | 'WHISH' | 'BOB' | 'OTHER';
+  service_type: 'SEND' | 'RECEIVE' | 'BILL_PAYMENT';
   amount_usd: number;
   amount_lbp: number;
   commission_usd: number;
@@ -27,8 +27,8 @@ export interface FinancialServiceEntity {
 }
 
 export interface CreateFinancialServiceData {
-  provider: "OMT" | "WHISH" | "BOB" | "OTHER";
-  serviceType: "SEND" | "RECEIVE" | "BILL_PAYMENT";
+  provider: 'OMT' | 'WHISH' | 'BOB' | 'OTHER';
+  serviceType: 'SEND' | 'RECEIVE' | 'BILL_PAYMENT';
   amountUSD: number;
   amountLBP: number;
   commissionUSD: number;
@@ -65,7 +65,7 @@ export interface FinancialServiceAnalytics {
 
 export class FinancialServiceRepository extends BaseRepository<FinancialServiceEntity> {
   constructor() {
-    super("financial_services", { softDelete: false });
+    super('financial_services', { softDelete: false });
   }
 
   // ---------------------------------------------------------------------------
@@ -75,10 +75,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
   /**
    * Create a new financial service transaction
    */
-  createTransaction(data: CreateFinancialServiceData): {
-    id: number;
-    drawer: string;
-  } {
+  createTransaction(data: CreateFinancialServiceData): { id: number; drawer: string } {
     const stmt = this.db.prepare(`
       INSERT INTO financial_services (
         provider, service_type, amount_usd, amount_lbp, 
@@ -95,12 +92,11 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       data.commissionLBP || 0,
       data.clientName || null,
       data.referenceNumber || null,
-      data.note || null,
+      data.note || null
     );
 
     // Determine which drawer this affects
-    const drawer =
-      data.provider === "OMT" ? "OMT_Drawer_A" : "General_Drawer_B";
+    const drawer = data.provider === 'OMT' ? 'OMT_Drawer_A' : 'General_Drawer_B';
 
     return { id: Number(result.lastInsertRowid), drawer };
   }
@@ -110,7 +106,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
    */
   logActivity(data: CreateFinancialServiceData, drawer: string): void {
     const logStmt = this.db.prepare(`
-      INSERT INTO activity_logs (user_id, action, details_json, created_at)
+      INSERT INTO activity_logs (user_id, action, details, created_at)
       VALUES (1, 'Financial Service Transaction', ?, CURRENT_TIMESTAMP)
     `);
     logStmt.run(
@@ -119,8 +115,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         provider: data.provider,
         serviceType: data.serviceType,
         commission_usd: data.commissionUSD,
-        commission_lbp: data.commissionLBP,
-      }),
+        commission_lbp: data.commissionLBP
+      })
     );
   }
 
@@ -132,15 +128,15 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
    * Get transaction history, optionally filtered by provider
    */
   getHistory(provider?: string, limit: number = 50): FinancialServiceEntity[] {
-    let query = "SELECT * FROM financial_services";
+    let query = 'SELECT * FROM financial_services';
     const params: (string | number)[] = [];
 
     if (provider) {
-      query += " WHERE provider = ?";
+      query += ' WHERE provider = ?';
       params.push(provider);
     }
 
-    query += " ORDER BY created_at DESC LIMIT ?";
+    query += ' ORDER BY created_at DESC LIMIT ?';
     params.push(limit);
 
     return this.db.prepare(query).all(...params) as FinancialServiceEntity[];
@@ -155,45 +151,35 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
    */
   getAnalytics(): FinancialServiceAnalytics {
     // Today's commission
-    const todayStats = this.db
-      .prepare(
-        `
+    const todayStats = this.db.prepare(`
       SELECT 
         COALESCE(SUM(commission_usd), 0) as today_commission_usd,
         COALESCE(SUM(commission_lbp), 0) as today_commission_lbp,
         COUNT(*) as today_count
       FROM financial_services 
       WHERE DATE(created_at) = DATE('now', 'localtime')
-    `,
-      )
-      .get() as {
+    `).get() as {
       today_commission_usd: number;
       today_commission_lbp: number;
       today_count: number;
     };
 
     // This month's commission
-    const monthStats = this.db
-      .prepare(
-        `
+    const monthStats = this.db.prepare(`
       SELECT 
         COALESCE(SUM(commission_usd), 0) as month_commission_usd,
         COALESCE(SUM(commission_lbp), 0) as month_commission_lbp,
         COUNT(*) as month_count
       FROM financial_services 
       WHERE strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')
-    `,
-      )
-      .get() as {
+    `).get() as {
       month_commission_usd: number;
       month_commission_lbp: number;
       month_count: number;
     };
 
     // By Provider Today
-    const byProvider = this.db
-      .prepare(
-        `
+    const byProvider = this.db.prepare(`
       SELECT 
         provider,
         COALESCE(SUM(commission_usd), 0) as commission_usd,
@@ -202,22 +188,20 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       FROM financial_services 
       WHERE DATE(created_at) = DATE('now', 'localtime')
       GROUP BY provider
-    `,
-      )
-      .all() as ProviderStats[];
+    `).all() as ProviderStats[];
 
     return {
       today: {
         commissionUSD: todayStats.today_commission_usd,
         commissionLBP: todayStats.today_commission_lbp,
-        count: todayStats.today_count,
+        count: todayStats.today_count
       },
       month: {
         commissionUSD: monthStats.month_commission_usd,
         commissionLBP: monthStats.month_commission_lbp,
-        count: monthStats.month_count,
+        count: monthStats.month_count
       },
-      byProvider,
+      byProvider
     };
   }
 }
@@ -226,8 +210,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
 // Singleton Instance
 // =============================================================================
 
-let financialServiceRepositoryInstance: FinancialServiceRepository | null =
-  null;
+let financialServiceRepositoryInstance: FinancialServiceRepository | null = null;
 
 export function getFinancialServiceRepository(): FinancialServiceRepository {
   if (!financialServiceRepositoryInstance) {

@@ -13,28 +13,24 @@ const logger_1 = require("../utils/logger");
 function registerDebtHandlers() {
     const debtService = (0, services_1.getDebtService)();
     // Get all debtors with their totals
-    electron_1.ipcMain.handle("debt:get-debtors", () => {
+    electron_1.ipcMain.handle('debt:get-debtors', () => {
         return debtService.getDebtors();
     });
     // Get debt history for a client
-    electron_1.ipcMain.handle("debt:get-client-history", (_event, clientId) => {
+    electron_1.ipcMain.handle('debt:get-client-history', (_event, clientId) => {
         return debtService.getClientHistory(clientId);
     });
     // Get total debt for a client
-    electron_1.ipcMain.handle("debt:get-client-total", (_event, clientId) => {
+    electron_1.ipcMain.handle('debt:get-client-total', (_event, clientId) => {
         return debtService.getClientTotal(clientId);
     });
     // Add a repayment
-    electron_1.ipcMain.handle("debt:add-repayment", (_event, data) => {
-        logger_1.debtLogger.info({
-            clientId: data.clientId,
-            amountUSD: data.amountUSD,
-            amountLBP: data.amountLBP,
-        }, "Adding repayment");
+    electron_1.ipcMain.handle('debt:add-repayment', (_event, data) => {
+        logger_1.debtLogger.info({ clientId: data.clientId, amountUSD: data.amountUSD, amountLBP: data.amountLBP }, "Adding repayment");
         return debtService.addRepayment(data);
     });
     // Dashboard debt summary
-    electron_1.ipcMain.handle("dashboard:get-debt-summary", () => {
+    electron_1.ipcMain.handle('dashboard:get-debt-summary', () => {
         return debtService.getDebtSummary();
     });
 }

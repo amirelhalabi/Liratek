@@ -30,7 +30,7 @@ export class ActivityRepository extends BaseRepository<ActivityLogEntity> {
     return this.db
       .prepare(
         `SELECT id, user_id, action, table_name, record_id, details_json, created_at 
-         FROM activity_logs ORDER BY id DESC LIMIT ?`,
+         FROM activity_logs ORDER BY id DESC LIMIT ?`
       )
       .all(n) as ActivityLogEntity[];
   }
@@ -43,7 +43,7 @@ export class ActivityRepository extends BaseRepository<ActivityLogEntity> {
     action: string,
     details?: Record<string, unknown>,
     tableName?: string,
-    recordId?: number,
+    recordId?: number
   ): number {
     const stmt = this.db.prepare(`
       INSERT INTO activity_logs (user_id, action, table_name, record_id, details_json, created_at)
@@ -54,7 +54,7 @@ export class ActivityRepository extends BaseRepository<ActivityLogEntity> {
       action,
       tableName || null,
       recordId || null,
-      details ? JSON.stringify(details) : null,
+      details ? JSON.stringify(details) : null
     );
     return Number(result.lastInsertRowid);
   }
@@ -66,7 +66,7 @@ export class ActivityRepository extends BaseRepository<ActivityLogEntity> {
     return this.db
       .prepare(
         `SELECT id, endpoint, error, created_at 
-         FROM sync_errors ORDER BY id DESC LIMIT ?`,
+         FROM sync_errors ORDER BY id DESC LIMIT ?`
       )
       .all(limit) as SyncErrorEntity[];
   }

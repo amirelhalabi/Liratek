@@ -1,37 +1,20 @@
 import { useState, useEffect } from "react";
 import { X, User, DollarSign, Printer, Inbox } from "lucide-react";
 import { EXCHANGE_RATE, DRAWER_B } from "../../../../../config/constants";
-import { roundLBPUp } from "../../../../../config/denominations";
 import {
   formatReceipt58mm,
   type ReceiptData,
 } from "../../../utils/receiptFormatter";
-import type { Client, CartItem, SaleRequest } from "../../../../../types";
-
-export type PaymentData = Omit<SaleRequest, "items" | "status" | "id"> & {
-  cart?: CartItem[];
-} & { clientId?: number | null; paidUSD?: number; paidLBP?: number };
+import type { Client } from "../../../../../types";
 
 interface CheckoutModalProps {
   totalAmount: number;
   onClose: () => void;
-  onComplete: (paymentData: PaymentData) => Promise<void>;
-  onSaveDraft: (paymentData: PaymentData) => Promise<void>;
-  draftData?: CheckoutDraftData; // optional: only provided when restoring a draft
+  onComplete: (paymentData: any) => Promise<void>;
+  onSaveDraft: (paymentData: any) => Promise<void>;
+  draftData?: any;
   onRestoreDraftComplete?: () => void;
 }
-
-export type CheckoutDraftData = {
-  selectedClient: Client | null;
-  clientSearchInput: string;
-  clientSearchSecondary: string;
-  discount: number;
-  paidUSD: number;
-  paidLBP: number;
-  changeGivenUSD: number;
-  changeGivenLBP: number;
-  exchangeRate: number;
-};
 
 export default function CheckoutModal({
   totalAmount,
@@ -71,11 +54,11 @@ export default function CheckoutModal({
       setSelectedClient(draftData.selectedClient);
       setClientSearch(draftData.clientSearchInput);
       setSecondaryInput(draftData.clientSearchSecondary);
-      setDiscount(draftData.discount ?? 0);
-      setPaidUSD(draftData.paidUSD ?? 0);
-      setPaidLBP(draftData.paidLBP ?? 0);
-      setChangeGivenUSD(draftData.changeGivenUSD ?? 0);
-      setChangeGivenLBP(draftData.changeGivenLBP ?? 0);
+      setDiscount(draftData.discount);
+      setPaidUSD(draftData.paidUSD);
+      setPaidLBP(draftData.paidLBP);
+      setChangeGivenUSD(draftData.changeGivenUSD);
+      setChangeGivenLBP(draftData.changeGivenLBP);
       onRestoreDraftComplete?.();
     }
   }, [draftData, onRestoreDraftComplete]);
@@ -143,8 +126,8 @@ export default function CheckoutModal({
 
     return {
       client_id: finalClientId,
-      ...(finalClientName ? { client_name: finalClientName } : {}),
-      ...(finalClientPhone ? { client_phone: finalClientPhone } : {}),
+      client_name: finalClientName,
+      client_phone: finalClientPhone,
       total_amount: totalAmount,
       discount: discount,
       final_amount: finalAmount,
@@ -232,18 +215,8 @@ export default function CheckoutModal({
 
   return (
     <>
-      <div
-        className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-in fade-in duration-200"
-        onMouseDown={(e) => {
-          if (e.target === e.currentTarget) {
-            onClose();
-          }
-        }}
-      >
-        <div
-          className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-7xl shadow-2xl flex overflow-hidden h-[85vh]"
-          onMouseDown={(e) => e.stopPropagation()}
-        >
+      <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+        <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-7xl shadow-2xl flex overflow-hidden h-[85vh]">
           {/* Left: Summary & Client */}
           <div className="w-1/2 bg-slate-800 p-8 border-r border-slate-700 flex flex-col">
             <h2 className="text-2xl font-bold text-white mb-6">Checkout</h2>
@@ -532,16 +505,15 @@ export default function CheckoutModal({
                           const diff = change - totalGiven;
                           const absDiff = Math.abs(diff);
 
-                          // Smart Fix Handler - rounds to payable denominations
+                          // Smart Fix Handler
                           const handleSmartFix = () => {
-                            const integerUSD = Math.floor(change);
-                            const fractionUSD = change - integerUSD;
+                            const floorUSD = Math.floor(change);
+                            const fractionUSD = change - floorUSD;
                             const rawLBP = fractionUSD * exchangeRate;
+                            // Round to nearest 5,000 LBP as requested
+                            const roundedLBP = Math.round(rawLBP / 5000) * 5000;
 
-                            // Round LBP up to nearest 5,000 (smallest LBP bill)
-                            const roundedLBP = roundLBPUp(rawLBP);
-
-                            setChangeGivenUSD(integerUSD);
+                            setChangeGivenUSD(floorUSD);
                             setChangeGivenLBP(roundedLBP);
                           };
 
@@ -636,18 +608,8 @@ export default function CheckoutModal({
 
       {/* Receipt Preview Modal */}
       {showReceiptPreview && (
-        <div
-          className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 p-4"
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) {
-              setShowReceiptPreview(false);
-            }
-          }}
-        >
-          <div
-            className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
-            onMouseDown={(e) => e.stopPropagation()}
-          >
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
             <div className="p-6 border-b border-slate-700 flex justify-between items-center">
               <h2 className="text-2xl font-bold text-white flex items-center gap-2">
                 <Printer size={24} className="text-blue-400" />

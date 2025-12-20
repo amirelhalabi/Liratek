@@ -13,15 +13,15 @@ const logger_1 = require("../utils/logger");
 function registerRechargeHandlers() {
     const rechargeService = (0, services_1.getRechargeService)();
     // Get Virtual Stock
-    electron_1.ipcMain.handle("recharge:get-stock", () => {
+    electron_1.ipcMain.handle('recharge:get-stock', () => {
         return rechargeService.getStock();
     });
     // Process Recharge Transaction (admin only)
-    electron_1.ipcMain.handle("recharge:process", (event, data) => {
-        const auth = (0, session_1.requireRole)(event.sender.id, ["admin"]);
+    electron_1.ipcMain.handle('recharge:process', (event, data) => {
+        const auth = (0, session_1.requireRole)(event.sender.id, ['admin']);
         if (!auth.ok)
             return { success: false, error: auth.error };
-        logger_1.rechargeLogger.info({ provider: data.provider, type: data.type, amount: data.amount }, "Processing recharge");
+        logger_1.rechargeLogger.info({ provider: data.provider, type: data.type, amount: data.amount }, 'Processing recharge');
         return rechargeService.processRecharge(data);
     });
 }

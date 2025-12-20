@@ -1,7 +1,6 @@
 import { BrowserWindow, app } from "electron";
 import path from "path";
 import fs from "fs";
-import { toErrorString } from "../utils/errors";
 
 export interface GeneratePdfResult {
   success: boolean;
@@ -21,7 +20,7 @@ export class ReportService {
    */
   async generatePdf(
     html: string,
-    filename?: string,
+    filename?: string
   ): Promise<GeneratePdfResult> {
     const content = html || "<html><body><pre>No content</pre></body></html>";
     const outputFilename = filename || `report_${Date.now()}.pdf`;
@@ -36,8 +35,7 @@ export class ReportService {
 
     try {
       // Load the HTML via a data URL
-      const dataUrl =
-        "data:text/html;charset=UTF-8," + encodeURIComponent(content);
+      const dataUrl = "data:text/html;charset=UTF-8," + encodeURIComponent(content);
       await win.loadURL(dataUrl);
 
       const pdfBuffer = await win.webContents.printToPDF({
@@ -60,9 +58,9 @@ export class ReportService {
       fs.writeFileSync(outPath, pdfBuffer);
 
       return { success: true, path: outPath };
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to generate PDF report:", error);
-      return { success: false, error: toErrorString(error) };
+      return { success: false, error: error.message };
     } finally {
       win.destroy();
     }
@@ -76,19 +74,19 @@ export class ReportService {
       const userDataPath = app.getPath("userData");
       const dbPath = path.join(userDataPath, "phone_shop.db");
       const backupsDir = path.join(app.getPath("documents"), "LiratekBackups");
-
+      
       if (!fs.existsSync(backupsDir)) {
         fs.mkdirSync(backupsDir, { recursive: true });
       }
-
+      
       const ts = new Date().toISOString().replace(/[:.]/g, "-");
       const outPath = path.join(backupsDir, `backup_${ts}.sqlite`);
       fs.copyFileSync(dbPath, outPath);
-
+      
       return { success: true, path: outPath };
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to backup database:", error);
-      return { success: false, error: toErrorString(error) };
+      return { success: false, error: error.message };
     }
   }
 }

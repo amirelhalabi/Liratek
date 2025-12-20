@@ -13,18 +13,18 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
+      
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
-
+          node-version: '20'
+      
       - name: Enable Corepack
         run: corepack enable
-
+      
       - name: Install dependencies
         run: yarn install --immutable
-
+      
       - name: Run ESLint
         run: yarn lint
 
@@ -34,18 +34,18 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
+      
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
-
+          node-version: '20'
+      
       - name: Enable Corepack
         run: corepack enable
-
+      
       - name: Install dependencies
         run: yarn install --immutable
-
+      
       - name: TypeScript check
         run: yarn typecheck
 
@@ -55,24 +55,24 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
+      
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
-
+          node-version: '20'
+      
       - name: Enable Corepack
         run: corepack enable
-
+      
       - name: Install dependencies
         run: yarn install --immutable
-
+      
       - name: Run tests
         run: yarn test
-
+      
       - name: Run tests with coverage
         run: yarn test:coverage
-
+      
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
@@ -86,17 +86,17 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
+      
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
-
+          node-version: '20'
+      
       - name: Enable Corepack
         run: corepack enable
-
+      
       - name: Install dependencies
         run: yarn install --immutable
-
+      
       - name: Build
         run: yarn build

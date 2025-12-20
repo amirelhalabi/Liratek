@@ -1,11 +1,11 @@
 /**
  * Debt Repository
- *
+ * 
  * Handles all debt_ledger table operations.
  * Uses BaseRepository for common functionality.
  */
 
-import { BaseRepository } from "./BaseRepository";
+import { BaseRepository } from './BaseRepository';
 
 // =============================================================================
 // Entity Types
@@ -54,7 +54,7 @@ export interface CreateRepaymentData {
 
 export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
   constructor() {
-    super("debt_ledger", { softDelete: false });
+    super('debt_ledger', { softDelete: false });
   }
 
   // ---------------------------------------------------------------------------
@@ -81,13 +81,12 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
 
   /**
    * Get debt history for a specific client
-   * Default: most recent first (DESC)
    */
   findClientHistory(clientId: number): DebtLedgerEntity[] {
     const stmt = this.db.prepare(`
       SELECT * FROM debt_ledger 
       WHERE client_id = ? 
-      ORDER BY created_at DESC
+      ORDER BY created_at ASC
     `);
     return stmt.all(clientId) as DebtLedgerEntity[];
   }
@@ -97,7 +96,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
    */
   getClientDebtTotal(clientId: number): number {
     const stmt = this.db.prepare(
-      "SELECT SUM(amount_usd) as total FROM debt_ledger WHERE client_id = ?",
+      'SELECT SUM(amount_usd) as total FROM debt_ledger WHERE client_id = ?'
     );
     const result = stmt.get(clientId) as { total: number | null };
     return result?.total || 0;
@@ -115,16 +114,16 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, note, created_by)
       VALUES (?, 'Repayment', ?, ?, ?, ?)
     `);
-
+    
     // Store as negative values to signify a reduction in debt
     const result = stmt.run(
       data.client_id,
       -data.amount_usd,
       -data.amount_lbp,
       data.note || null,
-      data.created_by || null,
+      data.created_by || null
     );
-
+    
     return { id: Number(result.lastInsertRowid) };
   }
 
@@ -137,18 +136,12 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
    */
   getDebtSummary(topN: number = 5): DebtSummary {
     // Total debt receivable
-    const totalDebtResult = this.db
-      .prepare(
-        `
+    const totalDebtResult = this.db.prepare(`
       SELECT SUM(amount_usd) as totalDebt FROM debt_ledger
-    `,
-      )
-      .get() as { totalDebt: number | null };
+    `).get() as { totalDebt: number | null };
 
     // Top N debtors (only those with positive debt)
-    const topDebtors = this.db
-      .prepare(
-        `
+    const topDebtors = this.db.prepare(`
       SELECT 
         c.full_name,
         SUM(dl.amount_usd) as total_debt
@@ -158,13 +151,11 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       HAVING total_debt > 0.01
       ORDER BY total_debt DESC
       LIMIT ?
-    `,
-      )
-      .all(topN) as TopDebtor[];
+    `).all(topN) as TopDebtor[];
 
     return {
       totalDebt: totalDebtResult?.totalDebt || 0,
-      topDebtors,
+      topDebtors
     };
   }
 }

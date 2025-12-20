@@ -26,36 +26,24 @@ export default function MainLayout({ children }: MainLayoutProps) {
 
   const [isClosingModalOpen, setIsClosingModalOpen] = useState(false);
   const [isOpeningModalOpen, setIsOpeningModalOpen] = useState(false);
-  const { user, needsOpening, clearOpeningFlag } = useAuth();
+  const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   // Expose user id for downstream calls (Closing)
-  if (user?.id != null) {
-    window.currentUserId = user.id;
-  } else {
-    delete window.currentUserId;
-  }
+  (window as any).currentUserId = user?.id;
 
   // Listen to app-wide events so modals work from anywhere
   useEffect(() => {
-    const offClosing = appEvents.on("openClosingModal", () => {
-      setIsClosingModalOpen(true);
-    });
-    const offOpening = appEvents.on("openOpeningModal", () => {
-      setIsOpeningModalOpen(true);
-    });
-
+    const offClosing = appEvents.on("openClosingModal", () =>
+      setIsClosingModalOpen(true),
+    );
+    const offOpening = appEvents.on("openOpeningModal", () =>
+      setIsOpeningModalOpen(true),
+    );
     return () => {
       offClosing();
       offOpening();
     };
   }, []);
-
-  // Auto-open Opening after login if required
-  useEffect(() => {
-    if (isAdmin && needsOpening) {
-      setIsOpeningModalOpen(true);
-    }
-  }, [isAdmin, needsOpening]);
 
   return (
     <div className="flex h-screen bg-slate-900 text-white overflow-hidden">
@@ -67,19 +55,16 @@ export default function MainLayout({ children }: MainLayoutProps) {
         </main>
       </div>
       <NotificationCenter /> {/* Render NotificationCenter here */}
-      {isAdmin && isOpeningModalOpen && (
-        <Opening
-          isOpen={isOpeningModalOpen}
-          onClose={() => {
-            setIsOpeningModalOpen(false);
-            clearOpeningFlag();
-          }}
-        />
-      )}
       {isAdmin && isClosingModalOpen && (
         <Closing
           isOpen={isClosingModalOpen}
           onClose={() => setIsClosingModalOpen(false)}
+        />
+      )}
+      {isAdmin && isOpeningModalOpen && (
+        <Opening
+          isOpen={isOpeningModalOpen}
+          onClose={() => setIsOpeningModalOpen(false)}
         />
       )}
     </div>

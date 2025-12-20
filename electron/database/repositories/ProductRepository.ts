@@ -1,16 +1,12 @@
 /**
  * Product Repository
- *
+ * 
  * Handles all database operations for products/inventory.
  * Extends BaseRepository for standard CRUD operations.
  */
 
-import {
-  BaseRepository,
-  type FindOptions,
-  type PaginatedResult,
-} from "./BaseRepository";
-import { DatabaseError } from "../../utils/errors";
+import { BaseRepository, type FindOptions, type PaginatedResult } from './BaseRepository';
+import { DatabaseError } from '../../utils/errors';
 
 // =============================================================================
 // Types
@@ -55,8 +51,8 @@ export interface CreateProductData {
   barcode: string;
   name: string;
   category: string;
-  cost_price: number; // Maps to cost_price_usd
-  retail_price: number; // Maps to selling_price_usd
+  cost_price: number;       // Maps to cost_price_usd
+  retail_price: number;     // Maps to selling_price_usd
   stock_quantity?: number;
   min_stock_level?: number;
   image_url?: string;
@@ -91,7 +87,7 @@ export interface LowStockProduct {
 
 export class ProductRepository extends BaseRepository<ProductEntity> {
   constructor() {
-    super("products", { softDelete: true });
+    super('products', { softDelete: true });
   }
 
   // ---------------------------------------------------------------------------
@@ -123,24 +119,22 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
       query += ` ORDER BY name ASC`;
       return this.query<ProductDTO>(query, ...params);
     } catch (error) {
-      throw new DatabaseError("Failed to find products", { cause: error });
+      throw new DatabaseError('Failed to find products', { cause: error });
     }
   }
 
   /**
    * Get paginated products with search filter
    */
-  findProductsPaginated(
-    options: FindOptions & { search?: string } = {},
-  ): PaginatedResult<ProductDTO> {
+  findProductsPaginated(options: FindOptions & { search?: string } = {}): PaginatedResult<ProductDTO> {
     const { limit = 50, offset = 0, search } = options;
-
+    
     const data = this.findAllProducts(search);
     const total = search ? data.length : this.count();
-
+    
     // Apply pagination in memory for simplicity (or could do SQL LIMIT/OFFSET)
     const paginatedData = limit ? data.slice(offset, offset + limit) : data;
-
+    
     return {
       data: paginatedData,
       total,
@@ -158,9 +152,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
       const query = `SELECT * FROM ${this.tableName} WHERE barcode = ? AND is_active = 1`;
       return this.queryOne<ProductEntity>(query, barcode);
     } catch (error) {
-      throw new DatabaseError("Failed to find product by barcode", {
-        cause: error,
-      });
+      throw new DatabaseError('Failed to find product by barcode', { cause: error });
     }
   }
 
@@ -172,13 +164,11 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
       const query = excludeId
         ? `SELECT 1 FROM ${this.tableName} WHERE barcode = ? AND id != ?`
         : `SELECT 1 FROM ${this.tableName} WHERE barcode = ?`;
-
+      
       const params = excludeId ? [barcode, excludeId] : [barcode];
       return this.queryOne<{ 1: number }>(query, ...params) !== null;
     } catch (error) {
-      throw new DatabaseError("Failed to check barcode existence", {
-        cause: error,
-      });
+      throw new DatabaseError('Failed to check barcode existence', { cause: error });
     }
   }
 
@@ -203,19 +193,15 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
         data.stock_quantity ?? 0,
         data.min_stock_level ?? 5,
         data.image_url ?? null,
-        data.item_type ?? "Product",
+        data.item_type ?? 'Product',
       );
 
       return { id: result.lastInsertRowid as number };
-    } catch (error) {
-      const code = (error as { code?: string })?.code;
-      if (code === "SQLITE_CONSTRAINT_UNIQUE") {
-        throw new DatabaseError("Barcode already exists", {
-          cause: error,
-          code: "DUPLICATE_BARCODE",
-        });
+    } catch (error: any) {
+      if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+        throw new DatabaseError('Barcode already exists', { cause: error, code: 'DUPLICATE_BARCODE' });
       }
-      throw new DatabaseError("Failed to create product", { cause: error });
+      throw new DatabaseError('Failed to create product', { cause: error });
     }
   }
 
@@ -248,36 +234,26 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
       );
 
       return result.changes > 0;
-    } catch (error) {
-      const code = (error as { code?: string })?.code;
-      if (code === "SQLITE_CONSTRAINT_UNIQUE") {
-        throw new DatabaseError("Barcode already exists", {
-          cause: error,
-          code: "DUPLICATE_BARCODE",
-        });
+    } catch (error: any) {
+      if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+        throw new DatabaseError('Barcode already exists', { cause: error, code: 'DUPLICATE_BARCODE' });
       }
-      throw new DatabaseError("Failed to update product", {
-        cause: error,
-        entityId: id,
-      });
+      throw new DatabaseError('Failed to update product', { cause: error, entityId: id });
     }
   }
 
   /**
    * Update product with all fields explicitly (for handler compatibility)
    */
-  updateProductFull(
-    id: number,
-    data: {
-      barcode: string;
-      name: string;
-      category: string;
-      cost_price: number;
-      retail_price: number;
-      min_stock_level: number;
-      image_url?: string | null;
-    },
-  ): boolean {
+  updateProductFull(id: number, data: {
+    barcode: string;
+    name: string;
+    category: string;
+    cost_price: number;
+    retail_price: number;
+    min_stock_level: number;
+    image_url?: string | null;
+  }): boolean {
     try {
       const stmt = this.db.prepare(`
         UPDATE ${this.tableName} SET
@@ -298,18 +274,11 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
       );
 
       return result.changes > 0;
-    } catch (error) {
-      const code = (error as { code?: string })?.code;
-      if (code === "SQLITE_CONSTRAINT_UNIQUE") {
-        throw new DatabaseError("Barcode already exists", {
-          cause: error,
-          code: "DUPLICATE_BARCODE",
-        });
+    } catch (error: any) {
+      if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+        throw new DatabaseError('Barcode already exists', { cause: error, code: 'DUPLICATE_BARCODE' });
       }
-      throw new DatabaseError("Failed to update product", {
-        cause: error,
-        entityId: id,
-      });
+      throw new DatabaseError('Failed to update product', { cause: error, entityId: id });
     }
   }
 
@@ -321,14 +290,11 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
       const result = this.execute(
         `UPDATE ${this.tableName} SET stock_quantity = ? WHERE id = ?`,
         newQuantity,
-        id,
+        id
       );
       return result.changes > 0;
     } catch (error) {
-      throw new DatabaseError("Failed to adjust stock", {
-        cause: error,
-        entityId: id,
-      });
+      throw new DatabaseError('Failed to adjust stock', { cause: error, entityId: id });
     }
   }
 
@@ -340,14 +306,11 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
       const result = this.execute(
         `UPDATE ${this.tableName} SET stock_quantity = stock_quantity + ? WHERE id = ? AND is_active = 1`,
         delta,
-        id,
+        id
       );
       return result.changes > 0;
     } catch (error) {
-      throw new DatabaseError("Failed to adjust stock delta", {
-        cause: error,
-        entityId: id,
-      });
+      throw new DatabaseError('Failed to adjust stock delta', { cause: error, entityId: id });
     }
   }
 
@@ -356,8 +319,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
    */
   deductStockForSale(saleId: number): void {
     try {
-      this.execute(
-        `
+      this.execute(`
         UPDATE ${this.tableName}
         SET stock_quantity = stock_quantity - (
           SELECT quantity 
@@ -365,14 +327,9 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
           WHERE sale_items.product_id = products.id AND sale_items.sale_id = ?
         )
         WHERE id IN (SELECT product_id FROM sale_items WHERE sale_id = ?)
-      `,
-        saleId,
-        saleId,
-      );
+      `, saleId, saleId);
     } catch (error) {
-      throw new DatabaseError("Failed to deduct stock for sale", {
-        cause: error,
-      });
+      throw new DatabaseError('Failed to deduct stock for sale', { cause: error });
     }
   }
 
@@ -390,7 +347,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
       `);
       return result ?? { stock_budget_usd: 0, stock_count: 0 };
     } catch (error) {
-      throw new DatabaseError("Failed to get stock stats", { cause: error });
+      throw new DatabaseError('Failed to get stock stats', { cause: error });
     }
   }
 
@@ -406,9 +363,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
         ORDER BY name ASC
       `);
     } catch (error) {
-      throw new DatabaseError("Failed to get low stock products", {
-        cause: error,
-      });
+      throw new DatabaseError('Failed to get low stock products', { cause: error });
     }
   }
 
@@ -424,21 +379,18 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
       `);
       return result?.total ?? 0;
     } catch (error) {
-      throw new DatabaseError("Failed to get virtual stock", { cause: error });
+      throw new DatabaseError('Failed to get virtual stock', { cause: error });
     }
   }
 
   /**
    * Search products by multiple criteria
    */
-  search(
-    term: string,
-    options: { limit?: number; category?: string } = {},
-  ): ProductDTO[] {
+  search(term: string, options: { limit?: number; category?: string } = {}): ProductDTO[] {
     try {
       const { limit = 20, category } = options;
       const searchTerm = `%${term}%`;
-
+      
       let query = `
         SELECT 
           id, barcode, name, category, stock_quantity, min_stock_level, 
@@ -460,7 +412,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
 
       return this.query<ProductDTO>(query, ...params);
     } catch (error) {
-      throw new DatabaseError("Failed to search products", { cause: error });
+      throw new DatabaseError('Failed to search products', { cause: error });
     }
   }
 
@@ -474,9 +426,9 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
         WHERE is_active = 1 AND category IS NOT NULL AND category != ''
         ORDER BY category ASC
       `);
-      return results.map((r) => r.category);
+      return results.map(r => r.category);
     } catch (error) {
-      throw new DatabaseError("Failed to get categories", { cause: error });
+      throw new DatabaseError('Failed to get categories', { cause: error });
     }
   }
 }

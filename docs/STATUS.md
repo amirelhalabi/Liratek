@@ -1,13 +1,8 @@
-# Project Status (Deprecated)
-
-This document is deprecated. Please refer to docs/CURRENT_SPRINT.md for the canonical tracker of active work, backlog, and completed items.
-
-## Project Status (Historical Reference)
+# LiraTek Project Status
 
 **Version:** 1.0.0  
 **Release Date:** December 18, 2025  
-**Last Updated:** December 19, 2025  
-**Status:** ✅ Released + Active Development  
+**Status:** ✅ Released  
 **GitHub:** https://github.com/amirelhalabi/Liratek
 
 ---
@@ -17,7 +12,6 @@ This document is deprecated. Please refer to docs/CURRENT_SPRINT.md for the cano
 ### ✅ All Critical Milestones Achieved
 
 #### Build & Distribution ✅ [x] DONE
-
 - ✅ Windows x64 builds working (NSIS installer)
 - ✅ macOS ARM64 (Apple Silicon) builds working
 - ✅ macOS Intel builds working
@@ -26,7 +20,6 @@ This document is deprecated. Please refer to docs/CURRENT_SPRINT.md for the cano
 - ✅ Multi-platform CI/CD pipeline functional
 
 #### Documentation ✅ [x] DONE
-
 - ✅ Comprehensive build guide (`docs/development/BUILD.md`)
 - ✅ Build & versioning analysis (`docs/development/BUILD_VERSIONING_ANALYSIS.md`)
 - ✅ Icon generation guide (`docs/release/ICON_GENERATION_GUIDE.md`)
@@ -37,7 +30,6 @@ This document is deprecated. Please refer to docs/CURRENT_SPRINT.md for the cano
 - ✅ Documentation organized into logical categories
 
 #### Core Features ✅ [x] DONE
-
 - ✅ Authentication & Authorization
 - ✅ Inventory Management
 - ✅ Point of Sale (POS)
@@ -53,7 +45,6 @@ This document is deprecated. Please refer to docs/CURRENT_SPRINT.md for the cano
 - ✅ Settings & Configuration
 
 #### Security ✅ [x] DONE
-
 - ✅ Scrypt password hashing with salt
 - ✅ Session encryption via OS keychain
 - ✅ Role-based access control
@@ -61,55 +52,40 @@ This document is deprecated. Please refer to docs/CURRENT_SPRINT.md for the cano
 - ✅ Context isolation enabled
 - ✅ Node integration disabled
 
-#### Testing ✅ DONE
-
-- ✅ 41/41 test suites passing
-- ✅ 413/413 tests passing
-- ✅ 60%+ code coverage (comprehensive business logic)
+#### Testing 🟡 In Progress
+- ✅ 12/12 test suites passing
+- 🟡 40% code coverage (expanding)
 - ✅ Unit tests for services
 - ✅ Integration tests for handlers
 - ✅ IPC handler tests
-- ✅ React component tests with jsdom
-
----
-
-## 🧪 Testing & Quality
-
-- Lint: 0 errors, ~119 warnings (mostly `no-explicit-any` in repositories/services/UI and some preload)
-- Typecheck: clean
-- Tests: 41/41 passing
-- Coverage: ~59% statements, ~43% branches, ~48% functions (repositories lower, services/components high)
 
 ---
 
 ## 📊 Component Status
 
-| Component              | Status      | Notes                               |
-| ---------------------- | ----------- | ----------------------------------- |
-| **Frontend (React)**   | ✅ Complete | 14 feature modules, responsive UI   |
-| **Backend (Electron)** | ✅ Complete | 13 IPC handler modules              |
-| **Database (SQLite)**  | ✅ Complete | 20+ tables, migrations ready        |
-| **Build System**       | ✅ Complete | Vite + electron-builder             |
-| **CI/CD**              | ✅ Complete | GitHub Actions (3 workflows)        |
-| **Icons**              | ✅ Complete | Windows ICO, macOS ICNS, PNG source |
-| **Documentation**      | ✅ 90%      | Organized, comprehensive            |
-| **Code Signing**       | ⏳ Future   | Deferred to v1.1+                   |
-| **Auto-Updates**       | ⏳ Future   | Deferred to v1.1+                   |
+| Component | Status | Notes |
+|-----------|--------|-------|
+| **Frontend (React)** | ✅ Complete | 14 feature modules, responsive UI |
+| **Backend (Electron)** | ✅ Complete | 13 IPC handler modules |
+| **Database (SQLite)** | ✅ Complete | 20+ tables, migrations ready |
+| **Build System** | ✅ Complete | Vite + electron-builder |
+| **CI/CD** | ✅ Complete | GitHub Actions (3 workflows) |
+| **Icons** | ✅ Complete | Windows ICO, macOS ICNS, PNG source |
+| **Documentation** | ✅ 90% | Organized, comprehensive |
+| **Code Signing** | ⏳ Future | Deferred to v1.1+ |
+| **Auto-Updates** | ⏳ Future | Deferred to v1.1+ |
 
 ---
 
 ## 🚀 Release Artifacts
 
 ### v1.0.0 Downloads
-
 Available at: https://github.com/amirelhalabi/Liratek/releases/tag/v1.0.0
 
 **Windows:**
-
 - LiraTek-1.0.0-x64.exe (~100 MB)
 
 **macOS:**
-
 - LiraTek-1.0.0-arm64.dmg (Apple Silicon)
 - LiraTek-1.0.0.dmg (Intel)
 - LiraTek-1.0.0-mac.zip (Intel, alternate format)
@@ -153,7 +129,6 @@ liratek/
 ## 🎯 Next Steps (Future Releases)
 
 ### v1.1.0 (Planned)
-
 - ⏳ Code signing for macOS notarization
 - ⏳ Code signing for Windows (avoid SmartScreen warnings)
 - ⏳ Auto-update mechanism
@@ -161,14 +136,12 @@ liratek/
 - ⏳ Expand test coverage to 70%+
 
 ### v1.2.0 (Planned)
-
 - ⏳ Hardware barcode scanner integration
 - ⏳ Receipt printer support
 - ⏳ Email receipt delivery
 - ⏳ Advanced analytics & reports
 
 ### v2.0.0 (Future Vision)
-
 - ⏳ Cloud backup & sync (optional)
 - ⏳ Multi-shop support
 - ⏳ Mobile companion app
@@ -179,17 +152,13 @@ liratek/
 ## 📈 Metrics
 
 ### Development
-
 - **Development Time:** 6+ months
-- **Lines of Code:** ~16,000+
-- **Test Coverage:** 60%+ (41/41 suites, 413/413 tests passing)
-- **Commits:** 150+
-- **User Tracking:** Complete audit trail across all modules
-- **Security:** Role-based access control implemented
+- **Lines of Code:** ~15,000
+- **Test Coverage:** 40% (12/12 suites passing)
+- **Commits:** 100+
 - **Contributors:** 1 (Amir)
 
 ### Features
-
 - **Feature Modules:** 14
 - **IPC Handlers:** 13
 - **Database Tables:** 20+
@@ -197,7 +166,6 @@ liratek/
 - **Test Suites:** 12
 
 ### Build & Distribution
-
 - **Platforms:** 3 (Windows x64, macOS ARM64, macOS Intel)
 - **Installers:** 4 file formats
 - **Total Size:** ~340 MB (all platforms)
@@ -219,7 +187,6 @@ liratek/
 ## ✅ Production Readiness Checklist
 
 ### Critical Items ✅ All Complete
-
 - ✅ All core features implemented
 - ✅ All test suites passing
 - ✅ Security hardening complete
@@ -229,7 +196,6 @@ liratek/
 - ✅ Documentation comprehensive and organized
 
 ### Optional Items (Future)
-
 - ⏳ Code signing (Windows & macOS)
 - ⏳ Auto-update mechanism
 - ⏳ 70%+ test coverage
@@ -242,13 +208,11 @@ liratek/
 **Production Status:** ✅ Ready for production use
 
 **Known Limitations:**
-
 - macOS app requires manual approval on first launch (not notarized)
 - Windows app may show SmartScreen warning (not signed)
 - Exchange rates require manual updates (no API integration yet)
 
 **Recommended for:**
-
 - Lebanese phone shops
 - Electronics retailers
 - Small to medium businesses
@@ -263,7 +227,6 @@ liratek/
 Releases are **fully automated** via GitHub Actions when you push to the `main` branch.
 
 **Workflow:**
-
 1. Push code to `main` branch
 2. GitHub Actions automatically:
    - Creates a semantic version tag
@@ -272,7 +235,6 @@ Releases are **fully automated** via GitHub Actions when you push to the `main` 
    - Uploads all installers
 
 **Configuration:**
-
 - **Workflow File:** `.github/workflows/release.yml`
 - **Trigger:** Push to `main` branch
 - **Build Time:** ~45 minutes (all platforms)
@@ -289,7 +251,6 @@ If you need to create a manual release:
    - Target: `main` branch
 
 3. **Release Title:**
-
    ```
    LiraTek v1.x.x - [Release Name] 🎉
    ```
@@ -316,27 +277,20 @@ A comprehensive Point of Sale system designed for Lebanese phone shops with adva
 ## 📦 Downloads
 
 ### Windows
-
 **[LiraTek-1.x.x-x64.exe](LiraTek-1.x.x-x64.exe)** (~94 MB)
-
 - Windows 10/11 (64-bit)
 - One-click installer, no admin rights required
 
 ### macOS Apple Silicon
-
 **[LiraTek-1.x.x-arm64.dmg](LiraTek-1.x.x-arm64.dmg)** (~122 MB)
-
 - macOS 12+ (M1/M2/M3 chips)
 - Native ARM64 performance
 
 ### macOS Intel
-
 **[LiraTek-1.x.x.dmg](LiraTek-1.x.x.dmg)** (~127 MB)
-
 - macOS 12+ (Intel processors)
 
 **[LiraTek-1.x.x-mac.zip](LiraTek-1.x.x-mac.zip)** (~122 MB)
-
 - macOS 12+ (Intel) - ZIP alternative
 
 ---
@@ -350,13 +304,11 @@ A comprehensive Point of Sale system designed for Lebanese phone shops with adva
 ## 🚀 Installation
 
 ### Windows
-
 1. Download `LiraTek-1.x.x-x64.exe`
 2. Run the installer
 3. Launch from Start Menu or Desktop
 
 ### macOS
-
 1. Download the DMG for your Mac (ARM64 for M1/M2/M3, Intel for older Macs)
 2. Open DMG and drag to Applications
 3. **First Launch:** Right-click → Open (app is not notarized)
@@ -393,12 +345,10 @@ A comprehensive Point of Sale system designed for Lebanese phone shops with adva
 ## 💪 Support
 
 **Need help?**
-
 - [Report an Issue](https://github.com/amirelhalabi/Liratek/issues)
 - [Join Discussions](https://github.com/amirelhalabi/Liratek/discussions)
 
 When reporting bugs, please include:
-
 - OS and version
 - Steps to reproduce
 - Expected vs actual behavior
@@ -415,85 +365,3 @@ For the latest updates, watch this repository on GitHub.
 
 **Last Updated:** December 18, 2025  
 **Next Review:** January 2026 (post-v1.0 feedback collection)
-
----
-
-## 🔄 Recent Development (December 19, 2025)
-
-### Major UX & Architecture Improvements
-
-#### Dashboard Enhancements
-
-- ✅ Reorganized into 3 logical sections (Financial, Drawers, Stock)
-- ✅ Separated Sales Revenue from Cash Collected for accurate accounting
-- ✅ Reduced card height by 10% for better space utilization
-- ✅ Currency formatting standardized ($amount everywhere)
-- ✅ Chart Y-axis now shows $ for profit values
-- ✅ Sidebar widgets (Top Debtors + Today's Sales) match chart height
-
-#### Bill Denomination Logic
-
-- ✅ Implemented smart rounding for real-world denominations
-- ✅ LBP: 5k, 10k, 20k, 50k, 100k (no 1k bills)
-- ✅ USD: $1, $5, $10, $20, $50, $100
-- ✅ Always rounds UP to nearest payable amount
-- ✅ Applied to CheckoutModal Fix button and debt breakdown
-
-#### Debt Management
-
-- ✅ Settlement modal now auto-fills with calculated amounts
-- ✅ Redesigned with merged "Amount" column (USD | LBP side-by-side)
-- ✅ Debt history table shows currency inline (+$170 | +60,000 LBP)
-- ✅ Date column sortable (most recent first by default)
-- ✅ Auto-selects first client when page loads
-- ✅ Debt repayments now track user_id for audit trail
-
-#### Opening/Closing Redesign
-
-- ✅ Clean, flat design matching platform aesthetic
-- ✅ Removed gradients, emojis, elaborate styling
-- ✅ Fixed input bugs (zero-value handling)
-- ✅ MTC/Alfa drawers show USD only (phone credits)
-- ✅ Sidebar Opening button now works correctly
-- ✅ Daily closings now track user_id for audit trail
-
-#### User Authentication & Security
-
-- ✅ Added useAuth to ALL modules for complete audit trail
-- ✅ Settings now admin-only (filtered from sidebar for non-admins)
-- ✅ Opening/Closing buttons admin-only (already implemented)
-- ✅ All operational features accessible to all authenticated users
-- ✅ User tracking infrastructure ready across all transactions
-
-#### Database Schema
-
-- ✅ Default currencies (USD, LBP) now seeded automatically
-- ✅ Runtime migration patches missing columns (created_by)
-- ✅ Idempotent migrations safe for existing installations
-
-#### Testing Infrastructure
-
-- ✅ Added jsdom support for React component testing
-- ✅ Created tsconfig.jest.json for Jest-friendly TypeScript
-- ✅ All Opening/Closing component tests added
-- ✅ 41/41 test suites, 413/413 tests passing
-
-### Files Created
-
-- `src/config/denominations.ts` - Bill denomination logic
-- `tsconfig.jest.json` - Jest TypeScript configuration
-- `src/features/closing/pages/Opening/__tests__/Opening.test.tsx`
-- `src/features/closing/pages/Closing/__tests__/Closing.test.tsx`
-- `src/features/closing/components/__tests__/DrawerCard.test.tsx`
-
-### Architecture Improvements
-
-- Centralized bill denomination logic
-- Enhanced AuthContext usage across all modules
-- Better separation of concerns (revenue vs cash flow)
-- Complete audit trail infrastructure
-- Role-based access control implemented
-
----
-
-**Last Updated:** December 19, 2025

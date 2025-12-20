@@ -41,9 +41,7 @@ describe("ClientHandlers", () => {
     // Mock service
     mockService = {
       getClients: jest.fn().mockReturnValue([{ id: 1, full_name: "John Doe" }]),
-      getClientById: jest
-        .fn()
-        .mockReturnValue({ id: 1, full_name: "John Doe" }),
+      getClientById: jest.fn().mockReturnValue({ id: 1, full_name: "John Doe" }),
       createClient: jest.fn().mockReturnValue({ success: true, id: 1 }),
       updateClient: jest.fn().mockReturnValue({ success: true }),
       deleteClient: jest.fn().mockReturnValue({ success: true }),
@@ -58,26 +56,11 @@ describe("ClientHandlers", () => {
 
   describe("Handler Registration", () => {
     it("should register all client handlers", () => {
-      expect(ipcMain.handle).toHaveBeenCalledWith(
-        "clients:get-all",
-        expect.any(Function),
-      );
-      expect(ipcMain.handle).toHaveBeenCalledWith(
-        "clients:get-one",
-        expect.any(Function),
-      );
-      expect(ipcMain.handle).toHaveBeenCalledWith(
-        "clients:create",
-        expect.any(Function),
-      );
-      expect(ipcMain.handle).toHaveBeenCalledWith(
-        "clients:update",
-        expect.any(Function),
-      );
-      expect(ipcMain.handle).toHaveBeenCalledWith(
-        "clients:delete",
-        expect.any(Function),
-      );
+      expect(ipcMain.handle).toHaveBeenCalledWith("clients:get-all", expect.any(Function));
+      expect(ipcMain.handle).toHaveBeenCalledWith("clients:get-one", expect.any(Function));
+      expect(ipcMain.handle).toHaveBeenCalledWith("clients:create", expect.any(Function));
+      expect(ipcMain.handle).toHaveBeenCalledWith("clients:update", expect.any(Function));
+      expect(ipcMain.handle).toHaveBeenCalledWith("clients:delete", expect.any(Function));
     });
   });
 
@@ -172,10 +155,7 @@ describe("ClientHandlers", () => {
     });
 
     it("should reject non-admin users", async () => {
-      (requireRole as jest.Mock).mockReturnValue({
-        ok: false,
-        error: "Admin required",
-      });
+      (requireRole as jest.Mock).mockReturnValue({ ok: false, error: "Admin required" });
 
       const handler = handlers.get("clients:delete")!;
       const result = await handler({ sender: { id: 1 } }, 1);

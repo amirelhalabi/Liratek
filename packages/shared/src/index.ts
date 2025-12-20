@@ -1,6 +1,6 @@
 /**
  * @liratek/shared - Shared types, constants, and validators
- *
+ * 
  * This package contains all shared code between frontend and backend:
  * - Entity types (database models)
  * - DTOs (data transfer objects for IPC)
@@ -9,10 +9,10 @@
  */
 
 // Types
-export * from "./types";
+export * from './types';
 
 // Constants
-export * from "./constants";
+export * from './constants';
 
 // Validators
-export * from "./validators";
+export * from './validators';

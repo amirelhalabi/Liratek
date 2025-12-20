@@ -13,7 +13,9 @@ export const ConfigSchema = z.object({
     .default("development"),
 
   // Logging
-  LOG_LEVEL: z.enum(["error", "warn", "info", "debug"]).default("info"),
+  LOG_LEVEL: z
+    .enum(["error", "warn", "info", "debug"])
+    .default("info"),
 
   // Session
   SESSION_TIMEOUT: z.coerce

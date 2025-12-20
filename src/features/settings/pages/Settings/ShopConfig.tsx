@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { appEvents } from "../../../../shared/utils/appEvents";
 
 export default function ShopConfig() {
   const [shopName, setShopName] = useState("");
@@ -12,7 +11,7 @@ export default function ShopConfig() {
     setIsLoading(true);
     try {
       const settings = await window.api.settings.getAll();
-      const map = new Map(settings.map((s) => [s.key_name, s.value]));
+      const map = new Map(settings.map((s: any) => [s.key_name, s.value]));
       setShopName((map.get("shop_name") as string) || "");
       setReceiptHeaderText((map.get("receipt_header_text") as string) || "");
       setExchangeRate((map.get("exchange_rate_usd_lbp") as string) || "");
@@ -34,16 +33,16 @@ export default function ShopConfig() {
         window.api.settings.update("receipt_header_text", receiptHeaderText),
         window.api.settings.update("exchange_rate_usd_lbp", exchangeRate),
       ]);
-      appEvents.emit(
+      (window as any).appEvents?.emit(
         "notification:show",
         "Shop configuration saved",
         "success",
       );
     } catch (e) {
       console.error(e);
-      appEvents.emit(
+      (window as any).appEvents?.emit(
         "notification:show",
-        e instanceof Error ? e.message : "Failed to save",
+        (e as any)?.message || "Failed to save",
         "error",
       );
     } finally {

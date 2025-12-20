@@ -123,7 +123,7 @@ describe("ActivityService", () => {
         "Login",
         undefined,
         undefined,
-        undefined,
+        undefined
       );
     });
 
@@ -139,7 +139,7 @@ describe("ActivityService", () => {
         "Login",
         details,
         undefined,
-        undefined,
+        undefined
       );
     });
 
@@ -151,7 +151,7 @@ describe("ActivityService", () => {
         "Client Updated",
         { old_name: "John", new_name: "Johnny" },
         "clients",
-        42,
+        42
       );
 
       expect(result).toBe(3);
@@ -160,7 +160,7 @@ describe("ActivityService", () => {
         "Client Updated",
         { old_name: "John", new_name: "Johnny" },
         "clients",
-        42,
+        42
       );
     });
 
@@ -192,7 +192,7 @@ describe("ActivityService", () => {
         "Sale Completed",
         details,
         "sales",
-        100,
+        100
       );
 
       expect(result).toBe(4);
@@ -201,7 +201,7 @@ describe("ActivityService", () => {
         "Sale Completed",
         details,
         "sales",
-        100,
+        100
       );
     });
   });

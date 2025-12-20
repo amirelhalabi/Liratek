@@ -93,12 +93,12 @@ export function startSyncProcessor() {
           const res = await fetch(pull);
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           // In a real implementation we would apply updates here
-        } catch (e) {
+        } catch (e: any) {
           try {
             const db = getDatabase();
             db.prepare(
               `INSERT INTO sync_errors (endpoint, payload_json, error) VALUES (?, ?, ?)`,
-            ).run(pull, "", e instanceof Error ? e.message : "PullFailed");
+            ).run(pull, "", e.message || "PullFailed");
           } catch {}
         }
       }

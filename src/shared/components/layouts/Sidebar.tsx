@@ -28,7 +28,7 @@ interface SidebarProps {
 export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
-  const allNavItems = [
+  const navItems = [
     { to: "/", icon: LayoutDashboard, label: "Dashboard" },
     { to: "/pos", icon: ShoppingCart, label: "Point of Sale" },
     { to: "/debts", icon: BookOpen, label: "Debts" },
@@ -40,11 +40,8 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
     { to: "/expenses", icon: Banknote, label: "Expenses" },
     { to: "/maintenance", icon: Wrench, label: "Maintenance" },
     // REMOVED: { to: '/closing', icon: SquareActivity, label: 'Closing' }, // New Closing page link
-    { to: "/settings", icon: Settings, label: "Settings", adminOnly: true },
+    { to: "/settings", icon: Settings, label: "Settings" },
   ];
-
-  // Filter nav items based on role
-  const navItems = allNavItems.filter((item) => !item.adminOnly || isAdmin);
 
   const handleClosingClick = () => {
     appEvents.emit("openClosingModal");

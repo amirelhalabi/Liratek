@@ -1,241 +1,173 @@
-/**
- * Opening Modal - Simplified Design
- * Matches platform design language
- */
-
-import { useEffect, useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "../../../auth/context/AuthContext";
-import type { DrawerType } from "../../types";
-import { DRAWER_ORDER } from "../../config/drawers";
-import { useCurrencies } from "../../hooks/useCurrencies";
-import { useDrawerAmounts } from "../../hooks/useDrawerAmounts";
-import { DrawerCard } from "../../components/DrawerCard";
 import { X } from "lucide-react";
 
-interface OpeningProps {
+export default function Opening({
+  isOpen,
+  onClose,
+}: {
   isOpen: boolean;
   onClose: () => void;
-}
-
-export default function Opening({ isOpen, onClose }: OpeningProps) {
+}) {
+  const drawerTypes: Array<"General" | "OMT" | "MTC" | "Alfa"> = [
+    "General",
+    "OMT",
+    "MTC",
+    "Alfa",
+  ];
   const { user } = useAuth();
-  const {
-    currencies,
-    loading: currenciesLoading,
-    error: currenciesError,
-  } = useCurrencies();
-  const drawerAmounts = useDrawerAmounts({ currencies });
+  const [currencies, setCurrencies] = useState<
+    Array<{ code: string; name: string }>
+  >([]);
+  const [amountsText, setAmountsText] = useState<
+    Record<string, Record<string, string>>
+  >({}); // drawer -> currency -> opening (text)
+  const [drawerType, setDrawerType] = useState<
+    "General" | "OMT" | "MTC" | "Alfa"
+  >("General");
 
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-
-  // Initialize amounts when currencies are loaded
   useEffect(() => {
-    if (currencies.length > 0 && isOpen) {
-      drawerAmounts.initializeAmounts();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currencies, isOpen]);
+    const load = async () => {
+      try {
+        const list = await window.api.currencies.list();
+        const active = list
+          .filter((c: any) => c.is_active === 1)
+          .map((c: any) => ({ code: c.code, name: c.name }));
+        setCurrencies(active);
+        // init amounts structure
+        const init: Record<string, Record<string, string>> = {};
+        for (const d of drawerTypes) {
+          init[d] = {};
+          for (const c of active) init[d][c.code] = "";
+        }
+        setAmountsText(init);
+      } catch {}
+    };
+    load();
+  }, []);
 
-  // Reset state when modal closes
   useEffect(() => {
     if (!isOpen) {
-      drawerAmounts.reset();
-      setSaveError(null);
+      setDrawerType("General");
+      return;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
-  const handleAmountChange = (
-    drawer: DrawerType,
+  const setDrawerCurrencyText = (
+    drawer: string,
     code: string,
     value: string,
   ) => {
-    const numValue = value === "" ? 0 : parseFloat(value);
-    drawerAmounts.updateAmount(drawer, code, isNaN(numValue) ? 0 : numValue);
+    setAmountsText((prev) => ({
+      ...prev,
+      [drawer]: { ...prev[drawer], [code]: value },
+    }));
   };
 
   const handleSave = async () => {
-    setSaveError(null);
-
-    // Validate
-    const validation = drawerAmounts.validate();
-    if (!validation.isValid) {
-      setSaveError(validation.errors.join(", "));
-      return;
-    }
-
-    if (!drawerAmounts.hasAnyAmounts) {
-      setSaveError("Please enter at least one amount before saving.");
-      return;
-    }
-
-    setSaving(true);
-    setSaveError(null);
-
-    const closingDate = new Date().toISOString().split("T")[0];
-    const amounts = DRAWER_ORDER.flatMap((drawer) =>
-      currencies.map((currency) => ({
-        drawer_name: drawer,
-        currency_code: currency.code,
-        opening_amount: drawerAmounts.amounts[drawer]?.[currency.code] ?? 0,
-      })),
-    );
-
     try {
-      const result = await window.api.closing.setOpeningBalances({
-        closing_date: closingDate,
-        amounts,
-        ...(user?.id != null ? { user_id: user.id } : {}),
+      const closing_date = new Date().toISOString().split("T")[0];
+      const amountsArray = [] as Array<{
+        drawer_name: string;
+        currency_code: string;
+        opening_amount: number;
+      }>;
+      for (const d of drawerTypes) {
+        for (const c of currencies) {
+          const raw = amountsText[d]?.[c.code] ?? "";
+          const parsed = raw === "" ? 0 : parseFloat(raw);
+          amountsArray.push({
+            drawer_name: d,
+            currency_code: c.code,
+            opening_amount: isNaN(parsed) ? 0 : parsed,
+          });
+        }
+      }
+      const res = await window.api.closing.setOpeningBalances({
+        closing_date,
+        amounts: amountsArray,
+        user_id: user?.id,
       });
-
-      if (result.success) {
-        alert("Opening balances saved successfully!");
+      if (res.success) {
+        alert("Opening balances saved");
         onClose();
       } else {
-        setSaveError(result.error || "Failed to save opening balances");
+        alert("Failed to save opening balances: " + res.error);
       }
-    } catch (error) {
-      console.error("[Opening] Save error:", error);
-      setSaveError(
-        error instanceof Error ? error.message : "An unexpected error occurred",
-      );
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleCancel = () => {
-    if (drawerAmounts.hasAnyAmounts) {
-      if (
-        confirm("You have unsaved changes. Are you sure you want to close?")
-      ) {
-        onClose();
-      }
-    } else {
-      onClose();
+    } catch (e) {
+      console.error("Failed to save opening balances", e);
+      alert("Failed to save opening balances");
     }
   };
 
   if (!isOpen) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) {
-          handleCancel();
-        }
-      }}
-    >
-      <div
-        className="bg-slate-900 border border-slate-700 rounded-xl overflow-hidden w-full max-w-6xl max-h-[90vh] flex flex-col shadow-2xl"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex justify-between items-center p-6 border-b border-slate-700 bg-slate-800">
-          <div>
-            <h2 className="text-2xl font-bold text-white">Opening</h2>
-            <p className="text-slate-400 text-sm mt-1">
-              Set starting drawer amounts
-            </p>
-          </div>
-          <button
-            onClick={handleCancel}
-            disabled={saving}
-            className="text-slate-400 hover:text-white transition-colors disabled:opacity-50"
-          >
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div className="bg-slate-800 rounded-xl border border-slate-700 shadow-2xl w-full max-w-xl overflow-hidden">
+        <div className="flex justify-between items-center p-4 border-b border-slate-700">
+          <h1 className="text-xl font-bold text-white">Opening Shift</h1>
+          <button onClick={onClose} className="text-slate-400 hover:text-white">
             <X size={24} />
           </button>
         </div>
-
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          {currenciesLoading && (
-            <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
-              <p className="text-blue-200 text-sm">Loading currencies...</p>
+        <div className="p-6 space-y-6">
+          <div>
+            <h2 className="text-sm text-slate-400 mb-2">Select Drawer</h2>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDrawerType("General")}
+                className={`px-4 py-2 rounded-lg ${drawerType === "General" ? "bg-violet-600 text-white" : "bg-slate-700 text-slate-300"}`}
+              >
+                General Drawer
+              </button>
+              <button
+                onClick={() => setDrawerType("OMT")}
+                className={`px-4 py-2 rounded-lg ${drawerType === "OMT" ? "bg-violet-600 text-white" : "bg-slate-700 text-slate-300"}`}
+              >
+                OMT Drawer
+              </button>
             </div>
-          )}
+          </div>
 
-          {currenciesError && (
-            <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
-              <p className="text-red-200 text-sm">Error: {currenciesError}</p>
-            </div>
-          )}
-
-          {saveError && (
-            <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
-              <p className="text-red-200 text-sm">{saveError}</p>
-            </div>
-          )}
-
-          {!currenciesLoading &&
-            !currenciesError &&
-            currencies.length === 0 && (
-              <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
-                <p className="text-yellow-200 text-sm">
-                  No active currencies found. Please enable at least one
-                  currency in Settings → Currency Manager.
-                </p>
+          {/* Dynamic amounts per drawer/currency */}
+          <div className="space-y-4">
+            {drawerTypes.map((d) => (
+              <div key={d} className="border border-slate-700 rounded-lg p-3">
+                <div className="font-semibold text-white mb-2">{d} Drawer</div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  {currencies.map((c) => (
+                    <div key={c.code}>
+                      <label className="block text-sm text-slate-400 mb-1">
+                        {c.code}
+                      </label>
+                      <input
+                        type="number"
+                        value={amountsText[d]?.[c.code] ?? ""}
+                        onChange={(e) =>
+                          setDrawerCurrencyText(d, c.code, e.target.value)
+                        }
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white"
+                      />
+                    </div>
+                  ))}
+                </div>
               </div>
-            )}
+            ))}
+          </div>
 
-          {!currenciesLoading && !currenciesError && currencies.length > 0 && (
-            <>
-              <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
-                <p className="text-slate-300 text-sm">
-                  Enter the starting cash amount for each drawer and currency.
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {DRAWER_ORDER.map((drawer) => {
-                  // MTC and Alfa only use USD (credits stored in shop's phone)
-                  const drawerCurrencies =
-                    drawer === "MTC" || drawer === "Alfa"
-                      ? currencies.filter((c) => c.code === "USD")
-                      : currencies;
-
-                  return (
-                    <DrawerCard
-                      key={drawer}
-                      drawer={drawer}
-                      currencies={drawerCurrencies}
-                      getDisplayValue={(d, c) =>
-                        drawerAmounts.getDisplayValue(d, c)
-                      }
-                      onAmountChange={handleAmountChange}
-                      disabled={saving}
-                      focusRingColor="violet-500"
-                    />
-                  );
-                })}
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="border-t border-slate-700 p-6 bg-slate-800">
-          <div className="flex justify-end items-center gap-3">
+          <div className="flex justify-end gap-3 mt-4">
             <button
-              type="button"
-              onClick={handleCancel}
-              disabled={saving}
-              className="px-4 py-2 rounded-lg text-slate-300 hover:text-white hover:bg-slate-700 transition-colors disabled:opacity-50"
+              onClick={onClose}
+              className="px-4 py-2 rounded-lg bg-slate-700 text-slate-300"
             >
               Cancel
             </button>
-
             <button
-              type="button"
               onClick={handleSave}
-              disabled={
-                saving || !drawerAmounts.hasAnyAmounts || currenciesLoading
-              }
-              className="px-6 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-4 py-2 rounded-lg bg-emerald-600 text-white"
             >
-              {saving ? "Saving..." : "Save & Start Day"}
+              Save Opening
             </button>
           </div>
         </div>

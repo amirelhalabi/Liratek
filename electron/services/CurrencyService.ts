@@ -1,17 +1,16 @@
 /**
  * Currency Service
- *
+ * 
  * Business logic layer for currency operations.
  */
 
-import {
-  CurrencyRepository,
+import { 
+  CurrencyRepository, 
   getCurrencyRepository,
   type CurrencyEntity,
   type CreateCurrencyData,
-  type UpdateCurrencyData,
-} from "../database/repositories";
-import { toErrorString, getRepoConstraintCode } from "../utils/errors";
+  type UpdateCurrencyData
+} from '../database/repositories';
 
 // =============================================================================
 // Types
@@ -40,8 +39,8 @@ export class CurrencyService {
   listCurrencies(): CurrencyEntity[] | { error: string } {
     try {
       return this.currencyRepo.findAllCurrencies();
-    } catch (e) {
-      return { error: toErrorString(e) };
+    } catch (e: any) {
+      return { error: e.message };
     }
   }
 
@@ -52,15 +51,11 @@ export class CurrencyService {
     try {
       const result = this.currencyRepo.createCurrency(data);
       return { success: true, id: result.id };
-    } catch (e) {
-      const sqliteCode = (e as { code?: string })?.code;
-      if (
-        getRepoConstraintCode(e) === "DUPLICATE_CURRENCY_CODE" ||
-        sqliteCode === "SQLITE_CONSTRAINT_UNIQUE"
-      ) {
-        return { success: false, error: "Currency code already exists" };
+    } catch (e: any) {
+      if (e.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+        return { success: false, error: 'Currency code already exists' };
       }
-      return { success: false, error: toErrorString(e) };
+      return { success: false, error: e.message };
     }
   }
 
@@ -71,11 +66,11 @@ export class CurrencyService {
     try {
       const updated = this.currencyRepo.updateCurrency(id, data);
       if (!updated) {
-        return { success: false, error: "Not found" };
+        return { success: false, error: 'Not found' };
       }
       return { success: true };
-    } catch (e) {
-      return { success: false, error: toErrorString(e) };
+    } catch (e: any) {
+      return { success: false, error: e.message };
     }
   }
 
@@ -86,8 +81,8 @@ export class CurrencyService {
     try {
       this.currencyRepo.deleteCurrency(id);
       return { success: true };
-    } catch (e) {
-      return { success: false, error: toErrorString(e) };
+    } catch (e: any) {
+      return { success: false, error: e.message };
     }
   }
 }

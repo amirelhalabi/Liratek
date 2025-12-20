@@ -1,9 +1,9 @@
 /**
  * Client Service
- *
+ * 
  * Business logic layer for client operations.
  * Uses ClientRepository for data access.
- *
+ * 
  * This service encapsulates:
  * - Client CRUD operations
  * - Client search and lookup
@@ -11,13 +11,13 @@
  * - Validation logic
  */
 
-import {
-  ClientRepository,
+import { 
+  ClientRepository, 
   getClientRepository,
   type ClientEntity,
-  type CreateClientData,
-} from "../database/repositories";
-import { NotFoundError, getRepoConstraintCode } from "../utils/errors";
+  type CreateClientData
+} from '../database/repositories';
+import { NotFoundError } from '../utils/errors';
 
 // =============================================================================
 // Types
@@ -64,7 +64,7 @@ export class ClientService {
   getClientByIdOrFail(id: number): ClientEntity {
     const client = this.clientRepo.findById(id);
     if (!client) {
-      throw new NotFoundError("Client", id);
+      throw new NotFoundError('Client', id);
     }
     return client;
   }
@@ -99,91 +99,70 @@ export class ClientService {
   createClient(data: CreateClientData): ClientResult {
     // Validate required fields
     if (!data.full_name?.trim()) {
-      return { success: false, error: "Client name is required" };
+      return { success: false, error: 'Client name is required' };
     }
     if (!data.phone_number?.trim()) {
-      return { success: false, error: "Phone number is required" };
+      return { success: false, error: 'Phone number is required' };
     }
 
     // Check for duplicate phone
     if (this.clientRepo.phoneExists(data.phone_number.trim())) {
-      return { success: false, error: "Phone number already registered" };
+      return { success: false, error: 'Phone number already registered' };
     }
 
     try {
-      const createData = {
+      const result = this.clientRepo.createClient({
         full_name: data.full_name.trim(),
         phone_number: data.phone_number.trim(),
-        ...(data.whatsapp_opt_in != null
-          ? { whatsapp_opt_in: data.whatsapp_opt_in }
-          : {}),
-        ...(data.notes != null ? { notes: data.notes.trim() } : {}),
-      };
-
-      const result = this.clientRepo.createClient(createData);
+        notes: data.notes?.trim(),
+        whatsapp_opt_in: data.whatsapp_opt_in,
+      });
       return { success: true, id: result.id };
-    } catch (error) {
-      const repoCode = getRepoConstraintCode(error);
-      if (repoCode === "DUPLICATE_PHONE") {
-        return { success: false, error: "Phone number already registered" };
+    } catch (error: any) {
+      if (error.code === 'DUPLICATE_PHONE') {
+        return { success: false, error: 'Phone number already registered' };
       }
-      console.error("Create client error:", error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
+      console.error('Create client error:', error);
+      return { success: false, error: error.message };
     }
   }
 
   /**
    * Update an existing client
    */
-  updateClient(
-    id: number,
-    data: {
-      full_name: string;
-      phone_number: string;
-      notes?: string | null;
-      whatsapp_opt_in: boolean | number;
-    },
-  ): ClientResult {
+  updateClient(id: number, data: {
+    full_name: string;
+    phone_number: string;
+    notes?: string | null;
+    whatsapp_opt_in: boolean | number;
+  }): ClientResult {
     if (!id) {
-      return { success: false, error: "Client ID required" };
+      return { success: false, error: 'Client ID required' };
     }
 
     // Check if client exists
     if (!this.clientRepo.exists(id)) {
-      return { success: false, error: "Client not found" };
+      return { success: false, error: 'Client not found' };
     }
 
     // Check for duplicate phone (excluding this client)
     if (this.clientRepo.phoneExists(data.phone_number, id)) {
-      return {
-        success: false,
-        error: "Phone number already in use by another client",
-      };
+      return { success: false, error: 'Phone number already in use by another client' };
     }
 
     try {
       this.clientRepo.updateClientFull(id, {
         full_name: data.full_name,
         phone_number: data.phone_number,
+        notes: data.notes,
         whatsapp_opt_in: data.whatsapp_opt_in,
-        ...(data.notes != null ? { notes: data.notes } : {}),
       });
       return { success: true };
-    } catch (error) {
-      const repoCode = getRepoConstraintCode(error);
-      if (repoCode === "DUPLICATE_PHONE") {
-        return {
-          success: false,
-          error: "Phone number already in use by another client",
-        };
+    } catch (error: any) {
+      if (error.code === 'DUPLICATE_PHONE') {
+        return { success: false, error: 'Phone number already in use by another client' };
       }
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
+      return { success: false, error: error.message };
     }
   }
 
@@ -192,25 +171,19 @@ export class ClientService {
    */
   deleteClient(id: number): ClientResult {
     if (!id) {
-      return { success: false, error: "Client ID required" };
+      return { success: false, error: 'Client ID required' };
     }
 
     // Check for existing sales
     if (this.clientRepo.hasSalesHistory(id)) {
-      return {
-        success: false,
-        error: "Cannot delete client with existing sales history",
-      };
+      return { success: false, error: 'Cannot delete client with existing sales history' };
     }
 
     try {
       this.clientRepo.delete(id);
       return { success: true };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
+    } catch (error: any) {
+      return { success: false, error: error.message };
     }
   }
 

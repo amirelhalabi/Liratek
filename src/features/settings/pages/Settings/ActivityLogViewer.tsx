@@ -1,34 +1,25 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 
 export default function ActivityLogViewer() {
-  type ActivityLogRow = {
-    id: number;
-    created_at: string;
-    user_id: number | null;
-    action: string;
-    table_name: string;
-    record_id: number | null;
-    details_json?: string;
-  };
-  const [logs, setLogs] = useState<ActivityLogRow[]>([]);
+  const [logs, setLogs] = useState<Array<any>>([]);
   const [limit, setLimit] = useState("200");
   const [loading, setLoading] = useState(false);
 
-  const load = useCallback(async () => {
+  const load = async () => {
     setLoading(true);
     try {
-      const res = (await window.api.activity.getRecent?.(
+      const res = await (window as any).api.activity.getRecent?.(
         Number(limit) || 200,
-      )) as ActivityLogRow[];
+      );
       setLogs(res || []);
     } finally {
       setLoading(false);
     }
-  }, [limit]);
+  };
 
   useEffect(() => {
     load();
-  }, [load]);
+  }, []);
 
   return (
     <div className="space-y-3">
@@ -71,7 +62,7 @@ export default function ActivityLogViewer() {
                 </td>
               </tr>
             ) : (
-              logs.map((r) => (
+              logs.map((r: any) => (
                 <tr key={r.id} className="border-t border-slate-800">
                   <td className="p-2 text-xs text-slate-400">{r.created_at}</td>
                   <td className="p-2 text-xs">{r.user_id}</td>

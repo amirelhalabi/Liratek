@@ -60,12 +60,9 @@ export class SettingsService {
     try {
       this.repo.upsertSetting(key, value);
       return { success: true };
-    } catch (error) {
+    } catch (error: any) {
       console.error("SettingsService.updateSetting error:", error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
+      return { success: false, error: error.message };
     }
   }
 }

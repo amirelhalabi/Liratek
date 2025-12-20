@@ -1,28 +1,6 @@
-type ClosingReportData = {
-  closing_date: string;
-  drawer_name: string;
-  physical_usd: number;
-  system_expected_usd: number;
-  physical_lbp: number;
-  system_expected_lbp: number;
-  physical_eur: number;
-  system_expected_eur?: number;
-};
-
-type DailyStatsData = {
-  salesCount: number;
-  totalSalesUSD: number;
-  totalSalesLBP: number;
-  debtPaymentsUSD: number;
-  debtPaymentsLBP: number;
-  totalExpensesUSD: number;
-  totalExpensesLBP: number;
-  totalProfitUSD: number;
-};
-
 export function generateClosingReport(
-  closingData: ClosingReportData,
-  dailyStats: DailyStatsData,
+  closingData: any,
+  dailyStats: any,
 ): string {
   const usdVariance =
     closingData.physical_usd - closingData.system_expected_usd;

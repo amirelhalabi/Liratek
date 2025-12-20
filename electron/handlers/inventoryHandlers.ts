@@ -1,6 +1,6 @@
 /**
  * Inventory IPC Handlers
- *
+ * 
  * Thin wrapper around InventoryService for IPC communication.
  * Handles authentication checks and delegates to service layer.
  */
@@ -8,7 +8,6 @@
 import { ipcMain } from "electron";
 import { getInventoryService } from "../services";
 import { inventoryLogger } from "../utils/logger";
-/* eslint-disable @typescript-eslint/no-require-imports */
 
 // =============================================================================
 // Types
@@ -53,12 +52,9 @@ export function registerInventoryHandlers(): void {
   });
 
   // Get product by barcode
-  ipcMain.handle(
-    "inventory:get-product-by-barcode",
-    (_event, barcode: string) => {
-      return service.getProductByBarcode(barcode);
-    },
-  );
+  ipcMain.handle("inventory:get-product-by-barcode", (_event, barcode: string) => {
+    return service.getProductByBarcode(barcode);
+  });
 
   // ---------------------------------------------------------------------------
   // Product CRUD (Admin only)
@@ -73,23 +69,16 @@ export function registerInventoryHandlers(): void {
       if (!auth.ok) return { success: false, error: auth.error };
     } catch {}
 
-    inventoryLogger.debug(
-      { barcode: product.barcode, name: product.name },
-      "Creating product",
-    );
+    inventoryLogger.debug({ barcode: product.barcode, name: product.name }, "Creating product");
     return service.createProduct({
       barcode: product.barcode,
       name: product.name,
       category: product.category,
       cost_price: product.cost_price,
       retail_price: product.retail_price,
-      ...(product.stock_quantity != null
-        ? { stock_quantity: product.stock_quantity }
-        : {}),
-      ...(product.min_stock_level != null
-        ? { min_stock_level: product.min_stock_level }
-        : {}),
-      ...(product.image_url != null ? { image_url: product.image_url } : {}),
+      stock_quantity: product.stock_quantity,
+      min_stock_level: product.min_stock_level,
+      image_url: product.image_url,
     });
   });
 
@@ -113,7 +102,7 @@ export function registerInventoryHandlers(): void {
       cost_price: product.cost_price,
       retail_price: product.retail_price,
       min_stock_level: product.min_stock_level ?? 5,
-      ...(product.image_url != null ? { image_url: product.image_url } : {}),
+      image_url: product.image_url,
     });
   });
 
@@ -134,19 +123,16 @@ export function registerInventoryHandlers(): void {
   // ---------------------------------------------------------------------------
 
   // Adjust stock (absolute set)
-  ipcMain.handle(
-    "inventory:adjust-stock",
-    (e, id: number, newQuantity: number) => {
-      // Auth check
-      try {
-        const { requireRole } = require("../session");
-        const auth = requireRole(e.sender.id, ["admin"]);
-        if (!auth.ok) return { success: false, error: auth.error };
-      } catch {}
+  ipcMain.handle("inventory:adjust-stock", (e, id: number, newQuantity: number) => {
+    // Auth check
+    try {
+      const { requireRole } = require("../session");
+      const auth = requireRole(e.sender.id, ["admin"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+    } catch {}
 
-      return service.adjustStock(id, newQuantity);
-    },
-  );
+    return service.adjustStock(id, newQuantity);
+  });
 
   // ---------------------------------------------------------------------------
   // Reporting (No auth required)
@@ -156,7 +142,7 @@ export function registerInventoryHandlers(): void {
   ipcMain.handle("inventory:get-stock-stats", () => {
     try {
       return service.getStockStats();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to get stock stats:", error);
       return { stock_budget_usd: 0, stock_count: 0 };
     }
@@ -166,7 +152,7 @@ export function registerInventoryHandlers(): void {
   ipcMain.handle("inventory:get-low-stock-products", () => {
     try {
       return service.getLowStockProducts();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to get low stock products:", error);
       return [];
     }

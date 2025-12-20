@@ -55,7 +55,6 @@ function registerAuthHandlers() {
             // Bind session to this renderer (webContents)
             let sessionToken = null;
             try {
-                // eslint-disable-next-line @typescript-eslint/no-require-imports
                 const { setSession, storeEncryptedSession } = require("../session");
                 setSession(event.sender.id, result.user.id, result.user.role);
                 sessionToken = storeEncryptedSession(result.user.id);
@@ -74,9 +73,7 @@ function registerAuthHandlers() {
             logger_1.authLogger.error({ error, username }, "Login error");
             return {
                 success: false,
-                error: (0, errors_1.isAppError)(error)
-                    ? error.message
-                    : "An unexpected error occurred during login",
+                error: (0, errors_1.isAppError)(error) ? error.message : "An unexpected error occurred during login",
             };
         }
     });
@@ -88,7 +85,6 @@ function registerAuthHandlers() {
             logger_1.authLogger.debug({ userId }, "Logout");
             // Clear encrypted session
             try {
-                // eslint-disable-next-line @typescript-eslint/no-require-imports
                 const { clearEncryptedSession, clearSession } = require("../session");
                 clearEncryptedSession();
                 clearSession(_event.sender.id);
@@ -110,7 +106,6 @@ function registerAuthHandlers() {
     // ---------------------------------------------------------------------------
     electron_1.ipcMain.handle("auth:restore-session", (event) => {
         try {
-            // eslint-disable-next-line @typescript-eslint/no-require-imports
             const { getEncryptedSession, setSession } = require("../session");
             const stored = getEncryptedSession();
             if (!stored) {
@@ -120,7 +115,6 @@ function registerAuthHandlers() {
             const user = authService.getUserById(stored.userId);
             if (!user) {
                 logger_1.authLogger.debug({ userId: stored.userId }, "Stored session user not found or inactive");
-                // eslint-disable-next-line @typescript-eslint/no-require-imports
                 const { clearEncryptedSession } = require("../session");
                 clearEncryptedSession();
                 return { success: false, error: "User not found" };
@@ -165,25 +159,15 @@ function registerAuthHandlers() {
         if (!authCheck.ok)
             return { success: false, error: authCheck.error };
         try {
-            const result = await authService.createUser({
-                username: data.username,
-                password: data.password,
-                role: data.role === "staff" ? "cashier" : data.role,
-            }, "admin");
+            const result = await authService.createUser({ username: data.username, password: data.password, role: data.role === "staff" ? "cashier" : data.role }, "admin");
             if (result.success && result.user) {
                 return { success: true, id: result.user.id };
             }
-            return {
-                success: false,
-                error: result.error || "Failed to create user",
-            };
+            return { success: false, error: result.error || "Failed to create user" };
         }
         catch (error) {
             logger_1.authLogger.error({ error, username: data.username }, "Create user error");
-            return {
-                success: false,
-                error: (0, errors_1.isAppError)(error) ? error.message : "Failed to create user",
-            };
+            return { success: false, error: (0, errors_1.isAppError)(error) ? error.message : "Failed to create user" };
         }
     });
     // ---------------------------------------------------------------------------
@@ -199,10 +183,7 @@ function registerAuthHandlers() {
         }
         catch (error) {
             logger_1.authLogger.error({ error, userId: data.id }, "Set password error");
-            return {
-                success: false,
-                error: (0, errors_1.isAppError)(error) ? error.message : "Failed to set password",
-            };
+            return { success: false, error: (0, errors_1.isAppError)(error) ? error.message : "Failed to set password" };
         }
     });
     // ---------------------------------------------------------------------------
@@ -215,7 +196,7 @@ function registerAuthHandlers() {
         try {
             // Get all users and filter out admins
             const users = authService.getAllUsers();
-            return users.filter((u) => u.role !== "admin");
+            return users.filter(u => u.role !== "admin");
         }
         catch (error) {
             logger_1.authLogger.error({ error }, "List non-admin users error");
@@ -243,12 +224,7 @@ function registerAuthHandlers() {
         }
         catch (error) {
             logger_1.authLogger.error({ error, userId: data.id, is_active: data.is_active }, "Set active error");
-            return {
-                success: false,
-                error: (0, errors_1.isAppError)(error)
-                    ? error.message
-                    : "Failed to update user status",
-            };
+            return { success: false, error: (0, errors_1.isAppError)(error) ? error.message : "Failed to update user status" };
         }
     });
     // ---------------------------------------------------------------------------
@@ -267,10 +243,7 @@ function registerAuthHandlers() {
         }
         catch (error) {
             logger_1.authLogger.error({ error, userId: data.id, role: data.role }, "Set role error");
-            return {
-                success: false,
-                error: (0, errors_1.isAppError)(error) ? error.message : "Failed to update role",
-            };
+            return { success: false, error: (0, errors_1.isAppError)(error) ? error.message : "Failed to update role" };
         }
     });
 }
@@ -293,7 +266,6 @@ function logActivity(db, userId, action) {
  */
 function requireAdminRole(senderId) {
     try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { requireRole } = require("../session");
         return requireRole(senderId, ["admin"]);
     }
@@ -306,7 +278,6 @@ function requireAdminRole(senderId) {
  */
 function getSessionInfo(senderId) {
     try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { getSession } = require("../session");
         return getSession(senderId);
     }

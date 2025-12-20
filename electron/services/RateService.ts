@@ -1,16 +1,15 @@
 /**
  * Rate Service
- *
+ * 
  * Business logic layer for exchange rate operations.
  */
 
-import {
-  RateRepository,
+import { 
+  RateRepository, 
   getRateRepository,
   type ExchangeRateEntity,
-  type SetRateData,
-} from "../database/repositories";
-import { toErrorString } from "../utils/errors";
+  type SetRateData
+} from '../database/repositories';
 
 // =============================================================================
 // Types
@@ -38,8 +37,8 @@ export class RateService {
   listRates(): ExchangeRateEntity[] | { error: string } {
     try {
       return this.rateRepo.findAllRates();
-    } catch (e) {
-      return { error: toErrorString(e) };
+    } catch (e: any) {
+      return { error: e.message };
     }
   }
 
@@ -50,8 +49,8 @@ export class RateService {
     try {
       this.rateRepo.setRate(data);
       return { success: true };
-    } catch (e) {
-      return { success: false, error: toErrorString(e) };
+    } catch (e: any) {
+      return { success: false, error: e.message };
     }
   }
 

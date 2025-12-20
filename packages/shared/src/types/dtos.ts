@@ -13,7 +13,7 @@ import type {
   Sale,
   SaleItem,
   SafeUser,
-} from "./entities";
+} from './entities';
 
 // =============================================================================
 // Auth DTOs
@@ -182,7 +182,7 @@ export interface DebtPaymentRequest {
 
 export interface DebtListRequest {
   client_id?: number;
-  status?: "active" | "partial" | "paid" | "all";
+  status?: 'active' | 'partial' | 'paid' | 'all';
   limit?: number;
   offset?: number;
 }
@@ -228,7 +228,7 @@ export interface DrawerBalanceUpdate {
   drawer_id: DrawerId;
   currency: CurrencyCode;
   amount: number;
-  operation: "add" | "subtract" | "set";
+  operation: 'add' | 'subtract' | 'set';
 }
 
 // =============================================================================
@@ -250,7 +250,7 @@ export interface CreateRechargeRequest {
 
 export interface CreateOMTRequest {
   drawer_id: DrawerId;
-  transaction_type: "send" | "receive";
+  transaction_type: 'send' | 'receive';
   amount_usd: number;
   fee_usd?: number;
   recipient_name?: string;

@@ -1,18 +1,14 @@
 /**
  * Client Repository
- *
+ * 
  * Handles all database operations for clients.
  * Extends BaseRepository for standard CRUD operations.
- *
+ * 
  * Note: The clients table doesn't have is_active column, so soft delete is not used.
  */
 
-import {
-  BaseRepository,
-  type FindOptions,
-  type PaginatedResult,
-} from "./BaseRepository";
-import { DatabaseError, BusinessRuleError } from "../../utils/errors";
+import { BaseRepository, type FindOptions, type PaginatedResult } from './BaseRepository';
+import { DatabaseError, BusinessRuleError } from '../../utils/errors';
 
 // =============================================================================
 // Types
@@ -48,7 +44,7 @@ export interface UpdateClientData {
 export class ClientRepository extends BaseRepository<ClientEntity> {
   constructor() {
     // Note: clients table doesn't have is_active, so softDelete is false
-    super("clients", { softDelete: false });
+    super('clients', { softDelete: false });
   }
 
   // ---------------------------------------------------------------------------
@@ -72,23 +68,21 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
       query += ` ORDER BY full_name ASC`;
       return this.query<ClientEntity>(query, ...params);
     } catch (error) {
-      throw new DatabaseError("Failed to find clients", { cause: error });
+      throw new DatabaseError('Failed to find clients', { cause: error });
     }
   }
 
   /**
    * Get paginated clients with search filter
    */
-  findClientsPaginated(
-    options: FindOptions & { search?: string } = {},
-  ): PaginatedResult<ClientEntity> {
+  findClientsPaginated(options: FindOptions & { search?: string } = {}): PaginatedResult<ClientEntity> {
     const { limit = 50, offset = 0, search } = options;
-
+    
     const data = this.findAllClients(search);
     const total = search ? data.length : this.count();
-
+    
     const paginatedData = limit ? data.slice(offset, offset + limit) : data;
-
+    
     return {
       data: paginatedData,
       total,
@@ -106,9 +100,7 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
       const query = `SELECT * FROM ${this.tableName} WHERE phone_number = ?`;
       return this.queryOne<ClientEntity>(query, phoneNumber);
     } catch (error) {
-      throw new DatabaseError("Failed to find client by phone", {
-        cause: error,
-      });
+      throw new DatabaseError('Failed to find client by phone', { cause: error });
     }
   }
 
@@ -120,13 +112,11 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
       const query = excludeId
         ? `SELECT 1 FROM ${this.tableName} WHERE phone_number = ? AND id != ?`
         : `SELECT 1 FROM ${this.tableName} WHERE phone_number = ?`;
-
+      
       const params = excludeId ? [phoneNumber, excludeId] : [phoneNumber];
       return this.queryOne<{ 1: number }>(query, ...params) !== null;
     } catch (error) {
-      throw new DatabaseError("Failed to check phone existence", {
-        cause: error,
-      });
+      throw new DatabaseError('Failed to check phone existence', { cause: error });
     }
   }
 
@@ -148,15 +138,11 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
       );
 
       return { id: result.lastInsertRowid as number };
-    } catch (error) {
-      const code = (error as { code?: string })?.code;
-      if (code === "SQLITE_CONSTRAINT_UNIQUE") {
-        throw new DatabaseError("Phone number already registered", {
-          cause: error,
-          code: "DUPLICATE_PHONE",
-        });
+    } catch (error: any) {
+      if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+        throw new DatabaseError('Phone number already registered', { cause: error, code: 'DUPLICATE_PHONE' });
       }
-      throw new DatabaseError("Failed to create client", { cause: error });
+      throw new DatabaseError('Failed to create client', { cause: error });
     }
   }
 
@@ -166,10 +152,7 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
   updateClient(id: number, data: UpdateClientData): boolean {
     try {
       if (data.phone_number && this.phoneExists(data.phone_number, id)) {
-        throw new DatabaseError(
-          "Phone number already in use by another client",
-          { code: "DUPLICATE_PHONE" },
-        );
+        throw new DatabaseError('Phone number already in use by another client', { code: 'DUPLICATE_PHONE' });
       }
 
       const stmt = this.db.prepare(`
@@ -185,43 +168,29 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
         data.full_name ?? null,
         data.phone_number ?? null,
         data.notes ?? null,
-        data.whatsapp_opt_in !== undefined
-          ? data.whatsapp_opt_in
-            ? 1
-            : 0
-          : null,
+        data.whatsapp_opt_in !== undefined ? (data.whatsapp_opt_in ? 1 : 0) : null,
         id,
       );
 
       return result.changes > 0;
-    } catch (error) {
-      const code = (error as { code?: string })?.code;
-      if (code === "SQLITE_CONSTRAINT_UNIQUE") {
-        throw new DatabaseError(
-          "Phone number already in use by another client",
-          { cause: error, code: "DUPLICATE_PHONE" },
-        );
+    } catch (error: any) {
+      if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+        throw new DatabaseError('Phone number already in use by another client', { cause: error, code: 'DUPLICATE_PHONE' });
       }
       if (error instanceof DatabaseError) throw error;
-      throw new DatabaseError("Failed to update client", {
-        cause: error,
-        entityId: id,
-      });
+      throw new DatabaseError('Failed to update client', { cause: error, entityId: id });
     }
   }
 
   /**
    * Update client with all fields explicitly (for handler compatibility)
    */
-  updateClientFull(
-    id: number,
-    data: {
-      full_name: string;
-      phone_number: string;
-      notes?: string | null;
-      whatsapp_opt_in: boolean | number;
-    },
-  ): boolean {
+  updateClientFull(id: number, data: {
+    full_name: string;
+    phone_number: string;
+    notes?: string | null;
+    whatsapp_opt_in: boolean | number;
+  }): boolean {
     try {
       const stmt = this.db.prepare(`
         UPDATE ${this.tableName} 
@@ -238,18 +207,11 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
       );
 
       return result.changes > 0;
-    } catch (error) {
-      const code = (error as { code?: string })?.code;
-      if (code === "SQLITE_CONSTRAINT_UNIQUE") {
-        throw new DatabaseError(
-          "Phone number already in use by another client",
-          { cause: error, code: "DUPLICATE_PHONE" },
-        );
+    } catch (error: any) {
+      if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+        throw new DatabaseError('Phone number already in use by another client', { cause: error, code: 'DUPLICATE_PHONE' });
       }
-      throw new DatabaseError("Failed to update client", {
-        cause: error,
-        entityId: id,
-      });
+      throw new DatabaseError('Failed to update client', { cause: error, entityId: id });
     }
   }
 
@@ -260,13 +222,11 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
     try {
       const result = this.queryOne<{ count: number }>(
         `SELECT count(*) as count FROM sales WHERE client_id = ?`,
-        id,
+        id
       );
       return (result?.count ?? 0) > 0;
     } catch (error) {
-      throw new DatabaseError("Failed to check sales history", {
-        cause: error,
-      });
+      throw new DatabaseError('Failed to check sales history', { cause: error });
     }
   }
 
@@ -276,9 +236,7 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
   deleteClient(id: number): boolean {
     // Check for existing sales
     if (this.hasSalesHistory(id)) {
-      throw new BusinessRuleError(
-        "Cannot delete client with existing sales history",
-      );
+      throw new BusinessRuleError('Cannot delete client with existing sales history');
     }
 
     return this.delete(id);
@@ -291,7 +249,7 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
     try {
       const { limit = 20 } = options;
       const searchTerm = `%${term}%`;
-
+      
       const query = `
         SELECT * FROM ${this.tableName} 
         WHERE full_name LIKE ? OR phone_number LIKE ?
@@ -301,7 +259,7 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
 
       return this.query<ClientEntity>(query, searchTerm, searchTerm, limit);
     } catch (error) {
-      throw new DatabaseError("Failed to search clients", { cause: error });
+      throw new DatabaseError('Failed to search clients', { cause: error });
     }
   }
 
@@ -312,11 +270,11 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
     try {
       const result = this.queryOne<{ total: number }>(
         `SELECT COALESCE(SUM(amount_usd), 0) as total FROM debt_ledger WHERE client_id = ?`,
-        clientId,
+        clientId
       );
       return result?.total ?? 0;
     } catch (error) {
-      throw new DatabaseError("Failed to get client debt", { cause: error });
+      throw new DatabaseError('Failed to get client debt', { cause: error });
     }
   }
 
@@ -337,9 +295,7 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
         ORDER BY d.total DESC
       `);
     } catch (error) {
-      throw new DatabaseError("Failed to find clients with debt", {
-        cause: error,
-      });
+      throw new DatabaseError('Failed to find clients with debt', { cause: error });
     }
   }
 
@@ -349,12 +305,10 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
   findWhatsAppOptedIn(): ClientEntity[] {
     try {
       return this.query<ClientEntity>(
-        `SELECT * FROM ${this.tableName} WHERE whatsapp_opt_in = 1 ORDER BY full_name ASC`,
+        `SELECT * FROM ${this.tableName} WHERE whatsapp_opt_in = 1 ORDER BY full_name ASC`
       );
     } catch (error) {
-      throw new DatabaseError("Failed to find WhatsApp opted-in clients", {
-        cause: error,
-      });
+      throw new DatabaseError('Failed to find WhatsApp opted-in clients', { cause: error });
     }
   }
 }

@@ -1,35 +1,23 @@
 import { useEffect, useState } from "react";
-
-type UINotification = {
-  id: string | number;
-  message: string;
-  type: "success" | "error" | "info" | "warning";
-  duration?: number;
-};
-
 import { appEvents } from "../../utils/appEvents";
 import { LogOut, Bell, Search, X } from "lucide-react";
 import { useMemo } from "react";
 import { useAuth } from "../../../features/auth/context/AuthContext";
 
 function NotificationHistory() {
-  const [items, setItems] = useState<UINotification[]>(
-    () => window.notificationHistory || [],
-  );
+  const [items, setItems] = useState<any[]>([]);
   const [filter, setFilter] = useState<
     "all" | "error" | "warning" | "info" | "success"
   >("all");
   useEffect(() => {
-    const off = appEvents.on("notification:history", (h: UINotification[]) =>
+    const off = appEvents.on("notification:history", (h: any[]) =>
       setItems(h || []),
     );
+    setItems((window as any).notificationHistory || []);
     return () => off();
   }, []);
   const filtered = useMemo(
-    () =>
-      filter === "all"
-        ? items
-        : items.filter((i: UINotification) => i.type === filter),
+    () => (filter === "all" ? items : items.filter((i) => i.type === filter)),
     [items, filter],
   );
   return (
@@ -38,7 +26,7 @@ function NotificationHistory() {
         {["all", "success", "info", "warning", "error"].map((f) => (
           <button
             key={f}
-            onClick={() => setFilter(f as UINotification["type"] | "all")}
+            onClick={() => setFilter(f as any)}
             className={`px-2 py-1 rounded ${filter === f ? "bg-slate-700 text-white" : "text-slate-300 hover:bg-slate-800"}`}
           >
             {f}
@@ -90,10 +78,10 @@ export default function TopBar() {
     let mounted = true;
     const refresh = async () => {
       try {
-        const low = await window.api.getLowStockProducts?.();
+        const low = await (window as any).api.getLowStockProducts?.();
         if (!mounted) return;
-        const settings = await window.api.settings.getAll();
-        const map = new Map(settings.map((s) => [s.key_name, s.value]));
+        const settings = await (window as any).api.settings.getAll();
+        const map = new Map(settings.map((s: any) => [s.key_name, s.value]));
         const warnLow =
           Number(map.get("notifications_warn_low_stock") ?? 1) === 1;
         if (warnLow && Array.isArray(low) && low.length > 0)
@@ -104,7 +92,9 @@ export default function TopBar() {
           );
         const genLimit = Number(map.get("drawer_limit_general") || 0);
         const omtLimit = Number(map.get("drawer_limit_omt") || 0);
-        const balances = await window.api.closing.getSystemExpectedBalances?.();
+        const balances = await (
+          window as any
+        ).api.closing.getSystemExpectedBalances?.();
         const genUsd = balances?.generalDrawer?.usd || 0;
         const omtUsd = balances?.omtDrawer?.usd || 0;
         const warnDrawer =
@@ -177,7 +167,7 @@ export default function TopBar() {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => {
-                      window.notificationHistory = [];
+                      (window as any).notificationHistory = [];
                       appEvents.emit("notification:history", []);
                     }}
                     className="text-xs px-2 py-1 bg-slate-700 rounded text-slate-200"
@@ -194,13 +184,13 @@ export default function TopBar() {
               </div>
               <div className="max-h-80 overflow-y-auto p-2">
                 <NotificationHistory />
-                {(window.notificationHistory || []).length === 0 ? (
+                {((window as any).notificationHistory || []).length === 0 ? (
                   <div className="p-4 text-center text-slate-400 text-sm">
                     No notifications yet
                   </div>
                 ) : (
                   <ul className="divide-y divide-slate-700">
-                    {(window.notificationHistory || [])
+                    {((window as any).notificationHistory as any[])
                       .slice()
                       .reverse()
                       .map((n, idx) => (

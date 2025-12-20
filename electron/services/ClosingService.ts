@@ -6,6 +6,7 @@ import {
   DailyStatsSnapshot,
   getClosingRepository,
 } from "../database/repositories/ClosingRepository";
+
 export interface ClosingResult {
   success: boolean;
   id?: number | bigint;
@@ -55,7 +56,7 @@ export class ClosingService {
     return this.repo.setOpeningBalances(
       data.closing_date,
       data.amounts,
-      data.user_id || 1,
+      data.user_id || 1
     );
   }
 
@@ -68,7 +69,7 @@ export class ClosingService {
       data.amounts,
       data.system_expected_usd || 0,
       data.system_expected_lbp || 0,
-      data.variance_notes,
+      data.variance_notes
     );
   }
 
@@ -76,33 +77,17 @@ export class ClosingService {
    * Update an existing daily closing
    */
   updateDailyClosing(data: UpdateClosingData): ClosingResult {
-    const patch: Partial<
-      import("../database/repositories/ClosingRepository").DailyClosingEntity
-    > = {
-      ...(data.physical_usd != null ? { physical_usd: data.physical_usd } : {}),
-      ...(data.physical_lbp != null ? { physical_lbp: data.physical_lbp } : {}),
-      ...(data.physical_eur != null ? { physical_eur: data.physical_eur } : {}),
-      ...(data.system_expected_usd != null
-        ? { system_expected_usd: data.system_expected_usd }
-        : {}),
-      ...(data.system_expected_lbp != null
-        ? { system_expected_lbp: data.system_expected_lbp }
-        : {}),
-      ...(data.variance_usd != null ? { variance_usd: data.variance_usd } : {}),
-      ...(data.notes != null ? { notes: data.notes } : {}),
-      ...(data.report_path != null ? { report_path: data.report_path } : {}),
-      ...(data.user_id != null ? { updated_by: data.user_id } : {}),
-    };
-
-    return this.repo.updateDailyClosing(data.id, patch);
-  }
-
-  /**
-   * Check if opening balance has been set for today
-   */
-  hasOpeningBalanceToday(): boolean {
-    const today = new Date().toISOString().split("T")[0];
-    return this.repo.hasOpeningBalanceForDate(today);
+    return this.repo.updateDailyClosing(data.id, {
+      physical_usd: data.physical_usd,
+      physical_lbp: data.physical_lbp,
+      physical_eur: data.physical_eur,
+      system_expected_usd: data.system_expected_usd,
+      system_expected_lbp: data.system_expected_lbp,
+      variance_usd: data.variance_usd,
+      notes: data.notes,
+      report_path: data.report_path,
+      updated_by: data.user_id,
+    });
   }
 
   /**
@@ -111,13 +96,11 @@ export class ClosingService {
   getSystemExpectedBalances(): SystemExpectedBalances {
     try {
       return this.repo.getSystemExpectedBalances();
-    } catch (error) {
+    } catch (error: any) {
       console.error("ClosingService.getSystemExpectedBalances error:", error);
       return {
         generalDrawer: { usd: 0, lbp: 0, eur: 0 },
         omtDrawer: { usd: 0, lbp: 0, eur: 0 },
-        mtcDrawer: { usd: 0, lbp: 0, eur: 0 },
-        alfaDrawer: { usd: 0, lbp: 0, eur: 0 },
       };
     }
   }
@@ -128,7 +111,7 @@ export class ClosingService {
   getDailyStatsSnapshot(): DailyStatsSnapshot {
     try {
       return this.repo.getDailyStatsSnapshot();
-    } catch (error) {
+    } catch (error: any) {
       console.error("ClosingService.getDailyStatsSnapshot error:", error);
       return {
         salesCount: 0,

@@ -2,7 +2,11 @@
  * RateService Unit Tests
  */
 
-import { RateService, getRateService, resetRateService } from "../RateService";
+import {
+  RateService,
+  getRateService,
+  resetRateService,
+} from "../RateService";
 import {
   RateRepository,
   getRateRepository,
@@ -121,7 +125,7 @@ describe("RateService", () => {
       const rateData: SetRateData = {
         from_code: "EUR",
         to_code: "USD",
-        rate: 1.1,
+        rate: 1.10,
       };
       mockRepo.setRate.mockReturnValue(undefined);
 

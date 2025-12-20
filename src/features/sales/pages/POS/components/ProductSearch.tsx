@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { Search, ShoppingCart } from "lucide-react";
 import type { Product } from "../../../../../types";
 
@@ -11,7 +11,20 @@ export default function ProductSearch({ onAddToCart }: ProductSearchProps) {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const loadProducts = useCallback(async () => {
+  // Initial load
+  useEffect(() => {
+    loadProducts();
+  }, []);
+
+  // Search debounce
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      loadProducts();
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  const loadProducts = async () => {
     setLoading(true);
     try {
       const data = await window.api.getProducts(search);
@@ -21,20 +34,7 @@ export default function ProductSearch({ onAddToCart }: ProductSearchProps) {
     } finally {
       setLoading(false);
     }
-  }, [search]);
-
-  // Initial load
-  useEffect(() => {
-    loadProducts();
-  }, [loadProducts]);
-
-  // Search debounce
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      loadProducts();
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [search, loadProducts]);
+  };
 
   return (
     <div className="flex flex-col h-full bg-slate-900/50 rounded-2xl border border-slate-700/50 overflow-hidden">

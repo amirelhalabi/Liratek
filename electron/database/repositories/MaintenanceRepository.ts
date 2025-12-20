@@ -67,7 +67,7 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
       job.paid_lbp ?? 0,
       job.exchange_rate ?? 0,
       job.status ?? "In Progress",
-      job.note ?? null,
+      job.note ?? null
     );
     return Number(result.lastInsertRowid);
   }
@@ -98,7 +98,7 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
       job.exchange_rate ?? 0,
       job.status ?? "In Progress",
       job.note ?? null,
-      id,
+      id
     );
   }
 
@@ -108,12 +108,12 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
   getJobs(statusFilter?: string): MaintenanceRow[] {
     if (statusFilter && statusFilter !== "All") {
       const stmt = this.db.prepare(
-        `SELECT * FROM maintenance WHERE status = ? ORDER BY created_at DESC`,
+        `SELECT * FROM maintenance WHERE status = ? ORDER BY created_at DESC`
       );
       return stmt.all(statusFilter) as MaintenanceRow[];
     }
     const stmt = this.db.prepare(
-      `SELECT * FROM maintenance ORDER BY created_at DESC`,
+      `SELECT * FROM maintenance ORDER BY created_at DESC`
     );
     return stmt.all() as MaintenanceRow[];
   }
@@ -131,12 +131,12 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
   logActivity(
     userId: number,
     action: string,
-    details: Record<string, unknown>,
+    details: Record<string, unknown>
   ): void {
     this.db
       .prepare(
-        `INSERT INTO activity_logs (user_id, action, details_json, created_at)
-         VALUES (?, ?, ?, CURRENT_TIMESTAMP)`,
+        `INSERT INTO activity_logs (user_id, action, details, created_at)
+         VALUES (?, ?, ?, CURRENT_TIMESTAMP)`
       )
       .run(userId, action, JSON.stringify(details));
   }
@@ -152,9 +152,7 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
     if (existing) return existing.id;
 
     const result = this.db
-      .prepare(
-        `INSERT INTO clients (full_name, phone_number, whatsapp_opt_in) VALUES (?, ?, 0)`,
-      )
+      .prepare(`INSERT INTO clients (full_name, phone_number, whatsapp_opt_in) VALUES (?, ?, 0)`)
       .run(name, phone ?? null);
     return Number(result.lastInsertRowid);
   }

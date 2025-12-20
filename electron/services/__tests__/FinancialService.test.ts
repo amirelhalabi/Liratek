@@ -58,20 +58,15 @@ describe("FinancialService", () => {
     };
 
     it("should add a transaction successfully", () => {
-      mockRepo.createTransaction.mockReturnValue({
-        id: 1,
-        drawer: "OMT_Drawer",
-      });
+      mockRepo.createTransaction.mockReturnValue({ id: 1, drawer: "OMT_Drawer" });
 
       const result = service.addTransaction(mockTransactionData);
 
       expect(result).toEqual({ success: true, id: 1 });
-      expect(mockRepo.createTransaction).toHaveBeenCalledWith(
-        mockTransactionData,
-      );
+      expect(mockRepo.createTransaction).toHaveBeenCalledWith(mockTransactionData);
       expect(mockRepo.logActivity).toHaveBeenCalledWith(
         mockTransactionData,
-        "OMT_Drawer",
+        "OMT_Drawer"
       );
     });
 
@@ -86,10 +81,7 @@ describe("FinancialService", () => {
         note: "Receive payment",
       };
 
-      mockRepo.createTransaction.mockReturnValue({
-        id: 2,
-        drawer: "WHISH_Drawer",
-      });
+      mockRepo.createTransaction.mockReturnValue({ id: 2, drawer: "WHISH_Drawer" });
 
       const result = service.addTransaction(whishData);
 
@@ -108,10 +100,7 @@ describe("FinancialService", () => {
         note: "BOB transfer",
       };
 
-      mockRepo.createTransaction.mockReturnValue({
-        id: 3,
-        drawer: "BOB_Drawer",
-      });
+      mockRepo.createTransaction.mockReturnValue({ id: 3, drawer: "BOB_Drawer" });
 
       const result = service.addTransaction(bobData);
 
@@ -132,10 +121,7 @@ describe("FinancialService", () => {
     });
 
     it("should return error when logActivity fails", () => {
-      mockRepo.createTransaction.mockReturnValue({
-        id: 1,
-        drawer: "OMT_Drawer",
-      });
+      mockRepo.createTransaction.mockReturnValue({ id: 1, drawer: "OMT_Drawer" });
       mockRepo.logActivity.mockImplementation(() => {
         throw new Error("Activity log failed");
       });
@@ -240,24 +226,9 @@ describe("FinancialService", () => {
         today: { commissionUSD: 50, commissionLBP: 2000000, count: 10 },
         month: { commissionUSD: 500, commissionLBP: 20000000, count: 100 },
         byProvider: [
-          {
-            provider: "OMT",
-            commission_usd: 300,
-            commission_lbp: 10000000,
-            count: 60,
-          },
-          {
-            provider: "WHISH",
-            commission_usd: 150,
-            commission_lbp: 8000000,
-            count: 30,
-          },
-          {
-            provider: "BOB",
-            commission_usd: 50,
-            commission_lbp: 2000000,
-            count: 10,
-          },
+          { provider: "OMT", commission_usd: 300, commission_lbp: 10000000, count: 60 },
+          { provider: "WHISH", commission_usd: 150, commission_lbp: 8000000, count: 30 },
+          { provider: "BOB", commission_usd: 50, commission_lbp: 2000000, count: 10 },
         ],
       };
       mockRepo.getAnalytics.mockReturnValue(mockAnalytics);

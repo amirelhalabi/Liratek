@@ -40,11 +40,9 @@ describe("RateHandlers", () => {
 
     // Mock service
     mockService = {
-      listRates: jest
-        .fn()
-        .mockReturnValue([
-          { id: 1, from_code: "USD", to_code: "LBP", rate: 90000 },
-        ]),
+      listRates: jest.fn().mockReturnValue([
+        { id: 1, from_code: "USD", to_code: "LBP", rate: 90000 },
+      ]),
       setRate: jest.fn().mockReturnValue({ success: true }),
     };
     (getRateService as jest.Mock).mockReturnValue(mockService);
@@ -57,14 +55,8 @@ describe("RateHandlers", () => {
 
   describe("Handler Registration", () => {
     it("should register all rate handlers", () => {
-      expect(ipcMain.handle).toHaveBeenCalledWith(
-        "rates:list",
-        expect.any(Function),
-      );
-      expect(ipcMain.handle).toHaveBeenCalledWith(
-        "rates:set",
-        expect.any(Function),
-      );
+      expect(ipcMain.handle).toHaveBeenCalledWith("rates:list", expect.any(Function));
+      expect(ipcMain.handle).toHaveBeenCalledWith("rates:set", expect.any(Function));
     });
   });
 
@@ -105,10 +97,7 @@ describe("RateHandlers", () => {
     });
 
     it("should reject non-admin users", async () => {
-      (requireRole as jest.Mock).mockReturnValue({
-        ok: false,
-        error: "Admin required",
-      });
+      (requireRole as jest.Mock).mockReturnValue({ ok: false, error: "Admin required" });
 
       const handler = handlers.get("rates:set")!;
       const result = await handler({ sender: { id: 1 } }, { from_code: "USD" });
@@ -118,10 +107,7 @@ describe("RateHandlers", () => {
     });
 
     it("should handle service errors", async () => {
-      mockService.setRate.mockReturnValue({
-        success: false,
-        error: "Invalid rate",
-      });
+      mockService.setRate.mockReturnValue({ success: false, error: "Invalid rate" });
 
       const handler = handlers.get("rates:set")!;
       const result = await handler({ sender: { id: 1 } }, { from_code: "USD" });

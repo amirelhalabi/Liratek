@@ -55,13 +55,9 @@ function registerInventoryHandlers() {
             category: product.category,
             cost_price: product.cost_price,
             retail_price: product.retail_price,
-            ...(product.stock_quantity != null
-                ? { stock_quantity: product.stock_quantity }
-                : {}),
-            ...(product.min_stock_level != null
-                ? { min_stock_level: product.min_stock_level }
-                : {}),
-            ...(product.image_url != null ? { image_url: product.image_url } : {}),
+            stock_quantity: product.stock_quantity,
+            min_stock_level: product.min_stock_level,
+            image_url: product.image_url,
         });
     });
     // Update product
@@ -84,7 +80,7 @@ function registerInventoryHandlers() {
             cost_price: product.cost_price,
             retail_price: product.retail_price,
             min_stock_level: product.min_stock_level ?? 5,
-            ...(product.image_url != null ? { image_url: product.image_url } : {}),
+            image_url: product.image_url,
         });
     });
     // Soft delete product
