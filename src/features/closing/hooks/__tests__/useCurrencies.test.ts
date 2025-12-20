@@ -101,7 +101,9 @@ describe("useCurrencies", () => {
   });
 
   it("should allow reloading currencies", async () => {
-    const mockCurrencies = [{ code: "USD", name: "US Dollar", is_active: 1 }];
+    const mockCurrencies = [
+      { code: "USD", name: "US Dollar", is_active: 1 },
+    ];
 
     mockCurrenciesList.mockResolvedValue(mockCurrencies);
 

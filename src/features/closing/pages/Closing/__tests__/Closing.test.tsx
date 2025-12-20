@@ -103,9 +103,7 @@ describe("Closing modal", () => {
     render(<Closing isOpen={true} onClose={onClose} />);
 
     fireEvent.click(screen.getByText("Next Step"));
-    expect(
-      screen.getByText(/Please enter at least one amount before proceeding/),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Please enter at least one amount before proceeding/)).toBeInTheDocument();
   });
 
   it("step 1: goes to step 2 and fetches expected balances", async () => {
@@ -124,15 +122,7 @@ describe("Closing modal", () => {
   });
 
   it("step 2: renders variance cards when systemExpected is available", () => {
-    setupDrawerAmounts({
-      hasAnyAmounts: true,
-      amounts: {
-        General: { USD: 10 },
-        OMT: { USD: 0 },
-        MTC: { USD: 0 },
-        Alfa: { USD: 0 },
-      },
-    });
+    setupDrawerAmounts({ hasAnyAmounts: true, amounts: { General: { USD: 10 }, OMT: { USD: 0 }, MTC: { USD: 0 }, Alfa: { USD: 0 } } });
     mockUseSystemExpected.mockReturnValue({
       systemExpected: {
         generalDrawer: { usd: 5 },
@@ -160,12 +150,7 @@ describe("Closing modal", () => {
 
     setupDrawerAmounts({
       hasAnyAmounts: true,
-      amounts: {
-        General: { USD: 10 },
-        OMT: { USD: 0 },
-        MTC: { USD: 0 },
-        Alfa: { USD: 0 },
-      },
+      amounts: { General: { USD: 10 }, OMT: { USD: 0 }, MTC: { USD: 0 }, Alfa: { USD: 0 } },
     });
     mockUseSystemExpected.mockReturnValue({
       systemExpected: {
@@ -180,9 +165,7 @@ describe("Closing modal", () => {
       getExpectedAmount: (_drawer: string, _code: string) => 0,
     });
 
-    (window as any).api.closing.createDailyClosing.mockResolvedValue({
-      success: true,
-    });
+    (window as any).api.closing.createDailyClosing.mockResolvedValue({ success: true });
 
     render(<Closing isOpen={true} onClose={onClose} />);
 
@@ -193,12 +176,9 @@ describe("Closing modal", () => {
 
     expect(screen.getByText(/Step 3 of 3/)).toBeInTheDocument();
 
-    fireEvent.change(
-      screen.getByPlaceholderText("Explain any variances or issues..."),
-      {
-        target: { value: "note" },
-      },
-    );
+    fireEvent.change(screen.getByPlaceholderText("Explain any variances or issues..."), {
+      target: { value: "note" },
+    });
 
     fireEvent.click(screen.getByText("Save & Close Day"));
 
@@ -207,10 +187,7 @@ describe("Closing modal", () => {
     });
 
     expect(window.alert).toHaveBeenCalled();
-    expect(emitSpy).toHaveBeenCalledWith(
-      "closing:completed",
-      expect.any(Object),
-    );
+    expect(emitSpy).toHaveBeenCalledWith("closing:completed", expect.any(Object));
     expect(onClose).toHaveBeenCalled();
   });
 

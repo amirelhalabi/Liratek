@@ -22,11 +22,7 @@ interface ClosingProps {
 
 export default function Closing({ isOpen, onClose }: ClosingProps) {
   const { user } = useAuth();
-  const {
-    currencies,
-    loading: currenciesLoading,
-    error: currenciesError,
-  } = useCurrencies();
+  const { currencies, loading: currenciesLoading, error: currenciesError } = useCurrencies();
   const drawerAmounts = useDrawerAmounts({ currencies });
   const {
     systemExpected,
@@ -59,11 +55,7 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
-  const handleAmountChange = (
-    drawer: DrawerType,
-    code: string,
-    value: string,
-  ) => {
+  const handleAmountChange = (drawer: DrawerType, code: string, value: string) => {
     const numValue = value === "" ? 0 : parseFloat(value);
     drawerAmounts.updateAmount(drawer, code, isNaN(numValue) ? 0 : numValue);
   };
@@ -109,7 +101,7 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
         drawer_name: drawer,
         currency_code: currency.code,
         physical_amount: drawerAmounts.amounts[drawer]?.[currency.code] ?? 0,
-      })),
+      }))
     );
 
     try {
@@ -129,9 +121,7 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
       }
     } catch (error) {
       console.error("[Closing] Save error:", error);
-      setStepError(
-        error instanceof Error ? error.message : "An unexpected error occurred",
-      );
+      setStepError(error instanceof Error ? error.message : "An unexpected error occurred");
     } finally {
       setSaving(false);
     }
@@ -139,9 +129,7 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
 
   const handleCancel = () => {
     if (step > 1 || drawerAmounts.hasAnyAmounts) {
-      if (
-        confirm("You have unsaved changes. Are you sure you want to close?")
-      ) {
+      if (confirm("You have unsaved changes. Are you sure you want to close?")) {
         onClose();
       }
     } else {
@@ -171,12 +159,7 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
           <div>
             <h2 className="text-2xl font-bold text-white">Closing</h2>
             <p className="text-slate-400 text-sm mt-1">
-              Step {step} of {totalSteps}:{" "}
-              {step === 1
-                ? "Physical Count"
-                : step === 2
-                  ? "Variance Review"
-                  : "Notes & Confirmation"}
+              Step {step} of {totalSteps}: {step === 1 ? "Physical Count" : step === 2 ? "Variance Review" : "Notes & Confirmation"}
             </p>
           </div>
           <button
@@ -209,70 +192,57 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
           )}
 
           {/* Step 1: Physical Count */}
-          {step === 1 &&
-            !currenciesLoading &&
-            !currenciesError &&
-            currencies.length === 0 && (
-              <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
-                <p className="text-yellow-200 text-sm">
-                  No active currencies found. Please enable at least one
-                  currency in Settings → Currency Manager.
+          {step === 1 && !currenciesLoading && !currenciesError && currencies.length === 0 && (
+            <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
+              <p className="text-yellow-200 text-sm">
+                No active currencies found. Please enable at least one currency in Settings → Currency Manager.
+              </p>
+            </div>
+          )}
+
+          {step === 1 && !currenciesLoading && !currenciesError && currencies.length > 0 && (
+            <>
+              <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
+                <p className="text-slate-300 text-sm">
+                  Count the physical cash in each drawer. Enter amounts without checking the system totals.
                 </p>
               </div>
-            )}
 
-          {step === 1 &&
-            !currenciesLoading &&
-            !currenciesError &&
-            currencies.length > 0 && (
-              <>
-                <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
-                  <p className="text-slate-300 text-sm">
-                    Count the physical cash in each drawer. Enter amounts
-                    without checking the system totals.
-                  </p>
-                </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {DRAWER_ORDER.map((drawer) => {
+                  const drawerCurrencies =
+                    drawer === "MTC" || drawer === "Alfa"
+                      ? currencies.filter((c) => c.code === "USD")
+                      : currencies;
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {DRAWER_ORDER.map((drawer) => {
-                    const drawerCurrencies =
-                      drawer === "MTC" || drawer === "Alfa"
-                        ? currencies.filter((c) => c.code === "USD")
-                        : currencies;
-
-                    return (
-                      <DrawerCard
-                        key={drawer}
-                        drawer={drawer}
-                        currencies={drawerCurrencies}
-                        getDisplayValue={(d, c) =>
-                          drawerAmounts.getDisplayValue(d, c)
-                        }
-                        onAmountChange={handleAmountChange}
-                        disabled={saving}
-                        focusRingColor="orange-500"
-                      />
-                    );
-                  })}
-                </div>
-              </>
-            )}
+                  return (
+                    <DrawerCard
+                      key={drawer}
+                      drawer={drawer}
+                      currencies={drawerCurrencies}
+                      getDisplayValue={(d, c) => drawerAmounts.getDisplayValue(d, c)}
+                      onAmountChange={handleAmountChange}
+                      disabled={saving}
+                      focusRingColor="orange-500"
+                    />
+                  );
+                })}
+              </div>
+            </>
+          )}
 
           {/* Step 2: Variance Review */}
           {step === 2 && (
             <>
               <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
                 <p className="text-slate-300 text-sm">
-                  Review variances between your physical count and expected
-                  system balances.
+                  Review variances between your physical count and expected system balances.
                 </p>
               </div>
 
               {systemLoading && (
                 <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
-                  <p className="text-blue-200 text-sm">
-                    Calculating expected balances...
-                  </p>
+                  <p className="text-blue-200 text-sm">Calculating expected balances...</p>
                 </div>
               )}
 
@@ -298,17 +268,13 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
                         physicalAmounts={drawerAmounts.amounts[drawer] || {}}
                         getExpectedAmount={(currencyCode: string) => {
                           // Map drawer to systemExpected field
-                          const drawerKey =
-                            drawer === "General"
-                              ? "generalDrawer"
-                              : drawer === "OMT"
-                                ? "omtDrawer"
-                                : drawer === "MTC"
-                                  ? "mtcDrawer"
-                                  : "alfaDrawer";
+                          const drawerKey = drawer === "General" ? "generalDrawer" 
+                            : drawer === "OMT" ? "omtDrawer"
+                            : drawer === "MTC" ? "mtcDrawer"
+                            : "alfaDrawer";
                           const expected = systemExpected[drawerKey];
                           if (!expected) return 0;
-
+                          
                           // Map currency code to field (usd, lbp, eur)
                           const currencyKey = currencyCode.toLowerCase();
                           return expected[currencyKey] || 0;
@@ -326,16 +292,12 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
             <>
               <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
                 <p className="text-slate-300 text-sm">
-                  Add any notes to explain variances or issues before finalizing
-                  the closing.
+                  Add any notes to explain variances or issues before finalizing the closing.
                 </p>
               </div>
 
               <div className="space-y-2">
-                <label
-                  htmlFor="closing-notes"
-                  className="block text-sm font-medium text-slate-300"
-                >
+                <label htmlFor="closing-notes" className="block text-sm font-medium text-slate-300">
                   Closing Notes (Optional)
                 </label>
                 <textarea

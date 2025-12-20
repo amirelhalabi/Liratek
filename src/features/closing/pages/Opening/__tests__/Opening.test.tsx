@@ -23,9 +23,7 @@ jest.mock("../../../hooks/useDrawerAmounts", () => ({
   useDrawerAmounts: () => mockUseDrawerAmounts(),
 }));
 
-function setupDrawerAmounts(
-  overrides: Partial<ReturnType<typeof mockUseDrawerAmounts>> = {},
-) {
+function setupDrawerAmounts(overrides: Partial<ReturnType<typeof mockUseDrawerAmounts>> = {}) {
   const base = {
     amounts: {
       General: { USD: 0 },
@@ -64,11 +62,7 @@ describe("Opening modal", () => {
   });
 
   it("renders nothing when closed", () => {
-    mockUseCurrencies.mockReturnValue({
-      currencies: [],
-      loading: false,
-      error: null,
-    });
+    mockUseCurrencies.mockReturnValue({ currencies: [], loading: false, error: null });
     setupDrawerAmounts();
 
     const { container } = render(<Opening isOpen={false} onClose={onClose} />);
@@ -76,21 +70,13 @@ describe("Opening modal", () => {
   });
 
   it("shows loading and error banners", () => {
-    mockUseCurrencies.mockReturnValue({
-      currencies: [],
-      loading: true,
-      error: null,
-    });
+    mockUseCurrencies.mockReturnValue({ currencies: [], loading: true, error: null });
     setupDrawerAmounts();
 
     render(<Opening isOpen={true} onClose={onClose} />);
     expect(screen.getByText("Loading currencies...")).toBeInTheDocument();
 
-    mockUseCurrencies.mockReturnValue({
-      currencies: [],
-      loading: false,
-      error: "Boom",
-    });
+    mockUseCurrencies.mockReturnValue({ currencies: [], loading: false, error: "Boom" });
     render(<Opening isOpen={true} onClose={onClose} />);
     expect(screen.getAllByText(/Error: Boom/)[0]).toBeInTheDocument();
   });
@@ -117,9 +103,7 @@ describe("Opening modal", () => {
 
     render(<Opening isOpen={true} onClose={onClose} />);
 
-    const input = screen.getByLabelText("USD", {
-      selector: "#General-USD",
-    }) as HTMLInputElement;
+    const input = screen.getByLabelText("USD", { selector: "#General-USD" }) as HTMLInputElement;
     fireEvent.change(input, { target: { value: "12.5" } });
 
     expect(mockUpdateAmount).toHaveBeenCalledWith("General", "USD", 12.5);
@@ -138,9 +122,7 @@ describe("Opening modal", () => {
 
     fireEvent.click(screen.getByText("Save & Start Day"));
     expect(screen.getByText(/Bad amount/)).toBeInTheDocument();
-    expect(
-      (window as any).api.closing.setOpeningBalances,
-    ).not.toHaveBeenCalled();
+    expect((window as any).api.closing.setOpeningBalances).not.toHaveBeenCalled();
   });
 
   it("saves successfully and closes", async () => {
@@ -154,17 +136,10 @@ describe("Opening modal", () => {
     mockValidate.mockReturnValue({ isValid: true, errors: [] });
     setupDrawerAmounts({
       hasAnyAmounts: true,
-      amounts: {
-        General: { USD: 10 },
-        OMT: { USD: 0 },
-        MTC: { USD: 0 },
-        Alfa: { USD: 0 },
-      },
+      amounts: { General: { USD: 10 }, OMT: { USD: 0 }, MTC: { USD: 0 }, Alfa: { USD: 0 } },
     });
 
-    (window as any).api.closing.setOpeningBalances.mockResolvedValue({
-      success: true,
-    });
+    (window as any).api.closing.setOpeningBalances.mockResolvedValue({ success: true });
 
     render(<Opening isOpen={true} onClose={onClose} />);
 
