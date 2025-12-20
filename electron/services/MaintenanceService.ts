@@ -32,21 +32,14 @@ export class MaintenanceService {
   /**
    * Save (create or update) a maintenance job
    */
-  saveJob(params: SaveJobParams): {
-    success: boolean;
-    id?: number;
-    error?: string;
-  } {
+  saveJob(params: SaveJobParams): { success: boolean; id?: number; error?: string } {
     try {
       return this.repo.withTransaction(() => {
         // Handle client auto-creation if name provided but no ID
         let clientId = params.client_id ?? null;
         if (!clientId && params.client_name) {
           try {
-            clientId = this.repo.findOrCreateClient(
-              params.client_name,
-              params.client_phone,
-            );
+            clientId = this.repo.findOrCreateClient(params.client_name, params.client_phone);
           } catch (e) {
             console.error("Auto-create client failed", e);
           }
@@ -73,10 +66,7 @@ export class MaintenanceService {
           this.repo.updateJob(params.id, jobData);
 
           // Log status change for completion
-          if (
-            params.status === "Delivered_Paid" ||
-            params.status === "Delivered"
-          ) {
+          if (params.status === "Delivered_Paid" || params.status === "Delivered") {
             this.repo.logActivity(1, "Maintenance Job Completed", {
               drawer: "General_Drawer_B",
               device: params.device_name,
@@ -84,7 +74,7 @@ export class MaintenanceService {
               status: params.status,
             });
             console.log(
-              `[MAINTENANCE] Job ${params.id} completed: ${params.device_name} - $${params.final_amount_usd} [Drawer B]`,
+              `[MAINTENANCE] Job ${params.id} completed: ${params.device_name} - $${params.final_amount_usd} [Drawer B]`
             );
           }
           return { success: true, id: params.id };
@@ -97,7 +87,7 @@ export class MaintenanceService {
             price_usd: params.price_usd,
           });
           console.log(
-            `[MAINTENANCE] New job: ${params.device_name} - $${params.price_usd} [Drawer B]`,
+            `[MAINTENANCE] New job: ${params.device_name} - $${params.price_usd} [Drawer B]`
           );
           return { success: true, id: newId };
         }
