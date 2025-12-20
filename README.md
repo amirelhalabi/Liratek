@@ -47,8 +47,7 @@ yarn reset:sales-debt
 ### Build Outputs
 
 After building, installers are located in the `release/` folder:
-
-- **macOS**: `LiraTek-{version}-arm64.dmg`
+- **macOS**: `LiraTek-{version}-arm64.dmg` 
 - **Windows**: `LiraTek-{version}-x64.exe`
 
 ### Creating a Release
@@ -61,7 +60,6 @@ git push origin v1.0.0
 ```
 
 This will:
-
 1. Run tests and typecheck
 2. Build for Windows x64, macOS Intel, macOS ARM
 3. Create a GitHub Release with all installers attached
