@@ -1,11 +1,6 @@
 import { useEffect, useState } from "react";
 
-type UINotification = {
-  id: string | number;
-  message: string;
-  type: "success" | "error" | "info" | "warning";
-  duration?: number;
-};
+type UINotification = { id: string | number; message: string; type: "success" | "error" | "info" | "warning"; duration?: number };
 
 import { appEvents } from "../../utils/appEvents";
 import { LogOut, Bell, Search, X } from "lucide-react";
@@ -13,23 +8,16 @@ import { useMemo } from "react";
 import { useAuth } from "../../../features/auth/context/AuthContext";
 
 function NotificationHistory() {
-  const [items, setItems] = useState<UINotification[]>(
-    () => window.notificationHistory || [],
-  );
+  const [items, setItems] = useState<UINotification[]>(() => (window.notificationHistory || []));
   const [filter, setFilter] = useState<
     "all" | "error" | "warning" | "info" | "success"
   >("all");
   useEffect(() => {
-    const off = appEvents.on("notification:history", (h: UINotification[]) =>
-      setItems(h || []),
-    );
+    const off = appEvents.on("notification:history", (h: UINotification[]) => setItems(h || []));
     return () => off();
   }, []);
   const filtered = useMemo(
-    () =>
-      filter === "all"
-        ? items
-        : items.filter((i: UINotification) => i.type === filter),
+    () => (filter === "all" ? items : items.filter((i: UINotification) => i.type === filter)),
     [items, filter],
   );
   return (

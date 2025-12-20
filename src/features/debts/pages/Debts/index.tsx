@@ -180,7 +180,7 @@ export default function Debts() {
   }, [filteredDebtors, selectedClient]);
 
   return (
-    <div className="flex h-full min-h-0 gap-4 overflow-hidden">
+    <div className="flex h-full min-h-0 gap-6 overflow-hidden">
       {/* Left: Debtors List */}
       <div className="w-1/3 flex flex-col bg-slate-800 rounded-xl border border-slate-700 shadow-xl overflow-hidden">
         <div className="p-4 border-b border-slate-700 space-y-4">

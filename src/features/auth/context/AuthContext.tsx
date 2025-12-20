@@ -1,3 +1,4 @@
+
 import { createContext, useContext, useState, useEffect } from "react";
 import type { ReactNode } from "react";
 import { appEvents } from "../../../shared/utils/appEvents";
@@ -104,15 +105,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{
-        user,
-        isAuthenticated: !!user,
-        isLoading,
-        login,
-        logout,
-        needsOpening,
-        clearOpeningFlag,
-      }}
+      value={{ user, isAuthenticated: !!user, isLoading, login, logout, needsOpening, clearOpeningFlag }}
     >
       {children}
     </AuthContext.Provider>
