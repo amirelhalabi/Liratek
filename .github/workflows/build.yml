@@ -3,13 +3,13 @@ name: Build & Release
 on:
   push:
     tags:
-      - "v*"
+      - 'v*'
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to build (e.g., 1.0.0)"
+        description: 'Version to build (e.g., 1.0.0)'
         required: false
-        default: ""
+        default: ''
 
 jobs:
   build-windows:
@@ -17,29 +17,29 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
+      
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
-
+          node-version: '20'
+      
       - name: Enable Corepack
         run: corepack enable
-
+      
       - name: Install dependencies
         run: yarn install --immutable
-
+      
       - name: Run tests
         run: yarn test
-
+      
       - name: Build frontend
         run: yarn build
-
+      
       - name: Build Windows Installer
         run: yarn build:win
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
+      
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -53,29 +53,29 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
+      
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
-
+          node-version: '20'
+      
       - name: Enable Corepack
         run: corepack enable
-
+      
       - name: Install dependencies
         run: yarn install --immutable
-
+      
       - name: Run tests
         run: yarn test
-
+      
       - name: Build frontend
         run: yarn build
-
+      
       - name: Build macOS Intel DMG
         run: yarn dlx electron-builder@^25.1.8 --mac dmg zip --x64
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
+      
       - name: Upload macOS Intel artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -90,29 +90,29 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
+      
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
-
+          node-version: '20'
+      
       - name: Enable Corepack
         run: corepack enable
-
+      
       - name: Install dependencies
         run: yarn install --immutable
-
+      
       - name: Run tests
         run: yarn test
-
+      
       - name: Build frontend
         run: yarn build
-
+      
       - name: Build macOS ARM DMG
         run: yarn build:mac
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
+      
       - name: Upload macOS ARM artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -133,7 +133,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
-
+      
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
