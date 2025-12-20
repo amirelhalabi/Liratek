@@ -14,13 +14,13 @@ export type SQLiteBoolean = 0 | 1;
 export type ISODateString = string;
 
 /** Currency codes supported by the system */
-export type CurrencyCode = "USD" | "LBP" | "EUR";
+export type CurrencyCode = 'USD' | 'LBP' | 'EUR';
 
 /** User roles */
-export type UserRole = "admin" | "cashier";
+export type UserRole = 'admin' | 'cashier';
 
 /** Drawer identifiers */
-export type DrawerId = "drawer1" | "drawer2";
+export type DrawerId = 'drawer1' | 'drawer2';
 
 // =============================================================================
 // User Entity
@@ -37,7 +37,7 @@ export interface User {
 }
 
 /** User without sensitive password hash */
-export type SafeUser = Omit<User, "password_hash">;
+export type SafeUser = Omit<User, 'password_hash'>;
 
 // =============================================================================
 // Product Entity
@@ -114,7 +114,7 @@ export interface Debt {
   sale_id: number | null;
   original_amount_usd: number;
   remaining_amount_usd: number;
-  status: "active" | "partial" | "paid";
+  status: 'active' | 'partial' | 'paid';
   notes: string | null;
   created_at: ISODateString;
   updated_at: ISODateString;
@@ -174,7 +174,7 @@ export interface DrawerSession {
   opening_balance_lbp: number;
   closing_balance_usd: number | null;
   closing_balance_lbp: number | null;
-  status: "open" | "closed";
+  status: 'open' | 'closed';
   opened_at: ISODateString;
   closed_at: ISODateString | null;
 }
@@ -201,7 +201,7 @@ export interface RechargeTransaction {
 export interface OMTTransaction {
   id: number;
   drawer_id: DrawerId;
-  transaction_type: "send" | "receive";
+  transaction_type: 'send' | 'receive';
   amount_usd: number;
   fee_usd: number;
   recipient_name: string | null;
