@@ -17,6 +17,9 @@ import { registerCurrencyHandlers } from "./handlers/currencyHandlers";
 import { registerRateHandlers } from "./handlers/rateHandlers";
 import { startSyncProcessor } from "./sync";
 
+// Ensure consistent app name in dev (macOS Dock/menu often shows "Electron" otherwise)
+app.setName("LiraTek");
+
 // ============================================================================
 // SINGLE INSTANCE LOCK
 // ============================================================================
