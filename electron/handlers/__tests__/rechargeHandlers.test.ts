@@ -53,8 +53,14 @@ describe("RechargeHandlers", () => {
 
   describe("Handler Registration", () => {
     it("should register all recharge handlers", () => {
-      expect(ipcMain.handle).toHaveBeenCalledWith("recharge:get-stock", expect.any(Function));
-      expect(ipcMain.handle).toHaveBeenCalledWith("recharge:process", expect.any(Function));
+      expect(ipcMain.handle).toHaveBeenCalledWith(
+        "recharge:get-stock",
+        expect.any(Function),
+      );
+      expect(ipcMain.handle).toHaveBeenCalledWith(
+        "recharge:process",
+        expect.any(Function),
+      );
     });
   });
 
@@ -113,7 +119,10 @@ describe("RechargeHandlers", () => {
     });
 
     it("should reject non-admin users", async () => {
-      (requireRole as jest.Mock).mockReturnValue({ ok: false, error: "Admin required" });
+      (requireRole as jest.Mock).mockReturnValue({
+        ok: false,
+        error: "Admin required",
+      });
 
       const handler = handlers.get("recharge:process")!;
       const result = await handler({ sender: { id: 1 } }, { provider: "MTC" });
@@ -123,10 +132,16 @@ describe("RechargeHandlers", () => {
     });
 
     it("should handle insufficient stock error", async () => {
-      mockService.processRecharge.mockReturnValue({ success: false, error: "Insufficient stock" });
+      mockService.processRecharge.mockReturnValue({
+        success: false,
+        error: "Insufficient stock",
+      });
 
       const handler = handlers.get("recharge:process")!;
-      const result = await handler({ sender: { id: 1 } }, { provider: "MTC", amount: 1000 });
+      const result = await handler(
+        { sender: { id: 1 } },
+        { provider: "MTC", amount: 1000 },
+      );
 
       expect(result).toEqual({ success: false, error: "Insufficient stock" });
     });

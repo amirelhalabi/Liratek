@@ -18,7 +18,7 @@ export default function UsersManager() {
     setLoading(true);
     try {
       const rows = await window.api.getNonAdminUsers();
-      const normalized = (rows as any[]).map((u) => ({
+      const normalized = rows.map((u) => ({
         ...u,
         role: (u.role === "admin" ? "admin" : "staff") as "admin" | "staff",
       }));
@@ -88,7 +88,7 @@ export default function UsersManager() {
         />
         <select
           value={newRole}
-          onChange={(e) => setNewRole(e.target.value as any)}
+          onChange={(e) => setNewRole(e.target.value as "admin" | "staff")}
           className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white"
         >
           <option value="staff">Staff</option>

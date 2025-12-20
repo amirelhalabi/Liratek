@@ -1,18 +1,33 @@
 import { ipcMain } from "electron";
 import { MaintenanceService } from "../services/MaintenanceService";
 import { maintenanceLogger } from "../utils/logger";
+/* eslint-disable @typescript-eslint/no-require-imports */
 
 export function registerMaintenanceHandlers(): void {
   const service = new MaintenanceService();
 
   // Add / Update Maintenance Job (Drawer B - General Drawer)
-  ipcMain.handle("maintenance:save", (e, job: any) => {
+  type MaintenanceJobInput = {
+    id?: number;
+    device_name: string;
+    issue_description: string;
+    estimated_cost_usd?: number;
+    repair_price_usd?: number;
+    status?: string;
+    client_name?: string;
+    client_phone?: string;
+  };
+
+  ipcMain.handle("maintenance:save", (e, job: MaintenanceJobInput) => {
     try {
       const { requireRole } = require("../session");
       const auth = requireRole(e.sender.id, ["admin"]);
       if (!auth.ok) return { success: false, error: auth.error };
     } catch {}
-    maintenanceLogger.info({ jobId: job.id, device: job.device_type }, "Saving maintenance job");
+    maintenanceLogger.info(
+      { jobId: job.id, device: job.device_name },
+      "Saving maintenance job",
+    );
     return service.saveJob(job);
   });
 

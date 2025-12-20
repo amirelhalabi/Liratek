@@ -1,5 +1,5 @@
-import type Database from 'better-sqlite3';
-import { getDatabase } from '../../db';
+import type Database from "better-sqlite3";
+import { getDatabase } from "../../db";
 
 export interface SettingEntity {
   id?: number;
@@ -24,7 +24,9 @@ export class SettingsRepository {
    * Get all settings
    */
   getAllSettings(): SettingEntity[] {
-    return this.db.prepare("SELECT * FROM system_settings").all() as SettingEntity[];
+    return this.db
+      .prepare("SELECT * FROM system_settings")
+      .all() as SettingEntity[];
   }
 
   /**

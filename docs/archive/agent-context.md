@@ -136,6 +136,7 @@ liratek/
 ## Completed Phases
 
 ### Phase 1: Foundation ✅
+
 - Crypto utils extraction (`electron/utils/crypto.ts`)
 - Custom error classes (`electron/utils/errors.ts`)
 - Zod-validated config system (`electron/config/`)
@@ -143,23 +144,27 @@ liratek/
 - Path aliases (`@/*`, `@shared/*`)
 
 ### Phase 2: Backend Refactor ✅
+
 - **13 Repositories** - Data access layer with BaseRepository pattern
 - **16 Services** - Business logic layer
 - **13 Handlers refactored** - Thin IPC wrappers delegating to services
 
 ### Phase 3: Frontend Refactor ✅
+
 - Feature-based directory structure (`src/features/`)
 - Shared components moved to `src/shared/`
 - App entry moved to `src/app/`
 - All imports updated
 
 ### Phase 4: Quality & Polish ✅
+
 - 372 tests passing across 35 test suites
 - 99% service layer coverage
 - Pino structured logging in all handlers
 - Handler tests for all 13 handlers
 
 ### Phase 5: Monorepo Split ⏸️ (DEFERRED)
+
 - Target: `apps/desktop`, `packages/db`, `packages/shared`
 - Postponed for future development cycle
 
@@ -167,52 +172,56 @@ liratek/
 
 ## Success Criteria Status
 
-| Criterion | Status |
-|-----------|--------|
-| Path aliases (no `../../../`) | ✅ Done |
+| Criterion                            | Status  |
+| ------------------------------------ | ------- |
+| Path aliases (no `../../../`)        | ✅ Done |
 | Repository pattern (13 repositories) | ✅ Done |
-| Service layer (16 services) | ✅ Done |
-| Thin handlers (<50 lines avg) | ✅ Done |
-| Shared types (`packages/shared/`) | ✅ Done |
-| 70%+ test coverage (99% achieved) | ✅ Done |
-| Environment config | ✅ Done |
-| Structured logging (Pino) | ✅ Done |
-| Feature-based frontend | ✅ Done |
-| Session encryption (safeStorage) | ✅ Done |
-| Password hashing (Scrypt) | ✅ Done |
-| Role-based access (requireRole) | ✅ Done |
-| Activity logging | ✅ Done |
+| Service layer (16 services)          | ✅ Done |
+| Thin handlers (<50 lines avg)        | ✅ Done |
+| Shared types (`packages/shared/`)    | ✅ Done |
+| 70%+ test coverage (99% achieved)    | ✅ Done |
+| Environment config                   | ✅ Done |
+| Structured logging (Pino)            | ✅ Done |
+| Feature-based frontend               | ✅ Done |
+| Session encryption (safeStorage)     | ✅ Done |
+| Password hashing (Scrypt)            | ✅ Done |
+| Role-based access (requireRole)      | ✅ Done |
+| Activity logging                     | ✅ Done |
 
 ---
 
 ## Security Features
 
-| Feature | Implementation |
-|---------|----------------|
-| Session Encryption | `safeStorage` API for OS keychain |
-| Password Hashing | Scrypt with random salt |
-| Password Migration | Auto-migrate plain text → scrypt on login |
-| Role-Based Access | `requireRole()` checks in admin handlers |
-| Activity Logging | All critical actions logged to `activity_logs` table |
+| Feature            | Implementation                                       |
+| ------------------ | ---------------------------------------------------- |
+| Session Encryption | `safeStorage` API for OS keychain                    |
+| Password Hashing   | Scrypt with random salt                              |
+| Password Migration | Auto-migrate plain text → scrypt on login            |
+| Role-Based Access  | `requireRole()` checks in admin handlers             |
+| Activity Logging   | All critical actions logged to `activity_logs` table |
 
 ---
 
 ## Key Files Reference
 
 ### Backend Entry Points
+
 - `electron/main.ts` - App lifecycle, IPC registration
 - `electron/preload.ts` - Secure context bridge
 - `electron/db/index.ts` - Database singleton
 
 ### Service Layer
+
 - `electron/services/index.ts` - All service singletons
 - Pattern: `get[Service]()` returns singleton instance
 
-### Repository Layer  
+### Repository Layer
+
 - `electron/database/repositories/index.ts` - All repository exports
 - Pattern: Extends `BaseRepository<Entity>`
 
 ### Frontend Entry Points
+
 - `src/main.tsx` - React entry
 - `src/app/App.tsx` - Router + layout
 
@@ -232,6 +241,7 @@ yarn jest path/to/test.ts
 ```
 
 **Current Stats:**
+
 - 35 test suites
 - 372 tests passing
 - 99% service layer coverage

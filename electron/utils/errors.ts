@@ -18,7 +18,7 @@ export class AppError extends Error {
     message: string,
     statusCode: number = 500,
     isOperational: boolean = true,
-    details?: unknown
+    details?: unknown,
   ) {
     super(message);
     this.code = code;
@@ -84,10 +84,44 @@ export class NotFoundError extends AppError {
 /**
  * Database operation errors
  */
+export type RepoConstraintCode =
+  | "DUPLICATE_BARCODE"
+  | "DUPLICATE_PHONE"
+  | "DUPLICATE_CURRENCY_CODE";
+
+export type RepoErrorDetails = {
+  code?: RepoConstraintCode;
+  entityId?: number | string;
+  cause?: unknown;
+};
+
 export class DatabaseError extends AppError {
-  constructor(message: string, details?: unknown) {
+  declare readonly details?: RepoErrorDetails;
+
+  constructor(message: string, details?: RepoErrorDetails) {
     super("DATABASE_ERROR", message, 500, true, details);
   }
+}
+
+export function getRepoConstraintCode(
+  err: unknown,
+): RepoConstraintCode | undefined {
+  // New path: DatabaseError.details.code
+  if (err instanceof DatabaseError) {
+    return err.details?.code;
+  }
+
+  // Legacy path: some tests and older code use `error.code = 'DUPLICATE_*'`
+  const legacyCode = (err as { code?: unknown })?.code;
+  if (
+    legacyCode === "DUPLICATE_BARCODE" ||
+    legacyCode === "DUPLICATE_PHONE" ||
+    legacyCode === "DUPLICATE_CURRENCY_CODE"
+  ) {
+    return legacyCode;
+  }
+
+  return undefined;
 }
 
 /**
@@ -143,10 +177,14 @@ export function handleError(error: unknown): {
   // SQLite constraint errors
   if (error instanceof Error) {
     if (error.message.includes("UNIQUE constraint")) {
-      return new ConflictError("A record with this value already exists").toJSON();
+      return new ConflictError(
+        "A record with this value already exists",
+      ).toJSON();
     }
     if (error.message.includes("FOREIGN KEY constraint")) {
-      return new ValidationError("Invalid reference to related record").toJSON();
+      return new ValidationError(
+        "Invalid reference to related record",
+      ).toJSON();
     }
   }
 
@@ -156,7 +194,8 @@ export function handleError(error: unknown): {
   const isDev = process.env.NODE_ENV === "development";
   return {
     success: false,
-    error: isDev && error instanceof Error ? error.message : "Internal server error",
+    error:
+      isDev && error instanceof Error ? error.message : "Internal server error",
     code: "INTERNAL_ERROR",
   };
 }
@@ -168,10 +207,19 @@ export function handleError(error: unknown): {
  *   // handler code that can throw
  * }));
  */
-export function wrapHandler<T extends (...args: any[]) => Promise<any>>(
-  handler: T
-): (...args: Parameters<T>) => Promise<ReturnType<T> | ReturnType<typeof handleError>> {
-  return async (...args: Parameters<T>) => {
+export function toErrorString(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  try {
+    return typeof err === "string" ? err : JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
+}
+
+export function wrapHandler<Args extends unknown[], R>(
+  handler: (...args: Args) => Promise<R>,
+): (...args: Args) => Promise<R | ReturnType<typeof handleError>> {
+  return async (...args: Args) => {
     try {
       return await handler(...args);
     } catch (error) {

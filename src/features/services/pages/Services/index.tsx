@@ -33,9 +33,9 @@ interface Transaction {
   amount_lbp: number;
   commission_usd: number;
   commission_lbp: number;
-  client_name: string;
-  reference_number: string;
-  note: string;
+  client_name?: string;
+  reference_number?: string;
+  note?: string;
   created_at: string;
 }
 
@@ -68,7 +68,13 @@ export default function Services() {
         window.api.getOMTHistory(),
         window.api.getOMTAnalytics(),
       ]);
-      setTransactions(history);
+      setTransactions(
+        history.map((h) => ({
+          ...h,
+          provider: h.provider as Provider,
+          service_type: h.service_type as ServiceType,
+        })),
+      );
       setAnalytics(stats);
     } catch (error) {
       console.error("Failed to load data:", error);
@@ -90,8 +96,8 @@ export default function Services() {
         amountLBP: parseFloat(amountLBP) || 0,
         commissionUSD: parseFloat(commissionUSD) || 0,
         commissionLBP: parseFloat(commissionLBP) || 0,
-        clientName: clientName || undefined,
-        referenceNumber: referenceNumber || undefined,
+        ...(clientName ? { clientName } : {}),
+        ...(referenceNumber ? { referenceNumber } : {}),
         note: `${provider} - ${serviceType}`,
       });
 
@@ -150,7 +156,7 @@ export default function Services() {
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
+    <div className="h-full min-h-0 flex flex-col gap-6 animate-in fade-in duration-500">
       <h1 className="text-2xl font-bold text-white flex items-center gap-2">
         <Send className="text-[#ffde00]" />
         Financial Services
@@ -230,9 +236,9 @@ export default function Services() {
         ))}
       </div>
 
-      <div className="flex gap-6 h-[calc(100vh-theme(spacing.64))]">
+      <div className="flex-1 min-h-0 flex gap-4">
         {/* Left: Form */}
-        <div className="w-1/3 min-w-[380px] bg-slate-800 rounded-xl border border-slate-700/50 shadow-lg p-6 flex flex-col">
+        <div className="w-1/3 min-w-[380px] bg-slate-800 rounded-xl border border-slate-700/50 shadow-lg p-4 flex flex-col">
           {/* Provider Selector */}
           <div className="flex gap-2 p-1 bg-slate-900 rounded-xl mb-6">
             {(["OMT", "WHISH"] as Provider[]).map((p) => (
@@ -390,7 +396,7 @@ export default function Services() {
         </div>
 
         {/* Right: History - Matching Exchange table style */}
-        <div className="flex-1 bg-slate-800 rounded-xl border border-slate-700/50 shadow-lg overflow-hidden flex flex-col">
+        <div className="flex-1 min-h-0 bg-slate-800 rounded-xl border border-slate-700/50 shadow-lg overflow-hidden flex flex-col">
           <div className="p-4 border-b border-slate-700 bg-slate-800 flex items-center justify-between">
             <h2 className="font-bold text-white flex items-center gap-2">
               <History className="text-slate-400" size={18} />
@@ -404,7 +410,7 @@ export default function Services() {
             </button>
           </div>
 
-          <div className="flex-1 overflow-auto">
+          <div className="flex-1 min-h-0 overflow-auto">
             <table className="w-full">
               <thead className="bg-slate-900/50 text-left text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0">
                 <tr>

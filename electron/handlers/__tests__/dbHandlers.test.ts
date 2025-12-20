@@ -172,8 +172,18 @@ describe("dbHandlers IPC: Closing functionality", () => {
           lbp: 0,
           eur: 0,
         },
+        mtcDrawer: {
+          usd: 0,
+          lbp: 0,
+          eur: 0,
+        },
+        alfaDrawer: {
+          usd: 0,
+          lbp: 0,
+          eur: 0,
+        },
       });
-      expect(mockDbInstance.prepare).toHaveBeenCalledTimes(5); // sales, debt_ledger, expenses, omt inflows, omt outflows
+      expect(mockDbInstance.prepare).toHaveBeenCalledTimes(7); // sales, debt_ledger, expenses, omt inflows, omt outflows, mtc recharges, alfa recharges
     });
 
     it("should handle zero balances gracefully", async () => {
@@ -201,6 +211,8 @@ describe("dbHandlers IPC: Closing functionality", () => {
       expect(result).toEqual({
         generalDrawer: { usd: 0, lbp: 0, eur: 0 },
         omtDrawer: { usd: 0, lbp: 0, eur: 0 },
+        mtcDrawer: { usd: 0, lbp: 0, eur: 0 },
+        alfaDrawer: { usd: 0, lbp: 0, eur: 0 },
       });
     });
 
@@ -223,6 +235,8 @@ describe("dbHandlers IPC: Closing functionality", () => {
       expect(result).toEqual({
         generalDrawer: { usd: 0, lbp: 0, eur: 0 },
         omtDrawer: { usd: 0, lbp: 0, eur: 0 },
+        mtcDrawer: { usd: 0, lbp: 0, eur: 0 },
+        alfaDrawer: { usd: 0, lbp: 0, eur: 0 },
       });
     });
   });

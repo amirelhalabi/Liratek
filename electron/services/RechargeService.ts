@@ -1,15 +1,15 @@
 /**
  * Recharge Service
- * 
+ *
  * Business logic layer for mobile recharge operations (MTC/Alfa).
  */
 
-import { 
-  RechargeRepository, 
+import {
+  RechargeRepository,
   getRechargeRepository,
   type VirtualStock,
-  type RechargeData
-} from '../database/repositories';
+  type RechargeData,
+} from "../database/repositories";
 
 // =============================================================================
 // Types
@@ -39,7 +39,7 @@ export class RechargeService {
     try {
       return this.rechargeRepo.getVirtualStock();
     } catch (error) {
-      console.error('Failed to get recharge stock:', error);
+      console.error("Failed to get recharge stock:", error);
       return { mtc: 0, alfa: 0 };
     }
   }

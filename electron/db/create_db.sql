@@ -86,9 +86,11 @@ CREATE TABLE IF NOT EXISTS debt_ledger (
     amount_lbp DECIMAL(15, 2),
     sale_id INTEGER,
     note TEXT,
+    created_by INTEGER,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (client_id) REFERENCES clients(id),
-    FOREIGN KEY (sale_id) REFERENCES sales(id)
+    FOREIGN KEY (sale_id) REFERENCES sales(id),
+    FOREIGN KEY (created_by) REFERENCES users(id)
 );
 
 -- Maintenance Jobs
@@ -195,6 +197,11 @@ CREATE TABLE IF NOT EXISTS currencies (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Seed default currencies (required for Opening/Closing UI)
+-- Idempotent: safe to run on every app start.
+INSERT OR IGNORE INTO currencies (code, name, is_active) VALUES ('USD', 'US Dollar', 1);
+INSERT OR IGNORE INTO currencies (code, name, is_active) VALUES ('LBP', 'Lebanese Pound', 1);
+
 -- Exchange Rates (cross-rate matrix)
 CREATE TABLE IF NOT EXISTS exchange_rates (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -257,4 +264,15 @@ CREATE TABLE IF NOT EXISTS maintenance (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (client_id) REFERENCES clients(id)
+);
+
+-- Mobile Recharges (Touch/Alfa)
+CREATE TABLE IF NOT EXISTS recharges (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    carrier TEXT CHECK(carrier IN ('Touch', 'Alfa')) NOT NULL,
+    amount_usd DECIMAL(10, 2) NOT NULL,
+    phone_number TEXT,
+    client_name TEXT,
+    note TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );

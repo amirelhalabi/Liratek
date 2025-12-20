@@ -55,9 +55,21 @@ describe("ClosingService", () => {
         closing_date: "2025-01-15",
         user_id: 1,
         amounts: [
-          { drawer_name: "General_Drawer_A", currency_code: "USD", opening_amount: 500 },
-          { drawer_name: "General_Drawer_A", currency_code: "LBP", opening_amount: 45000000 },
-          { drawer_name: "OMT_Drawer", currency_code: "USD", opening_amount: 200 },
+          {
+            drawer_name: "General_Drawer_A",
+            currency_code: "USD",
+            opening_amount: 500,
+          },
+          {
+            drawer_name: "General_Drawer_A",
+            currency_code: "LBP",
+            opening_amount: 45000000,
+          },
+          {
+            drawer_name: "OMT_Drawer",
+            currency_code: "USD",
+            opening_amount: 200,
+          },
         ],
       };
       mockRepo.setOpeningBalances.mockReturnValue({ success: true, id: 1 });
@@ -68,7 +80,7 @@ describe("ClosingService", () => {
       expect(mockRepo.setOpeningBalances).toHaveBeenCalledWith(
         "2025-01-15",
         data.amounts,
-        1
+        1,
       );
     });
 
@@ -76,7 +88,11 @@ describe("ClosingService", () => {
       const data: SetOpeningBalancesData = {
         closing_date: "2025-01-15",
         amounts: [
-          { drawer_name: "General_Drawer_B", currency_code: "USD", opening_amount: 300 },
+          {
+            drawer_name: "General_Drawer_B",
+            currency_code: "USD",
+            opening_amount: 300,
+          },
         ],
       };
       mockRepo.setOpeningBalances.mockReturnValue({ success: true, id: 2 });
@@ -86,7 +102,7 @@ describe("ClosingService", () => {
       expect(mockRepo.setOpeningBalances).toHaveBeenCalledWith(
         "2025-01-15",
         data.amounts,
-        1 // Default user_id
+        1, // Default user_id
       );
     });
 
@@ -119,8 +135,16 @@ describe("ClosingService", () => {
         system_expected_usd: 1000,
         system_expected_lbp: 90000000,
         amounts: [
-          { drawer_name: "General_Drawer_A", currency_code: "USD", physical_amount: 1000 },
-          { drawer_name: "General_Drawer_A", currency_code: "LBP", physical_amount: 90000000 },
+          {
+            drawer_name: "General_Drawer_A",
+            currency_code: "USD",
+            physical_amount: 1000,
+          },
+          {
+            drawer_name: "General_Drawer_A",
+            currency_code: "LBP",
+            physical_amount: 90000000,
+          },
         ],
       };
       mockRepo.createDailyClosing.mockReturnValue({ success: true, id: 1 });
@@ -133,7 +157,7 @@ describe("ClosingService", () => {
         data.amounts,
         1000,
         90000000,
-        "All balanced"
+        "All balanced",
       );
     });
 
@@ -141,7 +165,11 @@ describe("ClosingService", () => {
       const data: CreateClosingData = {
         closing_date: "2025-01-15",
         amounts: [
-          { drawer_name: "General_Drawer_A", currency_code: "USD", physical_amount: 500 },
+          {
+            drawer_name: "General_Drawer_A",
+            currency_code: "USD",
+            physical_amount: 500,
+          },
         ],
       };
       mockRepo.createDailyClosing.mockReturnValue({ success: true, id: 2 });
@@ -153,7 +181,7 @@ describe("ClosingService", () => {
         data.amounts,
         0, // default system_expected_usd
         0, // default system_expected_lbp
-        undefined // variance_notes
+        undefined, // variance_notes
       );
     });
 
@@ -169,7 +197,10 @@ describe("ClosingService", () => {
 
       const result = service.createDailyClosing(data);
 
-      expect(result).toEqual({ success: false, error: "Closing already exists" });
+      expect(result).toEqual({
+        success: false,
+        error: "Closing already exists",
+      });
     });
   });
 
@@ -265,6 +296,8 @@ describe("ClosingService", () => {
       const mockBalances: SystemExpectedBalances = {
         generalDrawer: { usd: 1500, lbp: 135000000, eur: 100 },
         omtDrawer: { usd: 500, lbp: 45000000, eur: 0 },
+        mtcDrawer: { usd: 200, lbp: 0, eur: 0 },
+        alfaDrawer: { usd: 150, lbp: 0, eur: 0 },
       };
       mockRepo.getSystemExpectedBalances.mockReturnValue(mockBalances);
 
@@ -284,6 +317,8 @@ describe("ClosingService", () => {
       expect(result).toEqual({
         generalDrawer: { usd: 0, lbp: 0, eur: 0 },
         omtDrawer: { usd: 0, lbp: 0, eur: 0 },
+        mtcDrawer: { usd: 0, lbp: 0, eur: 0 },
+        alfaDrawer: { usd: 0, lbp: 0, eur: 0 },
       });
     });
 
@@ -291,6 +326,8 @@ describe("ClosingService", () => {
       const mockBalances: SystemExpectedBalances = {
         generalDrawer: { usd: 0, lbp: 0, eur: 0 },
         omtDrawer: { usd: 0, lbp: 0, eur: 0 },
+        mtcDrawer: { usd: 0, lbp: 0, eur: 0 },
+        alfaDrawer: { usd: 0, lbp: 0, eur: 0 },
       };
       mockRepo.getSystemExpectedBalances.mockReturnValue(mockBalances);
 

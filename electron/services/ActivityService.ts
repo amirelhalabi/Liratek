@@ -32,10 +32,16 @@ export class ActivityService {
     action: string,
     details?: Record<string, unknown>,
     tableName?: string,
-    recordId?: number
+    recordId?: number,
   ): number {
     try {
-      return this.repo.logActivity(userId, action, details, tableName, recordId);
+      return this.repo.logActivity(
+        userId,
+        action,
+        details,
+        tableName,
+        recordId,
+      );
     } catch (error) {
       console.error("ActivityService.logActivity error:", error);
       return 0;
@@ -48,9 +54,9 @@ export class ActivityService {
   getSyncErrors(limit?: number): SyncErrorEntity[] | { error: string } {
     try {
       return this.repo.getSyncErrors(limit);
-    } catch (error: any) {
+    } catch (error) {
       console.error("ActivityService.getSyncErrors error:", error);
-      return { error: error.message };
+      return { error: error instanceof Error ? error.message : String(error) };
     }
   }
 }

@@ -103,7 +103,9 @@ describe("CurrencyService", () => {
         code: "USD",
         name: "US Dollar",
       };
-      const error = new Error("Unique constraint failed") as Error & { code: string };
+      const error = new Error("Unique constraint failed") as Error & {
+        code: string;
+      };
       error.code = "SQLITE_CONSTRAINT_UNIQUE";
       mockRepo.createCurrency.mockImplementation(() => {
         throw error;

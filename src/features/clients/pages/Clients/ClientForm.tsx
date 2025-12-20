@@ -57,13 +57,24 @@ export default function ClientForm({
     setIsLoading(true);
 
     try {
-      const payload = { ...formData, id: client?.id };
-
       let result;
       if (client) {
-        result = await window.api.updateClient(payload);
+        const updatePayload = {
+          id: client.id,
+          full_name: formData.full_name,
+          phone_number: formData.phone_number,
+          ...(formData.notes ? { notes: formData.notes } : {}),
+          whatsapp_opt_in: formData.whatsapp_opt_in ? 1 : 0,
+        };
+        result = await window.api.updateClient(updatePayload);
       } else {
-        result = await window.api.createClient(payload);
+        const createPayload = {
+          full_name: formData.full_name,
+          phone_number: formData.phone_number,
+          ...(formData.notes ? { notes: formData.notes } : {}),
+          whatsapp_opt_in: formData.whatsapp_opt_in ? 1 : 0,
+        };
+        result = await window.api.createClient(createPayload);
       }
 
       if (result.success) {
@@ -80,8 +91,18 @@ export default function ClientForm({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-lg overflow-hidden shadow-2xl">
+    <div
+      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      <div
+        className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-lg overflow-hidden shadow-2xl"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <div className="flex justify-between items-center p-6 border-b border-slate-700 bg-slate-800">
           <h2 className="text-xl font-bold text-white">
             {client ? "Edit Client" : "New Client"}

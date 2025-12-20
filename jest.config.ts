@@ -35,10 +35,8 @@ const config: Config = {
       branches: 50,
     },
   },*/
-  globals: {
-    "ts-jest": {
-      tsconfig: "tsconfig.node.json",
-    },
+  transform: {
+    "^.+\\.(ts|tsx)$": ["ts-jest", { tsconfig: "tsconfig.jest.json" }],
   },
 };
 

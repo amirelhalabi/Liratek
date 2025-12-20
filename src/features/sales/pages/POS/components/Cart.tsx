@@ -26,9 +26,9 @@ export default function Cart({
   );
 
   return (
-    <div className="flex flex-col h-full bg-slate-800 border-l border-slate-700 w-96 shadow-2xl z-20">
+    <div className="flex flex-col h-full bg-slate-800 border border-slate-700/50 rounded-2xl w-96 shadow-2xl z-20 overflow-hidden">
       {/* Header */}
-      <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-800">
+      <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-800 rounded-t-2xl">
         <h2 className="text-lg font-bold text-white flex items-center gap-2">
           <span className="w-2 h-6 bg-violet-600 rounded-full"></span>
           Current Sale
@@ -122,7 +122,7 @@ export default function Cart({
       </div>
 
       {/* Footer Summary */}
-      <div className="p-4 bg-slate-900 border-t border-slate-700 space-y-4">
+      <div className="p-4 bg-slate-900 border-t border-slate-700 space-y-4 rounded-b-2xl">
         <div className="space-y-2 text-sm">
           <div className="flex justify-between text-slate-400">
             <span>Items</span>

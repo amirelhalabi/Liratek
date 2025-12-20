@@ -25,7 +25,8 @@ function getConfigPath(): string {
   }
 
   // Production: relative to app resources
-   
+
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { app } = require("electron");
   return path.join(app.getPath("userData"), "config");
 }
@@ -56,9 +57,7 @@ export function loadConfig(): Config {
     loadedFrom = fallbackFile;
   } else {
     // No config file found - use defaults from schema
-    console.warn(
-      `[CONFIG] No .env file found in ${configDir}, using defaults`
-    );
+    console.warn(`[CONFIG] No .env file found in ${configDir}, using defaults`);
   }
 
   try {

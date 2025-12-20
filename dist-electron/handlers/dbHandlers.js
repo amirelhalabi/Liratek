@@ -8,6 +8,7 @@ const ExpenseService_1 = require("../services/ExpenseService");
 const ClosingService_1 = require("../services/ClosingService");
 const ActivityService_1 = require("../services/ActivityService");
 const logger_1 = require("../utils/logger");
+/* eslint-disable @typescript-eslint/no-require-imports */
 function registerDatabaseHandlers() {
     const settingsService = new SettingsService_1.SettingsService();
     const expenseService = new ExpenseService_1.ExpenseService();
@@ -100,11 +101,27 @@ function registerDatabaseHandlers() {
         if (!parsed.success)
             return { success: false, error: "Invalid payload" };
         logger_1.closingLogger.info({ date: parsed.data.closing_date }, "Setting opening balances");
-        return closingService.setOpeningBalances(parsed.data);
+        return closingService.setOpeningBalances({
+            closing_date: parsed.data.closing_date,
+            amounts: parsed.data.amounts,
+            ...(parsed.data.user_id != null
+                ? { user_id: parsed.data.user_id }
+                : {}),
+        });
     });
     // Get system expected balances
     electron_1.ipcMain.handle("closing:get-system-expected-balances", async () => {
         return closingService.getSystemExpectedBalances();
+    });
+    // Check if opening balance has been set for today
+    electron_1.ipcMain.handle("closing:has-opening-balance-today", async () => {
+        try {
+            return closingService.hasOpeningBalanceToday();
+        }
+        catch (error) {
+            logger_1.closingLogger.error({ error: error instanceof Error ? error.message : String(error) }, "Error checking opening balance");
+            return false; // Default to false if error
+        }
     });
     // Create daily closing
     electron_1.ipcMain.handle("closing:create-daily-closing", (e, data) => {
@@ -133,7 +150,32 @@ function registerDatabaseHandlers() {
         if (!parsed.success)
             return { success: false, error: "Invalid payload" };
         logger_1.closingLogger.info({ date: parsed.data.closing_date }, "Creating daily closing");
-        return closingService.createDailyClosing(parsed.data);
+        return closingService.createDailyClosing({
+            closing_date: parsed.data.closing_date,
+            amounts: parsed.data.amounts.map((amount) => ({
+                drawer_name: amount.drawer_name,
+                currency_code: amount.currency_code,
+                physical_amount: amount.physical_amount,
+                ...(amount.opening_amount != null
+                    ? { opening_amount: amount.opening_amount }
+                    : {}),
+            })),
+            ...(parsed.data.user_id != null
+                ? { user_id: parsed.data.user_id }
+                : {}),
+            ...(parsed.data.variance_notes != null
+                ? { variance_notes: parsed.data.variance_notes }
+                : {}),
+            ...(parsed.data.report_path != null
+                ? { report_path: parsed.data.report_path }
+                : {}),
+            ...(parsed.data.system_expected_usd != null
+                ? { system_expected_usd: parsed.data.system_expected_usd }
+                : {}),
+            ...(parsed.data.system_expected_lbp != null
+                ? { system_expected_lbp: parsed.data.system_expected_lbp }
+                : {}),
+        });
     });
     // Update existing daily closing
     electron_1.ipcMain.handle("closing:update-daily-closing", (e, data) => {

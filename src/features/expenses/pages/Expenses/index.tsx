@@ -41,6 +41,20 @@ export default function Expenses() {
 
   const loadTodayExpenses = async () => {
     try {
+      if (!window.api) {
+        setExpenses([
+          {
+            id: 1,
+            description: "Mock Shop Rent",
+            category: "Bill",
+            expense_type: "Cash_Out",
+            amount_usd: 50.0,
+            amount_lbp: 0,
+            expense_date: new Date().toISOString(),
+          },
+        ]);
+        return;
+      }
       const data = await window.api.getTodayExpenses();
       setExpenses(data);
     } catch (error) {
@@ -58,6 +72,24 @@ export default function Expenses() {
     }
 
     try {
+      if (!window.api) {
+        const newEx: Expense = {
+          id: Date.now(),
+          ...formData,
+        };
+        setExpenses((prev) => [newEx, ...prev]);
+        setFormData({
+          description: "",
+          category: "Shop_Supply",
+          expense_type: "Cash_Out",
+          amount_usd: 0,
+          amount_lbp: 0,
+          expense_date: new Date().toISOString().split("T")[0],
+        });
+        setIsModalOpen(false);
+        return;
+      }
+
       const result = await window.api.addExpense({
         ...formData,
         expense_date: new Date(formData.expense_date).toISOString(),
@@ -87,6 +119,10 @@ export default function Expenses() {
   const handleDelete = async (id: number) => {
     if (!confirm("Delete this expense?")) return;
     try {
+      if (!window.api) {
+        setExpenses((prev) => prev.filter((e) => e.id !== id));
+        return;
+      }
       const result = await window.api.deleteExpense(id);
       if (result.success) {
         loadTodayExpenses();
@@ -104,8 +140,8 @@ export default function Expenses() {
     .reduce((sum, e) => sum + (e.amount_usd || 0), 0);
 
   return (
-    <div className="h-[calc(100vh-theme(spacing.16))] -m-4 p-4 overflow-auto bg-slate-900">
-      <div className="max-w-6xl mx-auto space-y-6">
+    <div className="h-full min-h-0 flex flex-col gap-6">
+      <div className="flex-1 min-h-0 flex flex-col gap-6">
         {/* Header */}
         <div className="flex justify-between items-center">
           <h1 className="text-3xl font-bold text-white flex items-center gap-3">
@@ -146,7 +182,7 @@ export default function Expenses() {
         </div>
 
         {/* Expenses Table */}
-        <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden shadow-xl">
+        <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden shadow-xl flex-1 min-h-0 flex flex-col">
           <div className="p-6 border-b border-slate-700">
             <h2 className="text-xl font-bold text-white flex items-center gap-2">
               <Calendar size={20} className="text-slate-400" />
@@ -159,7 +195,7 @@ export default function Expenses() {
               <p>No expenses recorded yet.</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="flex-1 min-h-0 overflow-auto">
               <table className="w-full">
                 <thead className="bg-slate-700/50 text-slate-300 text-sm font-medium">
                   <tr>
@@ -223,8 +259,18 @@ export default function Expenses() {
 
       {/* Add Expense Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl">
+        <div
+          className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 p-4"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) {
+              setIsModalOpen(false);
+            }
+          }}
+        >
+          <div
+            className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
             <div className="p-6 border-b border-slate-700">
               <h2 className="text-2xl font-bold text-white">Add Expense</h2>
             </div>

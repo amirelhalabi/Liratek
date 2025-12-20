@@ -7,20 +7,27 @@ A comprehensive Point of Sale system designed for Lebanese phone shops with adva
 ## 📦 Downloads
 
 ### Windows
+
 **[LiraTek-1.0.0-x64.exe](LiraTek-1.0.0-x64.exe)** (94 MB)
+
 - Windows 10/11 (64-bit)
 - One-click installer, no admin rights required
 
 ### macOS Apple Silicon
+
 **[LiraTek-1.0.0-arm64.dmg](LiraTek-1.0.0-arm64.dmg)** (122 MB)
+
 - macOS 12+ (M1/M2/M3 chips)
 - Native ARM64 performance
 
 ### macOS Intel
+
 **[LiraTek-1.0.0.dmg](LiraTek-1.0.0.dmg)** (127 MB)
+
 - macOS 12+ (Intel processors)
 
 **[LiraTek-1.0.0-mac.zip](LiraTek-1.0.0-mac.zip)** (122 MB)
+
 - macOS 12+ (Intel) - ZIP alternative
 
 ---
@@ -28,12 +35,14 @@ A comprehensive Point of Sale system designed for Lebanese phone shops with adva
 ## ✨ Key Features
 
 ### 💰 Multi-Currency System
+
 - Dual currency support (LBP & USD)
 - Real-time exchange rate management
 - Mixed-currency transactions
 - Currency exchange module
 
 ### 📱 Point of Sale
+
 - Fast product search & barcode scanning
 - Real-time cart with dual-currency display
 - Split payments across currencies
@@ -41,6 +50,7 @@ A comprehensive Point of Sale system designed for Lebanese phone shops with adva
 - Complete sales history
 
 ### 📦 Inventory Management
+
 - Comprehensive product catalog
 - Real-time stock tracking
 - Low stock alerts
@@ -48,18 +58,21 @@ A comprehensive Point of Sale system designed for Lebanese phone shops with adva
 - Product variants (models, colors, storage)
 
 ### 👥 Customer Management
+
 - Client database
 - Credit system & debt tracking
 - Payment schedules
 - Purchase history
 
 ### 💳 Financial Services
+
 - OMT money transfers
 - Bill payments
 - Mobile recharges (all Lebanese carriers)
 - Service transaction tracking
 
 ### 📊 Reporting & Analytics
+
 - Sales reports (daily/weekly/monthly)
 - Financial analysis (revenue, profit, expenses)
 - Inventory reports
@@ -67,12 +80,14 @@ A comprehensive Point of Sale system designed for Lebanese phone shops with adva
 - Export capabilities
 
 ### 🔐 Security
+
 - User authentication
 - Role-based access control
 - Complete activity logging
 - Data encryption
 
 ### 🌙 Daily Operations
+
 - Opening/closing procedures
 - Cash drawer management
 - Shift tracking
@@ -83,11 +98,13 @@ A comprehensive Point of Sale system designed for Lebanese phone shops with adva
 ## 🚀 Installation
 
 ### Windows
+
 1. Download `LiraTek-1.0.0-x64.exe`
 2. Run the installer
 3. Launch from Start Menu or Desktop
 
 ### macOS
+
 1. Download the DMG for your Mac (ARM64 for M1/M2/M3, Intel for older Macs)
 2. Open DMG and drag to Applications
 3. **First Launch:** Right-click → Open (app is not notarized)
@@ -144,10 +161,12 @@ A comprehensive Point of Sale system designed for Lebanese phone shops with adva
 ## 💪 Support
 
 **Need help?**
+
 - [Report an Issue](https://github.com/amirelhalabi/Liratek/issues)
 - [Join Discussions](https://github.com/amirelhalabi/Liratek/discussions)
 
 When reporting bugs, please include:
+
 - OS and version
 - Steps to reproduce
 - Expected vs actual behavior

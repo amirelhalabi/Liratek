@@ -1,10 +1,11 @@
 /**
  * Currency Repository
- * 
+ *
  * Handles all currencies table operations.
  */
 
-import { BaseRepository } from './BaseRepository';
+import { BaseRepository } from "./BaseRepository";
+import { DatabaseError } from "../../utils/errors";
 
 // =============================================================================
 // Entity Types
@@ -34,7 +35,7 @@ export interface UpdateCurrencyData {
 
 export class CurrencyRepository extends BaseRepository<CurrencyEntity> {
   constructor() {
-    super('currencies', { softDelete: false });
+    super("currencies", { softDelete: false });
   }
 
   /**
@@ -42,7 +43,7 @@ export class CurrencyRepository extends BaseRepository<CurrencyEntity> {
    */
   findAllCurrencies(): CurrencyEntity[] {
     const stmt = this.db.prepare(
-      'SELECT id, code, name, is_active FROM currencies ORDER BY code ASC'
+      "SELECT id, code, name, is_active FROM currencies ORDER BY code ASC",
     );
     return stmt.all() as CurrencyEntity[];
   }
@@ -51,11 +52,22 @@ export class CurrencyRepository extends BaseRepository<CurrencyEntity> {
    * Create a new currency
    */
   createCurrency(data: CreateCurrencyData): { id: number } {
-    const stmt = this.db.prepare(
-      'INSERT INTO currencies (code, name, is_active) VALUES (?, ?, 1)'
-    );
-    const result = stmt.run(data.code.toUpperCase(), data.name);
-    return { id: Number(result.lastInsertRowid) };
+    try {
+      const stmt = this.db.prepare(
+        "INSERT INTO currencies (code, name, is_active) VALUES (?, ?, 1)",
+      );
+      const result = stmt.run(data.code.toUpperCase(), data.name);
+      return { id: Number(result.lastInsertRowid) };
+    } catch (error) {
+      const code = (error as { code?: string })?.code;
+      if (code === "SQLITE_CONSTRAINT_UNIQUE") {
+        throw new DatabaseError("Currency code already exists", {
+          code: "DUPLICATE_CURRENCY_CODE",
+          cause: error,
+        });
+      }
+      throw error;
+    }
   }
 
   /**
@@ -69,10 +81,12 @@ export class CurrencyRepository extends BaseRepository<CurrencyEntity> {
     const name = data.name ?? current.name;
     const isActive = data.is_active ?? current.is_active;
 
-    this.db.prepare(
-      'UPDATE currencies SET code = ?, name = ?, is_active = ? WHERE id = ?'
-    ).run(code, name, isActive, id);
-    
+    this.db
+      .prepare(
+        "UPDATE currencies SET code = ?, name = ?, is_active = ? WHERE id = ?",
+      )
+      .run(code, name, isActive, id);
+
     return true;
   }
 
@@ -80,21 +94,21 @@ export class CurrencyRepository extends BaseRepository<CurrencyEntity> {
    * Delete a currency
    */
   deleteCurrency(id: number): void {
-    this.db.prepare('DELETE FROM currencies WHERE id = ?').run(id);
+    this.db.prepare("DELETE FROM currencies WHERE id = ?").run(id);
   }
 
   /**
    * Check if currency code exists
    */
   codeExists(code: string, excludeId?: number): boolean {
-    let query = 'SELECT 1 FROM currencies WHERE code = ?';
+    let query = "SELECT 1 FROM currencies WHERE code = ?";
     const params: (string | number)[] = [code.toUpperCase()];
-    
+
     if (excludeId) {
-      query += ' AND id != ?';
+      query += " AND id != ?";
       params.push(excludeId);
     }
-    
+
     return !!this.db.prepare(query).get(...params);
   }
 }

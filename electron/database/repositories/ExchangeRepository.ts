@@ -1,11 +1,11 @@
 /**
  * Exchange Repository
- * 
+ *
  * Handles all exchange_transactions table operations.
  * Uses BaseRepository for common functionality.
  */
 
-import { BaseRepository } from './BaseRepository';
+import { BaseRepository } from "./BaseRepository";
 
 // =============================================================================
 // Entity Types
@@ -41,7 +41,7 @@ export interface CreateExchangeData {
 
 export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity> {
   constructor() {
-    super('exchange_transactions', { softDelete: false });
+    super("exchange_transactions", { softDelete: false });
   }
 
   // ---------------------------------------------------------------------------
@@ -65,7 +65,7 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
       data.amountOut,
       data.rate,
       data.clientName || null,
-      data.note || null
+      data.note || null,
     );
 
     return { id: Number(result.lastInsertRowid) };
@@ -76,18 +76,18 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
    */
   logActivity(data: CreateExchangeData): void {
     const logStmt = this.db.prepare(`
-      INSERT INTO activity_logs (user_id, action, details, created_at)
+      INSERT INTO activity_logs (user_id, action, details_json, created_at)
       VALUES (1, 'Exchange Transaction', ?, CURRENT_TIMESTAMP)
     `);
     logStmt.run(
       JSON.stringify({
-        drawer: 'General_Drawer_B',
+        drawer: "General_Drawer_B",
         from: data.fromCurrency,
         to: data.toCurrency,
         amountIn: data.amountIn,
         amountOut: data.amountOut,
-        rate: data.rate
-      })
+        rate: data.rate,
+      }),
     );
   }
 
@@ -131,11 +131,15 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
       FROM exchange_transactions 
       WHERE DATE(created_at, 'localtime') = DATE('now', 'localtime')
     `);
-    const result = stmt.get() as { total_in: number; total_out: number; count: number };
+    const result = stmt.get() as {
+      total_in: number;
+      total_out: number;
+      count: number;
+    };
     return {
       totalIn: result.total_in,
       totalOut: result.total_out,
-      count: result.count
+      count: result.count,
     };
   }
 }

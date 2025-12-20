@@ -21,9 +21,9 @@ jest.mock("../../session", () => ({
 // Mock MaintenanceService
 const mockService = {
   saveJob: jest.fn().mockReturnValue({ success: true, id: 1 }),
-  getJobs: jest.fn().mockReturnValue([
-    { id: 1, device_name: "iPhone 14", status: "pending" },
-  ]),
+  getJobs: jest
+    .fn()
+    .mockReturnValue([{ id: 1, device_name: "iPhone 14", status: "pending" }]),
   deleteJob: jest.fn().mockReturnValue({ success: true }),
 };
 
@@ -48,9 +48,18 @@ describe("MaintenanceHandlers", () => {
 
   describe("Handler Registration", () => {
     it("should register all maintenance handlers", () => {
-      expect(ipcMain.handle).toHaveBeenCalledWith("maintenance:save", expect.any(Function));
-      expect(ipcMain.handle).toHaveBeenCalledWith("maintenance:get-jobs", expect.any(Function));
-      expect(ipcMain.handle).toHaveBeenCalledWith("maintenance:delete", expect.any(Function));
+      expect(ipcMain.handle).toHaveBeenCalledWith(
+        "maintenance:save",
+        expect.any(Function),
+      );
+      expect(ipcMain.handle).toHaveBeenCalledWith(
+        "maintenance:get-jobs",
+        expect.any(Function),
+      );
+      expect(ipcMain.handle).toHaveBeenCalledWith(
+        "maintenance:delete",
+        expect.any(Function),
+      );
     });
   });
 

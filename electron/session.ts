@@ -20,8 +20,7 @@ interface StoredSession {
 const sessions = new Map<number, SessionData>(); // key: webContents.id
 
 // File path for encrypted session storage
-const getSessionFilePath = () =>
-  path.join(app.getPath("userData"), ".session");
+const getSessionFilePath = () => path.join(app.getPath("userData"), ".session");
 
 /**
  * Generate a cryptographically secure session token
