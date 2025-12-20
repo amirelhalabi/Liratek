@@ -45,7 +45,9 @@ export function DrawerCard({
     >
       {/* Header */}
       <div className="flex items-center gap-3 mb-4">
-        <div className="bg-white/10 p-2 rounded-lg text-white">{getIcon()}</div>
+        <div className="bg-white/10 p-2 rounded-lg text-white">
+          {getIcon()}
+        </div>
         <div>
           <h3 className="font-bold text-lg text-white">{config.label}</h3>
           <p className="text-xs text-slate-400">{config.description}</p>
@@ -58,28 +60,26 @@ export function DrawerCard({
           <p className="text-sm text-slate-300/80">No currencies to display.</p>
         ) : (
           currencies.map((currency) => (
-            <div key={currency.code} className="flex items-center gap-3">
-              <label
-                htmlFor={`${drawer}-${currency.code}`}
-                className="text-sm font-semibold text-slate-300 w-16 flex-shrink-0"
-              >
-                {currency.code}
-              </label>
-              <input
-                id={`${drawer}-${currency.code}`}
-                type="number"
-                step="0.01"
-                min="0"
-                value={getDisplayValue(drawer, currency.code)}
-                onChange={(e) =>
-                  onAmountChange(drawer, currency.code, e.target.value)
-                }
-                placeholder="0.00"
-                autoComplete="off"
-                disabled={disabled}
-                className={`flex-1 bg-slate-900 border-2 border-slate-600 rounded-lg px-4 py-2.5 text-white text-lg font-mono placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-${focusRingColor} focus:border-${focusRingColor} transition cursor-text disabled:opacity-50 disabled:cursor-not-allowed`}
-              />
-            </div>
+          <div key={currency.code} className="flex items-center gap-3">
+            <label
+              htmlFor={`${drawer}-${currency.code}`}
+              className="text-sm font-semibold text-slate-300 w-16 flex-shrink-0"
+            >
+              {currency.code}
+            </label>
+            <input
+              id={`${drawer}-${currency.code}`}
+              type="number"
+              step="0.01"
+              min="0"
+              value={getDisplayValue(drawer, currency.code)}
+              onChange={(e) => onAmountChange(drawer, currency.code, e.target.value)}
+              placeholder="0.00"
+              autoComplete="off"
+              disabled={disabled}
+              className={`flex-1 bg-slate-900 border-2 border-slate-600 rounded-lg px-4 py-2.5 text-white text-lg font-mono placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-${focusRingColor} focus:border-${focusRingColor} transition cursor-text disabled:opacity-50 disabled:cursor-not-allowed`}
+            />
+          </div>
           ))
         )}
       </div>
