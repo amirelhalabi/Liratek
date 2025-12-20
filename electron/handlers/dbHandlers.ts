@@ -65,19 +65,16 @@ export function registerDatabaseHandlers(): void {
         amount_usd: number;
         amount_lbp: number;
         expense_date: string;
-      },
+      }
     ) => {
       try {
         const { requireRole } = require("../session");
         const auth = requireRole(e.sender.id, ["admin"]);
         if (!auth.ok) return { success: false, error: auth.error };
       } catch {}
-      expenseLogger.info(
-        { category: data.category, amountUSD: data.amount_usd },
-        "Adding expense",
-      );
+      expenseLogger.info({ category: data.category, amountUSD: data.amount_usd }, "Adding expense");
       return expenseService.addExpense(data);
-    },
+    }
   );
 
   // Get Today's Expenses
@@ -98,42 +95,34 @@ export function registerDatabaseHandlers(): void {
   // ==================== CLOSING ====================
 
   // Set Opening balances
-  ipcMain.handle(
-    "closing:set-opening-balances",
-    (e, data: { drawer_name: string; balances: Record<string, number> }) => {
-      try {
-        const { requireRole } = require("../session");
-        const auth = requireRole(e.sender.id, ["admin"]);
-        if (!auth.ok) return { success: false, error: auth.error };
-      } catch {}
+  ipcMain.handle("closing:set-opening-balances", (e, data: { drawer_name: string; balances: Record<string, number> }) => {
+    try {
+      const { requireRole } = require("../session");
+      const auth = requireRole(e.sender.id, ["admin"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+    } catch {}
 
-      const schema = z.object({
-        closing_date: z.string().min(8),
-        user_id: z.number().optional(),
-        amounts: z.array(
-          z.object({
-            drawer_name: z.string().min(1),
-            currency_code: z.string().min(1),
-            opening_amount: z.number().nonnegative(),
-          }),
-        ),
-      });
-      const parsed = schema.safeParse(data);
-      if (!parsed.success) return { success: false, error: "Invalid payload" };
+    const schema = z.object({
+      closing_date: z.string().min(8),
+      user_id: z.number().optional(),
+      amounts: z.array(
+        z.object({
+          drawer_name: z.string().min(1),
+          currency_code: z.string().min(1),
+          opening_amount: z.number().nonnegative(),
+        })
+      ),
+    });
+    const parsed = schema.safeParse(data);
+    if (!parsed.success) return { success: false, error: "Invalid payload" };
 
-      closingLogger.info(
-        { date: parsed.data.closing_date },
-        "Setting opening balances",
-      );
-      return closingService.setOpeningBalances({
-        closing_date: parsed.data.closing_date,
-        amounts: parsed.data.amounts,
-        ...(parsed.data.user_id != null
-          ? { user_id: parsed.data.user_id }
-          : {}),
-      });
-    },
-  );
+    closingLogger.info({ date: parsed.data.closing_date }, "Setting opening balances");
+    return closingService.setOpeningBalances({
+      closing_date: parsed.data.closing_date,
+      amounts: parsed.data.amounts,
+      ...(parsed.data.user_id != null ? { user_id: parsed.data.user_id } : {}),
+    });
+  });
 
   // Get system expected balances
   ipcMain.handle("closing:get-system-expected-balances", async () => {
@@ -145,75 +134,58 @@ export function registerDatabaseHandlers(): void {
     try {
       return closingService.hasOpeningBalanceToday();
     } catch (error) {
-      closingLogger.error(
-        { error: error instanceof Error ? error.message : String(error) },
-        "Error checking opening balance",
-      );
+      closingLogger.error({ error: (error instanceof Error ? error.message : String(error)) }, "Error checking opening balance");
       return false; // Default to false if error
     }
   });
 
   // Create daily closing
-  ipcMain.handle(
-    "closing:create-daily-closing",
-    (e, data: { drawer_name: string; note?: string }) => {
-      try {
-        const { requireRole } = require("../session");
-        const auth = requireRole(e.sender.id, ["admin"]);
-        if (!auth.ok) return { success: false, error: auth.error };
-      } catch {}
+  ipcMain.handle("closing:create-daily-closing", (e, data: { drawer_name: string; note?: string }) => {
+    try {
+      const { requireRole } = require("../session");
+      const auth = requireRole(e.sender.id, ["admin"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+    } catch {}
 
-      const schema = z.object({
-        closing_date: z.string().min(8),
-        user_id: z.number().optional(),
-        variance_notes: z.string().optional(),
-        report_path: z.string().optional(),
-        system_expected_usd: z.number().optional(),
-        system_expected_lbp: z.number().optional(),
-        amounts: z.array(
-          z.object({
-            drawer_name: z.string().min(1),
-            currency_code: z.string().min(1),
-            physical_amount: z.number().nonnegative(),
-            opening_amount: z.number().nonnegative().optional(),
-          }),
-        ),
-      });
-      const parsed = schema.safeParse(data);
-      if (!parsed.success) return { success: false, error: "Invalid payload" };
+    const schema = z.object({
+      closing_date: z.string().min(8),
+      user_id: z.number().optional(),
+      variance_notes: z.string().optional(),
+      report_path: z.string().optional(),
+      system_expected_usd: z.number().optional(),
+      system_expected_lbp: z.number().optional(),
+      amounts: z.array(
+        z.object({
+          drawer_name: z.string().min(1),
+          currency_code: z.string().min(1),
+          physical_amount: z.number().nonnegative(),
+          opening_amount: z.number().nonnegative().optional(),
+        })
+      ),
+    });
+    const parsed = schema.safeParse(data);
+    if (!parsed.success) return { success: false, error: "Invalid payload" };
 
-      closingLogger.info(
-        { date: parsed.data.closing_date },
-        "Creating daily closing",
-      );
-      return closingService.createDailyClosing({
-        closing_date: parsed.data.closing_date,
-        amounts: parsed.data.amounts.map((amount) => ({
-          drawer_name: amount.drawer_name,
-          currency_code: amount.currency_code,
-          physical_amount: amount.physical_amount,
-          ...(amount.opening_amount != null
-            ? { opening_amount: amount.opening_amount }
-            : {}),
-        })),
-        ...(parsed.data.user_id != null
-          ? { user_id: parsed.data.user_id }
-          : {}),
-        ...(parsed.data.variance_notes != null
-          ? { variance_notes: parsed.data.variance_notes }
-          : {}),
-        ...(parsed.data.report_path != null
-          ? { report_path: parsed.data.report_path }
-          : {}),
-        ...(parsed.data.system_expected_usd != null
-          ? { system_expected_usd: parsed.data.system_expected_usd }
-          : {}),
-        ...(parsed.data.system_expected_lbp != null
-          ? { system_expected_lbp: parsed.data.system_expected_lbp }
-          : {}),
-      });
-    },
-  );
+    closingLogger.info({ date: parsed.data.closing_date }, "Creating daily closing");
+    return closingService.createDailyClosing({
+      closing_date: parsed.data.closing_date,
+      amounts: parsed.data.amounts.map((amount) => ({
+        drawer_name: amount.drawer_name,
+        currency_code: amount.currency_code,
+        physical_amount: amount.physical_amount,
+        ...(amount.opening_amount != null ? { opening_amount: amount.opening_amount } : {}),
+      })),
+      ...(parsed.data.user_id != null ? { user_id: parsed.data.user_id } : {}),
+      ...(parsed.data.variance_notes != null ? { variance_notes: parsed.data.variance_notes } : {}),
+      ...(parsed.data.report_path != null ? { report_path: parsed.data.report_path } : {}),
+      ...(parsed.data.system_expected_usd != null
+        ? { system_expected_usd: parsed.data.system_expected_usd }
+        : {}),
+      ...(parsed.data.system_expected_lbp != null
+        ? { system_expected_lbp: parsed.data.system_expected_lbp }
+        : {}),
+    });
+  });
 
   // Update existing daily closing
   ipcMain.handle(
@@ -231,7 +203,7 @@ export function registerDatabaseHandlers(): void {
         notes?: string;
         report_path?: string;
         user_id?: number;
-      },
+      }
     ) => {
       try {
         const { requireRole } = require("../session");
@@ -239,7 +211,7 @@ export function registerDatabaseHandlers(): void {
         if (!auth.ok) return { success: false, error: auth.error };
       } catch {}
       return closingService.updateDailyClosing(data);
-    },
+    }
   );
 
   // Get daily stats snapshot
