@@ -1,15 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 
 export default function ActivityLogViewer() {
-  type ActivityLogRow = {
-    id: number;
-    created_at: string;
-    user_id: number | null;
-    action: string;
-    table_name: string;
-    record_id: number | null;
-    details_json?: string;
-  };
+  type ActivityLogRow = { id: number; created_at: string; user_id: number | null; action: string; table_name: string; record_id: number | null; details_json?: string };
   const [logs, setLogs] = useState<ActivityLogRow[]>([]);
   const [limit, setLimit] = useState("200");
   const [loading, setLoading] = useState(false);
@@ -17,9 +9,7 @@ export default function ActivityLogViewer() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = (await window.api.activity.getRecent?.(
-        Number(limit) || 200,
-      )) as ActivityLogRow[];
+      const res = (await window.api.activity.getRecent?.(Number(limit) || 200)) as ActivityLogRow[];
       setLogs(res || []);
     } finally {
       setLoading(false);
