@@ -26,10 +26,8 @@ app.setName("LiraTek");
 const gotTheLock = app.requestSingleInstanceLock();
 
 if (!gotTheLock) {
-  // Another instance is already running, quit this one immediately
   app.quit();
 } else {
-  // Global error handler
   process.on("uncaughtException", (error: unknown) => {
     console.error("Uncaught Exception:", error);
 
@@ -43,10 +41,10 @@ if (!gotTheLock) {
     } catch (e) {
       console.error("Failed to show error box:", e);
     }
+
     app.quit();
   });
 
-  // This is the first instance, set up the handler for when someone tries to open a second instance
   app.on("second-instance", () => {
     console.log(
       "[SingleInstance] Attempted to open second instance. Focusing existing window.",
@@ -116,6 +114,7 @@ if (!gotTheLock) {
   };
 
   app.whenReady().then(() => {
+    // Some platforms (macOS) may ignore early setName; set again when ready.
     app.setName("LiraTek");
 
     if (process.platform === "darwin" && app.dock && !app.isPackaged) {

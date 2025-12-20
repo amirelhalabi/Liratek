@@ -7,9 +7,7 @@
   "version": "1.0.0",
   "type": "module",
   "main": "dist-electron/main.js",
-  "workspaces": [
-    "packages/*"
-  ],
+  "workspaces": ["packages/*"],
   "scripts": {
     "dev": "concurrently -k \"npm run dev:vite\" \"npm run dev:electron\"",
     "start": "npm run dev",
@@ -100,9 +98,7 @@
       }
     ],
     "asar": true,
-    "asarUnpack": [
-      "**/node_modules/better-sqlite3/**/*"
-    ],
+    "asarUnpack": ["**/node_modules/better-sqlite3/**/*"],
     "npmRebuild": true,
     "electronVersion": "31.0.0",
     "appId": "com.liratek.pos",
@@ -126,17 +122,11 @@
       "target": [
         {
           "target": "dmg",
-          "arch": [
-            "arm64",
-            "x64"
-          ]
+          "arch": ["arm64", "x64"]
         },
         {
           "target": "zip",
-          "arch": [
-            "arm64",
-            "x64"
-          ]
+          "arch": ["arm64", "x64"]
         }
       ],
       "artifactName": "mac${arch}/${productName}-${version}.${ext}"
@@ -146,9 +136,7 @@
       "target": [
         {
           "target": "nsis",
-          "arch": [
-            "x64"
-          ]
+          "arch": ["x64"]
         }
       ],
       "artifactName": "${productName}-Setup-${version}.${ext}"
