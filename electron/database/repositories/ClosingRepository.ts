@@ -76,7 +76,7 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
   findByDate(closingDate: string): DailyClosingEntity | undefined {
     return this.db
       .prepare(
-        `SELECT id FROM daily_closings WHERE closing_date = ? AND drawer_name = 'AGGREGATED'`
+        `SELECT id FROM daily_closings WHERE closing_date = ? AND drawer_name = 'AGGREGATED'`,
       )
       .get(closingDate) as DailyClosingEntity | undefined;
   }
@@ -87,7 +87,7 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
   setOpeningBalances(
     closingDate: string,
     amounts: OpeningBalanceAmount[],
-    userId: number
+    userId: number,
   ): { success: boolean; id?: number | bigint; error?: string } {
     try {
       const exists = this.findByDate(closingDate);
@@ -101,7 +101,12 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
       if (exists && exists.id) {
         const tx = this.db.transaction((rows: OpeningBalanceAmount[]) => {
           for (const r of rows) {
-            upsertAmounts.run(exists.id, r.drawer_name, r.currency_code, r.opening_amount);
+            upsertAmounts.run(
+              exists.id,
+              r.drawer_name,
+              r.currency_code,
+              r.opening_amount,
+            );
           }
         });
         tx(amounts);
@@ -118,7 +123,12 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
 
         const tx = this.db.transaction((rows: OpeningBalanceAmount[]) => {
           for (const r of rows) {
-            upsertAmounts.run(res.lastInsertRowid, r.drawer_name, r.currency_code, r.opening_amount);
+            upsertAmounts.run(
+              res.lastInsertRowid,
+              r.drawer_name,
+              r.currency_code,
+              r.opening_amount,
+            );
           }
         });
         tx(amounts);
@@ -128,7 +138,10 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
       }
     } catch (error) {
       console.error("Failed to set opening balances:", error);
-      return { success: false, error: (error instanceof Error ? error.message : String(error)) };
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
     }
   }
 
@@ -140,7 +153,7 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
     amounts: ClosingAmount[],
     systemExpectedUsd: number,
     systemExpectedLbp: number,
-    varianceNotes?: string
+    varianceNotes?: string,
   ): { success: boolean; id?: number | bigint; error?: string } {
     try {
       const stmt = this.db.prepare(`
@@ -154,7 +167,7 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
         closingDate,
         systemExpectedUsd || 0,
         systemExpectedLbp || 0,
-        varianceNotes || null
+        varianceNotes || null,
       );
 
       const upsertAmounts = this.db.prepare(`
@@ -172,7 +185,7 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
             r.drawer_name,
             r.currency_code,
             r.opening_amount,
-            r.physical_amount
+            r.physical_amount,
           );
         }
       });
@@ -182,7 +195,7 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
       this.db
         .prepare(
           `INSERT INTO activity_logs (user_id, action, table_name, record_id, details_json, created_at)
-           VALUES (1, 'CREATE_DAILY_CLOSING', 'daily_closings', ?, ?, CURRENT_TIMESTAMP)`
+           VALUES (1, 'CREATE_DAILY_CLOSING', 'daily_closings', ?, ?, CURRENT_TIMESTAMP)`,
         )
         .run(result.lastInsertRowid, JSON.stringify({ amounts }));
 
@@ -190,7 +203,10 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
       return { success: true, id: result.lastInsertRowid };
     } catch (error) {
       console.error("Failed to create daily closing:", error);
-      return { success: false, error: (error instanceof Error ? error.message : String(error)) };
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
     }
   }
 
@@ -199,7 +215,7 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
    */
   updateDailyClosing(
     id: number,
-    data: Partial<DailyClosingEntity>
+    data: Partial<DailyClosingEntity>,
   ): { success: boolean; error?: string } {
     try {
       const current = this.db
@@ -231,12 +247,15 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
         data.notes,
         data.report_path,
         data.updated_by || 1,
-        id
+        id,
       );
       return { success: true };
     } catch (error) {
       console.error("Failed to update daily closing:", error);
-      return { success: false, error: (error instanceof Error ? error.message : String(error)) };
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
     }
   }
 
@@ -253,9 +272,11 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
           SUM(paid_usd) as total_usd_sales,
           SUM(paid_lbp) as total_lbp_sales
          FROM sales 
-         WHERE DATE(created_at) = ? AND status = 'completed'`
+         WHERE DATE(created_at) = ? AND status = 'completed'`,
       )
-      .get(today) as { total_usd_sales: number; total_lbp_sales: number } | undefined;
+      .get(today) as
+      | { total_usd_sales: number; total_lbp_sales: number }
+      | undefined;
 
     // Debt Repayments
     const repaymentsResult = this.db
@@ -264,9 +285,11 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
           SUM(ABS(amount_usd)) as total_usd_repayments,
           SUM(ABS(amount_lbp)) as total_lbp_repayments
          FROM debt_ledger
-         WHERE DATE(created_at) = ? AND transaction_type = 'Repayment'`
+         WHERE DATE(created_at) = ? AND transaction_type = 'Repayment'`,
       )
-      .get(today) as { total_usd_repayments: number; total_lbp_repayments: number } | undefined;
+      .get(today) as
+      | { total_usd_repayments: number; total_lbp_repayments: number }
+      | undefined;
 
     // Expenses
     const expensesResult = this.db
@@ -275,9 +298,11 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
           SUM(amount_usd) as total_usd_expenses,
           SUM(amount_lbp) as total_lbp_expenses
          FROM expenses 
-         WHERE DATE(expense_date) = ?`
+         WHERE DATE(expense_date) = ?`,
       )
-      .get(today) as { total_usd_expenses: number; total_lbp_expenses: number } | undefined;
+      .get(today) as
+      | { total_usd_expenses: number; total_lbp_expenses: number }
+      | undefined;
 
     // General Drawer
     const expectedUsd =
@@ -296,7 +321,7 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
           COALESCE(SUM(amount_usd), 0) as total_usd,
           COALESCE(SUM(amount_lbp), 0) as total_lbp
          FROM financial_services
-         WHERE DATE(created_at) = ? AND provider = 'OMT' AND service_type = 'RECEIVE'`
+         WHERE DATE(created_at) = ? AND provider = 'OMT' AND service_type = 'RECEIVE'`,
       )
       .get(today) as { total_usd: number; total_lbp: number } | undefined;
 
@@ -306,24 +331,26 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
           COALESCE(SUM(amount_usd), 0) as total_usd,
           COALESCE(SUM(amount_lbp), 0) as total_lbp
          FROM financial_services
-         WHERE DATE(created_at) = ? AND provider = 'OMT' AND service_type = 'SEND'`
+         WHERE DATE(created_at) = ? AND provider = 'OMT' AND service_type = 'SEND'`,
       )
       .get(today) as { total_usd: number; total_lbp: number } | undefined;
 
-    const expectedOmtUsd = (omtInflows?.total_usd || 0) - (omtOutflows?.total_usd || 0);
-    const expectedOmtLbp = (omtInflows?.total_lbp || 0) - (omtOutflows?.total_lbp || 0);
+    const expectedOmtUsd =
+      (omtInflows?.total_usd || 0) - (omtOutflows?.total_usd || 0);
+    const expectedOmtLbp =
+      (omtInflows?.total_lbp || 0) - (omtOutflows?.total_lbp || 0);
 
     // MTC Drawer (recharge sales for Touch)
     // Note: Recharges table may not exist yet - handle gracefully
     let mtcRecharges: { total_usd: number } | undefined;
     let alfaRecharges: { total_usd: number } | undefined;
-    
+
     try {
       mtcRecharges = this.db
         .prepare(
           `SELECT COALESCE(SUM(amount_usd), 0) as total_usd
            FROM recharges
-           WHERE DATE(created_at) = ? AND carrier = 'Touch'`
+           WHERE DATE(created_at) = ? AND carrier = 'Touch'`,
         )
         .get(today) as { total_usd: number } | undefined;
     } catch (_error) {
@@ -337,7 +364,7 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
         .prepare(
           `SELECT COALESCE(SUM(amount_usd), 0) as total_usd
            FROM recharges
-           WHERE DATE(created_at) = ? AND carrier = 'Alfa'`
+           WHERE DATE(created_at) = ? AND carrier = 'Alfa'`,
         )
         .get(today) as { total_usd: number } | undefined;
     } catch (_error) {
@@ -380,9 +407,15 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
           SUM(final_amount_usd) as total_sales_usd,
           SUM(paid_lbp) as total_sales_lbp
          FROM sales
-         WHERE DATE(created_at) = ? AND status = 'completed'`
+         WHERE DATE(created_at) = ? AND status = 'completed'`,
       )
-      .get(today) as { sales_count: number; total_sales_usd: number; total_sales_lbp: number } | undefined;
+      .get(today) as
+      | {
+          sales_count: number;
+          total_sales_usd: number;
+          total_sales_lbp: number;
+        }
+      | undefined;
 
     // Debt payments
     const debtPayments = this.db
@@ -391,9 +424,11 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
           SUM(ABS(amount_usd)) as total_debt_payments_usd,
           SUM(ABS(amount_lbp)) as total_debt_payments_lbp
          FROM debt_ledger
-         WHERE DATE(created_at) = ? AND transaction_type = 'Repayment'`
+         WHERE DATE(created_at) = ? AND transaction_type = 'Repayment'`,
       )
-      .get(today) as { total_debt_payments_usd: number; total_debt_payments_lbp: number } | undefined;
+      .get(today) as
+      | { total_debt_payments_usd: number; total_debt_payments_lbp: number }
+      | undefined;
 
     // Expenses
     const expensesStats = this.db
@@ -402,9 +437,11 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
           SUM(amount_usd) as total_expenses_usd,
           SUM(amount_lbp) as total_expenses_lbp
          FROM expenses
-         WHERE DATE(expense_date) = ?`
+         WHERE DATE(expense_date) = ?`,
       )
-      .get(today) as { total_expenses_usd: number; total_expenses_lbp: number } | undefined;
+      .get(today) as
+      | { total_expenses_usd: number; total_expenses_lbp: number }
+      | undefined;
 
     // Profit
     const profitStats = this.db
@@ -414,7 +451,7 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
          FROM sales s
          JOIN sale_items si ON s.id = si.sale_id
          WHERE DATE(s.created_at) = ? AND s.status = 'completed'
-           AND (s.paid_usd + (s.paid_lbp / s.exchange_rate_snapshot)) >= s.final_amount_usd`
+           AND (s.paid_usd + (s.paid_lbp / s.exchange_rate_snapshot)) >= s.final_amount_usd`,
       )
       .get(today) as { total_profit_usd: number } | undefined;
 
@@ -433,11 +470,15 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
   /**
    * Log activity
    */
-  private logActivity(userId: number, action: string, details: Record<string, unknown>): void {
+  private logActivity(
+    userId: number,
+    action: string,
+    details: Record<string, unknown>,
+  ): void {
     this.db
       .prepare(
         `INSERT INTO activity_logs (user_id, action, details_json, created_at)
-         VALUES (?, ?, ?, CURRENT_TIMESTAMP)`
+         VALUES (?, ?, ?, CURRENT_TIMESTAMP)`,
       )
       .run(userId, action, JSON.stringify(details));
   }
