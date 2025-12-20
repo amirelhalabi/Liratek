@@ -1,19 +1,19 @@
 /**
  * SalesService Unit Tests
- *
+ * 
  * Tests all business logic in SalesService with mocked repository.
  */
 
-import { SalesService, resetSalesService } from "../SalesService";
-import { SalesRepository } from "../../database/repositories";
+import { SalesService, resetSalesService } from '../SalesService';
+import { SalesRepository } from '../../database/repositories';
 
 // Mock the repository module
-jest.mock("../../database/repositories", () => ({
+jest.mock('../../database/repositories', () => ({
   getSalesRepository: jest.fn(),
   SalesRepository: jest.fn(),
 }));
 
-describe("SalesService", () => {
+describe('SalesService', () => {
   let service: SalesService;
   let mockRepo: jest.Mocked<SalesRepository>;
 
@@ -47,13 +47,13 @@ describe("SalesService", () => {
     payment_usd: 20,
     payment_lbp: 0,
     exchange_rate: 90000,
-    drawer_name: "General_Drawer_B",
-    status: "completed" as const,
+    drawer_name: 'General_Drawer_B',
+    status: 'completed' as const,
     ...overrides,
   });
 
-  describe("processSale", () => {
-    it("processes sale successfully", () => {
+  describe('processSale', () => {
+    it('processes sale successfully', () => {
       mockRepo.processSale.mockReturnValue({ success: true, saleId: 123 });
 
       const saleRequest = createSaleRequest();
@@ -64,38 +64,38 @@ describe("SalesService", () => {
       expect(result).toEqual({ success: true, saleId: 123 });
     });
 
-    it("handles repository error", () => {
+    it('handles repository error', () => {
       mockRepo.processSale.mockImplementation(() => {
-        throw new Error("Transaction failed");
+        throw new Error('Transaction failed');
       });
 
       const saleRequest = createSaleRequest();
 
       const result = service.processSale(saleRequest);
 
-      expect(result).toEqual({ success: false, error: "Transaction failed" });
+      expect(result).toEqual({ success: false, error: 'Transaction failed' });
     });
 
-    it("logs sale details on success", () => {
-      const consoleSpy = jest.spyOn(console, "log").mockImplementation();
+    it('logs sale details on success', () => {
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
       mockRepo.processSale.mockReturnValue({ success: true, saleId: 456 });
 
       const saleRequest = createSaleRequest({
         final_amount: 50,
-        drawer_name: "OMT_Drawer",
-        status: "draft" as const,
+        drawer_name: 'OMT_Drawer',
+        status: 'draft' as const,
       });
 
       service.processSale(saleRequest);
 
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("[SALES] OMT_Drawer - Sale #456"),
+        expect.stringContaining('[SALES] OMT_Drawer - Sale #456')
       );
       consoleSpy.mockRestore();
     });
 
-    it("uses default drawer name when not specified", () => {
-      const consoleSpy = jest.spyOn(console, "log").mockImplementation();
+    it('uses default drawer name when not specified', () => {
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
       mockRepo.processSale.mockReturnValue({ success: true, saleId: 789 });
 
       const saleRequest = createSaleRequest({
@@ -106,17 +106,17 @@ describe("SalesService", () => {
       service.processSale(saleRequest);
 
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("General_Drawer_B"),
+        expect.stringContaining('General_Drawer_B')
       );
       consoleSpy.mockRestore();
     });
   });
 
-  describe("getDrafts", () => {
-    it("returns draft sales from repository", () => {
+  describe('getDrafts', () => {
+    it('returns draft sales from repository', () => {
       const mockDrafts = [
-        { id: 1, client_name: "John", final_amount: 100, items: [] },
-        { id: 2, client_name: "Jane", final_amount: 200, items: [] },
+        { id: 1, client_name: 'John', final_amount: 100, items: [] },
+        { id: 2, client_name: 'Jane', final_amount: 200, items: [] },
       ];
       mockRepo.findDrafts.mockReturnValue(mockDrafts as any);
 
@@ -126,9 +126,9 @@ describe("SalesService", () => {
       expect(result).toEqual(mockDrafts);
     });
 
-    it("returns empty array on error", () => {
+    it('returns empty array on error', () => {
       mockRepo.findDrafts.mockImplementation(() => {
-        throw new Error("DB error");
+        throw new Error('DB error');
       });
 
       const result = service.getDrafts();
@@ -141,8 +141,8 @@ describe("SalesService", () => {
   // Dashboard Statistics
   // ===========================================================================
 
-  describe("getDashboardStats", () => {
-    it("returns dashboard stats from repository", () => {
+  describe('getDashboardStats', () => {
+    it('returns dashboard stats from repository', () => {
       const mockStats = {
         totalSalesUSD: 1500,
         totalSalesLBP: 1350000,
@@ -160,9 +160,9 @@ describe("SalesService", () => {
       expect(result).toEqual(mockStats);
     });
 
-    it("returns default stats on error", () => {
+    it('returns default stats on error', () => {
       mockRepo.getDashboardStats.mockImplementation(() => {
-        throw new Error("DB error");
+        throw new Error('DB error');
       });
 
       const result = service.getDashboardStats();
@@ -178,8 +178,8 @@ describe("SalesService", () => {
       });
     });
 
-    it("logs dashboard stats on success", () => {
-      const consoleSpy = jest.spyOn(console, "log").mockImplementation();
+    it('logs dashboard stats on success', () => {
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
       mockRepo.getDashboardStats.mockReturnValue({
         totalSalesUSD: 500,
         totalSalesLBP: 450000,
@@ -193,14 +193,14 @@ describe("SalesService", () => {
       service.getDashboardStats();
 
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("[SALES] Dashboard stats"),
+        expect.stringContaining('[SALES] Dashboard stats')
       );
       consoleSpy.mockRestore();
     });
   });
 
-  describe("getDrawerBalances", () => {
-    it("returns drawer balances from repository", () => {
+  describe('getDrawerBalances', () => {
+    it('returns drawer balances from repository', () => {
       const mockBalances = {
         usd: 1000,
         lbp: 5000000,
@@ -215,15 +215,10 @@ describe("SalesService", () => {
     });
   });
 
-  describe("getTodaysSales", () => {
-    it("returns recent sales from repository", () => {
+  describe('getTodaysSales', () => {
+    it('returns recent sales from repository', () => {
       const mockSales = [
-        {
-          id: 1,
-          client_name: "John",
-          final_amount: 50,
-          created_at: "2023-01-01",
-        },
+        { id: 1, client_name: 'John', final_amount: 50, created_at: '2023-01-01' },
       ];
       mockRepo.getTodaysSales.mockReturnValue(mockSales as any);
 
@@ -234,11 +229,11 @@ describe("SalesService", () => {
     });
   });
 
-  describe("getTopProducts", () => {
-    it("returns top products from repository", () => {
+  describe('getTopProducts', () => {
+    it('returns top products from repository', () => {
       const mockProducts = [
-        { id: 1, name: "Product A", total_quantity: 100 },
-        { id: 2, name: "Product B", total_quantity: 80 },
+        { id: 1, name: 'Product A', total_quantity: 100 },
+        { id: 2, name: 'Product B', total_quantity: 80 },
       ];
       mockRepo.getTopProducts.mockReturnValue(mockProducts as any);
 
@@ -253,30 +248,30 @@ describe("SalesService", () => {
   // Chart Data
   // ===========================================================================
 
-  describe("getChartData", () => {
-    it("returns sales chart data", () => {
+  describe('getChartData', () => {
+    it('returns sales chart data', () => {
       const mockChartData = [
-        { label: "Mon", value: 100 },
-        { label: "Tue", value: 150 },
+        { label: 'Mon', value: 100 },
+        { label: 'Tue', value: 150 },
       ];
       mockRepo.getChartData.mockReturnValue(mockChartData as any);
 
-      const result = service.getChartData("Sales");
+      const result = service.getChartData('Sales');
 
-      expect(mockRepo.getChartData).toHaveBeenCalledWith("Sales");
+      expect(mockRepo.getChartData).toHaveBeenCalledWith('Sales');
       expect(result).toEqual(mockChartData);
     });
 
-    it("returns profit chart data", () => {
+    it('returns profit chart data', () => {
       const mockChartData = [
-        { label: "Mon", value: 50 },
-        { label: "Tue", value: 75 },
+        { label: 'Mon', value: 50 },
+        { label: 'Tue', value: 75 },
       ];
       mockRepo.getChartData.mockReturnValue(mockChartData as any);
 
-      const result = service.getChartData("Profit");
+      const result = service.getChartData('Profit');
 
-      expect(mockRepo.getChartData).toHaveBeenCalledWith("Profit");
+      expect(mockRepo.getChartData).toHaveBeenCalledWith('Profit');
       expect(result).toEqual(mockChartData);
     });
   });
