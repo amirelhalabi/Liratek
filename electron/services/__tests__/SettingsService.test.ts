@@ -84,10 +84,7 @@ describe("SettingsService", () => {
 
   describe("getSetting", () => {
     it("should return a setting by key", () => {
-      const mockSetting: SettingEntity = {
-        key_name: "shop_name",
-        value: "Liratek Store",
-      };
+      const mockSetting: SettingEntity = { key_name: "shop_name", value: "Liratek Store" };
       mockRepo.getSetting.mockReturnValue(mockSetting);
 
       const result = service.getSetting("shop_name");
@@ -167,10 +164,7 @@ describe("SettingsService", () => {
       const result = service.updateSetting("shop_name", "New Name");
 
       expect(result).toEqual({ success: true });
-      expect(mockRepo.upsertSetting).toHaveBeenCalledWith(
-        "shop_name",
-        "New Name",
-      );
+      expect(mockRepo.upsertSetting).toHaveBeenCalledWith("shop_name", "New Name");
     });
 
     it("should create a new setting if it does not exist (upsert)", () => {
@@ -179,10 +173,7 @@ describe("SettingsService", () => {
       const result = service.updateSetting("new_key", "new_value");
 
       expect(result).toEqual({ success: true });
-      expect(mockRepo.upsertSetting).toHaveBeenCalledWith(
-        "new_key",
-        "new_value",
-      );
+      expect(mockRepo.upsertSetting).toHaveBeenCalledWith("new_key", "new_value");
     });
 
     it("should return error on failure", () => {
