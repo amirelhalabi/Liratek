@@ -10,7 +10,7 @@
 ### Short Version (280 characters - Twitter/X)
 
 ```
-🎉 LiraTek v1.0.0 is here! 
+🎉 LiraTek v1.0.0 is here!
 
 A complete POS system for Lebanese phone shops with:
 💰 Multi-currency (LBP/USD)
@@ -165,7 +165,7 @@ Download LiraTek v1.0.0 today and transform your business operations!
 ## 🎨 Instagram Post Caption
 
 ```
-🎉 LiraTek v1.0.0 is LIVE! 
+🎉 LiraTek v1.0.0 is LIVE!
 
 Your complete POS solution for phone shops 📱
 
@@ -238,6 +238,7 @@ Discussions: https://github.com/amirelhalabi/Liratek/discussions
 ## 📧 Email Newsletter
 
 **Subject Line Options:**
+
 1. 🎉 LiraTek v1.0.0 is Here - Transform Your Phone Shop Today!
 2. Introducing LiraTek - Your Complete POS Solution 📱
 3. Finally! A POS System Built for Lebanese Businesses 💰
@@ -301,6 +302,7 @@ Support: https://github.com/amirelhalabi/Liratek/issues
 **Title:** [Tool] Released LiraTek v1.0.0 - Free POS System for Lebanese Phone Shops
 
 **Body:**
+
 ```
 Hey everyone!
 
@@ -370,6 +372,7 @@ Happy to answer any questions in the comments!
 Complete POS system for Lebanese phone shops with multi-currency support
 
 **Description:**
+
 ```
 LiraTek is a comprehensive Point of Sale system designed for Lebanese phone shops and electronics retailers, featuring advanced multi-currency support, inventory management, and financial services integration.
 
@@ -470,21 +473,25 @@ Email: amir@liratek.com
 ## 📊 Posting Schedule Recommendation
 
 **Day 1 (Launch Day):**
+
 - Morning: Twitter/X announcement
 - Midday: LinkedIn post
 - Evening: Facebook post
 
 **Day 2:**
+
 - Reddit posts (r/lebanon, r/smallbusiness)
 - Product Hunt launch
 - Instagram post
 
 **Day 3:**
+
 - YouTube demo video
 - Blog post
 - Email newsletter
 
 **Ongoing:**
+
 - WhatsApp status updates
 - Community engagement
 - Respond to feedback
@@ -513,13 +520,15 @@ Email: amir@liratek.com
 
 **Title:** Building LiraTek: A Multi-Currency POS System with Electron + React
 
-```markdown
+````markdown
 I recently launched LiraTek v1.0.0, a desktop POS system for Lebanese phone shops. Here's the tech journey:
 
 ## The Challenge
+
 Lebanese businesses deal with two currencies (LBP/USD) with constantly changing exchange rates. Most POS systems don't handle this well.
 
 ## The Stack
+
 - **Electron 39** - Cross-platform desktop app
 - **React 19** - Modern UI with hooks
 - **TypeScript** - Type safety throughout
@@ -530,30 +539,37 @@ Lebanese businesses deal with two currencies (LBP/USD) with constantly changing 
 ## Architecture Highlights
 
 ### Repository Pattern
+
 Clean separation between data access and business logic:
+
 ```typescript
 class BaseRepository<T> {
   protected db: Database;
-  
+
   findById(id: number): T | undefined {
     // SQLite queries
   }
 }
 ```
+````
 
 ### IPC Security
+
 Strict context isolation with typed IPC channels:
+
 ```typescript
 // Preload script
-contextBridge.exposeInMainWorld('electron', {
+contextBridge.exposeInMainWorld("electron", {
   sales: {
-    create: (data: SaleDTO) => ipcRenderer.invoke('sales:create', data)
-  }
+    create: (data: SaleDTO) => ipcRenderer.invoke("sales:create", data),
+  },
 });
 ```
 
 ### Multi-Currency Logic
+
 Every transaction stores both currencies with the exchange rate at that moment:
+
 ```typescript
 interface Sale {
   totalLBP: number;
@@ -564,6 +580,7 @@ interface Sale {
 ```
 
 ## Features Built
+
 - ✅ Complete POS with cart management
 - ✅ Inventory tracking with stock alerts
 - ✅ Customer debt management
@@ -572,17 +589,20 @@ interface Sale {
 - ✅ Daily cash drawer operations
 
 ## Lessons Learned
+
 1. **Electron packaging is complex** - Spent days getting native modules (better-sqlite3) to work correctly
 2. **TypeScript everywhere** - Type safety caught countless bugs
 3. **Local-first is powerful** - No server = simpler, faster, more reliable
 4. **User testing is critical** - Real shopkeepers found UX issues I never considered
 
 ## Performance
+
 - Cold start: ~2 seconds
 - Database: 10,000+ transactions with instant queries
 - Bundle size: ~100MB (including Node + Chromium)
 
 ## What's Next
+
 - Auto-updater with electron-updater
 - Code signing for macOS notarization
 - Hardware barcode scanner integration
@@ -593,6 +613,7 @@ Check it out: https://github.com/amirelhalabi/Liratek
 Questions? Ask below! 👇
 
 #electron #react #typescript #opensource #showdev
+
 ```
 
 ---
@@ -603,15 +624,18 @@ Questions? Ask below! 👇
 
 **Text:**
 ```
+
 I built LiraTek to solve a specific problem Lebanese phone shops face: managing transactions in two currencies (LBP and USD) with volatile exchange rates.
 
 Key aspects:
+
 - Desktop app (Electron + React 19 + TypeScript)
 - Local-first: SQLite database, no cloud dependency
 - Complete POS: inventory, customers, reporting, financial services
 - Built with modern stack but targeting non-technical users
 
 Technical challenges:
+
 - Packaging native modules (better-sqlite3) for multiple platforms
 - Designing a UI that works for both tech-savvy and non-technical users
 - Handling dual-currency transactions without user confusion
@@ -621,6 +645,7 @@ It's open source and free. Would love feedback from the HN community, especially
 
 GitHub: https://github.com/amirelhalabi/Liratek
 Demo video: [link when available]
+
 ```
 
 ---
@@ -646,11 +671,13 @@ Demo video: [link when available]
 ### Twitter/X Thread (Technical Deep Dive)
 
 ```
+
 🧵 Thread: How I built LiraTek - A multi-currency POS system with Electron + React
 
 1/10 Problem: Lebanese phone shops need to handle 2 currencies (LBP/USD) with volatile exchange rates. Most POS systems don't support this well.
 
 2/10 Tech Stack:
+
 - Electron 39 (cross-platform)
 - React 19 (modern hooks)
 - TypeScript (type safety)
@@ -658,12 +685,14 @@ Demo video: [link when available]
 - Tailwind CSS 4 (styling)
 
 3/10 Architecture: Strict separation of concerns
+
 - Frontend: React components
 - IPC: Typed channels via preload script
 - Backend: Service layer + Repository pattern
 - Database: SQLite with migrations
 
 4/10 Multi-currency logic: Every transaction stores:
+
 - Amount in LBP
 - Amount in USD
 - Exchange rate at time of sale
@@ -679,11 +708,13 @@ This allows accurate historical reporting even as rates change.
 ❌ No auto-sync (yet)
 
 6/10 Packaging challenge: better-sqlite3 is a native module. Had to:
+
 - Configure electron-builder properly
 - Set asarUnpack for native modules
 - Test on all platforms (Windows, macOS Intel, macOS ARM)
 
 7/10 GitHub Actions setup:
+
 - 3 build jobs (Windows, macOS Intel, macOS ARM)
 - Automated releases on tag push
 - Artifact uploads to GitHub Releases
@@ -698,6 +729,7 @@ This allows accurate historical reporting even as rates change.
 ✅ Daily cash drawer
 
 9/10 Testing: 100+ unit tests covering:
+
 - Service layer logic
 - IPC handlers
 - Database operations
@@ -711,6 +743,7 @@ This allows accurate historical reporting even as rates change.
 Questions? Reply below! 👇
 
 #ElectronJS #React #TypeScript #OpenSource
+
 ```
 
 ---
@@ -726,6 +759,7 @@ Questions? Reply below! 👇
 
 **Message Template:**
 ```
+
 Hey everyone! 👋
 
 Just launched LiraTek v1.0.0 - a desktop POS system for Lebanese phone shops built with Electron + React + TypeScript.
@@ -742,7 +776,8 @@ Tech stack: Electron 39, React 19, TypeScript, SQLite, Tailwind CSS 4
 It's open source and free! Would love your feedback on the code or UX.
 
 GitHub: https://github.com/amirelhalabi/Liratek
-```
+
+````
 
 ---
 
@@ -819,13 +854,14 @@ Would love feedback from the IH community! Especially interested in:
 - Feature ideas for v2.0
 
 AMA in the comments! 👇
-```
+````
 
 ---
 
 ### Stack Overflow Blog Proposal
 
 **Pitch:**
+
 ```
 Title: "Building a Multi-Currency Desktop POS with Electron, React, and TypeScript"
 
@@ -848,19 +884,21 @@ Code examples: Yes (TypeScript/React)
 ## 🎯 Subreddit-Specific Posts
 
 ### r/electronjs
+
 **Title:** [Showcase] LiraTek v1.0.0 - Multi-currency POS built with Electron 39 + React 19
 
-```
+````
 Built a complete POS system with Electron. Key technical aspects:
 
 **Packaging Challenge:**
 better-sqlite3 native module required careful electron-builder config:
 ```json
 "asarUnpack": ["node_modules/better-sqlite3/**/*"]
-```
+````
 
 **IPC Architecture:**
 Typed channels with context isolation:
+
 - Frontend: React components
 - Preload: contextBridge exposure
 - Main: IPC handlers with validation
@@ -869,6 +907,7 @@ Typed channels with context isolation:
 GitHub Actions workflows for Windows (x64), macOS (Intel + ARM)
 
 **Performance:**
+
 - Cold start: ~2s
 - 10k+ transactions: instant queries
 - Bundle: ~100MB
@@ -876,6 +915,7 @@ GitHub Actions workflows for Windows (x64), macOS (Intel + ARM)
 GitHub: https://github.com/amirelhalabi/Liratek
 
 Happy to discuss architecture decisions!
+
 ```
 
 ---
@@ -884,14 +924,17 @@ Happy to discuss architecture decisions!
 **Title:** Built a type-safe Electron app with strict TypeScript - LiraTek POS
 
 ```
+
 Full-stack TypeScript implementation for a desktop POS:
 
 **Type Safety Across Boundaries:**
+
 - Shared types package for frontend + backend
 - Zod validation for runtime type checking
 - Typed IPC channels
 
 **Example:**
+
 ```typescript
 // Shared DTO
 export interface SaleDTO {
@@ -904,7 +947,7 @@ export interface SaleDTO {
 const result = await window.electron.sales.create(saleData);
 
 // Backend handler
-ipcMain.handle('sales:create', async (_, dto: SaleDTO) => {
+ipcMain.handle("sales:create", async (_, dto: SaleDTO) => {
   const validated = SaleSchema.parse(dto); // Zod
   return salesService.create(validated);
 });
@@ -918,6 +961,7 @@ ipcMain.handle('sales:create', async (_, dto: SaleDTO) => {
 GitHub: https://github.com/amirelhalabi/Liratek
 
 Questions about TypeScript + Electron? Ask away!
+
 ```
 
 ---
@@ -926,34 +970,38 @@ Questions about TypeScript + Electron? Ask away!
 **Title:** Built a production Electron app with React 19 + TypeScript
 
 ```
+
 Just shipped LiraTek v1.0.0 - a POS system using React 19 in Electron.
 
 **React Patterns Used:**
+
 - Custom hooks for electron IPC
 - Context API for global state (auth, settings)
 - React Router for navigation
 - Controlled forms with validation
 
 **Example Hook:**
+
 ```tsx
 function useSales() {
   const [sales, setSales] = useState<Sale[]>([]);
-  
+
   useEffect(() => {
     window.electron.sales.getAll().then(setSales);
   }, []);
-  
+
   const createSale = async (data: SaleDTO) => {
     const sale = await window.electron.sales.create(data);
-    setSales(prev => [...prev, sale]);
+    setSales((prev) => [...prev, sale]);
     return sale;
   };
-  
+
   return { sales, createSale };
 }
 ```
 
 **Performance:**
+
 - Minimal re-renders with proper memoization
 - Virtual scrolling for large lists
 - Optimistic UI updates
@@ -963,6 +1011,7 @@ function useSales() {
 GitHub: https://github.com/amirelhalabi/Liratek
 
 Feedback on React patterns welcome!
+
 ```
 
 ---
@@ -995,17 +1044,20 @@ Feedback on React patterns welcome!
 **Subject:** LiraTek v1.0.0 - Multi-Currency POS Built with Electron + React
 
 ```
+
 Hi [Name],
 
 I recently launched LiraTek v1.0.0, an open-source POS system for Lebanese phone shops built with Electron, React 19, and TypeScript.
 
 What makes it interesting:
+
 - Solves a real problem: multi-currency transactions in volatile markets
 - Modern tech stack with best practices
 - Complete feature set (POS, inventory, reporting)
 - Local-first architecture (no cloud dependency)
 
 I thought it might be interesting for [Blog Name] readers, especially those interested in:
+
 - Electron app development
 - Local-first software
 - TypeScript in production
@@ -1014,6 +1066,7 @@ I thought it might be interesting for [Blog Name] readers, especially those inte
 Would you be interested in covering it or doing an interview about the technical journey?
 
 Links:
+
 - GitHub: https://github.com/amirelhalabi/Liratek
 - Release: https://github.com/amirelhalabi/Liratek/releases/tag/v1.0.0
 - Docs: https://github.com/amirelhalabi/Liratek/blob/main/BUILD.md
@@ -1022,6 +1075,7 @@ Happy to provide more details or demo access!
 
 Best,
 Amir
+
 ```
 
 ---
@@ -1031,6 +1085,7 @@ Amir
 **Subject:** Podcast Idea: Building a Local-First Desktop App in 2025
 
 ```
+
 Hi [Host Name],
 
 I'm Amir, and I recently launched LiraTek - a desktop POS system for Lebanese businesses built with Electron + React + TypeScript.
@@ -1038,6 +1093,7 @@ I'm Amir, and I recently launched LiraTek - a desktop POS system for Lebanese bu
 I'd love to discuss on [Podcast Name]:
 
 **Topics:**
+
 - Why desktop apps still matter in the cloud era
 - Local-first architecture benefits and tradeoffs
 - Building for emerging markets with unique challenges
@@ -1046,6 +1102,7 @@ I'd love to discuss on [Podcast Name]:
 - Technical deep dive: Electron + React + TypeScript patterns
 
 **Relevant Experience:**
+
 - 6 months building in public
 - Shipped production Electron app
 - Solved real business problems
@@ -1062,6 +1119,7 @@ Let me know if you're interested!
 
 Best,
 Amir
+
 ```
 
 ---
@@ -1119,3 +1177,4 @@ Amir
    - Contact local Lebanese news outlets
    - Submit to software directories (AlternativeTo, Capterra)
    - Pitch to podcasts (Changelog, JS Party)
+```
