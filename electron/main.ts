@@ -89,8 +89,7 @@ if (!gotTheLock) {
     const mainWindow = new BrowserWindow({
       width: 1280,
       height: 800,
-      ...(process.platform !== "darwin" &&
-        !app.isPackaged && { icon: iconPath }),
+      ...(process.platform !== "darwin" && !app.isPackaged && { icon: iconPath }),
       webPreferences: {
         preload: path.join(__dirname, "preload.js"),
         nodeIntegration: false,
