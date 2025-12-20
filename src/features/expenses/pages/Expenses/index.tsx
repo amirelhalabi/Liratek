@@ -223,11 +223,10 @@ export default function Expenses() {
                       </td>
                       <td className="px-6 py-4">
                         <span
-                          className={`px-3 py-1 rounded-full text-xs font-bold ${
-                            expense.expense_type === "Cash_Out"
-                              ? "bg-red-500/20 text-red-400"
-                              : "bg-yellow-500/20 text-yellow-400"
-                          }`}
+                          className={`px-3 py-1 rounded-full text-xs font-bold ${expense.expense_type === "Cash_Out"
+                            ? "bg-red-500/20 text-red-400"
+                            : "bg-yellow-500/20 text-yellow-400"
+                            }`}
                         >
                           {expense.expense_type === "Cash_Out"
                             ? "Cash Out"
