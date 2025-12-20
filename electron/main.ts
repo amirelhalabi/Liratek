@@ -23,8 +23,10 @@ import { startSyncProcessor } from "./sync";
 const gotTheLock = app.requestSingleInstanceLock();
 
 if (!gotTheLock) {
+  // Another instance is already running, quit this one immediately
   app.quit();
 } else {
+  // Global error handler
   process.on("uncaughtException", (error: unknown) => {
     console.error("Uncaught Exception:", error);
 
@@ -41,6 +43,7 @@ if (!gotTheLock) {
     app.quit();
   });
 
+  // This is the first instance, set up the handler for when someone tries to open a second instance
   app.on("second-instance", () => {
     console.log(
       "[SingleInstance] Attempted to open second instance. Focusing existing window.",
@@ -67,6 +70,7 @@ if (!gotTheLock) {
     }
   });
 
+  // Handle creating/removing shortcuts on Windows when installing/uninstalling.
   if (process.platform === "win32") {
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -85,7 +89,8 @@ if (!gotTheLock) {
     const mainWindow = new BrowserWindow({
       width: 1280,
       height: 800,
-      ...(process.platform !== "darwin" && !app.isPackaged && { icon: iconPath }),
+      ...(process.platform !== "darwin" &&
+        !app.isPackaged && { icon: iconPath }),
       webPreferences: {
         preload: path.join(__dirname, "preload.js"),
         nodeIntegration: false,
