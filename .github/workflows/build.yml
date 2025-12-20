@@ -36,7 +36,7 @@ jobs:
         run: yarn build
 
       - name: Build Windows Installer
-        run: yarn build:app
+        run: yarn build:win
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -45,8 +45,8 @@ jobs:
         with:
           name: windows-installer
           path: |
-            release/*.exe
-            release/*.exe.blockmap
+            releases/**/*.exe
+            releases/**/*.exe.blockmap
 
   build-mac-intel:
     runs-on: macos-13
@@ -81,9 +81,9 @@ jobs:
         with:
           name: macos-intel-installer
           path: |
-            release/*.dmg
-            release/*.zip
-            release/*.blockmap
+            releases/**/*.dmg
+            releases/**/*.zip
+            releases/**/*.blockmap
 
   build-mac-arm:
     runs-on: macos-latest
@@ -118,9 +118,9 @@ jobs:
         with:
           name: macos-arm-installer
           path: |
-            release/*.dmg
-            release/*.zip
-            release/*.blockmap
+            releases/**/*.dmg
+            releases/**/*.zip
+            releases/**/*.blockmap
 
   create-release:
     needs: [build-windows, build-mac-intel, build-mac-arm]
