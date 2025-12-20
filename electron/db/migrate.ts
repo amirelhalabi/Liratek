@@ -11,7 +11,9 @@ interface _Migration {
 function ensureColumnExists(table: string, column: string, alterSql: string) {
   const db = getDatabase();
   try {
-    const cols = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{
+      name: string;
+    }>;
     const has = cols.some((c) => c.name === column);
     if (!has) {
       console.log(`[DB] Patching schema: adding ${table}.${column}`);

@@ -53,22 +53,25 @@ export default function Exchange() {
     loadRates();
   }, []);
 
-  const findRate = useCallback((from: string, to: string): number | undefined => {
-    if (from === to) return 1;
-    const direct = rates.find(
-      (r) => r.from_code === from && r.to_code === to,
-    )?.rate;
-    if (direct !== undefined) return direct;
-    const viaToUsd = rates.find(
-      (r) => r.from_code === from && r.to_code === "USD",
-    )?.rate;
-    const viaFromUsd = rates.find(
-      (r) => r.from_code === "USD" && r.to_code === to,
-    )?.rate;
-    if (viaToUsd !== undefined && viaFromUsd !== undefined)
-      return viaToUsd * viaFromUsd;
-    return undefined;
-  }, [rates]);
+  const findRate = useCallback(
+    (from: string, to: string): number | undefined => {
+      if (from === to) return 1;
+      const direct = rates.find(
+        (r) => r.from_code === from && r.to_code === to,
+      )?.rate;
+      if (direct !== undefined) return direct;
+      const viaToUsd = rates.find(
+        (r) => r.from_code === from && r.to_code === "USD",
+      )?.rate;
+      const viaFromUsd = rates.find(
+        (r) => r.from_code === "USD" && r.to_code === to,
+      )?.rate;
+      if (viaToUsd !== undefined && viaFromUsd !== undefined)
+        return viaToUsd * viaFromUsd;
+      return undefined;
+    },
+    [rates],
+  );
 
   const calculateOutput = useCallback(() => {
     const val = parseFloat(amountIn);
@@ -232,7 +235,7 @@ export default function Exchange() {
         Currency Exchange
       </h1>
 
-      <div className="flex-1 min-h-0 flex gap-6">
+      <div className="flex-1 min-h-0 flex gap-4">
         {/* Left: Calculator */}
         <div className="w-1/3 min-w-[380px] h-full overflow-hidden bg-slate-800 rounded-xl border border-slate-700/50 shadow-xl p-4 flex flex-col">
           {/* Currency Selectors */}
@@ -246,10 +249,11 @@ export default function Exchange() {
                   <button
                     key={c.id}
                     onClick={() => setFromCurrency(c.code)}
-                    className={`py-2 rounded text-xs font-bold transition-all ${fromCurrency === c.code
-                      ? "bg-slate-700 text-white shadow"
-                      : "text-slate-500 hover:text-slate-300"
-                      }`}
+                    className={`py-2 rounded text-xs font-bold transition-all ${
+                      fromCurrency === c.code
+                        ? "bg-slate-700 text-white shadow"
+                        : "text-slate-500 hover:text-slate-300"
+                    }`}
                   >
                     {c.code}
                   </button>
@@ -273,10 +277,11 @@ export default function Exchange() {
                   <button
                     key={c.id}
                     onClick={() => setToCurrency(c.code)}
-                    className={`py-2 rounded text-xs font-bold transition-all ${toCurrency === c.code
-                      ? "bg-slate-700 text-white shadow"
-                      : "text-slate-500 hover:text-slate-300"
-                      }`}
+                    className={`py-2 rounded text-xs font-bold transition-all ${
+                      toCurrency === c.code
+                        ? "bg-slate-700 text-white shadow"
+                        : "text-slate-500 hover:text-slate-300"
+                    }`}
                   >
                     {c.code}
                   </button>
@@ -425,12 +430,10 @@ export default function Exchange() {
                       {tx.rate.toLocaleString()}
                     </td>
                     <td className="px-6 py-4 text-sm font-bold text-emerald-400 text-right">
-                      {Number(tx.amount_in).toLocaleString()}{" "}
-                      {tx.from_currency}
+                      {Number(tx.amount_in).toLocaleString()} {tx.from_currency}
                     </td>
                     <td className="px-6 py-4 text-sm font-bold text-red-400 text-right">
-                      {Number(tx.amount_out).toLocaleString()}{" "}
-                      {tx.to_currency}
+                      {Number(tx.amount_out).toLocaleString()} {tx.to_currency}
                     </td>
                   </tr>
                 ))}

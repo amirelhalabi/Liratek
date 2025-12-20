@@ -20,8 +20,12 @@ jest.mock("../../session", () => ({
 
 // Mock ReportService
 const mockService = {
-  generatePdf: jest.fn().mockResolvedValue({ success: true, path: "/path/to/report.pdf" }),
-  backupDatabase: jest.fn().mockResolvedValue({ success: true, path: "/path/to/backup.sqlite" }),
+  generatePdf: jest
+    .fn()
+    .mockResolvedValue({ success: true, path: "/path/to/report.pdf" }),
+  backupDatabase: jest
+    .fn()
+    .mockResolvedValue({ success: true, path: "/path/to/backup.sqlite" }),
 };
 
 jest.mock("../../services/ReportService", () => ({
@@ -45,8 +49,14 @@ describe("ReportHandlers", () => {
 
   describe("Handler Registration", () => {
     it("should register all report handlers", () => {
-      expect(ipcMain.handle).toHaveBeenCalledWith("report:generate-pdf", expect.any(Function));
-      expect(ipcMain.handle).toHaveBeenCalledWith("report:backup-db", expect.any(Function));
+      expect(ipcMain.handle).toHaveBeenCalledWith(
+        "report:generate-pdf",
+        expect.any(Function),
+      );
+      expect(ipcMain.handle).toHaveBeenCalledWith(
+        "report:backup-db",
+        expect.any(Function),
+      );
     });
   });
 
@@ -60,7 +70,10 @@ describe("ReportHandlers", () => {
 
       const result = await handler({ sender: { id: 1 } }, data);
 
-      expect(mockService.generatePdf).toHaveBeenCalledWith(data.html, data.filename);
+      expect(mockService.generatePdf).toHaveBeenCalledWith(
+        data.html,
+        data.filename,
+      );
       expect(result).toEqual({ success: true, path: "/path/to/report.pdf" });
     });
 
@@ -72,7 +85,10 @@ describe("ReportHandlers", () => {
 
       await handler({ sender: { id: 1 } }, data);
 
-      expect(mockService.generatePdf).toHaveBeenCalledWith(data.html, undefined);
+      expect(mockService.generatePdf).toHaveBeenCalledWith(
+        data.html,
+        undefined,
+      );
     });
 
     it("should reject non-admin users", async () => {
@@ -89,10 +105,16 @@ describe("ReportHandlers", () => {
     it("should handle PDF generation errors", async () => {
       const { requireRole } = require("../../session");
       requireRole.mockReturnValue({ ok: true, userId: 1 });
-      mockService.generatePdf.mockResolvedValue({ success: false, error: "Print failed" });
+      mockService.generatePdf.mockResolvedValue({
+        success: false,
+        error: "Print failed",
+      });
 
       const handler = handlers.get("report:generate-pdf")!;
-      const result = await handler({ sender: { id: 1 } }, { html: "<html></html>" });
+      const result = await handler(
+        { sender: { id: 1 } },
+        { html: "<html></html>" },
+      );
 
       expect(result).toEqual({ success: false, error: "Print failed" });
     });
@@ -124,7 +146,10 @@ describe("ReportHandlers", () => {
     it("should handle backup errors", async () => {
       const { requireRole } = require("../../session");
       requireRole.mockReturnValue({ ok: true, userId: 1 });
-      mockService.backupDatabase.mockResolvedValue({ success: false, error: "Disk full" });
+      mockService.backupDatabase.mockResolvedValue({
+        success: false,
+        error: "Disk full",
+      });
 
       const handler = handlers.get("report:backup-db")!;
       const result = await handler({ sender: { id: 1 } });

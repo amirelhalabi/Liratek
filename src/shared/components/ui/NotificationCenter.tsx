@@ -27,7 +27,9 @@ const NotificationCenter: React.FC = () => {
       recent.set(key, now);
       const id = now.toString();
       const newNotification: NotificationItem =
-        duration === undefined ? { id, message, type } : { id, message, type, duration };
+        duration === undefined
+          ? { id, message, type }
+          : { id, message, type, duration };
       setNotifications((prev) => [...prev, newNotification]);
     };
 

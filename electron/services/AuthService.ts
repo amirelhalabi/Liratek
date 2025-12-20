@@ -1,9 +1,9 @@
 /**
  * Authentication Service
- * 
+ *
  * Business logic layer for authentication operations.
  * Uses UserRepository for data access and crypto utils for password handling.
- * 
+ *
  * This service encapsulates:
  * - Login/logout logic
  * - Password verification and hashing
@@ -11,16 +11,21 @@
  * - Activity logging
  */
 
-import { UserRepository, getUserRepository } from '../database/repositories';
-import type { SafeUser, CreateUserData } from '../database/repositories';
-import { hashPassword, verifyPassword, needsMigration, validatePasswordComplexity } from '../utils/crypto';
-import { 
-  AuthenticationError, 
-  AuthorizationError, 
+import { UserRepository, getUserRepository } from "../database/repositories";
+import type { SafeUser, CreateUserData } from "../database/repositories";
+import {
+  hashPassword,
+  verifyPassword,
+  needsMigration,
+  validatePasswordComplexity,
+} from "../utils/crypto";
+import {
+  AuthenticationError,
+  AuthorizationError,
   ValidationError,
   ConflictError,
-  BusinessRuleError 
-} from '../utils/errors';
+  BusinessRuleError,
+} from "../utils/errors";
 
 // =============================================================================
 // Types
@@ -64,22 +69,22 @@ export class AuthService {
   async login(username: string, password: string): Promise<LoginResult> {
     // Validate input
     if (!username?.trim()) {
-      throw new ValidationError('Username is required');
+      throw new ValidationError("Username is required");
     }
     if (!password) {
-      throw new ValidationError('Password is required');
+      throw new ValidationError("Password is required");
     }
 
     // Find user
     const user = this.userRepo.findByUsername(username.trim());
     if (!user) {
-      throw new AuthenticationError('Invalid username or password');
+      throw new AuthenticationError("Invalid username or password");
     }
 
     // Verify password
     const isValid = await verifyPassword(password, user.password_hash);
     if (!isValid) {
-      throw new AuthenticationError('Invalid username or password');
+      throw new AuthenticationError("Invalid username or password");
     }
 
     // Check if password needs migration (plain text or old hash)
@@ -91,7 +96,7 @@ export class AuthService {
     // Return safe user (without password_hash)
     const safeUser = this.userRepo.findByIdSafe(user.id);
     if (!safeUser) {
-      return { success: false, error: 'Failed to load user profile' };
+      return { success: false, error: "Failed to load user profile" };
     }
     return { success: true, user: safeUser };
   }
@@ -104,31 +109,31 @@ export class AuthService {
    * Create a new user (admin only operation)
    */
   async createUser(
-    data: { username: string; password: string; role: 'admin' | 'cashier' },
-    actorRole: string
+    data: { username: string; password: string; role: "admin" | "cashier" },
+    actorRole: string,
   ): Promise<CreateUserResult> {
     // Authorization check
-    if (actorRole !== 'admin') {
-      throw new AuthorizationError('Only administrators can create users');
+    if (actorRole !== "admin") {
+      throw new AuthorizationError("Only administrators can create users");
     }
 
     // Validate username
     if (!data.username?.trim()) {
-      throw new ValidationError('Username is required');
+      throw new ValidationError("Username is required");
     }
     if (data.username.length < 3) {
-      throw new ValidationError('Username must be at least 3 characters');
+      throw new ValidationError("Username must be at least 3 characters");
     }
 
     // Validate password
     const passwordValidation = validatePasswordComplexity(data.password);
     if (!passwordValidation.valid) {
-      throw new ValidationError(passwordValidation.errors.join(', '));
+      throw new ValidationError(passwordValidation.errors.join(", "));
     }
 
     // Check for duplicate username
     if (this.userRepo.usernameExists(data.username.trim())) {
-      throw new ConflictError('Username already exists');
+      throw new ConflictError("Username already exists");
     }
 
     // Hash password and create user
@@ -143,7 +148,7 @@ export class AuthService {
     const user = this.userRepo.createUser(createData);
     const safeUser = this.userRepo.findByIdSafe(user.id);
     if (!safeUser) {
-      return { success: false, error: 'Failed to load created user profile' };
+      return { success: false, error: "Failed to load created user profile" };
     }
 
     return { success: true, user: safeUser };
@@ -155,24 +160,24 @@ export class AuthService {
   async changePassword(
     userId: number,
     currentPassword: string,
-    newPassword: string
+    newPassword: string,
   ): Promise<ChangePasswordResult> {
     // Find user with password hash
     const user = this.userRepo.findById(userId);
     if (!user) {
-      throw new AuthenticationError('User not found');
+      throw new AuthenticationError("User not found");
     }
 
     // Verify current password
     const isValid = await verifyPassword(currentPassword, user.password_hash);
     if (!isValid) {
-      throw new AuthenticationError('Current password is incorrect');
+      throw new AuthenticationError("Current password is incorrect");
     }
 
     // Validate new password
     const passwordValidation = validatePasswordComplexity(newPassword);
     if (!passwordValidation.valid) {
-      throw new ValidationError(passwordValidation.errors.join(', '));
+      throw new ValidationError(passwordValidation.errors.join(", "));
     }
 
     // Hash and update password
@@ -180,7 +185,7 @@ export class AuthService {
     const updated = this.userRepo.updatePassword(userId, newHash);
 
     if (!updated) {
-      throw new BusinessRuleError('Failed to update password');
+      throw new BusinessRuleError("Failed to update password");
     }
 
     return { success: true };
@@ -192,23 +197,23 @@ export class AuthService {
   async resetPassword(
     userId: number,
     newPassword: string,
-    actorRole: string
+    actorRole: string,
   ): Promise<ChangePasswordResult> {
     // Authorization check
-    if (actorRole !== 'admin') {
-      throw new AuthorizationError('Only administrators can reset passwords');
+    if (actorRole !== "admin") {
+      throw new AuthorizationError("Only administrators can reset passwords");
     }
 
     // Find user
     const user = this.userRepo.findById(userId);
     if (!user) {
-      throw new AuthenticationError('User not found');
+      throw new AuthenticationError("User not found");
     }
 
     // Validate new password
     const passwordValidation = validatePasswordComplexity(newPassword);
     if (!passwordValidation.valid) {
-      throw new ValidationError(passwordValidation.errors.join(', '));
+      throw new ValidationError(passwordValidation.errors.join(", "));
     }
 
     // Hash and update password
@@ -216,7 +221,7 @@ export class AuthService {
     const updated = this.userRepo.updatePassword(userId, newHash);
 
     if (!updated) {
-      throw new BusinessRuleError('Failed to reset password');
+      throw new BusinessRuleError("Failed to reset password");
     }
 
     return { success: true };
@@ -227,19 +232,19 @@ export class AuthService {
    */
   deactivateUser(userId: number, actorId: number, actorRole: string): boolean {
     // Authorization check
-    if (actorRole !== 'admin') {
-      throw new AuthorizationError('Only administrators can deactivate users');
+    if (actorRole !== "admin") {
+      throw new AuthorizationError("Only administrators can deactivate users");
     }
 
     // Cannot deactivate yourself
     if (userId === actorId) {
-      throw new BusinessRuleError('Cannot deactivate your own account');
+      throw new BusinessRuleError("Cannot deactivate your own account");
     }
 
     // Check if this is the last admin
     const user = this.userRepo.findById(userId);
-    if (user?.role === 'admin' && this.userRepo.countActiveAdmins() <= 1) {
-      throw new BusinessRuleError('Cannot deactivate the last administrator');
+    if (user?.role === "admin" && this.userRepo.countActiveAdmins() <= 1) {
+      throw new BusinessRuleError("Cannot deactivate the last administrator");
     }
 
     return this.userRepo.softDeleteById(userId);
@@ -250,8 +255,8 @@ export class AuthService {
    */
   reactivateUser(userId: number, actorRole: string): boolean {
     // Authorization check
-    if (actorRole !== 'admin') {
-      throw new AuthorizationError('Only administrators can reactivate users');
+    if (actorRole !== "admin") {
+      throw new AuthorizationError("Only administrators can reactivate users");
     }
 
     return this.userRepo.restore(userId);
@@ -272,8 +277,10 @@ export class AuthService {
    * Get all users including inactive (admin only)
    */
   getAllUsersIncludingInactive(actorRole: string): SafeUser[] {
-    if (actorRole !== 'admin') {
-      throw new AuthorizationError('Only administrators can view inactive users');
+    if (actorRole !== "admin") {
+      throw new AuthorizationError(
+        "Only administrators can view inactive users",
+      );
     }
     return this.userRepo.findAllIncludingInactive();
   }
@@ -288,12 +295,15 @@ export class AuthService {
   /**
    * Validate if a user can perform an action based on role
    */
-  canPerformAction(userRole: string, requiredRole: 'admin' | 'cashier'): boolean {
-    if (requiredRole === 'admin') {
-      return userRole === 'admin';
+  canPerformAction(
+    userRole: string,
+    requiredRole: "admin" | "cashier",
+  ): boolean {
+    if (requiredRole === "admin") {
+      return userRole === "admin";
     }
     // Cashier actions can be performed by both admin and cashier
-    return userRole === 'admin' || userRole === 'cashier';
+    return userRole === "admin" || userRole === "cashier";
   }
 }
 
@@ -314,4 +324,3 @@ export function getAuthService(): AuthService {
 export function resetAuthService(): void {
   authServiceInstance = null;
 }
-

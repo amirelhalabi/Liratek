@@ -1,6 +1,6 @@
 /**
  * Authentication IPC Handlers
- * 
+ *
  * Thin wrapper layer that delegates business logic to AuthService.
  * Handles:
  * - IPC registration
@@ -37,7 +37,9 @@ export function registerAuthHandlers(): void {
     if (!row || !row.password_hash || row.password_hash === "") {
       const hash = hashPassword("admin123");
       db.prepare("UPDATE users SET password_hash = ? WHERE id = 1").run(hash);
-      authLogger.info("Admin default password set (admin123). Please change it.");
+      authLogger.info(
+        "Admin default password set (admin123). Please change it.",
+      );
     }
   } catch (e) {
     authLogger.warn({ error: e }, "Admin seed warning");
@@ -46,44 +48,52 @@ export function registerAuthHandlers(): void {
   // ---------------------------------------------------------------------------
   // Login Handler
   // ---------------------------------------------------------------------------
-  ipcMain.handle("auth:login", async (event, username: string, password: string) => {
-    try {
-      authLogger.debug({ username }, "Login attempt");
-      
-      const result = await authService.login(username, password);
-      
-      if (!result.success || !result.user) {
-        return { success: false, error: "Invalid username or password" };
-      }
-
-      // Log activity
-      logActivity(db, result.user.id, "LOGIN");
-
-      // Bind session to this renderer (webContents)
-      let sessionToken: string | null = null;
+  ipcMain.handle(
+    "auth:login",
+    async (event, username: string, password: string) => {
       try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { setSession, storeEncryptedSession } = require("../session");
-        setSession(event.sender.id, result.user.id, result.user.role);
-        sessionToken = storeEncryptedSession(result.user.id);
-      } catch (e) {
-        authLogger.warn({ error: e }, "Failed to set session");
-      }
+        authLogger.debug({ username }, "Login attempt");
 
-      authLogger.info({ username, userId: result.user.id }, "Login successful");
-      return {
-        success: true,
-        user: result.user,
-        sessionToken,
-      };
-    } catch (error) {
-      authLogger.error({ error, username }, "Login error");
-      return {
-        success: false,
-        error: isAppError(error) ? error.message : "An unexpected error occurred during login",
-      };
-    }
-  });
+        const result = await authService.login(username, password);
+
+        if (!result.success || !result.user) {
+          return { success: false, error: "Invalid username or password" };
+        }
+
+        // Log activity
+        logActivity(db, result.user.id, "LOGIN");
+
+        // Bind session to this renderer (webContents)
+        let sessionToken: string | null = null;
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const { setSession, storeEncryptedSession } = require("../session");
+          setSession(event.sender.id, result.user.id, result.user.role);
+          sessionToken = storeEncryptedSession(result.user.id);
+        } catch (e) {
+          authLogger.warn({ error: e }, "Failed to set session");
+        }
+
+        authLogger.info(
+          { username, userId: result.user.id },
+          "Login successful",
+        );
+        return {
+          success: true,
+          user: result.user,
+          sessionToken,
+        };
+      } catch (error) {
+        authLogger.error({ error, username }, "Login error");
+        return {
+          success: false,
+          error: isAppError(error)
+            ? error.message
+            : "An unexpected error occurred during login",
+        };
+      }
+    },
+  );
 
   // ---------------------------------------------------------------------------
   // Logout Handler
@@ -118,9 +128,9 @@ export function registerAuthHandlers(): void {
   ipcMain.handle("auth:restore-session", (event) => {
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { getEncryptedSession, setSession } = require("../session");
+      const { getEncryptedSession, setSession } = require("../session");
       const stored = getEncryptedSession();
-      
+
       if (!stored) {
         authLogger.debug("No stored session found");
         return { success: false, error: "No session" };
@@ -129,7 +139,10 @@ export function registerAuthHandlers(): void {
       const user = authService.getUserById(stored.userId);
 
       if (!user) {
-        authLogger.debug({ userId: stored.userId }, "Stored session user not found or inactive");
+        authLogger.debug(
+          { userId: stored.userId },
+          "Stored session user not found or inactive",
+        );
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { clearEncryptedSession } = require("../session");
         clearEncryptedSession();
@@ -138,7 +151,10 @@ export function registerAuthHandlers(): void {
 
       // Restore in-memory session
       setSession(event.sender.id, user.id, user.role);
-      authLogger.info({ username: user.username, userId: user.id }, "Session restored");
+      authLogger.info(
+        { username: user.username, userId: user.id },
+        "Session restored",
+      );
 
       return {
         success: true,
@@ -173,24 +189,40 @@ export function registerAuthHandlers(): void {
   // ---------------------------------------------------------------------------
   ipcMain.handle(
     "users:create",
-    async (e, data: { username: string; password: string; role: "admin" | "staff" }) => {
+    async (
+      e,
+      data: { username: string; password: string; role: "admin" | "staff" },
+    ) => {
       // Check authorization
       const authCheck = requireAdminRole(e.sender.id);
       if (!authCheck.ok) return { success: false, error: authCheck.error };
 
       try {
         const result = await authService.createUser(
-          { username: data.username, password: data.password, role: data.role === "staff" ? "cashier" : data.role },
-          "admin"
+          {
+            username: data.username,
+            password: data.password,
+            role: data.role === "staff" ? "cashier" : data.role,
+          },
+          "admin",
         );
-        
+
         if (result.success && result.user) {
           return { success: true, id: result.user.id };
         }
-        return { success: false, error: result.error || "Failed to create user" };
+        return {
+          success: false,
+          error: result.error || "Failed to create user",
+        };
       } catch (error) {
-        authLogger.error({ error, username: data.username }, "Create user error");
-        return { success: false, error: isAppError(error) ? error.message : "Failed to create user" };
+        authLogger.error(
+          { error, username: data.username },
+          "Create user error",
+        );
+        return {
+          success: false,
+          error: isAppError(error) ? error.message : "Failed to create user",
+        };
       }
     },
   );
@@ -205,11 +237,18 @@ export function registerAuthHandlers(): void {
       if (!authCheck.ok) return { success: false, error: authCheck.error };
 
       try {
-        const result = await authService.resetPassword(data.id, data.password, "admin");
+        const result = await authService.resetPassword(
+          data.id,
+          data.password,
+          "admin",
+        );
         return { success: result.success, error: result.error };
       } catch (error) {
         authLogger.error({ error, userId: data.id }, "Set password error");
-        return { success: false, error: isAppError(error) ? error.message : "Failed to set password" };
+        return {
+          success: false,
+          error: isAppError(error) ? error.message : "Failed to set password",
+        };
       }
     },
   );
@@ -224,7 +263,7 @@ export function registerAuthHandlers(): void {
     try {
       // Get all users and filter out admins
       const users = authService.getAllUsers();
-      return users.filter(u => u.role !== "admin");
+      return users.filter((u) => u.role !== "admin");
     } catch (error) {
       authLogger.error({ error }, "List non-admin users error");
       return [];
@@ -251,8 +290,16 @@ export function registerAuthHandlers(): void {
         }
         return { success: true };
       } catch (error) {
-        authLogger.error({ error, userId: data.id, is_active: data.is_active }, "Set active error");
-        return { success: false, error: isAppError(error) ? error.message : "Failed to update user status" };
+        authLogger.error(
+          { error, userId: data.id, is_active: data.is_active },
+          "Set active error",
+        );
+        return {
+          success: false,
+          error: isAppError(error)
+            ? error.message
+            : "Failed to update user status",
+        };
       }
     },
   );
@@ -273,8 +320,14 @@ export function registerAuthHandlers(): void {
         db.prepare(`UPDATE users SET role = ? WHERE id = ?`).run(role, data.id);
         return { success: true };
       } catch (error) {
-        authLogger.error({ error, userId: data.id, role: data.role }, "Set role error");
-        return { success: false, error: isAppError(error) ? error.message : "Failed to update role" };
+        authLogger.error(
+          { error, userId: data.id, role: data.role },
+          "Set role error",
+        );
+        return {
+          success: false,
+          error: isAppError(error) ? error.message : "Failed to update role",
+        };
       }
     },
   );
@@ -287,11 +340,19 @@ export function registerAuthHandlers(): void {
 /**
  * Log user activity
  */
-function logActivity(db: ReturnType<typeof getDatabase>, userId: number, action: string): void {
+function logActivity(
+  db: ReturnType<typeof getDatabase>,
+  userId: number,
+  action: string,
+): void {
   try {
     db.prepare(
-      `INSERT INTO activity_logs (user_id, action, details_json) VALUES (?, ?, ?)`
-    ).run(userId, action, JSON.stringify({ timestamp: new Date().toISOString() }));
+      `INSERT INTO activity_logs (user_id, action, details_json) VALUES (?, ?, ?)`,
+    ).run(
+      userId,
+      action,
+      JSON.stringify({ timestamp: new Date().toISOString() }),
+    );
   } catch (e) {
     authLogger.warn({ error: e, action, userId }, "Failed to log activity");
   }
@@ -313,7 +374,9 @@ function requireAdminRole(senderId: number): { ok: boolean; error?: string } {
 /**
  * Get session info for current sender
  */
-function getSessionInfo(senderId: number): { userId: number; role: string } | null {
+function getSessionInfo(
+  senderId: number,
+): { userId: number; role: string } | null {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { getSession } = require("../session");

@@ -11,17 +11,17 @@ export const USD_DENOMINATIONS = [1, 5, 10, 20, 50, 100] as const;
  */
 export function roundToNearestDenomination(
   amount: number,
-  denominations: readonly number[]
+  denominations: readonly number[],
 ): number {
   if (amount <= 0) return 0;
-  
+
   // Find the smallest denomination that is >= amount
   for (const denom of denominations) {
     if (amount <= denom) {
       return denom;
     }
   }
-  
+
   // If amount is larger than largest denomination, round up to nearest multiple
   const largest = denominations[denominations.length - 1];
   return Math.ceil(amount / largest) * largest;
@@ -33,7 +33,7 @@ export function roundToNearestDenomination(
  */
 export function roundLBPUp(amount: number): number {
   if (amount <= 0) return 0;
-  
+
   // Round up to nearest 5,000 (smallest denomination)
   return Math.ceil(amount / 5000) * 5000;
 }
@@ -44,7 +44,7 @@ export function roundLBPUp(amount: number): number {
  */
 export function roundUSDUp(amount: number): number {
   if (amount <= 0) return 0;
-  
+
   // Round up to nearest $1 (smallest denomination)
   return Math.ceil(amount);
 }

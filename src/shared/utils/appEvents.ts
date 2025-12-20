@@ -12,13 +12,17 @@ export type UINotification = {
 
 // Map of known events to their argument tuples
 type EventMap = {
-  "notification:show": [message: string, type: NotificationType, duration?: number];
+  "notification:show": [
+    message: string,
+    type: NotificationType,
+    duration?: number,
+  ];
   "notification:history": [history: UINotification[]];
   "sale:completed": [data?: unknown];
   "debt:repayment": [data?: unknown];
   "inventory:updated": [data?: unknown];
-  "openClosingModal": [];
-  "openOpeningModal": [];
+  openClosingModal: [];
+  openOpeningModal: [];
   "closing:confirmed": [];
   "closing:completed": [];
 };
@@ -26,7 +30,10 @@ type EventMap = {
 class AppEventEmitter {
   private listeners: Map<string, Set<(...args: unknown[]) => void>> = new Map();
 
-  on<K extends keyof EventMap>(event: K, callback: (...args: EventMap[K]) => void): () => void;
+  on<K extends keyof EventMap>(
+    event: K,
+    callback: (...args: EventMap[K]) => void,
+  ): () => void;
   // Fallback for custom/temporary events (typed as unknown[] to avoid `any`)
   on(event: string, callback: (...args: unknown[]) => void): () => void;
   on(event: string, callback: (...args: unknown[]) => void) {

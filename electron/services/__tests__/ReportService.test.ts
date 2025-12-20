@@ -68,9 +68,11 @@ describe("ReportService", () => {
       const result = await service.generatePdf(html, "test-report.pdf");
 
       expect(result.success).toBe(true);
-      expect(result.path).toBe("/mock/documents/LiratekReports/test-report.pdf");
+      expect(result.path).toBe(
+        "/mock/documents/LiratekReports/test-report.pdf",
+      );
       expect(mockLoadURL).toHaveBeenCalledWith(
-        expect.stringContaining("data:text/html;charset=UTF-8,")
+        expect.stringContaining("data:text/html;charset=UTF-8,"),
       );
       expect(mockPrintToPDF).toHaveBeenCalledWith({
         printBackground: true,
@@ -95,7 +97,9 @@ describe("ReportService", () => {
 
       expect(result.success).toBe(true);
       expect(mockLoadURL).toHaveBeenCalledWith(
-        expect.stringContaining(encodeURIComponent("<html><body><pre>No content</pre></body></html>"))
+        expect.stringContaining(
+          encodeURIComponent("<html><body><pre>No content</pre></body></html>"),
+        ),
       );
     });
 
@@ -107,7 +111,7 @@ describe("ReportService", () => {
       expect(result.success).toBe(true);
       expect(mockMkdirSync).toHaveBeenCalledWith(
         "/mock/documents/LiratekReports",
-        { recursive: true }
+        { recursive: true },
       );
     });
 
@@ -174,7 +178,7 @@ describe("ReportService", () => {
       expect(result.path).toMatch(/backup_.*\.sqlite$/);
       expect(mockCopyFileSync).toHaveBeenCalledWith(
         "/mock/userData/phone_shop.db",
-        expect.stringMatching(/LiratekBackups\/backup_.*\.sqlite$/)
+        expect.stringMatching(/LiratekBackups\/backup_.*\.sqlite$/),
       );
     });
 
@@ -186,7 +190,7 @@ describe("ReportService", () => {
       expect(result.success).toBe(true);
       expect(mockMkdirSync).toHaveBeenCalledWith(
         "/mock/documents/LiratekBackups",
-        { recursive: true }
+        { recursive: true },
       );
     });
 
@@ -226,7 +230,9 @@ describe("ReportService", () => {
 
       expect(result.success).toBe(true);
       // Verify the path contains a timestamp pattern
-      expect(result.path).toMatch(/backup_\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}.*\.sqlite$/);
+      expect(result.path).toMatch(
+        /backup_\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}.*\.sqlite$/,
+      );
     });
   });
 });

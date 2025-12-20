@@ -8,9 +8,9 @@ import {
 } from "../../../utils/receiptFormatter";
 import type { Client, CartItem, SaleRequest } from "../../../../../types";
 
-export type PaymentData = Omit<SaleRequest, 'items' | 'status' | 'id'> & { cart?: CartItem[] } & { clientId?: number | null; paidUSD?: number; paidLBP?: number };
-
-
+export type PaymentData = Omit<SaleRequest, "items" | "status" | "id"> & {
+  cart?: CartItem[];
+} & { clientId?: number | null; paidUSD?: number; paidLBP?: number };
 
 interface CheckoutModalProps {
   totalAmount: number;
@@ -537,7 +537,7 @@ export default function CheckoutModal({
                             const integerUSD = Math.floor(change);
                             const fractionUSD = change - integerUSD;
                             const rawLBP = fractionUSD * exchangeRate;
-                            
+
                             // Round LBP up to nearest 5,000 (smallest LBP bill)
                             const roundedLBP = roundLBPUp(rawLBP);
 

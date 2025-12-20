@@ -1,12 +1,12 @@
 /**
  * User Repository
- * 
+ *
  * Handles all database operations for users.
  * Extends BaseRepository for standard CRUD operations.
  */
 
-import { BaseRepository, type FindOptions } from './BaseRepository';
-import { DatabaseError } from '../../utils/errors';
+import { BaseRepository, type FindOptions } from "./BaseRepository";
+import { DatabaseError } from "../../utils/errors";
 
 // =============================================================================
 // Types
@@ -16,24 +16,24 @@ export interface UserEntity {
   id: number;
   username: string;
   password_hash: string;
-  role: 'admin' | 'cashier' | 'staff';
+  role: "admin" | "cashier" | "staff";
   is_active: number; // SQLite boolean (0 or 1)
 }
 
 /** User without sensitive password hash */
-export type SafeUser = Omit<UserEntity, 'password_hash'>;
+export type SafeUser = Omit<UserEntity, "password_hash">;
 
 export interface CreateUserData {
   username: string;
   password_hash: string;
-  role: 'admin' | 'cashier';
+  role: "admin" | "cashier";
   is_active?: number;
 }
 
 export interface UpdateUserData {
   username?: string;
   password_hash?: string;
-  role?: 'admin' | 'cashier';
+  role?: "admin" | "cashier";
   is_active?: number;
 }
 
@@ -43,7 +43,7 @@ export interface UpdateUserData {
 
 export class UserRepository extends BaseRepository<UserEntity> {
   constructor() {
-    super('users', { softDelete: true });
+    super("users", { softDelete: true });
   }
 
   // ---------------------------------------------------------------------------
@@ -58,7 +58,9 @@ export class UserRepository extends BaseRepository<UserEntity> {
       const query = `SELECT * FROM ${this.tableName} WHERE username = ? AND is_active = 1`;
       return this.queryOne<UserEntity>(query, username);
     } catch (error) {
-      throw new DatabaseError('Failed to find user by username', { cause: error });
+      throw new DatabaseError("Failed to find user by username", {
+        cause: error,
+      });
     }
   }
 
@@ -70,7 +72,9 @@ export class UserRepository extends BaseRepository<UserEntity> {
       const query = `SELECT * FROM ${this.tableName} WHERE username = ?`;
       return this.queryOne<UserEntity>(query, username);
     } catch (error) {
-      throw new DatabaseError('Failed to find user by username', { cause: error });
+      throw new DatabaseError("Failed to find user by username", {
+        cause: error,
+      });
     }
   }
 
@@ -82,11 +86,13 @@ export class UserRepository extends BaseRepository<UserEntity> {
       const query = excludeId
         ? `SELECT 1 FROM ${this.tableName} WHERE username = ? AND id != ?`
         : `SELECT 1 FROM ${this.tableName} WHERE username = ?`;
-      
+
       const params = excludeId ? [username, excludeId] : [username];
       return this.queryOne<{ 1: number }>(query, ...params) !== null;
     } catch (error) {
-      throw new DatabaseError('Failed to check username existence', { cause: error });
+      throw new DatabaseError("Failed to check username existence", {
+        cause: error,
+      });
     }
   }
 
@@ -95,21 +101,26 @@ export class UserRepository extends BaseRepository<UserEntity> {
    */
   findAllSafe(options: FindOptions = {}): SafeUser[] {
     try {
-      const { limit, offset = 0, orderBy = 'id', orderDirection = 'DESC' } = options;
-      
+      const {
+        limit,
+        offset = 0,
+        orderBy = "id",
+        orderDirection = "DESC",
+      } = options;
+
       let query = `SELECT id, username, role, is_active 
                    FROM ${this.tableName} WHERE is_active = 1`;
-      
+
       query += ` ORDER BY ${orderBy} ${orderDirection}`;
-      
+
       if (limit !== undefined) {
         query += ` LIMIT ? OFFSET ?`;
         return this.query<SafeUser>(query, limit, offset);
       }
-      
+
       return this.query<SafeUser>(query);
     } catch (error) {
-      throw new DatabaseError('Failed to find all users', { cause: error });
+      throw new DatabaseError("Failed to find all users", { cause: error });
     }
   }
 
@@ -118,21 +129,26 @@ export class UserRepository extends BaseRepository<UserEntity> {
    */
   findAllIncludingInactive(options: FindOptions = {}): SafeUser[] {
     try {
-      const { limit, offset = 0, orderBy = 'id', orderDirection = 'DESC' } = options;
-      
+      const {
+        limit,
+        offset = 0,
+        orderBy = "id",
+        orderDirection = "DESC",
+      } = options;
+
       let query = `SELECT id, username, role, is_active 
                    FROM ${this.tableName}`;
-      
+
       query += ` ORDER BY ${orderBy} ${orderDirection}`;
-      
+
       if (limit !== undefined) {
         query += ` LIMIT ? OFFSET ?`;
         return this.query<SafeUser>(query, limit, offset);
       }
-      
+
       return this.query<SafeUser>(query);
     } catch (error) {
-      throw new DatabaseError('Failed to find all users', { cause: error });
+      throw new DatabaseError("Failed to find all users", { cause: error });
     }
   }
 
@@ -145,20 +161,25 @@ export class UserRepository extends BaseRepository<UserEntity> {
                      FROM ${this.tableName} WHERE id = ? AND is_active = 1`;
       return this.queryOne<SafeUser>(query, id);
     } catch (error) {
-      throw new DatabaseError('Failed to find user by id', { cause: error, entityId: id });
+      throw new DatabaseError("Failed to find user by id", {
+        cause: error,
+        entityId: id,
+      });
     }
   }
 
   /**
    * Count users by role
    */
-  countByRole(role: 'admin' | 'cashier'): number {
+  countByRole(role: "admin" | "cashier"): number {
     try {
       const query = `SELECT COUNT(*) as count FROM ${this.tableName} WHERE role = ? AND is_active = 1`;
       const result = this.queryOne<{ count: number }>(query, role);
       return result?.count ?? 0;
     } catch (error) {
-      throw new DatabaseError('Failed to count users by role', { cause: error });
+      throw new DatabaseError("Failed to count users by role", {
+        cause: error,
+      });
     }
   }
 
@@ -166,7 +187,7 @@ export class UserRepository extends BaseRepository<UserEntity> {
    * Get the count of active admins (for preventing last admin deletion)
    */
   countActiveAdmins(): number {
-    return this.countByRole('admin');
+    return this.countByRole("admin");
   }
 
   /**
@@ -178,7 +199,10 @@ export class UserRepository extends BaseRepository<UserEntity> {
       const result = this.execute(query, passwordHash, id);
       return result.changes > 0;
     } catch (error) {
-      throw new DatabaseError('Failed to update password', { cause: error, entityId: id });
+      throw new DatabaseError("Failed to update password", {
+        cause: error,
+        entityId: id,
+      });
     }
   }
 
@@ -189,20 +213,29 @@ export class UserRepository extends BaseRepository<UserEntity> {
     try {
       const query = `INSERT INTO ${this.tableName} (username, password_hash, role, is_active) 
                      VALUES (?, ?, ?, ?)`;
-      
-      const result = this.execute(query, data.username, data.password_hash, data.role, data.is_active ?? 1);
+
+      const result = this.execute(
+        query,
+        data.username,
+        data.password_hash,
+        data.role,
+        data.is_active ?? 1,
+      );
       const insertedId = result.lastInsertRowid as number;
-      
+
       return this.findByIdOrFail(insertedId);
     } catch (error) {
-      throw new DatabaseError('Failed to create user', { cause: error });
+      throw new DatabaseError("Failed to create user", { cause: error });
     }
   }
 
   /**
    * Update user details (excludes password)
    */
-  updateUser(id: number, data: Omit<UpdateUserData, 'password_hash'>): SafeUser | null {
+  updateUser(
+    id: number,
+    data: Omit<UpdateUserData, "password_hash">,
+  ): SafeUser | null {
     const updated = this.update(id, data);
     if (!updated) return null;
     return this.findByIdSafe(id);
@@ -217,7 +250,10 @@ export class UserRepository extends BaseRepository<UserEntity> {
       const result = this.execute(query, id);
       return result.changes > 0;
     } catch (error) {
-      throw new DatabaseError('Failed to deactivate user', { cause: error, entityId: id });
+      throw new DatabaseError("Failed to deactivate user", {
+        cause: error,
+        entityId: id,
+      });
     }
   }
 
@@ -230,7 +266,10 @@ export class UserRepository extends BaseRepository<UserEntity> {
       const result = this.execute(query, id);
       return result.changes > 0;
     } catch (error) {
-      throw new DatabaseError('Failed to reactivate user', { cause: error, entityId: id });
+      throw new DatabaseError("Failed to reactivate user", {
+        cause: error,
+        entityId: id,
+      });
     }
   }
 }
@@ -252,4 +291,3 @@ export function getUserRepository(): UserRepository {
 export function resetUserRepository(): void {
   userRepositoryInstance = null;
 }
-

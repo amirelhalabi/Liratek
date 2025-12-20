@@ -1,17 +1,17 @@
 /**
  * Financial Service (OMT/WHISH/BOB) Service
- * 
+ *
  * Business logic layer for money transfer operations.
  * Uses FinancialServiceRepository for data access.
  */
 
-import { 
-  FinancialServiceRepository, 
+import {
+  FinancialServiceRepository,
   getFinancialServiceRepository,
   type FinancialServiceEntity,
   type CreateFinancialServiceData,
-  type FinancialServiceAnalytics
-} from '../database/repositories';
+  type FinancialServiceAnalytics,
+} from "../database/repositories";
 
 // =============================================================================
 // Types
@@ -44,18 +44,21 @@ export class FinancialService {
   addTransaction(data: CreateFinancialServiceData): FinancialServiceResult {
     try {
       const result = this.fsRepo.createTransaction(data);
-      
+
       // Log the activity
       this.fsRepo.logActivity(data, result.drawer);
 
       console.log(
-        `[OMT/WHISH] ${data.provider} - ${data.serviceType}: Commission $${data.commissionUSD} [${result.drawer}]`
+        `[OMT/WHISH] ${data.provider} - ${data.serviceType}: Commission $${data.commissionUSD} [${result.drawer}]`,
       );
 
       return { success: true, id: result.id };
     } catch (error) {
-      console.error('Failed to add financial service transaction:', error);
-      return { success: false, error: (error instanceof Error ? error.message : String(error)) };
+      console.error("Failed to add financial service transaction:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
     }
   }
 
@@ -70,7 +73,7 @@ export class FinancialService {
     try {
       return this.fsRepo.getHistory(provider);
     } catch (error) {
-      console.error('Failed to get financial services history:', error);
+      console.error("Failed to get financial services history:", error);
       return [];
     }
   }
@@ -86,11 +89,11 @@ export class FinancialService {
     try {
       return this.fsRepo.getAnalytics();
     } catch (error) {
-      console.error('Failed to get analytics:', error);
+      console.error("Failed to get analytics:", error);
       return {
         today: { commissionUSD: 0, commissionLBP: 0, count: 0 },
         month: { commissionUSD: 0, commissionLBP: 0, count: 0 },
-        byProvider: []
+        byProvider: [],
       };
     }
   }

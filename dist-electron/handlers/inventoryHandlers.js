@@ -55,8 +55,12 @@ function registerInventoryHandlers() {
             category: product.category,
             cost_price: product.cost_price,
             retail_price: product.retail_price,
-            ...(product.stock_quantity != null ? { stock_quantity: product.stock_quantity } : {}),
-            ...(product.min_stock_level != null ? { min_stock_level: product.min_stock_level } : {}),
+            ...(product.stock_quantity != null
+                ? { stock_quantity: product.stock_quantity }
+                : {}),
+            ...(product.min_stock_level != null
+                ? { min_stock_level: product.min_stock_level }
+                : {}),
             ...(product.image_url != null ? { image_url: product.image_url } : {}),
         });
     });

@@ -236,7 +236,7 @@ export default function Services() {
         ))}
       </div>
 
-      <div className="flex-1 min-h-0 flex gap-6">
+      <div className="flex-1 min-h-0 flex gap-4">
         {/* Left: Form */}
         <div className="w-1/3 min-w-[380px] bg-slate-800 rounded-xl border border-slate-700/50 shadow-lg p-4 flex flex-col">
           {/* Provider Selector */}

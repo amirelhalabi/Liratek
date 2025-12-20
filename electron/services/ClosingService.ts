@@ -55,7 +55,7 @@ export class ClosingService {
     return this.repo.setOpeningBalances(
       data.closing_date,
       data.amounts,
-      data.user_id || 1
+      data.user_id || 1,
     );
   }
 
@@ -68,7 +68,7 @@ export class ClosingService {
       data.amounts,
       data.system_expected_usd || 0,
       data.system_expected_lbp || 0,
-      data.variance_notes
+      data.variance_notes,
     );
   }
 
@@ -76,12 +76,18 @@ export class ClosingService {
    * Update an existing daily closing
    */
   updateDailyClosing(data: UpdateClosingData): ClosingResult {
-    const patch: Partial<import("../database/repositories/ClosingRepository").DailyClosingEntity> = {
+    const patch: Partial<
+      import("../database/repositories/ClosingRepository").DailyClosingEntity
+    > = {
       ...(data.physical_usd != null ? { physical_usd: data.physical_usd } : {}),
       ...(data.physical_lbp != null ? { physical_lbp: data.physical_lbp } : {}),
       ...(data.physical_eur != null ? { physical_eur: data.physical_eur } : {}),
-      ...(data.system_expected_usd != null ? { system_expected_usd: data.system_expected_usd } : {}),
-      ...(data.system_expected_lbp != null ? { system_expected_lbp: data.system_expected_lbp } : {}),
+      ...(data.system_expected_usd != null
+        ? { system_expected_usd: data.system_expected_usd }
+        : {}),
+      ...(data.system_expected_lbp != null
+        ? { system_expected_lbp: data.system_expected_lbp }
+        : {}),
       ...(data.variance_usd != null ? { variance_usd: data.variance_usd } : {}),
       ...(data.notes != null ? { notes: data.notes } : {}),
       ...(data.report_path != null ? { report_path: data.report_path } : {}),
@@ -95,7 +101,7 @@ export class ClosingService {
    * Check if opening balance has been set for today
    */
   hasOpeningBalanceToday(): boolean {
-    const today = new Date().toISOString().split('T')[0];
+    const today = new Date().toISOString().split("T")[0];
     return this.repo.hasOpeningBalanceForDate(today);
   }
 

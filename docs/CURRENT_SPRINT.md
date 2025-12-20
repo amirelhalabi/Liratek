@@ -5,9 +5,11 @@ Note: This is the canonical, single source of truth for active work, backlog, an
 Goal: Type-safe cross-layer contracts, UI polish (services/exchange), and event/logging consistency.
 
 In Progress
+
 - Phase 3: Repositories typing — ProductRepository done; SalesRepository deep-typed (rows, aggregates)
 
 Todo
+
 - Introduce toErrorString helper for consistent error normalization across services; refactor callers incrementally (completed)
 - Add global Window interface augmentation for notificationHistory/currentUserId to remove scattered casts (completed)
 - Consolidate shared DTOs into packages/shared and align imports (completed: core DTOs moved to @liratek/shared; renderer re-export; electron.d.ts updated)
@@ -22,6 +24,7 @@ Todo
 Ready for Testing
 
 Completed
+
 - Opening/Closing: Opening modal is now accessible from anywhere (moved listener/modal to MainLayout)
 - Modals: click-outside-to-close enabled across key modals (Opening/Closing, POS Checkout + receipt preview, ProductForm, ClientForm, Expenses, Debts, Maintenance)
 - Modals: fixed rounded corner clipping (added overflow-hidden to containers)
@@ -44,9 +47,11 @@ Completed
 - Phase 3 progress: ProductRepository typing improvements (removed any in error paths), SalesRepository catch normalization
 
 Checks
+
 - Lint/Typecheck/Tests/Coverage run daily; gate merges on passing status.
 
 Backlog
+
 - Code signing and auto-updates (deferred to v1.1+)
 - Multi-location support
 - Real-time drawer balance improvements
@@ -55,5 +60,6 @@ Backlog
 - Marketing plan follow-ups
 
 Notes
+
 - Quotation template updated to reflect $1000 developer total (excluding hardware).
 - Lint is currently clean in CI checks; keep it at 0 warnings going forward.

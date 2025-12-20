@@ -74,7 +74,9 @@ function registerAuthHandlers() {
             logger_1.authLogger.error({ error, username }, "Login error");
             return {
                 success: false,
-                error: (0, errors_1.isAppError)(error) ? error.message : "An unexpected error occurred during login",
+                error: (0, errors_1.isAppError)(error)
+                    ? error.message
+                    : "An unexpected error occurred during login",
             };
         }
     });
@@ -163,15 +165,25 @@ function registerAuthHandlers() {
         if (!authCheck.ok)
             return { success: false, error: authCheck.error };
         try {
-            const result = await authService.createUser({ username: data.username, password: data.password, role: data.role === "staff" ? "cashier" : data.role }, "admin");
+            const result = await authService.createUser({
+                username: data.username,
+                password: data.password,
+                role: data.role === "staff" ? "cashier" : data.role,
+            }, "admin");
             if (result.success && result.user) {
                 return { success: true, id: result.user.id };
             }
-            return { success: false, error: result.error || "Failed to create user" };
+            return {
+                success: false,
+                error: result.error || "Failed to create user",
+            };
         }
         catch (error) {
             logger_1.authLogger.error({ error, username: data.username }, "Create user error");
-            return { success: false, error: (0, errors_1.isAppError)(error) ? error.message : "Failed to create user" };
+            return {
+                success: false,
+                error: (0, errors_1.isAppError)(error) ? error.message : "Failed to create user",
+            };
         }
     });
     // ---------------------------------------------------------------------------
@@ -187,7 +199,10 @@ function registerAuthHandlers() {
         }
         catch (error) {
             logger_1.authLogger.error({ error, userId: data.id }, "Set password error");
-            return { success: false, error: (0, errors_1.isAppError)(error) ? error.message : "Failed to set password" };
+            return {
+                success: false,
+                error: (0, errors_1.isAppError)(error) ? error.message : "Failed to set password",
+            };
         }
     });
     // ---------------------------------------------------------------------------
@@ -200,7 +215,7 @@ function registerAuthHandlers() {
         try {
             // Get all users and filter out admins
             const users = authService.getAllUsers();
-            return users.filter(u => u.role !== "admin");
+            return users.filter((u) => u.role !== "admin");
         }
         catch (error) {
             logger_1.authLogger.error({ error }, "List non-admin users error");
@@ -228,7 +243,12 @@ function registerAuthHandlers() {
         }
         catch (error) {
             logger_1.authLogger.error({ error, userId: data.id, is_active: data.is_active }, "Set active error");
-            return { success: false, error: (0, errors_1.isAppError)(error) ? error.message : "Failed to update user status" };
+            return {
+                success: false,
+                error: (0, errors_1.isAppError)(error)
+                    ? error.message
+                    : "Failed to update user status",
+            };
         }
     });
     // ---------------------------------------------------------------------------
@@ -247,7 +267,10 @@ function registerAuthHandlers() {
         }
         catch (error) {
             logger_1.authLogger.error({ error, userId: data.id, role: data.role }, "Set role error");
-            return { success: false, error: (0, errors_1.isAppError)(error) ? error.message : "Failed to update role" };
+            return {
+                success: false,
+                error: (0, errors_1.isAppError)(error) ? error.message : "Failed to update role",
+            };
         }
     });
 }

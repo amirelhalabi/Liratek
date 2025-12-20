@@ -51,7 +51,7 @@ else {
                 title: "LiraTek Already Running",
                 message: "LiraTek is already running!",
                 detail: "Only one instance of LiraTek can run at a time. The existing window has been brought to focus.",
-                buttons: ["OK"]
+                buttons: ["OK"],
             });
         }
     });

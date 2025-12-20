@@ -31,7 +31,10 @@ const getLogPath = (): string | undefined => {
     if (!fs.existsSync(logsDir)) {
       fs.mkdirSync(logsDir, { recursive: true });
     }
-    return path.join(logsDir, `app-${new Date().toISOString().split("T")[0]}.log`);
+    return path.join(
+      logsDir,
+      `app-${new Date().toISOString().split("T")[0]}.log`,
+    );
   } catch {
     return undefined;
   }
@@ -121,7 +124,7 @@ export const syncLogger = logger.child({ module: "sync" });
 export const measureTime = async <T>(
   operation: string,
   fn: () => Promise<T>,
-  log: Logger = logger
+  log: Logger = logger,
 ): Promise<T> => {
   const start = performance.now();
   try {
@@ -131,7 +134,10 @@ export const measureTime = async <T>(
     return result;
   } catch (error) {
     const duration = Math.round(performance.now() - start);
-    log.error({ operation, duration_ms: duration, error }, `${operation} failed`);
+    log.error(
+      { operation, duration_ms: duration, error },
+      `${operation} failed`,
+    );
     throw error;
   }
 };
@@ -142,7 +148,7 @@ export const measureTime = async <T>(
 export const measureTimeSync = <T>(
   operation: string,
   fn: () => T,
-  log: Logger = logger
+  log: Logger = logger,
 ): T => {
   const start = performance.now();
   try {
@@ -152,7 +158,10 @@ export const measureTimeSync = <T>(
     return result;
   } catch (error) {
     const duration = Math.round(performance.now() - start);
-    log.error({ operation, duration_ms: duration, error }, `${operation} failed`);
+    log.error(
+      { operation, duration_ms: duration, error },
+      `${operation} failed`,
+    );
     throw error;
   }
 };
@@ -166,12 +175,14 @@ export const measureTimeSync = <T>(
  */
 export const createRequestLogger = (
   channel: string,
-  correlationId?: string
+  correlationId?: string,
 ): Logger => {
   return logger.child({
     module: "ipc",
     channel,
-    correlationId: correlationId || `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    correlationId:
+      correlationId ||
+      `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
   });
 };
 
@@ -185,7 +196,7 @@ export const createRequestLogger = (
 export const logUserAction = (
   userId: number | null,
   action: string,
-  details?: Record<string, unknown>
+  details?: Record<string, unknown>,
 ): void => {
   logger.info(
     {
@@ -194,7 +205,7 @@ export const logUserAction = (
       action,
       ...details,
     },
-    `User action: ${action}`
+    `User action: ${action}`,
   );
 };
 
@@ -204,7 +215,7 @@ export const logUserAction = (
 export const logQuery = (
   query: string,
   params?: unknown[],
-  duration?: number
+  duration?: number,
 ): void => {
   dbLogger.debug(
     {
@@ -212,7 +223,7 @@ export const logQuery = (
       paramCount: params?.length || 0,
       duration_ms: duration,
     },
-    "Database query"
+    "Database query",
   );
 };
 
@@ -227,7 +238,7 @@ export const logStartup = (version: string): void => {
       platform: process.platform,
       arch: process.arch,
     },
-    "Application starting"
+    "Application starting",
   );
 };
 

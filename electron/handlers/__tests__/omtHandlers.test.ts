@@ -36,9 +36,11 @@ describe("OMTHandlers", () => {
     // Mock service
     mockService = {
       addTransaction: jest.fn().mockReturnValue({ success: true, id: 1 }),
-      getHistory: jest.fn().mockReturnValue([
-        { id: 1, provider: "OMT", service_type: "SEND", commission_usd: 5 },
-      ]),
+      getHistory: jest
+        .fn()
+        .mockReturnValue([
+          { id: 1, provider: "OMT", service_type: "SEND", commission_usd: 5 },
+        ]),
       getAnalytics: jest.fn().mockReturnValue({
         today: { commissionUSD: 100, commissionLBP: 0, count: 10 },
         month: { commissionUSD: 2500, commissionLBP: 500000, count: 250 },
@@ -52,9 +54,18 @@ describe("OMTHandlers", () => {
 
   describe("Handler Registration", () => {
     it("should register all OMT handlers", () => {
-      expect(ipcMain.handle).toHaveBeenCalledWith("omt:add-transaction", expect.any(Function));
-      expect(ipcMain.handle).toHaveBeenCalledWith("omt:get-history", expect.any(Function));
-      expect(ipcMain.handle).toHaveBeenCalledWith("omt:get-analytics", expect.any(Function));
+      expect(ipcMain.handle).toHaveBeenCalledWith(
+        "omt:add-transaction",
+        expect.any(Function),
+      );
+      expect(ipcMain.handle).toHaveBeenCalledWith(
+        "omt:get-history",
+        expect.any(Function),
+      );
+      expect(ipcMain.handle).toHaveBeenCalledWith(
+        "omt:get-analytics",
+        expect.any(Function),
+      );
     });
   });
 
@@ -94,7 +105,10 @@ describe("OMTHandlers", () => {
     });
 
     it("should handle service errors", async () => {
-      mockService.addTransaction.mockReturnValue({ success: false, error: "Transaction failed" });
+      mockService.addTransaction.mockReturnValue({
+        success: false,
+        error: "Transaction failed",
+      });
 
       const handler = handlers.get("omt:add-transaction")!;
       const result = await handler({}, { provider: "OMT" });

@@ -82,7 +82,9 @@ export function validatePasswordComplexity(password: string): {
   const errors: string[] = [];
 
   if (password.length < PASSWORD_REQUIREMENTS.minLength) {
-    errors.push(`Password must be at least ${PASSWORD_REQUIREMENTS.minLength} characters`);
+    errors.push(
+      `Password must be at least ${PASSWORD_REQUIREMENTS.minLength} characters`,
+    );
   }
   if (PASSWORD_REQUIREMENTS.requireUppercase && !/[A-Z]/.test(password)) {
     errors.push("Password must contain an uppercase letter");

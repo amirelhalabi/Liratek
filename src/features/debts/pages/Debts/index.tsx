@@ -1,5 +1,11 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Search, User, ArrowDownLeft, ChevronDown, ChevronUp } from "lucide-react";
+import {
+  Search,
+  User,
+  ArrowDownLeft,
+  ChevronDown,
+  ChevronUp,
+} from "lucide-react";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { EXCHANGE_RATE } from "@/config/constants";
 import { roundLBPUp } from "@/config/denominations";
@@ -9,8 +15,20 @@ type SortOrder = "desc" | "asc";
 
 export default function Debts() {
   const { user } = useAuth();
-  type Debtor = { id: number; full_name: string; phone_number?: string; total_debt: number };
-  type DebtHistoryItem = { id: number; created_at: string; amount_usd: number; amount_lbp: number; note?: string; is_paid: boolean };
+  type Debtor = {
+    id: number;
+    full_name: string;
+    phone_number?: string;
+    total_debt: number;
+  };
+  type DebtHistoryItem = {
+    id: number;
+    created_at: string;
+    amount_usd: number;
+    amount_lbp: number;
+    note?: string;
+    is_paid: boolean;
+  };
   const [debtors, setDebtors] = useState<Debtor[]>([]);
   const [selectedClient, setSelectedClient] = useState<Debtor | null>(null);
   const [history, setHistory] = useState<DebtHistoryItem[]>([]);
@@ -109,13 +127,15 @@ export default function Debts() {
         setRepayAmountUSD("");
         setRepayAmountLBP("");
         setRepayNote("");
-        
+
         // Reload debtors list
         await loadDebtors();
-        
+
         // Check if client still has debt after repayment
-        const updatedTotal = await window.api.getClientDebtTotal(selectedClient.id);
-        
+        const updatedTotal = await window.api.getClientDebtTotal(
+          selectedClient.id,
+        );
+
         if (updatedTotal > 0.01) {
           // Client still has debt, reload their history
           loadHistory(selectedClient.id);
@@ -160,7 +180,7 @@ export default function Debts() {
   }, [filteredDebtors, selectedClient]);
 
   return (
-    <div className="flex h-full min-h-0 gap-6 overflow-hidden">
+    <div className="flex h-full min-h-0 gap-4 overflow-hidden">
       {/* Left: Debtors List */}
       <div className="w-1/3 flex flex-col bg-slate-800 rounded-xl border border-slate-700 shadow-xl overflow-hidden">
         <div className="p-4 border-b border-slate-700 space-y-4">
@@ -249,18 +269,20 @@ export default function Debts() {
                   <span className="text-red-400 font-bold">
                     ${totalDebt.toFixed(2)}
                   </span>
-                  {totalDebt > 0 && (() => {
-                    const integerUSD = Math.floor(totalDebt);
-                    const fractionUSD = totalDebt - integerUSD;
-                    const rawLBP = fractionUSD * EXCHANGE_RATE;
-                    const roundedLBP = roundLBPUp(rawLBP);
-                    
-                    return (
-                      <span className="text-xs text-slate-500 ml-2">
-                        (i.e., ${integerUSD.toLocaleString()} + {roundedLBP.toLocaleString()} LBP)
-                      </span>
-                    );
-                  })()}
+                  {totalDebt > 0 &&
+                    (() => {
+                      const integerUSD = Math.floor(totalDebt);
+                      const fractionUSD = totalDebt - integerUSD;
+                      const rawLBP = fractionUSD * EXCHANGE_RATE;
+                      const roundedLBP = roundLBPUp(rawLBP);
+
+                      return (
+                        <span className="text-xs text-slate-500 ml-2">
+                          (i.e., ${integerUSD.toLocaleString()} +{" "}
+                          {roundedLBP.toLocaleString()} LBP)
+                        </span>
+                      );
+                    })()}
                 </p>
               </div>
               <button
@@ -270,7 +292,7 @@ export default function Debts() {
                   const fractionUSD = totalDebt - integerUSD;
                   const rawLBP = fractionUSD * EXCHANGE_RATE;
                   const roundedLBP = roundLBPUp(rawLBP);
-                  
+
                   // Autofill the modal inputs
                   setRepayAmountUSD(integerUSD.toString());
                   setRepayAmountLBP(roundedLBP.toString());
@@ -294,15 +316,24 @@ export default function Debts() {
                       >
                         Date
                         {dateSortOrder === "desc" ? (
-                          <ChevronDown size={16} className="text-slate-500 group-hover:text-slate-300" />
+                          <ChevronDown
+                            size={16}
+                            className="text-slate-500 group-hover:text-slate-300"
+                          />
                         ) : (
-                          <ChevronUp size={16} className="text-slate-500 group-hover:text-slate-300" />
+                          <ChevronUp
+                            size={16}
+                            className="text-slate-500 group-hover:text-slate-300"
+                          />
                         )}
                       </button>
                     </th>
                     <th className="pb-3 text-sm font-medium">Type</th>
                     <th className="pb-3 text-sm font-medium">Note</th>
-                    <th className="pb-3 text-sm font-medium text-center" colSpan={2}>
+                    <th
+                      className="pb-3 text-sm font-medium text-center"
+                      colSpan={2}
+                    >
                       Amount
                     </th>
                   </tr>
@@ -362,7 +393,8 @@ export default function Debts() {
                           >
                             {item.amount_usd !== 0 && (
                               <>
-                                {item.amount_usd > 0 ? "+" : ""}${Math.abs(item.amount_usd).toFixed(2)}
+                                {item.amount_usd > 0 ? "+" : ""}$
+                                {Math.abs(item.amount_usd).toFixed(2)}
                               </>
                             )}
                           </td>
@@ -372,13 +404,14 @@ export default function Debts() {
                               item.amount_lbp > 0
                                 ? "text-red-400"
                                 : item.amount_lbp < 0
-                                ? "text-emerald-400"
-                                : "text-slate-600"
+                                  ? "text-emerald-400"
+                                  : "text-slate-600"
                             }`}
                           >
                             {item.amount_lbp !== 0 && (
                               <>
-                                {item.amount_lbp > 0 ? "+" : ""}{Math.abs(item.amount_lbp).toLocaleString()} LBP
+                                {item.amount_lbp > 0 ? "+" : ""}
+                                {Math.abs(item.amount_lbp).toLocaleString()} LBP
                               </>
                             )}
                           </td>
@@ -438,7 +471,7 @@ export default function Debts() {
                       $
                     </span>
                   </div>
-                  
+
                   {/* LBP Column */}
                   <div className="relative">
                     <input

@@ -104,7 +104,9 @@ function registerDatabaseHandlers() {
         return closingService.setOpeningBalances({
             closing_date: parsed.data.closing_date,
             amounts: parsed.data.amounts,
-            ...(parsed.data.user_id != null ? { user_id: parsed.data.user_id } : {}),
+            ...(parsed.data.user_id != null
+                ? { user_id: parsed.data.user_id }
+                : {}),
         });
     });
     // Get system expected balances
@@ -117,7 +119,7 @@ function registerDatabaseHandlers() {
             return closingService.hasOpeningBalanceToday();
         }
         catch (error) {
-            logger_1.closingLogger.error({ error: (error instanceof Error ? error.message : String(error)) }, "Error checking opening balance");
+            logger_1.closingLogger.error({ error: error instanceof Error ? error.message : String(error) }, "Error checking opening balance");
             return false; // Default to false if error
         }
     });
@@ -154,11 +156,19 @@ function registerDatabaseHandlers() {
                 drawer_name: amount.drawer_name,
                 currency_code: amount.currency_code,
                 physical_amount: amount.physical_amount,
-                ...(amount.opening_amount != null ? { opening_amount: amount.opening_amount } : {}),
+                ...(amount.opening_amount != null
+                    ? { opening_amount: amount.opening_amount }
+                    : {}),
             })),
-            ...(parsed.data.user_id != null ? { user_id: parsed.data.user_id } : {}),
-            ...(parsed.data.variance_notes != null ? { variance_notes: parsed.data.variance_notes } : {}),
-            ...(parsed.data.report_path != null ? { report_path: parsed.data.report_path } : {}),
+            ...(parsed.data.user_id != null
+                ? { user_id: parsed.data.user_id }
+                : {}),
+            ...(parsed.data.variance_notes != null
+                ? { variance_notes: parsed.data.variance_notes }
+                : {}),
+            ...(parsed.data.report_path != null
+                ? { report_path: parsed.data.report_path }
+                : {}),
             ...(parsed.data.system_expected_usd != null
                 ? { system_expected_usd: parsed.data.system_expected_usd }
                 : {}),

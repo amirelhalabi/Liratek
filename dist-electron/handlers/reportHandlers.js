@@ -15,7 +15,7 @@ function registerReportHandlers() {
                 return { success: false, error: auth.error };
         }
         catch { }
-        logger_1.dbLogger.info({ filename: data.filename }, 'Generating PDF report');
+        logger_1.dbLogger.info({ filename: data.filename }, "Generating PDF report");
         return service.generatePdf(data.html, data.filename);
     });
     // Backup database to Documents/LiratekBackups
@@ -27,7 +27,7 @@ function registerReportHandlers() {
                 return { success: false, error: auth.error };
         }
         catch { }
-        logger_1.dbLogger.info('Creating database backup');
+        logger_1.dbLogger.info("Creating database backup");
         return service.backupDatabase();
     });
 }

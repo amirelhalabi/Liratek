@@ -1,9 +1,9 @@
 /**
  * Inventory Service
- * 
+ *
  * Business logic layer for inventory/product operations.
  * Uses ProductRepository for data access.
- * 
+ *
  * This service encapsulates:
  * - Product CRUD operations
  * - Stock management
@@ -11,19 +11,16 @@
  * - Category management
  */
 
-import { 
-  ProductRepository, 
+import {
+  ProductRepository,
   getProductRepository,
   type ProductDTO,
   type CreateProductData,
   type UpdateProductData,
   type StockStats,
-  type LowStockProduct
-} from '../database/repositories';
-import { 
-  ValidationError, 
-  NotFoundError 
-} from '../utils/errors';
+  type LowStockProduct,
+} from "../database/repositories";
+import { ValidationError, NotFoundError } from "../utils/errors";
 import { toErrorString, getRepoConstraintCode } from "../utils/errors";
 
 // =============================================================================
@@ -69,7 +66,7 @@ export class InventoryService {
   getProductById(id: number) {
     const product = this.productRepo.findById(id);
     if (!product) {
-      throw new NotFoundError('Product', id);
+      throw new NotFoundError("Product", id);
     }
     return product;
   }
@@ -79,7 +76,7 @@ export class InventoryService {
    */
   getProductByBarcode(barcode: string) {
     if (!barcode?.trim()) {
-      throw new ValidationError('Barcode is required');
+      throw new ValidationError("Barcode is required");
     }
     return this.productRepo.findByBarcode(barcode.trim());
   }
@@ -87,7 +84,10 @@ export class InventoryService {
   /**
    * Search products by name or barcode
    */
-  searchProducts(term: string, options?: { limit?: number; category?: string }) {
+  searchProducts(
+    term: string,
+    options?: { limit?: number; category?: string },
+  ) {
     if (!term?.trim()) {
       return [];
     }
@@ -111,24 +111,24 @@ export class InventoryService {
   createProduct(data: CreateProductData): ProductResult {
     // Validate required fields
     if (!data.barcode?.trim()) {
-      return { success: false, error: 'Barcode is required' };
+      return { success: false, error: "Barcode is required" };
     }
     if (!data.name?.trim()) {
-      return { success: false, error: 'Product name is required' };
+      return { success: false, error: "Product name is required" };
     }
     if (!data.category?.trim()) {
-      return { success: false, error: 'Category is required' };
+      return { success: false, error: "Category is required" };
     }
     if (data.cost_price < 0) {
-      return { success: false, error: 'Cost price cannot be negative' };
+      return { success: false, error: "Cost price cannot be negative" };
     }
     if (data.retail_price < 0) {
-      return { success: false, error: 'Retail price cannot be negative' };
+      return { success: false, error: "Retail price cannot be negative" };
     }
 
     // Check for duplicate barcode
     if (this.productRepo.barcodeExists(data.barcode.trim())) {
-      return { success: false, error: 'Barcode already exists' };
+      return { success: false, error: "Barcode already exists" };
     }
 
     try {
@@ -141,10 +141,10 @@ export class InventoryService {
       return { success: true, id: result.id };
     } catch (error) {
       const repoCode = getRepoConstraintCode(error);
-      if (repoCode === 'DUPLICATE_BARCODE') {
-        return { success: false, error: 'Barcode already exists' };
+      if (repoCode === "DUPLICATE_BARCODE") {
+        return { success: false, error: "Barcode already exists" };
       }
-      console.error('Create product error:', error);
+      console.error("Create product error:", error);
       return { success: false, error: toErrorString(error) };
     }
   }
@@ -152,27 +152,30 @@ export class InventoryService {
   /**
    * Update an existing product
    */
-  updateProduct(id: number, data: UpdateProductData & { 
-    barcode: string; 
-    name: string; 
-    category: string;
-    cost_price: number;
-    retail_price: number;
-    min_stock_level: number;
-    image_url?: string | null;
-  }): ProductResult {
+  updateProduct(
+    id: number,
+    data: UpdateProductData & {
+      barcode: string;
+      name: string;
+      category: string;
+      cost_price: number;
+      retail_price: number;
+      min_stock_level: number;
+      image_url?: string | null;
+    },
+  ): ProductResult {
     if (!id) {
-      return { success: false, error: 'Product ID required' };
+      return { success: false, error: "Product ID required" };
     }
 
     // Check if product exists
     if (!this.productRepo.exists(id)) {
-      return { success: false, error: 'Product not found' };
+      return { success: false, error: "Product not found" };
     }
 
     // Check for duplicate barcode (excluding this product)
     if (data.barcode && this.productRepo.barcodeExists(data.barcode, id)) {
-      return { success: false, error: 'Barcode already exists' };
+      return { success: false, error: "Barcode already exists" };
     }
 
     try {
@@ -188,8 +191,8 @@ export class InventoryService {
       return { success: true };
     } catch (error) {
       const code = (error as { code?: string })?.code;
-      if (code === 'DUPLICATE_BARCODE') {
-        return { success: false, error: 'Barcode already exists' };
+      if (code === "DUPLICATE_BARCODE") {
+        return { success: false, error: "Barcode already exists" };
       }
       return { success: false, error: toErrorString(error) };
     }
@@ -200,7 +203,7 @@ export class InventoryService {
    */
   deleteProduct(id: number): ProductResult {
     if (!id) {
-      return { success: false, error: 'Product ID required' };
+      return { success: false, error: "Product ID required" };
     }
 
     try {
@@ -220,10 +223,10 @@ export class InventoryService {
    */
   adjustStock(id: number, newQuantity: number): StockAdjustmentResult {
     if (!id) {
-      return { success: false, error: 'Product ID required' };
+      return { success: false, error: "Product ID required" };
     }
     if (newQuantity < 0) {
-      return { success: false, error: 'Stock quantity cannot be negative' };
+      return { success: false, error: "Stock quantity cannot be negative" };
     }
 
     try {
@@ -239,7 +242,7 @@ export class InventoryService {
    */
   adjustStockDelta(id: number, delta: number): StockAdjustmentResult {
     if (!id) {
-      return { success: false, error: 'Product ID required' };
+      return { success: false, error: "Product ID required" };
     }
 
     try {

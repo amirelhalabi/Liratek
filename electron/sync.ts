@@ -98,7 +98,7 @@ export function startSyncProcessor() {
             const db = getDatabase();
             db.prepare(
               `INSERT INTO sync_errors (endpoint, payload_json, error) VALUES (?, ?, ?)`,
-            ).run(pull, "", (e instanceof Error ? e.message : "PullFailed"));
+            ).run(pull, "", e instanceof Error ? e.message : "PullFailed");
           } catch {}
         }
       }

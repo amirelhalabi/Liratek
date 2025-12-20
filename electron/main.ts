@@ -25,33 +25,38 @@ const gotTheLock = app.requestSingleInstanceLock();
 
 if (!gotTheLock) {
   // Another instance is already running, quit this one immediately
-  console.log("[SingleInstance] Another instance is already running. Quitting.");
+  console.log(
+    "[SingleInstance] Another instance is already running. Quitting.",
+  );
   app.quit();
 } else {
   // This is the first instance, set up the handler for when someone tries to open a second instance
   app.on("second-instance", () => {
-    console.log("[SingleInstance] Attempted to open second instance. Focusing existing window.");
-    
+    console.log(
+      "[SingleInstance] Attempted to open second instance. Focusing existing window.",
+    );
+
     // Someone tried to run a second instance, we should focus our window.
     const windows = BrowserWindow.getAllWindows();
     if (windows.length > 0) {
       const mainWindow = windows[0];
-      
+
       // If window is minimized, restore it
       if (mainWindow.isMinimized()) {
         mainWindow.restore();
       }
-      
+
       // Focus the window
       mainWindow.focus();
-      
+
       // Optional: Show a dialog to inform the user
       dialog.showMessageBox(mainWindow, {
         type: "info",
         title: "LiraTek Already Running",
         message: "LiraTek is already running!",
-        detail: "Only one instance of LiraTek can run at a time. The existing window has been brought to focus.",
-        buttons: ["OK"]
+        detail:
+          "Only one instance of LiraTek can run at a time. The existing window has been brought to focus.",
+        buttons: ["OK"],
       });
     }
   });
@@ -69,7 +74,7 @@ if (process.platform === "win32") {
 function createWindow() {
   // Icon path for development (not needed in packaged macOS app)
   const iconPath = path.join(__dirname, "../resources/icon.png");
-  
+
   const mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -94,7 +99,7 @@ function createWindow() {
 app.whenReady().then(() => {
   // Set app name for macOS dock
   app.setName("LiraTek");
-  
+
   // Set dock icon on macOS (only in development, packaged app uses .icns)
   if (process.platform === "darwin" && app.dock && !app.isPackaged) {
     const iconPath = path.join(__dirname, "../resources/icon.png");

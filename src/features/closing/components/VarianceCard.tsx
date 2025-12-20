@@ -3,7 +3,14 @@
  * Displays variance between physical and expected amounts
  */
 
-import { TrendingUp, TrendingDown, Minus, DollarSign, Wallet, Phone } from "lucide-react";
+import {
+  TrendingUp,
+  TrendingDown,
+  Minus,
+  DollarSign,
+  Wallet,
+  Phone,
+} from "lucide-react";
 import type { DrawerType, Currency } from "../types";
 import { DRAWER_CONFIGS } from "../config/drawers";
 
@@ -41,9 +48,7 @@ export function VarianceCard({
     >
       {/* Header */}
       <div className="flex items-center gap-3 mb-4">
-        <div className="bg-white/10 p-2 rounded-lg text-white">
-          {getIcon()}
-        </div>
+        <div className="bg-white/10 p-2 rounded-lg text-white">{getIcon()}</div>
         <h3 className="font-bold text-lg text-white">{config.label}</h3>
       </div>
 
@@ -56,17 +61,22 @@ export function VarianceCard({
           const hasVariance = Math.abs(variance) > 0.01;
 
           return (
-            <div key={currency.code} className="bg-slate-900/30 rounded-lg p-3 space-y-1">
+            <div
+              key={currency.code}
+              className="bg-slate-900/30 rounded-lg p-3 space-y-1"
+            >
               <div className="flex justify-between items-center">
-                <span className="text-sm font-semibold text-slate-300">{currency.code}</span>
+                <span className="text-sm font-semibold text-slate-300">
+                  {currency.code}
+                </span>
                 {hasVariance && (
                   <span
                     className={`text-xs font-bold flex items-center gap-1 ${
                       variance > 0
                         ? "text-green-400"
                         : variance < 0
-                        ? "text-red-400"
-                        : "text-slate-400"
+                          ? "text-red-400"
+                          : "text-slate-400"
                     }`}
                   >
                     {variance > 0 ? (
@@ -84,11 +94,15 @@ export function VarianceCard({
               <div className="grid grid-cols-2 gap-2 text-sm">
                 <div>
                   <span className="text-slate-500">Expected:</span>
-                  <span className="text-white font-mono ml-2">{expected.toFixed(2)}</span>
+                  <span className="text-white font-mono ml-2">
+                    {expected.toFixed(2)}
+                  </span>
                 </div>
                 <div>
                   <span className="text-slate-500">Physical:</span>
-                  <span className="text-white font-mono ml-2">{physical.toFixed(2)}</span>
+                  <span className="text-white font-mono ml-2">
+                    {physical.toFixed(2)}
+                  </span>
                 </div>
               </div>
             </div>

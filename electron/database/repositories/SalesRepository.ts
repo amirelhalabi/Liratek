@@ -1,12 +1,12 @@
 /**
  * Sales Repository
- * 
+ *
  * Handles all database operations for sales and sale_items.
  * Extends BaseRepository for standard CRUD operations.
  */
 
-import { BaseRepository } from './BaseRepository';
-import { DatabaseError } from '../../utils/errors';
+import { BaseRepository } from "./BaseRepository";
+import { DatabaseError } from "../../utils/errors";
 
 // =============================================================================
 // Types
@@ -24,7 +24,7 @@ export interface SaleEntity {
   change_given_lbp: number;
   exchange_rate_snapshot: number;
   drawer_name: string;
-  status: 'completed' | 'draft' | 'cancelled' | 'refunded';
+  status: "completed" | "draft" | "cancelled" | "refunded";
   note: string | null;
   created_at: string;
   created_by?: number;
@@ -69,7 +69,7 @@ export interface SaleRequest {
   exchange_rate: number;
   drawer_name?: string;
   id?: number;
-  status?: 'completed' | 'draft' | 'cancelled';
+  status?: "completed" | "draft" | "cancelled";
   note?: string;
 }
 
@@ -119,8 +119,14 @@ export interface ChartDataPoint {
 // =============================================================================
 
 // Row DTOs for typed query results
-type SaleWithClientRow = SaleEntity & { client_name: string | null; client_phone: string | null };
-type SaleItemWithProductRow = SaleItemEntity & { name: string; barcode: string };
+type SaleWithClientRow = SaleEntity & {
+  client_name: string | null;
+  client_phone: string | null;
+};
+type SaleItemWithProductRow = SaleItemEntity & {
+  name: string;
+  barcode: string;
+};
 type SumRow = { total_usd: number; total_lbp: number };
 type CountRow = { count: number };
 type DateRow = { date: string };
@@ -128,7 +134,7 @@ type ProfitRow = { profit_date: string; profit: number };
 
 export class SalesRepository extends BaseRepository<SaleEntity> {
   constructor() {
-    super('sales', { softDelete: false });
+    super("sales", { softDelete: false });
   }
 
   // ---------------------------------------------------------------------------
@@ -139,14 +145,18 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
    * Process a complete sale transaction (create/update with items, stock, debt)
    * This wraps all sale operations in a single transaction
    */
-  processSale(sale: SaleRequest): { success: boolean; saleId?: number; error?: string } {
+  processSale(sale: SaleRequest): {
+    success: boolean;
+    saleId?: number;
+    error?: string;
+  } {
     const db = this.db;
     const tableName = this.tableName;
 
     try {
       const processTransaction = db.transaction(() => {
         let finalClientId = sale.client_id;
-        const status = sale.status || 'completed';
+        const status = sale.status || "completed";
 
         // Auto-create client if name provided but no ID
         if (!finalClientId && sale.client_name) {
@@ -157,11 +167,11 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             `);
             const clientResult = createClient.run(
               sale.client_name,
-              sale.client_phone || null
+              sale.client_phone || null,
             );
             finalClientId = clientResult.lastInsertRowid as number;
           } catch (e) {
-            console.error('Auto-create client failed', e);
+            console.error("Auto-create client failed", e);
           }
         }
 
@@ -186,14 +196,14 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             sale.change_given_usd || 0,
             sale.change_given_lbp || 0,
             sale.exchange_rate,
-            sale.drawer_name || 'General_Drawer_B',
+            sale.drawer_name || "General_Drawer_B",
             status,
             sale.note || null,
-            saleId
+            saleId,
           );
 
           // Clear old items to re-insert new ones
-          db.prepare('DELETE FROM sale_items WHERE sale_id = ?').run(saleId);
+          db.prepare("DELETE FROM sale_items WHERE sale_id = ?").run(saleId);
         } else {
           // INSERT New Sale
           const saleStmt = db.prepare(`
@@ -214,9 +224,9 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             sale.change_given_usd || 0,
             sale.change_given_lbp || 0,
             sale.exchange_rate,
-            sale.drawer_name || 'General_Drawer_B',
+            sale.drawer_name || "General_Drawer_B",
             status,
-            sale.note || null
+            sale.note || null,
           );
           saleId = saleResult.lastInsertRowid as number;
         }
@@ -235,20 +245,27 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         `);
 
         for (const item of sale.items) {
-          itemStmt.run(saleId, item.product_id, item.quantity, item.price, item.product_id);
+          itemStmt.run(
+            saleId,
+            item.product_id,
+            item.quantity,
+            item.price,
+            item.product_id,
+          );
 
           // Update Stock: ONLY IF COMPLETED
-          if (status === 'completed') {
+          if (status === "completed") {
             stockStmt.run(item.quantity, item.product_id);
           }
         }
 
         // Handle Debt (If Partial Payment AND Completed)
-        if (status === 'completed') {
-          const totalPaidUSD = sale.payment_usd + (sale.payment_lbp / sale.exchange_rate);
+        if (status === "completed") {
+          const totalPaidUSD =
+            sale.payment_usd + sale.payment_lbp / sale.exchange_rate;
           if (sale.final_amount - totalPaidUSD > 0.05) {
             if (!finalClientId) {
-              throw new Error('Cannot create debt for anonymous client');
+              throw new Error("Cannot create debt for anonymous client");
             }
             const debtAmount = sale.final_amount - totalPaidUSD;
 
@@ -268,14 +285,14 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         `);
         logStmt.run(
           1, // Default user ID
-          'SALE',
+          "SALE",
           saleId,
           JSON.stringify({
-            drawer: sale.drawer_name || 'General_Drawer_B',
+            drawer: sale.drawer_name || "General_Drawer_B",
             amount_usd: sale.payment_usd,
             amount_lbp: sale.payment_lbp,
-            status
-          })
+            status,
+          }),
         );
 
         return { success: true, saleId };
@@ -283,8 +300,11 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
 
       return processTransaction();
     } catch (error) {
-      console.error('Sale transaction failed:', error);
-      return { success: false, error: (error instanceof Error ? error.message : String(error)) };
+      console.error("Sale transaction failed:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
     }
   }
 
@@ -306,17 +326,20 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       `);
 
       return drafts.map((draft) => {
-        const items = this.query<SaleItemWithProductRow>(`
+        const items = this.query<SaleItemWithProductRow>(
+          `
           SELECT si.*, p.name, p.barcode 
           FROM sale_items si
           JOIN products p ON si.product_id = p.id
           WHERE si.sale_id = ?
-        `, draft.id);
+        `,
+          draft.id,
+        );
 
         return { ...draft, items };
       });
     } catch (error) {
-      throw new DatabaseError('Failed to get draft sales', { cause: error });
+      throw new DatabaseError("Failed to get draft sales", { cause: error });
     }
   }
 
@@ -363,27 +386,30 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
 
       return result.lastInsertRowid as number;
     } catch (error) {
-      throw new DatabaseError('Failed to create sale', { cause: error });
+      throw new DatabaseError("Failed to create sale", { cause: error });
     }
   }
 
   /**
    * Update an existing sale
    */
-  updateSale(id: number, data: {
-    client_id: number | null;
-    total_amount: number;
-    discount: number;
-    final_amount: number;
-    payment_usd: number;
-    payment_lbp: number;
-    change_given_usd: number;
-    change_given_lbp: number;
-    exchange_rate: number;
-    drawer_name: string;
-    status: string;
-    note: string | null;
-  }): boolean {
+  updateSale(
+    id: number,
+    data: {
+      client_id: number | null;
+      total_amount: number;
+      discount: number;
+      final_amount: number;
+      payment_usd: number;
+      payment_lbp: number;
+      change_given_usd: number;
+      change_given_lbp: number;
+      exchange_rate: number;
+      drawer_name: string;
+      status: string;
+      note: string | null;
+    },
+  ): boolean {
     try {
       const stmt = this.db.prepare(`
         UPDATE ${this.tableName} SET 
@@ -411,7 +437,10 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
 
       return result.changes > 0;
     } catch (error) {
-      throw new DatabaseError('Failed to update sale', { cause: error, entityId: id });
+      throw new DatabaseError("Failed to update sale", {
+        cause: error,
+        entityId: id,
+      });
     }
   }
 
@@ -420,24 +449,34 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
    */
   deleteSaleItems(saleId: number): void {
     try {
-      this.execute('DELETE FROM sale_items WHERE sale_id = ?', saleId);
+      this.execute("DELETE FROM sale_items WHERE sale_id = ?", saleId);
     } catch (error) {
-      throw new DatabaseError('Failed to delete sale items', { cause: error });
+      throw new DatabaseError("Failed to delete sale items", { cause: error });
     }
   }
 
   /**
    * Add an item to a sale
    */
-  addSaleItem(saleId: number, item: { product_id: number; quantity: number; price: number }): void {
+  addSaleItem(
+    saleId: number,
+    item: { product_id: number; quantity: number; price: number },
+  ): void {
     try {
-      this.execute(`
+      this.execute(
+        `
         INSERT INTO sale_items (
           sale_id, product_id, quantity, sold_price_usd, cost_price_snapshot_usd
         ) VALUES (?, ?, ?, ?, (SELECT cost_price_usd FROM products WHERE id = ?))
-      `, saleId, item.product_id, item.quantity, item.price, item.product_id);
+      `,
+        saleId,
+        item.product_id,
+        item.quantity,
+        item.price,
+        item.product_id,
+      );
     } catch (error) {
-      throw new DatabaseError('Failed to add sale item', { cause: error });
+      throw new DatabaseError("Failed to add sale item", { cause: error });
     }
   }
 
@@ -446,14 +485,17 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
    */
   getSaleItems(saleId: number): SaleItemWithProduct[] {
     try {
-      return this.query<SaleItemWithProduct>(`
+      return this.query<SaleItemWithProduct>(
+        `
         SELECT si.*, p.name, p.barcode 
         FROM sale_items si
         JOIN products p ON si.product_id = p.id
         WHERE si.sale_id = ?
-      `, saleId);
+      `,
+        saleId,
+      );
     } catch (error) {
-      throw new DatabaseError('Failed to get sale items', { cause: error });
+      throw new DatabaseError("Failed to get sale items", { cause: error });
     }
   }
 
@@ -492,7 +534,9 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       `);
 
       // Active Clients Count
-      const clientsResult = this.queryOne<CountRow>('SELECT COUNT(*) as count FROM clients');
+      const clientsResult = this.queryOne<CountRow>(
+        "SELECT COUNT(*) as count FROM clients",
+      );
 
       // Low Stock Items Count
       const stockResult = this.queryOne<CountRow>(`
@@ -506,14 +550,18 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         totalSalesUSD: salesResult?.total_usd ?? 0,
         totalSalesLBP: salesResult?.total_lbp ?? 0,
         // Cash Collected: Sales + debt repayments received today (cash flow)
-        cashCollectedUSD: (salesResult?.total_usd ?? 0) + (repaymentResult?.total_usd ?? 0),
-        cashCollectedLBP: (salesResult?.total_lbp ?? 0) + (repaymentResult?.total_lbp ?? 0),
+        cashCollectedUSD:
+          (salesResult?.total_usd ?? 0) + (repaymentResult?.total_usd ?? 0),
+        cashCollectedLBP:
+          (salesResult?.total_lbp ?? 0) + (repaymentResult?.total_lbp ?? 0),
         ordersCount: ordersResult?.count ?? 0,
         activeClients: clientsResult?.count ?? 0,
         lowStockCount: stockResult?.count ?? 0,
       };
     } catch (error) {
-      throw new DatabaseError('Failed to get dashboard stats', { cause: error });
+      throw new DatabaseError("Failed to get dashboard stats", {
+        cause: error,
+      });
     }
   }
 
@@ -522,48 +570,74 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
    */
   getDrawerBalances(): DrawerBalances {
     try {
-      const today = new Date().toISOString().split('T')[0];
+      const today = new Date().toISOString().split("T")[0];
 
       // General Drawer B sales
-      const generalSales = this.queryOne<{ total_usd: number; total_lbp: number }>(`
+      const generalSales = this.queryOne<{
+        total_usd: number;
+        total_lbp: number;
+      }>(
+        `
         SELECT 
           SUM(paid_usd) as total_usd, 
           SUM(paid_lbp) as total_lbp 
         FROM ${this.tableName} 
         WHERE DATE(created_at) = ? AND status = 'completed' AND drawer_name = 'General_Drawer_B'
-      `, today);
+      `,
+        today,
+      );
 
       // General Drawer expenses
-      const generalExpenses = this.queryOne<{ total_usd: number; total_lbp: number }>(`
+      const generalExpenses = this.queryOne<{
+        total_usd: number;
+        total_lbp: number;
+      }>(
+        `
         SELECT 
           SUM(amount_usd) as total_usd, 
           SUM(amount_lbp) as total_lbp 
         FROM expenses 
         WHERE DATE(expense_date) = ?
-      `, today);
+      `,
+        today,
+      );
 
       // OMT Drawer A inflows
-      const omtInflows = this.queryOne<{ total_usd: number; total_lbp: number }>(`
+      const omtInflows = this.queryOne<{
+        total_usd: number;
+        total_lbp: number;
+      }>(
+        `
         SELECT 
           SUM(amount_usd) as total_usd, 
           SUM(amount_lbp) as total_lbp 
         FROM financial_services 
         WHERE DATE(created_at) = ? AND provider = 'OMT' AND service_type = 'RECEIVE'
-      `, today);
+      `,
+        today,
+      );
 
       // OMT Drawer A outflows
-      const omtOutflows = this.queryOne<{ total_usd: number; total_lbp: number }>(`
+      const omtOutflows = this.queryOne<{
+        total_usd: number;
+        total_lbp: number;
+      }>(
+        `
         SELECT 
           SUM(amount_usd) as total_usd, 
           SUM(amount_lbp) as total_lbp 
         FROM financial_services 
         WHERE DATE(created_at) = ? AND provider = 'OMT' AND service_type = 'SEND'
-      `, today);
+      `,
+        today,
+      );
 
       return {
         generalDrawer: {
-          usd: (generalSales?.total_usd ?? 0) - (generalExpenses?.total_usd ?? 0),
-          lbp: (generalSales?.total_lbp ?? 0) - (generalExpenses?.total_lbp ?? 0),
+          usd:
+            (generalSales?.total_usd ?? 0) - (generalExpenses?.total_usd ?? 0),
+          lbp:
+            (generalSales?.total_lbp ?? 0) - (generalExpenses?.total_lbp ?? 0),
         },
         omtDrawer: {
           usd: (omtInflows?.total_usd ?? 0) - (omtOutflows?.total_usd ?? 0),
@@ -571,7 +645,9 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         },
       };
     } catch (error) {
-      throw new DatabaseError('Failed to get drawer balances', { cause: error });
+      throw new DatabaseError("Failed to get drawer balances", {
+        cause: error,
+      });
     }
   }
 
@@ -580,7 +656,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
    */
   getTodaysSales(limit: number = 5): RecentSale[] {
     try {
-      return this.query<RecentSale>(`
+      return this.query<RecentSale>(
+        `
         SELECT 
           s.id,
           c.full_name as client_name,
@@ -592,9 +669,11 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         WHERE s.status = 'completed' AND DATE(s.created_at, 'localtime') = DATE('now', 'localtime')
         ORDER BY s.created_at DESC
         LIMIT ?
-      `, limit);
+      `,
+        limit,
+      );
     } catch (error) {
-      throw new DatabaseError('Failed to get today\'s sales', { cause: error });
+      throw new DatabaseError("Failed to get today's sales", { cause: error });
     }
   }
 
@@ -603,7 +682,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
    */
   getTopProducts(limit: number = 5): TopProduct[] {
     try {
-      return this.query<TopProduct>(`
+      return this.query<TopProduct>(
+        `
         SELECT 
           p.name,
           COALESCE(SUM(si.quantity), 0) as total_quantity,
@@ -615,16 +695,18 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         GROUP BY p.id
         ORDER BY total_quantity DESC
         LIMIT ?
-      `, limit);
+      `,
+        limit,
+      );
     } catch (error) {
-      throw new DatabaseError('Failed to get top products', { cause: error });
+      throw new DatabaseError("Failed to get top products", { cause: error });
     }
   }
 
   /**
    * Get chart data for last 30 days - Sales or Profit
    */
-  getChartData(type: 'Sales' | 'Profit'): ChartDataPoint[] {
+  getChartData(type: "Sales" | "Profit"): ChartDataPoint[] {
     try {
       // Generate last 30 days
       const datesResult = this.query<DateRow>(`
@@ -637,10 +719,15 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         )
         SELECT date FROM dates
       `);
-      const dates = datesResult.map(r => r.date);
+      const dates = datesResult.map((r) => r.date);
 
-      if (type === 'Sales') {
-        const salesData = this.query<{ date: string; daily_usd: number; daily_lbp: number }>(`
+      if (type === "Sales") {
+        const salesData = this.query<{
+          date: string;
+          daily_usd: number;
+          daily_lbp: number;
+        }>(
+          `
           SELECT 
             DATE(created_at, 'localtime') as date,
             SUM(paid_usd) as daily_usd,
@@ -648,9 +735,16 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           FROM ${this.tableName}
           WHERE status = 'completed' AND DATE(created_at, 'localtime') >= ?
           GROUP BY date
-        `, dates[0]);
+        `,
+          dates[0],
+        );
 
-        const repaymentData = this.query<{ date: string; daily_usd: number; daily_lbp: number }>(`
+        const repaymentData = this.query<{
+          date: string;
+          daily_usd: number;
+          daily_lbp: number;
+        }>(
+          `
           SELECT 
             DATE(created_at, 'localtime') as date,
             SUM(ABS(amount_usd)) as daily_usd,
@@ -658,7 +752,9 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           FROM debt_ledger
           WHERE transaction_type = 'Repayment' AND DATE(created_at, 'localtime') >= ?
           GROUP BY date
-        `, dates[0]);
+        `,
+          dates[0],
+        );
 
         const combined = new Map<string, { usd: number; lbp: number }>();
         [...salesData, ...repaymentData].forEach((row) => {
@@ -668,7 +764,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           combined.set(row.date, entry);
         });
 
-        return dates.map(date => ({
+        return dates.map((date) => ({
           date,
           usd: combined.get(date)?.usd ?? 0,
           lbp: combined.get(date)?.lbp ?? 0,
@@ -676,7 +772,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       }
 
       // Profit data
-      const profitData = this.query<ProfitRow>(`
+      const profitData = this.query<ProfitRow>(
+        `
         SELECT
           DATE(s.created_at, 'localtime') as profit_date,
           SUM(si.sold_price_usd - si.cost_price_snapshot_usd) as profit
@@ -686,17 +783,19 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           AND (s.paid_usd + (s.paid_lbp / s.exchange_rate_snapshot)) >= s.final_amount_usd
           AND DATE(s.created_at, 'localtime') >= ?
         GROUP BY profit_date
-      `, dates[0]);
+      `,
+        dates[0],
+      );
 
       const profitMap = new Map<string, number>();
-      profitData.forEach(row => profitMap.set(row.profit_date, row.profit));
+      profitData.forEach((row) => profitMap.set(row.profit_date, row.profit));
 
-      return dates.map(date => ({
+      return dates.map((date) => ({
         date,
         profit: profitMap.get(date) ?? 0,
       }));
     } catch (error) {
-      throw new DatabaseError('Failed to get chart data', { cause: error });
+      throw new DatabaseError("Failed to get chart data", { cause: error });
     }
   }
 
@@ -705,15 +804,21 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
    */
   findByDateRange(startDate: string, endDate: string): SaleWithClient[] {
     try {
-      return this.query<SaleWithClient>(`
+      return this.query<SaleWithClient>(
+        `
         SELECT s.*, c.full_name as client_name, c.phone_number as client_phone
         FROM ${this.tableName} s
         LEFT JOIN clients c ON s.client_id = c.id
         WHERE DATE(s.created_at) BETWEEN ? AND ? AND s.status = 'completed'
         ORDER BY s.created_at DESC
-      `, startDate, endDate);
+      `,
+        startDate,
+        endDate,
+      );
     } catch (error) {
-      throw new DatabaseError('Failed to find sales by date range', { cause: error });
+      throw new DatabaseError("Failed to find sales by date range", {
+        cause: error,
+      });
     }
   }
 }
