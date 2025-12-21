@@ -12,7 +12,7 @@ describe("DrawerCard", () => {
         currencies={[{ code: "USD", name: "US Dollar", is_active: 1 }]}
         getDisplayValue={() => ""}
         onAmountChange={onAmountChange}
-      />
+      />,
     );
 
     expect(screen.getByText("General")).toBeInTheDocument();

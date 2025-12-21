@@ -1,22 +1,22 @@
 /**
  * Debt Service
- * 
+ *
  * Business logic layer for debt operations.
  * Uses DebtRepository for data access.
- * 
+ *
  * This service encapsulates:
  * - Debt queries and lookups
  * - Repayment processing
  * - Dashboard debt summaries
  */
 
-import { 
-  DebtRepository, 
+import {
+  DebtRepository,
   getDebtRepository,
   type DebtLedgerEntity,
   type DebtorSummary,
-  type DebtSummary
-} from '../database/repositories';
+  type DebtSummary,
+} from "../database/repositories";
 
 // =============================================================================
 // Types
@@ -90,10 +90,13 @@ export class DebtService {
 
     // Validate
     if (!clientId) {
-      return { success: false, error: 'Client ID is required' };
+      return { success: false, error: "Client ID is required" };
     }
     if (amountUSD <= 0 && amountLBP <= 0) {
-      return { success: false, error: 'Repayment amount must be greater than zero' };
+      return {
+        success: false,
+        error: "Repayment amount must be greater than zero",
+      };
     }
 
     try {
@@ -102,16 +105,16 @@ export class DebtService {
         amount_usd: amountUSD,
         amount_lbp: amountLBP,
         note: note || null,
-        created_by: userId || null
+        created_by: userId || null,
       });
 
       console.log(
-        `[DEBT] Repayment of $${amountUSD} and ${amountLBP} LBP for client ${clientId}`
+        `[DEBT] Repayment of $${amountUSD} and ${amountLBP} LBP for client ${clientId}`,
       );
 
       return { success: true, id: result.id };
     } catch (error) {
-      console.error('Failed to add repayment:', error);
+      console.error("Failed to add repayment:", error);
       return { success: false, error: (error as Error).message };
     }
   }

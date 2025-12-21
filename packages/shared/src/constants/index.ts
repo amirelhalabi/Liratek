@@ -7,13 +7,13 @@
 // =============================================================================
 
 export const USER_ROLES = {
-  ADMIN: 'admin',
-  CASHIER: 'cashier',
+  ADMIN: "admin",
+  CASHIER: "cashier",
 } as const;
 
 export const USER_ROLE_LABELS: Record<string, string> = {
-  admin: 'Administrator',
-  cashier: 'Cashier',
+  admin: "Administrator",
+  cashier: "Cashier",
 };
 
 // =============================================================================
@@ -21,21 +21,21 @@ export const USER_ROLE_LABELS: Record<string, string> = {
 // =============================================================================
 
 export const CURRENCIES = {
-  USD: 'USD',
-  LBP: 'LBP',
-  EUR: 'EUR',
+  USD: "USD",
+  LBP: "LBP",
+  EUR: "EUR",
 } as const;
 
 export const CURRENCY_SYMBOLS: Record<string, string> = {
-  USD: '$',
-  LBP: 'L£',
-  EUR: '€',
+  USD: "$",
+  LBP: "L£",
+  EUR: "€",
 };
 
 export const CURRENCY_LABELS: Record<string, string> = {
-  USD: 'US Dollar',
-  LBP: 'Lebanese Pound',
-  EUR: 'Euro',
+  USD: "US Dollar",
+  LBP: "Lebanese Pound",
+  EUR: "Euro",
 };
 
 // =============================================================================
@@ -43,13 +43,13 @@ export const CURRENCY_LABELS: Record<string, string> = {
 // =============================================================================
 
 export const DRAWERS = {
-  DRAWER1: 'drawer1',
-  DRAWER2: 'drawer2',
+  DRAWER1: "drawer1",
+  DRAWER2: "drawer2",
 } as const;
 
 export const DRAWER_LABELS: Record<string, string> = {
-  drawer1: 'Drawer 1',
-  drawer2: 'Drawer 2',
+  drawer1: "Drawer 1",
+  drawer2: "Drawer 2",
 };
 
 // =============================================================================
@@ -57,17 +57,17 @@ export const DRAWER_LABELS: Record<string, string> = {
 // =============================================================================
 
 export const PAYMENT_METHODS = {
-  CASH: 'cash',
-  CARD: 'card',
-  MIXED: 'mixed',
-  CREDIT: 'credit',
+  CASH: "cash",
+  CARD: "card",
+  MIXED: "mixed",
+  CREDIT: "credit",
 } as const;
 
 export const PAYMENT_METHOD_LABELS: Record<string, string> = {
-  cash: 'Cash',
-  card: 'Card',
-  mixed: 'Mixed',
-  credit: 'Credit (Debt)',
+  cash: "Cash",
+  card: "Card",
+  mixed: "Mixed",
+  credit: "Credit (Debt)",
 };
 
 // =============================================================================
@@ -75,15 +75,15 @@ export const PAYMENT_METHOD_LABELS: Record<string, string> = {
 // =============================================================================
 
 export const DEBT_STATUS = {
-  ACTIVE: 'active',
-  PARTIAL: 'partial',
-  PAID: 'paid',
+  ACTIVE: "active",
+  PARTIAL: "partial",
+  PAID: "paid",
 } as const;
 
 export const DEBT_STATUS_LABELS: Record<string, string> = {
-  active: 'Active',
-  partial: 'Partially Paid',
-  paid: 'Paid',
+  active: "Active",
+  partial: "Partially Paid",
+  paid: "Paid",
 };
 
 // =============================================================================
@@ -91,13 +91,13 @@ export const DEBT_STATUS_LABELS: Record<string, string> = {
 // =============================================================================
 
 export const OMT_TYPES = {
-  SEND: 'send',
-  RECEIVE: 'receive',
+  SEND: "send",
+  RECEIVE: "receive",
 } as const;
 
 export const OMT_TYPE_LABELS: Record<string, string> = {
-  send: 'Send Money',
-  receive: 'Receive Money',
+  send: "Send Money",
+  receive: "Receive Money",
 };
 
 // =============================================================================
@@ -105,43 +105,38 @@ export const OMT_TYPE_LABELS: Record<string, string> = {
 // =============================================================================
 
 export const EXPENSE_CATEGORIES = [
-  'utilities',
-  'rent',
-  'supplies',
-  'maintenance',
-  'salary',
-  'transportation',
-  'food',
-  'other',
+  "utilities",
+  "rent",
+  "supplies",
+  "maintenance",
+  "salary",
+  "transportation",
+  "food",
+  "other",
 ] as const;
 
 export const EXPENSE_CATEGORY_LABELS: Record<string, string> = {
-  utilities: 'Utilities',
-  rent: 'Rent',
-  supplies: 'Supplies',
-  maintenance: 'Maintenance',
-  salary: 'Salary',
-  transportation: 'Transportation',
-  food: 'Food',
-  other: 'Other',
+  utilities: "Utilities",
+  rent: "Rent",
+  supplies: "Supplies",
+  maintenance: "Maintenance",
+  salary: "Salary",
+  transportation: "Transportation",
+  food: "Food",
+  other: "Other",
 };
 
 // =============================================================================
 // Recharge Providers
 // =============================================================================
 
-export const RECHARGE_PROVIDERS = [
-  'alfa',
-  'mtc',
-  'ogero',
-  'other',
-] as const;
+export const RECHARGE_PROVIDERS = ["alfa", "mtc", "ogero", "other"] as const;
 
 export const RECHARGE_PROVIDER_LABELS: Record<string, string> = {
-  alfa: 'Alfa',
-  mtc: 'Touch (MTC)',
-  ogero: 'Ogero',
-  other: 'Other',
+  alfa: "Alfa",
+  mtc: "Touch (MTC)",
+  ogero: "Ogero",
+  other: "Other",
 };
 
 // =============================================================================
@@ -149,13 +144,13 @@ export const RECHARGE_PROVIDER_LABELS: Record<string, string> = {
 // =============================================================================
 
 export const DEFAULT_PRODUCT_CATEGORIES = [
-  'electronics',
-  'accessories',
-  'cables',
-  'cases',
-  'chargers',
-  'batteries',
-  'other',
+  "electronics",
+  "accessories",
+  "cables",
+  "cases",
+  "chargers",
+  "batteries",
+  "other",
 ] as const;
 
 // =============================================================================

@@ -30,7 +30,7 @@ export function ModalHeader({
         <h2 className="text-2xl font-bold text-white">
           {icon} {title}
         </h2>
-        <p className={`text-${gradientFrom.split('-')[0]}-100 text-sm mt-1`}>
+        <p className={`text-${gradientFrom.split("-")[0]}-100 text-sm mt-1`}>
           {subtitle}
         </p>
       </div>

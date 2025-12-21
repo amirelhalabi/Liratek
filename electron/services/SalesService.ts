@@ -1,9 +1,9 @@
 /**
  * Sales Service
- * 
+ *
  * Business logic layer for sales operations.
  * Uses SalesRepository for data access.
- * 
+ *
  * This service encapsulates:
  * - Sales processing (create/update/draft)
  * - Dashboard statistics
@@ -11,16 +11,16 @@
  * - Chart data generation
  */
 
-import { 
-  SalesRepository, 
+import {
+  SalesRepository,
   getSalesRepository,
   type SaleRequest,
   type DashboardStats,
   type DrawerBalances,
   type TopProduct,
   type RecentSale,
-  type ChartDataPoint
-} from '../database/repositories';
+  type ChartDataPoint,
+} from "../database/repositories";
 
 // =============================================================================
 // Types
@@ -53,19 +53,22 @@ export class SalesService {
   processSale(sale: SaleRequest): SaleResult {
     try {
       const result = this.salesRepo.processSale(sale);
-      
+
       if (result.success && result.saleId) {
-        const drawerName = sale.drawer_name || 'General_Drawer_B';
+        const drawerName = sale.drawer_name || "General_Drawer_B";
         const finalAmount = sale.final_amount || 0;
         console.log(
-          `[SALES] ${drawerName} - Sale #${result.saleId}: $${finalAmount.toFixed(2)} [${sale.status || 'completed'}]`
+          `[SALES] ${drawerName} - Sale #${result.saleId}: $${finalAmount.toFixed(2)} [${sale.status || "completed"}]`,
         );
       }
-      
+
       return result;
     } catch (error) {
-      console.error('Sale transaction failed:', error);
-      return { success: false, error: (error instanceof Error ? error.message : String(error)) };
+      console.error("Sale transaction failed:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
     }
   }
 
@@ -76,7 +79,7 @@ export class SalesService {
     try {
       return this.salesRepo.findDrafts();
     } catch (error) {
-      console.error('Failed to get drafts', error);
+      console.error("Failed to get drafts", error);
       return [];
     }
   }
@@ -91,15 +94,15 @@ export class SalesService {
   getDashboardStats(): DashboardStats {
     try {
       const stats = this.salesRepo.getDashboardStats();
-      
+
       const todayDate = new Date().toLocaleDateString();
       console.log(
-        `[SALES] Dashboard stats - Today: ${todayDate}, Sales: $${stats.totalSalesUSD} USD / ${stats.totalSalesLBP.toLocaleString()} LBP`
+        `[SALES] Dashboard stats - Today: ${todayDate}, Sales: $${stats.totalSalesUSD} USD / ${stats.totalSalesLBP.toLocaleString()} LBP`,
       );
-      
+
       return stats;
     } catch (error) {
-      console.error('Failed to get dashboard stats:', error);
+      console.error("Failed to get dashboard stats:", error);
       return {
         totalSalesUSD: 0,
         totalSalesLBP: 0,
@@ -107,7 +110,7 @@ export class SalesService {
         cashCollectedLBP: 0,
         ordersCount: 0,
         activeClients: 0,
-        lowStockCount: 0
+        lowStockCount: 0,
       };
     }
   }
@@ -140,7 +143,7 @@ export class SalesService {
   /**
    * Get chart data for profit/sales over last 30 days
    */
-  getChartData(type: 'Sales' | 'Profit'): ChartDataPoint[] {
+  getChartData(type: "Sales" | "Profit"): ChartDataPoint[] {
     return this.salesRepo.getChartData(type);
   }
 }

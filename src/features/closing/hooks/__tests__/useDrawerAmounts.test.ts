@@ -22,7 +22,9 @@ describe("useDrawerAmounts", () => {
   });
 
   it("should initialize amounts for all drawers and currencies", () => {
-    const { result } = renderHook(() => useDrawerAmounts({ currencies: mockCurrencies }));
+    const { result } = renderHook(() =>
+      useDrawerAmounts({ currencies: mockCurrencies }),
+    );
 
     act(() => {
       result.current.initializeAmounts();
@@ -35,7 +37,9 @@ describe("useDrawerAmounts", () => {
   });
 
   it("should update amount for specific drawer and currency", () => {
-    const { result } = renderHook(() => useDrawerAmounts({ currencies: mockCurrencies }));
+    const { result } = renderHook(() =>
+      useDrawerAmounts({ currencies: mockCurrencies }),
+    );
 
     act(() => {
       result.current.initializeAmounts();
@@ -50,7 +54,9 @@ describe("useDrawerAmounts", () => {
   });
 
   it("should return string value for zero values in getDisplayValue", () => {
-    const { result } = renderHook(() => useDrawerAmounts({ currencies: mockCurrencies }));
+    const { result } = renderHook(() =>
+      useDrawerAmounts({ currencies: mockCurrencies }),
+    );
 
     act(() => {
       result.current.initializeAmounts();
@@ -60,7 +66,9 @@ describe("useDrawerAmounts", () => {
   });
 
   it("should return string value for non-zero values in getDisplayValue", () => {
-    const { result } = renderHook(() => useDrawerAmounts({ currencies: mockCurrencies }));
+    const { result } = renderHook(() =>
+      useDrawerAmounts({ currencies: mockCurrencies }),
+    );
 
     act(() => {
       result.current.initializeAmounts();
@@ -74,7 +82,9 @@ describe("useDrawerAmounts", () => {
   });
 
   it("should validate all amounts successfully", () => {
-    const { result } = renderHook(() => useDrawerAmounts({ currencies: mockCurrencies }));
+    const { result } = renderHook(() =>
+      useDrawerAmounts({ currencies: mockCurrencies }),
+    );
 
     act(() => {
       result.current.initializeAmounts();
@@ -90,7 +100,9 @@ describe("useDrawerAmounts", () => {
   });
 
   it("should detect negative amounts in validation", () => {
-    const { result } = renderHook(() => useDrawerAmounts({ currencies: mockCurrencies }));
+    const { result } = renderHook(() =>
+      useDrawerAmounts({ currencies: mockCurrencies }),
+    );
 
     act(() => {
       result.current.initializeAmounts();
@@ -106,7 +118,9 @@ describe("useDrawerAmounts", () => {
   });
 
   it("should detect NaN values in validation", () => {
-    const { result } = renderHook(() => useDrawerAmounts({ currencies: mockCurrencies }));
+    const { result } = renderHook(() =>
+      useDrawerAmounts({ currencies: mockCurrencies }),
+    );
 
     act(() => {
       result.current.initializeAmounts();
@@ -122,7 +136,9 @@ describe("useDrawerAmounts", () => {
   });
 
   it("should detect when any amounts are entered", () => {
-    const { result } = renderHook(() => useDrawerAmounts({ currencies: mockCurrencies }));
+    const { result } = renderHook(() =>
+      useDrawerAmounts({ currencies: mockCurrencies }),
+    );
 
     act(() => {
       result.current.initializeAmounts();
@@ -138,7 +154,9 @@ describe("useDrawerAmounts", () => {
   });
 
   it("should reset all amounts to initial state", () => {
-    const { result } = renderHook(() => useDrawerAmounts({ currencies: mockCurrencies }));
+    const { result } = renderHook(() =>
+      useDrawerAmounts({ currencies: mockCurrencies }),
+    );
 
     act(() => {
       result.current.initializeAmounts();
@@ -161,7 +179,9 @@ describe("useDrawerAmounts", () => {
   });
 
   it("should handle multiple currency updates", () => {
-    const { result } = renderHook(() => useDrawerAmounts({ currencies: mockCurrencies }));
+    const { result } = renderHook(() =>
+      useDrawerAmounts({ currencies: mockCurrencies }),
+    );
 
     act(() => {
       result.current.initializeAmounts();

@@ -37,9 +37,17 @@ export default function NotificationsConfig() {
           warnDrawer ? "1" : "0",
         ),
       ]);
-      appEvents.emit("notification:show", "Notification preferences saved", "success");
+      appEvents.emit(
+        "notification:show",
+        "Notification preferences saved",
+        "success",
+      );
     } catch (e) {
-      appEvents.emit("notification:show", (e instanceof Error ? e.message : "Failed to save"), "error");
+      appEvents.emit(
+        "notification:show",
+        e instanceof Error ? e.message : "Failed to save",
+        "error",
+      );
     } finally {
       setSaving(false);
     }
