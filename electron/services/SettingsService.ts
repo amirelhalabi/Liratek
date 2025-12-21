@@ -62,7 +62,10 @@ export class SettingsService {
       return { success: true };
     } catch (error) {
       console.error("SettingsService.updateSetting error:", error);
-      return { success: false, error: (error instanceof Error ? error.message : String(error)) };
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
     }
   }
 }

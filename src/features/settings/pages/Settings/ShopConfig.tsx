@@ -34,10 +34,18 @@ export default function ShopConfig() {
         window.api.settings.update("receipt_header_text", receiptHeaderText),
         window.api.settings.update("exchange_rate_usd_lbp", exchangeRate),
       ]);
-      appEvents.emit("notification:show", "Shop configuration saved", "success");
+      appEvents.emit(
+        "notification:show",
+        "Shop configuration saved",
+        "success",
+      );
     } catch (e) {
       console.error(e);
-      appEvents.emit("notification:show", (e instanceof Error ? e.message : "Failed to save"), "error");
+      appEvents.emit(
+        "notification:show",
+        e instanceof Error ? e.message : "Failed to save",
+        "error",
+      );
     } finally {
       setIsSaving(false);
     }

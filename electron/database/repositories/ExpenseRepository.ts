@@ -40,7 +40,7 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
       data.expense_type,
       data.amount_usd,
       data.amount_lbp,
-      data.expense_date
+      data.expense_date,
     );
     return Number(result.lastInsertRowid);
   }
@@ -53,7 +53,7 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
       .prepare(
         `SELECT * FROM expenses 
          WHERE DATE(expense_date) = DATE('now')
-         ORDER BY expense_date DESC`
+         ORDER BY expense_date DESC`,
       )
       .all() as ExpenseEntity[];
   }
@@ -62,9 +62,9 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
    * Get expense by ID
    */
   getExpenseById(id: number): ExpenseEntity | undefined {
-    return this.db
-      .prepare("SELECT * FROM expenses WHERE id = ?")
-      .get(id) as ExpenseEntity | undefined;
+    return this.db.prepare("SELECT * FROM expenses WHERE id = ?").get(id) as
+      | ExpenseEntity
+      | undefined;
   }
 
   /**
@@ -77,11 +77,15 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
   /**
    * Log activity for expense operations
    */
-  logActivity(userId: number, action: string, details: Record<string, unknown>): void {
+  logActivity(
+    userId: number,
+    action: string,
+    details: Record<string, unknown>,
+  ): void {
     this.db
       .prepare(
         `INSERT INTO activity_logs (user_id, action, details_json, created_at)
-         VALUES (?, ?, ?, CURRENT_TIMESTAMP)`
+         VALUES (?, ?, ?, CURRENT_TIMESTAMP)`,
       )
       .run(userId, action, JSON.stringify(details));
   }

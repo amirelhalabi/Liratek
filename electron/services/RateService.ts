@@ -1,16 +1,16 @@
 /**
  * Rate Service
- * 
+ *
  * Business logic layer for exchange rate operations.
  */
 
-import { 
-  RateRepository, 
+import {
+  RateRepository,
   getRateRepository,
   type ExchangeRateEntity,
-  type SetRateData
-} from '../database/repositories';
-import { toErrorString } from '../utils/errors';
+  type SetRateData,
+} from "../database/repositories";
+import { toErrorString } from "../utils/errors";
 
 // =============================================================================
 // Types

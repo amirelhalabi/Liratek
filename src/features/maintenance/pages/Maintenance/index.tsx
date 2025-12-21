@@ -129,7 +129,9 @@ export default function Maintenance() {
     }
   };
 
-  const handleCheckoutComplete = async (paymentData: MaintenancePaymentData) => {
+  const handleCheckoutComplete = async (
+    paymentData: MaintenancePaymentData,
+  ) => {
     // Save with payment details
     const jobData = {
       ...(editingJob?.id != null ? { id: editingJob.id } : {}),
@@ -139,7 +141,9 @@ export default function Maintenance() {
       price_usd: parseFloat(price) || 0,
 
       // Client info from checkout (might override form)
-      ...(paymentData.client_id != null ? { client_id: paymentData.client_id } : {}),
+      ...(paymentData.client_id != null
+        ? { client_id: paymentData.client_id }
+        : {}),
       client_name: paymentData.client_name || clientName,
       client_phone: paymentData.client_phone || clientPhone,
 
@@ -238,7 +242,9 @@ export default function Maintenance() {
                   className="hover:bg-slate-700/20 transition-colors group"
                 >
                   <td className="px-6 py-4 text-sm text-slate-400 whitespace-nowrap">
-                    {job.created_at ? new Date(job.created_at).toLocaleDateString() : ""}
+                    {job.created_at
+                      ? new Date(job.created_at).toLocaleDateString()
+                      : ""}
                   </td>
                   <td className="px-6 py-4">
                     <div className="text-sm font-medium text-white">

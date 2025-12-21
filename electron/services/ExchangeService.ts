@@ -1,16 +1,16 @@
 /**
  * Exchange Service
- * 
+ *
  * Business logic layer for currency exchange operations.
  * Uses ExchangeRepository for data access.
  */
 
-import { 
-  ExchangeRepository, 
+import {
+  ExchangeRepository,
   getExchangeRepository,
   type ExchangeTransactionEntity,
-  type CreateExchangeData
-} from '../database/repositories';
+  type CreateExchangeData,
+} from "../database/repositories";
 
 // =============================================================================
 // Types
@@ -43,18 +43,21 @@ export class ExchangeService {
   addTransaction(data: CreateExchangeData): ExchangeResult {
     try {
       const result = this.exchangeRepo.createTransaction(data);
-      
+
       // Log the activity
       this.exchangeRepo.logActivity(data);
 
       console.log(
-        `[EXCHANGE] ${data.fromCurrency} -> ${data.toCurrency}: ${data.amountIn} -> ${data.amountOut} (Rate: ${data.rate}) [Drawer B]`
+        `[EXCHANGE] ${data.fromCurrency} -> ${data.toCurrency}: ${data.amountIn} -> ${data.amountOut} (Rate: ${data.rate}) [Drawer B]`,
       );
 
       return { success: true, id: result.id };
     } catch (error) {
-      console.error('Failed to add exchange transaction:', error);
-      return { success: false, error: (error instanceof Error ? error.message : String(error)) };
+      console.error("Failed to add exchange transaction:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
     }
   }
 
@@ -69,7 +72,7 @@ export class ExchangeService {
     try {
       return this.exchangeRepo.getHistory(limit);
     } catch (error) {
-      console.error('Failed to get exchange history:', error);
+      console.error("Failed to get exchange history:", error);
       return [];
     }
   }

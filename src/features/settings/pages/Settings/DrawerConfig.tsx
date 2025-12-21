@@ -30,10 +30,18 @@ export default function DrawerConfig() {
         window.api.settings.update("drawer_limit_general", drawerLimitGeneral),
         window.api.settings.update("drawer_limit_omt", drawerLimitOMT),
       ]);
-      appEvents.emit("notification:show", "Drawer configuration saved", "success");
+      appEvents.emit(
+        "notification:show",
+        "Drawer configuration saved",
+        "success",
+      );
     } catch (e) {
       console.error(e);
-      appEvents.emit("notification:show", (e instanceof Error ? e.message : "Failed to save"), "error");
+      appEvents.emit(
+        "notification:show",
+        e instanceof Error ? e.message : "Failed to save",
+        "error",
+      );
     } finally {
       setIsSaving(false);
     }

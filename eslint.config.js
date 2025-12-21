@@ -28,7 +28,11 @@ export default defineConfig([
       // Allow unused vars starting with underscore
       "@typescript-eslint/no-unused-vars": [
         "error",
-        { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_" },
+        {
+          argsIgnorePattern: "^_",
+          varsIgnorePattern: "^_",
+          caughtErrorsIgnorePattern: "^_",
+        },
       ],
       // Allow require in specific files (electron main process)
       "@typescript-eslint/no-require-imports": "warn",
