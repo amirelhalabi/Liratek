@@ -64,7 +64,10 @@ describe("ExpenseService", () => {
       expect(mockRepo.createExpense).toHaveBeenCalledWith(expenseData);
       expect(mockRepo.logActivity).toHaveBeenCalledWith(1, "Add Expense", {
         category: "Utilities",
+        paid_by_method: "CASH",
+        expense_type: "Operating",
         amount_usd: 50,
+        amount_lbp: 0,
       });
     });
 
@@ -152,7 +155,10 @@ describe("ExpenseService", () => {
 
       expect(mockRepo.logActivity).toHaveBeenCalledWith(1, "Add Expense", {
         category: "Food",
+        paid_by_method: "CASH",
+        expense_type: "Operating",
         amount_usd: 0,
+        amount_lbp: 100000,
       });
     });
   });

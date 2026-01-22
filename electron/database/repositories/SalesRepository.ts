@@ -54,6 +54,15 @@ export interface DraftSaleWithItems extends SaleWithClient {
   items: SaleItemWithProduct[];
 }
 
+export type PaymentMethod = "CASH" | "OMT" | "WHISH" | "BINANCE";
+export type PaymentCurrencyCode = "USD" | "LBP";
+
+export interface PaymentLine {
+  method: PaymentMethod;
+  currency_code: PaymentCurrencyCode;
+  amount: number;
+}
+
 export interface SaleRequest {
   client_id: number | null;
   client_name?: string;
@@ -62,8 +71,10 @@ export interface SaleRequest {
   total_amount: number;
   discount: number;
   final_amount: number;
+  // Legacy totals (kept for compatibility; will be derived from payments if provided)
   payment_usd: number;
   payment_lbp: number;
+  payments?: PaymentLine[];
   change_given_usd?: number;
   change_given_lbp?: number;
   exchange_rate: number;
@@ -175,6 +186,35 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           }
         }
 
+        const mapDrawerName = (method: PaymentMethod): string => {
+          switch (method) {
+            case "CASH":
+              return "General";
+            case "OMT":
+              return "OMT";
+            case "WHISH":
+              return "Whish";
+            case "BINANCE":
+              return "Binance";
+            default:
+              return "General";
+          }
+        };
+
+        const sumPayments = (lines: PaymentLine[] | undefined) => {
+          const totals = { usd: 0, lbp: 0 };
+          for (const p of lines || []) {
+            if (p.currency_code === "USD") totals.usd += p.amount;
+            if (p.currency_code === "LBP") totals.lbp += p.amount;
+          }
+          return totals;
+        };
+
+        // If new payments[] provided, derive legacy totals from it
+        const derived = sumPayments(sale.payments);
+        const paymentUsd = sale.payments ? derived.usd : sale.payment_usd;
+        const paymentLbp = sale.payments ? derived.lbp : sale.payment_lbp;
+
         let saleId = sale.id;
 
         if (saleId) {
@@ -229,6 +269,84 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             sale.note || null,
           );
           saleId = saleResult.lastInsertRowid as number;
+        }
+
+        // Persist payment lines + update running balances (drawer_balances)
+        // - If sale.payments is not provided, we store inferred CASH lines from legacy totals.
+        // - Change is treated as CASH (General drawer) outflow.
+        const paymentLines: PaymentLine[] = sale.payments?.length
+          ? sale.payments
+          : [
+              ...(paymentUsd
+                ? [{ method: "CASH" as const, currency_code: "USD" as const, amount: paymentUsd }]
+                : []),
+              ...(paymentLbp
+                ? [{ method: "CASH" as const, currency_code: "LBP" as const, amount: paymentLbp }]
+                : []),
+            ];
+
+        db.prepare(`DELETE FROM payments WHERE source_type = 'SALE' AND source_id = ?`).run(
+          saleId,
+        );
+
+        const insertPayment = db.prepare(`
+          INSERT INTO payments (
+            source_type, source_id, method, drawer_name, currency_code, amount, note, created_by
+          ) VALUES (
+            'SALE', ?, ?, ?, ?, ?, ?, ?
+          )
+        `);
+
+        const upsertBalanceDelta = db.prepare(`
+          INSERT INTO drawer_balances (drawer_name, currency_code, balance)
+          VALUES (?, ?, ?)
+          ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+            balance = drawer_balances.balance + excluded.balance,
+            updated_at = CURRENT_TIMESTAMP
+        `);
+
+        const createdBy = 1;
+        const note = sale.note || null;
+
+        for (const p of paymentLines) {
+          const drawerName = mapDrawerName(p.method);
+          insertPayment.run(
+            saleId,
+            p.method,
+            drawerName,
+            p.currency_code,
+            p.amount,
+            note,
+            createdBy,
+          );
+          upsertBalanceDelta.run(drawerName, p.currency_code, p.amount);
+        }
+
+        const changeUsd = Math.abs(sale.change_given_usd || 0);
+        const changeLbp = Math.abs(sale.change_given_lbp || 0);
+        if (changeUsd) {
+          insertPayment.run(
+            saleId,
+            "CASH",
+            "General",
+            "USD",
+            -changeUsd,
+            "Change given",
+            createdBy,
+          );
+          upsertBalanceDelta.run("General", "USD", -changeUsd);
+        }
+        if (changeLbp) {
+          insertPayment.run(
+            saleId,
+            "CASH",
+            "General",
+            "LBP",
+            -changeLbp,
+            "Change given",
+            createdBy,
+          );
+          upsertBalanceDelta.run("General", "LBP", -changeLbp);
         }
 
         // Process Items & Update Stock

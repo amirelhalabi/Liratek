@@ -5,6 +5,7 @@ import { runMigrations } from "./db/migrate";
 import { registerDatabaseHandlers } from "./handlers/dbHandlers";
 import { registerAuthHandlers } from "./handlers/authHandlers";
 import { registerInventoryHandlers } from "./handlers/inventoryHandlers";
+import { registerSupplierHandlers } from "./handlers/supplierHandlers";
 import { registerClientHandlers } from "./handlers/clientHandlers";
 import { registerSalesHandlers } from "./handlers/salesHandlers";
 import { registerDebtHandlers } from "./handlers/debtHandlers";
@@ -14,7 +15,10 @@ import { registerRechargeHandlers } from "./handlers/rechargeHandlers";
 import { registerMaintenanceHandlers } from "./handlers/maintenanceHandlers";
 import { registerReportHandlers } from "./handlers/reportHandlers";
 import { registerCurrencyHandlers } from "./handlers/currencyHandlers";
+import { getSettingsService } from "./services/SettingsService";
+import { ReportService } from "./services/ReportService";
 import { registerRateHandlers } from "./handlers/rateHandlers";
+import { registerUpdaterHandlers } from "./handlers/updaterHandlers";
 import { startSyncProcessor } from "./sync";
 
 // ============================================================================
@@ -139,15 +143,100 @@ if (!gotTheLock) {
       registerReportHandlers();
       registerCurrencyHandlers();
       registerRateHandlers();
+      registerSupplierHandlers();
+      registerUpdaterHandlers();
 
       startSyncProcessor();
 
       setInterval(() => purgeExpiredSessions(Date.now()), 60 * 1000);
 
+      // ---------------------------------------------------------------------
+      // Auto backup scheduler (P2)
+      // Settings keys:
+      //  - auto_backup_enabled: 1/0 (default 1)
+      //  - auto_backup_interval_hours: number (default 24)
+      //  - auto_backup_keep_count: number (default 30)
+      // ---------------------------------------------------------------------
       try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { autoUpdater } = require("electron-updater");
-        autoUpdater.checkForUpdatesAndNotify();
+        const settings = getSettingsService();
+        const reportService = new ReportService();
+
+        const readConfig = () => {
+          const enabled =
+            Number(settings.getSettingValue("auto_backup_enabled")?.value ?? 1) ===
+            1;
+          const intervalHours = Number(
+            settings.getSettingValue("auto_backup_interval_hours")?.value ?? 24,
+          );
+          const keepCount = Number(
+            settings.getSettingValue("auto_backup_keep_count")?.value ?? 30,
+          );
+
+          return {
+            enabled,
+            intervalMs:
+              isFinite(intervalHours) && intervalHours > 0
+                ? intervalHours * 60 * 60 * 1000
+                : 24 * 60 * 60 * 1000,
+            keepCount:
+              isFinite(keepCount) && keepCount > 0 ? keepCount : 30,
+          };
+        };
+
+        const runOnce = async () => {
+          const cfg = readConfig();
+          if (!cfg.enabled) return;
+
+          const backupRes = await reportService.backupDatabase();
+          if (!backupRes.success) {
+            console.error("[AutoBackup] Backup failed:", backupRes.error);
+            return;
+          }
+
+          try {
+            settings.updateSetting("last_backup_at", new Date().toISOString());
+          } catch {}
+
+          // optional auto-verify
+          try {
+            const verifyEnabled =
+              Number(settings.getSettingValue("auto_backup_verify_enabled")?.value ?? 0) ===
+              1;
+            if (verifyEnabled && backupRes.path) {
+              const v = await reportService.verifyBackup(backupRes.path);
+              settings.updateSetting("last_backup_verify_at", new Date().toISOString());
+              settings.updateSetting("last_backup_verify_ok", v.ok ? "1" : "0");
+            }
+          } catch {}
+
+          const pruneRes = await reportService.pruneBackups(cfg.keepCount);
+          if (!pruneRes.success) {
+            console.error("[AutoBackup] Prune failed:", pruneRes.error);
+          }
+        };
+
+        // schedule repeating job
+        const cfg = readConfig();
+        setInterval(() => {
+          void runOnce();
+        }, cfg.intervalMs);
+
+        // kick off an initial run shortly after startup
+        setTimeout(() => {
+          void runOnce();
+        }, 30 * 1000);
+      } catch (e) {
+        console.error("[AutoBackup] Scheduler init failed:", e);
+      }
+
+      try {
+        if (app.isPackaged) {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const { autoUpdater } = require("electron-updater");
+          autoUpdater.checkForUpdatesAndNotify();
+        } else {
+          console.log("[Updater] Skipped (dev mode)");
+        }
       } catch (_e) {
         console.log("[Updater] Skipped (module not installed)");
       }

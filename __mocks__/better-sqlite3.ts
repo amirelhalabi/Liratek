@@ -67,6 +67,7 @@ export const mockDatabase = {
     _sql: sql,
   })),
   exec: jest.fn(),
+  pragma: jest.fn(),
   close: jest.fn(),
 };
 

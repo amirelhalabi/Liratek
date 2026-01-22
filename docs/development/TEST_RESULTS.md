@@ -90,26 +90,138 @@ When a user tries to open LiraTek while it's already running:
 
 ### Next Testing Steps
 
-**For Production Verification:**
+#### 1) Installer QA on Real Systems (P0)
 
-1. **Build installers:**
+**Goal:** validate the packaged app behaves correctly when installed (not just in dev).
+
+**Build artifacts** (pick what you will test):
 
 ```bash
 npm run build
-npm run ci:build:win  # Windows
-npm run ci:build:mac  # macOS
+npm run build:win      # produces NSIS installer in ./releases/
+npm run build:mac      # produces DMG/ZIP in ./releases/
+# (CI-only builds are available too: npm run ci:build:win / npm run ci:build:mac)
 ```
 
-2. **Install and test:**
-   - Install from built installer
-   - Open app from Start Menu/Applications
-   - Try to open again from Desktop shortcut
-   - Verify window focuses and dialog appears
+**Test matrix template (fill in):**
 
-3. **Test edge cases:**
-   - Minimize window, then try to open
-   - Close dialog, try to open again
-   - Rapid double-click app icon
+| Platform | Machine | Artifact | Install OK | First Run OK | 2nd Launch focuses existing window | Notes |
+|---------:|---------|----------|------------|--------------|------------------------------------|-------|
+| Windows x64 | (name) | `LiraTek-Setup-x.y.z.exe` | [ ] | [ ] | [ ] | |
+| macOS arm64 | (name) | `LiraTek-x.y.z.dmg` | [ ] | [ ] | [ ] | |
+
+**Windows (NSIS) checklist**
+
+- [ ] Install from the generated `LiraTek-Setup-<version>.exe`
+- [ ] Launch from Start Menu
+- [ ] Launch again while already running
+  - Expected: existing window focuses (and any single-instance dialog/notification behaves as intended)
+- [ ] Close the app, then re-open
+- [ ] Restart Windows, then open the app again
+- [ ] Verify DB location and persistence (create a product/sale, restart app, confirm data remains)
+
+**macOS (DMG/ZIP) checklist**
+
+- [ ] Mount DMG and drag app to Applications (or install via ZIP extraction if used)
+- [ ] First launch from Applications
+- [ ] Second launch while already running
+  - Expected: existing window focuses (and any single-instance dialog/notification behaves as intended)
+- [ ] Quit app, re-open
+- [ ] Reboot macOS, re-open
+- [ ] Verify DB location and persistence (create a product/sale, restart app, confirm data remains)
+
+**Edge cases to explicitly try (both OSes):**
+
+- [ ] Rapid double-click app icon (race on startup)
+- [ ] Minimize window then launch again
+- [ ] App in background / different workspace/desktop then launch again
+
+---
+
+#### 2) Build Verification on Clean Machines (P0)
+
+---
+
+#### 3) Backup Restore Verification (Operator Procedure)
+
+**Goal:** ensure a backup can be created, verified, restored, and validated without data loss.
+
+**Where backups live:** `Documents/LiratekBackups/`
+
+**UI location:** Settings → Diagnostics → **Local Backups**
+
+##### A. Create a backup (manual)
+
+- [ ] Log in as **admin**
+- [ ] Go to Settings → Diagnostics → Local Backups
+- [ ] Click **Backup Now**
+- [ ] Confirm a new file appears in the dropdown list (`backup_<timestamp>.sqlite`)
+
+##### B. Verify backup integrity
+
+- [ ] Select the newest backup
+- [ ] Click **Verify**
+- [ ] Expected result: `Integrity check: OK`
+
+If verification fails:
+- [ ] Create another backup
+- [ ] If it continues failing, stop and investigate disk/permissions and DB health.
+
+##### C. Restore from backup (safe procedure)
+
+**Important:** Restore replaces the local database file and restarts the app.
+
+Pre-restore safety:
+- [ ] Ensure no critical operations are in progress (POS checkout, closing, etc.)
+- [ ] Prefer restoring while the shop is closed
+
+Restore:
+- [ ] Select the target backup
+- [ ] Click **Restore**
+- [ ] Confirm the prompt
+- [ ] Expected behavior: app restarts automatically
+
+##### D. Post-restore validation (smoke test)
+
+After restart:
+
+- [ ] Log in successfully
+- [ ] Inventory: search a known product
+- [ ] POS: open cart, search product, cancel (no need to sell)
+- [ ] Clients/Debts: open a known client and check balance/history
+- [ ] Opening/Closing: confirm you can open the Closing modal
+
+##### E. Operator checklist record
+
+Record the following:
+- Date/time
+- Machine (Windows/macOS), OS version
+- Backup filename restored
+- Verify result (OK/FAILED)
+- Post-restore smoke test results
+
+**Goal:** validate “fresh environment” install/run works without developer machine assumptions.
+
+**Clean machine definition:** new OS user or VM with *no* Node/toolchain required (install from produced artifacts).
+
+Checklist:
+
+- [ ] Install using the produced installer (no dev dependencies)
+- [ ] App starts without missing runtime dependencies
+- [ ] Login works (admin + cashier if available)
+- [ ] Core smoke test flows:
+  - [ ] Inventory: create product, search by barcode
+  - [ ] POS: add to cart, checkout, verify receipt
+  - [ ] Clients/Debts: create client, add debt entry, repayment
+  - [ ] Services: create an exchange transaction + OMT/Whish record
+  - [ ] Opening/Closing: complete Opening, then Closing
+- [ ] Verify the app can be opened twice (single-instance behavior)
+- [ ] Verify persistence across reboot
+
+**Output:** attach notes here (or link to an external QA log) with:
+- OS version
+- Installer artifact name
+- Pass/fail + any screenshots/logs
 
 ---
 

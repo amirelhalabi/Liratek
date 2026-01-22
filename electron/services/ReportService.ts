@@ -15,7 +15,32 @@ export interface BackupResult {
   error?: string;
 }
 
+export interface ListBackupsResult {
+  success: boolean;
+  backups?: Array<{ path: string; filename: string; createdAtMs: number }>;
+  error?: string;
+}
+
+export interface RestoreDbResult {
+  success: boolean;
+  error?: string;
+}
+
+export interface VerifyBackupResult {
+  success: boolean;
+  ok?: boolean;
+  error?: string;
+}
+
 export class ReportService {
+  private getBackupsDir(): string {
+    return path.join(app.getPath("documents"), "LiratekBackups");
+  }
+
+  private getDbPath(): string {
+    return path.join(app.getPath("userData"), "phone_shop.db");
+  }
+
   /**
    * Generate a PDF from HTML content
    */
@@ -73,9 +98,8 @@ export class ReportService {
    */
   async backupDatabase(): Promise<BackupResult> {
     try {
-      const userDataPath = app.getPath("userData");
-      const dbPath = path.join(userDataPath, "phone_shop.db");
-      const backupsDir = path.join(app.getPath("documents"), "LiratekBackups");
+      const dbPath = this.getDbPath();
+      const backupsDir = this.getBackupsDir();
 
       if (!fs.existsSync(backupsDir)) {
         fs.mkdirSync(backupsDir, { recursive: true });
@@ -88,6 +112,127 @@ export class ReportService {
       return { success: true, path: outPath };
     } catch (error) {
       console.error("Failed to backup database:", error);
+      return { success: false, error: toErrorString(error) };
+    }
+  }
+
+  /**
+   * List backups in Documents/LiratekBackups
+   */
+  async listBackups(): Promise<ListBackupsResult> {
+    try {
+      const dir = this.getBackupsDir();
+      if (!fs.existsSync(dir)) return { success: true, backups: [] };
+
+      const backups = fs
+        .readdirSync(dir)
+        .filter((f) => f.endsWith(".sqlite") && f.startsWith("backup_"))
+        .map((filename) => {
+          const fullPath = path.join(dir, filename);
+          const stat = fs.statSync(fullPath);
+          return { path: fullPath, filename, createdAtMs: stat.mtimeMs };
+        })
+        .sort((a, b) => b.createdAtMs - a.createdAtMs);
+
+      return { success: true, backups };
+    } catch (error) {
+      return { success: false, error: toErrorString(error) };
+    }
+  }
+
+  /**
+   * Remove older backups, keeping the most recent `keepCount`.
+   */
+  async pruneBackups(keepCount = 30): Promise<{ success: boolean; deleted?: number; error?: string }> {
+    try {
+      const list = await this.listBackups();
+      if (!list.success)
+        return {
+          success: false,
+          ...(list.error != null ? { error: list.error } : {}),
+        };
+
+      const backups = list.backups || [];
+      const toDelete = backups.slice(keepCount);
+
+      for (const b of toDelete) {
+        try {
+          fs.unlinkSync(b.path);
+        } catch {}
+      }
+
+      return { success: true, deleted: toDelete.length };
+    } catch (error) {
+      return { success: false, error: toErrorString(error) };
+    }
+  }
+
+  /**
+   * Verify a backup file using PRAGMA integrity_check.
+   */
+  async verifyBackup(backupPath: string): Promise<VerifyBackupResult> {
+    try {
+      const backupsDir = this.getBackupsDir();
+      const resolved = path.resolve(backupPath);
+      const allowedDir = path.resolve(backupsDir) + path.sep;
+      if (!resolved.startsWith(allowedDir)) {
+        return { success: false, error: "Invalid backup path" };
+      }
+      if (!resolved.endsWith(".sqlite")) {
+        return { success: false, error: "Invalid backup file" };
+      }
+      if (!fs.existsSync(resolved)) {
+        return { success: false, error: "Backup not found" };
+      }
+
+      // Dynamic import to avoid bundling issues in some environments
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const Database = require("better-sqlite3") as typeof import("better-sqlite3");
+      const db = new Database(resolved, { readonly: true });
+      try {
+        const row = db.prepare("PRAGMA integrity_check").get() as
+          | { integrity_check: string }
+          | undefined;
+        const ok = row?.integrity_check === "ok";
+        return { success: true, ok };
+      } finally {
+        db.close();
+      }
+    } catch (error) {
+      return { success: false, error: toErrorString(error) };
+    }
+  }
+
+  /**
+   * Restore the DB from a backup file.
+   * Note: caller should quit/relaunch after restore.
+   */
+  async restoreDatabaseFromBackup(backupPath: string): Promise<RestoreDbResult> {
+    try {
+      const backupsDir = this.getBackupsDir();
+      const resolved = path.resolve(backupPath);
+      const allowedDir = path.resolve(backupsDir) + path.sep;
+      if (!resolved.startsWith(allowedDir)) {
+        return { success: false, error: "Invalid backup path" };
+      }
+      if (!resolved.endsWith(".sqlite")) {
+        return { success: false, error: "Invalid backup file" };
+      }
+      if (!fs.existsSync(resolved)) {
+        return { success: false, error: "Backup not found" };
+      }
+
+      const target = this.getDbPath();
+      const tmpTarget = target + ".restore_tmp";
+
+      fs.copyFileSync(resolved, tmpTarget);
+      fs.copyFileSync(tmpTarget, target);
+      try {
+        fs.unlinkSync(tmpTarget);
+      } catch {}
+
+      return { success: true };
+    } catch (error) {
       return { success: false, error: toErrorString(error) };
     }
   }

@@ -20,6 +20,7 @@ export default function Recharge() {
 
   // Form
   const [phoneNumber, setPhoneNumber] = useState("");
+  const [paidBy, setPaidBy] = useState<"CASH" | "OMT" | "WHISH" | "BINANCE">("CASH");
   const [amount, setAmount] = useState(""); // Amount of credit to send
   const [price, setPrice] = useState(""); // Price to client
   const [cost, setCost] = useState(""); // Cost to dealer (optional/auto-calc)
@@ -59,6 +60,7 @@ export default function Recharge() {
         amount: parseFloat(amount),
         cost: parseFloat(cost) || 0,
         price: parseFloat(price),
+        paid_by_method: paidBy,
         phoneNumber,
       });
 
@@ -193,6 +195,30 @@ export default function Recharge() {
         {/* Center: Main Form */}
         <div className="flex-1 bg-slate-800 rounded-xl border border-slate-700/50 shadow-xl p-8 flex flex-col">
           <div className="max-w-md mx-auto w-full space-y-8">
+            {/* Paid By */}
+            <div>
+              <label className="block text-sm font-medium text-slate-400 mb-2 uppercase tracking-wider">
+                Paid By
+              </label>
+              <select
+                value={paidBy}
+                onChange={(e) =>
+                  setPaidBy(
+                    e.target.value as "CASH" | "OMT" | "WHISH" | "BINANCE",
+                  )
+                }
+                className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-4 text-lg font-bold text-white focus:outline-none focus:border-orange-500 transition-colors"
+              >
+                <option value="CASH">Cash (General)</option>
+                <option value="OMT">OMT</option>
+                <option value="WHISH">Whish</option>
+                <option value="BINANCE">Binance</option>
+              </select>
+              <p className="text-xs text-slate-500 mt-2">
+                Customer payment increases the selected drawer by the full price.
+              </p>
+            </div>
+
             {/* Phone Input */}
             <div>
               <label className="block text-sm font-medium text-slate-400 mb-2 uppercase tracking-wider">

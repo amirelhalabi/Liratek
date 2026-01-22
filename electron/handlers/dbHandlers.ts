@@ -62,6 +62,7 @@ export function registerDatabaseHandlers(): void {
         description: string;
         category: string;
         expense_type: string;
+        paid_by_method?: "CASH" | "OMT" | "WHISH" | "BINANCE";
         amount_usd: number;
         amount_lbp: number;
         expense_date: string;
@@ -257,6 +258,28 @@ export function registerDatabaseHandlers(): void {
       if (!auth.ok) return { error: "Forbidden" };
     } catch {}
     return activityService.getSyncErrors();
+  });
+
+  // Diagnostics: run PRAGMA foreign_key_check
+  ipcMain.handle("diagnostics:foreign-key-check", (e) => {
+    try {
+      const { requireRole } = require("../session");
+      const auth = requireRole(e.sender.id, ["admin"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+    } catch {}
+
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { getDatabase } = require("../db");
+      const db = getDatabase();
+      const rows = db.pragma("foreign_key_check");
+      return { success: true, rows };
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
   });
 
   // Recent activity logs

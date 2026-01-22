@@ -15,6 +15,13 @@ export default function ProductForm({
 }: ProductFormProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [duplicateInfo, setDuplicateInfo] = useState<
+    | null
+    | {
+        attempted: string;
+        suggested: string;
+      }
+  >(null);
   const [formData, setFormData] = useState({
     barcode: "",
     name: "",
@@ -52,6 +59,7 @@ export default function ProductForm({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setDuplicateInfo(null);
     setIsLoading(true);
 
     try {
@@ -67,6 +75,13 @@ export default function ProductForm({
       if (result.success) {
         onSave();
       } else {
+        if (result.code === "DUPLICATE_BARCODE" && result.suggested_barcode) {
+          setDuplicateInfo({
+            attempted: formData.barcode,
+            suggested: result.suggested_barcode,
+          });
+          return;
+        }
         setError(result.error || "Failed to save product");
       }
     } catch (err) {
@@ -100,6 +115,41 @@ export default function ProductForm({
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          {duplicateInfo && (
+            <div className="bg-slate-950 border border-amber-500/40 rounded-lg p-4 text-sm">
+              <div className="font-semibold text-amber-300 mb-1">
+                Duplicate Barcode Detected
+              </div>
+              <div className="text-slate-300">
+                The barcode <span className="font-mono">{duplicateInfo.attempted}</span> already exists.
+              </div>
+              <div className="text-slate-400 mt-1">
+                Suggested: <span className="font-mono">{duplicateInfo.suggested}</span>
+              </div>
+              <div className="mt-3 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFormData((prev) => ({
+                      ...prev,
+                      barcode: duplicateInfo.suggested,
+                    }));
+                    setDuplicateInfo(null);
+                  }}
+                  className="px-3 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-medium"
+                >
+                  Duplicate Barcode
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDuplicateInfo(null)}
+                  className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
           {error && (
             <div className="bg-red-500/10 text-red-400 p-3 rounded-lg text-sm border border-red-500/50">
               {error}

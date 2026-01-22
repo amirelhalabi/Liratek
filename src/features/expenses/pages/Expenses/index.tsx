@@ -1,11 +1,14 @@
 import { useState, useEffect } from "react";
 import { Plus, Trash2, Calendar, DollarSign } from "lucide-react";
 
+type PaidByMethod = "CASH" | "OMT" | "WHISH" | "BINANCE";
+
 interface Expense {
   id?: number;
   description: string;
   category: string;
   expense_type: "Cash_Out" | "Non_Cash";
+  paid_by_method?: PaidByMethod;
   amount_usd: number;
   amount_lbp: number;
   expense_date: string;
@@ -23,6 +26,13 @@ const EXPENSE_TYPES = [
   { value: "Non_Cash", label: "Non-Cash (Profit Only)" },
 ];
 
+const PAID_BY_METHODS: Array<{ value: PaidByMethod; label: string }> = [
+  { value: "CASH", label: "Cash (General Drawer)" },
+  { value: "OMT", label: "OMT Drawer" },
+  { value: "WHISH", label: "Whish Drawer" },
+  { value: "BINANCE", label: "Binance Drawer" },
+];
+
 export default function Expenses() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -30,6 +40,7 @@ export default function Expenses() {
     description: "",
     category: "Shop_Supply",
     expense_type: "Cash_Out",
+    paid_by_method: "CASH",
     amount_usd: 0,
     amount_lbp: 0,
     expense_date: new Date().toISOString().split("T")[0],
@@ -202,6 +213,7 @@ export default function Expenses() {
                     <th className="px-6 py-4 text-left">Description</th>
                     <th className="px-6 py-4 text-left">Category</th>
                     <th className="px-6 py-4 text-left">Type</th>
+                    <th className="px-6 py-4 text-left">Paid By</th>
                     <th className="px-6 py-4 text-right">USD</th>
                     <th className="px-6 py-4 text-right">LBP</th>
                     <th className="px-6 py-4 text-center">Action</th>
@@ -233,6 +245,9 @@ export default function Expenses() {
                             ? "Cash Out"
                             : "Non-Cash"}
                         </span>
+                      </td>
+                      <td className="px-6 py-4 text-slate-200">
+                        {expense.paid_by_method || "CASH"}
                       </td>
                       <td className="px-6 py-4 text-right text-slate-200 font-mono">
                         ${expense.amount_usd.toFixed(2)}
@@ -334,6 +349,33 @@ export default function Expenses() {
                   ))}
                 </select>
               </div>
+
+              {/* Paid By (drawer method) */}
+              <div>
+               <label className="block text-sm font-medium text-slate-300 mb-2">
+                 Paid By
+               </label>
+               <select
+                 value={formData.paid_by_method || "CASH"}
+                 onChange={(e) =>
+                   setFormData({
+                     ...formData,
+                     paid_by_method: e.target.value as PaidByMethod,
+                   })
+                 }
+                 className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-orange-500 outline-none"
+               >
+                 {PAID_BY_METHODS.map((m) => (
+                   <option key={m.value} value={m.value}>
+                     {m.label}
+                   </option>
+                 ))}
+               </select>
+               <p className="text-xs text-slate-400 mt-1">
+                 Default is Cash (General). If you select OMT/Whish/Binance, the
+                 expense will reduce that drawers expected balance.
+               </p>
+             </div>
 
               {/* Amount USD */}
               <div>

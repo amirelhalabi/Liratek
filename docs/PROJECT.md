@@ -6,6 +6,10 @@
 **Status:** ✅ Production-Ready - First Release Complete
 
 > **Note:** This document consolidates PROJECT_STATUS.md, TECHNICAL_CONTEXT.md, IMPLEMENTATION_ROADMAP.md, and AGENT_ONBOARDING_PROMPT.md into one authoritative reference.
+>
+> Practical trackers:
+> - Current sprint board: `docs/CURRENT_SPRINT.md`
+> - Next roadmap / TODO list: `docs/nexttodo.md`
 
 ---
 
@@ -296,7 +300,7 @@ CSC_IDENTITY_AUTO_DISCOVERY=false npm run build:app
 ### Operational Features (Partial)
 
 11. **Expenses Tracking** - ✅ Basic UI, ⚠️ Limited reporting
-12. **Daily Opening/Closing** - ✅ Wizards complete, ⚠️ Report auto-attach pending
+12. **Daily Opening/Closing** - ✅ Wizards complete, ✅ Report auto-attach implemented (PDF saved + `report_path` persisted)
 13. **Settings & Configuration** - ✅ User mgmt, Currency mgmt, Diagnostics
 
 ---
@@ -431,10 +435,10 @@ Updated (Dec 19, 2025)
 
 | Task                       | Est. Time | Status      |
 | -------------------------- | --------- | ----------- |
-| Closing report auto-attach | 0.5 day   | Not started |
-| Variance threshold alerts  | 0.5 day   | Not started |
-| Database indexes           | 1 day     | Not started |
-| Local backup automation    | 2-3 days  | Not started |
+| Closing report auto-attach | 0.5 day   | ✅ Done |
+| Variance threshold alerts  | 0.5 day   | ✅ Done |
+| Database indexes           | 1 day     | ✅ Done |
+| Local backup automation    | 2-3 days  | ✅ Done |
 
 #### LOW Priority (Post-Launch)
 
@@ -581,37 +585,62 @@ useEffect(() => {
 
 ### Overview
 
-- **Drawer A (OMT):** OMT financial service transactions only
-- **Drawer B (General):** All other transactions (sales, recharges, exchanges)
+Drawers represent *logical wallets* that map to payment methods and/or business modules.
+
+- **General drawer (CASH):** Cash-only (USD/LBP)
+- **OMT drawer:** OMT money-transfer transactions (SEND/RECEIVE) + OMT payment-method sales lines
+- **Whish drawer:** Whish money-transfer transactions (SEND/RECEIVE) + Whish payment-method sales lines
+- **Binance drawer:** Binance payment-method sales lines (and Binance module transactions)
+- **MTC drawer:** Recharge transactions (USD)
+- **Alfa drawer:** Recharge transactions (USD)
+
+### Running Expected Balances (Drawer Balances)
+
+Expected balances are stored and updated *behind the scenes*:
+
+- DB table: `drawer_balances` (by `drawer_name` + `currency_code`)
+- Every transaction that affects a drawer writes to:
+  - `payments` (auditable payment rows, signed deltas)
+  - `drawer_balances` (running totals)
+- Implemented sources using this model:
+  - POS sales (multi-payment lines)
+  - Expenses (Cash_Out with Paid By method)
+  - Financial services (OMT/Whish SEND/RECEIVE)
+  - Exchange (USD/LBP movement inside General)
+  - Recharges (MTC/Alfa): customer payment increases the selected method drawer (full price), and telecom balance decreases by the recharge `amount`
+- Opening sets the baseline by writing the counted opening amounts into `drawer_balances`.
+- Closing compares the operators *actual* counts to the current `drawer_balances` expected amounts.
 
 ### Current Implementation
 
-| Feature                        | Status     | Notes                       |
-| ------------------------------ | ---------- | --------------------------- |
-| Drawer designation in handlers | ✅ Done    | OMT → A, Others → B         |
-| Daily closing per drawer       | ✅ Done    | Multi-drawer amounts table  |
-| Activity logs with drawer      | ✅ Done    | JSON details field          |
-| Sales table drawer column      | ❌ Missing | All sales implicit Drawer B |
-| POS checkout drawer display    | ⚠️ Partial | Hardcoded "Drawer B"        |
-| Real-time drawer balance       | ❌ Missing | Future enhancement          |
+| Feature                                | Status  | Notes |
+| -------------------------------------- | ------- | ----- |
+| Running expected balances              | ✅ Done | `drawer_balances` holds expected amounts per (drawer, currency) |
+| Auditable balance changes              | ✅ Done | `payments` stores signed deltas by source (SALE/EXPENSE/EXCHANGE/FINANCIAL_SERVICE/RECHARGE) |
+| Method-based drawers (CASH/OMT/WHISH/BINANCE) | ✅ Done | Payment method maps to drawer name (General/OMT/Whish/Binance) |
+| POS multi-payment lines                | ✅ Done | Checkout supports multiple payment lines (method + currency + amount) |
+| Expenses paid-by routing               | ✅ Done | Expense Cash_Out decreases selected drawer |
+| Exchange affects expected balances     | ✅ Done | Currency movement updates General drawer balances |
+| Recharges affect expected balances     | ✅ Done | Paid By increases method drawer; MTC/Alfa telecom balance decreases by `amount` |
 
-### Drawer Routing Logic
+### Drawer Routing Logic (Current)
 
-```typescript
-// omtHandlers.ts
-const drawer = data.provider === "OMT" ? "OMT_Drawer_A" : "General_Drawer_B";
-
-// rechargeHandlers.ts, salesHandlers.ts
-const drawer = "General_Drawer_B"; // All non-OMT go to Drawer B
-```
+- **Sales (POS):** each payment line updates its drawer and currency
+- **Expenses (Cash_Out):** decreases selected drawer
+- **Financial services (OMT/Whish):** SEND decreases, RECEIVE increases the provider drawer
+- **Exchange:** subtract from-currency and add to-currency within General
+- **Recharges:**
+  - customer payment increases the selected method drawer by full price
+  - telecom balance decreases in MTC/Alfa drawer by recharge `amount`
 
 ### Key Insight
 
-OMT transactions are NOT product-based sales. They're financial services logged in `financial_services` table, entered via Services page (not POS). The POS system is exclusively for:
+Drawers now represent two categories:
 
-- Physical product sales (phones, accessories)
-- Mobile recharges (virtual products)
-- Both go to Drawer B
+1. **Cash-like drawers** (physically countable): General/OMT/Whish/Binance (USD/LBP)
+2. **Telecom balance drawers** (verified on phone): MTC/Alfa (USD only)
+
+Both are surfaced in Opening/Closing, but the operator verifies them differently (physical count vs phone balance).
 
 ---
 
@@ -680,14 +709,14 @@ mockDbInstance.prepare.mockImplementation((sql: string) => ({
 
 | Security Feature                 | Priority | Status                           |
 | -------------------------------- | -------- | -------------------------------- |
-| Session encryption (safeStorage) | CRITICAL | Not started                      |
+| Session encryption (safeStorage) | CRITICAL | ✅ Done                          |
 | Session timeout (30 min)         | HIGH     | Partial (last_activity tracking) |
 | Database encryption (SQLCipher)  | MEDIUM   | Not started                      |
 | Rate limiting on IPC             | LOW      | Not started                      |
 
 ### Security Recommendations
 
-1. **CRITICAL:** Implement session encryption with Electron's safeStorage API
+1. **CRITICAL:** Implement session encryption with Electron's safeStorage API (✅ done)
 2. **HIGH:** Complete session timeout with auto-logout
 3. **MEDIUM:** Consider SQLCipher for database encryption
 4. **LOW:** Add rate limiting for IPC handlers
@@ -726,10 +755,78 @@ mockDbInstance.prepare.mockImplementation((sql: string) => ({
 
 ### Pending Improvements
 
-- [ ] Migration system (versioned migrations)
-- [ ] Database indexes (performance)
-- [ ] Foreign key enforcement (PRAGMA foreign_keys = ON)
+- [x] Migration system (versioned migrations)
+- [x] Database indexes (performance)
+- [x] Foreign key enforcement (PRAGMA foreign_keys = ON) — Enabled at connection open; startup runs `PRAGMA foreign_key_check` and logs violations (non-fatal).
 - [ ] Data archival strategy (>1 year records)
+
+### Data Archival Strategy (Ops + Performance)
+
+**Problem:** over time, high-write tables (sales, activity logs, sync errors, etc.) will grow and can slow queries/backups.
+
+**Goals:**
+- Keep the primary DB fast for day-to-day operations.
+- Keep historical data retrievable.
+- Make the process **reversible** (archive before delete).
+
+#### Recommended approach (safe + reversible)
+
+1. **Archive to a separate SQLite file** (preferred)
+   - Create `Documents/LiratekArchives/archive_<YYYY-MM>.sqlite`
+   - Copy rows older than retention into the archive DB
+   - Verify counts match
+   - Only then delete from the primary DB
+
+2. **Retention defaults** (suggested)
+
+| Table | Keep in primary DB | Archive older than |
+|------|---------------------|-------------------|
+| `sales`, `sale_items` | 24 months | 24 months |
+| `debt_ledger` | 36 months | 36 months |
+| `activity_logs` | 6-12 months | 12 months |
+| `sync_queue` | keep all (usually small) | N/A |
+| `sync_errors` | 3 months | 3 months |
+| `expenses` | 24 months | 24 months |
+| `exchange_transactions` | 24 months | 24 months |
+| `financial_services` | 24 months | 24 months |
+| `maintenance` | 36 months | 36 months |
+| `recharges` | 24 months | 24 months |
+| `daily_closings`, `daily_closing_amounts` | keep all | (optional) |
+
+> Note: retention periods should reflect accounting/legal needs.
+
+#### Operator workflow (manual)
+
+- Step 0: Run FK check (Settings → Diagnostics → Foreign Key Check)
+- Step 1: Take a backup (Settings → Diagnostics → Local Backups → Backup Now)
+- Step 2: Run an archival/export tool (future: provide a built-in archiver or admin script)
+- Step 3: Verify:
+  - Archive row counts match extracted row counts
+  - Primary DB still passes `foreign_key_check`
+- Step 4: Delete archived rows from primary DB (only after verification)
+- Step 5: Take a post-archive backup
+
+#### Implementation plan (future)
+
+- Provide an admin-only action that:
+  - previews row counts by table for a cutoff date
+  - exports to archive DB
+  - runs validation checks
+  - optionally deletes (with confirmation)
+
+### Foreign Key Verification (Ops)
+
+On every app start we run:
+- `PRAGMA foreign_keys = ON` (enforcement)
+- `PRAGMA foreign_key_check` (verification)
+
+If the log shows violations:
+1. Stop normal operations (avoid creating more inconsistent data)
+2. Take a backup (Settings → Diagnostics → Local Backups → Backup Now)
+3. Investigate the violating tables/rows and either:
+   - Repair missing parent rows, or
+   - Delete orphan rows (as a last resort)
+4. Restart the app and confirm `foreign_key_check` returns no violations
 
 ---
 

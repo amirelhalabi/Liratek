@@ -48,6 +48,15 @@ export interface SaleItem {
   price: number;
 }
 
+export type PaymentMethod = "CASH" | "OMT" | "WHISH" | "BINANCE";
+export type PaymentCurrencyCode = "USD" | "LBP";
+
+export interface PaymentLine {
+  method: PaymentMethod;
+  currency_code: PaymentCurrencyCode;
+  amount: number;
+}
+
 export interface SaleRequest {
   client_id: number | null;
   client_name?: string; // For auto-creation
@@ -58,6 +67,7 @@ export interface SaleRequest {
   final_amount: number;
   payment_usd: number;
   payment_lbp: number;
+  payments?: PaymentLine[];
   change_given_usd?: number;
   change_given_lbp?: number;
   exchange_rate: number;

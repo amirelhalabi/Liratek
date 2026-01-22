@@ -36,6 +36,8 @@ describe("useSystemExpected", () => {
     const mockBalances = {
       generalDrawer: { usd: 100, lbp: 150000, eur: 0 },
       omtDrawer: { usd: 50, lbp: 75000, eur: 0 },
+      whishDrawer: { usd: 0, lbp: 0, eur: 0 },
+      binanceDrawer: { usd: 0, lbp: 0, eur: 0 },
       mtcDrawer: { usd: 25, lbp: 0, eur: 0 },
       alfaDrawer: { usd: 30, lbp: 0, eur: 0 },
     };
@@ -114,6 +116,8 @@ describe("useSystemExpected", () => {
     const mockBalances = {
       generalDrawer: { usd: 100, lbp: 150000 },
       omtDrawer: { usd: 50, lbp: 75000 },
+      whishDrawer: { usd: 0, lbp: 0 },
+      binanceDrawer: { usd: 0, lbp: 0 },
       mtcDrawer: { usd: 25, lbp: 0 },
       alfaDrawer: { usd: 30, lbp: 0 },
     };
@@ -141,6 +145,8 @@ describe("useSystemExpected", () => {
     const mockBalances = {
       generalDrawer: { usd: 100 },
       omtDrawer: { usd: 50 },
+      whishDrawer: { usd: 0 },
+      binanceDrawer: { usd: 0 },
       mtcDrawer: { usd: 25 },
       alfaDrawer: { usd: 30 },
     };
@@ -160,6 +166,8 @@ describe("useSystemExpected", () => {
     const mockBalances = {
       generalDrawer: { usd: 100, lbp: 150000 },
       omtDrawer: { usd: 50, lbp: 75000 },
+      whishDrawer: { usd: 0, lbp: 0 },
+      binanceDrawer: { usd: 0, lbp: 0 },
       mtcDrawer: { usd: 25, lbp: 0 },
       alfaDrawer: { usd: 30, lbp: 0 },
     };

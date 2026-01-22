@@ -39,6 +39,40 @@ export function runMigrations(): void {
   }
 
   // ---------------------------------------------------------------------------
+  // SQL migrations (idempotent) for existing installations
+  // ---------------------------------------------------------------------------
+  try {
+    db.exec(`CREATE TABLE IF NOT EXISTS schema_migrations (name TEXT PRIMARY KEY, applied_at DATETIME DEFAULT CURRENT_TIMESTAMP);`);
+
+    const migrationsDir = path.join(__dirname, "migrations");
+    if (fs.existsSync(migrationsDir)) {
+      const files = fs
+        .readdirSync(migrationsDir)
+        .filter((f) => f.endsWith(".sql"))
+        .sort();
+
+      const hasStmt = db.prepare(
+        "SELECT 1 as ok FROM schema_migrations WHERE name = ? LIMIT 1",
+      );
+      const markStmt = db.prepare(
+        "INSERT OR IGNORE INTO schema_migrations (name) VALUES (?)",
+      );
+
+      for (const file of files) {
+        const already = hasStmt.get(file) as { ok: 1 } | undefined;
+        if (already?.ok) continue;
+
+        const fullPath = path.join(migrationsDir, file);
+        const sql = fs.readFileSync(fullPath, "utf-8");
+        db.exec(sql);
+        markStmt.run(file);
+      }
+    }
+  } catch (e) {
+    console.error("[DB] Failed to apply SQL migrations:", e);
+  }
+
+  // ---------------------------------------------------------------------------
   // Schema patches for existing installations
   // ---------------------------------------------------------------------------
   // debt_ledger.created_by is required by DebtRepository/SalesRepository
@@ -53,5 +87,12 @@ export function runMigrations(): void {
     "activity_logs",
     "details_json",
     "ALTER TABLE activity_logs ADD COLUMN details_json TEXT;",
+  );
+
+  // expenses.paid_by_method (for routing expense outflows to a drawer)
+  ensureColumnExists(
+    "expenses",
+    "paid_by_method",
+    "ALTER TABLE expenses ADD COLUMN paid_by_method TEXT DEFAULT 'CASH';",
   );
 }

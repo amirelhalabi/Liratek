@@ -5,6 +5,7 @@ export interface ExpenseEntity {
   description: string;
   category: string;
   expense_type: string;
+  paid_by_method?: "CASH" | "OMT" | "WHISH" | "BINANCE";
   amount_usd: number;
   amount_lbp: number;
   expense_date: string;
@@ -16,6 +17,7 @@ export interface CreateExpenseData {
   description: string;
   category: string;
   expense_type: string;
+  paid_by_method?: "CASH" | "OMT" | "WHISH" | "BINANCE";
   amount_usd: number;
   amount_lbp: number;
   expense_date: string;
@@ -30,19 +32,70 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
    * Create a new expense
    */
   createExpense(data: CreateExpenseData): number {
-    const stmt = this.db.prepare(`
-      INSERT INTO expenses (description, category, expense_type, amount_usd, amount_lbp, expense_date)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `);
-    const result = stmt.run(
-      data.description,
-      data.category,
-      data.expense_type,
-      data.amount_usd,
-      data.amount_lbp,
-      data.expense_date,
-    );
-    return Number(result.lastInsertRowid);
+    const paidBy = data.paid_by_method || "CASH";
+    const drawerName =
+      paidBy === "CASH"
+        ? "General"
+        : paidBy === "OMT"
+          ? "OMT"
+          : paidBy === "WHISH"
+            ? "Whish"
+            : "Binance";
+
+    return this.db.transaction(() => {
+      const stmt = this.db.prepare(`
+        INSERT INTO expenses (description, category, expense_type, paid_by_method, amount_usd, amount_lbp, expense_date)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+      const result = stmt.run(
+        data.description,
+        data.category,
+        data.expense_type,
+        paidBy,
+        data.amount_usd,
+        data.amount_lbp,
+        data.expense_date,
+      );
+      const expenseId = Number(result.lastInsertRowid);
+
+      // Only Cash_Out affects drawers
+      if (data.expense_type === "Cash_Out") {
+        const upsertBalance = this.db.prepare(`
+          INSERT INTO drawer_balances (drawer_name, currency_code, balance)
+          VALUES (?, ?, ?)
+          ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+            balance = drawer_balances.balance + excluded.balance,
+            updated_at = CURRENT_TIMESTAMP
+        `);
+
+        const insertPayment = this.db.prepare(`
+          INSERT INTO payments (
+            source_type, source_id, method, drawer_name, currency_code, amount, note, created_by
+          ) VALUES (
+            'EXPENSE', ?, ?, ?, ?, ?, ?, ?
+          )
+        `);
+
+        const note = `${data.category}: ${data.description}`;
+        const createdBy = 1;
+
+        // USD outflow
+        if (data.amount_usd && data.amount_usd !== 0) {
+          const delta = -Math.abs(data.amount_usd);
+          insertPayment.run(expenseId, paidBy, drawerName, "USD", delta, note, createdBy);
+          upsertBalance.run(drawerName, "USD", delta);
+        }
+
+        // LBP outflow
+        if (data.amount_lbp && data.amount_lbp !== 0) {
+          const delta = -Math.abs(data.amount_lbp);
+          insertPayment.run(expenseId, paidBy, drawerName, "LBP", delta, note, createdBy);
+          upsertBalance.run(drawerName, "LBP", delta);
+        }
+      }
+
+      return expenseId;
+    })();
   }
 
   /**

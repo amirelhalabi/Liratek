@@ -80,7 +80,13 @@ export type { SaveJobParams } from "./MaintenanceService";
 
 // Report Service
 export { ReportService } from "./ReportService";
-export type { GeneratePdfResult, BackupResult } from "./ReportService";
+export type {
+  GeneratePdfResult,
+  BackupResult,
+  ListBackupsResult,
+  RestoreDbResult,
+  VerifyBackupResult,
+} from "./ReportService";
 
 // Settings Service
 export {
@@ -117,3 +123,11 @@ export {
   getActivityService,
   resetActivityService,
 } from "./ActivityService";
+
+// Supplier Service
+export {
+  SupplierService,
+  getSupplierService,
+  resetSupplierService,
+} from "./SupplierService";
+export type { SupplierResult } from "./SupplierService";

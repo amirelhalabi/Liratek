@@ -16,12 +16,15 @@ export interface VirtualStock {
   alfa: number;
 }
 
+export type RechargePaidByMethod = "CASH" | "OMT" | "WHISH" | "BINANCE";
+
 export interface RechargeData {
   provider: "MTC" | "Alfa";
   type: "CREDIT_TRANSFER" | "VOUCHER" | "DAYS";
   amount: number;
   cost: number;
   price: number;
+  paid_by_method?: RechargePaidByMethod;
   phoneNumber?: string;
 }
 
@@ -123,7 +126,56 @@ export class RechargeRepository extends BaseRepository<{ id: number }> {
             .run(saleId, product.id, data.amount, data.price, data.cost);
         }
 
-        // 3. Log to activity logs
+        // 3. Update running balances
+        // - Customer payment increases the selected method drawer by the FULL price.
+        // - Telecom balance (MTC/Alfa) decreases by the recharge `amount` (shop number balance sent).
+        const paidBy = data.paid_by_method || "CASH";
+
+        const methodDrawerName =
+          paidBy === "CASH"
+            ? "General"
+            : paidBy === "OMT"
+              ? "OMT"
+              : paidBy === "WHISH"
+                ? "Whish"
+                : "Binance";
+
+        const providerDrawerName = data.provider === "MTC" ? "MTC" : "Alfa";
+        const createdBy = 1;
+
+        const insertPayment = this.db.prepare(`
+          INSERT INTO payments (
+            source_type, source_id, method, drawer_name, currency_code, amount, note, created_by
+          ) VALUES (
+            'RECHARGE', ?, ?, ?, 'USD', ?, ?, ?
+          )
+        `);
+
+        const upsertBalanceDelta = this.db.prepare(`
+          INSERT INTO drawer_balances (drawer_name, currency_code, balance)
+          VALUES (?, ?, ?)
+          ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+            balance = drawer_balances.balance + excluded.balance,
+            updated_at = CURRENT_TIMESTAMP
+        `);
+
+        // Customer payment (cash-like inflow)
+        insertPayment.run(saleId, paidBy, methodDrawerName, Math.abs(data.price), note, createdBy);
+        upsertBalanceDelta.run(methodDrawerName, "USD", Math.abs(data.price));
+
+        // Telecom balance consumed (shop number stock)
+        const stockDelta = -Math.abs(data.amount);
+        insertPayment.run(
+          saleId,
+          data.provider === "MTC" ? "MTC" : "Alfa",
+          providerDrawerName,
+          stockDelta,
+          "Telecom balance sent",
+          createdBy,
+        );
+        upsertBalanceDelta.run(providerDrawerName, "USD", stockDelta);
+
+        // 4. Log to activity logs
         this.db
           .prepare(
             `
@@ -133,8 +185,9 @@ export class RechargeRepository extends BaseRepository<{ id: number }> {
           )
           .run(
             JSON.stringify({
-              drawer: "General_Drawer_B",
+              drawer: `${providerDrawerName}_Drawer`,
               provider: data.provider,
+              paid_by_method: paidBy,
               type: data.type,
               amount: data.amount,
               price: data.price,
@@ -146,7 +199,7 @@ export class RechargeRepository extends BaseRepository<{ id: number }> {
       })();
 
       console.log(
-        `[RECHARGE] ${data.provider} ${data.type}: ${data.amount} @ $${data.price} [Drawer B]`,
+        `[RECHARGE] ${data.provider} ${data.type}: ${data.amount} @ $${data.price} paid_by=${data.paid_by_method || "CASH"}`,
       );
 
       return { success: true, saleId: result };

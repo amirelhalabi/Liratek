@@ -29,6 +29,76 @@ export function registerReportHandlers(): void {
     } catch {}
 
     dbLogger.info("Creating database backup");
-    return service.backupDatabase();
+    const res = await service.backupDatabase();
+    if (res.success) {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { SettingsService } = require("../services/SettingsService");
+        const settings = new SettingsService();
+        settings.updateSetting("last_backup_at", new Date().toISOString());
+
+        const verifyEnabled =
+          Number(settings.getSettingValue("auto_backup_verify_enabled")?.value ?? 0) === 1;
+        if (verifyEnabled && res.path) {
+          const v = await service.verifyBackup(res.path);
+          settings.updateSetting("last_backup_verify_at", new Date().toISOString());
+          settings.updateSetting("last_backup_verify_ok", v.ok ? "1" : "0");
+        }
+      } catch {}
+    }
+    return res;
   });
+
+  ipcMain.handle("report:list-backups", async (event) => {
+    try {
+      const { requireRole } = require("../session");
+      const auth = requireRole(event.sender.id, ["admin"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+    } catch {}
+
+    return service.listBackups();
+  });
+
+  ipcMain.handle(
+    "report:verify-backup",
+    async (event, data: { path: string }) => {
+      try {
+        const { requireRole } = require("../session");
+        const auth = requireRole(event.sender.id, ["admin"]);
+        if (!auth.ok) return { success: false, error: auth.error };
+      } catch {}
+
+      return service.verifyBackup(data.path);
+    },
+  );
+
+  ipcMain.handle(
+    "report:restore-db",
+    async (event, data: { path: string }) => {
+      try {
+        const { requireRole } = require("../session");
+        const auth = requireRole(event.sender.id, ["admin"]);
+        if (!auth.ok) return { success: false, error: auth.error };
+      } catch {}
+
+      // Restoring requires app restart; do the file replace then relaunch.
+      const res = await service.restoreDatabaseFromBackup(data.path);
+      if (!res.success) return res;
+
+      try {
+        // Close DB connection if open
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { closeDatabase } = require("../db");
+        closeDatabase();
+      } catch {}
+
+      try {
+        const { app } = require("electron");
+        app.relaunch();
+        app.exit(0);
+      } catch {}
+
+      return { success: true };
+    },
+  );
 }

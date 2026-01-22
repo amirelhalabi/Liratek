@@ -138,6 +138,21 @@ export {
 } from "./RechargeRepository";
 export type { VirtualStock, RechargeData } from "./RechargeRepository";
 
+// Supplier Repository
+export {
+  SupplierRepository,
+  getSupplierRepository,
+  resetSupplierRepository,
+} from "./SupplierRepository";
+export type {
+  SupplierEntity,
+  SupplierLedgerEntryEntity,
+  SupplierLedgerEntryType,
+  CreateSupplierData,
+  CreateSupplierLedgerEntryData,
+  SupplierBalance,
+} from "./SupplierRepository";
+
 // Maintenance Repository
 export { MaintenanceRepository } from "./MaintenanceRepository";
 export type { MaintenanceJob } from "./MaintenanceRepository";
