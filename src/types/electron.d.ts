@@ -345,6 +345,7 @@ export interface ElectronAPI {
     amount_usd: number;
     amount_lbp: number;
     note?: string;
+    drawer_name?: string;
   }) => Promise<{ success: boolean; id?: number; error?: string }>;
 
   // Maintenance

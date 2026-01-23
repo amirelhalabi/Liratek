@@ -39,7 +39,7 @@ export class SupplierService {
     }
   }
 
-  addLedgerEntry(data: CreateSupplierLedgerEntryData): SupplierResult {
+  addLedgerEntry(data: CreateSupplierLedgerEntryData & { drawer_name?: string }): SupplierResult {
     try {
       if (!data.supplier_id) return { success: false, error: "supplier_id is required" };
       const res = this.repo.addLedgerEntry(data);

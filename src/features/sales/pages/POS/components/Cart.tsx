@@ -5,6 +5,7 @@ interface CartProps {
   items: CartItem[];
   onUpdateQuantity: (id: number, delta: number) => void;
   onRemoveItem: (id: number) => void;
+  onUpdateIMEI: (id: number, imei: string) => void;
   onClearCart: () => void;
   onCheckout: () => void;
   onOpenDrafts: () => void;
@@ -15,6 +16,7 @@ export default function Cart({
   items,
   onUpdateQuantity,
   onRemoveItem,
+  onUpdateIMEI,
   onClearCart,
   onCheckout,
   onOpenDrafts,
@@ -83,6 +85,17 @@ export default function Cart({
                 <div className="text-xs text-slate-500 mt-1">
                   ${item.retail_price.toFixed(2)} / unit
                 </div>
+                {(item.category?.toLowerCase() || "").includes("phone") && (
+                  <div className="mt-2">
+                    <input
+                      type="text"
+                      placeholder="Enter IMEI / Serial"
+                      value={item.imei || ""}
+                      onChange={(e) => onUpdateIMEI(item.id, e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700/50 rounded-lg px-2 py-1 text-[10px] text-white focus:border-violet-500/50 outline-none placeholder:text-slate-600 font-mono"
+                    />
+                  </div>
+                )}
               </div>
 
               <div className="flex flex-col items-end gap-2">

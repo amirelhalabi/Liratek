@@ -13,6 +13,7 @@ export type PaymentData = Omit<SaleRequest, "items" | "status" | "id"> & {
 } & { clientId?: number | null; paidUSD?: number; paidLBP?: number };
 
 interface CheckoutModalProps {
+  items?: CartItem[];
   totalAmount: number;
   onClose: () => void;
   onComplete: (paymentData: PaymentData) => Promise<void>;
@@ -36,6 +37,7 @@ export type CheckoutDraftData = {
 const generateReceiptNumber = () => `RCP-${Date.now()}`;
 
 export default function CheckoutModal({
+  items,
   totalAmount,
   onClose,
   onComplete,
@@ -258,7 +260,13 @@ export default function CheckoutModal({
       client_name:
         selectedClient?.full_name || clientSearch || "Walk-in Customer",
       client_phone: selectedClient?.phone_number || secondaryInput,
-      items: [], // Note: cart items not available in this component, would need to be passed
+      items: (items || []).map((item) => ({
+        name: item.name,
+        quantity: item.quantity,
+        price: item.retail_price,
+        subtotal: item.retail_price * item.quantity,
+        imei: item.imei || null,
+      })),
       subtotal: totalAmount,
       discount: discount,
       total: finalAmount,

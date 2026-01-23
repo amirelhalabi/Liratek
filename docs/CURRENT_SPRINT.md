@@ -17,7 +17,6 @@ Note: This is the canonical source of truth for all active tasks. Details for ea
 - **In Progress**: [T-02]!!!, [T-08]!!!
 - **On Hold**: [P0-1]!!!, [P0-2]!!!, [P0-3]!!!, [P1-1]!!, [P1-2]!, [P1-3]!!
 - **Ready for Testing**:
-- **Ready for Prod**: [P2-1], [P2-2], [P2-3], [P2-4]
 
 ---
 

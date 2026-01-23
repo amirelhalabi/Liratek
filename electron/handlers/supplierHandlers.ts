@@ -22,7 +22,7 @@ export function registerSupplierHandlers(): void {
       const { requireRole } = require("../session");
       const auth = requireRole(e.sender.id, ["admin"]);
       if (!auth.ok) return { success: false, error: auth.error };
-    } catch {}
+    } catch { }
 
     return service.createSupplier(data);
   });
@@ -37,13 +37,14 @@ export function registerSupplierHandlers(): void {
         amount_usd: number;
         amount_lbp: number;
         note?: string;
+        drawer_name?: string;
       },
     ) => {
       try {
         const { requireRole } = require("../session");
         const auth = requireRole(e.sender.id, ["admin"]);
         if (!auth.ok) return { success: false, error: auth.error };
-      } catch {}
+      } catch { }
 
       return service.addLedgerEntry({ ...data, created_by: 1 });
     },

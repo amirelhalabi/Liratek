@@ -101,6 +101,7 @@ export interface SaleItem {
   quantity: number;
   unit_price_usd: number;
   subtotal_usd: number;
+  imei?: string;
   created_at: ISODateString;
 }
 
