@@ -5,10 +5,7 @@
 **Version:** 1.0.0  
 **Status:** ✅ Production-Ready - First Release Complete
 
-> **Note:** This document consolidates ARCHIVED_PROJECT_STATUS.md, TECHNICAL_CONTEXT.md, IMPLEMENTATION_ROADMAP.md, and AGENT_ONBOARDING_PROMPT.md into one authoritative reference.
->
-> Practical tracker:
-> - Current sprint board & roadmap: `docs/CURRENT_SPRINT.md`
+> **Note:** This document consolidates PROJECT_STATUS.md, TECHNICAL_CONTEXT.md, IMPLEMENTATION_ROADMAP.md, and AGENT_ONBOARDING_PROMPT.md into one authoritative reference.
 
 ---
 
@@ -35,7 +32,6 @@
 ## 1. Quick Start & Onboarding
 
 ### Default Credentials
-
 - **Username:** `admin`
 - **Password:** `admin123`
 
@@ -89,17 +85,17 @@ Database Locations:
 
 ### Key Files Reference
 
-| Category     | File                                | Purpose                             |
-| ------------ | ----------------------------------- | ----------------------------------- |
-| Entry Points | `electron/main.ts`                  | Electron app entry                  |
-|              | `src/main.tsx`                      | React entry                         |
-| Config       | `package.json`                      | Dependencies, scripts, build config |
-|              | `tsconfig.json`                     | TypeScript config                   |
-|              | `vite.config.ts`                    | Vite build config                   |
-|              | `jest.config.ts`                    | Test config                         |
-| Database     | `electron/db/create_db.sql`         | Full schema (20+ tables)            |
-| Auth         | `src/contexts/AuthContext.tsx`      | Frontend auth state                 |
-|              | `electron/handlers/authHandlers.ts` | Backend auth logic                  |
+| Category | File | Purpose |
+|----------|------|---------|
+| Entry Points | `electron/main.ts` | Electron app entry |
+| | `src/main.tsx` | React entry |
+| Config | `package.json` | Dependencies, scripts, build config |
+| | `tsconfig.json` | TypeScript config |
+| | `vite.config.ts` | Vite build config |
+| | `jest.config.ts` | Test config |
+| Database | `electron/db/create_db.sql` | Full schema (20+ tables) |
+| Auth | `src/contexts/AuthContext.tsx` | Frontend auth state |
+| | `electron/handlers/authHandlers.ts` | Backend auth logic |
 
 ---
 
@@ -108,7 +104,6 @@ Database Locations:
 ### December 19, 2025 - Major UX & Architecture Improvements
 
 #### Dashboard Redesign
-
 - **Sales Revenue vs Cash Collected:** Separated revenue recognition from cash flow tracking for accurate accounting
 - **3-Section Layout:** Financial Metrics | Drawer Balances | Stock Overview
 - **Card Height Reduction:** 10% smaller cards for better space utilization
@@ -116,7 +111,6 @@ Database Locations:
 - **Chart Enhancements:** Profit Y-axis shows $ currency, sidebar widgets match chart height
 
 #### Bill Denomination Logic
-
 - **Smart Rounding:** Implemented real-world bill denomination rounding
 - **LBP Bills:** 5k, 10k, 20k, 50k, 100k (excluding 1k bills as requested)
 - **USD Bills:** $1, $5, $10, $20, $50, $100
@@ -125,7 +119,6 @@ Database Locations:
 - **New File:** `src/config/denominations.ts`
 
 #### Debt Management Enhancements
-
 - **Auto-fill Settlement:** Modal pre-fills with calculated breakdown amounts
 - **Redesigned Layout:** Merged "Amount" column header, dual-currency side-by-side
 - **Inline Currency Display:** Table cells show "+$170" and "+60,000 LBP" format
@@ -134,7 +127,6 @@ Database Locations:
 - **User Tracking:** Debt repayments now track `user_id` for audit trail
 
 #### Opening/Closing Modal Redesign
-
 - **Clean Design:** Removed gradients, emojis, elaborate styling for flat, consistent look
 - **Input Bug Fix:** Fixed zero-value handling that prevented typing "0.5"
 - **MTC/Alfa USD-only:** These drawers only show USD (phone credits, not cash)
@@ -143,7 +135,6 @@ Database Locations:
 - **User Tracking:** Daily closings now track `user_id` for audit trail
 
 #### User Authentication & Security
-
 - **Complete useAuth Implementation:** Added to ALL modules (Debts, Closing, Sales, Expenses, Maintenance, Exchange, Recharge, Services)
 - **Admin-Only Settings:** Settings menu only visible to admin users
 - **Audit Trail Infrastructure:** All modules ready to track `user_id` in transactions
@@ -151,14 +142,12 @@ Database Locations:
 - **Security Enhancement:** Created complete accountability system
 
 #### Database Schema Improvements
-
 - **Default Currencies:** USD and LBP now seeded automatically on first run
 - **Runtime Migrations:** Patches missing columns (e.g., `debt_ledger.created_by`)
 - **Idempotent Design:** Safe to run on existing installations
 - **Schema Patch System:** `ensureColumnExists()` helper for future migrations
 
 #### Testing Infrastructure
-
 - **jsdom Support:** Added jest-environment-jsdom for React component tests
 - **Test Count:** 41 suites, 413 tests (up from 12 suites, 410 tests)
 - **Coverage:** 60%+ (up from 40%)
@@ -166,32 +155,31 @@ Database Locations:
 - **TypeScript Config:** Created `tsconfig.jest.json` for Jest-friendly setup
 
 #### Architecture Improvements
-
 - **Centralized Bill Logic:** `src/config/denominations.ts` for reusable rounding functions
 - **Enhanced AuthContext:** Complete user tracking across all modules
 - **Separation of Concerns:** Revenue recognition vs cash flow properly separated
 - **Audit Trail Ready:** Infrastructure in place for complete transaction tracking
 - **Role-Based Access Control:** Foundation for granular permissions
 
+
 **December 18, 2025 Updates:**
 
-| #   | Change                                                                                | Status     |
-| --- | ------------------------------------------------------------------------------------- | ---------- |
-| 1   | **DevOps Tooling** - Added `prettier` (3.7.4), updated `clean` script                 | ✅ Done    |
-| 2   | **Role-Based Access Control** - `requireRole()` checks in admin IPC handlers          | ✅ Done    |
-| 3   | **Activity Logging** - Comprehensive log system with Settings viewer                  | ✅ Done    |
-| 4   | **Password Security** - 8+ chars, uppercase, lowercase, number, special char          | ✅ Done    |
-| 5   | **Notification Preferences** - Per-user settings in Settings page                     | ✅ Done    |
-| 6   | **Settings Module Complete** - All 8 subpages implemented                             | ✅ Done    |
-| 7   | **Test Coverage** - 12/12 suites passing; behavior tests added                        | ✅ Done    |
-| 8   | **Auto-Update Scaffolding** - electron-updater config with publish provider           | ✅ Partial |
-| 9   | **Session Management** - Purge on logout, last_activity refresh                       | ✅ Done    |
-| 10  | **Build Scripts** - Enterprise scripts (start, clean, typecheck, format, test:\*)     | ✅ Done    |
-| 11  | **Session Encryption (safeStorage)** - Encrypted session tokens via OS keychain       | ✅ Done    |
-| 12  | **Password Auto-Migration** - Legacy plain-text passwords migrated to scrypt on login | ✅ Done    |
+| # | Change | Status |
+|---|--------|--------|
+| 1 | **DevOps Tooling** - Added `prettier` (3.7.4), updated `clean` script | ✅ Done |
+| 2 | **Role-Based Access Control** - `requireRole()` checks in admin IPC handlers | ✅ Done |
+| 3 | **Activity Logging** - Comprehensive log system with Settings viewer | ✅ Done |
+| 4 | **Password Security** - 8+ chars, uppercase, lowercase, number, special char | ✅ Done |
+| 5 | **Notification Preferences** - Per-user settings in Settings page | ✅ Done |
+| 6 | **Settings Module Complete** - All 8 subpages implemented | ✅ Done |
+| 7 | **Test Coverage** - 12/12 suites passing; behavior tests added | ✅ Done |
+| 8 | **Auto-Update Scaffolding** - electron-updater config with publish provider | ✅ Partial |
+| 9 | **Session Management** - Purge on logout, last_activity refresh | ✅ Done |
+| 10 | **Build Scripts** - Enterprise scripts (start, clean, typecheck, format, test:*) | ✅ Done |
+| 11 | **Session Encryption (safeStorage)** - Encrypted session tokens via OS keychain | ✅ Done |
+| 12 | **Password Auto-Migration** - Legacy plain-text passwords migrated to scrypt on login | ✅ Done |
 
 **Recently Modified Files:**
-
 - `package.json` - DevDeps & scripts
 - `electron/handlers/dbHandlers.ts` - Role validation
 - `electron/handlers/authHandlers.ts` - Password validation, activity logging, encrypted session
@@ -206,7 +194,6 @@ Database Locations:
 ## 3. Troubleshooting Guide
 
 ### Port Already in Use (5173)
-
 ```bash
 # Find and kill process
 lsof -ti:5173 | xargs kill -9
@@ -216,7 +203,6 @@ VITE_PORT=5174 npm run dev
 ```
 
 ### Database Locked or Not Found
-
 ```bash
 # Check if file exists (macOS)
 ls -l "$HOME/Library/Application Support/liratek/"
@@ -229,7 +215,6 @@ rm -rf "$HOME/Library/Application Support/liratek/"
 ```
 
 ### Jest Test Failures
-
 ```bash
 # Clear Jest cache
 npx jest --clearCache
@@ -239,12 +224,10 @@ npm test -- electron/handlers/__tests__/dbHandlers.test.ts
 ```
 
 **Common Causes:**
-
 - ESM/CJS Mismatch - Use dynamic `require()` in tests for Electron mocks
 - Missing Mocks - Ensure `__mocks__/better-sqlite3.ts` and `__mocks__/electron.ts` exist
 
 ### TypeScript Errors After Pull
-
 ```bash
 yarn clean
 rm -rf node_modules .yarn/cache
@@ -253,7 +236,6 @@ npx tsc --version  # Should be ~5.9.3
 ```
 
 ### Reset Admin Password
-
 ```sql
 sqlite3 "$HOME/Library/Application Support/liratek/phone_shop.db"
 UPDATE users SET password_hash = 'admin123' WHERE username = 'admin';
@@ -261,7 +243,6 @@ UPDATE users SET password_hash = 'admin123' WHERE username = 'admin';
 ```
 
 ### Build/Packaging Failures
-
 ```bash
 # Test build without signing
 CSC_IDENTITY_AUTO_DISCOVERY=false npm run build:app
@@ -275,13 +256,13 @@ CSC_IDENTITY_AUTO_DISCOVERY=false npm run build:app
 
 ### Tech Stack
 
-| Layer      | Technology                      | Version               |
-| ---------- | ------------------------------- | --------------------- |
-| Frontend   | React, TypeScript, Tailwind CSS | 19.2.0, 5.9.3, 4.1.18 |
-| Build      | Vite                            | 7.3.0                 |
-| Backend    | Electron, Better SQLite3        | 39.2.7, 12.5.0        |
-| Testing    | Jest, ts-jest                   | 30.2.0, 29.4.6        |
-| Validation | Zod                             | 3.23.8                |
+| Layer | Technology | Version |
+|-------|------------|---------|
+| Frontend | React, TypeScript, Tailwind CSS | 19.2.0, 5.9.3, 4.1.18 |
+| Build | Vite | 7.3.0 |
+| Backend | Electron, Better SQLite3 | 39.2.7, 12.5.0 |
+| Testing | Jest, ts-jest | 30.2.0, 29.4.6 |
+| Validation | Zod | 3.23.8 |
 
 ### Core Features (100% Implemented)
 
@@ -299,7 +280,7 @@ CSC_IDENTITY_AUTO_DISCOVERY=false npm run build:app
 ### Operational Features (Partial)
 
 11. **Expenses Tracking** - ✅ Basic UI, ⚠️ Limited reporting
-12. **Daily Opening/Closing** - ✅ Wizards complete, ✅ Report auto-attach implemented (PDF saved + `report_path` persisted)
+12. **Daily Opening/Closing** - ✅ Wizards complete, ⚠️ Report auto-attach pending
 13. **Settings & Configuration** - ✅ User mgmt, Currency mgmt, Diagnostics
 
 ---
@@ -351,24 +332,24 @@ CSC_IDENTITY_AUTO_DISCOVERY=false npm run build:app
 
 ### Maturity Assessment
 
-| Area                 | Completion | Notes                                                      |
-| -------------------- | ---------- | ---------------------------------------------------------- |
-| Core Functionality   | ✅ 100%    | All business features implemented                          |
-| Security Hardening   | ✅ 85%     | Role validation, session encryption, scrypt passwords done |
-| Testing Coverage     | 🟡 40%     | 12/12 suites passing, expanding coverage                   |
-| Documentation        | ✅ 90%     | Comprehensive docs organized, need user manual             |
-| Build & Release      | ✅ 100%    | Icons complete, automated releases active                  |
-| Production Readiness | ✅ 95%     | Ready for v1.0, code signing pending for future            |
+| Area | Completion | Notes |
+|------|------------|-------|
+| Core Functionality | ✅ 100% | All business features implemented |
+| Security Hardening | ✅ 85% | Role validation, session encryption, scrypt passwords done |
+| Testing Coverage | 🟡 40% | 12/12 suites passing, expanding coverage |
+| Documentation | ✅ 90% | Comprehensive docs organized, need user manual |
+| Build & Release | ✅ 100% | Icons complete, automated releases active |
+| Production Readiness | ✅ 95% | Ready for v1.0, code signing pending for future |
 
 ### What's Complete ✅
 
 Updated (Dec 19, 2025)
-
 - Typing alignment across renderer ↔ Electron API for Products, Clients, Sales, Exchange, OMT, and Maintenance.
 - Debts and Dashboard typed DTOs in UI. Tooltip contract fixed for Recharts.
 - Mixed require() strategy in Electron (static import where safe, inline suppressions where needed).
 - React hooks cleanup in multiple pages (useCallback, effect dependencies).
 - Preload bridge signatures tightened (unknown/typed payloads in several methods).
+
 
 - All core business features (POS, Inventory, Clients, Debts)
 - Financial services (OMT, Recharge, Exchange, Maintenance)
@@ -387,15 +368,15 @@ Updated (Dec 19, 2025)
 
 ### What Needs Work ⚠️
 
-| Priority     | Item                                 | Status        | Blocker? |
-| ------------ | ------------------------------------ | ------------- | -------- |
-| ~~CRITICAL~~ | ~~Session encryption (safeStorage)~~ | ✅ Done       | No       |
-| HIGH         | Test coverage to 70%                 | In progress   | No       |
-| HIGH         | Icon assets for packaging            | Placeholder   | Yes      |
-| HIGH         | Code signing setup                   | Not started   | Yes      |
-| MEDIUM       | Auto-updater implementation          | Scaffold only | No       |
-| MEDIUM       | Closing report auto-attach           | Not started   | No       |
-| LOW          | Cloud sync (Phase 6)                 | 40%           | No       |
+| Priority | Item | Status | Blocker? |
+|----------|------|--------|----------|
+| ~~CRITICAL~~ | ~~Session encryption (safeStorage)~~ | ✅ Done | No |
+| HIGH | Test coverage to 70% | In progress | No |
+| HIGH | Icon assets for packaging | Placeholder | Yes |
+| HIGH | Code signing setup | Not started | Yes |
+| MEDIUM | Auto-updater implementation | Scaffold only | No |
+| MEDIUM | Closing report auto-attach | Not started | No |
+| LOW | Cloud sync (Phase 6) | 40% | No |
 
 ---
 
@@ -403,54 +384,53 @@ Updated (Dec 19, 2025)
 
 ### Phase Overview
 
-| Phase     | Focus                   | Status           |
-| --------- | ----------------------- | ---------------- |
-| Phase 1-4 | Core Features           | ✅ 100% Complete |
-| Phase 5   | Dashboard & Reporting   | ✅ 95% Complete  |
-| Phase 6   | Sync & Cloud            | ⚠️ 40% Complete  |
-| Phase 7   | Security & Distribution | ⚠️ 70% Complete  |
+| Phase | Focus | Status |
+|-------|-------|--------|
+| Phase 1-4 | Core Features | ✅ 100% Complete |
+| Phase 5 | Dashboard & Reporting | ✅ 95% Complete |
+| Phase 6 | Sync & Cloud | ⚠️ 40% Complete |
+| Phase 7 | Security & Distribution | ⚠️ 70% Complete |
 
 ### Remaining Tasks by Priority
 
 #### CRITICAL (Blocking Production)
 
-| Task                                 | Est. Time    | Status      |
-| ------------------------------------ | ------------ | ----------- |
-| ~~Session encryption (safeStorage)~~ | ~~1-2 days~~ | ✅ Done     |
-| Icon assets (icns, ico)              | 1 day        | Not started |
-| Code signing setup                   | 1-2 days     | Not started |
-| QA checklist execution               | 2-3 days     | Not started |
+| Task | Est. Time | Status |
+|------|-----------|--------|
+| ~~Session encryption (safeStorage)~~ | ~~1-2 days~~ | ✅ Done |
+| Icon assets (icns, ico) | 1 day | Not started |
+| Code signing setup | 1-2 days | Not started |
+| QA checklist execution | 2-3 days | Not started |
 
 #### HIGH Priority
 
-| Task                           | Est. Time | Status        |
-| ------------------------------ | --------- | ------------- |
-| Test coverage to 70%           | 5-7 days  | In progress   |
-| Auto-updater integration       | 1-2 days  | Scaffold done |
-| Installation/Admin docs        | 2-3 days  | Not started   |
-| Build testing on clean systems | 1 day     | Not started   |
+| Task | Est. Time | Status |
+|------|-----------|--------|
+| Test coverage to 70% | 5-7 days | In progress |
+| Auto-updater integration | 1-2 days | Scaffold done |
+| Installation/Admin docs | 2-3 days | Not started |
+| Build testing on clean systems | 1 day | Not started |
 
 #### MEDIUM Priority
 
-| Task                       | Est. Time | Status      |
-| -------------------------- | --------- | ----------- |
-| Closing report auto-attach | 0.5 day   | ✅ Done |
-| Variance threshold alerts  | 0.5 day   | ✅ Done |
-| Database indexes           | 1 day     | ✅ Done |
-| Local backup automation    | 2-3 days  | ✅ Done |
+| Task | Est. Time | Status |
+|------|-----------|--------|
+| Closing report auto-attach | 0.5 day | Not started |
+| Variance threshold alerts | 0.5 day | Not started |
+| Database indexes | 1 day | Not started |
+| Local backup automation | 2-3 days | Not started |
 
 #### LOW Priority (Post-Launch)
 
-| Task                      | Est. Time | Status   |
-| ------------------------- | --------- | -------- |
-| Cloud sync implementation | 5-7 days  | Optional |
-| DRM/Licensing             | 4-5 days  | Optional |
-| Multi-location support    | TBD       | Future   |
+| Task | Est. Time | Status |
+|------|-----------|--------|
+| Cloud sync implementation | 5-7 days | Optional |
+| DRM/Licensing | 4-5 days | Optional |
+| Multi-location support | TBD | Future |
 
 ### Estimated Timeline to Production
 
 **6-7 weeks** with focused effort:
-
 - Week 1-2: Security completion + Settings polish
 - Week 3-4: Testing coverage + QA
 - Week 5: Packaging + Build testing
@@ -483,9 +463,7 @@ export function registerMyHandlers(): void {
       if (!auth.ok) return { success: false, error: auth.error };
 
       // 3. Database operation
-      const result = db
-        .prepare("SELECT * FROM my_table WHERE id = ?")
-        .get(data.id);
+      const result = db.prepare("SELECT * FROM my_table WHERE id = ?").get(data.id);
 
       // 4. Return result
       return { success: true, data: result };
@@ -578,134 +556,42 @@ useEffect(() => {
 )}
 ```
 
-### Typing and Architecture Conventions (Dec 2025)
-
-To maintain codebase robustness and type safety, follow these refined patterns:
-
-#### 1. End-to-End Typing (DTOs)
-- **Repositories**: Return concrete types (e.g., `ProductRow`, `ClientDebtHistory`) instead of `any`.
-- **Preload**: Bridge methods should use typed payloads. Unknown payloads should be validated or cast to known interfaces.
-- **UI**: Map domain-specific types (DTO groups) like `TodaySale` or `ChartPoint` consistently across Recharts and list components.
-
-#### 2. Service-Layer Error Handling
-- Use structured `try/catch` blocks that normalize error messages:
-  ```ts
-  } catch (error) {
-    return { success: false, error: (error instanceof Error ? error.message : String(error)) };
-  }
-  ```
-
-#### 3. React Hook Performance
-- Avoid `set-state-in-effect` loops. Use microtasks or event-driven triggers where possible.
-- Use `useCallback` for functions passed to `useEffect` dependencies to prevent redundant refreshes.
-
-#### 4. Event-Driven Modal Architecture
-- Centralize global modal listeners (e.g., Opening/Closing) in `MainLayout.tsx` to ensure accessibility from anywhere in the app via `appEvents`.
-
----
-
-## 9. Build & Distribution
-
-To build and run LiraTek locally, follow these requirements and scripts.
-
-### Prerequisites
-- **Node.js**: v18.x or v20.x
-- **Yarn**: v4.0.2 (`corepack enable` then `yarn install`)
-- **Native Modules**: 
-  - **macOS**: Xcode Command Line Tools
-  - **Windows**: Visual Studio Build Tools (C++ development)
-
-### Key Development Scripts
-| Command                 | Description                              |
-| ----------------------- | ---------------------------------------- |
-| `npm run dev`           | Start development server (Frontend + Electron) |
-| `npm run build`         | Build production assets (`dist/` & `dist-electron/`) |
-| `npm run typecheck`     | Run TypeScript compiler check            |
-| `npm test`              | Run Vitest test suite                    |
-
-### Platform Builds
-| Command                 | Target                   | Output                    |
-| ----------------------- | ------------------------ | ------------------------- |
-| `npm run build:win:x64` | Windows (NSIS Installer) | `release/LiraTek-1.0.0-x64.exe` |
-| `npm run build:mac:arm64`| macOS (ARM/Silicon)      | `release/LiraTek-1.0.0-arm64.dmg` |
-
-### Icon Generation
-If icons need to be regenerated from `build/icon.png`:
-1. **Windows (`.ico`)**: `magick convert build/icon.png -define icon:auto-resize=256,128,64,48,32,16 build/icon.ico`
-2. **Commit**: Ensure `!build/icon.ico` is in `.gitignore` to track binary icons.
-
-### Release Process
-1. **Automated**: Push to `main` branch. GitHub Actions automatically tags, builds, and creates a GitHub Release.
-2. **Manual (Emergency)**:
-   - Build assets locally.
-   - Create a new release at `https://github.com/amirelhalabi/Liratek/releases/new`.
-   - Upload `.exe` and `.dmg` files from `release/` folder.
-
-> [!NOTE]
-> Native modules like `better-sqlite3` require a post-install rebuild via `electron-builder install-app-deps` if architecture changes.
-
 ---
 
 ## 9. Multi-Drawer System
 
 ### Overview
 
-Drawers represent *logical wallets* that map to payment methods and/or business modules.
-
-- **General drawer (CASH):** Cash-only (USD/LBP)
-- **OMT drawer:** OMT money-transfer transactions (SEND/RECEIVE) + OMT payment-method sales lines
-- **Whish drawer:** Whish money-transfer transactions (SEND/RECEIVE) + Whish payment-method sales lines
-- **Binance drawer:** Binance payment-method sales lines (and Binance module transactions)
-- **MTC drawer:** Recharge transactions (USD)
-- **Alfa drawer:** Recharge transactions (USD)
-
-### Running Expected Balances (Drawer Balances)
-
-Expected balances are stored and updated *behind the scenes*:
-
-- DB table: `drawer_balances` (by `drawer_name` + `currency_code`)
-- Every transaction that affects a drawer writes to:
-  - `payments` (auditable payment rows, signed deltas)
-  - `drawer_balances` (running totals)
-- Implemented sources using this model:
-  - POS sales (multi-payment lines)
-  - Expenses (Cash_Out with Paid By method)
-  - Financial services (OMT/Whish SEND/RECEIVE)
-  - Exchange (USD/LBP movement inside General)
-  - Recharges (MTC/Alfa): customer payment increases the selected method drawer (full price), and telecom balance decreases by the recharge `amount`
-- Opening sets the baseline by writing the counted opening amounts into `drawer_balances`.
-- Closing compares the operators *actual* counts to the current `drawer_balances` expected amounts.
+- **Drawer A (OMT):** OMT financial service transactions only
+- **Drawer B (General):** All other transactions (sales, recharges, exchanges)
 
 ### Current Implementation
 
-| Feature                                | Status  | Notes |
-| -------------------------------------- | ------- | ----- |
-| Running expected balances              | ✅ Done | `drawer_balances` holds expected amounts per (drawer, currency) |
-| Auditable balance changes              | ✅ Done | `payments` stores signed deltas by source (SALE/EXPENSE/EXCHANGE/FINANCIAL_SERVICE/RECHARGE) |
-| Method-based drawers (CASH/OMT/WHISH/BINANCE) | ✅ Done | Payment method maps to drawer name (General/OMT/Whish/Binance) |
-| POS multi-payment lines                | ✅ Done | Checkout supports multiple payment lines (method + currency + amount) |
-| Expenses paid-by routing               | ✅ Done | Expense Cash_Out decreases selected drawer |
-| Exchange affects expected balances     | ✅ Done | Currency movement updates General drawer balances |
-| Recharges affect expected balances     | ✅ Done | Paid By increases method drawer; MTC/Alfa telecom balance decreases by `amount` |
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Drawer designation in handlers | ✅ Done | OMT → A, Others → B |
+| Daily closing per drawer | ✅ Done | Multi-drawer amounts table |
+| Activity logs with drawer | ✅ Done | JSON details field |
+| Sales table drawer column | ❌ Missing | All sales implicit Drawer B |
+| POS checkout drawer display | ⚠️ Partial | Hardcoded "Drawer B" |
+| Real-time drawer balance | ❌ Missing | Future enhancement |
 
-### Drawer Routing Logic (Current)
+### Drawer Routing Logic
 
-- **Sales (POS):** each payment line updates its drawer and currency
-- **Expenses (Cash_Out):** decreases selected drawer
-- **Financial services (OMT/Whish):** SEND decreases, RECEIVE increases the provider drawer
-- **Exchange:** subtract from-currency and add to-currency within General
-- **Recharges:**
-  - customer payment increases the selected method drawer by full price
-  - telecom balance decreases in MTC/Alfa drawer by recharge `amount`
+```typescript
+// omtHandlers.ts
+const drawer = data.provider === "OMT" ? "OMT_Drawer_A" : "General_Drawer_B";
+
+// rechargeHandlers.ts, salesHandlers.ts
+const drawer = "General_Drawer_B"; // All non-OMT go to Drawer B
+```
 
 ### Key Insight
 
-Drawers now represent two categories:
-
-1. **Cash-like drawers** (physically countable): General/OMT/Whish/Binance (USD/LBP)
-2. **Telecom balance drawers** (verified on phone): MTC/Alfa (USD only)
-
-Both are surfaced in Opening/Closing, but the operator verifies them differently (physical count vs phone balance).
+OMT transactions are NOT product-based sales. They're financial services logged in `financial_services` table, entered via Services page (not POS). The POS system is exclusively for:
+- Physical product sales (phones, accessories)
+- Mobile recharges (virtual products)
+- Both go to Drawer B
 
 ---
 
@@ -713,16 +599,16 @@ Both are surfaced in Opening/Closing, but the operator verifies them differently
 
 ### Current State
 
-| Module                    | Test File                             | Coverage | Status  |
-| ------------------------- | ------------------------------------- | -------- | ------- |
-| appEvents.ts              | ✅ appEvents.test.ts                  | 100%     | Passing |
-| closingReportGenerator.ts | ✅ closingReportGenerator.test.ts     | 95%      | Passing |
-| authHandlers.ts           | ✅ authHandlers.test.ts               | 80%      | Passing |
-| dbHandlers.ts             | ✅ dbHandlers.behavior.test.ts        | 70%      | Passing |
-| salesHandlers.ts          | ✅ salesHandlers.test.ts              | 60%      | Passing |
-| inventoryHandlers.ts      | ✅ inventoryHandlers.behavior.test.ts | 50%      | Passing |
-| currencyHandlers.ts       | ✅ currencyHandlers.behavior.test.ts  | 50%      | Passing |
-| debtHandlers.ts           | ✅ debtHandlers.test.ts               | 50%      | Passing |
+| Module | Test File | Coverage | Status |
+|--------|-----------|----------|--------|
+| appEvents.ts | ✅ appEvents.test.ts | 100% | Passing |
+| closingReportGenerator.ts | ✅ closingReportGenerator.test.ts | 95% | Passing |
+| authHandlers.ts | ✅ authHandlers.test.ts | 80% | Passing |
+| dbHandlers.ts | ✅ dbHandlers.behavior.test.ts | 70% | Passing |
+| salesHandlers.ts | ✅ salesHandlers.test.ts | 60% | Passing |
+| inventoryHandlers.ts | ✅ inventoryHandlers.behavior.test.ts | 50% | Passing |
+| currencyHandlers.ts | ✅ currencyHandlers.behavior.test.ts | 50% | Passing |
+| debtHandlers.ts | ✅ debtHandlers.test.ts | 50% | Passing |
 
 **Overall:** 12/12 suites passing, ~40% estimated coverage
 
@@ -757,31 +643,31 @@ mockDbInstance.prepare.mockImplementation((sql: string) => ({
 
 ### ✅ Implemented
 
-| Security Feature           | Status                                   |
-| -------------------------- | ---------------------------------------- |
-| Context isolation          | ✅ Enabled                               |
-| No nodeIntegration         | ✅ Disabled                              |
-| IPC bridge (contextBridge) | ✅ Secure                                |
-| SQL injection prevention   | ✅ Prepared statements                   |
-| Password hashing (scrypt)  | ✅ With salt                             |
-| Role-based UI gating       | ✅ Admin features hidden                 |
-| Backend role validation    | ✅ requireRole() in handlers             |
-| Password complexity        | ✅ 8+ chars, mixed case, number, special |
-| Activity logging           | ✅ Critical operations logged            |
-| Session purge on logout    | ✅ Implemented                           |
+| Security Feature | Status |
+|------------------|--------|
+| Context isolation | ✅ Enabled |
+| No nodeIntegration | ✅ Disabled |
+| IPC bridge (contextBridge) | ✅ Secure |
+| SQL injection prevention | ✅ Prepared statements |
+| Password hashing (scrypt) | ✅ With salt |
+| Role-based UI gating | ✅ Admin features hidden |
+| Backend role validation | ✅ requireRole() in handlers |
+| Password complexity | ✅ 8+ chars, mixed case, number, special |
+| Activity logging | ✅ Critical operations logged |
+| Session purge on logout | ✅ Implemented |
 
 ### ⚠️ Pending
 
-| Security Feature                 | Priority | Status                           |
-| -------------------------------- | -------- | -------------------------------- |
-| Session encryption (safeStorage) | CRITICAL | ✅ Done                          |
-| Session timeout (30 min)         | HIGH     | Partial (last_activity tracking) |
-| Database encryption (SQLCipher)  | MEDIUM   | Not started                      |
-| Rate limiting on IPC             | LOW      | Not started                      |
+| Security Feature | Priority | Status |
+|------------------|----------|--------|
+| Session encryption (safeStorage) | CRITICAL | Not started |
+| Session timeout (30 min) | HIGH | Partial (last_activity tracking) |
+| Database encryption (SQLCipher) | MEDIUM | Not started |
+| Rate limiting on IPC | LOW | Not started |
 
 ### Security Recommendations
 
-1. **CRITICAL:** Implement session encryption with Electron's safeStorage API (✅ done)
+1. **CRITICAL:** Implement session encryption with Electron's safeStorage API
 2. **HIGH:** Complete session timeout with auto-logout
 3. **MEDIUM:** Consider SQLCipher for database encryption
 4. **LOW:** Add rate limiting for IPC handlers
@@ -792,27 +678,27 @@ mockDbInstance.prepare.mockImplementation((sql: string) => ({
 
 ### Core Tables (20+)
 
-| Table                 | Purpose                                |
-| --------------------- | -------------------------------------- |
-| users                 | Authentication and roles               |
-| clients               | Customer profiles                      |
-| products              | Inventory items                        |
-| sales                 | Transaction records                    |
-| sale_items            | Line items per sale                    |
-| debt_ledger           | Debt transactions with running balance |
-| maintenance           | Repair jobs                            |
-| financial_services    | OMT/Whish transactions                 |
-| exchange_transactions | Currency exchange                      |
-| expenses              | Daily expenses                         |
-| daily_closings        | End-of-day records                     |
-| daily_closing_amounts | Multi-drawer/currency balances         |
-| activity_logs         | Audit trail                            |
-| sync_queue            | Pending cloud sync                     |
-| sync_errors           | Failed sync attempts                   |
-| currencies            | Dynamic currency definitions           |
-| exchange_rates        | Cross-rate matrix                      |
-| system_settings       | App configuration                      |
-| sessions              | Active user sessions                   |
+| Table | Purpose |
+|-------|---------|
+| users | Authentication and roles |
+| clients | Customer profiles |
+| products | Inventory items |
+| sales | Transaction records |
+| sale_items | Line items per sale |
+| debt_ledger | Debt transactions with running balance |
+| maintenance | Repair jobs |
+| financial_services | OMT/Whish transactions |
+| exchange_transactions | Currency exchange |
+| expenses | Daily expenses |
+| daily_closings | End-of-day records |
+| daily_closing_amounts | Multi-drawer/currency balances |
+| activity_logs | Audit trail |
+| sync_queue | Pending cloud sync |
+| sync_errors | Failed sync attempts |
+| currencies | Dynamic currency definitions |
+| exchange_rates | Cross-rate matrix |
+| system_settings | App configuration |
+| sessions | Active user sessions |
 
 ### Schema Location
 
@@ -820,78 +706,10 @@ mockDbInstance.prepare.mockImplementation((sql: string) => ({
 
 ### Pending Improvements
 
-- [x] Migration system (versioned migrations)
-- [x] Database indexes (performance)
-- [x] Foreign key enforcement (PRAGMA foreign_keys = ON) — Enabled at connection open; startup runs `PRAGMA foreign_key_check` and logs violations (non-fatal).
+- [ ] Migration system (versioned migrations)
+- [ ] Database indexes (performance)
+- [ ] Foreign key enforcement (PRAGMA foreign_keys = ON)
 - [ ] Data archival strategy (>1 year records)
-
-### Data Archival Strategy (Ops + Performance)
-
-**Problem:** over time, high-write tables (sales, activity logs, sync errors, etc.) will grow and can slow queries/backups.
-
-**Goals:**
-- Keep the primary DB fast for day-to-day operations.
-- Keep historical data retrievable.
-- Make the process **reversible** (archive before delete).
-
-#### Recommended approach (safe + reversible)
-
-1. **Archive to a separate SQLite file** (preferred)
-   - Create `Documents/LiratekArchives/archive_<YYYY-MM>.sqlite`
-   - Copy rows older than retention into the archive DB
-   - Verify counts match
-   - Only then delete from the primary DB
-
-2. **Retention defaults** (suggested)
-
-| Table | Keep in primary DB | Archive older than |
-|------|---------------------|-------------------|
-| `sales`, `sale_items` | 24 months | 24 months |
-| `debt_ledger` | 36 months | 36 months |
-| `activity_logs` | 6-12 months | 12 months |
-| `sync_queue` | keep all (usually small) | N/A |
-| `sync_errors` | 3 months | 3 months |
-| `expenses` | 24 months | 24 months |
-| `exchange_transactions` | 24 months | 24 months |
-| `financial_services` | 24 months | 24 months |
-| `maintenance` | 36 months | 36 months |
-| `recharges` | 24 months | 24 months |
-| `daily_closings`, `daily_closing_amounts` | keep all | (optional) |
-
-> Note: retention periods should reflect accounting/legal needs.
-
-#### Operator workflow (manual)
-
-- Step 0: Run FK check (Settings → Diagnostics → Foreign Key Check)
-- Step 1: Take a backup (Settings → Diagnostics → Local Backups → Backup Now)
-- Step 2: Run an archival/export tool (future: provide a built-in archiver or admin script)
-- Step 3: Verify:
-  - Archive row counts match extracted row counts
-  - Primary DB still passes `foreign_key_check`
-- Step 4: Delete archived rows from primary DB (only after verification)
-- Step 5: Take a post-archive backup
-
-#### Implementation plan (future)
-
-- Provide an admin-only action that:
-  - previews row counts by table for a cutoff date
-  - exports to archive DB
-  - runs validation checks
-  - optionally deletes (with confirmation)
-
-### Foreign Key Verification (Ops)
-
-On every app start we run:
-- `PRAGMA foreign_keys = ON` (enforcement)
-- `PRAGMA foreign_key_check` (verification)
-
-If the log shows violations:
-1. Stop normal operations (avoid creating more inconsistent data)
-2. Take a backup (Settings → Diagnostics → Local Backups → Backup Now)
-3. Investigate the violating tables/rows and either:
-   - Repair missing parent rows, or
-   - Delete orphan rows (as a last resort)
-4. Restart the app and confirm `foreign_key_check` returns no violations
 
 ---
 
@@ -921,18 +739,17 @@ npm run build:mac    # macOS DMG/ZIP
 
 ### Electron Builder Config
 
-| Setting     | Value                  |
-| ----------- | ---------------------- |
-| appId       | com.liratek.cornertech |
-| productName | Corner Tech POS        |
-| Windows     | NSIS installer (x64)   |
-| macOS       | DMG + ZIP (arm64)      |
-| ASAR        | Enabled                |
+| Setting | Value |
+|---------|-------|
+| appId | com.liratek.cornertech |
+| productName | Corner Tech POS |
+| Windows | NSIS installer (x64) |
+| macOS | DMG + ZIP (arm64) |
+| ASAR | Enabled |
 
 ### Code Signing (Not Yet Configured)
 
 **macOS:**
-
 ```bash
 export CSC_IDENTITY_AUTO=true
 export APPLE_ID=you@example.com
@@ -942,7 +759,6 @@ npm run build:mac
 ```
 
 **Windows:**
-
 ```bash
 export CSC_LINK=/path/to/cert.pfx
 export CSC_KEY_PASSWORD=********
@@ -987,15 +803,15 @@ liratek/
 
 ### Common Commands
 
-| Command             | Purpose                 |
-| ------------------- | ----------------------- |
-| `npm run dev`       | Start development       |
-| `npm test`          | Run tests               |
-| `npm run typecheck` | Check TypeScript        |
-| `npm run format`    | Format with Prettier    |
-| `npm run clean`     | Clean build artifacts   |
+| Command | Purpose |
+|---------|---------|
+| `npm run dev` | Start development |
+| `npm test` | Run tests |
+| `npm run typecheck` | Check TypeScript |
+| `npm run format` | Format with Prettier |
+| `npm run clean` | Clean build artifacts |
 | `npm run build:app` | Build Windows installer |
-| `npm run build:mac` | Build macOS package     |
+| `npm run build:mac` | Build macOS package |
 
 ### Default Credentials
 
@@ -1009,12 +825,12 @@ liratek/
 
 ### Key Contacts
 
-| Event              | Handler             |
-| ------------------ | ------------------- |
-| Sale completed     | `sale:completed`    |
-| Stock updated      | `inventory:updated` |
-| Open closing modal | `openClosingModal`  |
-| Open opening modal | `openOpeningModal`  |
+| Event | Handler |
+|-------|---------|
+| Sale completed | `sale:completed` |
+| Stock updated | `inventory:updated` |
+| Open closing modal | `openClosingModal` |
+| Open opening modal | `openOpeningModal` |
 
 ### Success Criteria for v1.0.0 Release
 
@@ -1033,12 +849,11 @@ liratek/
 
 ## Document History
 
-| Version | Date         | Changes                           |
-| ------- | ------------ | --------------------------------- |
-| 1.0     | Dec 18, 2025 | Consolidated from 4 separate docs |
+| Version | Date | Changes |
+|---------|------|---------|
+| 1.0 | Dec 18, 2025 | Consolidated from 4 separate docs |
 
 **Supersedes:**
-
 - PROJECT_STATUS.md
 - TECHNICAL_CONTEXT.md
 - IMPLEMENTATION_ROADMAP.md
