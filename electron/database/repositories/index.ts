@@ -110,6 +110,13 @@ export type {
   FinancialServiceAnalytics,
 } from "./FinancialServiceRepository";
 
+// Financial Repository
+export {
+  FinancialRepository,
+  getFinancialRepository,
+} from "./FinancialRepository";
+export type { MonthlyPL } from "./FinancialRepository";
+
 // Rate Repository
 export {
   RateRepository,

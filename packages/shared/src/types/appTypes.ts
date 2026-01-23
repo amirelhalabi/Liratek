@@ -40,12 +40,14 @@ export interface Expense {
 
 export interface CartItem extends Product {
   quantity: number;
+  imei?: string;
 }
 
 export interface SaleItem {
   product_id: number;
   quantity: number;
   price: number;
+  imei?: string;
 }
 
 export type PaymentMethod = "CASH" | "OMT" | "WHISH" | "BINANCE";

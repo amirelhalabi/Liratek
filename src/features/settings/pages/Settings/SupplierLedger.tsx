@@ -38,6 +38,9 @@ export default function SupplierLedger() {
   const [amountLBP, setAmountLBP] = useState<number>(0);
   const [note, setNote] = useState<string>("");
 
+  const [withdrawFromDrawer, setWithdrawFromDrawer] = useState(false);
+  const [selectedDrawer, setSelectedDrawer] = useState("General");
+
   const selectedSupplier = useMemo(
     () => suppliers.find((s) => s.id === selectedSupplierId) || null,
     [suppliers, selectedSupplierId],
@@ -96,6 +99,7 @@ export default function SupplierLedger() {
       amount_lbp: amountLBP || 0,
     };
     if (note.trim()) payload.note = note.trim();
+    if (withdrawFromDrawer) payload.drawer_name = selectedDrawer;
 
     const res = await window.api.addSupplierLedgerEntry(payload);
     if (!res.success) {
@@ -145,9 +149,8 @@ export default function SupplierLedger() {
                 <button
                   key={s.id}
                   onClick={() => setSelectedSupplierId(s.id)}
-                  className={`w-full text-left p-3 rounded-lg transition-colors ${
-                    active ? "bg-slate-800" : "hover:bg-slate-800/50"
-                  }`}
+                  className={`w-full text-left p-3 rounded-lg transition-colors ${active ? "bg-slate-800" : "hover:bg-slate-800/50"
+                    }`}
                 >
                   <div className="flex items-center justify-between">
                     <div className="font-semibold text-white">{s.name}</div>
@@ -229,8 +232,31 @@ export default function SupplierLedger() {
                     value={note}
                     onChange={(e) => setNote(e.target.value)}
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white"
-                    placeholder="Optional"
                   />
+                </div>
+                <div className="col-span-12 flex items-center gap-4 mb-2">
+                  <label className="flex items-center gap-2 text-slate-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={withdrawFromDrawer}
+                      onChange={(e) => setWithdrawFromDrawer(e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-700 bg-slate-950 text-orange-600 focus:ring-orange-500"
+                    />
+                    <span className="text-sm">Withdraw from Drawer</span>
+                  </label>
+
+                  {withdrawFromDrawer && (
+                    <select
+                      value={selectedDrawer}
+                      onChange={(e) => setSelectedDrawer(e.target.value)}
+                      className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-sm text-white"
+                    >
+                      <option value="General">General</option>
+                      <option value="OMT">OMT</option>
+                      <option value="Whish">Whish</option>
+                      <option value="Binance">Binance</option>
+                    </select>
+                  )}
                 </div>
                 <div className="col-span-12 flex justify-end">
                   <button

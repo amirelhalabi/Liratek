@@ -8,6 +8,7 @@ export interface ReceiptItem {
   quantity: number;
   price: number;
   subtotal: number;
+  imei?: string | null;
 }
 
 export interface ReceiptData {
@@ -82,6 +83,9 @@ export function formatReceipt58mm(data: ReceiptData): string {
     receipt += padRight(itemName, 20);
     receipt += padRight(item.quantity.toString(), 6);
     receipt += `$${item.price.toFixed(2)}\n`;
+    if (item.imei) {
+      receipt += `  IMEI: ${item.imei}\n`;
+    }
     receipt += padRight("", 20) + "" + padRight("", 6);
     receipt += `$${item.subtotal.toFixed(2)}\n`;
   });
@@ -181,6 +185,9 @@ export function formatReceipt80mm(data: ReceiptData): string {
     receipt += padRight(itemName, 28);
     receipt += padRight(item.quantity.toString(), 8);
     receipt += `$${item.subtotal.toFixed(2)}\n`;
+    if (item.imei) {
+      receipt += `  IMEI: ${item.imei}\n`;
+    }
   });
 
   receipt += "─".repeat(width) + "\n";

@@ -1,96 +1,181 @@
 # Current Sprint (Jan 23–Jan 30, 2026)
 
-Note: This is the canonical source of truth for all active tasks. Details for each task can be found in the Backlog section at the end.
+**Last Updated**: Jan 24, 2026
 
-### 📖 How to Read This Document
+## 📖 How to Read This Document
 
-- **Kanban Board**: A high-level overview of task IDs and their status.
-- **Backlog**: See the **Task Details** section below for full goals, owners, and specs for each ID.
-- **Priority Scale**:
-  - `!!!` **High**: Critical path, core business logic, or release blockers.
-  - `!!`  **Medium**: Operational enhancements and important features.
-  - `!`   **Low**: Optional modules or future improvements.
+- **Sprint Board**: High-level Kanban view of all task statuses
+- **T-Tasks**: Technical implementation tasks (business logic, features, architecture)
+- **P-Tasks**: Platform/release tasks (QA, distribution, documentation)
+- **Priority Scale**: `!!!` High | `!!` Medium | `!` Low
+
+---
 
 ## 🏗️ Sprint Board
 
-- **Ready**: [T-01]!!!, [T-03]!!, [T-04]!!, [T-05]!, [T-06]!, [T-07]!!, [T-09]!!!, [T-10]!!!, [T-11]!!, [T-12]!!, [T-13]!, [T-14]!!, [T-15]!, [T-16]!!!, [T-17]!!
-- **In Progress**: [T-02]!!!, [T-08]!!!
-- **On Hold**: [P0-1]!!!, [P0-2]!!!, [P0-3]!!!, [P1-1]!!, [P1-2]!, [P1-3]!!
-- **Ready for Testing**:
-- **Ready for Prod**: [P2-1], [P2-2], [P2-3], [P2-4]
+### ✅ Completed
+- [T-08]!!! IMEI & Warranty Tracking
+- [T-02]!!! Supplier Ledger Drawer Integration
+- **Financial Reporting & Analytics** (completed Jan 24)
+
+### 🚧 In Progress
+- None currently
+
+### 📋 Ready (Ordered by Priority)
+**High Priority (!!!)**
+- [T-18]!!! Frontend/Backend Separation
+- [T-01]!!! Two-Wallet System & Mixed Payment Support
+- [T-09]!!! Monthly Analytics & Gross Profit Dashboard
+- [T-10]!!! Real-time Drawer Balances
+- [T-16]!!! SQLCipher DB Encryption
+- [P0-1]!!! Installer QA
+- [P0-2]!!! Build Verification
+- [P0-3]!!! Code Signing
+
+**Medium Priority (!!)**
+- [T-03]!! Smart Barcode Duplicate Handler
+- [T-04]!! Telecom Profit Engine (MTC/Alfa)
+- [T-07]!! Admin-Only Security "Late Entry"
+- [T-11]!! Hardware Barcode Scanner Integration
+- [T-12]!! Receipt Printer Support
+- [T-14]!! Versioned Migration System
+- [T-17]!! Admin Closing Approval
+- [P1-1]!! Automated Testing
+- [P1-3]!! User Documentation
+
+**Low Priority (!)**
+- [T-05]! Loto Module
+- [T-06]! Binance Service Module
+- [T-13]! Email Receipt Delivery
+- [T-15]! Data Archival Workflow
+- [P1-2]! Auto-Updater
 
 ---
 
-## 🗒️ Task Details (Backlog)
+## 🔧 T-Tasks: Technical Implementation
 
-### P0 — Release Quality / Distribution
-- **[P0-1] Installer QA** !!!
-  - Details: Installer QA on real systems (Windows installer + macOS .app/.dmg)
-- **[P0-2] Build Verification** !!!
-  - Details: Verification on clean machines (first-run, single-instance behavior, permissions)
-- **[P0-3] Code Signing** !!!
-  - Details: Setup for macOS notarization and Windows signing.
+### [T-18] Frontend/Backend Separation !!! 
+**Added**: Jan 24, 2026  
+**Status**: Ready  
+**Goal**: Refactor monolithic Electron app into standalone backend (Node.js REST/WebSocket server) and frontend (modern web app). Restructure `src/` folder (details TBD).
+
+### [T-01] Two-Wallet System & Mixed Payment Support !!!
+**Status**: Ready  
+**Goal**: Support `CASH`, `WHISH`, `OMT`, `BINANCE` payment methods with proper drawer tracking.
+
+### [T-02] Supplier Ledger (Dual-Currency Debt) !!!
+**Status**: ✅ Completed (Jan 24, 2026)  
+**Goal**: "Pay Supplier" workflow with optional cash drawer updates.
+
+### [T-03] Smart Barcode Duplicate Handler !!
+**Status**: Ready  
+**Goal**: Handle duplicate barcodes (DUP1, DUP2) with autogen logic.
+
+### [T-04] Telecom Profit Engine (MTC/Alfa Special Logic) !!
+**Status**: Ready  
+**Goal**: Specific accounting for recharge fees ($0.16) and bundle logic.
+
+### [T-05] Loto Module !
+**Status**: Ready  
+**Goal**: Real-time profit tracking for lottery services.
+
+### [T-06] Binance Service Module !
+**Status**: Ready  
+**Goal**: Integration for Binance-based payments and transfers.
+
+### [T-07] Admin-Only Security "Late Entry" !!
+**Status**: Ready  
+**Goal**: Allow admins to record transactions for past dates securely.
+
+### [T-08] IMEI & Warranty Tracking !!!
+**Status**: ✅ Completed (Jan 24, 2026)  
+**Goal**: Prompt for IMEI during phone sales; link to sale_items for warranty receipts.
+
+### [T-09] Monthly Analytics & Gross Profit Dashboard !!!
+**Status**: ✅ Completed (Jan 24, 2026)  
+**Goal**: Aggregate daily closings into monthly P&L view; calculate true Gross Profit.  
+**Note**: Implemented as centralized Financial Reporting with Monthly P&L aggregation and Commissions Dashboard.
+
+### [T-10] Real-time Drawer Balances !!!
+**Status**: Ready  
+**Goal**: Live running totals for all drawers in the Dashboard.
+
+### [T-11] Hardware Barcode Scanner Integration !!
+**Status**: Ready  
+**Goal**: Native support for physical scanners in POS and Inventory.
+
+### [T-12] Receipt Printer Support !!
+**Status**: Ready  
+**Goal**: ESC/POS support for thermal receipt printers.
+
+### [T-13] Email Receipt Delivery !
+**Status**: Ready  
+**Goal**: Send digital receipts to customers via email.
+
+### [T-14] Versioned Migration System !!
+**Status**: Ready  
+**Goal**: Transition from `ensureColumnExists` to timestamp-based SQL migrations.
+
+### [T-15] Data Archival Workflow !
+**Status**: Ready  
+**Goal**: Archive records older than 1 year to maintain performance.
+
+### [T-16] SQLCipher DB Encryption !!!
+**Status**: Ready  
+**Goal**: Secure the local database file using SQLCipher encryption.
+
+### [T-17] Admin Closing Approval !!
+**Status**: Ready  
+**Goal**: Staff closings flagged as 'Pending' until admin approval.
+
+---
+
+## 📦 P-Tasks: Platform & Release
+
+### P0 — Release Quality (Critical Path)
+
+#### [P0-1] Installer QA !!!
+**Status**: On Hold  
+**Goal**: Test installers on real systems (Windows installer + macOS .app/.dmg).
+
+#### [P0-2] Build Verification !!!
+**Status**: On Hold  
+**Goal**: Verification on clean machines (first-run, single-instance, permissions).
+
+#### [P0-3] Code Signing !!!
+**Status**: On Hold  
+**Goal**: Setup for macOS notarization and Windows code signing.
 
 ### P1 — Shipping Improvements
-- **[P1-1] Automated Testing** !!
-  - Details: Increase coverage toward ~70% (keep CI green).
-- **[P1-2] Auto-Updater** !
-  - Details: Implementation beyond the current scaffold.
-- **[P1-3] User Documentation** !!
-  - Details: Help system for install/admin and general user guide.
+
+#### [P1-1] Automated Testing !!
+**Status**: On Hold  
+**Goal**: Increase coverage toward ~70% (keep CI green).
+
+#### [P1-2] Auto-Updater !
+**Status**: On Hold  
+**Goal**: Implementation beyond the current scaffold.
+
+#### [P1-3] User Documentation !!
+**Status**: On Hold  
+**Goal**: Help system for install/admin and general user guide.
 
 ### P2 — Operational Enhancements (Completed)
-- **[P2-1] Closing Report Auto-Attach**: Automatically link generated PDFs to closing records.
-- **[P2-2] Variance Threshold Alerts**: Visual warnings when cash discrepancies exceed set % in Closing.
-- **[P2-3] Performance Hardening**: Added database indexes and optimized query patterns.
-- **[P2-4] Backup Automation**: Automated local DB backups with restore verification.
 
-### Technical Specifications (T-Tasks)
-
-- **[T-01] Two-Wallet System & Mixed Payment Support** !!!
-  - Goal: Support `CASH`, `WHISH`, `OMT`, `BINANCE` payment methods.
-- **[T-02] Supplier Ledger (Dual-Currency Debt)** !!!
-  - Owner: @Antigravity (In Progress)
-  - Goal: Add "Pay Supplier" workflow that optionally updates cash drawers.
-- **[T-03] Smart Barcode Duplicate Handler** !!
-  - Goal: Handle duplicate barcodes (DUP1, DUP2) and autogen logic.
-- **[T-04] Telecom Profit Engine (MTC/Alfa Special Logic)** !!
-  - Goal: Specific accounting for recharge fees ($0.16) and bundle logic.
-- **[T-05] Loto Module** !
-  - Goal: Real-time profit tracking for lottery services.
-- **[T-06] Binance Service Module** !
-  - Goal: Integration for Binance-based payments and transfers.
-- **[T-07] Admin-Only Security “Late Entry”** !!
-  - Goal: Allow admins to record transactions for past dates securely.
-- **[T-08] IMEI & Warranty Tracking** !!!
-  - Owner: @Antigravity (In Progress)
-  - Goal: Prompt for IMEI during sales of phones; link to sale_items for warranty receipts.
-- **[T-09] Monthly Analytics & Gross Profit Dashboard** !!!
-  - Goal: Aggregate daily closings into monthly P&L view; calculate true Gross Profit.
-
-#### Tasks Extracted from Documentation Analysis (Jan 23)
-- **[T-10] Real-time Drawer Balances** !!!
-  - Goal: Live running totals for all drawers in the Dashboard (currently missing).
-- **[T-11] Hardware Barcode Scanner Integration** !!
-  - Goal: Native support for physical scanners in POS and Inventory.
-- **[T-12] Receipt Printer Support** !!
-  - Goal: ESC/POS support for thermal receipt printers.
-- **[T-13] Email Receipt Delivery** !
-  - Goal: Functionality to send digital receipts to customers via email.
-- **[T-14] Versioned Migration System** !!
-  - Goal: Transition from `ensureColumnExists` to timestamp-based SQL migrations.
-- **[T-15] Data Archival Workflow** !
-  - Goal: Archive records older than 1 year to external file to maintain performance.
-- **[T-16] SQLCipher DB Encryption** !!!
-  - Goal: Secure the local `liratek.db` file using SQLCipher encryption.
-- **[T-17] Admin Closing Approval** !!
-  - Goal: Workflow where staff closings are flagged as 'Pending' until admin approval.
+- ✅ **Closing Report Auto-Attach**: Automatically link generated PDFs to closing records
+- ✅ **Variance Threshold Alerts**: Visual warnings for cash discrepancies in Closing
+- ✅ **Performance Hardening**: Database indexes and optimized query patterns
+- ✅ **Backup Automation**: Automated local DB backups with restore verification
 
 ---
 
-## 📈 Platform History & Done
-- [x] Fix Jest Matchers TypeScript regression
-- [x] Resolve `yarn build` CSS import errors
-- [x] Analyze `dev` branch features and update documentation
-- [x] Restore missing documentation from `archive/dev-legacy`
-- [x] Consolidated fragmented docs into DEVELOPMENT.md (Pending final cleanup)
+## 📈 Recent Completions (Jan 23-24)
+
+- ✅ Fix Jest Matchers TypeScript regression
+- ✅ Resolve `yarn build` CSS import errors
+- ✅ Analyze `dev` branch features and update documentation
+- ✅ Restore missing documentation from `archive/dev-legacy`
+- ✅ Consolidated fragmented docs into DEVELOPMENT.md
+- ✅ **T-08**: IMEI & Warranty Tracking
+- ✅ **T-02**: Supplier Ledger Drawer Integration
+- ✅ **Financial Reporting & Analytics**: Monthly P&L + Commissions Dashboard

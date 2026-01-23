@@ -38,6 +38,7 @@ export interface CreateSupplierLedgerEntryData {
   amount_lbp: number;
   note?: string;
   created_by?: number;
+  drawer_name?: string;
 }
 
 export interface SupplierBalance {
@@ -99,7 +100,42 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         data.note ?? null,
         data.created_by ?? null,
       );
-      return { id: Number(res.lastInsertRowid) };
+      const entryId = Number(res.lastInsertRowid);
+
+      // If drawer_name is provided, update drawer_balances
+      if (data.drawer_name) {
+        const upsertBalanceDelta = this.db.prepare(`
+          INSERT INTO drawer_balances (drawer_name, currency_code, balance)
+          VALUES (?, ?, ?)
+          ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+            balance = drawer_balances.balance + excluded.balance,
+            updated_at = CURRENT_TIMESTAMP
+        `);
+
+        // Decrease drawer for PAYMENT, Increase for TOP_UP (refund style), or Adjustment
+        // Logic: Debt is liability. Payment reduces liability and reduces asset (Cash).
+        // TOP_UP increases liability and (theoretically) increases asset if we got stock? 
+        // Usually, payments are the ones affecting cash.
+        if (data.entry_type === "PAYMENT") {
+          if (data.amount_usd) upsertBalanceDelta.run(data.drawer_name, "USD", -data.amount_usd);
+          if (data.amount_lbp) upsertBalanceDelta.run(data.drawer_name, "LBP", -data.amount_lbp);
+
+          // Log to payments table
+          this.db.prepare(`
+            INSERT INTO payments (source_type, source_id, method, drawer_name, currency_code, amount, note, created_by)
+            VALUES ('SUPPLIER_PAYMENT', ?, 'CASH', ?, ?, ?, ?, ?)
+          `).run(
+            entryId,
+            data.drawer_name,
+            data.amount_usd ? "USD" : "LBP",
+            -(data.amount_usd || data.amount_lbp),
+            data.note || `Supplier Payment: ${data.supplier_id}`,
+            data.created_by || 1
+          );
+        }
+      }
+
+      return { id: entryId };
     } catch (e) {
       throw new DatabaseError("Failed to add supplier ledger entry", { cause: e });
     }

@@ -25,6 +25,7 @@ export default function POS() {
     sold_price_usd?: number;
     name?: string;
     barcode?: string;
+    imei?: string;
   };
   type Draft = {
     id: number;
@@ -87,6 +88,12 @@ export default function POS() {
     setCartItems((prev) => prev.filter((item) => item.id !== id));
   };
 
+  const handleUpdateIMEI = (id: number, imei: string) => {
+    setCartItems((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, imei } : item)),
+    );
+  };
+
   const handleClearCart = () => {
     if (confirm("Clear current cart?")) {
       setCartItems([]);
@@ -104,6 +111,7 @@ export default function POS() {
           product_id: item.id,
           quantity: item.quantity,
           price: item.retail_price,
+          imei: item.imei || "",
         })),
       };
 
@@ -136,6 +144,7 @@ export default function POS() {
       stock_quantity: 0,
       min_stock_level: 0,
       is_active: 1,
+      imei: item.imei || "",
     }));
 
     setCartItems(items);
@@ -145,11 +154,11 @@ export default function POS() {
     setCheckoutDraftData({
       selectedClient: draft.client_id
         ? {
-            id: draft.client_id,
-            full_name: draft.client_name || "",
-            phone_number: draft.client_phone || "",
-            whatsapp_opt_in: 0,
-          }
+          id: draft.client_id,
+          full_name: draft.client_name || "",
+          phone_number: draft.client_phone || "",
+          whatsapp_opt_in: 0,
+        }
         : null,
       clientSearchInput: draft.client_name || "",
       clientSearchSecondary: draft.client_phone || "",
@@ -175,6 +184,7 @@ export default function POS() {
           product_id: item.id,
           quantity: item.quantity,
           price: item.retail_price,
+          imei: item.imei || "",
         })),
       };
 
@@ -210,6 +220,7 @@ export default function POS() {
           items={cartItems}
           onUpdateQuantity={handleUpdateQuantity}
           onRemoveItem={handleRemoveItem}
+          onUpdateIMEI={handleUpdateIMEI}
           onClearCart={handleClearCart}
           onCheckout={() => setIsCheckoutOpen(true)}
           onOpenDrafts={() => setIsDraftsOpen(true)}
@@ -226,6 +237,7 @@ export default function POS() {
 
       {isCheckoutOpen && (
         <CheckoutModal
+          items={cartItems}
           totalAmount={cartItems.reduce(
             (acc, item) => acc + item.retail_price * item.quantity,
             0,

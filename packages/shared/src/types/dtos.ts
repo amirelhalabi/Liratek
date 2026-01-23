@@ -130,6 +130,7 @@ export interface SaleItemRequest {
   product_name: string;
   quantity: number;
   unit_price_usd: number;
+  imei?: string;
 }
 
 export interface CreateSaleRequest {

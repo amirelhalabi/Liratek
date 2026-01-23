@@ -38,6 +38,7 @@ export interface SaleItemEntity {
   sold_price_usd: number;
   cost_price_snapshot_usd: number;
   is_refunded: number;
+  imei: string | null;
 }
 
 export interface SaleWithClient extends SaleEntity {
@@ -67,7 +68,7 @@ export interface SaleRequest {
   client_id: number | null;
   client_name?: string;
   client_phone?: string;
-  items: { product_id: number; quantity: number; price: number }[];
+  items: { product_id: number; quantity: number; price: number; imei?: string }[];
   total_amount: number;
   discount: number;
   final_amount: number;
@@ -277,13 +278,13 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         const paymentLines: PaymentLine[] = sale.payments?.length
           ? sale.payments
           : [
-              ...(paymentUsd
-                ? [{ method: "CASH" as const, currency_code: "USD" as const, amount: paymentUsd }]
-                : []),
-              ...(paymentLbp
-                ? [{ method: "CASH" as const, currency_code: "LBP" as const, amount: paymentLbp }]
-                : []),
-            ];
+            ...(paymentUsd
+              ? [{ method: "CASH" as const, currency_code: "USD" as const, amount: paymentUsd }]
+              : []),
+            ...(paymentLbp
+              ? [{ method: "CASH" as const, currency_code: "LBP" as const, amount: paymentLbp }]
+              : []),
+          ];
 
         db.prepare(`DELETE FROM payments WHERE source_type = 'SALE' AND source_id = ?`).run(
           saleId,
@@ -352,8 +353,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         // Process Items & Update Stock
         const itemStmt = db.prepare(`
           INSERT INTO sale_items (
-            sale_id, product_id, quantity, sold_price_usd, cost_price_snapshot_usd
-          ) VALUES (?, ?, ?, ?, (SELECT cost_price_usd FROM products WHERE id = ?))
+            sale_id, product_id, quantity, sold_price_usd, cost_price_snapshot_usd, imei
+          ) VALUES (?, ?, ?, ?, (SELECT cost_price_usd FROM products WHERE id = ?), ?)
         `);
 
         const stockStmt = db.prepare(`
@@ -369,6 +370,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             item.quantity,
             item.price,
             item.product_id,
+            item.imei || null,
           );
 
           // Update Stock: ONLY IF COMPLETED
@@ -578,20 +580,21 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
    */
   addSaleItem(
     saleId: number,
-    item: { product_id: number; quantity: number; price: number },
+    item: { product_id: number; quantity: number; price: number; imei?: string | null },
   ): void {
     try {
       this.execute(
         `
         INSERT INTO sale_items (
-          sale_id, product_id, quantity, sold_price_usd, cost_price_snapshot_usd
-        ) VALUES (?, ?, ?, ?, (SELECT cost_price_usd FROM products WHERE id = ?))
+          sale_id, product_id, quantity, sold_price_usd, cost_price_snapshot_usd, imei
+        ) VALUES (?, ?, ?, ?, (SELECT cost_price_usd FROM products WHERE id = ?), ?)
       `,
         saleId,
         item.product_id,
         item.quantity,
         item.price,
         item.product_id,
+        item.imei || null,
       );
     } catch (error) {
       throw new DatabaseError("Failed to add sale item", { cause: error });

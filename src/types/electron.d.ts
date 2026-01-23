@@ -172,7 +172,16 @@ export interface ElectronAPI {
   getDrawerBalances: () => Promise<{
     generalDrawer: { usd: number; lbp: number };
     omtDrawer: { usd: number; lbp: number };
-  }>; // New
+  }>;
+  getMonthlyPL: (month: string) => Promise<{
+    month: string;
+    salesProfitUSD: number;
+    serviceCommissionsUSD: number;
+    serviceCommissionsLBP: number;
+    expensesUSD: number;
+    expensesLBP: number;
+    netProfitUSD: number;
+  }>;
 
   // Debt
   getDebtSummary: () => Promise<{
@@ -345,6 +354,7 @@ export interface ElectronAPI {
     amount_usd: number;
     amount_lbp: number;
     note?: string;
+    drawer_name?: string;
   }) => Promise<{ success: boolean; id?: number; error?: string }>;
 
   // Maintenance

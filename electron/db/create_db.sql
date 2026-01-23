@@ -136,6 +136,7 @@ CREATE TABLE IF NOT EXISTS sale_items (
     sold_price_usd DECIMAL(10, 2),
     cost_price_snapshot_usd DECIMAL(10, 2),
     is_refunded BOOLEAN DEFAULT 0,
+    imei TEXT,
     FOREIGN KEY (sale_id) REFERENCES sales(id),
     FOREIGN KEY (product_id) REFERENCES products(id)
 );
