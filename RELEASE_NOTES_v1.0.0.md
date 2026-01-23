@@ -182,10 +182,8 @@ LiraTek is a comprehensive Point of Sale (POS) system designed specifically for 
 
 ## 📖 Documentation
 
-- **[BUILD.md](docs/development/BUILD.md)** - Complete build and development guide
-- **[BUILD_VERSIONING_ANALYSIS.md](docs/archive/BUILD_VERSIONING_ANALYSIS.md)** - Enterprise build analysis
-- **[ICON_GENERATION_GUIDE.md](docs/archive/ICON_GENERATION_GUIDE.md)** - Icon creation instructions
-- **[README.md](README.md)** - Project overview and setup
+- **[DEVELOPMENT.md](docs/DEVELOPMENT.md)** - Complete technical guide, build instructions, and architecture overview.
+- **[README.md](README.md)** - Project overview and core features.
 
 ---
 

@@ -1,59 +1,96 @@
-# Current Sprint (Dec 19–Dec 26, 2025)
+# Current Sprint (Jan 23–Jan 30, 2026)
 
-Note: This is the canonical, single source of truth for active work, backlog, and done. Older planning/status docs are deprecated in favor of this file.
+Note: This is the canonical source of truth for all active tasks. Details for each task can be found in the Backlog section at the end.
 
-Goal: Type-safe cross-layer contracts, UI polish (services/exchange), and event/logging consistency.
+### 📖 How to Read This Document
 
-In Progress
-- Phase 3: Repositories typing — ProductRepository done; SalesRepository deep-typed (rows, aggregates)
+- **Kanban Board**: A high-level overview of task IDs and their status.
+- **Backlog**: See the **Task Details** section below for full goals, owners, and specs for each ID.
+- **Priority Scale**:
+  - `!!!` **High**: Critical path, core business logic, or release blockers.
+  - `!!`  **Medium**: Operational enhancements and important features.
+  - `!`   **Low**: Optional modules or future improvements.
 
-Todo
-- Introduce toErrorString helper for consistent error normalization across services; refactor callers incrementally (completed)
-- Add global Window interface augmentation for notificationHistory/currentUserId to remove scattered casts (completed)
-- Consolidate shared DTOs into packages/shared and align imports (completed: core DTOs moved to @liratek/shared; renderer re-export; electron.d.ts updated)
-- Tighten TypeScript config incrementally (completed: enabled noImplicitOverride + exactOptionalPropertyTypes across app/electron/node; checks green)
-- Repository error typing: introduce discriminated unions for known DB codes and normalize at repo boundary (completed)
-- Drive remaining lint warnings to zero in flagged files (ClosingRepository, Maintenance, POS, etc.) (completed)
-- Phase 3 next: ClientRepository cleanup (remove any, add row DTOs) — completed; ran lint/typecheck/tests
-- Phase 3 then: ClosingRepository cleanup (remove any, add row DTOs) — completed; ran lint/typecheck/tests
-- Phase 3 later: Handlers sweep (dbHandlers, inventoryHandlers, maintenanceHandlers, reportHandlers, salesHandlers) — completed; checks passed
-- Phase 3 final: Repository-wide pass (ProductRepository completed; RechargeRepository completed; CurrencyRepository clean; ActivityRepository clean; next: service/UI hotspots) — continuing detailed cleanup; tests green
+## 🏗️ Sprint Board
 
-Ready for Testing
+- **Ready**: [T-01]!!!, [T-03]!!, [T-04]!!, [T-05]!, [T-06]!, [T-07]!!, [T-09]!!!, [T-10]!!!, [T-11]!!, [T-12]!!, [T-13]!, [T-14]!!, [T-15]!, [T-16]!!!, [T-17]!!
+- **In Progress**: [T-02]!!!, [T-08]!!!
+- **On Hold**: [P0-1]!!!, [P0-2]!!!, [P0-3]!!!, [P1-1]!!, [P1-2]!, [P1-3]!!
+- **Ready for Testing**:
+- **Ready for Prod**: [P2-1], [P2-2], [P2-3], [P2-4]
 
-Completed
-- Opening/Closing: Opening modal is now accessible from anywhere (moved listener/modal to MainLayout)
-- Modals: click-outside-to-close enabled across key modals (Opening/Closing, POS Checkout + receipt preview, ProductForm, ClientForm, Expenses, Debts, Maintenance)
-- Modals: fixed rounded corner clipping (added overflow-hidden to containers)
-- Tests: fixed React act(...) warning in useCurrencies hook test
-- Maintenance hooks cleanup (avoid set-state-in-effect)
-- Notifications: Introduced NotificationItem and typed TopBar/NotificationCenter
-- POS: Typed drafts, checkout handlers, and removed remaining any types
-- Lint executed; reduced warnings in appEvents/NotificationCenter and Settings UI; remaining warnings deferred to next passes
-- appEvents: typed overloads with generic fallback (keeps tests like "ping")
-- Preload typing pass: Inventory, Clients, Debt, Exchange, OMT, Closing payloads
-- Activity logs: unified to details_json across repositories (FinancialService, Exchange, Recharge, Maintenance)
-- Legacy DB migration: ensured activity_logs.details_json; OMT/Whish transaction retest passed
-- Phase 2 progress: Cleaned error handling in Settings, Expense, Rate, Report, Currency, Client, Closing, Exchange, Financial, Inventory, Sales, and Maintenance services; tests all green
-- Services/Exchange layout: constrained cards to max-h-[80vh], reduced padding
-- Debts/Dashboard: introduced concrete DTO types; tooltip formatter typed
-- ClientForm: normalized whatsapp_opt_in to 0/1 and separated create/update payloads
-- Services page layout: adjusted OMT/Whish cards to fit viewport without nested scroll
-- Quotation: Confirmed Developer Total (excl. Hardware) is $1000
-- Checks: yarn lint, typecheck, tests (413), coverage summary generated, and build succeeded
-- Phase 3 progress: ProductRepository typing improvements (removed any in error paths), SalesRepository catch normalization
+---
 
-Checks
-- Lint/Typecheck/Tests/Coverage run daily; gate merges on passing status.
+## 🗒️ Task Details (Backlog)
 
-Backlog
-- Code signing and auto-updates (deferred to v1.1+)
-- Multi-location support
-- Real-time drawer balance improvements
-- Optimization pass (runtime perf + build size)
-- Opening/Closing Phase 2 improvements
-- Marketing plan follow-ups
+### P0 — Release Quality / Distribution
+- **[P0-1] Installer QA** !!!
+  - Details: Installer QA on real systems (Windows installer + macOS .app/.dmg)
+- **[P0-2] Build Verification** !!!
+  - Details: Verification on clean machines (first-run, single-instance behavior, permissions)
+- **[P0-3] Code Signing** !!!
+  - Details: Setup for macOS notarization and Windows signing.
 
-Notes
-- Quotation template updated to reflect $1000 developer total (excluding hardware).
-- Lint is currently clean in CI checks; keep it at 0 warnings going forward.
+### P1 — Shipping Improvements
+- **[P1-1] Automated Testing** !!
+  - Details: Increase coverage toward ~70% (keep CI green).
+- **[P1-2] Auto-Updater** !
+  - Details: Implementation beyond the current scaffold.
+- **[P1-3] User Documentation** !!
+  - Details: Help system for install/admin and general user guide.
+
+### P2 — Operational Enhancements (Completed)
+- **[P2-1] Closing Report Auto-Attach**: Automatically link generated PDFs to closing records.
+- **[P2-2] Variance Threshold Alerts**: Visual warnings when cash discrepancies exceed set % in Closing.
+- **[P2-3] Performance Hardening**: Added database indexes and optimized query patterns.
+- **[P2-4] Backup Automation**: Automated local DB backups with restore verification.
+
+### Technical Specifications (T-Tasks)
+
+- **[T-01] Two-Wallet System & Mixed Payment Support** !!!
+  - Goal: Support `CASH`, `WHISH`, `OMT`, `BINANCE` payment methods.
+- **[T-02] Supplier Ledger (Dual-Currency Debt)** !!!
+  - Owner: @Antigravity (In Progress)
+  - Goal: Add "Pay Supplier" workflow that optionally updates cash drawers.
+- **[T-03] Smart Barcode Duplicate Handler** !!
+  - Goal: Handle duplicate barcodes (DUP1, DUP2) and autogen logic.
+- **[T-04] Telecom Profit Engine (MTC/Alfa Special Logic)** !!
+  - Goal: Specific accounting for recharge fees ($0.16) and bundle logic.
+- **[T-05] Loto Module** !
+  - Goal: Real-time profit tracking for lottery services.
+- **[T-06] Binance Service Module** !
+  - Goal: Integration for Binance-based payments and transfers.
+- **[T-07] Admin-Only Security “Late Entry”** !!
+  - Goal: Allow admins to record transactions for past dates securely.
+- **[T-08] IMEI & Warranty Tracking** !!!
+  - Owner: @Antigravity (In Progress)
+  - Goal: Prompt for IMEI during sales of phones; link to sale_items for warranty receipts.
+- **[T-09] Monthly Analytics & Gross Profit Dashboard** !!!
+  - Goal: Aggregate daily closings into monthly P&L view; calculate true Gross Profit.
+
+#### Tasks Extracted from Documentation Analysis (Jan 23)
+- **[T-10] Real-time Drawer Balances** !!!
+  - Goal: Live running totals for all drawers in the Dashboard (currently missing).
+- **[T-11] Hardware Barcode Scanner Integration** !!
+  - Goal: Native support for physical scanners in POS and Inventory.
+- **[T-12] Receipt Printer Support** !!
+  - Goal: ESC/POS support for thermal receipt printers.
+- **[T-13] Email Receipt Delivery** !
+  - Goal: Functionality to send digital receipts to customers via email.
+- **[T-14] Versioned Migration System** !!
+  - Goal: Transition from `ensureColumnExists` to timestamp-based SQL migrations.
+- **[T-15] Data Archival Workflow** !
+  - Goal: Archive records older than 1 year to external file to maintain performance.
+- **[T-16] SQLCipher DB Encryption** !!!
+  - Goal: Secure the local `liratek.db` file using SQLCipher encryption.
+- **[T-17] Admin Closing Approval** !!
+  - Goal: Workflow where staff closings are flagged as 'Pending' until admin approval.
+
+---
+
+## 📈 Platform History & Done
+- [x] Fix Jest Matchers TypeScript regression
+- [x] Resolve `yarn build` CSS import errors
+- [x] Analyze `dev` branch features and update documentation
+- [x] Restore missing documentation from `archive/dev-legacy`
+- [x] Consolidated fragmented docs into DEVELOPMENT.md (Pending final cleanup)

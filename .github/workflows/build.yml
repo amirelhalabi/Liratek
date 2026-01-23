@@ -11,9 +11,14 @@ on:
         required: false
         default: ""
 
+permissions:
+  contents: write
+
 jobs:
-  build-windows:
-    runs-on: windows-latest
+  # Optimized: Run tests once on fastest runner before building
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -22,6 +27,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
+          cache: "yarn"
 
       - name: Enable Corepack
         run: corepack enable
@@ -32,11 +38,31 @@ jobs:
       - name: Run tests
         run: yarn test
 
+  build-windows:
+    name: Build Windows
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "yarn"
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: yarn install --immutable --mode=skip-build
+
       - name: Build frontend
         run: yarn build
 
       - name: Build Windows Installer
-        run: yarn build:win
+        run: yarn ci:build:win
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -49,6 +75,8 @@ jobs:
             releases/**/*.exe.blockmap
 
   build-mac-intel:
+    name: Build macOS Intel
+    needs: test
     runs-on: macos-13
     steps:
       - name: Checkout code
@@ -58,15 +86,13 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
+          cache: "yarn"
 
       - name: Enable Corepack
         run: corepack enable
 
       - name: Install dependencies
         run: yarn install --immutable --mode=skip-build
-
-      - name: Run tests
-        run: yarn test
 
       - name: Build frontend
         run: yarn build
@@ -86,6 +112,8 @@ jobs:
             releases/**/*.blockmap
 
   build-mac-arm:
+    name: Build macOS ARM
+    needs: test
     runs-on: macos-latest
     steps:
       - name: Checkout code
@@ -95,6 +123,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
+          cache: "yarn"
 
       - name: Enable Corepack
         run: corepack enable
@@ -102,14 +131,11 @@ jobs:
       - name: Install dependencies
         run: yarn install --immutable --mode=skip-build
 
-      - name: Run tests
-        run: yarn test
-
       - name: Build frontend
         run: yarn build
 
       - name: Build macOS ARM DMG
-        run: yarn build:mac
+        run: yarn ci:build:mac
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -123,11 +149,10 @@ jobs:
             releases/**/*.blockmap
 
   create-release:
+    name: Create GitHub Release
     needs: [build-windows, build-mac-intel, build-mac-arm]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
-    permissions:
-      contents: write
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -135,7 +160,7 @@ jobs:
           path: artifacts
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             artifacts/**/*.exe
