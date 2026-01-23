@@ -5,11 +5,10 @@
 **Version:** 1.0.0  
 **Status:** ✅ Production-Ready - First Release Complete
 
-> **Note:** This document consolidates PROJECT_STATUS.md, TECHNICAL_CONTEXT.md, IMPLEMENTATION_ROADMAP.md, and AGENT_ONBOARDING_PROMPT.md into one authoritative reference.
+> **Note:** This document consolidates ARCHIVED_PROJECT_STATUS.md, TECHNICAL_CONTEXT.md, IMPLEMENTATION_ROADMAP.md, and AGENT_ONBOARDING_PROMPT.md into one authoritative reference.
 >
-> Practical trackers:
-> - Current sprint board: `docs/CURRENT_SPRINT.md`
-> - Next roadmap / TODO list: `docs/nexttodo.md`
+> Practical tracker:
+> - Current sprint board & roadmap: `docs/CURRENT_SPRINT.md`
 
 ---
 
@@ -578,6 +577,72 @@ useEffect(() => {
   <Closing isOpen={isClosingModalOpen} onClose={() => setIsClosingModalOpen(false)} />
 )}
 ```
+
+### Typing and Architecture Conventions (Dec 2025)
+
+To maintain codebase robustness and type safety, follow these refined patterns:
+
+#### 1. End-to-End Typing (DTOs)
+- **Repositories**: Return concrete types (e.g., `ProductRow`, `ClientDebtHistory`) instead of `any`.
+- **Preload**: Bridge methods should use typed payloads. Unknown payloads should be validated or cast to known interfaces.
+- **UI**: Map domain-specific types (DTO groups) like `TodaySale` or `ChartPoint` consistently across Recharts and list components.
+
+#### 2. Service-Layer Error Handling
+- Use structured `try/catch` blocks that normalize error messages:
+  ```ts
+  } catch (error) {
+    return { success: false, error: (error instanceof Error ? error.message : String(error)) };
+  }
+  ```
+
+#### 3. React Hook Performance
+- Avoid `set-state-in-effect` loops. Use microtasks or event-driven triggers where possible.
+- Use `useCallback` for functions passed to `useEffect` dependencies to prevent redundant refreshes.
+
+#### 4. Event-Driven Modal Architecture
+- Centralize global modal listeners (e.g., Opening/Closing) in `MainLayout.tsx` to ensure accessibility from anywhere in the app via `appEvents`.
+
+---
+
+## 9. Build & Distribution
+
+To build and run LiraTek locally, follow these requirements and scripts.
+
+### Prerequisites
+- **Node.js**: v18.x or v20.x
+- **Yarn**: v4.0.2 (`corepack enable` then `yarn install`)
+- **Native Modules**: 
+  - **macOS**: Xcode Command Line Tools
+  - **Windows**: Visual Studio Build Tools (C++ development)
+
+### Key Development Scripts
+| Command                 | Description                              |
+| ----------------------- | ---------------------------------------- |
+| `npm run dev`           | Start development server (Frontend + Electron) |
+| `npm run build`         | Build production assets (`dist/` & `dist-electron/`) |
+| `npm run typecheck`     | Run TypeScript compiler check            |
+| `npm test`              | Run Vitest test suite                    |
+
+### Platform Builds
+| Command                 | Target                   | Output                    |
+| ----------------------- | ------------------------ | ------------------------- |
+| `npm run build:win:x64` | Windows (NSIS Installer) | `release/LiraTek-1.0.0-x64.exe` |
+| `npm run build:mac:arm64`| macOS (ARM/Silicon)      | `release/LiraTek-1.0.0-arm64.dmg` |
+
+### Icon Generation
+If icons need to be regenerated from `build/icon.png`:
+1. **Windows (`.ico`)**: `magick convert build/icon.png -define icon:auto-resize=256,128,64,48,32,16 build/icon.ico`
+2. **Commit**: Ensure `!build/icon.ico` is in `.gitignore` to track binary icons.
+
+### Release Process
+1. **Automated**: Push to `main` branch. GitHub Actions automatically tags, builds, and creates a GitHub Release.
+2. **Manual (Emergency)**:
+   - Build assets locally.
+   - Create a new release at `https://github.com/amirelhalabi/Liratek/releases/new`.
+   - Upload `.exe` and `.dmg` files from `release/` folder.
+
+> [!NOTE]
+> Native modules like `better-sqlite3` require a post-install rebuild via `electron-builder install-app-deps` if architecture changes.
 
 ---
 
