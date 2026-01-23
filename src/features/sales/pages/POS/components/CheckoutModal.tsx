@@ -33,6 +33,8 @@ export type CheckoutDraftData = {
   exchangeRate: number;
 };
 
+const generateReceiptNumber = () => `RCP-${Date.now()}`;
+
 export default function CheckoutModal({
   totalAmount,
   onClose,
@@ -97,30 +99,30 @@ export default function CheckoutModal({
       setPaymentLines([
         ...(restoredUSD
           ? [
-              {
-                method: "CASH" as const,
-                currency_code: "USD" as const,
-                amount: restoredUSD,
-              },
-            ]
+            {
+              method: "CASH" as const,
+              currency_code: "USD" as const,
+              amount: restoredUSD,
+            },
+          ]
           : []),
         ...(restoredLBP
           ? [
-              {
-                method: "CASH" as const,
-                currency_code: "LBP" as const,
-                amount: restoredLBP,
-              },
-            ]
+            {
+              method: "CASH" as const,
+              currency_code: "LBP" as const,
+              amount: restoredLBP,
+            },
+          ]
           : []),
         ...(!restoredUSD && !restoredLBP
           ? [
-              {
-                method: "CASH" as const,
-                currency_code: "USD" as const,
-                amount: 0,
-              },
-            ]
+            {
+              method: "CASH" as const,
+              currency_code: "USD" as const,
+              amount: 0,
+            },
+          ]
           : []),
       ]);
       setChangeGivenUSD(draftData.changeGivenUSD ?? 0);
@@ -160,9 +162,9 @@ export default function CheckoutModal({
   // Determine whether creating a debt is allowed: existing client must have phone, new client must have both fields
   const canCreateDebt = selectedClient
     ? !!(
-        selectedClient.phone_number &&
-        selectedClient.phone_number.trim().length > 0
-      )
+      selectedClient.phone_number &&
+      selectedClient.phone_number.trim().length > 0
+    )
     : isNewClientInfoComplete;
 
   const finalAmount = Math.max(0, totalAmount - discount);
@@ -240,7 +242,7 @@ export default function CheckoutModal({
   // Generate receipt number only once when modal is opened
   useEffect(() => {
     if (!receiptNumber) {
-      setReceiptNumber(`RCP-${Date.now()}`);
+      setReceiptNumber(generateReceiptNumber());
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -505,9 +507,9 @@ export default function CheckoutModal({
                               prev.map((p, i) =>
                                 i === idx
                                   ? {
-                                      ...p,
-                                      method: e.target.value as PaymentMethod,
-                                    }
+                                    ...p,
+                                    method: e.target.value as PaymentMethod,
+                                  }
                                   : p,
                               ),
                             )
@@ -528,10 +530,10 @@ export default function CheckoutModal({
                               prev.map((p, i) =>
                                 i === idx
                                   ? {
-                                      ...p,
-                                      currency_code:
-                                        e.target.value as PaymentCurrencyCode,
-                                    }
+                                    ...p,
+                                    currency_code:
+                                      e.target.value as PaymentCurrencyCode,
+                                  }
                                   : p,
                               ),
                             )
@@ -555,10 +557,10 @@ export default function CheckoutModal({
                                 prev.map((p, i) =>
                                   i === idx
                                     ? {
-                                        ...p,
-                                        amount:
-                                          parseFloat(e.target.value) || 0,
-                                      }
+                                      ...p,
+                                      amount:
+                                        parseFloat(e.target.value) || 0,
+                                    }
                                     : p,
                                 ),
                               )
