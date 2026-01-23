@@ -176,12 +176,15 @@ This will:
 - Used consistently in checkout, debts, repayments
 - Currency exchange transactions (buy/sell)
 
-### 7. Additional
+### 7. Daily Operations & Auditing
 
-- Device maintenance/repair tracking
-- Mobile recharge management (Alfa/MTC)
-- Financial services (OMT, Whish)
-- Daily cash closings
+- **3-Step Closing Flow**:
+  1. **Physical Count**: Blind entry of physical cash per drawer.
+  2. **Variance Review**: Automatic comparison with system-expected balances.
+  3. **Threshold Alerts**: Warning banners when variance exceeds a configurable threshold (default 5%).
+- **PDF Audit Trail**: Every closing automatically generates a formatted PDF report, saved locally and linked to the database record.
+- **Drawer Management**: Track cash across General, OMT, MTC, and Alfa drawers.
+- **Maintenance & Services**: Track device repairs, mobile recharges, and financial services (OMT, Whish).
 
 ---
 

@@ -116,6 +116,8 @@ LiraTek is a comprehensive Point of Sale (POS) system designed specifically for 
 - ✅ Comprehensive reporting and analytics
 - ✅ User authentication and role-based access
 - ✅ Daily operations and cash drawer management
+- ✅ **Automated PDF Audit Reports**: Formatted local PDF generation for every closing
+- ✅ **Variance Threshold Alerts**: Configurable auditing to flag cash discrepancies
 - ✅ Professional receipt and report generation
 
 ### Technical Highlights
