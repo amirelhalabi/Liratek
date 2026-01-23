@@ -104,6 +104,9 @@ export {
   resetFinancialServiceRepository,
 } from "./FinancialServiceRepository";
 export type {
+  FinancialServiceEntity,
+  CreateFinancialServiceData,
+  ProviderStats,
   FinancialServiceAnalytics,
 } from "./FinancialServiceRepository";
 

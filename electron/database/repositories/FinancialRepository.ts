@@ -17,7 +17,7 @@ export interface MonthlyPL {
     netProfitUSD: number;
 }
 
-export class FinancialRepository extends BaseRepository<any> {
+export class FinancialRepository extends BaseRepository<{ id: number }> {
     constructor() {
         super("sales", { softDelete: false }); // Base table doesn't matter much for aggregations
     }
