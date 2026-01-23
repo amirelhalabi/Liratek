@@ -104,11 +104,15 @@ export {
   resetFinancialServiceRepository,
 } from "./FinancialServiceRepository";
 export type {
-  FinancialServiceEntity,
-  CreateFinancialServiceData,
-  ProviderStats,
   FinancialServiceAnalytics,
 } from "./FinancialServiceRepository";
+
+// Financial Repository
+export {
+  FinancialRepository,
+  getFinancialRepository,
+} from "./FinancialRepository";
+export type { MonthlyPL } from "./FinancialRepository";
 
 // Rate Repository
 export {

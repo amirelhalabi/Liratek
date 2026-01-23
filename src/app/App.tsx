@@ -2,6 +2,7 @@ import { HashRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "../features/auth/context/AuthContext";
 import Login from "../features/auth/pages/Login";
 import Dashboard from "../features/dashboard/pages/Dashboard";
+import CommissionsDashboard from "../features/dashboard/pages/CommissionsDashboard";
 import ProductList from "../features/inventory/pages/Inventory/ProductList";
 import ClientList from "../features/clients/pages/Clients/ClientList";
 import POS from "../features/sales/pages/POS";
@@ -43,6 +44,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <Dashboard />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/commissions"
+        element={
+          <ProtectedRoute>
+            <CommissionsDashboard />
           </ProtectedRoute>
         }
       />

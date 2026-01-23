@@ -35,6 +35,7 @@ export default function Dashboard() {
     stockCount: 0,
     mtcCredits: 0,
     alfaCredits: 0,
+    monthlyNetProfit: 0,
   });
   const [drawerBalances, setDrawerBalances] = useState({
     generalDrawer: { usd: 0, lbp: 0 },
@@ -79,6 +80,7 @@ export default function Dashboard() {
         debtData,
         stockStats,
         rechargeStock,
+        monthlyPL,
       ] = await Promise.all([
         window.api.getDashboardStats(),
         window.api.getProfitSalesChart(chartType),
@@ -87,6 +89,7 @@ export default function Dashboard() {
         window.api.getDebtSummary(),
         window.api.getInventoryStockStats(),
         window.api.getRechargeStock(),
+        window.api.getMonthlyPL(new Date().toISOString().slice(0, 7)),
       ]);
 
       setStats({
@@ -95,6 +98,7 @@ export default function Dashboard() {
         stockCount: stockStats?.stock_count || 0,
         mtcCredits: rechargeStock?.mtc || 0,
         alfaCredits: rechargeStock?.alfa || 0,
+        monthlyNetProfit: monthlyPL?.netProfitUSD || 0,
       });
       const formattedChartData = profitChartData.map((d) => ({
         ...d,

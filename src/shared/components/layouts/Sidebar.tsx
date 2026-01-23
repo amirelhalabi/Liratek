@@ -15,6 +15,7 @@ import {
   Smartphone,
   SquareActivity, // Imported SquareActivity icon
   Play,
+  TrendingUp,
 } from "lucide-react";
 import clsx from "clsx";
 import { appEvents } from "../../utils/appEvents";
@@ -30,6 +31,7 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
   const isAdmin = user?.role === "admin";
   const allNavItems = [
     { to: "/", icon: LayoutDashboard, label: "Dashboard" },
+    { to: "/commissions", icon: TrendingUp, label: "Analytics" },
     { to: "/pos", icon: ShoppingCart, label: "Point of Sale" },
     { to: "/debts", icon: BookOpen, label: "Debts" },
     { to: "/products", icon: Package, label: "Inventory" },

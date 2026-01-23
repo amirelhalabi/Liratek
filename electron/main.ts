@@ -18,6 +18,7 @@ import { registerCurrencyHandlers } from "./handlers/currencyHandlers";
 import { getSettingsService } from "./services/SettingsService";
 import { ReportService } from "./services/ReportService";
 import { registerRateHandlers } from "./handlers/rateHandlers";
+import { registerFinancialHandlers } from "./handlers/financialHandlers";
 import { registerUpdaterHandlers } from "./handlers/updaterHandlers";
 import { startSyncProcessor } from "./sync";
 
@@ -144,6 +145,7 @@ if (!gotTheLock) {
       registerCurrencyHandlers();
       registerRateHandlers();
       registerSupplierHandlers();
+      registerFinancialHandlers();
       registerUpdaterHandlers();
 
       startSyncProcessor();
@@ -195,7 +197,7 @@ if (!gotTheLock) {
 
           try {
             settings.updateSetting("last_backup_at", new Date().toISOString());
-          } catch {}
+          } catch { }
 
           // optional auto-verify
           try {
@@ -207,7 +209,7 @@ if (!gotTheLock) {
               settings.updateSetting("last_backup_verify_at", new Date().toISOString());
               settings.updateSetting("last_backup_verify_ok", v.ok ? "1" : "0");
             }
-          } catch {}
+          } catch { }
 
           const pruneRes = await reportService.pruneBackups(cfg.keepCount);
           if (!pruneRes.success) {
