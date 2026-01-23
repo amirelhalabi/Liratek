@@ -141,7 +141,11 @@ Backlog
 - Optimization pass (runtime perf + build size)
 - Opening/Closing Phase 2 improvements
 - Marketing plan follow-ups
-- Optional future modules (need re-scoping): Supplier payables, Loto
+- Cloud sync continuation
+- DRM/licensing
+- Smart barcode duplicate handling (DUP1, DUP2...)
+- Optional future modules: Supplier payables, Loto
+- Code signing (macOS notarization + Windows signing)
 
 Notes
 
