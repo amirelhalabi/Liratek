@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { X, User, DollarSign, Printer, Inbox } from "lucide-react";
+import { X, User, Printer, Inbox } from "lucide-react";
 import { EXCHANGE_RATE, DRAWER_B } from "../../../../../config/constants";
 import { roundLBPUp } from "../../../../../config/denominations";
 import {
@@ -33,6 +33,8 @@ export type CheckoutDraftData = {
   exchangeRate: number;
 };
 
+const generateReceiptNumber = () => `RCP-${Date.now()}`;
+
 export default function CheckoutModal({
   totalAmount,
   onClose,
@@ -50,9 +52,28 @@ export default function CheckoutModal({
 
   // Payment State
   const [discount, setDiscount] = useState(0);
-  const [paidUSD, setPaidUSD] = useState(0);
-  const [paidLBP, setPaidLBP] = useState(0);
+
+  type PaymentMethod = "CASH" | "OMT" | "WHISH" | "BINANCE";
+  type PaymentCurrencyCode = "USD" | "LBP";
+  type PaymentLine = {
+    method: PaymentMethod;
+    currency_code: PaymentCurrencyCode;
+    amount: number;
+  };
+
+  const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([
+    { method: "CASH", currency_code: "USD", amount: 0 },
+  ]);
+
   const [exchangeRate] = useState(EXCHANGE_RATE);
+
+  const paidUSD = paymentLines
+    .filter((p) => p.currency_code === "USD")
+    .reduce((acc, p) => acc + (p.amount || 0), 0);
+
+  const paidLBP = paymentLines
+    .filter((p) => p.currency_code === "LBP")
+    .reduce((acc, p) => acc + (p.amount || 0), 0);
 
   useEffect(() => {
     // Fetch clients for search
@@ -72,8 +93,38 @@ export default function CheckoutModal({
       setClientSearch(draftData.clientSearchInput);
       setSecondaryInput(draftData.clientSearchSecondary);
       setDiscount(draftData.discount ?? 0);
-      setPaidUSD(draftData.paidUSD ?? 0);
-      setPaidLBP(draftData.paidLBP ?? 0);
+      // Restore legacy paid totals into a default CASH split
+      const restoredUSD = draftData.paidUSD ?? 0;
+      const restoredLBP = draftData.paidLBP ?? 0;
+      setPaymentLines([
+        ...(restoredUSD
+          ? [
+            {
+              method: "CASH" as const,
+              currency_code: "USD" as const,
+              amount: restoredUSD,
+            },
+          ]
+          : []),
+        ...(restoredLBP
+          ? [
+            {
+              method: "CASH" as const,
+              currency_code: "LBP" as const,
+              amount: restoredLBP,
+            },
+          ]
+          : []),
+        ...(!restoredUSD && !restoredLBP
+          ? [
+            {
+              method: "CASH" as const,
+              currency_code: "USD" as const,
+              amount: 0,
+            },
+          ]
+          : []),
+      ]);
       setChangeGivenUSD(draftData.changeGivenUSD ?? 0);
       setChangeGivenLBP(draftData.changeGivenLBP ?? 0);
       onRestoreDraftComplete?.();
@@ -111,9 +162,9 @@ export default function CheckoutModal({
   // Determine whether creating a debt is allowed: existing client must have phone, new client must have both fields
   const canCreateDebt = selectedClient
     ? !!(
-        selectedClient.phone_number &&
-        selectedClient.phone_number.trim().length > 0
-      )
+      selectedClient.phone_number &&
+      selectedClient.phone_number.trim().length > 0
+    )
     : isNewClientInfoComplete;
 
   const finalAmount = Math.max(0, totalAmount - discount);
@@ -150,10 +201,11 @@ export default function CheckoutModal({
       final_amount: finalAmount,
       payment_usd: paidUSD,
       payment_lbp: paidLBP,
+      payments: paymentLines,
       change_given_usd: changeGivenUSD,
       change_given_lbp: changeGivenLBP,
       exchange_rate: exchangeRate,
-      drawer_name: DRAWER_B, // POS sales always go to Drawer B (General)
+      drawer_name: DRAWER_B, // legacy field (kept for backward compatibility)
     };
   };
 
@@ -185,10 +237,24 @@ export default function CheckoutModal({
     }
   };
 
+  const [receiptNumber, setReceiptNumber] = useState<string>("");
+
+  // Generate receipt number only once when modal is opened
+  useEffect(() => {
+    if (!receiptNumber) {
+      setReceiptNumber(generateReceiptNumber());
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const generateReceiptPreview = () => {
+    // Generate and store receipt number if not already set
+    if (!receiptNumber) {
+      setReceiptNumber(generateReceiptNumber());
+    }
     const receipt: ReceiptData = {
       shop_name: "Corner Tech",
-      receipt_number: `RCP-${Date.now()}`,
+      receipt_number: receiptNumber || generateReceiptNumber(),
       client_name:
         selectedClient?.full_name || clientSearch || "Walk-in Customer",
       client_phone: selectedClient?.phone_number || secondaryInput,
@@ -408,36 +474,125 @@ export default function CheckoutModal({
             </div>
 
             <div className="space-y-6 flex-1 overflow-y-auto">
-              <div className="flex gap-4">
-                <div className="w-1/4">
-                  <label className="flex items-center gap-2 text-sm font-medium text-slate-400 mb-2">
-                    <DollarSign size={16} />
-                    Paid USD
-                  </label>
-                  <input
-                    type="number"
-                    value={paidUSD || ""}
-                    onChange={(e) =>
-                      setPaidUSD(parseFloat(e.target.value) || 0)
+              <div className="bg-slate-900/40 border border-slate-700/50 rounded-xl p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="text-sm font-medium text-slate-300">
+                    Payment Lines
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPaymentLines((prev) => [
+                        ...prev,
+                        { method: "CASH", currency_code: "USD", amount: 0 },
+                      ])
                     }
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-xl font-mono text-white focus:ring-2 focus:ring-emerald-500 transition-all font-bold"
-                    placeholder="0.00"
-                    autoFocus
-                  />
+                    className="text-xs px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200"
+                  >
+                    + Add line
+                  </button>
                 </div>
-                <div className="w-3/4">
-                  <label className="block text-sm font-medium text-slate-400 mb-2">
-                    Paid LBP
-                  </label>
-                  <input
-                    type="number"
-                    value={paidLBP || ""}
-                    onChange={(e) =>
-                      setPaidLBP(parseFloat(e.target.value) || 0)
-                    }
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-xl font-mono text-white focus:ring-2 focus:ring-emerald-500 transition-all font-bold"
-                    placeholder="0"
-                  />
+
+                <div className="space-y-2">
+                  {paymentLines.map((line, idx) => (
+                    <div
+                      key={idx}
+                      className="grid grid-cols-12 gap-2 items-center"
+                    >
+                      <div className="col-span-4">
+                        <select
+                          value={line.method}
+                          onChange={(e) =>
+                            setPaymentLines((prev) =>
+                              prev.map((p, i) =>
+                                i === idx
+                                  ? {
+                                    ...p,
+                                    method: e.target.value as PaymentMethod,
+                                  }
+                                  : p,
+                              ),
+                            )
+                          }
+                          className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"
+                        >
+                          <option value="CASH">Cash</option>
+                          <option value="OMT">OMT</option>
+                          <option value="WHISH">Whish</option>
+                          <option value="BINANCE">Binance</option>
+                        </select>
+                      </div>
+                      <div className="col-span-3">
+                        <select
+                          value={line.currency_code}
+                          onChange={(e) =>
+                            setPaymentLines((prev) =>
+                              prev.map((p, i) =>
+                                i === idx
+                                  ? {
+                                    ...p,
+                                    currency_code:
+                                      e.target.value as PaymentCurrencyCode,
+                                  }
+                                  : p,
+                              ),
+                            )
+                          }
+                          className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"
+                        >
+                          <option value="USD">USD</option>
+                          <option value="LBP">LBP</option>
+                        </select>
+                      </div>
+                      <div className="col-span-4">
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs">
+                            {line.currency_code === "USD" ? "$" : "LBP"}
+                          </span>
+                          <input
+                            type="number"
+                            value={line.amount || ""}
+                            onChange={(e) =>
+                              setPaymentLines((prev) =>
+                                prev.map((p, i) =>
+                                  i === idx
+                                    ? {
+                                      ...p,
+                                      amount:
+                                        parseFloat(e.target.value) || 0,
+                                    }
+                                    : p,
+                                ),
+                              )
+                            }
+                            className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-10 pr-3 py-2 text-white text-sm font-mono"
+                            placeholder="0"
+                            autoFocus={idx === 0}
+                          />
+                        </div>
+                      </div>
+                      <div className="col-span-1 flex justify-end">
+                        <button
+                          type="button"
+                          disabled={paymentLines.length === 1}
+                          onClick={() =>
+                            setPaymentLines((prev) =>
+                              prev.filter((_, i) => i !== idx),
+                            )
+                          }
+                          className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent"
+                          title="Remove line"
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-3 text-xs text-slate-400">
+                  Totals: <span className="font-mono">${paidUSD.toFixed(2)}</span> USD +{" "}
+                  <span className="font-mono">{paidLBP.toLocaleString()}</span> LBP
                 </div>
               </div>
 

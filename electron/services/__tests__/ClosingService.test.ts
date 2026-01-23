@@ -158,6 +158,7 @@ describe("ClosingService", () => {
         1000,
         90000000,
         "All balanced",
+        undefined,
       );
     });
 
@@ -182,6 +183,7 @@ describe("ClosingService", () => {
         0, // default system_expected_usd
         0, // default system_expected_lbp
         undefined, // variance_notes
+        undefined,
       );
     });
 
@@ -296,6 +298,8 @@ describe("ClosingService", () => {
       const mockBalances: SystemExpectedBalances = {
         generalDrawer: { usd: 1500, lbp: 135000000, eur: 100 },
         omtDrawer: { usd: 500, lbp: 45000000, eur: 0 },
+        whishDrawer: { usd: 0, lbp: 0, eur: 0 },
+        binanceDrawer: { usd: 0, lbp: 0, eur: 0 },
         mtcDrawer: { usd: 200, lbp: 0, eur: 0 },
         alfaDrawer: { usd: 150, lbp: 0, eur: 0 },
       };
@@ -317,6 +321,8 @@ describe("ClosingService", () => {
       expect(result).toEqual({
         generalDrawer: { usd: 0, lbp: 0, eur: 0 },
         omtDrawer: { usd: 0, lbp: 0, eur: 0 },
+        whishDrawer: { usd: 0, lbp: 0, eur: 0 },
+        binanceDrawer: { usd: 0, lbp: 0, eur: 0 },
         mtcDrawer: { usd: 0, lbp: 0, eur: 0 },
         alfaDrawer: { usd: 0, lbp: 0, eur: 0 },
       });
@@ -326,6 +332,8 @@ describe("ClosingService", () => {
       const mockBalances: SystemExpectedBalances = {
         generalDrawer: { usd: 0, lbp: 0, eur: 0 },
         omtDrawer: { usd: 0, lbp: 0, eur: 0 },
+        whishDrawer: { usd: 0, lbp: 0, eur: 0 },
+        binanceDrawer: { usd: 0, lbp: 0, eur: 0 },
         mtcDrawer: { usd: 0, lbp: 0, eur: 0 },
         alfaDrawer: { usd: 0, lbp: 0, eur: 0 },
       };

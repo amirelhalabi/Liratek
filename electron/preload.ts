@@ -9,10 +9,13 @@ contextBridge.exposeInMainWorld("api", {
 
   // Expenses
   addExpense: (data: {
+    description: string;
     category: string;
-    description?: string;
-    amount: number;
-    currency: "USD" | "LBP";
+    expense_type: string;
+    paid_by_method?: "CASH" | "OMT" | "WHISH" | "BINANCE";
+    amount_usd: number;
+    amount_lbp: number;
+    expense_date: string;
   }) => ipcRenderer.invoke("db:add-expense", data),
   getTodayExpenses: () => ipcRenderer.invoke("db:get-today-expenses"),
   deleteExpense: (id: number) => ipcRenderer.invoke("db:delete-expense", id),
@@ -138,6 +141,15 @@ contextBridge.exposeInMainWorld("api", {
   // Diagnostics
   diagnostics: {
     getSyncErrors: () => ipcRenderer.invoke("diagnostics:get-sync-errors"),
+    foreignKeyCheck: () => ipcRenderer.invoke("diagnostics:foreign-key-check"),
+  },
+
+  // Updater
+  updater: {
+    getStatus: () => ipcRenderer.invoke("updater:get-status"),
+    check: () => ipcRenderer.invoke("updater:check"),
+    download: () => ipcRenderer.invoke("updater:download"),
+    quitAndInstall: () => ipcRenderer.invoke("updater:quit-and-install"),
   },
 
   // Reports
@@ -145,6 +157,11 @@ contextBridge.exposeInMainWorld("api", {
     generatePDF: (html: string, filename?: string) =>
       ipcRenderer.invoke("report:generate-pdf", { html, filename }),
     backupDatabase: () => ipcRenderer.invoke("report:backup-db"),
+    listBackups: () => ipcRenderer.invoke("report:list-backups"),
+    verifyBackup: (path: string) =>
+      ipcRenderer.invoke("report:verify-backup", { path }),
+    restoreDatabase: (path: string) =>
+      ipcRenderer.invoke("report:restore-db", { path }),
   },
 
   // Activity
@@ -202,8 +219,34 @@ contextBridge.exposeInMainWorld("api", {
 
   // Recharge (Alfa/MTC)
   getRechargeStock: () => ipcRenderer.invoke("recharge:get-stock"),
-  processRecharge: (data: unknown) =>
-    ipcRenderer.invoke("recharge:process", data),
+  processRecharge: (data: {
+    provider: "MTC" | "Alfa";
+    type: "CREDIT_TRANSFER" | "VOUCHER" | "DAYS";
+    amount: number;
+    cost: number;
+    price: number;
+    paid_by_method?: "CASH" | "OMT" | "WHISH" | "BINANCE";
+    phoneNumber?: string;
+  }) => ipcRenderer.invoke("recharge:process", data),
+
+  // Suppliers
+  listSuppliers: (search?: string) => ipcRenderer.invoke("suppliers:list", search),
+  getSupplierBalances: () => ipcRenderer.invoke("suppliers:balances"),
+  getSupplierLedger: (supplierId: number, limit?: number) =>
+    ipcRenderer.invoke("suppliers:ledger", supplierId, limit),
+  createSupplier: (data: {
+    name: string;
+    contact_name?: string;
+    phone?: string;
+    note?: string;
+  }) => ipcRenderer.invoke("suppliers:create", data),
+  addSupplierLedgerEntry: (data: {
+    supplier_id: number;
+    entry_type: "TOP_UP" | "PAYMENT" | "ADJUSTMENT";
+    amount_usd: number;
+    amount_lbp: number;
+    note?: string;
+  }) => ipcRenderer.invoke("suppliers:add-ledger-entry", data),
 
   // Maintenance
   saveMaintenanceJob: (job: unknown) =>

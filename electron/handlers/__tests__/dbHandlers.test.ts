@@ -109,52 +109,35 @@ describe("dbHandlers IPC: Closing functionality", () => {
 
   describe("closing:get-system-expected-balances", () => {
     it("should return correct expected balances based on sales, repayments, and expenses", async () => {
-      // Mock the database calls for calculations
-      const mockSalesResult = {
-        total_usd_sales: 1000,
-        total_lbp_sales: 1500000,
-      };
-      const mockRepaymentsResult = {
-        total_usd_repayments: 200,
-        total_lbp_repayments: 300000,
-      };
-      const mockExpensesResult = {
-        total_usd_expenses: 100,
-        total_lbp_expenses: 200000,
-      };
+      // New model: expected balances are read from drawer_balances
+      const drawerBalances = new Map<string, number>([
+        ["General|USD", 1100],
+        ["General|LBP", 1600000],
+        ["OMT|USD", 0],
+        ["OMT|LBP", 0],
+        ["Whish|USD", 0],
+        ["Whish|LBP", 0],
+        ["Binance|USD", 0],
+        ["Binance|LBP", 0],
+        ["MTC|USD", 0],
+        ["Alfa|USD", 0],
+      ]);
 
-      // Set up sequential get results for the prepare calls in dbHandlers.ts
-      (mockDbInstance.prepare as jest.Mock)
-        .mockImplementationOnce((sql) => ({
-          get: jest.fn(() => mockSalesResult),
-          run: jest.fn(),
-          all: jest.fn(),
-          _sql: sql,
-        })) // Sales query
-        .mockImplementationOnce((sql) => ({
-          get: jest.fn(() => mockRepaymentsResult),
-          run: jest.fn(),
-          all: jest.fn(),
-          _sql: sql,
-        })) // Debt_ledger query
-        .mockImplementationOnce((sql) => ({
-          get: jest.fn(() => mockExpensesResult),
-          run: jest.fn(),
-          all: jest.fn(),
-          _sql: sql,
-        })) // Expenses query
-        .mockImplementationOnce((sql) => ({
-          get: jest.fn(() => ({ total_usd: 0, total_lbp: 0 })),
-          run: jest.fn(),
-          all: jest.fn(),
-          _sql: sql,
-        })) // OMT inflows
-        .mockImplementationOnce((sql) => ({
-          get: jest.fn(() => ({ total_usd: 0, total_lbp: 0 })),
-          run: jest.fn(),
-          all: jest.fn(),
-          _sql: sql,
-        })); // OMT outflows
+      (mockDbInstance.prepare as jest.Mock).mockImplementation((sql: string) => {
+        if (sql.includes("FROM drawer_balances")) {
+          return {
+            get: jest.fn((drawer_name: string, currency_code: string) => {
+              const key = `${drawer_name}|${currency_code}`;
+              const balance = drawerBalances.get(key);
+              return balance != null ? { balance } : undefined;
+            }),
+            run: jest.fn(),
+            all: jest.fn(),
+            _sql: sql,
+          };
+        }
+        return { get: jest.fn(), run: jest.fn(), all: jest.fn(), _sql: sql };
+      });
 
       const handler = ipcMain.handle.mock.calls.find(
         (call) => call[0] === "closing:get-system-expected-balances",
@@ -162,28 +145,14 @@ describe("dbHandlers IPC: Closing functionality", () => {
       const result = await handler({}); // Pass empty event object
 
       expect(result).toEqual({
-        generalDrawer: {
-          usd: 1000 + 200 - 100, // Sales + Repayments - Expenses
-          lbp: 1500000 + 300000 - 200000,
-          eur: 0,
-        },
-        omtDrawer: {
-          usd: 0,
-          lbp: 0,
-          eur: 0,
-        },
-        mtcDrawer: {
-          usd: 0,
-          lbp: 0,
-          eur: 0,
-        },
-        alfaDrawer: {
-          usd: 0,
-          lbp: 0,
-          eur: 0,
-        },
+        generalDrawer: { usd: 1100, lbp: 1600000, eur: 0 },
+        omtDrawer: { usd: 0, lbp: 0, eur: 0 },
+        whishDrawer: { usd: 0, lbp: 0, eur: 0 },
+        binanceDrawer: { usd: 0, lbp: 0, eur: 0 },
+        mtcDrawer: { usd: 0, lbp: 0, eur: 0 },
+        alfaDrawer: { usd: 0, lbp: 0, eur: 0 },
       });
-      expect(mockDbInstance.prepare).toHaveBeenCalledTimes(7); // sales, debt_ledger, expenses, omt inflows, omt outflows, mtc recharges, alfa recharges
+      expect(mockDbInstance.prepare).toHaveBeenCalledTimes(10); // drawer_balances read per (drawer,currency) combo
     });
 
     it("should handle zero balances gracefully", async () => {
@@ -211,6 +180,8 @@ describe("dbHandlers IPC: Closing functionality", () => {
       expect(result).toEqual({
         generalDrawer: { usd: 0, lbp: 0, eur: 0 },
         omtDrawer: { usd: 0, lbp: 0, eur: 0 },
+        whishDrawer: { usd: 0, lbp: 0, eur: 0 },
+        binanceDrawer: { usd: 0, lbp: 0, eur: 0 },
         mtcDrawer: { usd: 0, lbp: 0, eur: 0 },
         alfaDrawer: { usd: 0, lbp: 0, eur: 0 },
       });
@@ -235,6 +206,8 @@ describe("dbHandlers IPC: Closing functionality", () => {
       expect(result).toEqual({
         generalDrawer: { usd: 0, lbp: 0, eur: 0 },
         omtDrawer: { usd: 0, lbp: 0, eur: 0 },
+        whishDrawer: { usd: 0, lbp: 0, eur: 0 },
+        binanceDrawer: { usd: 0, lbp: 0, eur: 0 },
         mtcDrawer: { usd: 0, lbp: 0, eur: 0 },
         alfaDrawer: { usd: 0, lbp: 0, eur: 0 },
       });
@@ -306,6 +279,7 @@ describe("dbHandlers IPC: Closing functionality", () => {
         mockData.system_expected_usd,
         mockData.system_expected_lbp,
         mockData.variance_notes ?? null,
+        null,
       );
 
       // Verify per-amount inserts were attempted

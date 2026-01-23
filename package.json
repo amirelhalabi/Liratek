@@ -95,8 +95,9 @@
   "build": {
     "publish": [
       {
-        "provider": "generic",
-        "url": "https://example.com/downloads/"
+        "provider": "github",
+        "owner": "amirelhalabi",
+        "repo": "Liratek"
       }
     ],
     "asar": true,

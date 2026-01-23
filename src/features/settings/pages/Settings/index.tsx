@@ -6,12 +6,14 @@ import CurrencyManager from "./CurrencyManager";
 import RatesManager from "./RatesManager";
 import ShopConfig from "./ShopConfig";
 import DrawerConfig from "./DrawerConfig";
+import SupplierLedger from "./SupplierLedger";
 import NotificationsConfig from "./NotificationsConfig";
 import ActivityLogViewer from "./ActivityLogViewer";
 
 type TabKey =
   | "shop"
   | "drawer"
+  | "suppliers"
   | "notifications"
   | "activity"
   | "currencies"
@@ -107,6 +109,7 @@ export default function Settings() {
             [
               { key: "shop", label: "Shop Config" },
               { key: "drawer", label: "Drawer Config" },
+              { key: "suppliers", label: "Suppliers" },
               { key: "notifications", label: "Notifications" },
               { key: "activity", label: "Activity Logs" },
               { key: "currencies", label: "Currencies" },
@@ -127,6 +130,7 @@ export default function Settings() {
         <div className="p-4">
           {active === "shop" && <ShopConfig />}
           {active === "drawer" && <DrawerConfig />}
+          {active === "suppliers" && <SupplierLedger />}
           {active === "notifications" && <NotificationsConfig />}
           {active === "activity" && <ActivityLogViewer />}
           {active === "currencies" && <CurrencyManager />}

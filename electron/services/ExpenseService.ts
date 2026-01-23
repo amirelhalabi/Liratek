@@ -29,10 +29,15 @@ export class ExpenseService {
       // Log activity
       this.repo.logActivity(1, "Add Expense", {
         category: data.category,
+        paid_by_method: data.paid_by_method || "CASH",
+        expense_type: data.expense_type,
         amount_usd: data.amount_usd,
+        amount_lbp: data.amount_lbp,
       });
 
-      console.log(`[EXPENSE] Added: ${data.category} - $${data.amount_usd}`);
+      console.log(
+        `[EXPENSE] Added: ${data.category} (${data.expense_type}) paid_by=${data.paid_by_method || "CASH"}`,
+      );
       return { success: true, id };
     } catch (error) {
       console.error("ExpenseService.addExpense error:", error);

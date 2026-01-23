@@ -10,11 +10,25 @@ export interface ElectronAPI {
     description: string;
     category: string;
     expense_type: string;
+    paid_by_method?: "CASH" | "OMT" | "WHISH" | "BINANCE";
     amount_usd: number;
     amount_lbp: number;
     expense_date: string;
   }) => Promise<{ success: boolean; id?: number; error?: string }>;
-  getTodayExpenses: () => Promise<Array<import("@liratek/shared").Expense>>;
+  getTodayExpenses: () => Promise<
+    Array<{
+      id: number;
+      description: string;
+      category: string;
+      expense_type: "Cash_Out" | "Non_Cash";
+      paid_by_method?: "CASH" | "OMT" | "WHISH" | "BINANCE";
+      amount_usd: number;
+      amount_lbp: number;
+      expense_date: string;
+      created_at?: string;
+      updated_at?: string;
+    }>
+  >;
   deleteExpense: (id: number) => Promise<{ success: boolean; error?: string }>;
 
   // Auth
@@ -70,10 +84,21 @@ export interface ElectronAPI {
       import("@liratek/shared").Product,
       "id" | "created_at" | "is_active"
     > & { is_active?: number },
-  ) => Promise<{ success: boolean; id?: number; error?: string }>;
+  ) => Promise<{
+    success: boolean;
+    id?: number;
+    error?: string;
+    code?: "DUPLICATE_BARCODE";
+    suggested_barcode?: string;
+  }>;
   updateProduct: (
     product: Partial<import("@liratek/shared").Product> & { id: number },
-  ) => Promise<{ success: boolean; error?: string }>;
+  ) => Promise<{
+    success: boolean;
+    error?: string;
+    code?: "DUPLICATE_BARCODE";
+    suggested_barcode?: string;
+  }>;
   deleteProduct: (id: number) => Promise<{ success: boolean; error?: string }>;
   adjustStock: (
     id: number,
@@ -101,6 +126,18 @@ export interface ElectronAPI {
   processSale: (
     saleData: import("@liratek/shared").SaleRequest,
   ) => Promise<{ success: boolean; saleId?: number; error?: string }>;
+
+  // Recharge
+  getRechargeStock: () => Promise<{ mtc: number; alfa: number }>;
+  processRecharge: (data: {
+    provider: "MTC" | "Alfa";
+    type: "CREDIT_TRANSFER" | "VOUCHER" | "DAYS";
+    amount: number;
+    cost: number;
+    price: number;
+    paid_by_method?: "CASH" | "OMT" | "WHISH" | "BINANCE";
+    phoneNumber?: string;
+  }) => Promise<{ success: boolean; saleId?: number; error?: string }>;
   getDashboardStats: () => Promise<{
     totalSalesUSD: number;
     totalSalesLBP: number;
@@ -269,6 +306,47 @@ export interface ElectronAPI {
     phoneNumber?: string;
   }) => Promise<{ success: boolean; saleId?: number; error?: string }>;
 
+  // Suppliers
+  listSuppliers: (search?: string) => Promise<
+    Array<{
+      id: number;
+      name: string;
+      contact_name: string | null;
+      phone: string | null;
+      note: string | null;
+      is_active: number;
+      created_at: string;
+    }>
+  >;
+  getSupplierBalances: () => Promise<
+    Array<{ supplier_id: number; total_usd: number; total_lbp: number }>
+  >;
+  getSupplierLedger: (supplierId: number, limit?: number) => Promise<
+    Array<{
+      id: number;
+      supplier_id: number;
+      entry_type: "TOP_UP" | "PAYMENT" | "ADJUSTMENT";
+      amount_usd: number;
+      amount_lbp: number;
+      note: string | null;
+      created_by: number | null;
+      created_at: string;
+    }>
+  >;
+  createSupplier: (data: {
+    name: string;
+    contact_name?: string;
+    phone?: string;
+    note?: string;
+  }) => Promise<{ success: boolean; id?: number; error?: string }>;
+  addSupplierLedgerEntry: (data: {
+    supplier_id: number;
+    entry_type: "TOP_UP" | "PAYMENT" | "ADJUSTMENT";
+    amount_usd: number;
+    amount_lbp: number;
+    note?: string;
+  }) => Promise<{ success: boolean; id?: number; error?: string }>;
+
   // Maintenance
   saveMaintenanceJob: (job: {
     id?: number;
@@ -321,10 +399,22 @@ export interface ElectronAPI {
   };
 
   // Diagnostics
+  updater: {
+    getStatus: () => Promise<{ packaged: boolean; platform: string; version: string }>;
+    check: () => Promise<{ success: boolean; updateInfo?: unknown; error?: string }>;
+    download: () => Promise<{ success: boolean; result?: unknown; error?: string }>;
+    quitAndInstall: () => Promise<{ success: boolean; error?: string }>;
+  };
+
   diagnostics: {
     getSyncErrors: () => Promise<
       Array<{ id: number; endpoint: string; error: string; created_at: string }>
     >;
+    foreignKeyCheck: () => Promise<{
+      success: boolean;
+      rows?: Array<Record<string, unknown>>;
+      error?: string;
+    }>;
   };
 
   // Reports
@@ -338,6 +428,17 @@ export interface ElectronAPI {
       path?: string;
       error?: string;
     }>;
+    listBackups: () => Promise<{
+      success: boolean;
+      backups?: Array<{ path: string; filename: string; createdAtMs: number }>;
+      error?: string;
+    }>;
+    verifyBackup: (path: string) => Promise<{
+      success: boolean;
+      ok?: boolean;
+      error?: string;
+    }>;
+    restoreDatabase: (path: string) => Promise<{ success: boolean; error?: string }>;
   };
 
   // Closing
@@ -345,6 +446,8 @@ export interface ElectronAPI {
     getSystemExpectedBalances: () => Promise<{
       generalDrawer: { usd: number; lbp: number; eur: number };
       omtDrawer: { usd: number; lbp: number; eur: number };
+      whishDrawer: { usd: number; lbp: number; eur: number };
+      binanceDrawer: { usd: number; lbp: number; eur: number };
       mtcDrawer: { usd: number; lbp: number; eur: number };
       alfaDrawer: { usd: number; lbp: number; eur: number };
     }>;
@@ -369,6 +472,8 @@ export interface ElectronAPI {
       user_id?: number;
       variance_notes?: string;
       report_path?: string;
+      system_expected_usd?: number;
+      system_expected_lbp?: number;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     updateDailyClosing: (data: {
       id: number;

@@ -116,6 +116,17 @@ This will:
 
 ## ✨ Features
 
+### Operational / Admin Tooling
+
+- **Local backups**: create/list/verify/restore database backups (admin-only) from Settings → Diagnostics
+- **Automatic backups**: scheduled backups with retention pruning (configurable)
+- **Foreign key integrity**: FK enforcement enabled + on-demand FK check (Settings → Diagnostics)
+- **Auto-updater (GitHub Releases)**: check/download/install updates (packaged builds only)
+- **Closing report PDFs**: daily closing auto-generates a PDF and persists `report_path`
+- **Versioned SQL migrations + performance indexes**: idempotent migration runner + additional indexes
+
+---
+
 ### 1. Point of Sale
 
 - Product search (name/barcode)
@@ -274,6 +285,17 @@ Prefixed output in terminal:
 - `[SALES]` - Sales & dashboard stats
 - `[DEBT]` - Debt transactions
 - `[DB]` - Database operations
+
+### Backups / Restore / FK Checks
+
+- Backups directory: `Documents/LiratekBackups/`
+- Diagnostics (admin): Settings → Diagnostics
+  - Local backups: Backup Now / Verify / Restore
+  - Foreign key check: Run FK Check Now
+
+Notes:
+- Restore replaces the local DB and restarts the app.
+- On startup, the app runs `PRAGMA foreign_keys = ON` and a non-fatal `foreign_key_check`.
 
 ### Common Issues
 

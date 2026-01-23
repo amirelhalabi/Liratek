@@ -69,6 +69,7 @@ export class ClosingService {
       data.system_expected_usd || 0,
       data.system_expected_lbp || 0,
       data.variance_notes,
+      data.report_path,
     );
   }
 
@@ -116,6 +117,8 @@ export class ClosingService {
       return {
         generalDrawer: { usd: 0, lbp: 0, eur: 0 },
         omtDrawer: { usd: 0, lbp: 0, eur: 0 },
+        whishDrawer: { usd: 0, lbp: 0, eur: 0 },
+        binanceDrawer: { usd: 0, lbp: 0, eur: 0 },
         mtcDrawer: { usd: 0, lbp: 0, eur: 0 },
         alfaDrawer: { usd: 0, lbp: 0, eur: 0 },
       };
