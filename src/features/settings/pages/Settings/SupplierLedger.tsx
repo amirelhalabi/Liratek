@@ -195,7 +195,7 @@ export default function SupplierLedger() {
                   <label className="block text-xs text-slate-400 mb-1">Entry Type</label>
                   <select
                     value={entryType}
-                    onChange={(e) => setEntryType(e.target.value as any)}
+                    onChange={(e) => setEntryType(e.target.value as "TOP_UP" | "PAYMENT" | "ADJUSTMENT")}
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white"
                   >
                     <option value="TOP_UP">TOP_UP</option>

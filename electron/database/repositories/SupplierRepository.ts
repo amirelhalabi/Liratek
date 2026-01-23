@@ -54,7 +54,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
   listSuppliers(search?: string): SupplierEntity[] {
     try {
       let sql = `SELECT * FROM suppliers WHERE is_active = 1`;
-      const params: any[] = [];
+      const params: string[] = [];
       if (search?.trim()) {
         sql += ` AND name LIKE ?`;
         params.push(`%${search.trim()}%`);

@@ -9,9 +9,14 @@ export default function Diagnostics() {
 
   const [fkCheckLoading, setFkCheckLoading] = useState(false);
   const [fkCheckError, setFkCheckError] = useState<string | null>(null);
-  const [fkRows, setFkRows] = useState<Array<Record<string, unknown>> | null>(
-    null,
-  );
+  type ForeignKeyRow = {
+    table?: string;
+    rowid?: string | number;
+    parent?: string;
+    fkid?: string | number;
+    [key: string]: unknown;
+  };
+  const [fkRows, setFkRows] = useState<ForeignKeyRow[] | null>(null);
 
   const [backups, setBackups] = useState<
     Array<{ path: string; filename: string; createdAtMs: number }>
@@ -155,7 +160,7 @@ export default function Diagnostics() {
   useEffect(() => {
     load();
     loadBackups();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, []);
 
   return (
@@ -213,16 +218,16 @@ export default function Diagnostics() {
                       {fkRows.map((r, idx) => (
                         <tr key={idx} className="border-t border-slate-800">
                           <td className="p-2 font-mono">
-                            {String((r as any).table ?? "")}
+                            {String(r.table ?? "")}
                           </td>
                           <td className="p-2 font-mono">
-                            {String((r as any).rowid ?? "")}
+                            {String(r.rowid ?? "")}
                           </td>
                           <td className="p-2 font-mono">
-                            {String((r as any).parent ?? "")}
+                            {String(r.parent ?? "")}
                           </td>
                           <td className="p-2 font-mono">
-                            {String((r as any).fkid ?? "")}
+                            {String(r.fkid ?? "")}
                           </td>
                         </tr>
                       ))}

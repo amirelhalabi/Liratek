@@ -14,7 +14,7 @@ export default function UpdatesPanel() {
     try {
       const res = await window.api.updater.getStatus();
       setStatus(res);
-    } catch (e) {
+    } catch (_e: unknown) {
       setStatus(null);
     }
   };
@@ -30,8 +30,8 @@ export default function UpdatesPanel() {
       const res = await window.api.updater.check();
       if (!res.success) throw new Error(res.error || "Check failed");
       setInfo(res.updateInfo ? JSON.stringify(res.updateInfo, null, 2) : null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Check failed");
+    } catch (_e) {
+      setError(_e instanceof Error ? _e.message : "Check failed");
     } finally {
       setLoading(false);
     }
@@ -43,8 +43,8 @@ export default function UpdatesPanel() {
     try {
       const res = await window.api.updater.download();
       if (!res.success) throw new Error(res.error || "Download failed");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Download failed");
+    } catch (_e) {
+      setError(_e instanceof Error ? _e.message : "Download failed");
     } finally {
       setLoading(false);
     }
@@ -56,8 +56,8 @@ export default function UpdatesPanel() {
     try {
       const res = await window.api.updater.quitAndInstall();
       if (!res.success) throw new Error(res.error || "Install failed");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Install failed");
+    } catch (_e) {
+      setError(_e instanceof Error ? _e.message : "Install failed");
       setLoading(false);
     }
   };

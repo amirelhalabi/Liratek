@@ -235,10 +235,24 @@ export default function CheckoutModal({
     }
   };
 
+  const [receiptNumber, setReceiptNumber] = useState<string>("");
+
+  // Generate receipt number only once when modal is opened
+  useEffect(() => {
+    if (!receiptNumber) {
+      setReceiptNumber(`RCP-${Date.now()}`);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const generateReceiptPreview = () => {
+    // Generate and store receipt number if not already set
+    if (!receiptNumber) {
+      setReceiptNumber(generateReceiptNumber());
+    }
     const receipt: ReceiptData = {
       shop_name: "Corner Tech",
-      receipt_number: `RCP-${Date.now()}`,
+      receipt_number: receiptNumber || generateReceiptNumber(),
       client_name:
         selectedClient?.full_name || clientSearch || "Walk-in Customer",
       client_phone: selectedClient?.phone_number || secondaryInput,

@@ -32,7 +32,7 @@ export function registerReportHandlers(): void {
     const res = await service.backupDatabase();
     if (res.success) {
       try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
+         
         const { SettingsService } = require("../services/SettingsService");
         const settings = new SettingsService();
         settings.updateSetting("last_backup_at", new Date().toISOString());
@@ -87,7 +87,7 @@ export function registerReportHandlers(): void {
 
       try {
         // Close DB connection if open
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
+         
         const { closeDatabase } = require("../db");
         closeDatabase();
       } catch {}

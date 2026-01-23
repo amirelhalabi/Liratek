@@ -22,6 +22,7 @@ import {
 } from "../database/repositories";
 import { ValidationError, NotFoundError } from "../utils/errors";
 import { toErrorString, getRepoConstraintCode } from "../utils/errors";
+import { generateUniqueNumericBarcode, suggestDuplicateBarcode } from "../utils/barcode";
 
 // =============================================================================
 // Types
@@ -116,7 +117,6 @@ export class InventoryService {
     // - If provided and duplicates exist, return a structured duplicate error.
     let barcode = data.barcode?.trim() || "";
     if (!barcode) {
-      const { generateUniqueNumericBarcode } = require("../utils/barcode");
       barcode = generateUniqueNumericBarcode((code: string) =>
         this.productRepo.barcodeExists(code),
       );
@@ -136,7 +136,6 @@ export class InventoryService {
 
     // Check for duplicate barcode
     if (barcode && this.productRepo.barcodeExists(barcode)) {
-      const { suggestDuplicateBarcode } = require("../utils/barcode");
       const suggested = suggestDuplicateBarcode(barcode, (code: string) =>
         this.productRepo.barcodeExists(code),
       );
@@ -192,7 +191,6 @@ export class InventoryService {
 
     // Check for duplicate barcode (excluding this product)
     if (data.barcode && this.productRepo.barcodeExists(data.barcode, id)) {
-      const { suggestDuplicateBarcode } = require("../utils/barcode");
       const suggested = suggestDuplicateBarcode(data.barcode, (code: string) =>
         this.productRepo.barcodeExists(code, id),
       );

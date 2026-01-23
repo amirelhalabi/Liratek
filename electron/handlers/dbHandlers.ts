@@ -269,7 +269,7 @@ export function registerDatabaseHandlers(): void {
     } catch {}
 
     try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
+       
       const { getDatabase } = require("../db");
       const db = getDatabase();
       const rows = db.pragma("foreign_key_check");
