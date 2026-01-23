@@ -37,6 +37,8 @@ export interface DrawerBalances {
 export interface SystemExpectedBalances {
   generalDrawer: DrawerBalances;
   omtDrawer: DrawerBalances;
+  whishDrawer: DrawerBalances;
+  binanceDrawer: DrawerBalances;
   mtcDrawer: DrawerBalances;
   alfaDrawer: DrawerBalances;
 }
@@ -99,6 +101,14 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
       `);
 
       if (exists && exists.id) {
+        const upsertBalance = this.db.prepare(`
+          INSERT INTO drawer_balances (drawer_name, currency_code, balance)
+          VALUES (?, ?, ?)
+          ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+            balance=excluded.balance,
+            updated_at=CURRENT_TIMESTAMP
+        `);
+
         const tx = this.db.transaction((rows: OpeningBalanceAmount[]) => {
           for (const r of rows) {
             upsertAmounts.run(
@@ -107,6 +117,8 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
               r.currency_code,
               r.opening_amount,
             );
+            // Opening sets the running expected balance baseline
+            upsertBalance.run(r.drawer_name, r.currency_code, r.opening_amount);
           }
         });
         tx(amounts);
@@ -121,6 +133,14 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
         `);
         const res = stmt.run(closingDate);
 
+        const upsertBalance = this.db.prepare(`
+          INSERT INTO drawer_balances (drawer_name, currency_code, balance)
+          VALUES (?, ?, ?)
+          ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+            balance=excluded.balance,
+            updated_at=CURRENT_TIMESTAMP
+        `);
+
         const tx = this.db.transaction((rows: OpeningBalanceAmount[]) => {
           for (const r of rows) {
             upsertAmounts.run(
@@ -129,6 +149,8 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
               r.currency_code,
               r.opening_amount,
             );
+            // Opening sets the running expected balance baseline
+            upsertBalance.run(r.drawer_name, r.currency_code, r.opening_amount);
           }
         });
         tx(amounts);
@@ -154,20 +176,22 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
     systemExpectedUsd: number,
     systemExpectedLbp: number,
     varianceNotes?: string,
+    reportPath?: string,
   ): { success: boolean; id?: number | bigint; error?: string } {
     try {
       const stmt = this.db.prepare(`
         INSERT INTO daily_closings (
           closing_date, drawer_name, opening_balance_usd, opening_balance_lbp,
           physical_usd, physical_lbp, physical_eur, system_expected_usd,
-          system_expected_lbp, variance_usd, notes
-        ) VALUES (?, 'AGGREGATED', 0, 0, 0, 0, 0, ?, ?, 0, ?)
+          system_expected_lbp, variance_usd, notes, report_path
+        ) VALUES (?, 'AGGREGATED', 0, 0, 0, 0, 0, ?, ?, 0, ?, ?)
       `);
       const result = stmt.run(
         closingDate,
         systemExpectedUsd || 0,
         systemExpectedLbp || 0,
         varianceNotes || null,
+        reportPath || null,
       );
 
       const upsertAmounts = this.db.prepare(`
@@ -263,120 +287,22 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
    * Get system expected balances for today
    */
   getSystemExpectedBalances(): SystemExpectedBalances {
-    const today = new Date().toISOString().split("T")[0];
-
-    // Sales
-    const salesResult = this.db
-      .prepare(
-        `SELECT 
-          SUM(paid_usd) as total_usd_sales,
-          SUM(paid_lbp) as total_lbp_sales
-         FROM sales 
-         WHERE DATE(created_at) = ? AND status = 'completed'`,
-      )
-      .get(today) as
-      | { total_usd_sales: number; total_lbp_sales: number }
-      | undefined;
-
-    // Debt Repayments
-    const repaymentsResult = this.db
-      .prepare(
-        `SELECT 
-          SUM(ABS(amount_usd)) as total_usd_repayments,
-          SUM(ABS(amount_lbp)) as total_lbp_repayments
-         FROM debt_ledger
-         WHERE DATE(created_at) = ? AND transaction_type = 'Repayment'`,
-      )
-      .get(today) as
-      | { total_usd_repayments: number; total_lbp_repayments: number }
-      | undefined;
-
-    // Expenses
-    const expensesResult = this.db
-      .prepare(
-        `SELECT 
-          SUM(amount_usd) as total_usd_expenses,
-          SUM(amount_lbp) as total_lbp_expenses
-         FROM expenses 
-         WHERE DATE(expense_date) = ?`,
-      )
-      .get(today) as
-      | { total_usd_expenses: number; total_lbp_expenses: number }
-      | undefined;
-
-    // General Drawer
-    const expectedUsd =
-      (salesResult?.total_usd_sales || 0) +
-      (repaymentsResult?.total_usd_repayments || 0) -
-      (expensesResult?.total_usd_expenses || 0);
-    const expectedLbp =
-      (salesResult?.total_lbp_sales || 0) +
-      (repaymentsResult?.total_lbp_repayments || 0) -
-      (expensesResult?.total_lbp_expenses || 0);
-
-    // OMT Drawer
-    const omtInflows = this.db
-      .prepare(
-        `SELECT 
-          COALESCE(SUM(amount_usd), 0) as total_usd,
-          COALESCE(SUM(amount_lbp), 0) as total_lbp
-         FROM financial_services
-         WHERE DATE(created_at) = ? AND provider = 'OMT' AND service_type = 'RECEIVE'`,
-      )
-      .get(today) as { total_usd: number; total_lbp: number } | undefined;
-
-    const omtOutflows = this.db
-      .prepare(
-        `SELECT 
-          COALESCE(SUM(amount_usd), 0) as total_usd,
-          COALESCE(SUM(amount_lbp), 0) as total_lbp
-         FROM financial_services
-         WHERE DATE(created_at) = ? AND provider = 'OMT' AND service_type = 'SEND'`,
-      )
-      .get(today) as { total_usd: number; total_lbp: number } | undefined;
-
-    const expectedOmtUsd =
-      (omtInflows?.total_usd || 0) - (omtOutflows?.total_usd || 0);
-    const expectedOmtLbp =
-      (omtInflows?.total_lbp || 0) - (omtOutflows?.total_lbp || 0);
-
-    // MTC Drawer (recharge sales for Touch)
-    // Note: Recharges table may not exist yet - handle gracefully
-    let mtcRecharges: { total_usd: number } | undefined;
-    let alfaRecharges: { total_usd: number } | undefined;
-
-    try {
-      mtcRecharges = this.db
+    const getBalance = (drawer_name: string, currency_code: string): number => {
+      const row = this.db
         .prepare(
-          `SELECT COALESCE(SUM(amount_usd), 0) as total_usd
-           FROM recharges
-           WHERE DATE(created_at) = ? AND carrier = 'Touch'`,
+          `SELECT balance FROM drawer_balances WHERE drawer_name = ? AND currency_code = ?`,
         )
-        .get(today) as { total_usd: number } | undefined;
-    } catch (_error) {
-      // Table doesn't exist yet, default to 0
-      mtcRecharges = { total_usd: 0 };
-    }
-
-    // Alfa Drawer (recharge sales for Alfa)
-    try {
-      alfaRecharges = this.db
-        .prepare(
-          `SELECT COALESCE(SUM(amount_usd), 0) as total_usd
-           FROM recharges
-           WHERE DATE(created_at) = ? AND carrier = 'Alfa'`,
-        )
-        .get(today) as { total_usd: number } | undefined;
-    } catch (_error) {
-      // Table doesn't exist yet, default to 0
-      alfaRecharges = { total_usd: 0 };
-    }
+        .get(drawer_name, currency_code) as { balance: number } | undefined;
+      return row?.balance ?? 0;
+    };
 
     return {
-      generalDrawer: { usd: expectedUsd, lbp: expectedLbp, eur: 0 },
-      omtDrawer: { usd: expectedOmtUsd, lbp: expectedOmtLbp, eur: 0 },
-      mtcDrawer: { usd: mtcRecharges?.total_usd || 0, lbp: 0, eur: 0 },
-      alfaDrawer: { usd: alfaRecharges?.total_usd || 0, lbp: 0, eur: 0 },
+      generalDrawer: { usd: getBalance("General", "USD"), lbp: getBalance("General", "LBP"), eur: 0 },
+      omtDrawer: { usd: getBalance("OMT", "USD"), lbp: getBalance("OMT", "LBP"), eur: 0 },
+      whishDrawer: { usd: getBalance("Whish", "USD"), lbp: getBalance("Whish", "LBP"), eur: 0 },
+      binanceDrawer: { usd: getBalance("Binance", "USD"), lbp: getBalance("Binance", "LBP"), eur: 0 },
+      mtcDrawer: { usd: getBalance("MTC", "USD"), lbp: 0, eur: 0 },
+      alfaDrawer: { usd: getBalance("Alfa", "USD"), lbp: 0, eur: 0 },
     };
   }
 

@@ -1,11 +1,11 @@
 /**
  * Exchange Repository
- * 
+ *
  * Handles all exchange_transactions table operations.
  * Uses BaseRepository for common functionality.
  */
 
-import { BaseRepository } from './BaseRepository';
+import { BaseRepository } from "./BaseRepository";
 
 // =============================================================================
 // Entity Types
@@ -41,7 +41,7 @@ export interface CreateExchangeData {
 
 export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity> {
   constructor() {
-    super('exchange_transactions', { softDelete: false });
+    super("exchange_transactions", { softDelete: false });
   }
 
   // ---------------------------------------------------------------------------
@@ -52,23 +52,58 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
    * Create a new exchange transaction
    */
   createTransaction(data: CreateExchangeData): { id: number } {
-    const stmt = this.db.prepare(`
-      INSERT INTO exchange_transactions (
-        type, from_currency, to_currency, amount_in, amount_out, rate, client_name, note
-      ) VALUES ('EXCHANGE', ?, ?, ?, ?, ?, ?, ?)
-    `);
+    // Exchange is considered a movement inside the General cash drawer unless we add drawer selection later.
+    const drawerName = "General";
+    const createdBy = 1;
+    const note = data.note || null;
 
-    const result = stmt.run(
-      data.fromCurrency,
-      data.toCurrency,
-      data.amountIn,
-      data.amountOut,
-      data.rate,
-      data.clientName || null,
-      data.note || null
-    );
+    return this.db.transaction(() => {
+      const stmt = this.db.prepare(`
+        INSERT INTO exchange_transactions (
+          type, from_currency, to_currency, amount_in, amount_out, rate, client_name, note
+        ) VALUES ('EXCHANGE', ?, ?, ?, ?, ?, ?, ?)
+      `);
 
-    return { id: Number(result.lastInsertRowid) };
+      const result = stmt.run(
+        data.fromCurrency,
+        data.toCurrency,
+        data.amountIn,
+        data.amountOut,
+        data.rate,
+        data.clientName || null,
+        data.note || null,
+      );
+
+      const id = Number(result.lastInsertRowid);
+
+      const insertPayment = this.db.prepare(`
+        INSERT INTO payments (
+          source_type, source_id, method, drawer_name, currency_code, amount, note, created_by
+        ) VALUES (
+          'EXCHANGE', ?, 'CASH', ?, ?, ?, ?, ?
+        )
+      `);
+
+      const upsertBalanceDelta = this.db.prepare(`
+        INSERT INTO drawer_balances (drawer_name, currency_code, balance)
+        VALUES (?, ?, ?)
+        ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+          balance = drawer_balances.balance + excluded.balance,
+          updated_at = CURRENT_TIMESTAMP
+      `);
+
+      // Outflow in fromCurrency
+      const fromDelta = -Math.abs(data.amountIn);
+      insertPayment.run(id, drawerName, data.fromCurrency, fromDelta, note, createdBy);
+      upsertBalanceDelta.run(drawerName, data.fromCurrency, fromDelta);
+
+      // Inflow in toCurrency
+      const toDelta = Math.abs(data.amountOut);
+      insertPayment.run(id, drawerName, data.toCurrency, toDelta, note, createdBy);
+      upsertBalanceDelta.run(drawerName, data.toCurrency, toDelta);
+
+      return { id };
+    })();
   }
 
   /**
@@ -81,13 +116,13 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
     `);
     logStmt.run(
       JSON.stringify({
-        drawer: 'General_Drawer_B',
+        drawer: "General_Drawer_B",
         from: data.fromCurrency,
         to: data.toCurrency,
         amountIn: data.amountIn,
         amountOut: data.amountOut,
-        rate: data.rate
-      })
+        rate: data.rate,
+      }),
     );
   }
 
@@ -131,11 +166,15 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
       FROM exchange_transactions 
       WHERE DATE(created_at, 'localtime') = DATE('now', 'localtime')
     `);
-    const result = stmt.get() as { total_in: number; total_out: number; count: number };
+    const result = stmt.get() as {
+      total_in: number;
+      total_out: number;
+      count: number;
+    };
     return {
       totalIn: result.total_in,
       totalOut: result.total_out,
-      count: result.count
+      count: result.count,
     };
   }
 }

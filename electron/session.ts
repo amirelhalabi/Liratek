@@ -19,9 +19,11 @@ interface StoredSession {
 
 const sessions = new Map<number, SessionData>(); // key: webContents.id
 
+// Cache for stored session to avoid multiple keychain prompts
+let storedSessionCache: StoredSession | null | undefined = undefined;
+
 // File path for encrypted session storage
-const getSessionFilePath = () =>
-  path.join(app.getPath("userData"), ".session");
+const getSessionFilePath = () => path.join(app.getPath("userData"), ".session");
 
 /**
  * Generate a cryptographically secure session token
@@ -49,6 +51,10 @@ export function storeEncryptedSession(userId: number): string | null {
 
     const encrypted = safeStorage.encryptString(JSON.stringify(sessionData));
     fs.writeFileSync(getSessionFilePath(), encrypted);
+    
+    // Update cache
+    storedSessionCache = sessionData;
+    
     console.log("[SESSION] Encrypted session stored");
     return token;
   } catch (error) {
@@ -61,14 +67,21 @@ export function storeEncryptedSession(userId: number): string | null {
  * Retrieve and decrypt session from disk
  */
 export function getEncryptedSession(): StoredSession | null {
+  // Return cached value if already loaded (prevents multiple keychain prompts)
+  if (storedSessionCache !== undefined) {
+    return storedSessionCache;
+  }
+
   try {
     const filePath = getSessionFilePath();
     if (!fs.existsSync(filePath)) {
+      storedSessionCache = null;
       return null;
     }
 
     if (!safeStorage.isEncryptionAvailable()) {
       console.warn("[SESSION] safeStorage encryption not available");
+      storedSessionCache = null;
       return null;
     }
 
@@ -84,6 +97,8 @@ export function getEncryptedSession(): StoredSession | null {
       return null;
     }
 
+    // Cache the session
+    storedSessionCache = session;
     return session;
   } catch (error) {
     console.error("[SESSION] Failed to read encrypted session:", error);
@@ -102,6 +117,8 @@ export function clearEncryptedSession(): void {
       fs.unlinkSync(filePath);
       console.log("[SESSION] Encrypted session cleared");
     }
+    // Clear cache
+    storedSessionCache = null;
   } catch (error) {
     console.error("[SESSION] Failed to clear encrypted session:", error);
   }

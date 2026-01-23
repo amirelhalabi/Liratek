@@ -51,10 +51,12 @@ Standardize the Opening and Closing shift modals to have identical fields for tr
 
 ### 1. **Standardize Drawer Types**
 
-Both modals should support the same 4 drawers:
+Both modals should support the same drawers (method/module-based wallets):
 
-- ✅ **General Drawer** (USD + LBP)
-- ✅ **OMT Drawer** (USD or LBP)
+- ✅ **General Drawer (CASH)** (USD + LBP)
+- ✅ **OMT Drawer** (USD + LBP)
+- ✅ **Whish Drawer** (USD + LBP)
+- ✅ **Binance Drawer** (USD + LBP)
 - ✅ **MTC** (Touch amounts in $)
 - ✅ **Alfa** (amounts in $)
 
@@ -62,10 +64,12 @@ Both modals should support the same 4 drawers:
 
 | Drawer Type | Currencies/Fields                         |
 | ----------- | ----------------------------------------- |
-| **General** | USD, LBP (dynamic from active currencies) |
-| **OMT**     | USD, LBP (dynamic from active currencies) |
-| **MTC**     | USD only (single field)                   |
-| **Alfa**    | USD only (single field)                   |
+| **General (CASH)** | USD, LBP (dynamic from active currencies) |
+| **OMT**           | USD, LBP (dynamic from active currencies) |
+| **Whish**         | USD, LBP (dynamic from active currencies) |
+| **Binance**       | USD, LBP (dynamic from active currencies) |
+| **MTC**           | USD only (single field)                   |
+| **Alfa**          | USD only (single field)                   |
 
 **Note:** MTC and Alfa are mobile carrier top-up services that only deal in USD.
 
@@ -127,11 +131,14 @@ Both modals should support the same 4 drawers:
 
 **File:** `electron/database/repositories/ClosingRepository.ts`
 
-**Changes:**
+**Changes (Updated Design):**
 
-1. Update `getSystemExpectedBalances()` to calculate MTC and Alfa expected amounts
-2. Query sales/transactions for MTC and Alfa drawers
-3. Return expected balances for all 4 drawers
+1. `getSystemExpectedBalances()` reads expected amounts directly from `drawer_balances`
+2. Every transaction that affects a drawer writes an auditable row into `payments` and updates `drawer_balances` atomically
+3. Opening sets the baseline by writing opening counts into `drawer_balances`
+4. Closing compares physical counts vs `drawer_balances` expected
+
+> Note: This replaces the older approach of deriving expected balances by summing daily sales/expenses/services.
 
 ### Phase 2: Auto-Open After Login
 
@@ -197,8 +204,8 @@ getTodayDate(): string
 1. Login → Opening modal auto-opens
 2. Set opening balances for all 4 drawers
 3. Perform transactions throughout the day
-4. Open closing modal → verify all 4 drawers
-5. Compare opening vs closing amounts
+4. Open closing modal → verify all drawers shown (General, OMT, Whish, Binance, MTC, Alfa)
+5. Compare opening vs closing amounts (expected from `drawer_balances`)
 6. Verify variance calculations
 
 ---

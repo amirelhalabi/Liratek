@@ -1,6 +1,7 @@
 /** @jest-environment jsdom */
 
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act } from "react";
 import Closing from "../Closing";
 
 jest.mock("../../../../auth/context/AuthContext", () => ({
@@ -67,6 +68,12 @@ describe("Closing modal", () => {
       closing: {
         createDailyClosing: jest.fn(),
       },
+      settings: {
+        getAll: jest.fn().mockResolvedValue([
+          { key_name: "closing_variance_threshold_pct", value: "5" },
+        ]),
+        update: jest.fn(),
+      },
     };
 
     mockGetDisplayValue.mockReturnValue("");
@@ -103,7 +110,9 @@ describe("Closing modal", () => {
     render(<Closing isOpen={true} onClose={onClose} />);
 
     fireEvent.click(screen.getByText("Next Step"));
-    expect(screen.getByText(/Please enter at least one amount before proceeding/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Please enter at least one amount before proceeding/),
+    ).toBeInTheDocument();
   });
 
   it("step 1: goes to step 2 and fetches expected balances", async () => {
@@ -111,7 +120,9 @@ describe("Closing modal", () => {
 
     render(<Closing isOpen={true} onClose={onClose} />);
 
-    fireEvent.click(screen.getByText("Next Step"));
+    await act(async () => {
+      fireEvent.click(screen.getByText("Next Step"));
+    });
 
     // subtitle changes to step 2
     expect(screen.getByText(/Step 2 of 3/)).toBeInTheDocument();
@@ -121,8 +132,16 @@ describe("Closing modal", () => {
     });
   });
 
-  it("step 2: renders variance cards when systemExpected is available", () => {
-    setupDrawerAmounts({ hasAnyAmounts: true, amounts: { General: { USD: 10 }, OMT: { USD: 0 }, MTC: { USD: 0 }, Alfa: { USD: 0 } } });
+  it("step 2: renders variance cards when systemExpected is available", async () => {
+    setupDrawerAmounts({
+      hasAnyAmounts: true,
+      amounts: {
+        General: { USD: 10 },
+        OMT: { USD: 0 },
+        MTC: { USD: 0 },
+        Alfa: { USD: 0 },
+      },
+    });
     mockUseSystemExpected.mockReturnValue({
       systemExpected: {
         generalDrawer: { usd: 5 },
@@ -138,11 +157,52 @@ describe("Closing modal", () => {
 
     render(<Closing isOpen={true} onClose={onClose} />);
 
-    fireEvent.click(screen.getByText("Next Step"));
+    await act(async () => {
+      fireEvent.click(screen.getByText("Next Step"));
+    });
 
     expect(screen.getByText(/Variance Review/)).toBeInTheDocument();
     // should show at least one drawer label
     expect(screen.getAllByText("General").length).toBeGreaterThan(0);
+  });
+
+  it("step 2: shows warning banner when variance exceeds threshold", async () => {
+    // Make physical far from expected to exceed threshold.
+    setupDrawerAmounts({
+      hasAnyAmounts: true,
+      amounts: {
+        General: { USD: 1000 },
+        OMT: {},
+        MTC: {},
+        Alfa: {},
+      },
+    });
+
+    mockUseSystemExpected.mockReturnValue({
+      systemExpected: {
+        generalDrawer: { usd: 100, lbp: 0, eur: 0 },
+        omtDrawer: { usd: 0, lbp: 0, eur: 0 },
+        mtcDrawer: { usd: 0, lbp: 0, eur: 0 },
+        alfaDrawer: { usd: 0, lbp: 0, eur: 0 },
+      },
+      loading: false,
+      error: null,
+      fetchSystemExpected: mockFetchSystemExpected,
+      getExpectedAmount: mockGetExpectedAmount,
+    });
+
+    render(<Closing isOpen={true} onClose={onClose} />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("Next Step"));
+      // flush effects (threshold load)
+      await Promise.resolve();
+    });
+
+    // Threshold is configured at 5% in settings mock (beforeEach)
+    expect(
+      await screen.findByText(/Variance threshold exceeded \(5%\+\)/),
+    ).toBeInTheDocument();
   });
 
   it("step 3: allows adding notes and saves successfully", async () => {
@@ -150,7 +210,12 @@ describe("Closing modal", () => {
 
     setupDrawerAmounts({
       hasAnyAmounts: true,
-      amounts: { General: { USD: 10 }, OMT: { USD: 0 }, MTC: { USD: 0 }, Alfa: { USD: 0 } },
+      amounts: {
+        General: { USD: 10 },
+        OMT: { USD: 0 },
+        MTC: { USD: 0 },
+        Alfa: { USD: 0 },
+      },
     });
     mockUseSystemExpected.mockReturnValue({
       systemExpected: {
@@ -165,20 +230,29 @@ describe("Closing modal", () => {
       getExpectedAmount: (_drawer: string, _code: string) => 0,
     });
 
-    (window as any).api.closing.createDailyClosing.mockResolvedValue({ success: true });
+    (window as any).api.closing.createDailyClosing.mockResolvedValue({
+      success: true,
+    });
 
     render(<Closing isOpen={true} onClose={onClose} />);
 
     // to step 2
-    fireEvent.click(screen.getByText("Next Step"));
+    await act(async () => {
+      fireEvent.click(screen.getByText("Next Step"));
+    });
     // to step 3
-    fireEvent.click(screen.getByText("Next Step"));
+    await act(async () => {
+      fireEvent.click(screen.getByText("Next Step"));
+    });
 
     expect(screen.getByText(/Step 3 of 3/)).toBeInTheDocument();
 
-    fireEvent.change(screen.getByPlaceholderText("Explain any variances or issues..."), {
-      target: { value: "note" },
-    });
+    fireEvent.change(
+      screen.getByPlaceholderText("Explain any variances or issues..."),
+      {
+        target: { value: "note" },
+      },
+    );
 
     fireEvent.click(screen.getByText("Save & Close Day"));
 
@@ -187,7 +261,10 @@ describe("Closing modal", () => {
     });
 
     expect(window.alert).toHaveBeenCalled();
-    expect(emitSpy).toHaveBeenCalledWith("closing:completed", expect.any(Object));
+    expect(emitSpy).toHaveBeenCalledWith(
+      "closing:completed",
+      expect.any(Object),
+    );
     expect(onClose).toHaveBeenCalled();
   });
 
@@ -198,7 +275,10 @@ describe("Closing modal", () => {
     render(<Closing isOpen={true} onClose={onClose} />);
 
     fireEvent.click(screen.getByText("Next Step"));
-    fireEvent.click(screen.getByText("Cancel"));
+    // allow async threshold update to flush (Next Step triggers async settings load)
+    return act(async () => {
+      fireEvent.click(screen.getByText("Cancel"));
+    });
 
     expect(window.confirm).toHaveBeenCalled();
     expect(onClose).toHaveBeenCalled();

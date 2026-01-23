@@ -185,14 +185,18 @@ describe("InventoryService", () => {
       expect(result).toEqual({ success: true, id: 1 });
     });
 
-    it("returns error for missing barcode", () => {
+    it("auto-generates barcode when missing", () => {
+      mockRepo.barcodeExists.mockReturnValue(false);
+      mockRepo.createProduct.mockReturnValue({ id: 1 });
+
       const result = service.createProduct({
         ...validProductData,
         barcode: "",
       });
 
-      expect(result).toEqual({ success: false, error: "Barcode is required" });
-      expect(mockRepo.createProduct).not.toHaveBeenCalled();
+      expect(result).toEqual({ success: true, id: 1 });
+      const call = mockRepo.createProduct.mock.calls[0][0];
+      expect(call.barcode).toMatch(/^\d{8}$/);
     });
 
     it("returns error for missing name", () => {
@@ -240,14 +244,20 @@ describe("InventoryService", () => {
       });
     });
 
-    it("returns error for duplicate barcode", () => {
-      mockRepo.barcodeExists.mockReturnValue(true);
+    it("returns structured error for duplicate barcode", () => {
+      // Original barcode exists; suggestion barcode does not
+      mockRepo.barcodeExists.mockImplementation((code: string) => {
+        if (code === "123456") return true;
+        return false;
+      });
 
       const result = service.createProduct(validProductData);
 
       expect(result).toEqual({
         success: false,
         error: "Barcode already exists",
+        code: "DUPLICATE_BARCODE",
+        suggested_barcode: "123456DUP1",
       });
     });
 
@@ -298,15 +308,21 @@ describe("InventoryService", () => {
       expect(result).toEqual({ success: false, error: "Product not found" });
     });
 
-    it("returns error for duplicate barcode", () => {
+    it("returns structured error for duplicate barcode", () => {
       mockRepo.exists.mockReturnValue(true);
-      mockRepo.barcodeExists.mockReturnValue(true);
+      // Original barcode exists; suggestion barcode does not
+      mockRepo.barcodeExists.mockImplementation((code: string) => {
+        if (code === "123456") return true;
+        return false;
+      });
 
       const result = service.updateProduct(1, updateData);
 
       expect(result).toEqual({
         success: false,
         error: "Barcode already exists",
+        code: "DUPLICATE_BARCODE",
+        suggested_barcode: "123456DUP1",
       });
     });
   });

@@ -2,7 +2,10 @@ import { useState, useEffect, useCallback } from "react";
 import { FileText, X } from "lucide-react";
 import ProductSearch from "./components/ProductSearch";
 import Cart from "./components/Cart";
-import CheckoutModal, { type PaymentData, type CheckoutDraftData } from "./components/CheckoutModal";
+import CheckoutModal, {
+  type PaymentData,
+  type CheckoutDraftData,
+} from "./components/CheckoutModal";
 import { appEvents } from "../../../../shared/utils/appEvents";
 import type { Product, CartItem, SaleRequest } from "../../../../types";
 
@@ -15,10 +18,17 @@ export default function POS() {
     undefined,
   );
   const [isDraftsOpen, setIsDraftsOpen] = useState(false);
-  type DraftItem = { product_id: number; quantity: number; price?: number; sold_price_usd?: number; name?: string; barcode?: string };
+  type DraftItem = {
+    product_id: number;
+    quantity: number;
+    price?: number;
+    sold_price_usd?: number;
+    name?: string;
+    barcode?: string;
+  };
   type Draft = {
     id: number;
-    status: 'draft';
+    status: "draft";
     items?: DraftItem[];
     total_amount_usd?: number;
     client_id?: number | null;
@@ -33,7 +43,9 @@ export default function POS() {
     paid_lbp?: number;
   };
   const [drafts, setDrafts] = useState<Draft[]>([]);
-  const [checkoutDraftData, setCheckoutDraftData] = useState<CheckoutDraftData | undefined>(undefined);
+  const [checkoutDraftData, setCheckoutDraftData] = useState<
+    CheckoutDraftData | undefined
+  >(undefined);
 
   const fetchDrafts = useCallback(async () => {
     const data = await window.api.getDrafts();
@@ -117,7 +129,7 @@ export default function POS() {
       id: item.product_id,
       name: item.name || "",
       barcode: item.barcode || "",
-      retail_price: (item.sold_price_usd ?? item.price ?? 0),
+      retail_price: item.sold_price_usd ?? item.price ?? 0,
       quantity: item.quantity,
       category: "",
       cost_price: 0,
@@ -276,8 +288,10 @@ export default function POS() {
                         )}
                       </div>
                       <div className="text-xs text-slate-500">
-                        {draft.created_at ? new Date(draft.created_at).toLocaleString() : "Unknown"} •{" "}
-                        {draft.items?.length || 0} Items
+                        {draft.created_at
+                          ? new Date(draft.created_at).toLocaleString()
+                          : "Unknown"}{" "}
+                        • {draft.items?.length || 0} Items
                       </div>
                     </div>
                     <div className="flex gap-2">

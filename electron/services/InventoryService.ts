@@ -22,6 +22,7 @@ import {
 } from "../database/repositories";
 import { ValidationError, NotFoundError } from "../utils/errors";
 import { toErrorString, getRepoConstraintCode } from "../utils/errors";
+import { generateUniqueNumericBarcode, suggestDuplicateBarcode } from "../utils/barcode";
 
 // =============================================================================
 // Types
@@ -31,6 +32,8 @@ export interface ProductResult {
   success: boolean;
   id?: number;
   error?: string;
+  code?: "DUPLICATE_BARCODE";
+  suggested_barcode?: string;
 }
 
 export interface StockAdjustmentResult {
@@ -109,9 +112,14 @@ export class InventoryService {
    * Create a new product
    */
   createProduct(data: CreateProductData): ProductResult {
-    // Validate required fields
-    if (!data.barcode?.trim()) {
-      return { success: false, error: "Barcode is required" };
+    // Barcode behavior:
+    // - If blank, auto-generate a unique 8-digit numeric barcode.
+    // - If provided and duplicates exist, return a structured duplicate error.
+    let barcode = data.barcode?.trim() || "";
+    if (!barcode) {
+      barcode = generateUniqueNumericBarcode((code: string) =>
+        this.productRepo.barcodeExists(code),
+      );
     }
     if (!data.name?.trim()) {
       return { success: false, error: "Product name is required" };
@@ -127,14 +135,22 @@ export class InventoryService {
     }
 
     // Check for duplicate barcode
-    if (this.productRepo.barcodeExists(data.barcode.trim())) {
-      return { success: false, error: "Barcode already exists" };
+    if (barcode && this.productRepo.barcodeExists(barcode)) {
+      const suggested = suggestDuplicateBarcode(barcode, (code: string) =>
+        this.productRepo.barcodeExists(code),
+      );
+      return {
+        success: false,
+        error: "Barcode already exists",
+        code: "DUPLICATE_BARCODE",
+        suggested_barcode: suggested,
+      };
     }
 
     try {
       const result = this.productRepo.createProduct({
         ...data,
-        barcode: data.barcode.trim(),
+        barcode,
         name: data.name.trim(),
         category: data.category.trim(),
       });
@@ -175,7 +191,15 @@ export class InventoryService {
 
     // Check for duplicate barcode (excluding this product)
     if (data.barcode && this.productRepo.barcodeExists(data.barcode, id)) {
-      return { success: false, error: "Barcode already exists" };
+      const suggested = suggestDuplicateBarcode(data.barcode, (code: string) =>
+        this.productRepo.barcodeExists(code, id),
+      );
+      return {
+        success: false,
+        error: "Barcode already exists",
+        code: "DUPLICATE_BARCODE",
+        suggested_barcode: suggested,
+      };
     }
 
     try {

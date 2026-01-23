@@ -1,10 +1,10 @@
 /**
  * Rate Repository
- * 
+ *
  * Handles all exchange_rates table operations.
  */
 
-import { BaseRepository } from './BaseRepository';
+import { BaseRepository } from "./BaseRepository";
 
 // =============================================================================
 // Entity Types
@@ -30,7 +30,7 @@ export interface SetRateData {
 
 export class RateRepository extends BaseRepository<ExchangeRateEntity> {
   constructor() {
-    super('exchange_rates', { softDelete: false });
+    super("exchange_rates", { softDelete: false });
   }
 
   /**
@@ -38,7 +38,7 @@ export class RateRepository extends BaseRepository<ExchangeRateEntity> {
    */
   findAllRates(): ExchangeRateEntity[] {
     const stmt = this.db.prepare(
-      'SELECT id, from_code, to_code, rate, updated_at FROM exchange_rates ORDER BY from_code, to_code'
+      "SELECT id, from_code, to_code, rate, updated_at FROM exchange_rates ORDER BY from_code, to_code",
     );
     return stmt.all() as ExchangeRateEntity[];
   }
@@ -51,7 +51,11 @@ export class RateRepository extends BaseRepository<ExchangeRateEntity> {
       INSERT INTO exchange_rates (from_code, to_code, rate) VALUES (?, ?, ?)
       ON CONFLICT(from_code, to_code) DO UPDATE SET rate=excluded.rate, updated_at=CURRENT_TIMESTAMP
     `);
-    stmt.run(data.from_code.toUpperCase(), data.to_code.toUpperCase(), data.rate);
+    stmt.run(
+      data.from_code.toUpperCase(),
+      data.to_code.toUpperCase(),
+      data.rate,
+    );
   }
 
   /**
@@ -59,9 +63,11 @@ export class RateRepository extends BaseRepository<ExchangeRateEntity> {
    */
   getRate(fromCode: string, toCode: string): number | null {
     const stmt = this.db.prepare(
-      'SELECT rate FROM exchange_rates WHERE from_code = ? AND to_code = ?'
+      "SELECT rate FROM exchange_rates WHERE from_code = ? AND to_code = ?",
     );
-    const result = stmt.get(fromCode.toUpperCase(), toCode.toUpperCase()) as { rate: number } | undefined;
+    const result = stmt.get(fromCode.toUpperCase(), toCode.toUpperCase()) as
+      | { rate: number }
+      | undefined;
     return result?.rate ?? null;
   }
 }

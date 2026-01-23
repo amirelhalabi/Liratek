@@ -28,6 +28,28 @@ export const DRAWER_CONFIGS: Record<DrawerType, DrawerConfig> = {
       accent: "green-500",
     },
   },
+  Whish: {
+    type: "Whish",
+    label: "Whish",
+    description: "Whish wallet",
+    icon: "dollar-sign",
+    color: {
+      border: "border-emerald-500/30",
+      background: "bg-emerald-500/5",
+      accent: "emerald-500",
+    },
+  },
+  Binance: {
+    type: "Binance",
+    label: "Binance",
+    description: "Binance wallet",
+    icon: "dollar-sign",
+    color: {
+      border: "border-yellow-500/30",
+      background: "bg-yellow-500/5",
+      accent: "yellow-500",
+    },
+  },
   MTC: {
     type: "MTC",
     label: "MTC",
@@ -52,4 +74,11 @@ export const DRAWER_CONFIGS: Record<DrawerType, DrawerConfig> = {
   },
 };
 
-export const DRAWER_ORDER: DrawerType[] = ["General", "OMT", "MTC", "Alfa"];
+export const DRAWER_ORDER: DrawerType[] = [
+  "General",
+  "OMT",
+  "Whish",
+  "Binance",
+  "MTC",
+  "Alfa",
+];

@@ -62,11 +62,13 @@ describe("ExpenseService", () => {
 
       expect(result).toEqual({ success: true, id: 1 });
       expect(mockRepo.createExpense).toHaveBeenCalledWith(expenseData);
-      expect(mockRepo.logActivity).toHaveBeenCalledWith(
-        1,
-        "Add Expense",
-        { category: "Utilities", amount_usd: 50 }
-      );
+      expect(mockRepo.logActivity).toHaveBeenCalledWith(1, "Add Expense", {
+        category: "Utilities",
+        paid_by_method: "CASH",
+        expense_type: "Operating",
+        amount_usd: 50,
+        amount_lbp: 0,
+      });
     });
 
     it("should add expense with LBP amount", () => {
@@ -151,11 +153,13 @@ describe("ExpenseService", () => {
 
       service.addExpense(expenseData);
 
-      expect(mockRepo.logActivity).toHaveBeenCalledWith(
-        1,
-        "Add Expense",
-        { category: "Food", amount_usd: 0 }
-      );
+      expect(mockRepo.logActivity).toHaveBeenCalledWith(1, "Add Expense", {
+        category: "Food",
+        paid_by_method: "CASH",
+        expense_type: "Operating",
+        amount_usd: 0,
+        amount_lbp: 100000,
+      });
     });
   });
 
@@ -237,11 +241,10 @@ describe("ExpenseService", () => {
 
       expect(result).toEqual({ success: true });
       expect(mockRepo.deleteExpense).toHaveBeenCalledWith(1);
-      expect(mockRepo.logActivity).toHaveBeenCalledWith(
-        1,
-        "Delete Expense",
-        { category: "Utilities", amount_usd: 50 }
-      );
+      expect(mockRepo.logActivity).toHaveBeenCalledWith(1, "Delete Expense", {
+        category: "Utilities",
+        amount_usd: 50,
+      });
     });
 
     it("should delete without logging if expense not found", () => {
@@ -293,11 +296,10 @@ describe("ExpenseService", () => {
 
       service.deleteExpense(2);
 
-      expect(mockRepo.logActivity).toHaveBeenCalledWith(
-        1,
-        "Delete Expense",
-        { category: "Transport", amount_usd: 0 }
-      );
+      expect(mockRepo.logActivity).toHaveBeenCalledWith(1, "Delete Expense", {
+        category: "Transport",
+        amount_usd: 0,
+      });
     });
   });
 

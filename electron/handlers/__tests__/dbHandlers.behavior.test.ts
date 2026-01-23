@@ -11,6 +11,7 @@ const stmtObj: any = {
 };
 jest.mock("../../db", () => ({
   getDatabase: jest.fn(() => ({
+    transaction: (fn: any) => () => fn(),
     prepare: jest.fn((sql: string) => {
       if (sql.includes("SELECT * FROM expenses"))
         return { all: jest.fn(() => rowstore.slice()) };
@@ -28,10 +29,18 @@ jest.mock("../../db", () => ({
             rowstore.push({
               id: (rowstore.at(-1)?.id || 0) + 1,
               description: a[0],
+              category: a[1],
+              expense_type: a[2],
+              paid_by_method: a[3],
+              amount_usd: a[4],
+              amount_lbp: a[5],
+              expense_date: a[6],
             });
             return { lastInsertRowid: rowstore.at(-1).id };
           }),
         } as any;
+      if (sql.includes("INSERT INTO payments") || sql.includes("INSERT INTO drawer_balances"))
+        return { run: jest.fn(() => ({})) } as any;
       return stmtObj;
     }),
   })),
