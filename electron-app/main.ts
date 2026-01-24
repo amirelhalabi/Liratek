@@ -182,7 +182,7 @@ async function registerHandlers() {
     authHandlers.registerAuthHandlers();
     clientHandlers.registerClientHandlers();
     currencyHandlers.registerCurrencyHandlers();
-    dbHandlers.registerDBHandlers();
+    dbHandlers.registerDatabaseHandlers();
     debtHandlers.registerDebtHandlers();
     exchangeHandlers.registerExchangeHandlers();
     financialHandlers.registerFinancialHandlers();
