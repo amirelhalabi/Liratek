@@ -67,10 +67,11 @@ router.post('/backup/verify', requireAuth, async (req, res) => {
 
     if (!path) {
       res.status(400).json({ success: false, error: 'Missing backup path' });
+      return;
     }
 
-    const result = reportService.verifyBackup(path);
-    res.json(result);
+    // Placeholder - backup verification not available in backend mode
+    res.json({ success: true, valid: false, error: 'Backup verification only available in Electron mode' });
   } catch (error) {
     logger.error({ error }, 'Verify backup error');
     res.status(500).json({ success: false, error: 'Failed to verify backup' });

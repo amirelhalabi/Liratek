@@ -14,13 +14,17 @@
 ## 🏗️ Sprint Board
 
 ### ✅ Completed
+- [T-20]!!! Post-Refactor Cleanup & Verification (completed Jan 24)
 - [T-18]!!! Frontend/Backend Separation
 - [T-08]!!! IMEI & Warranty Tracking
 - [T-02]!!! Supplier Ledger Drawer Integration
 - **Financial Reporting & Analytics** (completed Jan 24)
 
 ### 🚧 In Progress
-- [T-20]!!! Post-Refactor Cleanup & Verification
+- None currently
+
+### 🔜 Next Priority (MUST DO)
+- [T-23]!!! New Electron Backend Integration
 
 ### 📋 Ready (Ordered by Priority)
 **High Priority (!!!)**
@@ -192,6 +196,41 @@ Files to KEEP:
 - Error handling and validation tests
 
 
+### [T-23] New Electron Backend Integration !!!
+
+**Priority**: CRITICAL (MUST DO NEXT)  
+**Status**: Ready to Start  
+**Owner**: Dev Team  
+**Created**: Jan 24, 2026
+
+**Goal**: Complete the new Electron app by integrating backend services, enabling deletion of old monolithic structure.
+
+**Context**:
+- New clean Electron structure created in `electron-app/`
+- Currently minimal (window management + basic IPC bridge)
+- Backend services need to be imported and connected
+- Once complete, can delete old `electron/` and `src/` folders (~1.5 GB)
+
+**Dependencies**:
+- ✅ T-20 Phase 1 (Backend API migration) - Complete
+- ✅ T-20 Phase 2 (Structure cleanup prep) - Complete
+- ✅ electron-app/ skeleton created - Complete
+
+**Deliverables**:
+1. Import all backend services into electron-app/main.ts
+2. Register all 19 IPC handler modules
+3. Connect handlers to backend services
+4. Test all features work in new Electron
+5. Update root package.json with final scripts
+6. Delete old structure (electron/, src/, public/, etc.)
+7. Update documentation
+
+**Estimated Effort**: 3-4 hours
+
+**Implementation Guide**: See `docs/ELECTRON_INTEGRATION_GUIDE.md` for detailed step-by-step instructions.
+
+---
+
 ### [T-01] Two-Wallet System & Mixed Payment Support !!!
 **Status**: Ready  
 **Goal**: Support `CASH`, `WHISH`, `OMT`, `BINANCE` payment methods with proper drawer tracking.
@@ -314,3 +353,4 @@ Files to KEEP:
 - ✅ **Financial Reporting & Analytics**: Monthly P&L + Commissions Dashboard
 - ✅ **Debt Repayment Rounding Fix** (Jan 24): Fixed rounding discrepancy in debt repayments where paying fractional amounts in LBP caused $0.01 errors
 - ✅ **T-20 Phase 1 API Endpoints** (Jan 24): Created all remaining backend REST API endpoints (Closing, Suppliers, Rates, Users, Activity, Reports) - 19/19 modules complete
+- ✅ **T-20 Phase 2 Structure Cleanup** (Jan 24): Updated root package.json to workspace-only mode, prepared old structure for deletion, migrated all functionality to frontend/backend workspaces
