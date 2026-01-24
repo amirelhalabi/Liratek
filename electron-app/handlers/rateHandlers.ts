@@ -1,0 +1,35 @@
+/**
+ * Rate IPC Handlers
+ *
+ * Thin wrapper over RateService for IPC communication.
+ */
+
+import { ipcMain, IpcMainInvokeEvent } from "electron";
+import { getRateService } from "../services/index.js";
+import { requireRole } from "../session.js";
+import { settingsLogger } from "../utils/logger.js";
+import type { SetRateData } from "../database/repositories/index.js";
+
+export function registerRateHandlers(): void {
+  const rateService = getRateService();
+
+  // List all rates
+  ipcMain.handle("rates:list", () => {
+    return rateService.listRates();
+  });
+
+  // Set a rate (admin only)
+  ipcMain.handle(
+    "rates:set",
+    (event: IpcMainInvokeEvent, data: SetRateData) => {
+      const auth = requireRole(event.sender.id, ["admin"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+
+      settingsLogger.info(
+        { fromCode: data.from_code, toCode: data.to_code, rate: data.rate },
+        "Setting rate",
+      );
+      return rateService.setRate(data);
+    },
+  );
+}

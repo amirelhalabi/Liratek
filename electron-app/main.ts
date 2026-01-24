@@ -6,11 +6,13 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
+import Database from 'better-sqlite3';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 let mainWindow: BrowserWindow | null = null;
+let db: Database.Database;
 
 // Single instance lock
 const gotTheLock = app.requestSingleInstanceLock();
@@ -52,14 +54,14 @@ function createWindow() {
   });
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   console.log('[ELECTRON] App ready, creating window...');
   
   // Initialize database and services
   initializeBackend();
   
   // Register IPC handlers
-  registerHandlers();
+  await registerHandlers();
   
   createWindow();
 
@@ -77,34 +79,97 @@ app.on('window-all-closed', () => {
 });
 
 /**
+ * Initialize database connection
+ */
+function initializeDatabase() {
+  const userDataPath = app.getPath('userData');
+  const dbPath = path.join(userDataPath, 'liratek.db');
+  
+  console.log('[ELECTRON] Database path:', dbPath);
+  
+  try {
+    db = new Database(dbPath);
+    db.pragma('journal_mode = WAL');
+    db.pragma('foreign_keys = ON');
+    
+    console.log('[ELECTRON] Database connected successfully');
+    return db;
+  } catch (error) {
+    console.error('[ELECTRON] Database connection failed:', error);
+    throw error;
+  }
+}
+
+/**
  * Initialize backend services
- * In the new structure, backend services are imported directly
+ * Services are imported from copied electron/services folder
  */
 function initializeBackend() {
   console.log('[ELECTRON] Initializing backend services...');
   
-  // TODO: Import and initialize backend services
-  // import { getDatabase } from '../backend/src/database/connection.js';
-  // const db = getDatabase();
+  // Initialize database
+  initializeDatabase();
+  
+  // Services are initialized on-demand by handlers
+  // Each service gets the db instance when needed
   
   console.log('[ELECTRON] Backend services initialized');
+}
+
+/**
+ * Get database instance
+ * Used by services and handlers
+ */
+export function getDb(): Database.Database {
+  if (!db) {
+    throw new Error('Database not initialized');
+  }
+  return db;
 }
 
 /**
  * Register IPC handlers
  * These connect the frontend (renderer) to backend services
  */
-function registerHandlers() {
+async function registerHandlers() {
   console.log('[ELECTRON] Registering IPC handlers...');
   
-  // Example: Ping handler
-  ipcMain.handle('ping', () => {
-    return 'pong';
-  });
-  
-  // TODO: Import and register all backend handlers
-  // import { registerAuthHandlers } from '../backend/src/handlers/authHandlers.js';
-  // registerAuthHandlers(ipcMain);
-  
-  console.log('[ELECTRON] IPC handlers registered');
+  try {
+    // Import and register all handlers
+    const authHandlers = await import('./handlers/authHandlers.js');
+    const clientHandlers = await import('./handlers/clientHandlers.js');
+    const currencyHandlers = await import('./handlers/currencyHandlers.js');
+    const debtHandlers = await import('./handlers/debtHandlers.js');
+    const exchangeHandlers = await import('./handlers/exchangeHandlers.js');
+    const financialHandlers = await import('./handlers/financialHandlers.js');
+    const inventoryHandlers = await import('./handlers/inventoryHandlers.js');
+    const maintenanceHandlers = await import('./handlers/maintenanceHandlers.js');
+    const omtHandlers = await import('./handlers/omtHandlers.js');
+    const rateHandlers = await import('./handlers/rateHandlers.js');
+    const rechargeHandlers = await import('./handlers/rechargeHandlers.js');
+    const reportHandlers = await import('./handlers/reportHandlers.js');
+    const salesHandlers = await import('./handlers/salesHandlers.js');
+    const supplierHandlers = await import('./handlers/supplierHandlers.js');
+    
+    // Register all handlers (they auto-register with ipcMain)
+    authHandlers.registerAuthHandlers();
+    clientHandlers.registerClientHandlers();
+    currencyHandlers.registerCurrencyHandlers();
+    debtHandlers.registerDebtHandlers();
+    exchangeHandlers.registerExchangeHandlers();
+    financialHandlers.registerFinancialHandlers();
+    inventoryHandlers.registerInventoryHandlers();
+    maintenanceHandlers.registerMaintenanceHandlers();
+    omtHandlers.registerOMTHandlers();
+    rateHandlers.registerRateHandlers();
+    rechargeHandlers.registerRechargeHandlers();
+    reportHandlers.registerReportHandlers();
+    salesHandlers.registerSalesHandlers();
+    supplierHandlers.registerSupplierHandlers();
+    
+    console.log('[ELECTRON] All IPC handlers registered');
+  } catch (error) {
+    console.error('[ELECTRON] Failed to register handlers:', error);
+    throw error;
+  }
 }
