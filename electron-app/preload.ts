@@ -1,5 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 
+console.log('[PRELOAD] Starting preload script...');
+
 contextBridge.exposeInMainWorld("api", {
   // Database operations
   getSettings: () => ipcRenderer.invoke("db:get-settings"),
@@ -262,3 +264,5 @@ contextBridge.exposeInMainWorld("api", {
   deleteMaintenanceJob: (id: number) =>
     ipcRenderer.invoke("maintenance:delete", id),
 });
+
+console.log('[PRELOAD] window.api exposed successfully');

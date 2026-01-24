@@ -15,5 +15,5 @@
     "types": ["node", "better-sqlite3"]
   },
   "include": ["*.ts", "services/**/*.ts", "handlers/**/*.ts", "utils/**/*.ts", "database/**/*.ts"],
-  "exclude": ["node_modules", "dist", "**/__tests__/**", "**/*.test.ts"]
+  "exclude": ["node_modules", "dist", "**/__tests__/**", "**/*.test.ts", "preload.ts"]
 }

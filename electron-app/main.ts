@@ -6,6 +6,7 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
+import * as fs from 'fs';
 import Database from 'better-sqlite3';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -32,7 +33,7 @@ function createWindow() {
     width: 1400,
     height: 900,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
@@ -79,11 +80,25 @@ app.on('window-all-closed', () => {
 });
 
 /**
- * Initialize database connection
+ * Initialize database connection and schema
  */
 function initializeDatabase() {
   const userDataPath = app.getPath('userData');
-  const dbPath = path.join(userDataPath, 'liratek.db');
+  
+  // Try old database location first (from old electron app)
+  const oldDbPath = path.join(app.getPath('home'), 'Library/Application Support/liratek/liratek.db');
+  const newDbPath = path.join(userDataPath, 'liratek.db');
+  
+  let dbPath = newDbPath;
+  if (fs.existsSync(oldDbPath) && !fs.existsSync(newDbPath)) {
+    console.log('[ELECTRON] Found existing database, copying from old location...');
+    fs.copyFileSync(oldDbPath, newDbPath);
+    dbPath = newDbPath;
+  } else if (fs.existsSync(newDbPath)) {
+    dbPath = newDbPath;
+  } else {
+    dbPath = newDbPath;
+  }
   
   console.log('[ELECTRON] Database path:', dbPath);
   
@@ -91,6 +106,16 @@ function initializeDatabase() {
     db = new Database(dbPath);
     db.pragma('journal_mode = WAL');
     db.pragma('foreign_keys = ON');
+    
+    // Check if database has schema
+    const tableCheck = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='users'").get();
+    
+    if (!tableCheck) {
+      console.log('[ELECTRON] WARNING: Database has no schema! Please use existing database or restore from backup.');
+      // For now, just continue - the handlers will initialize what's needed
+    } else {
+      console.log('[ELECTRON] Database schema OK');
+    }
     
     console.log('[ELECTRON] Database connected successfully');
     return db;
@@ -139,6 +164,7 @@ async function registerHandlers() {
     const authHandlers = await import('./handlers/authHandlers.js');
     const clientHandlers = await import('./handlers/clientHandlers.js');
     const currencyHandlers = await import('./handlers/currencyHandlers.js');
+    const dbHandlers = await import('./handlers/dbHandlers.js');
     const debtHandlers = await import('./handlers/debtHandlers.js');
     const exchangeHandlers = await import('./handlers/exchangeHandlers.js');
     const financialHandlers = await import('./handlers/financialHandlers.js');
@@ -150,11 +176,13 @@ async function registerHandlers() {
     const reportHandlers = await import('./handlers/reportHandlers.js');
     const salesHandlers = await import('./handlers/salesHandlers.js');
     const supplierHandlers = await import('./handlers/supplierHandlers.js');
+    const updaterHandlers = await import('./handlers/updaterHandlers.js');
     
     // Register all handlers (they auto-register with ipcMain)
     authHandlers.registerAuthHandlers();
     clientHandlers.registerClientHandlers();
     currencyHandlers.registerCurrencyHandlers();
+    dbHandlers.registerDBHandlers();
     debtHandlers.registerDebtHandlers();
     exchangeHandlers.registerExchangeHandlers();
     financialHandlers.registerFinancialHandlers();
@@ -166,6 +194,7 @@ async function registerHandlers() {
     reportHandlers.registerReportHandlers();
     salesHandlers.registerSalesHandlers();
     supplierHandlers.registerSupplierHandlers();
+    updaterHandlers.registerUpdaterHandlers();
     
     console.log('[ELECTRON] All IPC handlers registered');
   } catch (error) {
