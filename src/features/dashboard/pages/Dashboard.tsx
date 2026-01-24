@@ -81,16 +81,30 @@ export default function Dashboard() {
         stockStats,
         rechargeStock,
         monthlyPL,
-      ] = await Promise.all([
-        window.api.getDashboardStats(),
-        window.api.getProfitSalesChart(chartType),
-        window.api.getTodaysSales(),
-        window.api.getDrawerBalances(),
-        window.api.getDebtSummary(),
-        window.api.getInventoryStockStats(),
-        window.api.getRechargeStock(),
-        window.api.getMonthlyPL(new Date().toISOString().slice(0, 7)),
-      ]);
+      ] = window.api
+        ? await Promise.all([
+            window.api.getDashboardStats(),
+            window.api.getProfitSalesChart(chartType),
+            window.api.getTodaysSales(),
+            window.api.getDrawerBalances(),
+            window.api.getDebtSummary(),
+            window.api.getInventoryStockStats(),
+            window.api.getRechargeStock(),
+            window.api.getMonthlyPL(new Date().toISOString().slice(0, 7)),
+          ])
+        : await (async () => {
+            const api = await import("../../../api/backendApi");
+            return Promise.all([
+              api.getDashboardStats(),
+              api.getProfitSalesChart(chartType),
+              api.getTodaysSales(),
+              api.getDrawerBalances(),
+              api.getDebtSummary(),
+              api.getInventoryStockStats(),
+              api.getRechargeStock(),
+              api.getMonthlyPL(new Date().toISOString().slice(0, 7)),
+            ]);
+          })();
 
       setStats({
         ...statsData,
@@ -131,8 +145,8 @@ export default function Dashboard() {
         // Round up LBP to the next million
         setMaxLbpSales(Math.ceil(currentMaxLbp / 1_000_000) * 1_000_000);
       }
-    } catch (_error) {
-      // console.error('Failed to load dashboard data:', error);
+    } catch (error) {
+      console.error('Failed to load dashboard data:', error);
     }
   }, [chartType]);
 

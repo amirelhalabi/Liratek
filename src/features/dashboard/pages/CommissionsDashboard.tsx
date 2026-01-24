@@ -62,15 +62,9 @@ export default function CommissionsDashboard() {
         <div className="space-y-6 animate-in fade-in duration-500">
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
-                    <button
-                        onClick={() => navigate("/")}
-                        className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors"
-                    >
-                        <ArrowLeft size={20} />
-                    </button>
                     <h1 className="text-2xl font-bold text-white flex items-center gap-2">
                         <TrendingUp className="text-violet-500" />
-                        Service Commissions
+                        Analytics
                     </h1>
                 </div>
             </div>
@@ -118,8 +112,8 @@ export default function CommissionsDashboard() {
                         <PieChartIcon size={18} className="text-pink-500" />
                         Revenue by Provider
                     </h3>
-                    <div className="h-80">
-                        <ResponsiveContainer width="100%" height="100%">
+                    <div className="h-80" style={{ minHeight: '320px' }}>
+                        <ResponsiveContainer width="100%" height="100%" minHeight={320}>
                             <PieChart>
                                 <Pie
                                     data={pieData}

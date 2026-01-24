@@ -104,19 +104,48 @@ export default function Debts() {
   const handleProcessRepayment = async () => {
     if (!selectedClient) return;
 
-    const usd = parseFloat(repayAmountUSD) || 0;
-    const lbp = parseFloat(repayAmountLBP) || 0;
+    const paidUSD = parseFloat(repayAmountUSD) || 0;
+    const paidLBP = parseFloat(repayAmountLBP) || 0;
 
-    if (usd === 0 && lbp === 0) {
+    if (paidUSD === 0 && paidLBP === 0) {
       alert("Please enter an amount.");
       return;
     }
 
+    // Calculate the actual debt reduction amounts
+    // For USD: reduce debt by the exact paid amount
+    // For LBP: if paying the fractional portion, reduce by the actual fractional debt (not the rounded payment)
+    // This allows customers to pay rounded amounts while maintaining accurate debt tracking
+    const integerDebt = Math.floor(totalDebt);
+    const fractionalDebt = totalDebt - integerDebt;
+    const fractionalLBP = fractionalDebt * EXCHANGE_RATE;
+    
+    let debtReductionUSD = paidUSD;
+    
+    // If user is paying LBP and it's approximately the fractional portion
+    if (paidLBP > 0) {
+      const roundedFractionalLBP = Math.ceil(fractionalLBP / 5000) * 5000;
+      // Check if paying the full fractional portion (with rounding tolerance)
+      if (Math.abs(paidLBP - roundedFractionalLBP) < 1000) {
+        // Reduce debt by the actual fractional amount, not the rounded payment
+        debtReductionUSD += fractionalDebt;
+      } else {
+        // Otherwise, reduce by the exact LBP value
+        debtReductionUSD += paidLBP / EXCHANGE_RATE;
+      }
+    }
+    
+    const debtReductionLBP = 0; // We track debt in USD
+    const totalDebtReductionUSD = debtReductionUSD;
+
     try {
       const result = await window.api.addRepayment({
         clientId: selectedClient.id,
-        amountUSD: usd,
-        amountLBP: lbp,
+        amountUSD: totalDebtReductionUSD,
+        amountLBP: debtReductionLBP,
+        paidAmountUSD: paidUSD,
+        paidAmountLBP: paidLBP,
+        drawerName: "General",
         note: repayNote,
         ...(user?.id != null ? { userId: user.id } : {}),
       });
@@ -293,7 +322,7 @@ export default function Debts() {
                   const rawLBP = fractionUSD * EXCHANGE_RATE;
                   const roundedLBP = roundLBPUp(rawLBP);
 
-                  // Autofill the modal inputs
+                  // Autofill the modal inputs with rounded amounts
                   setRepayAmountUSD(integerUSD.toString());
                   setRepayAmountLBP(roundedLBP.toString());
                   setShowRepaymentModal(true);

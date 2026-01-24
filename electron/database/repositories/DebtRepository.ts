@@ -44,6 +44,9 @@ export interface CreateRepaymentData {
   client_id: number;
   amount_usd: number;
   amount_lbp: number;
+  paid_amount_usd?: number | undefined; // Actual amount paid (rounded), saved to drawer
+  paid_amount_lbp?: number | undefined; // Actual amount paid (rounded), saved to drawer
+  drawer_name?: string | undefined; // Which drawer received the payment
   note?: string | null;
   created_by?: number | null;
 }
@@ -65,18 +68,25 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
    * Get all clients with their debt totals (grouped)
    */
   findAllDebtors(): DebtorSummary[] {
+    // Get exchange rate from settings or use default
+    const rateResult = this.db.prepare(`
+      SELECT rate FROM exchange_rates WHERE from_code = 'USD' AND to_code = 'LBP' LIMIT 1
+    `).get() as { rate: number } | undefined;
+    const rate = rateResult?.rate || 89000;
+
     const stmt = this.db.prepare(`
       SELECT 
         c.id, 
         c.full_name, 
         c.phone_number,
-        SUM(dl.amount_usd) as total_debt
+        ROUND(SUM(dl.amount_usd) + SUM(dl.amount_lbp) / ?, 2) as total_debt
       FROM debt_ledger dl
       JOIN clients c ON dl.client_id = c.id
       GROUP BY c.id
+      HAVING total_debt != 0
       ORDER BY total_debt DESC
     `);
-    return stmt.all() as DebtorSummary[];
+    return stmt.all(rate) as DebtorSummary[];
   }
 
   /**
@@ -96,10 +106,16 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
    * Get total debt for a specific client
    */
   getClientDebtTotal(clientId: number): number {
+    // Get exchange rate from settings or use default
+    const rateResult = this.db.prepare(`
+      SELECT rate FROM exchange_rates WHERE from_code = 'USD' AND to_code = 'LBP' LIMIT 1
+    `).get() as { rate: number } | undefined;
+    const rate = rateResult?.rate || 89000;
+
     const stmt = this.db.prepare(
-      "SELECT SUM(amount_usd) as total FROM debt_ledger WHERE client_id = ?",
+      "SELECT ROUND(SUM(amount_usd) + SUM(amount_lbp) / ?, 2) as total FROM debt_ledger WHERE client_id = ?",
     );
-    const result = stmt.get(clientId) as { total: number | null };
+    const result = stmt.get(rate, clientId) as { total: number | null };
     return result?.total || 0;
   }
 
@@ -109,15 +125,21 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
 
   /**
    * Add a repayment entry (stored as negative values to reduce debt)
+   * If paid_amount differs from amount, the paid amount goes to drawer and amount reduces debt
    */
   addRepayment(data: CreateRepaymentData): { id: number } {
-    const stmt = this.db.prepare(`
+    // Use paid amounts if provided, otherwise use actual amounts (backward compatible)
+    const paidUSD = data.paid_amount_usd ?? data.amount_usd;
+    const paidLBP = data.paid_amount_lbp ?? data.amount_lbp;
+    const drawerName = data.drawer_name || 'General';
+
+    const insertDebtStmt = this.db.prepare(`
       INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, note, created_by)
       VALUES (?, 'Repayment', ?, ?, ?, ?)
     `);
 
     // Store as negative values to signify a reduction in debt
-    const result = stmt.run(
+    const result = insertDebtStmt.run(
       data.client_id,
       -data.amount_usd,
       -data.amount_lbp,
@@ -125,7 +147,66 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       data.created_by || null,
     );
 
-    return { id: Number(result.lastInsertRowid) };
+    const repaymentId = Number(result.lastInsertRowid);
+
+    // Record payment and update drawer balances with the PAID amounts (rounded)
+    // USD payment to drawer
+    if (paidUSD > 0) {
+      const paymentStmt = this.db.prepare(`
+        INSERT INTO payments (source_type, source_id, method, drawer_name, currency_code, amount, note, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      paymentStmt.run(
+        'debt_repayment',
+        repaymentId,
+        'cash',
+        drawerName,
+        'USD',
+        paidUSD,
+        data.note || null,
+        data.created_by || null,
+      );
+
+      // Update drawer balance
+      const drawerStmt = this.db.prepare(`
+        INSERT INTO drawer_balances (drawer_name, currency_code, balance)
+        VALUES (?, ?, ?)
+        ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+          balance = drawer_balances.balance + excluded.balance,
+          updated_at = CURRENT_TIMESTAMP
+      `);
+      drawerStmt.run(drawerName, 'USD', paidUSD);
+    }
+
+    // LBP payment to drawer
+    if (paidLBP > 0) {
+      const paymentStmt = this.db.prepare(`
+        INSERT INTO payments (source_type, source_id, method, drawer_name, currency_code, amount, note, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      paymentStmt.run(
+        'debt_repayment',
+        repaymentId,
+        'cash',
+        drawerName,
+        'LBP',
+        paidLBP,
+        data.note || null,
+        data.created_by || null,
+      );
+
+      // Update drawer balance
+      const drawerStmt = this.db.prepare(`
+        INSERT INTO drawer_balances (drawer_name, currency_code, balance)
+        VALUES (?, ?, ?)
+        ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+          balance = drawer_balances.balance + excluded.balance,
+          updated_at = CURRENT_TIMESTAMP
+      `);
+      drawerStmt.run(drawerName, 'LBP', paidLBP);
+    }
+
+    return { id: repaymentId };
   }
 
   // ---------------------------------------------------------------------------

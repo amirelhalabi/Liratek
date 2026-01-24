@@ -125,7 +125,7 @@ export abstract class BaseRepository<T extends BaseEntity> {
       } = options;
 
       let query = this.softDelete
-        ? `SELECT * FROM ${this.tableName} WHERE is_active = 1`
+        ? `SELECT * FROM ${this.tableName} WHERE is_deleted = 0`
         : `SELECT * FROM ${this.tableName}`;
 
       query += ` ORDER BY ${orderBy} ${orderDirection}`;
@@ -167,7 +167,7 @@ export abstract class BaseRepository<T extends BaseEntity> {
   count(): number {
     try {
       const query = this.softDelete
-        ? `SELECT COUNT(*) as count FROM ${this.tableName} WHERE is_active = 1`
+        ? `SELECT COUNT(*) as count FROM ${this.tableName} WHERE is_deleted = 0`
         : `SELECT COUNT(*) as count FROM ${this.tableName}`;
 
       const result = this.db.prepare(query).get() as { count: number };
@@ -277,11 +277,11 @@ export abstract class BaseRepository<T extends BaseEntity> {
   }
 
   /**
-   * Soft delete an entity by ID (sets is_active = 0)
+   * Soft delete an entity by ID (sets is_deleted = 1)
    */
   softDeleteById(id: number, options: UpdateOptions = {}): boolean {
     try {
-      const query = `UPDATE ${this.tableName} SET is_active = 0, updated_at = datetime('now') WHERE id = ?`;
+      const query = `UPDATE ${this.tableName} SET is_deleted = 1, updated_at = datetime('now') WHERE id = ?`;
       const result = this.db.prepare(query).run(id);
 
       if (result.changes === 0 && options.throwOnNotFound) {

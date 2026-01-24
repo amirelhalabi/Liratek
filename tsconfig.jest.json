@@ -57,5 +57,9 @@
     "**/*.test.tsx",
     "**/__tests__/**/*.ts",
     "**/__tests__/**/*.tsx"
+  ],
+  "exclude": [
+    "backend/**",
+    "**/node_modules/**"
   ]
 }

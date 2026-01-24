@@ -32,6 +32,9 @@ export interface RepaymentData {
   clientId: number;
   amountUSD: number;
   amountLBP: number;
+  paidAmountUSD?: number | undefined; // Actual amount paid (rounded), saved to drawer
+  paidAmountLBP?: number | undefined; // Actual amount paid (rounded), saved to drawer
+  drawerName?: string | undefined; // Which drawer received the payment
   note?: string;
   userId?: number;
 }
@@ -86,7 +89,7 @@ export class DebtService {
    * Process a debt repayment
    */
   addRepayment(data: RepaymentData): RepaymentResult {
-    const { clientId, amountUSD, amountLBP, note, userId } = data;
+    const { clientId, amountUSD, amountLBP, paidAmountUSD, paidAmountLBP, drawerName, note, userId } = data;
 
     // Validate
     if (!clientId) {
@@ -104,12 +107,15 @@ export class DebtService {
         client_id: clientId,
         amount_usd: amountUSD,
         amount_lbp: amountLBP,
+        paid_amount_usd: paidAmountUSD,
+        paid_amount_lbp: paidAmountLBP,
+        drawer_name: drawerName,
         note: note || null,
         created_by: userId || null,
       });
 
       console.log(
-        `[DEBT] Repayment of $${amountUSD} and ${amountLBP} LBP for client ${clientId}`,
+        `[DEBT] Repayment: debt reduced by $${amountUSD}/${amountLBP} LBP, drawer received $${paidAmountUSD || amountUSD}/${paidAmountLBP || amountLBP} LBP for client ${clientId}`,
       );
 
       return { success: true, id: result.id };

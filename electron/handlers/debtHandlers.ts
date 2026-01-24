@@ -13,6 +13,9 @@ interface RepaymentData {
   clientId: number;
   amountUSD: number;
   amountLBP: number;
+  paidAmountUSD?: number | undefined;
+  paidAmountLBP?: number | undefined;
+  drawerName?: string | undefined;
   note?: string;
   userId?: number;
 }

@@ -78,6 +78,9 @@ contextBridge.exposeInMainWorld("api", {
 
   // Debt
   getDebtSummary: () => ipcRenderer.invoke("dashboard:get-debt-summary"),
+  
+  // Financial
+  getMonthlyPL: (month: string) => ipcRenderer.invoke("financial:get-monthly-pl", month),
   getDebtors: () => ipcRenderer.invoke("debt:get-debtors"),
   getClientDebtHistory: (clientId: number) =>
     ipcRenderer.invoke("debt:get-client-history", clientId),
@@ -87,6 +90,9 @@ contextBridge.exposeInMainWorld("api", {
     clientId: number;
     amountUSD: number;
     amountLBP: number;
+    paidAmountUSD?: number | undefined;
+    paidAmountLBP?: number | undefined;
+    drawerName?: string | undefined;
     note?: string;
     userId?: number;
   }) => ipcRenderer.invoke("debt:add-repayment", data),

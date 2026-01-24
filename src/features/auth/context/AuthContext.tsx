@@ -40,9 +40,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             console.log("[AUTH] Session restored from encrypted storage");
           }
         } else {
-          // Mock session for web environment
-          console.warn("Running in web mode - mocking session");
-          setUser({ id: 1, username: "dev", role: "admin" });
+          // Web mode: try backend session
+          console.warn("Running in web mode - using backend API");
+          try {
+            const { me } = await import("../../../api/backendApi");
+            const result = await me();
+            if (result.success && result.user) {
+              setUser(result.user);
+            }
+          } catch {
+            // ignore
+          }
         }
       } catch (error) {
         console.error("Failed to restore session:", error);
@@ -54,13 +62,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (username: string, password: string) => {
     try {
-      // Mock login for web environment
+      // Web environment: use backend API
       if (!window.api) {
-        console.warn("Running in web mode - using mock login");
-        const mockUser = { id: 1, username, role: "admin" };
-        setUser(mockUser);
-        setNeedsOpening(false);
-        return { success: true };
+        const { login } = await import("../../../api/backendApi");
+        const result = await login(username, password);
+        if (result.success && result.user) {
+          setUser(result.user);
+          setNeedsOpening(false);
+
+          // Connect realtime channel (web mode)
+          try {
+            const { connectSocket } = await import("../../../api/socket");
+            connectSocket(result.token);
+          } catch {
+            // ignore
+          }
+
+          return { success: true };
+        }
+        return { success: false, error: result.error || "Login failed" };
       }
 
       const result = await window.api.login(username, password);
@@ -91,6 +111,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (user) {
       if (window.api) {
         await window.api.logout(user.id);
+      } else {
+        const { logout } = await import("../../../api/backendApi");
+        await logout();
+        try {
+          const { disconnectSocket } = await import("../../../api/socket");
+          disconnectSocket();
+        } catch {
+          // ignore
+        }
       }
     }
     setUser(null);

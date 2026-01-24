@@ -16,8 +16,14 @@ export default function ProductList() {
   const loadProducts = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await window.api.getProducts(search);
-      setProducts(data);
+      if (window.api) {
+        const data = await window.api.getProducts(search);
+        setProducts(data);
+      } else {
+        const { getProducts } = await import("../../../../api/backendApi");
+        const data = await getProducts(search);
+        setProducts(data as any);
+      }
     } catch (error) {
       console.error("Failed to load products:", error);
     } finally {
@@ -39,12 +45,28 @@ export default function ProductList() {
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm("Are you sure you want to delete this product?")) return;
+    console.log('[DELETE] Attempting to delete product ID:', id);
+    if (!confirm("Are you sure you want to delete this product?")) {
+      console.log('[DELETE] User cancelled');
+      return;
+    }
     try {
-      await window.api.deleteProduct(id);
+      if (window.api) {
+        console.log('[DELETE] Using window.api.deleteProduct');
+        const result = await window.api.deleteProduct(id);
+        console.log('[DELETE] Result:', result);
+      } else {
+        console.log('[DELETE] Using backend API');
+        const { deleteProduct } = await import("../../../../api/backendApi");
+        await deleteProduct(id);
+      }
+      console.log('[DELETE] Reloading products...');
       loadProducts(); // Refresh list
+      console.log('[DELETE] Success!');
+      alert('Product deleted successfully!');
     } catch (error) {
-      console.error("Failed to delete:", error);
+      console.error("[DELETE] Failed to delete:", error);
+      alert("Failed to delete: " + (error instanceof Error ? error.message : String(error)));
     }
   };
 

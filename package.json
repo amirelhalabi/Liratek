@@ -8,7 +8,9 @@
   "type": "module",
   "main": "dist-electron/main.js",
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "backend",
+    "frontend"
   ],
   "scripts": {
     "dev": "concurrently -k \"npm run dev:vite\" \"npm run dev:electron\"",
@@ -51,6 +53,7 @@
     "react-is": "^19.2.3",
     "react-router-dom": "^7.10.1",
     "recharts": "^3.6.0",
+    "socket.io-client": "^4.8.3",
     "tailwind-merge": "^3.4.0",
     "zod": "^3.23.8"
   },
