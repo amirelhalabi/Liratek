@@ -12,14 +12,14 @@
     "frontend"
   ],
   "scripts": {
-    "dev": "echo 'Use: npm run dev:electron (desktop) OR npm run dev:web (browser)'",
-    "dev:electron": "concurrently -k \"npm run dev:frontend\" \"wait-on tcp:5173 && npm run electron:dev\"",
+    "dev": "npm run dev:electron",
+    "dev:electron": "concurrently -k \"npm run dev:frontend\" \"wait-on tcp:5173 && npm run electron:start\"",
     "dev:frontend": "cd frontend && npm run dev",
     "dev:backend": "cd backend && npm run dev",
     "dev:web": "concurrently -k \"npm run dev:backend\" \"npm run dev:frontend\"",
     "dev:docker": "docker compose up --build",
-    "electron:dev": "cd electron-app && npm install && tsc && cross-env ELECTRON_RENDERER_URL=http://localhost:5173 electron .",
-    "electron:build": "cd electron-app && npm install && tsc",
+    "electron:start": "cd electron-app && npm run build && cross-env ELECTRON_RENDERER_URL=http://localhost:5173 npm start",
+    "electron:build": "cd electron-app && npm run build",
     "build": "npm run build:frontend && npm run electron:build",
     "build:frontend": "cd frontend && npm run build",
     "build:backend": "cd backend && npm run build",
