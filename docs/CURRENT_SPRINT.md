@@ -25,7 +25,8 @@
 - None currently
 
 ### 🔜 Next Priority (MUST DO)
-- None - Ready for next feature
+- [T-25]!!! Shared Core Backend Consolidation (packages/core)
+- [T-24]!!! Unified Database Location (Web + Desktop)
 
 ### 📋 Ready (Ordered by Priority)
 **High Priority (!!!)**
@@ -229,6 +230,113 @@ Files to KEEP:
 **Estimated Effort**: 3-4 hours
 
 **Implementation Guide**: See `docs/ELECTRON_INTEGRATION_GUIDE.md` for detailed step-by-step instructions.
+
+---
+
+### [T-25] Shared Core Backend Consolidation (packages/core) !!!
+
+**Priority**: URGENT  
+**Status**: Planned  
+**Owner**: Dev Team
+
+**Goal**: Reduce duplication and eliminate parity drift by consolidating shared backend logic into a single core package used by both:
+- Desktop backend (`electron-app/`)
+- Web backend (`backend/`)
+
+**Context**:
+We currently maintain two parallel backends (desktop IPC vs web REST) with duplicated services/repositories. This caused real parity bugs (e.g., debt totals mismatch).
+
+**Reference**:
+- See `docs/BACKEND_DIFFERENCES.md` Section 12 (Consolidation Plan) and Section 11 (QA Parity Checklist).
+
+**Deliverables**:
+1. Create `packages/core/` package
+2. Move shared DB path resolver into core
+3. Migrate Auth module (crypto + user repo + auth service) into core
+4. Migrate Debts module (repo + service) into core
+5. Update desktop IPC handlers to call core services
+6. Update web REST routes to call core services
+7. Run QA Parity Checklist after each migration
+
+**Suggested PR sequence** (from `docs/BACKEND_DIFFERENCES.md`):
+- PR1: core skeleton + db path resolver
+- PR2: crypto + AuthService + UserRepository
+- PR3: DebtRepository + DebtService
+- PR4: remaining modules
+- PR5: delete duplicated code
+
+---
+
+### [T-24] Unified Database Location (Web + Desktop) !!!
+
+**Priority**: CRITICAL  
+**Status**: Active (Option 2 selected)  
+**Owner**: Dev Team  
+
+**Goal**: Ensure all app modes (Electron Desktop and Web mode via backend+frontend) use the exact same database file.
+
+**Decision (Option 2)**: **Do not move/rename any existing DB files yet.**
+Instead, use a single authoritative DB via `DATABASE_PATH` pointing to the existing mock-data database in Application Support.
+
+**Authoritative DB (currently contains mock data)**:
+- `~/Library/Application Support/liratek/phone_shop.db`
+  - Verified: `users=1`, `clients=4`, `sales=10`
+
+**Why this approach**:
+- Lowest risk: no file moves, no data loss
+- Immediate: both Web and Desktop can share the same DB by setting the same path
+- Still compatible with a future move to Documents if desired
+
+**How to run**:
+
+**Recommended (no CLI env vars): user-local DB config**
+
+Create:
+- `~/Documents/LiraTek/db-path.txt`
+
+**Setup commands (copy/paste):**
+```bash
+mkdir -p "$HOME/Documents/LiraTek"
+echo "$HOME/Library/Application Support/liratek/phone_shop.db" > "$HOME/Documents/LiraTek/db-path.txt"
+cat "$HOME/Documents/LiraTek/db-path.txt"
+```
+
+Put the absolute DB path inside (one line), e.g.:
+- `/Users/amir/Library/Application Support/liratek/phone_shop.db`
+
+Then run normally:
+- Desktop: `npm run dev`
+- Web: `npm run dev:web`
+
+**Important**: keep `backend/.env` for backend config (PORT/JWT/etc.), but **do not set `DATABASE_PATH` there** unless you intentionally want to override `db-path.txt`.
+
+**Override (advanced): DATABASE_PATH**
+- Desktop:
+  - `DATABASE_PATH="$HOME/Library/Application Support/liratek/phone_shop.db" npm run dev`
+- Web:
+  - Set `backend/.env`:
+    - `DATABASE_PATH=/Users/amir/Library/Application Support/liratek/phone_shop.db`
+  - Then run: `npm run dev:web`
+
+**DB Files You May See (and what they mean)**:
+1. `~/Library/Application Support/liratek/phone_shop.db` ✅ **KEEP / AUTHORITATIVE**
+   - Old app DB with mock data
+2. `~/Library/Application Support/@liratek/electron-app/phone_shop.db` ❌ **DELETE**
+   - Empty DB (0 tables)
+3. `~/Library/Application Support/@liratek/electron-app/liratek.db` ⚠️ **OPTIONAL BACKUP**
+   - Has schema + admin, but no business data (`clients=0`, `sales=0`)
+
+**Requirements**:
+1. **Single DB file** shared by:
+   - Desktop Electron mode
+   - Web mode
+2. DB must be **outside the repo** and must **not be committed/pushed**
+3. DB location must be clearly documented
+
+**Acceptance Criteria**:
+- Logs confirm both Electron and backend open the same DB path (the `DATABASE_PATH` value)
+- Creating a client/sale in Desktop is visible in Web mode immediately
+- No `*.db` files exist inside the repo
 
 ---
 

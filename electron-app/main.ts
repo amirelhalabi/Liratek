@@ -7,7 +7,32 @@ import { app, BrowserWindow, ipcMain } from 'electron';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import * as fs from 'fs';
+import os from 'os';
+import crypto from 'crypto';
 import Database from 'better-sqlite3';
+
+function loadDotEnvFile(envFilePath: string) {
+  if (!fs.existsSync(envFilePath)) return;
+
+  const content = fs.readFileSync(envFilePath, 'utf8');
+  for (const rawLine of content.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) continue;
+
+    const eq = line.indexOf('=');
+    if (eq === -1) continue;
+
+    const key = line.slice(0, eq).trim();
+    const value = line.slice(eq + 1).trim();
+
+    if (!key) continue;
+    // Do not overwrite env vars already set by the shell
+    if (process.env[key] == null) {
+      process.env[key] = value;
+    }
+  }
+}
+
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -44,16 +69,20 @@ function createWindow() {
   if (process.env.ELECTRON_RENDERER_URL) {
     mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
     mainWindow.webContents.openDevTools();
-  } 
+  }
   // Production: Load from built files
   else {
-    mainWindow.loadFile(path.join(__dirname, '../frontend/dist/index.html'));
+    // In production builds, frontend should be built under frontend/dist
+    mainWindow.loadFile(path.join(__dirname, '../../frontend/dist/index.html'));
   }
 
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
 }
+
+// Load electron-app/.env (repo-local, gitignored)
+loadDotEnvFile(path.join(__dirname, '../.env'));
 
 app.whenReady().then(async () => {
   console.log('[ELECTRON] App ready, creating window...');
@@ -83,23 +112,32 @@ app.on('window-all-closed', () => {
  * Initialize database connection and schema
  */
 function initializeDatabase() {
-  const userDataPath = app.getPath('userData');
-  
-  // Try old database location first (from old electron app)
-  const oldDbPath = path.join(app.getPath('home'), 'Library/Application Support/liratek/liratek.db');
-  const newDbPath = path.join(userDataPath, 'liratek.db');
-  
-  let dbPath = newDbPath;
-  if (fs.existsSync(oldDbPath) && !fs.existsSync(newDbPath)) {
-    console.log('[ELECTRON] Found existing database, copying from old location...');
-    fs.copyFileSync(oldDbPath, newDbPath);
-    dbPath = newDbPath;
-  } else if (fs.existsSync(newDbPath)) {
-    dbPath = newDbPath;
-  } else {
-    dbPath = newDbPath;
-  }
-  
+  // Allow forcing a specific shared DB path
+  const envDbPath = process.env.DATABASE_PATH;
+
+  // User-local config file (preferred): ~/Documents/LiraTek/db-path.txt
+  const documentsDir = path.join(os.homedir(), 'Documents', 'LiraTek');
+  const configPath = path.join(documentsDir, 'db-path.txt');
+
+  // If config exists, use it
+  const configDbPath = fs.existsSync(configPath)
+    ? fs.readFileSync(configPath, 'utf8').trim()
+    : '';
+
+  // Default legacy location for Option 2 (macOS)
+  const defaultDbPath =
+    process.platform === 'darwin'
+      ? path.join(
+          os.homedir(),
+          'Library',
+          'Application Support',
+          'liratek',
+          'phone_shop.db',
+        )
+      : path.join(documentsDir, 'liratek.db');
+
+  const dbPath = envDbPath || configDbPath || defaultDbPath;
+
   console.log('[ELECTRON] Database path:', dbPath);
   
   try {
@@ -111,12 +149,52 @@ function initializeDatabase() {
     const tableCheck = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='users'").get();
     
     if (!tableCheck) {
-      console.log('[ELECTRON] WARNING: Database has no schema! Please use existing database or restore from backup.');
-      // For now, just continue - the handlers will initialize what's needed
+      console.log('[ELECTRON] Database has no schema, initializing from create_db.sql...');
+
+      const schemaPath = path.join(__dirname, '../create_db.sql');
+      if (!fs.existsSync(schemaPath)) {
+        throw new Error(`Schema file not found at ${schemaPath}`);
+      }
+
+      const schema = fs.readFileSync(schemaPath, 'utf8');
+      db.exec(schema);
+
+      const afterCheck = db
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+        .get();
+
+      if (!afterCheck) {
+        throw new Error('Database schema initialization failed (users table still missing)');
+      }
+
+      console.log('[ELECTRON] Database schema initialized');
     } else {
       console.log('[ELECTRON] Database schema OK');
     }
     
+    // Ensure default admin user exists for first-run
+    try {
+      const adminRow = db
+        .prepare("SELECT id, password_hash FROM users WHERE username = 'admin' LIMIT 1")
+        .get() as { id?: number; password_hash?: string } | undefined;
+
+      if (!adminRow) {
+        console.log('[ELECTRON] Seeding default admin user...');
+        const salt = crypto.randomBytes(16).toString('hex');
+        const hash = crypto.scryptSync('admin123', Buffer.from(salt, 'hex'), 64).toString('hex');
+        const passwordHash = `SCRYPT:${salt}:${hash}`;
+
+        db.prepare(
+          "INSERT INTO users (username, password_hash, role, is_active) VALUES (?, ?, 'admin', 1)",
+        ).run('admin', passwordHash);
+
+        console.log('[ELECTRON] Default admin user created (admin/admin123)');
+      }
+    } catch (e) {
+      // Don't block app startup on seeding issues
+      console.warn('[ELECTRON] Admin seed warning', e);
+    }
+
     console.log('[ELECTRON] Database connected successfully');
     return db;
   } catch (error) {

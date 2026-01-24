@@ -1,5 +1,9 @@
 import { requestJson, setToken } from './httpClient';
 
+function isElectron(): boolean {
+  return typeof window !== 'undefined' && !!(window as any).api;
+}
+
 export type ApiUser = { id: number; username: string; role: string };
 
 export async function login(username: string, password: string) {
@@ -176,16 +180,25 @@ export async function getMonthlyPL(month: string) {
 
 // Settings
 export async function getAllSettings() {
+  if (isElectron()) {
+    return (window as any).api.settings.getAll();
+  }
   const res = await requestJson<{ success: boolean; settings: any[] }>(`/api/settings`);
   return res.settings;
 }
 
 export async function getSetting(key: string) {
+  if (isElectron()) {
+    return (window as any).api.settings.get(key);
+  }
   const res = await requestJson<{ success: boolean; setting: any }>(`/api/settings/${key}`);
   return res.setting;
 }
 
 export async function updateSetting(key: string, value: string) {
+  if (isElectron()) {
+    return (window as any).api.settings.update(key, value);
+  }
   return requestJson<{ success: boolean; error?: string }>(`/api/settings/${key}`, { 
     method: 'PUT', 
     body: { value } 
@@ -194,11 +207,17 @@ export async function updateSetting(key: string, value: string) {
 
 // Recharge
 export async function getRechargeStock() {
+  if (isElectron()) {
+    return (window as any).api.getRechargeStock();
+  }
   const res = await requestJson<{ success: boolean; stock: any }>(`/api/recharge/stock`);
   return res.stock;
 }
 
 export async function processRecharge(payload: any) {
+  if (isElectron()) {
+    return (window as any).api.processRecharge(payload);
+  }
   return requestJson<{ success: boolean; error?: string }>(`/api/recharge/process`, { 
     method: 'POST', 
     body: payload 
@@ -207,6 +226,9 @@ export async function processRecharge(payload: any) {
 
 // Services (OMT/Whish/BOB)
 export async function getOMTHistory(provider?: string) {
+  if (isElectron()) {
+    return (window as any).api.getOMTHistory(provider);
+  }
   const qs = new URLSearchParams();
   if (provider) qs.set('provider', provider);
   const res = await requestJson<{ success: boolean; history: any[] }>(`/api/services/history?${qs.toString()}`);
@@ -214,11 +236,17 @@ export async function getOMTHistory(provider?: string) {
 }
 
 export async function getOMTAnalytics() {
+  if (isElectron()) {
+    return (window as any).api.getOMTAnalytics();
+  }
   const res = await requestJson<{ success: boolean; analytics: any }>(`/api/services/analytics`);
   return res.analytics;
 }
 
 export async function addOMTTransaction(payload: any) {
+  if (isElectron()) {
+    return (window as any).api.addOMTTransaction(payload);
+  }
   return requestJson<{ success: boolean; error?: string; id?: number }>(`/api/services/transactions`, { 
     method: 'POST', 
     body: payload 
@@ -227,6 +255,9 @@ export async function addOMTTransaction(payload: any) {
 
 // Maintenance
 export async function getMaintenanceJobs(statusFilter?: string) {
+  if (isElectron()) {
+    return (window as any).api.getMaintenanceJobs(statusFilter);
+  }
   const qs = new URLSearchParams();
   if (statusFilter) qs.set('status', statusFilter);
   const res = await requestJson<{ success: boolean; jobs: any[] }>(`/api/maintenance/jobs?${qs.toString()}`);
@@ -234,6 +265,9 @@ export async function getMaintenanceJobs(statusFilter?: string) {
 }
 
 export async function saveMaintenanceJob(payload: any) {
+  if (isElectron()) {
+    return (window as any).api.saveMaintenanceJob(payload);
+  }
   return requestJson<{ success: boolean; error?: string; id?: number }>(`/api/maintenance/jobs`, { 
     method: 'POST', 
     body: payload 
@@ -241,6 +275,9 @@ export async function saveMaintenanceJob(payload: any) {
 }
 
 export async function deleteMaintenanceJob(id: number) {
+  if (isElectron()) {
+    return (window as any).api.deleteMaintenanceJob(id);
+  }
   return requestJson<{ success: boolean; error?: string }>(`/api/maintenance/jobs/${id}`, { 
     method: 'DELETE' 
   });
@@ -248,6 +285,9 @@ export async function deleteMaintenanceJob(id: number) {
 
 // Currencies
 export async function getCurrencies() {
+  if (isElectron()) {
+    return (window as any).api.currencies.list();
+  }
   const res = await requestJson<{ success: boolean; currencies: any[] }>(`/api/currencies`);
   return res.currencies;
 }
@@ -255,16 +295,25 @@ export async function getCurrencies() {
 // ==================== Closing API ====================
 
 export async function getSystemExpectedBalances() {
+  if (isElectron()) {
+    return (window as any).api.closing.getSystemExpectedBalances();
+  }
   const res = await requestJson<{ success: boolean; balances: any }>('/api/closing/system-expected-balances');
   return res.balances;
 }
 
 export async function hasOpeningBalanceToday() {
+  if (isElectron()) {
+    return (window as any).api.closing.hasOpeningBalanceToday();
+  }
   const res = await requestJson<{ success: boolean; hasOpening: boolean }>('/api/closing/has-opening-balance-today');
   return res.hasOpening;
 }
 
 export async function getDailyStatsSnapshot() {
+  if (isElectron()) {
+    return (window as any).api.closing.getDailyStatsSnapshot();
+  }
   const res = await requestJson<{ success: boolean; stats: any }>('/api/closing/daily-stats-snapshot');
   return res.stats;
 }
@@ -274,6 +323,9 @@ export async function setOpeningBalances(data: {
   amounts: any[];
   user_id?: number;
 }) {
+  if (isElectron()) {
+    return (window as any).api.closing.setOpeningBalances(data);
+  }
   return requestJson<{ success: boolean; error?: string }>('/api/closing/opening-balances', {
     method: 'POST',
     body: data,
@@ -289,6 +341,9 @@ export async function createDailyClosing(data: {
   system_expected_lbp?: number;
   user_id?: number;
 }) {
+  if (isElectron()) {
+    return (window as any).api.closing.createDailyClosing(data);
+  }
   return requestJson<{ success: boolean; id?: number; error?: string }>('/api/closing/daily-closing', {
     method: 'POST',
     body: data,
@@ -306,6 +361,9 @@ export async function updateDailyClosing(id: number, data: {
   report_path?: string;
   user_id?: number;
 }) {
+  if (isElectron()) {
+    return (window as any).api.closing.updateDailyClosing({ id, ...data });
+  }
   return requestJson<{ success: boolean; error?: string }>(`/api/closing/daily-closing/${id}`, {
     method: 'PUT',
     body: data,

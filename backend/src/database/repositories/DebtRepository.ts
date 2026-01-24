@@ -65,18 +65,26 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
    * Get all clients with their debt totals (grouped)
    */
   findAllDebtors(): DebtorSummary[] {
+    // Use exchange rate to convert LBP portion into USD for consistent totals
+    const rateResult = this.db
+      .prepare(
+        `SELECT rate FROM exchange_rates WHERE from_code = 'USD' AND to_code = 'LBP' LIMIT 1`,
+      )
+      .get() as { rate: number } | undefined;
+    const rate = rateResult?.rate || 89000;
+
     const stmt = this.db.prepare(`
       SELECT 
         c.id, 
         c.full_name, 
         c.phone_number,
-        SUM(dl.amount_usd) as total_debt
+        ROUND(SUM(dl.amount_usd) + (SUM(dl.amount_lbp) / ?), 2) as total_debt
       FROM debt_ledger dl
       JOIN clients c ON dl.client_id = c.id
       GROUP BY c.id
       ORDER BY total_debt DESC
     `);
-    return stmt.all() as DebtorSummary[];
+    return stmt.all(rate) as DebtorSummary[];
   }
 
   /**
@@ -96,10 +104,19 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
    * Get total debt for a specific client
    */
   getClientDebtTotal(clientId: number): number {
+    const rateResult = this.db
+      .prepare(
+        `SELECT rate FROM exchange_rates WHERE from_code = 'USD' AND to_code = 'LBP' LIMIT 1`,
+      )
+      .get() as { rate: number } | undefined;
+    const rate = rateResult?.rate || 89000;
+
     const stmt = this.db.prepare(
-      "SELECT SUM(amount_usd) as total FROM debt_ledger WHERE client_id = ?",
+      `SELECT ROUND(SUM(amount_usd) + (SUM(amount_lbp) / ?), 2) as total 
+       FROM debt_ledger 
+       WHERE client_id = ?`,
     );
-    const result = stmt.get(clientId) as { total: number | null };
+    const result = stmt.get(rate, clientId) as { total: number | null };
     return result?.total || 0;
   }
 
@@ -137,13 +154,20 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
    */
   getDebtSummary(topN: number = 5): DebtSummary {
     // Total debt receivable
+    const rateResult = this.db
+      .prepare(
+        `SELECT rate FROM exchange_rates WHERE from_code = 'USD' AND to_code = 'LBP' LIMIT 1`,
+      )
+      .get() as { rate: number } | undefined;
+    const rate = rateResult?.rate || 89000;
+
     const totalDebtResult = this.db
       .prepare(
         `
-      SELECT SUM(amount_usd) as totalDebt FROM debt_ledger
+      SELECT ROUND(SUM(amount_usd) + (SUM(amount_lbp) / ?), 2) as totalDebt FROM debt_ledger
     `,
       )
-      .get() as { totalDebt: number | null };
+      .get(rate) as { totalDebt: number | null };
 
     // Top N debtors (only those with positive debt)
     const topDebtors = this.db
@@ -151,7 +175,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         `
       SELECT 
         c.full_name,
-        SUM(dl.amount_usd) as total_debt
+        ROUND(SUM(dl.amount_usd) + (SUM(dl.amount_lbp) / ?), 2) as total_debt
       FROM debt_ledger dl
       JOIN clients c ON dl.client_id = c.id
       GROUP BY dl.client_id
@@ -160,7 +184,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       LIMIT ?
     `,
       )
-      .all(topN) as TopDebtor[];
+      .all(rate, topN) as TopDebtor[];
 
     return {
       totalDebt: totalDebtResult?.totalDebt || 0,

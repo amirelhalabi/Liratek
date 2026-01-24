@@ -1,14 +1,15 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
+import { resolveDatabasePath } from './dbPath.js';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Database path - points to the same database as Electron app
-const DB_PATH = process.env.DATABASE_PATH || path.join(__dirname, '../../liratek.db');
+// Database path
+const DB_PATH = resolveDatabasePath();
 
 let dbInstance: Database.Database | null = null;
 
@@ -20,8 +21,8 @@ function ensureSchema(db: Database.Database): void {
 
     if (hasUsers) return;
 
-    // Path: backend/src/database -> electron/db/create_db.sql
-    const schemaPath = path.join(__dirname, '../../../electron/db/create_db.sql');
+    // Path: backend/src/database -> repo root -> electron-app/create_db.sql
+    const schemaPath = path.join(__dirname, '../../../electron-app/create_db.sql');
     const sql = fs.readFileSync(schemaPath, 'utf-8');
 
     db.exec(sql);
@@ -30,6 +31,12 @@ function ensureSchema(db: Database.Database): void {
 
 export function getDatabase(): Database.Database {
     if (!dbInstance) {
+        // Ensure DB directory exists
+        const dbDir = path.dirname(DB_PATH);
+        if (!fs.existsSync(dbDir)) {
+          fs.mkdirSync(dbDir, { recursive: true });
+        }
+
         dbInstance = new Database(DB_PATH);
         dbInstance.pragma('journal_mode = WAL');
         dbInstance.pragma('foreign_keys = ON');

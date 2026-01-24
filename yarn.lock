@@ -956,6 +956,7 @@
   resolved "file:backend"
   dependencies:
     bcrypt "^5.1.1"
+    better-sqlite3 "^12.6.2"
     cors "^2.8.5"
     dotenv "^16.4.1"
     express "^4.18.2"
@@ -980,10 +981,6 @@
     socket.io-client "^4.8.3"
     tailwind-merge "^3.4.0"
     zod "^3.23.8"
-
-"@liratek/shared@file:/Users/amir/Documents/liratek/packages/shared":
-  version "1.0.0"
-  resolved "file:packages/shared"
 
 "@malept/cross-spawn-promise@^2.0.0":
   version "2.0.0"

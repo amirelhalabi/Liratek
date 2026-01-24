@@ -43,7 +43,20 @@ router.get('/clients/:clientId/total', (req, res) => {
 // POST /api/debts/repayments (admin)
 router.post('/repayments', requireRole(['admin']), (req, res) => {
   const service = getDebtService();
-  const result = service.addRepayment(req.body);
+
+  // Support both payload shapes:
+  // - Electron/IPC style: { clientId, amountUSD, amountLBP, userId }
+  // - REST/web style:     { client_id, amount_usd, amount_lbp, user_id }
+  const body: any = req.body || {};
+  const normalized = {
+    clientId: body.clientId ?? body.client_id,
+    amountUSD: body.amountUSD ?? body.amount_usd ?? 0,
+    amountLBP: body.amountLBP ?? body.amount_lbp ?? 0,
+    note: body.note,
+    userId: body.userId ?? body.user_id,
+  };
+
+  const result = service.addRepayment(normalized);
   res.status(result.success ? 200 : 400).json(result);
 });
 

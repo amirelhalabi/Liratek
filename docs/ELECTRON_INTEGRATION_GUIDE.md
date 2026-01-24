@@ -13,6 +13,101 @@ Integrate backend services into the new `electron-app/` structure, enabling a fu
 
 ---
 
+## 🗄️ Database Location (IMPORTANT)
+
+### ✅ Goal
+Have **one shared DB** used by both:
+- Desktop (Electron)
+- Web mode (backend + frontend)
+
+### ✅ Reality
+Electron will always create folders in:
+- `~/Library/Application Support/...`
+
+Those folders contain caches/session/runtime files and are normal.
+
+### ✅ Current Decision (T-24 Option 2)
+We are **not moving DB files yet**.
+Instead, we use a single authoritative DB by setting `DATABASE_PATH` for both Electron and backend.
+
+**Authoritative DB (contains mock data)**:
+- `~/Library/Application Support/liratek/phone_shop.db`
+  - Verified counts: `users=1`, `clients=4`, `sales=10`
+
+### How to run using the shared DB
+
+#### Recommended (no CLI env vars): repo-local Electron .env + user-local DB config
+
+**Electron renderer URL** (repo-local, gitignored):
+- Copy `electron-app/.env.example` → `electron-app/.env`
+- Set:
+  - `ELECTRON_RENDERER_URL=http://localhost:5173`
+
+**DB path** (user-local):
+- Use `~/Documents/LiraTek/db-path.txt` for the DB path
+
+
+Create:
+- `~/Documents/LiraTek/db-path.txt`
+
+**Setup commands (copy/paste):**
+```bash
+mkdir -p "$HOME/Documents/LiraTek"
+echo "$HOME/Library/Application Support/liratek/phone_shop.db" > "$HOME/Documents/LiraTek/db-path.txt"
+cat "$HOME/Documents/LiraTek/db-path.txt"
+```
+
+Put the absolute DB path inside (one line), e.g.:
+- `/Users/amir/Library/Application Support/liratek/phone_shop.db`
+
+Then run:
+```bash
+npm run dev
+npm run dev:web
+```
+
+**Important**: keep `backend/.env` for backend config (PORT/JWT/etc.), but **do not set `DATABASE_PATH` there** unless you intentionally want to override `db-path.txt`.
+
+#### Override (advanced): DATABASE_PATH
+**Desktop:**
+```bash
+DATABASE_PATH="$HOME/Library/Application Support/liratek/phone_shop.db" npm run dev
+```
+
+**Web:** set `backend/.env`:
+```env
+DATABASE_PATH=/Users/amir/Library/Application Support/liratek/phone_shop.db
+```
+Then:
+```bash
+npm run dev:web
+```
+
+### DB files you may see (what they mean)
+1. `~/Library/Application Support/liratek/phone_shop.db` ✅ KEEP / authoritative (has data)
+2. `~/Library/Application Support/@liratek/electron-app/phone_shop.db` ❌ delete (empty)
+3. `~/Library/Application Support/@liratek/electron-app/liratek.db` ⚠️ optional backup (schema but no data)
+
+### Resolution order (important)
+Both Desktop and Web resolve DB path in this order:
+1. `DATABASE_PATH` env var (highest priority)
+2. `~/Documents/LiraTek/db-path.txt` (recommended user-local config)
+3. Default fallback (macOS): `~/Library/Application Support/liratek/phone_shop.db`
+
+### Override
+Both modes support:
+- `DATABASE_PATH=/absolute/path/to/dbfile.db`
+
+### Future improvement
+Later we can move the DB to a clearer location like:
+- `~/Documents/LiraTek/liratek.db`
+
+…but Option 2 is safest right now.
+
+
+
+---
+
 ## 📋 Prerequisites
 
 ✅ Completed (from previous session):

@@ -586,7 +586,9 @@ View logs:
 ## 📚 Additional Documentation
 
 - **[CURRENT_SPRINT.md](docs/CURRENT_SPRINT.md)**: Active sprint tasks, roadmap, and recent completions
-- **[RELEASE_NOTES_v1.0.0.md](RELEASE_NOTES_v1.0.0.md)**: Full changelog and platform downloads
+- **[QUICKSTART.md](docs/QUICKSTART.md)**: Quick start commands and troubleshooting
+- **[BACKEND_DIFFERENCES.md](docs/BACKEND_DIFFERENCES.md)**: Exhaustive desktop vs web backend parity analysis
+- **[RELEASE_NOTES_v1.0.0.md](docs/RELEASE_NOTES_v1.0.0.md)**: Full changelog and platform downloads
 - **Marketing Materials**: `docs/marketing/`
 - **Document Templates**: `docs/templates/`
 

@@ -103,6 +103,11 @@ contextBridge.exposeInMainWorld("api", {
   closing: {
     getSystemExpectedBalances: () =>
       ipcRenderer.invoke("closing:get-system-expected-balances"),
+
+    // Aliases: frontend expects camelCase method names
+    hasOpeningBalanceToday: () =>
+      ipcRenderer.invoke("closing:has-opening-balance-today"),
+
     createDailyClosing: (data: {
       closing_date: string;
       amounts: Array<{

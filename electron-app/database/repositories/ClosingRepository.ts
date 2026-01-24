@@ -310,13 +310,22 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
    * Check if opening balance exists for a specific date
    */
   hasOpeningBalanceForDate(date: string): boolean {
+    // Opening balances are stored in daily_closing_amounts linked to daily_closings
+    // We consider "opening set" if at least one row for the date has a non-null opening_amount.
     const sql = `
-      SELECT COUNT(*) as count 
-      FROM closing_amounts 
-      WHERE closing_date = ? AND opening_amount IS NOT NULL
+      SELECT COUNT(*) as count
+      FROM daily_closings dc
+      JOIN daily_closing_amounts dca ON dca.closing_id = dc.id
+      WHERE dc.closing_date = ? AND dca.opening_amount IS NOT NULL
     `;
-    const result = this.db.prepare(sql).get(date) as { count: number };
-    return result.count > 0;
+
+    try {
+      const result = this.db.prepare(sql).get(date) as { count: number };
+      return result.count > 0;
+    } catch (error) {
+      // If tables are missing (fresh DB), treat as not opened yet.
+      return false;
+    }
   }
 
   /**
