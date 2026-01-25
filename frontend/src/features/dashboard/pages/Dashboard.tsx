@@ -9,6 +9,7 @@ import {
   BarChart2,
   Package,
 } from "lucide-react";
+import PageHeader from "../../../shared/components/layouts/PageHeader";
 import {
   LineChart,
   Line,
@@ -258,10 +259,7 @@ export default function Dashboard() {
   return (
     <>
       <div className="space-y-6 animate-in fade-in duration-500">
-        <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-          <TrendingUp className="text-violet-500" />
-          Dashboard
-        </h1>
+        <PageHeader icon={BarChart2} title="Dashboard" />
 
         {/* Financial Metrics */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

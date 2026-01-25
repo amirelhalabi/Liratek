@@ -1,11 +1,10 @@
 import { useState, useEffect } from "react";
 import {
     TrendingUp,
-    ArrowLeft,
     PieChart as PieChartIcon,
     Activity
 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import PageHeader from "../../../shared/components/layouts/PageHeader";
 import {
     ResponsiveContainer,
     PieChart,
@@ -32,7 +31,6 @@ type AnalyticsData = {
 const COLORS = ["#8b5cf6", "#ec4899", "#3b82f6", "#10b981", "#f59e0b"];
 
 export default function CommissionsDashboard() {
-    const navigate = useNavigate();
     const [data, setData] = useState<AnalyticsData | null>(null);
     const [isLoading, setIsLoading] = useState(true);
 
@@ -61,20 +59,7 @@ export default function CommissionsDashboard() {
 
     return (
         <div className="space-y-6 animate-in fade-in duration-500">
-            <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                    <button
-                        onClick={() => navigate("/")}
-                        className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors"
-                    >
-                        <ArrowLeft size={20} />
-                    </button>
-                    <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-                        <TrendingUp className="text-violet-500" />
-                        Service Commissions
-                    </h1>
-                </div>
-            </div>
+            <PageHeader icon={TrendingUp} title="Analytics" />
 
             {/* Overview Cards */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Plus, Search, Package, Edit2, Trash2 } from "lucide-react";
 import { useAuth } from "../../../auth/context/AuthContext";
+import PageHeader from "../../../../shared/components/layouts/PageHeader";
 import ProductForm from "./ProductForm";
 import type { Product } from "../../../../types";
 
@@ -72,24 +73,19 @@ export default function ProductList() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-3">
-            <Package className="text-violet-400" />
-            Inventory
-          </h1>
-          <p className="text-slate-400 text-sm mt-1">
-            Manage prodcuts, stock, and pricing
-          </p>
-        </div>
-        <button
-          onClick={() => setIsFormOpen(true)}
-          className="flex items-center gap-2 bg-violet-600 hover:bg-violet-500 text-white px-4 py-2 rounded-lg font-medium transition-all shadow-lg shadow-violet-900/20"
-        >
-          <Plus size={20} />
-          Add Product
-        </button>
-      </div>
+      <PageHeader 
+        icon={Package} 
+        title="Inventory"
+        actions={
+          <button
+            onClick={() => setIsFormOpen(true)}
+            className="flex items-center gap-2 bg-violet-600 hover:bg-violet-500 text-white px-4 py-2 rounded-lg font-medium transition-all shadow-lg shadow-violet-900/20"
+          >
+            <Plus size={20} />
+            Add Product
+          </button>
+        }
+      />
 
       {/* Toolbar */}
       <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 flex gap-4">

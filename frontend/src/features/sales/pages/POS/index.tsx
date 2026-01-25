@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
-import { FileText, X } from "lucide-react";
+import { FileText, X, ShoppingCart } from "lucide-react";
+import PageHeader from "../../../../shared/components/layouts/PageHeader";
 import ProductSearch from "./components/ProductSearch";
 import Cart from "./components/Cart";
 import CheckoutModal, {
@@ -213,31 +214,35 @@ export default function POS() {
 
   // ... inside return ...
   return (
-    <div className="flex h-full min-h-0 gap-4 overflow-hidden relative">
-      {/* Left: Product Selection */}
-      <div className="flex-1 min-w-0">
-        <ProductSearch onAddToCart={handleAddToCart} />
-      </div>
+    <div className="space-y-6 animate-in fade-in duration-500">
+      <PageHeader icon={ShoppingCart} title="Point of Sale" />
+      
+      <div className="flex h-full min-h-0 gap-4 overflow-hidden relative">
+        {/* Left: Product Selection */}
+        <div className="flex-1 min-w-0">
+          <ProductSearch onAddToCart={handleAddToCart} />
+        </div>
 
-      {/* Right: Cart */}
-      <div className="w-96 flex-shrink-0">
-        <Cart
-          items={cartItems}
-          onUpdateQuantity={handleUpdateQuantity}
-          onRemoveItem={handleRemoveItem}
-          onUpdateIMEI={handleUpdateIMEI}
-          onClearCart={handleClearCart}
-          onCheckout={() => setIsCheckoutOpen(true)}
-          onOpenDrafts={() => setIsDraftsOpen(true)}
-          draftCount={drafts.length}
-        />
-        {currentDraftId && (
-          <div className="mt-2 text-center">
-            <span className="text-xs font-mono bg-violet-500/20 text-violet-300 px-2 py-1 rounded">
-              Editing Draft #{currentDraftId}
-            </span>
-          </div>
-        )}
+        {/* Right: Cart */}
+        <div className="w-96 flex-shrink-0">
+          <Cart
+            items={cartItems}
+            onUpdateQuantity={handleUpdateQuantity}
+            onRemoveItem={handleRemoveItem}
+            onUpdateIMEI={handleUpdateIMEI}
+            onClearCart={handleClearCart}
+            onCheckout={() => setIsCheckoutOpen(true)}
+            onOpenDrafts={() => setIsDraftsOpen(true)}
+            draftCount={drafts.length}
+          />
+          {currentDraftId && (
+            <div className="mt-2 text-center">
+              <span className="text-xs font-mono bg-violet-500/20 text-violet-300 px-2 py-1 rounded">
+                Editing Draft #{currentDraftId}
+              </span>
+            </div>
+          )}
+        </div>
       </div>
 
       {isCheckoutOpen && (

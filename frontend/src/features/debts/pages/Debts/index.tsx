@@ -5,7 +5,9 @@ import {
   ArrowDownLeft,
   ChevronDown,
   ChevronUp,
+  Receipt,
 } from "lucide-react";
+import PageHeader from "../../../../shared/components/layouts/PageHeader";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { EXCHANGE_RATE } from "@/config/constants";
 import { roundLBPUp } from "@/config/denominations";
@@ -241,15 +243,14 @@ export default function Debts() {
   }, [filteredDebtors, selectedClient]);
 
   return (
-    <div className="flex h-full min-h-0 gap-6 overflow-hidden">
-      {/* Left: Debtors List */}
-      <div className="w-1/3 flex flex-col bg-slate-800 rounded-xl border border-slate-700 shadow-xl overflow-hidden">
-        <div className="p-4 border-b border-slate-700 space-y-4">
-          <h2 className="text-xl font-bold text-white flex items-center gap-2">
-            <User className="text-red-400" />
-            Client Debts
-          </h2>
-          <div className="relative">
+    <div className="space-y-6 animate-in fade-in duration-500">
+      <PageHeader icon={Receipt} title="Debts" />
+      
+      <div className="flex h-full min-h-0 gap-6 overflow-hidden">
+        {/* Left: Debtors List */}
+        <div className="w-1/3 flex flex-col bg-slate-800 rounded-xl border border-slate-700 shadow-xl overflow-hidden">
+          <div className="p-4 border-b border-slate-700 space-y-4">
+            <div className="relative">
             <Search
               className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
               size={18}
@@ -261,9 +262,9 @@ export default function Debts() {
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full bg-slate-900 border border-slate-600 rounded-lg pl-10 pr-4 py-2 text-white focus:outline-none focus:border-red-500"
             />
-          </div>
-          {/* New filter dropdown */}
-          <div className="mt-4">
+            </div>
+            {/* New filter dropdown */}
+            <div className="mt-4">
             <label className="block text-sm font-medium text-slate-400 mb-2">
               Show Debts:
             </label>
@@ -279,8 +280,8 @@ export default function Debts() {
               <option value="closed">Closed</option>
               <option value="all">All</option>
             </select>
+            </div>
           </div>
-        </div>
 
         <div className="flex-1 overflow-y-auto p-2 space-y-2">
           {filteredDebtors.map((client) => (
@@ -580,6 +581,7 @@ export default function Debts() {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

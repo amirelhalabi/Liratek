@@ -7,6 +7,7 @@ import {
   Trash2,
   MessageCircle,
 } from "lucide-react";
+import PageHeader from "../../../../shared/components/layouts/PageHeader";
 import ClientForm from "./ClientForm";
 import type { Client } from "../../../../types";
 
@@ -90,24 +91,19 @@ export default function ClientList() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-3">
-            <Users className="text-violet-400" />
-            Clients
-          </h1>
-          <p className="text-slate-400 text-sm mt-1">
-            Manage customer profiles and history
-          </p>
-        </div>
-        <button
-          onClick={() => setIsFormOpen(true)}
-          className="flex items-center gap-2 bg-violet-600 hover:bg-violet-500 text-white px-4 py-2 rounded-lg font-medium transition-all shadow-lg shadow-violet-900/20"
-        >
-          <Plus size={20} />
-          Add Client
-        </button>
-      </div>
+      <PageHeader 
+        icon={Users} 
+        title="Clients"
+        actions={
+          <button
+            onClick={() => setIsFormOpen(true)}
+            className="flex items-center gap-2 bg-violet-600 hover:bg-violet-500 text-white px-4 py-2 rounded-lg font-medium transition-all shadow-lg shadow-violet-900/20"
+          >
+            <Plus size={20} />
+            Add Client
+          </button>
+        }
+      />
 
       {/* Toolbar */}
       <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 flex gap-4">
