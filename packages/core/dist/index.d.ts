@@ -5,4 +5,5 @@ export * from './utils/logger.js';
 export * from './utils/errors.js';
 export * from './utils/barcode.js';
 export * from './repositories/index.js';
+export type { ProductEntity as Product, ClientEntity as Client, } from './repositories/index.js';
 export * from './services/index.js';

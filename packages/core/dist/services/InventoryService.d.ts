@@ -32,11 +32,11 @@ export declare class InventoryService {
     /**
      * Get a single product by ID
      */
-    getProductById(id: number): import("../index.js").ProductEntity;
+    getProductById(id: number): import("../index.js").Product;
     /**
      * Get a product by barcode
      */
-    getProductByBarcode(barcode: string): import("../index.js").ProductEntity | null;
+    getProductByBarcode(barcode: string): import("../index.js").Product | null;
     /**
      * Search products by name or barcode
      */

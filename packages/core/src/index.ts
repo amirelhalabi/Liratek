@@ -11,5 +11,12 @@ export * from './utils/barcode.js';
 // Repositories
 export * from './repositories/index.js';
 
+// Type aliases for backwards compatibility
+export type {
+  ProductEntity as Product,
+  ClientEntity as Client,
+} from './repositories/index.js';
+
+
 // Services
 export * from './services/index.js';

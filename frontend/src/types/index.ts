@@ -8,8 +8,9 @@
 export type {
   Product,
   Client,
-  CartItem,
+  CartItem, // Defined locally
   SaleItem,
   SaleRequest,
   Expense,
 } from "@liratek/core";
+export interface CartItem { product: Product; quantity: number; price_usd: number; }
