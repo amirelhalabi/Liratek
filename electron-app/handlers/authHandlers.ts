@@ -42,7 +42,7 @@ export function registerAuthHandlers(): void {
       );
     }
   } catch (e) {
-    authLogger.warn({ error: e }, "Admin seed warning");
+    authLogger.warn({ error: e instanceof Error ? e.message : String(e) }, "Admin seed warning");
   }
 
   // ---------------------------------------------------------------------------
@@ -71,7 +71,7 @@ export function registerAuthHandlers(): void {
           setSession(event.sender.id, result.user.id, result.user.role);
           sessionToken = storeEncryptedSession(result.user.id);
         } catch (e) {
-          authLogger.warn({ error: e }, "Failed to set session");
+          authLogger.warn({ error: e instanceof Error ? e.message : String(e) }, "Failed to set session");
         }
 
         authLogger.info(
@@ -84,7 +84,7 @@ export function registerAuthHandlers(): void {
           sessionToken,
         };
       } catch (error) {
-        authLogger.error({ error, username }, "Login error");
+        authLogger.error({ error: error instanceof Error ? error.message : String(error), username }, "Login error");
         return {
           success: false,
           error: isAppError(error)
@@ -109,7 +109,7 @@ export function registerAuthHandlers(): void {
         clearEncryptedSession();
         clearSession(_event.sender.id);
       } catch (e) {
-        authLogger.warn({ error: e }, "Failed to clear session");
+        authLogger.warn({ error: e instanceof Error ? e.message : String(e) }, "Failed to clear session");
       }
 
       // Log activity
@@ -117,7 +117,7 @@ export function registerAuthHandlers(): void {
 
       return { success: true };
     } catch (error) {
-      authLogger.error({ error, userId }, "Logout error");
+      authLogger.error({ error: error instanceof Error ? error.message : String(error), userId }, "Logout error");
       return { success: false, error: "Failed to logout" };
     }
   });
@@ -165,7 +165,7 @@ export function registerAuthHandlers(): void {
         },
       };
     } catch (error) {
-      authLogger.error({ error }, "Restore session error");
+      authLogger.error({ error: error instanceof Error ? error.message : String(error) }, "Restore session error");
       return { success: false, error: "Failed to restore session" };
     }
   });
@@ -179,7 +179,7 @@ export function registerAuthHandlers(): void {
       authLogger.debug({ userId, found: !!user }, "Get current user");
       return user || null;
     } catch (error) {
-      authLogger.error({ error, userId }, "Get current user error");
+      authLogger.error({ error: error instanceof Error ? error.message : String(error), userId }, "Get current user error");
       return null;
     }
   });
@@ -244,7 +244,7 @@ export function registerAuthHandlers(): void {
         );
         return { success: result.success, error: result.error };
       } catch (error) {
-        authLogger.error({ error, userId: data.id }, "Set password error");
+        authLogger.error({ error: error instanceof Error ? error.message : String(error), userId: data.id }, "Set password error");
         return {
           success: false,
           error: isAppError(error) ? error.message : "Failed to set password",
@@ -265,7 +265,7 @@ export function registerAuthHandlers(): void {
       const users = authService.getAllUsers();
       return users.filter((u) => u.role !== "admin");
     } catch (error) {
-      authLogger.error({ error }, "List non-admin users error");
+      authLogger.error({ error: error instanceof Error ? error.message : String(error) }, "List non-admin users error");
       return [];
     }
   });
@@ -354,7 +354,7 @@ function logActivity(
       JSON.stringify({ timestamp: new Date().toISOString() }),
     );
   } catch (e) {
-    authLogger.warn({ error: e, action, userId }, "Failed to log activity");
+    authLogger.warn({ error: e instanceof Error ? e.message : String(e), action, userId }, "Failed to log activity");
   }
 }
 
