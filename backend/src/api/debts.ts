@@ -47,13 +47,14 @@ router.post('/repayments', requireRole(['admin']), (req, res) => {
   // Support both payload shapes:
   // - Electron/IPC style: { clientId, amountUSD, amountLBP, userId }
   // - REST/web style:     { client_id, amount_usd, amount_lbp, user_id }
-  const body: any = req.body || {};
+  const body = (req.body ?? {}) as Record<string, unknown>;
+
   const normalized = {
-    clientId: body.clientId ?? body.client_id,
-    amountUSD: body.amountUSD ?? body.amount_usd ?? 0,
-    amountLBP: body.amountLBP ?? body.amount_lbp ?? 0,
-    note: body.note,
-    userId: body.userId ?? body.user_id,
+    clientId: (body['clientId'] ?? body['client_id']) as number,
+    amountUSD: Number(body['amountUSD'] ?? body['amount_usd'] ?? 0),
+    amountLBP: Number(body['amountLBP'] ?? body['amount_lbp'] ?? 0),
+    note: body['note'] as string | undefined,
+    userId: (body['userId'] ?? body['user_id']) as number | undefined,
   };
 
   const result = service.addRepayment(normalized);
