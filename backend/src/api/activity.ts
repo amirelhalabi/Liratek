@@ -7,7 +7,7 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
 import { getActivityService } from '../services';
-import { logger } from '../utils/logger';
+import { logger } from '../server.js';
 
 const router = Router();
 const activityService = getActivityService();

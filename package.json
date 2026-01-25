@@ -33,7 +33,7 @@
     "lint": "npm run lint:frontend && npm run lint:backend",
     "lint:frontend": "cd frontend && npm run lint",
     "lint:backend": "cd backend && npm run lint",
-    "typecheck": "npm run typecheck:frontend && npm run typecheck:backend && npm run typecheck:electron",
+    "typecheck": "yarn workspace @liratek/core build && npm run typecheck:frontend && npm run typecheck:backend && npm run typecheck:electron",
     "typecheck:frontend": "cd frontend && npm run typecheck",
     "typecheck:backend": "cd backend && npm run typecheck",
     "typecheck:electron": "cd electron-app && npx tsc --noEmit",

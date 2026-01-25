@@ -7,7 +7,7 @@
 import { Router } from 'express';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { getSupplierService } from '../services';
-import { logger } from '../utils/logger';
+import { logger } from '../server.js';
 
 const router = Router();
 const supplierService = getSupplierService();
