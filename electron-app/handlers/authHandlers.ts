@@ -132,7 +132,7 @@ export function registerAuthHandlers(): void {
       const stored = getEncryptedSession();
 
       if (!stored) {
-        authLogger.debug("No stored session found");
+        // This is normal on first run - don't log as error
         return { success: false, error: "No session" };
       }
 
