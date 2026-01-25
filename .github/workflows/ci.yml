@@ -23,7 +23,7 @@ jobs:
         run: corepack enable
 
       - name: Install dependencies
-        run: yarn install --immutable --mode=skip-build
+        run: yarn install --immutable
 
       - name: Run ESLint
         run: yarn lint
@@ -44,7 +44,7 @@ jobs:
         run: corepack enable
 
       - name: Install dependencies
-        run: yarn install --immutable --mode=skip-build
+        run: yarn install --immutable
 
       - name: TypeScript check
         run: yarn typecheck
@@ -65,7 +65,7 @@ jobs:
         run: corepack enable
 
       - name: Install dependencies
-        run: yarn install --immutable --mode=skip-build
+        run: yarn install --immutable
 
       - name: Run tests
         run: yarn test
@@ -95,7 +95,7 @@ jobs:
         run: corepack enable
 
       - name: Install dependencies
-        run: yarn install --immutable --mode=skip-build
+        run: yarn install --immutable
 
       - name: Backend typecheck
         run: yarn workspace @liratek/backend typecheck
@@ -119,7 +119,7 @@ jobs:
         run: corepack enable
 
       - name: Install dependencies
-        run: yarn install --immutable --mode=skip-build
+        run: yarn install --immutable
 
       - name: Frontend typecheck
         run: yarn workspace @liratek/frontend typecheck
@@ -143,7 +143,7 @@ jobs:
         run: corepack enable
 
       - name: Install dependencies
-        run: yarn install --immutable --mode=skip-build
+        run: yarn install --immutable
 
       - name: Install Playwright browsers
         run: yarn workspace @liratek/frontend exec playwright install --with-deps chromium
@@ -185,7 +185,7 @@ jobs:
         run: corepack enable
 
       - name: Install dependencies
-        run: yarn install --immutable --mode=skip-build
+        run: yarn install --immutable
 
       - name: Build
         run: yarn build
