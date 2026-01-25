@@ -74,14 +74,14 @@ export interface ElectronAPI {
   // Inventory
   getProducts: (
     search?: string,
-  ) => Promise<Array<import("@liratek/shared").Product>>;
-  getProduct: (id: number) => Promise<import("@liratek/shared").Product | null>;
+  ) => Promise<Array<import("@liratek/core").Product>>;
+  getProduct: (id: number) => Promise<import("@liratek/core").Product | null>;
   getProductByBarcode: (
     barcode: string,
-  ) => Promise<import("@liratek/shared").Product | null>;
+  ) => Promise<import("@liratek/core").Product | null>;
   createProduct: (
     product: Omit<
-      import("@liratek/shared").Product,
+      import("@liratek/core").Product,
       "id" | "created_at" | "is_active"
     > & { is_active?: number },
   ) => Promise<{
@@ -92,7 +92,7 @@ export interface ElectronAPI {
     suggested_barcode?: string;
   }>;
   updateProduct: (
-    product: Partial<import("@liratek/shared").Product> & { id: number },
+    product: Partial<import("@liratek/core").Product> & { id: number },
   ) => Promise<{
     success: boolean;
     error?: string;
@@ -108,23 +108,23 @@ export interface ElectronAPI {
     stock_budget_usd: number;
     stock_count: number;
   }>;
-  getLowStockProducts: () => Promise<Array<import("@liratek/shared").Product>>;
+  getLowStockProducts: () => Promise<Array<import("@liratek/core").Product>>;
   // Clients
   getClients: (
     search?: string,
-  ) => Promise<Array<import("@liratek/shared").Client>>;
-  getClient: (id: number) => Promise<import("@liratek/shared").Client | null>;
+  ) => Promise<Array<import("@liratek/core").Client>>;
+  getClient: (id: number) => Promise<import("@liratek/core").Client | null>;
   createClient: (
-    client: Omit<import("@liratek/shared").Client, "id" | "created_at">,
+    client: Omit<import("@liratek/core").Client, "id" | "created_at">,
   ) => Promise<{ success: boolean; id?: number; error?: string }>;
   updateClient: (
-    client: Partial<import("@liratek/shared").Client> & { id: number },
+    client: Partial<import("@liratek/core").Client> & { id: number },
   ) => Promise<{ success: boolean; error?: string }>;
   deleteClient: (id: number) => Promise<{ success: boolean; error?: string }>;
 
   // Sales
   processSale: (
-    saleData: import("@liratek/shared").SaleRequest,
+    saleData: import("@liratek/core").SaleRequest,
   ) => Promise<{ success: boolean; saleId?: number; error?: string }>;
 
   // Recharge
@@ -163,7 +163,7 @@ export interface ElectronAPI {
   >;
   getDrafts: () => Promise<
     Array<
-      import("@liratek/shared").SaleRequest & { id: number; status: "draft" }
+      import("@liratek/core").SaleRequest & { id: number; status: "draft" }
     >
   >;
   getTopProducts: () => Promise<

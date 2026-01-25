@@ -10,11 +10,11 @@ export default defineConfig({
   resolve: {
     alias: {
       // Shared package aliases
-      "@liratek/shared": path.resolve(
+      "@liratek/core": path.resolve(
         __dirname,
         "../packages/shared/src/index.ts",
       ),
-      "@shared": path.resolve(__dirname, "../packages/shared/src"),
+      "@shared": path.resolve(__dirname, "../packages/core/src"),
       // General @/ alias - this will match all @/... imports
       "@": path.resolve(__dirname, "./src"),
     },
