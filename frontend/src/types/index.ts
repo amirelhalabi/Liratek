@@ -13,4 +13,10 @@ export type {
   SaleRequest,
   Expense,
 } from "@liratek/core";
-export interface CartItem { product: Product; quantity: number; price_usd: number; }
+export interface CartItem {
+  id: number;
+  product: Product;
+  quantity: number;
+  price_usd: number;
+  retail_price: number;
+}
