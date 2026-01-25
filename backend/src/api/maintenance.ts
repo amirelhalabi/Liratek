@@ -1,6 +1,6 @@
 import express from 'express';
 import { authenticateJWT } from '../middleware/auth.js';
-import { getMaintenanceService } from '../services';
+import { getMaintenanceService } from '../services/index.js';
 import { logger } from '../server.js';
 
 const maintenanceService = getMaintenanceService();

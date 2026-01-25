@@ -6,7 +6,7 @@ import {
   getInventoryService,
   getRechargeService,
   getFinancialRepository,
-} from '../services';
+} from '../services/index.js';
 
 const router = express.Router();
 

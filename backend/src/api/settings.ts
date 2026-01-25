@@ -1,5 +1,5 @@
 import express from 'express';
-import { getSettingsService } from '../services';
+import { getSettingsService } from '../services/index.js';
 import { logger } from '../server.js';
 
 const router = express.Router();

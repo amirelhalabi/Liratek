@@ -1,6 +1,6 @@
 # Current Sprint (Jan 23–Jan 30, 2026)
 
-**Last Updated**: Jan 24, 2026
+**Last Updated**: Jan 25, 2026
 
 ## 📖 How to Read This Document
 
@@ -14,19 +14,23 @@
 ## 🏗️ Sprint Board
 
 ### ✅ Completed
+- [T-25]!!! Shared Core Backend Consolidation (@liratek/core) (completed Jan 25)
+- [T-24]!!! Unified Database Location (Web + Desktop) (completed Jan 25)
 - [T-23]!!! New Electron Backend Integration (completed Jan 24)
 - [T-20]!!! Post-Refactor Cleanup & Verification (completed Jan 24)
-- [T-18]!!! Frontend/Backend Separation
-- [T-08]!!! IMEI & Warranty Tracking
-- [T-02]!!! Supplier Ledger Drawer Integration
+- [T-18]!!! Frontend/Backend Separation (completed Jan 24)
+- [T-08]!!! IMEI & Warranty Tracking (completed Jan 24)
+- [T-02]!!! Supplier Ledger Drawer Integration (completed Jan 24)
 - **Financial Reporting & Analytics** (completed Jan 24)
+- **Documentation Consolidation** (completed Jan 25)
+- **CI/CD Build Pipeline Fix** (completed Jan 25)
 
 ### 🚧 In Progress
 - None currently
 
 ### 🔜 Next Priority (MUST DO)
-- ~~[T-25] Shared Core Backend Consolidation (packages/core)~~ ✅ **COMPLETED**
-- [T-24]!!! Unified Database Location (Web + Desktop)
+- [T-16]!!! SQLCipher DB Encryption (unblocked by T-25)
+- [T-21]!! Backend REST API Documentation
 
 ### 📋 Ready (Ordered by Priority)
 **High Priority (!!!)**

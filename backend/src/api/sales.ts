@@ -1,6 +1,6 @@
 import express from 'express';
 import { authenticateJWT, requireRole } from '../middleware/auth.js';
-import { getSalesService } from '../services';
+import { getSalesService } from '../services/index.js';
 import { emitEvent } from '../websocket/io.js';
 
 const router = express.Router();

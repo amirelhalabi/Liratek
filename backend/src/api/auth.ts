@@ -1,5 +1,5 @@
 import express from 'express';
-import { getUserRepository, getAuthService } from '../services';
+import { getUserRepository, getAuthService } from '../services/index.js';
 import { logger } from '../server.js';
 import jwt from 'jsonwebtoken';
 

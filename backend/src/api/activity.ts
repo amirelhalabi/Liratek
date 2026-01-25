@@ -5,8 +5,8 @@
  */
 
 import { Router } from 'express';
-import { requireAuth } from '../middleware/auth';
-import { getActivityService } from '../services';
+import { requireAuth } from '../middleware/auth.js';
+import { getActivityService } from '../services/index.js';
 import { logger } from '../server.js';
 
 const router = Router();

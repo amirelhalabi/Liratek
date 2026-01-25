@@ -1,6 +1,6 @@
 import express from 'express';
 import { authenticateJWT } from '../middleware/auth.js';
-import { getRechargeService } from '../services';
+import { getRechargeService } from '../services/index.js';
 import { logger } from '../server.js';
 
 const router = express.Router();
