@@ -107,9 +107,6 @@ export class DebtService {
         client_id: clientId,
         amount_usd: amountUSD,
         amount_lbp: amountLBP,
-        paid_amount_usd: paidAmountUSD,
-        paid_amount_lbp: paidAmountLBP,
-        drawer_name: drawerName,
         note: note || null,
         created_by: userId || null,
       });

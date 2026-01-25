@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
-import { resolveDatabasePath } from './dbPath.js';
+import { resolveDatabasePath, initDatabase as initCoreDatabase } from '@liratek/core';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 
@@ -9,7 +9,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // Database path
-const DB_PATH = resolveDatabasePath();
+const resolved = resolveDatabasePath();
+const DB_PATH = resolved.path;
 
 let dbInstance: Database.Database | null = null;
 
@@ -41,7 +42,11 @@ export function getDatabase(): Database.Database {
         dbInstance.pragma('journal_mode = WAL');
         dbInstance.pragma('foreign_keys = ON');
         ensureSchema(dbInstance);
-        console.log(`📦 Database connected: ${DB_PATH}`);
+        
+        // Initialize the @liratek/core database singleton
+        initCoreDatabase(dbInstance);
+        
+        console.log(`📦 Database connected: ${DB_PATH} (source: ${resolved.source})`);
     }
     return dbInstance;
 }

@@ -10,6 +10,7 @@ import * as fs from 'fs';
 import os from 'os';
 import crypto from 'crypto';
 import Database from 'better-sqlite3';
+import { resolveDatabasePath, initDatabase as initCoreDatabase } from '@liratek/core';
 
 function loadDotEnvFile(envFilePath: string) {
   if (!fs.existsSync(envFilePath)) return;
@@ -112,33 +113,10 @@ app.on('window-all-closed', () => {
  * Initialize database connection and schema
  */
 function initializeDatabase() {
-  // Allow forcing a specific shared DB path
-  const envDbPath = process.env.DATABASE_PATH;
+  const resolved = resolveDatabasePath();
+  const dbPath = resolved.path;
 
-  // User-local config file (preferred): ~/Documents/LiraTek/db-path.txt
-  const documentsDir = path.join(os.homedir(), 'Documents', 'LiraTek');
-  const configPath = path.join(documentsDir, 'db-path.txt');
-
-  // If config exists, use it
-  const configDbPath = fs.existsSync(configPath)
-    ? fs.readFileSync(configPath, 'utf8').trim()
-    : '';
-
-  // Default legacy location for Option 2 (macOS)
-  const defaultDbPath =
-    process.platform === 'darwin'
-      ? path.join(
-          os.homedir(),
-          'Library',
-          'Application Support',
-          'liratek',
-          'phone_shop.db',
-        )
-      : path.join(documentsDir, 'liratek.db');
-
-  const dbPath = envDbPath || configDbPath || defaultDbPath;
-
-  console.log('[ELECTRON] Database path:', dbPath);
+  console.log('[ELECTRON] Database path:', dbPath, `(source: ${resolved.source})`);
   
   try {
     db = new Database(dbPath);
@@ -195,6 +173,9 @@ function initializeDatabase() {
       console.warn('[ELECTRON] Admin seed warning', e);
     }
 
+    // Initialize @liratek/core database singleton
+    initCoreDatabase(db);
+    
     console.log('[ELECTRON] Database connected successfully');
     return db;
   } catch (error) {

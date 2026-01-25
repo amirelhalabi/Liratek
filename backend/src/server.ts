@@ -6,6 +6,7 @@ import helmet from 'helmet';
 import dotenv from 'dotenv';
 import pino from 'pino';
 import pinoHttp from 'pino-http';
+import { getDatabase } from './database/connection.js';
 
 // Load environment variables
 dotenv.config();
@@ -111,6 +112,9 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
     logger.error({ err }, 'Unhandled error');
     res.status(500).json({ error: 'Internal server error' });
 });
+
+// Initialize database
+getDatabase();
 
 // Start server
 const PORT = parseInt(process.env.PORT || '3000', 10);
