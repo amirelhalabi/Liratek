@@ -70,6 +70,7 @@ export function registerAuthHandlers(): void {
           const { setSession, storeEncryptedSession } = require("../session");
           setSession(event.sender.id, result.user.id, result.user.role);
           sessionToken = storeEncryptedSession(result.user.id);
+          authLogger.info({ userId: result.user.id, tokenCreated: !!sessionToken }, "Session storage attempted");
         } catch (e) {
           authLogger.warn({ error: e instanceof Error ? e.message : String(e) }, "Failed to set session");
         }
