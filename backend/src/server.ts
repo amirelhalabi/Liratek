@@ -5,7 +5,6 @@ import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
 import pino from 'pino';
-import pinoHttp from 'pino-http';
 import { getDatabase } from './database/connection.js';
 
 // Load environment variables
@@ -43,7 +42,8 @@ app.use(cors({
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(pinoHttp({ logger }));
+// Disable HTTP request logging (too verbose)
+// app.use(pinoHttp({ logger }));
 
 // Import routes
 import authRoutes from './api/auth.js';

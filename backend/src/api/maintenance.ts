@@ -1,9 +1,9 @@
 import express from 'express';
 import { authenticateJWT } from '../middleware/auth.js';
-import { MaintenanceService } from '../services/MaintenanceService.js';
+import { getMaintenanceService } from '../services/index.js';
 import { logger } from '../server.js';
 
-const maintenanceService = new MaintenanceService();
+const maintenanceService = getMaintenanceService();
 
 const router = express.Router();
 

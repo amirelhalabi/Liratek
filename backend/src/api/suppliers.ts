@@ -5,9 +5,9 @@
  */
 
 import { Router } from 'express';
-import { requireAuth, AuthRequest } from '../middleware/auth';
-import { getSupplierService } from '../services';
-import { logger } from '../utils/logger';
+import { requireAuth, AuthRequest } from '../middleware/auth.js';
+import { getSupplierService } from '../services/index.js';
+import { logger } from '../server.js';
 
 const router = Router();
 const supplierService = getSupplierService();

@@ -54,33 +54,76 @@ A comprehensive, enterprise-grade Point of Sale (POS) and inventory management s
   - macOS: `xcode-select --install`
   - Windows: Visual Studio Build Tools ("Desktop development with C++")
 
-### Installation & Development
+### Installation
 
 ```bash
+# Clone the repository
+git clone https://github.com/amirelhalabi/Liratek.git
+cd Liratek
+
+# Enable Corepack (for Yarn 4)
+corepack enable
+
 # Install dependencies
 yarn install
-
-# Run in development mode (Vite + Electron)
-npm run dev
-
-# Run all tests
-npm test
-
-# Build for production
-npm run build
 ```
 
-### Running Backend + Frontend Separately (Migration Mode)
+### 🚀 Running the Application
 
+#### Desktop Mode (Electron - Recommended)
 ```bash
-# Terminal 1 - Backend
-cd backend
-yarn dev
-
-# Terminal 2 - Frontend
-cd frontend
-yarn dev
+npm run dev
 ```
+This starts:
+- Frontend dev server (Vite on port 5173)
+- Electron desktop app (loads from Vite with hot reload)
+
+#### Browser Mode (Web Development)
+```bash
+npm run dev:web
+```
+This starts:
+- Backend API server (port 3000)
+- Frontend dev server (port 5173)
+- Open http://localhost:5173 in browser
+
+#### Docker Mode (Production-like)
+```bash
+npm run dev:docker
+```
+
+### 🔑 Default Login
+
+- **Username**: `admin`
+- **Password**: `admin123`
+
+### 🔧 Development Commands
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Desktop app (Electron + Vite) |
+| `npm run dev:web` | Browser mode (Backend + Frontend) |
+| `npm run dev:frontend` | Frontend only (port 5173) |
+| `npm run dev:backend` | Backend API only (port 3000) |
+| `npm run build` | Build everything (core + frontend + electron) |
+| `npm run build:core` | Build shared @liratek/core package |
+| `npm test` | Run all tests |
+| `npm run lint` | Lint all code |
+| `npm run typecheck` | TypeScript type checking |
+
+### 🎯 What Mode to Use
+
+**Use Desktop Mode (Electron) when:**
+- Developing desktop features
+- Need native OS integration
+- Testing IPC handlers
+- Daily development
+
+**Use Browser Mode when:**
+- Developing REST API
+- Testing without Electron
+- Cloud deployment testing
+- Need backend-only features
 
 - Backend: `http://localhost:3000`
 - Frontend: `http://localhost:5173`
@@ -95,7 +138,60 @@ docker compose up --build
 
 ## 🏗️ Architecture
 
-LiraTek is built using Electron with strict separation between the backend (Main Process) and UI (Renderer Process).
+LiraTek is built as a **dual-mode application** that can run as both a desktop app (Electron) and a web app (Browser), sharing the same business logic through the `@liratek/core` package.
+
+### Monorepo Structure
+
+```
+liratek/
+├── packages/core/           # 🔥 Shared business logic (@liratek/core)
+│   ├── repositories/        # Database access layer
+│   ├── services/            # Business logic
+│   └── utils/               # Crypto, logging, errors, barcode
+├── electron-app/            # Desktop Electron wrapper
+│   ├── main.ts              # Main process (Node.js)
+│   ├── preload.ts           # IPC bridge (contextBridge)
+│   └── handlers/            # IPC handlers (uses @liratek/core)
+├── frontend/                # React UI (works in both modes)
+│   └── src/
+│       ├── features/        # Feature modules (POS, Inventory, etc.)
+│       └── api/             # API abstraction (window.api vs REST)
+├── backend/                 # REST API server (for browser mode)
+│   └── src/
+│       └── api/             # Express routes (uses @liratek/core)
+└── docs/                    # Documentation
+```
+
+### Data Flow
+
+#### Desktop Mode (Electron)
+```
+Frontend (React) 
+  → window.api (preload.ts contextBridge)
+    → ipcMain handlers (electron-app/handlers/)
+      → Services (@liratek/core/services)
+        → Repositories (@liratek/core/repositories)
+          → SQLite (better-sqlite3)
+```
+
+#### Browser Mode (Express)
+```
+Frontend (React)
+  → HTTP REST API (backend/src/api/)
+    → Services (@liratek/core/services)
+      → Repositories (@liratek/core/repositories)
+        → SQLite (better-sqlite3)
+```
+
+### Key Architectural Decisions
+
+1. **@liratek/core Package**: All business logic (services, repositories, utilities) is shared between Electron and Web backends, eliminating ~9,336 lines of duplicate code.
+
+2. **Frontend Abstraction**: The React frontend detects its environment and uses either `window.api` (Electron) or `fetch` (Browser) transparently.
+
+3. **Single Database**: Both modes can point to the same SQLite database using environment variables or config files.
+
+4. **Session Storage**: Encrypted JSON files for session tokens (scrypt-derived AES-256-GCM)
 
 ### Process Communication (IPC)
 
@@ -460,12 +556,133 @@ magick convert build/icon.png -define icon:auto-resize=256,128,64,48,32,16 build
 4. **SQL Injection Prevention**: Prepared statements only
 5. **XSS Protection**: React's built-in escaping + Content Security Policy
 
-### Database Security
+### Database Encryption (SQLCipher)
 
-```typescript
-// Future: SQLCipher encryption (planned)
-// Current: OS-level file permissions + encrypted session storage
+**Status**: Infrastructure implemented, SQLCipher build required
+
+LiraTek includes built-in support for database encryption using SQLCipher. The encryption system is fully implemented but requires a SQLCipher-enabled build of better-sqlite3.
+
+#### Current Implementation
+
+**Key Management** (`@liratek/core`):
+- Automatic key resolution from multiple sources
+- Secure key storage outside repository
+- Graceful fallback when encryption not available
+
+**Resolution Order**:
+1. `DATABASE_KEY` environment variable
+2. `~/Documents/LiraTek/db-key.txt` file
+3. None (database runs unencrypted)
+
+#### Enabling Encryption
+
+**Option 1: Environment Variable**
+```bash
+# Generate a secure key (64 characters recommended)
+DATABASE_KEY=$(openssl rand -hex 32)
+
+# Desktop mode
+DATABASE_KEY="your-secure-key-here" npm run dev
+
+# Web mode (add to backend/.env)
+echo "DATABASE_KEY=your-secure-key-here" >> backend/.env
 ```
+
+**Option 2: Configuration File (Recommended)**
+```bash
+# Generate and save key
+openssl rand -hex 32 > ~/Documents/LiraTek/db-key.txt
+chmod 600 ~/Documents/LiraTek/db-key.txt
+
+# Application will automatically use this key on next start
+npm run dev
+```
+
+#### Using SQLCipher
+
+To enable actual encryption, you need a SQLCipher-enabled build of better-sqlite3.
+
+⚠️ **Note**: @journeyapps/sqlcipher is NOT compatible - it uses a completely different async API.
+
+**Option 1: Build better-sqlite3 with SQLCipher (Advanced)**
+
+This requires SQLCipher development libraries installed on your system:
+
+```bash
+# macOS (using Homebrew)
+brew install sqlcipher
+
+# Build better-sqlite3 with SQLCipher
+npm install better-sqlite3 --build-from-source --sqlite3=$(brew --prefix sqlcipher)
+
+# Rebuild for Electron
+cd electron-app
+npm rebuild better-sqlite3 --runtime=electron --target=31.0.0
+```
+
+**Option 2: Use Pre-built Package (If Available)**
+
+Search for community packages like `better-sqlite3-sqlcipher` or pre-compiled builds.
+
+**Option 3: Docker/Container with SQLCipher**
+
+Build a Docker image with SQLCipher and deploy as containerized application.
+
+#### Migrating Existing Database
+
+To encrypt an existing database:
+
+```bash
+# Backup current database
+cp ~/Library/Application\ Support/liratek/phone_shop.db ~/Desktop/phone_shop_backup.db
+
+# Create migration script
+node migrate_to_encrypted.js
+```
+
+**migrate_to_encrypted.js**:
+```javascript
+const Database = require('better-sqlite3'); // Must be SQLCipher-enabled build
+const fs = require('fs');
+
+const oldDb = '~/Library/Application Support/liratek/phone_shop.db';
+const newDb = '~/Library/Application Support/liratek/phone_shop_encrypted.db';
+const key = fs.readFileSync('~/Documents/LiraTek/db-key.txt', 'utf8').trim();
+
+// Open unencrypted database
+const db = new Database(oldDb);
+
+// Attach encrypted database
+db.exec(`ATTACH DATABASE '${newDb}' AS encrypted KEY '${key}';`);
+
+// Export to encrypted database
+db.exec('SELECT sqlcipher_export("encrypted");');
+
+// Detach and close
+db.exec('DETACH DATABASE encrypted;');
+db.close();
+
+console.log('✅ Migration complete. Backup old DB and rename new DB.');
+```
+
+#### Security Warnings
+
+⚠️ **Key Loss = Data Loss**: If you lose the encryption key, the database cannot be decrypted.
+
+⚠️ **Backup Keys Securely**: Store keys in a password manager or secure location.
+
+⚠️ **Don't Commit Keys**: Keys in git history compromise security.
+
+#### Verification
+
+Check encryption status in application logs:
+```
+🔐 SQLCipher: keySource=file:db-key.txt, applied=true, supported=true
+```
+
+- `keySource`: Where the key was loaded from
+- `applied`: Whether encryption was applied
+- `supported`: Whether SQLCipher is available
 
 ---
 
@@ -583,14 +800,35 @@ View logs:
 
 ---
 
+## 🐛 Troubleshooting
+
+### Electron won't start
+```bash
+cd electron-app
+npm rebuild better-sqlite3 --runtime=electron --target=31.0.0
+npm run build
+```
+
+### Frontend not loading
+- Ensure frontend dev server is running (port 5173)
+- Check `npm run dev:frontend` in separate terminal
+
+### Database errors
+- Database auto-creates in: `~/Library/Application Support/@liratek/electron-app/`
+- Delete database to reset: `rm ~/Library/Application\ Support/@liratek/electron-app/*.db`
+
+### Build fails with TypeScript errors
+- Ensure `@liratek/core` is built first: `npm run build:core`
+- Clean and rebuild: `npm run clean && yarn install && npm run build`
+
+---
+
 ## 📚 Additional Documentation
 
 - **[CURRENT_SPRINT.md](docs/CURRENT_SPRINT.md)**: Active sprint tasks, roadmap, and recent completions
-- **[QUICKSTART.md](docs/QUICKSTART.md)**: Quick start commands and troubleshooting
-- **[BACKEND_DIFFERENCES.md](docs/BACKEND_DIFFERENCES.md)**: Exhaustive desktop vs web backend parity analysis
-- **[RELEASE_NOTES_v1.0.0.md](docs/RELEASE_NOTES_v1.0.0.md)**: Full changelog and platform downloads
-- **Marketing Materials**: `docs/marketing/`
-- **Document Templates**: `docs/templates/`
+- **Marketing Materials**: `docs/marketing/` - Product marketing and promotion guides
+- **Document Templates**: `docs/templates/` - Business document templates (quotations, etc.)
+- **Archive**: `docs/archive/` - Historical documentation for reference
 
 ---
 

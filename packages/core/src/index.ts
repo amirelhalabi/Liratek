@@ -1,5 +1,7 @@
 // Database
 export * from './db/dbPath.js';
+export * from './db/dbKey.js';
+export * from './db/sqlcipher.js';
 export * from './db/connection.js';
 
 // Utilities

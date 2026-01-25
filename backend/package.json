@@ -8,7 +8,7 @@
         "dev": "tsx watch src/server.ts",
         "build": "tsc",
         "start": "node dist/server.js",
-        "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
+        "typecheck": "yarn workspace @liratek/core build && tsc --noEmit -p tsconfig.typecheck.json",
         "lint": "eslint src --max-warnings=9999",
         "test": "node ../node_modules/jest/bin/jest.js --config jest.config.cjs",
         "test:coverage": "node ../node_modules/jest/bin/jest.js --config jest.config.cjs --coverage --coverageDirectory ../coverage/backend --coverageReporters=lcov"

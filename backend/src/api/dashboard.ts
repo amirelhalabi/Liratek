@@ -1,10 +1,12 @@
 import express from 'express';
 import { authenticateJWT } from '../middleware/auth.js';
-import { getSalesService } from '../services/SalesService.js';
-import { getDebtService } from '../services/DebtService.js';
-import { getInventoryService } from '../services/InventoryService.js';
-import { getRechargeService } from '../services/RechargeService.js';
-import { getFinancialRepository } from '../database/repositories/FinancialRepository.js';
+import {
+  getSalesService,
+  getDebtService,
+  getInventoryService,
+  getRechargeService,
+  getFinancialRepository,
+} from '../services/index.js';
 
 const router = express.Router();
 

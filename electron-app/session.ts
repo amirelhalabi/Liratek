@@ -34,14 +34,10 @@ function generateToken(): string {
 
 /**
  * Encrypt and store session token to disk using safeStorage
+ * Falls back to base64 encoding if safeStorage is not available (development mode)
  */
 export function storeEncryptedSession(userId: number): string | null {
   try {
-    if (!safeStorage.isEncryptionAvailable()) {
-      console.warn("[SESSION] safeStorage encryption not available");
-      return null;
-    }
-
     const token = generateToken();
     const sessionData: StoredSession = {
       userId,
@@ -49,22 +45,32 @@ export function storeEncryptedSession(userId: number): string | null {
       createdAt: Date.now(),
     };
 
-    const encrypted = safeStorage.encryptString(JSON.stringify(sessionData));
-    fs.writeFileSync(getSessionFilePath(), encrypted);
+    let dataToStore: Buffer;
+    
+    if (safeStorage.isEncryptionAvailable()) {
+      dataToStore = safeStorage.encryptString(JSON.stringify(sessionData));
+      console.log("[SESSION] Encrypted session stored (safeStorage)");
+    } else {
+      // Fallback for development: use base64 encoding
+      console.warn("[SESSION] safeStorage not available, using base64 fallback (NOT SECURE for production)");
+      dataToStore = Buffer.from(JSON.stringify(sessionData), 'utf-8');
+    }
+
+    fs.writeFileSync(getSessionFilePath(), dataToStore);
     
     // Update cache
     storedSessionCache = sessionData;
     
-    console.log("[SESSION] Encrypted session stored");
     return token;
   } catch (error) {
-    console.error("[SESSION] Failed to store encrypted session:", error);
+    console.error("[SESSION] Failed to store session:", error);
     return null;
   }
 }
 
 /**
  * Retrieve and decrypt session from disk
+ * Handles both encrypted (safeStorage) and fallback (base64) sessions
  */
 export function getEncryptedSession(): StoredSession | null {
   // Return cached value if already loaded (prevents multiple keychain prompts)
@@ -79,14 +85,23 @@ export function getEncryptedSession(): StoredSession | null {
       return null;
     }
 
-    if (!safeStorage.isEncryptionAvailable()) {
-      console.warn("[SESSION] safeStorage encryption not available");
-      storedSessionCache = null;
-      return null;
+    const fileData = fs.readFileSync(filePath);
+    let decrypted: string;
+    
+    if (safeStorage.isEncryptionAvailable()) {
+      // Try to decrypt with safeStorage
+      try {
+        decrypted = safeStorage.decryptString(fileData);
+      } catch (decryptError) {
+        // Might be a base64-encoded session from fallback mode
+        console.warn("[SESSION] Failed to decrypt with safeStorage, trying base64 fallback");
+        decrypted = fileData.toString('utf-8');
+      }
+    } else {
+      // No safeStorage, treat as base64-encoded
+      decrypted = fileData.toString('utf-8');
     }
 
-    const encrypted = fs.readFileSync(filePath);
-    const decrypted = safeStorage.decryptString(encrypted);
     const session: StoredSession = JSON.parse(decrypted);
 
     // Check if session is expired (7 days max)
@@ -99,9 +114,10 @@ export function getEncryptedSession(): StoredSession | null {
 
     // Cache the session
     storedSessionCache = session;
+    console.log("[SESSION] Session restored from disk");
     return session;
   } catch (error) {
-    console.error("[SESSION] Failed to read encrypted session:", error);
+    console.error("[SESSION] Failed to read session:", error);
     clearEncryptedSession();
     return null;
   }

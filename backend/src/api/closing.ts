@@ -5,9 +5,9 @@
  */
 
 import { Router } from 'express';
-import { requireAuth, AuthRequest } from '../middleware/auth';
-import { getClosingService } from '../services';
-import { logger } from '../utils/logger';
+import { requireAuth, AuthRequest } from '../middleware/auth.js';
+import { getClosingService } from '../services/index.js';
+import { logger } from '../server.js';
 
 const router = Router();
 const closingService = getClosingService();

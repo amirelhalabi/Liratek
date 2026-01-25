@@ -15,6 +15,15 @@ import { getAuthService } from "../services/AuthService.js";
 import { hashPassword } from "../utils/crypto.js";
 import { isAppError } from "../utils/errors.js";
 import { authLogger } from "../utils/logger.js";
+import {
+  setSession,
+  clearSession,
+  getSession,
+  requireRole,
+  storeEncryptedSession,
+  getEncryptedSession,
+  clearEncryptedSession,
+} from "../session.js";
 
 // =============================================================================
 // Handler Registration
@@ -42,7 +51,7 @@ export function registerAuthHandlers(): void {
       );
     }
   } catch (e) {
-    authLogger.warn({ error: e }, "Admin seed warning");
+    authLogger.warn({ error: e instanceof Error ? e.message : String(e) }, "Admin seed warning");
   }
 
   // ---------------------------------------------------------------------------
@@ -66,12 +75,11 @@ export function registerAuthHandlers(): void {
         // Bind session to this renderer (webContents)
         let sessionToken: string | null = null;
         try {
-          // eslint-disable-next-line @typescript-eslint/no-require-imports
-          const { setSession, storeEncryptedSession } = require("../session");
-          setSession(event.sender.id, result.user.id, result.user.role);
+          setSession(event.sender.id, result.user.id, result.user.role as "admin" | "staff");
           sessionToken = storeEncryptedSession(result.user.id);
+          authLogger.info({ userId: result.user.id, tokenCreated: !!sessionToken }, "Session storage attempted");
         } catch (e) {
-          authLogger.warn({ error: e }, "Failed to set session");
+          authLogger.warn({ error: e instanceof Error ? e.message : String(e) }, "Failed to set session");
         }
 
         authLogger.info(
@@ -84,7 +92,7 @@ export function registerAuthHandlers(): void {
           sessionToken,
         };
       } catch (error) {
-        authLogger.error({ error, username }, "Login error");
+        authLogger.error({ error: error instanceof Error ? error.message : String(error), username }, "Login error");
         return {
           success: false,
           error: isAppError(error)
@@ -104,12 +112,10 @@ export function registerAuthHandlers(): void {
 
       // Clear encrypted session
       try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { clearEncryptedSession, clearSession } = require("../session");
         clearEncryptedSession();
         clearSession(_event.sender.id);
       } catch (e) {
-        authLogger.warn({ error: e }, "Failed to clear session");
+        authLogger.warn({ error: e instanceof Error ? e.message : String(e) }, "Failed to clear session");
       }
 
       // Log activity
@@ -117,7 +123,7 @@ export function registerAuthHandlers(): void {
 
       return { success: true };
     } catch (error) {
-      authLogger.error({ error, userId }, "Logout error");
+      authLogger.error({ error: error instanceof Error ? error.message : String(error), userId }, "Logout error");
       return { success: false, error: "Failed to logout" };
     }
   });
@@ -127,12 +133,10 @@ export function registerAuthHandlers(): void {
   // ---------------------------------------------------------------------------
   ipcMain.handle("auth:restore-session", (event) => {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { getEncryptedSession, setSession } = require("../session");
       const stored = getEncryptedSession();
 
       if (!stored) {
-        authLogger.debug("No stored session found");
+        // This is normal on first run - don't log as error
         return { success: false, error: "No session" };
       }
 
@@ -143,14 +147,12 @@ export function registerAuthHandlers(): void {
           { userId: stored.userId },
           "Stored session user not found or inactive",
         );
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { clearEncryptedSession } = require("../session");
         clearEncryptedSession();
         return { success: false, error: "User not found" };
       }
 
       // Restore in-memory session
-      setSession(event.sender.id, user.id, user.role);
+      setSession(event.sender.id, user.id, user.role as "admin" | "staff");
       authLogger.info(
         { username: user.username, userId: user.id },
         "Session restored",
@@ -165,7 +167,7 @@ export function registerAuthHandlers(): void {
         },
       };
     } catch (error) {
-      authLogger.error({ error }, "Restore session error");
+      authLogger.error({ error: error instanceof Error ? error.message : String(error) }, "Restore session error");
       return { success: false, error: "Failed to restore session" };
     }
   });
@@ -179,7 +181,7 @@ export function registerAuthHandlers(): void {
       authLogger.debug({ userId, found: !!user }, "Get current user");
       return user || null;
     } catch (error) {
-      authLogger.error({ error, userId }, "Get current user error");
+      authLogger.error({ error: error instanceof Error ? error.message : String(error), userId }, "Get current user error");
       return null;
     }
   });
@@ -244,7 +246,7 @@ export function registerAuthHandlers(): void {
         );
         return { success: result.success, error: result.error };
       } catch (error) {
-        authLogger.error({ error, userId: data.id }, "Set password error");
+        authLogger.error({ error: error instanceof Error ? error.message : String(error), userId: data.id }, "Set password error");
         return {
           success: false,
           error: isAppError(error) ? error.message : "Failed to set password",
@@ -265,7 +267,7 @@ export function registerAuthHandlers(): void {
       const users = authService.getAllUsers();
       return users.filter((u) => u.role !== "admin");
     } catch (error) {
-      authLogger.error({ error }, "List non-admin users error");
+      authLogger.error({ error: error instanceof Error ? error.message : String(error) }, "List non-admin users error");
       return [];
     }
   });
@@ -354,7 +356,7 @@ function logActivity(
       JSON.stringify({ timestamp: new Date().toISOString() }),
     );
   } catch (e) {
-    authLogger.warn({ error: e, action, userId }, "Failed to log activity");
+    authLogger.warn({ error: e instanceof Error ? e.message : String(e), action, userId }, "Failed to log activity");
   }
 }
 
@@ -363,8 +365,6 @@ function logActivity(
  */
 function requireAdminRole(senderId: number): { ok: boolean; error?: string } {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { requireRole } = require("../session");
     return requireRole(senderId, ["admin"]);
   } catch {
     return { ok: false, error: "Session not available" };
@@ -378,9 +378,7 @@ function getSessionInfo(
   senderId: number,
 ): { userId: number; role: string } | null {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { getSession } = require("../session");
-    return getSession(senderId);
+    return getSession(senderId) || null;
   } catch {
     return null;
   }

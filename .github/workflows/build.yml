@@ -58,6 +58,9 @@ jobs:
       - name: Install dependencies
         run: yarn install --immutable
 
+      - name: Build core package
+        run: yarn build:core
+
       - name: Build frontend
         run: yarn build
 
@@ -93,6 +96,9 @@ jobs:
 
       - name: Install dependencies
         run: yarn install --immutable
+
+      - name: Build core package
+        run: yarn build:core
 
       - name: Build frontend
         run: yarn build
@@ -130,6 +136,9 @@ jobs:
 
       - name: Install dependencies
         run: yarn install --immutable
+
+      - name: Build core package
+        run: yarn build:core
 
       - name: Build frontend
         run: yarn build

@@ -10,7 +10,12 @@ import * as fs from 'fs';
 import os from 'os';
 import crypto from 'crypto';
 import Database from 'better-sqlite3';
-import { resolveDatabasePath, initDatabase as initCoreDatabase } from '@liratek/core';
+import {
+  resolveDatabasePath,
+  resolveDatabaseKey,
+  applySqlCipherKey,
+  initDatabase as initCoreDatabase,
+} from '@liratek/core';
 
 function loadDotEnvFile(envFilePath: string) {
   if (!fs.existsSync(envFilePath)) return;
@@ -115,13 +120,35 @@ app.on('window-all-closed', () => {
 function initializeDatabase() {
   const resolved = resolveDatabasePath();
   const dbPath = resolved.path;
+  const resolvedKey = resolveDatabaseKey();
+
+  console.log(
+    `[ELECTRON] DB path resolved: ${dbPath} (source: ${resolved.source})`,
+  );
 
   console.log('[ELECTRON] Database path:', dbPath, `(source: ${resolved.source})`);
   
   try {
     db = new Database(dbPath);
+
+    // Apply SQLCipher key (if provided) BEFORE any other access
+    const keyResult = applySqlCipherKey(db, resolvedKey.key);
+
     db.pragma('journal_mode = WAL');
     db.pragma('foreign_keys = ON');
+
+    console.log(
+      `🔐 SQLCipher: keySource=${resolvedKey.source}, applied=${keyResult.applied}, supported=${keyResult.supported}` +
+        (keyResult.error ? `, error=${keyResult.error}` : ''),
+    );
+
+    if (resolvedKey.source !== 'none' && !keyResult.applied) {
+      throw new Error(
+        keyResult.supported
+          ? `SQLCipher key could not be applied: ${keyResult.error || 'unknown error'}`
+          : `SQLCipher is not supported by this SQLite build. Provide a SQLCipher-enabled build of SQLite/better-sqlite3. (details: ${keyResult.error || 'unknown'})`,
+      );
+    }
     
     // Check if database has schema
     const tableCheck = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='users'").get();

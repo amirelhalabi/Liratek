@@ -19,17 +19,6 @@ type MaintenanceJob = {
   final_amount_usd?: number;
 };
 
-type MaintenancePaymentData = {
-  client_id?: number | null;
-  client_name?: string;
-  client_phone?: string;
-  discount: number;
-  final_amount: number;
-  payment_usd: number;
-  payment_lbp: number;
-  exchange_rate: number;
-};
-
 export default function Maintenance() {
   const [jobs, setJobs] = useState<MaintenanceJob[]>([]);
   const [filter, setFilter] = useState("All");
@@ -131,7 +120,7 @@ export default function Maintenance() {
   };
 
   const handleCheckoutComplete = async (
-    paymentData: MaintenancePaymentData,
+    paymentData: any,
   ) => {
     // Save with payment details
     const jobData = {
