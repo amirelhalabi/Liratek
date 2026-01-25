@@ -141,6 +141,14 @@ function initializeDatabase() {
       `🔐 SQLCipher: keySource=${resolvedKey.source}, applied=${keyResult.applied}, supported=${keyResult.supported}` +
         (keyResult.error ? `, error=${keyResult.error}` : ''),
     );
+
+    if (resolvedKey.source !== 'none' && !keyResult.applied) {
+      throw new Error(
+        keyResult.supported
+          ? `SQLCipher key could not be applied: ${keyResult.error || 'unknown error'}`
+          : `SQLCipher is not supported by this SQLite build. Provide a SQLCipher-enabled build of SQLite/better-sqlite3. (details: ${keyResult.error || 'unknown'})`,
+      );
+    }
     
     // Check if database has schema
     const tableCheck = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='users'").get();
