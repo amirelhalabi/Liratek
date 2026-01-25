@@ -556,12 +556,122 @@ magick convert build/icon.png -define icon:auto-resize=256,128,64,48,32,16 build
 4. **SQL Injection Prevention**: Prepared statements only
 5. **XSS Protection**: React's built-in escaping + Content Security Policy
 
-### Database Security
+### Database Encryption (SQLCipher)
 
-```typescript
-// Future: SQLCipher encryption (planned)
-// Current: OS-level file permissions + encrypted session storage
+**Status**: Infrastructure implemented, SQLCipher build required
+
+LiraTek includes built-in support for database encryption using SQLCipher. The encryption system is fully implemented but requires a SQLCipher-enabled build of better-sqlite3.
+
+#### Current Implementation
+
+**Key Management** (`@liratek/core`):
+- Automatic key resolution from multiple sources
+- Secure key storage outside repository
+- Graceful fallback when encryption not available
+
+**Resolution Order**:
+1. `DATABASE_KEY` environment variable
+2. `~/Documents/LiraTek/db-key.txt` file
+3. None (database runs unencrypted)
+
+#### Enabling Encryption
+
+**Option 1: Environment Variable**
+```bash
+# Generate a secure key (64 characters recommended)
+DATABASE_KEY=$(openssl rand -hex 32)
+
+# Desktop mode
+DATABASE_KEY="your-secure-key-here" npm run dev
+
+# Web mode (add to backend/.env)
+echo "DATABASE_KEY=your-secure-key-here" >> backend/.env
 ```
+
+**Option 2: Configuration File (Recommended)**
+```bash
+# Generate and save key
+openssl rand -hex 32 > ~/Documents/LiraTek/db-key.txt
+chmod 600 ~/Documents/LiraTek/db-key.txt
+
+# Application will automatically use this key on next start
+npm run dev
+```
+
+#### Using SQLCipher
+
+To enable actual encryption, replace `better-sqlite3` with a SQLCipher-enabled build:
+
+**Recommended: @journeyapps/sqlcipher**
+```bash
+# Replace in root package.json
+npm uninstall better-sqlite3
+npm install @journeyapps/sqlcipher
+
+# Update packages/core/package.json
+npm uninstall better-sqlite3
+npm install @journeyapps/sqlcipher
+
+# Rebuild native modules for Electron
+cd electron-app
+npm rebuild @journeyapps/sqlcipher --runtime=electron --target=31.0.0
+```
+
+#### Migrating Existing Database
+
+To encrypt an existing database:
+
+```bash
+# Backup current database
+cp ~/Library/Application\ Support/liratek/phone_shop.db ~/Desktop/phone_shop_backup.db
+
+# Create migration script
+node migrate_to_encrypted.js
+```
+
+**migrate_to_encrypted.js**:
+```javascript
+const Database = require('@journeyapps/sqlcipher');
+const fs = require('fs');
+
+const oldDb = '~/Library/Application Support/liratek/phone_shop.db';
+const newDb = '~/Library/Application Support/liratek/phone_shop_encrypted.db';
+const key = fs.readFileSync('~/Documents/LiraTek/db-key.txt', 'utf8').trim();
+
+// Open unencrypted database
+const db = new Database(oldDb);
+
+// Attach encrypted database
+db.exec(`ATTACH DATABASE '${newDb}' AS encrypted KEY '${key}';`);
+
+// Export to encrypted database
+db.exec('SELECT sqlcipher_export("encrypted");');
+
+// Detach and close
+db.exec('DETACH DATABASE encrypted;');
+db.close();
+
+console.log('✅ Migration complete. Backup old DB and rename new DB.');
+```
+
+#### Security Warnings
+
+⚠️ **Key Loss = Data Loss**: If you lose the encryption key, the database cannot be decrypted.
+
+⚠️ **Backup Keys Securely**: Store keys in a password manager or secure location.
+
+⚠️ **Don't Commit Keys**: Keys in git history compromise security.
+
+#### Verification
+
+Check encryption status in application logs:
+```
+🔐 SQLCipher: keySource=file:db-key.txt, applied=true, supported=true
+```
+
+- `keySource`: Where the key was loaded from
+- `applied`: Whether encryption was applied
+- `supported`: Whether SQLCipher is available
 
 ---
 

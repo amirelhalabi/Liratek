@@ -441,8 +441,32 @@ Then run normally:
 **Goal**: Archive records older than 1 year to maintain performance.
 
 ### [T-16] SQLCipher DB Encryption !!!
-**Status**: Ready  
+**Status**: Infrastructure Complete - Awaiting SQLCipher Build Decision  
 **Goal**: Secure the local database file using SQLCipher encryption.
+
+**Current Status (Jan 25, 2026)**:
+- ✅ Key management system implemented (`@liratek/core/src/db/dbKey.ts`)
+- ✅ Encryption integration implemented (`@liratek/core/src/db/sqlcipher.ts`)
+- ✅ Both electron-app and backend integrated with encryption system
+- ✅ Resolution order: DATABASE_KEY env → ~/Documents/LiraTek/db-key.txt → none
+- ❌ Current better-sqlite3@12.6.2 doesn't include SQLCipher (standard SQLite only)
+
+**To Complete**:
+1. **Decision Required**: Choose SQLCipher implementation:
+   - Option A: Use @journeyapps/sqlcipher (drop-in replacement, recommended)
+   - Option B: Build better-sqlite3 with SQLCipher from source (complex)
+   - Option C: Document encryption as optional feature requiring custom build
+
+2. **If using @journeyapps/sqlcipher**:
+   - Replace better-sqlite3 dependency
+   - Test encryption functionality
+   - Document how users enable encryption
+   - Create migration guide for existing databases
+
+**Architecture**:
+- Infrastructure is production-ready and waiting for SQLCipher-enabled build
+- Code will work immediately once SQLCipher support is available
+- Gracefully handles missing SQLCipher support (logs warning, continues unencrypted)
 
 ### [T-17] Admin Closing Approval !!
 **Status**: Ready  
