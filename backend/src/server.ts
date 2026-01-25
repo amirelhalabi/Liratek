@@ -43,7 +43,8 @@ app.use(cors({
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(pinoHttp({ logger }));
+// Disable HTTP request logging (too verbose)
+// app.use(pinoHttp({ logger }));
 
 // Import routes
 import authRoutes from './api/auth.js';
