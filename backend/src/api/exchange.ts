@@ -1,8 +1,6 @@
 import express from 'express';
 import { authenticateJWT, requireRole } from '../middleware/auth.js';
-import { getExchangeService } from '../services/ExchangeService.js';
-import { getRateService } from '../services/RateService.js';
-import { getCurrencyService } from '../services/CurrencyService.js';
+import { getExchangeService, getRateService, getCurrencyService } from '../services';
 
 const router = express.Router();
 

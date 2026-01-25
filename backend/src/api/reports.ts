@@ -7,7 +7,7 @@
 
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth';
-import { logger } from '../utils/logger';
+import { logger } from '../server.js';
 
 const router = Router();
 // Note: ReportService requires Electron APIs, not available in backend mode
