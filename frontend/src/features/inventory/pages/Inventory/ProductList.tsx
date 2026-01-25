@@ -18,11 +18,11 @@ export default function ProductList() {
     try {
       if (window.api) {
         const data = await window.api.getProducts(search);
-        setProducts(data);
+        setProducts(data as unknown as Product[]);
       } else {
         const { getProducts } = await import("../../../../api/backendApi");
         const data = await getProducts(search);
-        setProducts(data as any);
+        setProducts(data as unknown as Product[]);
       }
     } catch (error) {
       console.error("Failed to load products:", error);

@@ -15,6 +15,8 @@ export * from './repositories/index.js';
 export type {
   ProductEntity as Product,
   ClientEntity as Client,
+  SaleRequest,
+  SaleItemEntity as SaleItem,
 } from './repositories/index.js';
 
 

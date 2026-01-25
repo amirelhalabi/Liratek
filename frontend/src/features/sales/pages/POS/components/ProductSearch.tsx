@@ -16,11 +16,11 @@ export default function ProductSearch({ onAddToCart }: ProductSearchProps) {
     try {
       if (window.api) {
         const data = await window.api.getProducts(search);
-        setProducts(data);
+        setProducts(data as Product[]);
       } else {
         const { getProducts } = await import("../../../../../api/backendApi");
         const data = await getProducts(search);
-        setProducts(data as any);
+        setProducts(data as Product[]);
       }
     } catch (error) {
       console.error("Error loading products:", error);

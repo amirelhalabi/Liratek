@@ -164,7 +164,7 @@ export default function Debts() {
             drawerName: "General",
             note: repayNote,
             ...(user?.id != null ? { userId: user.id } : {}),
-          })
+          } as any)
         : await (async () => {
             const { addRepayment } = await import("../../../../api/backendApi");
             return addRepayment({

@@ -71,7 +71,7 @@ export default function ClientForm({
         const createPayload = {
           full_name: formData.full_name,
           phone_number: formData.phone_number,
-          ...(formData.notes ? { notes: formData.notes } : {}),
+          notes: formData.notes || "",
           whatsapp_opt_in: formData.whatsapp_opt_in ? 1 : 0,
         };
         result = await window.api.createClient(createPayload);
