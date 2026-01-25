@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.app.json --noEmit",
-    "lint": "eslint .",
+    "lint": "eslint . --max-warnings=9999",
     "test": "node ../node_modules/jest/bin/jest.js --config jest.config.ts",
     "test:coverage": "node ../node_modules/jest/bin/jest.js --config jest.config.ts --coverage --coverageDirectory ../coverage/frontend --coverageReporters=lcov" ,
     "test:e2e": "playwright test",

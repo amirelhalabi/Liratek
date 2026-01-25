@@ -9,7 +9,7 @@
         "build": "tsc",
         "start": "node dist/server.js",
         "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
-        "lint": "eslint src",
+        "lint": "eslint src --max-warnings=9999",
         "test": "node ../node_modules/jest/bin/jest.js --config jest.config.cjs",
         "test:coverage": "node ../node_modules/jest/bin/jest.js --config jest.config.cjs --coverage --coverageDirectory ../coverage/backend --coverageReporters=lcov"
     },
