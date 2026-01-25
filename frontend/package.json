@@ -12,6 +12,7 @@
     "test": "node ../node_modules/jest/bin/jest.js --config jest.config.ts",
     "test:coverage": "node ../node_modules/jest/bin/jest.js --config jest.config.ts --coverage --coverageDirectory ../coverage/frontend --coverageReporters=lcov" ,
     "test:e2e": "playwright test",
+    "test:e2e:ci": "playwright test --workers=2",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:local": "concurrently -k -s first -n backend,frontend \"yarn --cwd ../backend dev\" \"yarn dev --host 0.0.0.0 --port 5173\" --success first && wait-on http://localhost:3000/health http://localhost:5173 && playwright test"
   },

@@ -148,20 +148,31 @@ jobs:
       - name: Install dependencies
         run: yarn install --immutable
 
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('frontend/package.json') }}
+
       - name: Install Playwright browsers
         run: yarn workspace @liratek/frontend exec playwright install --with-deps chromium
 
-      - name: Start backend
-        run: yarn workspace @liratek/backend dev &
+      - name: Build backend + frontend (for faster E2E)
+        run: |
+          yarn workspace @liratek/backend build
+          yarn workspace @liratek/frontend build
 
-      - name: Start frontend
-        run: yarn workspace @liratek/frontend dev &
+      - name: Start backend
+        run: yarn workspace @liratek/backend start &
+
+      - name: Start frontend (preview)
+        run: yarn workspace @liratek/frontend preview --host 0.0.0.0 --port 5173 &
 
       - name: Wait for services
         run: npx wait-on http://localhost:3000/health http://localhost:5173 --timeout 60000
 
       - name: Run E2E tests
-        run: yarn workspace @liratek/frontend test:e2e
+        run: yarn workspace @liratek/frontend test:e2e:ci
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@v4
