@@ -10,7 +10,8 @@
         "start": "node dist/server.js",
         "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
         "lint": "eslint src",
-        "test": "node ../node_modules/jest/bin/jest.js --config jest.config.cjs"
+        "test": "node ../node_modules/jest/bin/jest.js --config jest.config.cjs",
+        "test:coverage": "node ../node_modules/jest/bin/jest.js --config jest.config.cjs --coverage --coverageDirectory ../coverage/backend --coverageReporters=lcov"
     },
     "dependencies": {
         "@liratek/core": "workspace:*",
