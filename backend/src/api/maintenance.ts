@@ -1,7 +1,9 @@
 import express from 'express';
 import { authenticateJWT } from '../middleware/auth.js';
-import { getMaintenanceService } from '../services/MaintenanceService.js';
+import { MaintenanceService } from '../services/MaintenanceService.js';
 import { logger } from '../server.js';
+
+const maintenanceService = new MaintenanceService();
 
 const router = express.Router();
 
@@ -12,7 +14,6 @@ router.use(authenticateJWT);
 router.get('/jobs', (req, res): void => {
   try {
     const statusFilter = typeof req.query.status === 'string' ? req.query.status : undefined;
-    const maintenanceService = getMaintenanceService();
     const jobs = maintenanceService.getJobs(statusFilter);
     res.json({ success: true, jobs });
   } catch (error) {
@@ -24,7 +25,6 @@ router.get('/jobs', (req, res): void => {
 // POST /api/maintenance/jobs - Create or update maintenance job
 router.post('/jobs', async (req, res): Promise<void> => {
   try {
-    const maintenanceService = getMaintenanceService();
     const result = maintenanceService.saveJob(req.body);
     
     if (!result.success) {
@@ -48,7 +48,6 @@ router.delete('/jobs/:id', async (req, res): Promise<void> => {
       return;
     }
     
-    const maintenanceService = getMaintenanceService();
     const result = maintenanceService.deleteJob(id);
     
     if (!result.success) {

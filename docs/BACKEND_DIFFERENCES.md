@@ -597,6 +597,27 @@ Use this checklist after any backend change to ensure **Desktop and Web behave t
   - [ ] Desktop session restore works (or expected behavior documented)
   - [ ] Web JWT `/api/auth/me` works
 
+#### 11.1.1 Auth Parity Tests (detailed)
+
+**Login:**
+- Call `/api/auth/login` with `admin/admin123` → expect success
+- Login in Electron with `admin/admin123` → expect success
+
+**Change Password (admin):**
+- In Web, change admin password to `Admin123!` using the UI
+- Verify `/api/auth/login` works with new password and fails with old one
+- In Desktop, login with `Admin123!` → must work using the same DB
+
+**Create User:**
+- In Web (Settings → Users), create `testuser1 / Test123!`
+- Verify Web login works for `testuser1`
+- Verify Desktop login works for `testuser1` (same credentials, same DB)
+
+If any of these checks fail, investigate:
+- Shared crypto in `packages/core/src/utils/crypto.ts`
+- Shared AuthService in `packages/core/src/services/AuthService.ts`
+- DB path configuration (must point to same file)
+
 ### 11.2 Dashboard
 - [ ] Dashboard loads without errors in both modes
 - [ ] Drawer balances match
