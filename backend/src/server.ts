@@ -5,7 +5,6 @@ import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
 import pino from 'pino';
-import pinoHttp from 'pino-http';
 import { getDatabase } from './database/connection.js';
 
 // Load environment variables

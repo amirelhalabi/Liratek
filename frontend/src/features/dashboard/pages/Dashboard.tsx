@@ -3,7 +3,6 @@ import { appEvents } from "../../../shared/utils/appEvents";
 import {
   DollarSign,
   Users,
-  TrendingUp,
   Clock,
   Inbox,
   BarChart2,
