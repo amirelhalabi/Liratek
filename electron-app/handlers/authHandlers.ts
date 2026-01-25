@@ -15,6 +15,15 @@ import { getAuthService } from "../services/AuthService.js";
 import { hashPassword } from "../utils/crypto.js";
 import { isAppError } from "../utils/errors.js";
 import { authLogger } from "../utils/logger.js";
+import {
+  setSession,
+  clearSession,
+  getSession,
+  requireRole,
+  storeEncryptedSession,
+  getEncryptedSession,
+  clearEncryptedSession,
+} from "../session.js";
 
 // =============================================================================
 // Handler Registration
@@ -66,9 +75,7 @@ export function registerAuthHandlers(): void {
         // Bind session to this renderer (webContents)
         let sessionToken: string | null = null;
         try {
-          // eslint-disable-next-line @typescript-eslint/no-require-imports
-          const { setSession, storeEncryptedSession } = require("../session");
-          setSession(event.sender.id, result.user.id, result.user.role);
+          setSession(event.sender.id, result.user.id, result.user.role as "admin" | "staff");
           sessionToken = storeEncryptedSession(result.user.id);
           authLogger.info({ userId: result.user.id, tokenCreated: !!sessionToken }, "Session storage attempted");
         } catch (e) {
@@ -105,8 +112,6 @@ export function registerAuthHandlers(): void {
 
       // Clear encrypted session
       try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { clearEncryptedSession, clearSession } = require("../session");
         clearEncryptedSession();
         clearSession(_event.sender.id);
       } catch (e) {
@@ -128,8 +133,6 @@ export function registerAuthHandlers(): void {
   // ---------------------------------------------------------------------------
   ipcMain.handle("auth:restore-session", (event) => {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { getEncryptedSession, setSession } = require("../session");
       const stored = getEncryptedSession();
 
       if (!stored) {
@@ -144,14 +147,12 @@ export function registerAuthHandlers(): void {
           { userId: stored.userId },
           "Stored session user not found or inactive",
         );
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { clearEncryptedSession } = require("../session");
         clearEncryptedSession();
         return { success: false, error: "User not found" };
       }
 
       // Restore in-memory session
-      setSession(event.sender.id, user.id, user.role);
+      setSession(event.sender.id, user.id, user.role as "admin" | "staff");
       authLogger.info(
         { username: user.username, userId: user.id },
         "Session restored",
@@ -364,8 +365,6 @@ function logActivity(
  */
 function requireAdminRole(senderId: number): { ok: boolean; error?: string } {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { requireRole } = require("../session");
     return requireRole(senderId, ["admin"]);
   } catch {
     return { ok: false, error: "Session not available" };
@@ -379,9 +378,7 @@ function getSessionInfo(
   senderId: number,
 ): { userId: number; role: string } | null {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { getSession } = require("../session");
-    return getSession(senderId);
+    return getSession(senderId) || null;
   } catch {
     return null;
   }
