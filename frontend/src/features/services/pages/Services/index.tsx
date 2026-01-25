@@ -70,7 +70,7 @@ export default function Services() {
         api.getOMTAnalytics(),
       ]);
       setTransactions(
-        history.map((h) => ({
+        history.map((h: any) => ({
           ...h,
           provider: h.provider as Provider,
           service_type: h.service_type as ServiceType,

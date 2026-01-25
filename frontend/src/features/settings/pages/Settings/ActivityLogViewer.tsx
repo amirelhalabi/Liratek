@@ -18,14 +18,12 @@ export default function ActivityLogViewer() {
     setLoading(true);
     try {
       const res = window.api
-        ? ((await window.api.activity.getRecent?.(
-            Number(limit) || 200,
-          )) as ActivityLogRow[])
+        ? ((await window.api.activity.getRecent?.(Number(limit) || 200)) as any)
         : await (async () => {
             const { getRecentActivity } = await import('../../../../api/backendApi');
-            return getRecentActivity(Number(limit) || 200) as ActivityLogRow[];
+            return getRecentActivity(Number(limit) || 200);
           })();
-      setLogs(res || []);
+      setLogs((res as ActivityLogRow[]) || []);
     } finally {
       setLoading(false);
     }

@@ -9,10 +9,12 @@ import type {
   ProductEntity,
   ClientEntity,
   SafeUser,
+  SaleRequest,
+  SaleItem,
 } from "@liratek/core";
 
 // Re-export for convenience
-export type { SafeUser, ProductEntity, ClientEntity };
+export type { SafeUser, ProductEntity, ClientEntity, SaleRequest, SaleItem };
 
 // Product with aliased field names for frontend compatibility
 export interface Product extends Omit<ProductEntity, 'selling_price_usd' | 'cost_price_usd'> {
@@ -23,13 +25,18 @@ export interface Product extends Omit<ProductEntity, 'selling_price_usd' | 'cost
 // Client type alias
 export type Client = ClientEntity;
 
-// CartItem represents a product in the shopping cart
-// It flattens Product fields for easier access in UI
-export interface CartItem extends Omit<Product, 'id'> {
+// CartItem represents an entry in the shopping cart.
+// Keep this intentionally permissive: different code paths construct cart items
+// from either ProductEntity rows or simplified objects.
+export type CartItem = Partial<ProductEntity> & {
   id: number;
+  name: string;
+  barcode: string;
+  category: string;
   quantity: number;
-  price_usd: number;
   retail_price: number;
   cost_price: number;
-  imei?: string;
-}
+  // Some code paths don't set these immediately
+  price_usd?: number;
+  imei?: string | null;
+};

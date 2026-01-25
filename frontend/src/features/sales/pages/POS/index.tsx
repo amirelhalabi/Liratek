@@ -71,10 +71,10 @@ export default function POS() {
       const existing = prev.find((p) => p.id === product.id);
       if (existing) {
         return prev.map((p) =>
-          p.id === product.id ? { ...p, quantity: p.quantity + 1 } : p,
-        );
+          p.id === product.id ? ({ ...p, quantity: (p.quantity || 0) + 1 } as any) : p,
+        ) as any;
       }
-      return [...prev, { ...product, quantity: 1 }];
+      return ([...prev, ({ ...product, quantity: 1 } as any)] as any);
     });
   };
 
@@ -157,14 +157,14 @@ export default function POS() {
 
     // Restore payment fields to CheckoutModal
     setCheckoutDraftData({
-      selectedClient: draft.client_id
+      selectedClient: (draft.client_id
         ? {
           id: draft.client_id,
           full_name: draft.client_name || "",
           phone_number: draft.client_phone || "",
           whatsapp_opt_in: 0,
         }
-        : null,
+        : null) as any,
       clientSearchInput: draft.client_name || "",
       clientSearchSecondary: draft.client_phone || "",
       discount: draft.discount_usd || 0,

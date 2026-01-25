@@ -242,7 +242,7 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
             : (async () => {
                 const { updateDailyClosing } = await import('../../../../api/backendApi');
                 return updateDailyClosing(Number(result.id), {
-                  report_path: pdfRes.path,
+                  report_path: pdfRes.path as string,
                   ...(user?.id != null ? { user_id: user.id } : {}),
                 });
               })());
