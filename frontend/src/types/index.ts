@@ -27,4 +27,5 @@ export interface CartItem {
   quantity: number;
   price_usd: number;
   retail_price: number;
+  imei?: string;
 }
