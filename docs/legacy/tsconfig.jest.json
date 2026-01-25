@@ -44,7 +44,7 @@
       "@shared/*": [
         "packages/shared/src/*"
       ],
-      "@liratek/shared": [
+      "@liratek/core": [
         "packages/shared/src/index.ts"
       ]
     }

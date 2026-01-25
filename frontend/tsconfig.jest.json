@@ -42,10 +42,10 @@
         "src/config/*"
       ],
       "@shared/*": [
-        "../packages/shared/src/*"
+        "../packages/core/src/*"
       ],
-      "@liratek/shared": [
-        "../packages/shared/src/index.ts"
+      "@liratek/core": [
+        "../packages/core/src/index.ts"
       ]
     }
   },
