@@ -197,6 +197,17 @@ Files to KEEP:
 - Multi-step workflow tests
 - Error handling and validation tests
 
+**Follow-up task: E2E performance + CI hardening (recommended before re-enabling in CI)**
+- Re-enable E2E in CI once stable (currently disabled with `if: false` in `.github/workflows/ci.yml`).
+- Speed/stability improvements (already prototyped):
+  - Use production-like servers instead of dev servers:
+    - Backend: `yarn workspace @liratek/backend build && yarn workspace @liratek/backend start`
+    - Frontend: `yarn workspace @liratek/frontend build && yarn workspace @liratek/frontend preview --host 0.0.0.0 --port 5173`
+  - Cache Playwright browsers (`~/.cache/ms-playwright`) via `actions/cache`.
+  - Run Playwright with parallel workers (`workers=2`, `fullyParallel: true`) and `retries=1` in CI.
+  - Use CI script `yarn workspace @liratek/frontend test:e2e:ci`.
+- Recommendation: keep E2E off PRs until refactor dust settles; run on `workflow_dispatch` or nightly.
+
 
 ### [T-23] New Electron Backend Integration !!!
 
