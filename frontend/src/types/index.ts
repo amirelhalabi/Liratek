@@ -5,13 +5,14 @@
  * Keep this file as a thin re-export to avoid churn in UI imports.
  */
 
-export type {
+import type {
   ProductEntity,
   ClientEntity,
-  SaleItem,
-  SaleRequest,
-  Expense,
+  SafeUser,
 } from "@liratek/core";
+
+// Re-export for convenience
+export type { SafeUser, ProductEntity, ClientEntity };
 
 // Product with aliased field names for frontend compatibility
 export interface Product extends Omit<ProductEntity, 'selling_price_usd' | 'cost_price_usd'> {
@@ -21,11 +22,14 @@ export interface Product extends Omit<ProductEntity, 'selling_price_usd' | 'cost
 
 // Client type alias
 export type Client = ClientEntity;
-export interface CartItem {
+
+// CartItem represents a product in the shopping cart
+// It flattens Product fields for easier access in UI
+export interface CartItem extends Omit<Product, 'id'> {
   id: number;
-  product: Product;
   quantity: number;
   price_usd: number;
   retail_price: number;
+  cost_price: number;
   imei?: string;
 }
