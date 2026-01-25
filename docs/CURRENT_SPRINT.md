@@ -492,9 +492,9 @@ Then run normally:
 
 ### [T-25] Shared Core Backend Consolidation ✅
 
-**Status:** COMPLETED
+**Status:** COMPLETED (Including CI/CD Fix)
 **Date:** January 25, 2026
-**Commit:** e891047
+**Commits:** e891047 (main implementation), 5733f88 (CI fix)
 
 Created `@liratek/core` monorepo package to eliminate code duplication between electron-app and backend.
 
@@ -509,9 +509,12 @@ Created `@liratek/core` monorepo package to eliminate code duplication between e
 - ✅ Fixed AuthService.login() async/await bug
 - ✅ Added proper database initialization in both platforms
 - ✅ Tested: Both Electron and Browser modes working with authentication
+- ✅ Fixed CI/CD pipeline by adding build:core step before electron build
+- ✅ All GitHub Actions workflows passing (Windows, macOS Intel, macOS ARM)
 
 **Impact:**
 - Unblocks T-16 (SQLCipher DB Encryption)
 - Eliminates future code sync issues
 - Single source of truth for business logic
+- Production-ready builds working across all platforms
 

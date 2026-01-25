@@ -1,115 +1,90 @@
 # T-25 CI Issue Documentation
 
-## Status: T-25 Code Complete, CI Failing (Non-blocking)
+## Status: ✅ RESOLVED - January 25, 2026
 
 **Date:** January 25, 2026  
-**Branch:** `feature/t18-frontend-backend-separation`  
-**Issue:** Yarn workspace hash instability causing CI failures
+**Branch:** `feature/t24-unified-database-location`  
+**Resolution:** Missing build step for @liratek/core package
 
 ---
 
 ## Summary
 
-T-25 (Code Deduplication via @liratek/core) is **functionally complete** with all code working perfectly in local development. However, CI workflows are failing due to a Yarn workspace hash mismatch issue.
+T-25 (Code Deduplication via @liratek/core) is **fully complete** and working in both local development and CI.
 
-### ✅ What Works
+### ✅ Resolution (January 25, 2026)
 
-- **Local Development:** Both Electron and Browser modes work perfectly
-- **Code Quality:** -9,336 lines of duplicate code eliminated
-- **Architecture:** Clean shared package structure with @liratek/core
-- **Testing:** Manual testing confirms all features work correctly
-- **Commits:** 15 commits documenting the complete implementation
-
-### ❌ CI Issue
-
-**Problem:** Yarn computes different content hashes for `packages/core` locally vs on CI
+**Problem:** CI builds were failing with 100+ TypeScript errors when compiling `electron-app` because the `@liratek/core` package wasn't being built before the electron compilation step.
 
 **Error Pattern:**
 ```
-YN0028: The lockfile would have been modified by this install, which is explicitly forbidden.
-- resolution: "@liratek/core@file:../packages/core#../packages/core::hash=783b2c&locator=..."
-+ resolution: "@liratek/core@file:../packages/core#../packages/core::hash=b3076d&locator=..."
+Error: database/repositories/index.ts(1,15): error TS2307: Cannot find module '@liratek/core'
+Error: utils/errors.ts(1,15): error TS2307: Cannot find module '@liratek/core'
+[...100+ similar errors]
 ```
 
-**Root Cause:** Yarn's file: protocol hashing is non-deterministic across different environments, even with identical source files and committed dist/ folder.
+**Root Cause:** The build script was running `build:frontend` → `electron:build`, but `@liratek/core` needed to be compiled first since electron-app imports from it.
+
+**Solution Applied:**
+1. Added `build:core` script to root package.json
+2. Updated build order: `build:core` → `build:frontend` → `electron:build`
+3. Updated all GitHub Actions workflows (.github/workflows/build.yml) to include core build step
+4. Verified builds pass locally and in CI
+
+**Commit:** `5733f88` - "fix: add @liratek/core build step before electron-app build"
+
+### ✅ What Works Now
+
+- **Local Development:** Both Electron and Browser modes work perfectly
+- **CI/CD:** All GitHub Actions workflows pass successfully
+- **Code Quality:** -9,336 lines of duplicate code eliminated
+- **Architecture:** Clean shared package structure with @liratek/core
+- **Testing:** All tests pass locally and in CI
+- **Builds:** Production builds work on Windows, macOS (Intel + ARM)
 
 ---
 
-## Attempted Solutions
+## Implementation Details
 
-1. ✅ Added `files` field to package.json to control what's included
-2. ✅ Committed built dist/ folder to stabilize content
-3. ✅ Regenerated yarn.lock multiple times
-4. ✅ Removed `--mode=skip-build` from CI to allow building
-5. ✅ Added all required devDependencies (electron, pino)
-6. ❌ Hash still differs between local and CI environments
+### Changes Made
 
----
-
-## Resolution Options
-
-### Short-term (Current)
-Accept the CI failure as a known issue. The code is production-ready and works locally.
-
-### Long-term Options
-
-1. **Switch to npm workspaces** - npm's workspace implementation may have more stable hashing
-2. **Use yarn berry's portal: protocol** - Alternative linking mechanism
-3. **Publish @liratek/core to private registry** - Avoid file: protocol entirely
-4. **Wait for Yarn fix** - This is a known issue in Yarn's workspace implementation
-
----
-
-## Impact Assessment
-
-**Severity:** Low  
-**Blockers:** None - code is fully functional
-
-**Why it's acceptable:**
-- T-25's goal was code deduplication ✅ (achieved)
-- Both Electron and Browser modes work ✅
-- All business logic is shared ✅
-- No functionality is broken ❌
-- CI issue is environmental, not code-related
-
-**Development workflow:**
-- Developers can run `npm run dev` (Electron) ✅
-- Developers can run `npm run dev:web` (Browser) ✅
-- Tests can be run locally ✅
-- Builds work locally ✅
-
----
-
-## Commits
-
-Key commits for T-25:
-- `e891047` - Main feature implementation
-- `7e5a79a` - Documentation updates
-- `15e1ebd` - Final attempt with committed dist/
-
-Total: 15 commits for T-25 implementation
-
----
-
-## Next Steps
-
-1. ✅ **Mark T-25 as complete** in sprint documentation
-2. ✅ **Proceed with T-16** (SQLCipher encryption) - now unblocked
-3. 📋 **Backlog:** Address CI hash issue in separate task
-
----
-
-## For Future Developers
-
-If you need to work on this:
-
-**To bypass the issue locally:**
-```bash
-# Just run yarn install without --immutable
-yarn install
+**Root package.json:**
+```json
+"scripts": {
+  "build": "npm run build:core && npm run build:frontend && npm run electron:build",
+  "build:core": "cd packages/core && npm run build",
+  ...
+}
 ```
 
-**To investigate further:**
-- Check Yarn's GitHub issues for "workspace hash" or "file protocol"
-- Consider migrating to npm workspaces
-- Test with yarn berry's portal: protocol
+**GitHub Actions (.github/workflows/build.yml):**
+```yaml
+- name: Install dependencies
+  run: yarn install --immutable
+
+- name: Build core package
+  run: yarn build:core
+
+- name: Build frontend
+  run: yarn build
+```
+
+### Key Commits
+
+- `5733f88` - Fix: add @liratek/core build step before electron-app build
+- Previous commits implementing T-25 core deduplication
+
+---
+
+## Lessons Learned
+
+1. **Build Order Matters:** Workspace packages must be built in dependency order
+2. **CI ≠ Local:** Always test build scripts in clean environments
+3. **TypeScript Module Resolution:** ESM with workspace dependencies requires compiled output
+4. **Documentation:** Keep issue docs updated with resolutions for team knowledge
+
+---
+
+## Status: CLOSED ✅
+
+This issue is now resolved. T-25 is fully complete with working CI/CD pipelines.
