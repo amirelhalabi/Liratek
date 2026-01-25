@@ -20,9 +20,6 @@ module.exports = {
     '^electron$': '<rootDir>/src/__mocks__/electron.ts',
     // Map @liratek/core to source files for testing
     '^@liratek/core$': '<rootDir>/../packages/core/src/index.ts',
-    // Ensure core repositories get a DB during tests
-    '^\\.\\./db/connection$': '<rootDir>/src/__mocks__/core-db-connection.ts',
-    '^\\.\\./db/connection\\.js$': '<rootDir>/src/__mocks__/core-db-connection.ts',
   },
   setupFilesAfterEnv: ['<rootDir>/src/jest.setup.ts'],
   transformIgnorePatterns: [

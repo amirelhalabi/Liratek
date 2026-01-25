@@ -56,19 +56,28 @@ const createLogger = (): Logger => {
     timestamp: pino.stdTimeFunctions.isoTime,
   };
 
+  // Tests: never use transports (optional deps may be missing)
+  if (process.env.NODE_ENV === "test") {
+    return pino(options);
+  }
+
   // Development: pretty print to console
   if (isDev) {
-    return pino({
-      ...options,
-      transport: {
-        target: "pino-pretty",
-        options: {
-          colorize: true,
-          translateTime: "HH:MM:ss",
-          ignore: "pid,hostname,app",
+    try {
+      return pino({
+        ...options,
+        transport: {
+          target: "pino-pretty",
+          options: {
+            colorize: true,
+            translateTime: "HH:MM:ss",
+            ignore: "pid,hostname,app",
+          },
         },
-      },
-    });
+      });
+    } catch {
+      return pino(options);
+    }
   }
 
   // Production: JSON to file and console
