@@ -453,20 +453,27 @@ Then run normally:
 
 **To Complete**:
 1. **Decision Required**: Choose SQLCipher implementation:
-   - Option A: Use @journeyapps/sqlcipher (drop-in replacement, recommended)
-   - Option B: Build better-sqlite3 with SQLCipher from source (complex)
-   - Option C: Document encryption as optional feature requiring custom build
+   - ❌ Option A: @journeyapps/sqlcipher - NOT COMPATIBLE (uses async node-sqlite3 API, would require complete rewrite)
+   - Option B: Build better-sqlite3 with SQLCipher from source (recommended but complex)
+   - Option C: Document encryption as optional feature requiring custom build (CURRENT STATUS)
+   - ✅ Option D: Use better-sqlite3-with-sqlcipher package if available
 
-2. **If using @journeyapps/sqlcipher**:
-   - Replace better-sqlite3 dependency
-   - Test encryption functionality
-   - Document how users enable encryption
-   - Create migration guide for existing databases
+2. **Building better-sqlite3 with SQLCipher**:
+   - Requires SQLCipher development libraries installed on system
+   - Platform-specific build process (macOS, Windows, Linux)
+   - Needs electron-rebuild for Electron compatibility
+   - High complexity for end users
 
 **Architecture**:
 - Infrastructure is production-ready and waiting for SQLCipher-enabled build
 - Code will work immediately once SQLCipher support is available
 - Gracefully handles missing SQLCipher support (logs warning, continues unencrypted)
+
+**Investigation Results (Jan 25, 2026)**:
+- ❌ @journeyapps/sqlcipher is NOT compatible - uses completely different async API
+- ✅ Infrastructure complete and working with standard better-sqlite3
+- ✅ Will work with SQLCipher-enabled better-sqlite3 build without code changes
+- 📋 Decision: Document as optional advanced feature for users who can build with SQLCipher
 
 ### [T-17] Admin Closing Approval !!
 **Status**: Ready  

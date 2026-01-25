@@ -600,22 +600,33 @@ npm run dev
 
 #### Using SQLCipher
 
-To enable actual encryption, replace `better-sqlite3` with a SQLCipher-enabled build:
+To enable actual encryption, you need a SQLCipher-enabled build of better-sqlite3.
 
-**Recommended: @journeyapps/sqlcipher**
+⚠️ **Note**: @journeyapps/sqlcipher is NOT compatible - it uses a completely different async API.
+
+**Option 1: Build better-sqlite3 with SQLCipher (Advanced)**
+
+This requires SQLCipher development libraries installed on your system:
+
 ```bash
-# Replace in root package.json
-npm uninstall better-sqlite3
-npm install @journeyapps/sqlcipher
+# macOS (using Homebrew)
+brew install sqlcipher
 
-# Update packages/core/package.json
-npm uninstall better-sqlite3
-npm install @journeyapps/sqlcipher
+# Build better-sqlite3 with SQLCipher
+npm install better-sqlite3 --build-from-source --sqlite3=$(brew --prefix sqlcipher)
 
-# Rebuild native modules for Electron
+# Rebuild for Electron
 cd electron-app
-npm rebuild @journeyapps/sqlcipher --runtime=electron --target=31.0.0
+npm rebuild better-sqlite3 --runtime=electron --target=31.0.0
 ```
+
+**Option 2: Use Pre-built Package (If Available)**
+
+Search for community packages like `better-sqlite3-sqlcipher` or pre-compiled builds.
+
+**Option 3: Docker/Container with SQLCipher**
+
+Build a Docker image with SQLCipher and deploy as containerized application.
 
 #### Migrating Existing Database
 
@@ -631,7 +642,7 @@ node migrate_to_encrypted.js
 
 **migrate_to_encrypted.js**:
 ```javascript
-const Database = require('@journeyapps/sqlcipher');
+const Database = require('better-sqlite3'); // Must be SQLCipher-enabled build
 const fs = require('fs');
 
 const oldDb = '~/Library/Application Support/liratek/phone_shop.db';
