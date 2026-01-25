@@ -1,6 +1,7 @@
 import { BrowserWindow, app } from "electron";
 import path from "path";
 import fs from "fs";
+import { resolveDatabasePath } from "@liratek/core";
 import { toErrorString } from "../utils/errors.js";
 
 export interface GeneratePdfResult {
@@ -38,7 +39,8 @@ export class ReportService {
   }
 
   private getDbPath(): string {
-    return path.join(app.getPath("userData"), "phone_shop.db");
+    // Must match the DB used by Electron + Web mode
+    return resolveDatabasePath().path;
   }
 
   /**

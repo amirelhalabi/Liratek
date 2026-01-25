@@ -116,6 +116,10 @@ function initializeDatabase() {
   const resolved = resolveDatabasePath();
   const dbPath = resolved.path;
 
+  console.log(
+    `[ELECTRON] DB path resolved: ${dbPath} (source: ${resolved.source})`,
+  );
+
   console.log('[ELECTRON] Database path:', dbPath, `(source: ${resolved.source})`);
   
   try {
