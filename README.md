@@ -54,33 +54,76 @@ A comprehensive, enterprise-grade Point of Sale (POS) and inventory management s
   - macOS: `xcode-select --install`
   - Windows: Visual Studio Build Tools ("Desktop development with C++")
 
-### Installation & Development
+### Installation
 
 ```bash
+# Clone the repository
+git clone https://github.com/amirelhalabi/Liratek.git
+cd Liratek
+
+# Enable Corepack (for Yarn 4)
+corepack enable
+
 # Install dependencies
 yarn install
-
-# Run in development mode (Vite + Electron)
-npm run dev
-
-# Run all tests
-npm test
-
-# Build for production
-npm run build
 ```
 
-### Running Backend + Frontend Separately (Migration Mode)
+### 🚀 Running the Application
 
+#### Desktop Mode (Electron - Recommended)
 ```bash
-# Terminal 1 - Backend
-cd backend
-yarn dev
-
-# Terminal 2 - Frontend
-cd frontend
-yarn dev
+npm run dev
 ```
+This starts:
+- Frontend dev server (Vite on port 5173)
+- Electron desktop app (loads from Vite with hot reload)
+
+#### Browser Mode (Web Development)
+```bash
+npm run dev:web
+```
+This starts:
+- Backend API server (port 3000)
+- Frontend dev server (port 5173)
+- Open http://localhost:5173 in browser
+
+#### Docker Mode (Production-like)
+```bash
+npm run dev:docker
+```
+
+### 🔑 Default Login
+
+- **Username**: `admin`
+- **Password**: `admin123`
+
+### 🔧 Development Commands
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Desktop app (Electron + Vite) |
+| `npm run dev:web` | Browser mode (Backend + Frontend) |
+| `npm run dev:frontend` | Frontend only (port 5173) |
+| `npm run dev:backend` | Backend API only (port 3000) |
+| `npm run build` | Build everything (core + frontend + electron) |
+| `npm run build:core` | Build shared @liratek/core package |
+| `npm test` | Run all tests |
+| `npm run lint` | Lint all code |
+| `npm run typecheck` | TypeScript type checking |
+
+### 🎯 What Mode to Use
+
+**Use Desktop Mode (Electron) when:**
+- Developing desktop features
+- Need native OS integration
+- Testing IPC handlers
+- Daily development
+
+**Use Browser Mode when:**
+- Developing REST API
+- Testing without Electron
+- Cloud deployment testing
+- Need backend-only features
 
 - Backend: `http://localhost:3000`
 - Frontend: `http://localhost:5173`
@@ -95,7 +138,60 @@ docker compose up --build
 
 ## 🏗️ Architecture
 
-LiraTek is built using Electron with strict separation between the backend (Main Process) and UI (Renderer Process).
+LiraTek is built as a **dual-mode application** that can run as both a desktop app (Electron) and a web app (Browser), sharing the same business logic through the `@liratek/core` package.
+
+### Monorepo Structure
+
+```
+liratek/
+├── packages/core/           # 🔥 Shared business logic (@liratek/core)
+│   ├── repositories/        # Database access layer
+│   ├── services/            # Business logic
+│   └── utils/               # Crypto, logging, errors, barcode
+├── electron-app/            # Desktop Electron wrapper
+│   ├── main.ts              # Main process (Node.js)
+│   ├── preload.ts           # IPC bridge (contextBridge)
+│   └── handlers/            # IPC handlers (uses @liratek/core)
+├── frontend/                # React UI (works in both modes)
+│   └── src/
+│       ├── features/        # Feature modules (POS, Inventory, etc.)
+│       └── api/             # API abstraction (window.api vs REST)
+├── backend/                 # REST API server (for browser mode)
+│   └── src/
+│       └── api/             # Express routes (uses @liratek/core)
+└── docs/                    # Documentation
+```
+
+### Data Flow
+
+#### Desktop Mode (Electron)
+```
+Frontend (React) 
+  → window.api (preload.ts contextBridge)
+    → ipcMain handlers (electron-app/handlers/)
+      → Services (@liratek/core/services)
+        → Repositories (@liratek/core/repositories)
+          → SQLite (better-sqlite3)
+```
+
+#### Browser Mode (Express)
+```
+Frontend (React)
+  → HTTP REST API (backend/src/api/)
+    → Services (@liratek/core/services)
+      → Repositories (@liratek/core/repositories)
+        → SQLite (better-sqlite3)
+```
+
+### Key Architectural Decisions
+
+1. **@liratek/core Package**: All business logic (services, repositories, utilities) is shared between Electron and Web backends, eliminating ~9,336 lines of duplicate code.
+
+2. **Frontend Abstraction**: The React frontend detects its environment and uses either `window.api` (Electron) or `fetch` (Browser) transparently.
+
+3. **Single Database**: Both modes can point to the same SQLite database using environment variables or config files.
+
+4. **Session Storage**: Encrypted JSON files for session tokens (scrypt-derived AES-256-GCM)
 
 ### Process Communication (IPC)
 
@@ -583,14 +679,35 @@ View logs:
 
 ---
 
+## 🐛 Troubleshooting
+
+### Electron won't start
+```bash
+cd electron-app
+npm rebuild better-sqlite3 --runtime=electron --target=31.0.0
+npm run build
+```
+
+### Frontend not loading
+- Ensure frontend dev server is running (port 5173)
+- Check `npm run dev:frontend` in separate terminal
+
+### Database errors
+- Database auto-creates in: `~/Library/Application Support/@liratek/electron-app/`
+- Delete database to reset: `rm ~/Library/Application\ Support/@liratek/electron-app/*.db`
+
+### Build fails with TypeScript errors
+- Ensure `@liratek/core` is built first: `npm run build:core`
+- Clean and rebuild: `npm run clean && yarn install && npm run build`
+
+---
+
 ## 📚 Additional Documentation
 
 - **[CURRENT_SPRINT.md](docs/CURRENT_SPRINT.md)**: Active sprint tasks, roadmap, and recent completions
-- **[QUICKSTART.md](docs/QUICKSTART.md)**: Quick start commands and troubleshooting
-- **[BACKEND_DIFFERENCES.md](docs/BACKEND_DIFFERENCES.md)**: Exhaustive desktop vs web backend parity analysis
-- **[RELEASE_NOTES_v1.0.0.md](docs/RELEASE_NOTES_v1.0.0.md)**: Full changelog and platform downloads
-- **Marketing Materials**: `docs/marketing/`
-- **Document Templates**: `docs/templates/`
+- **Marketing Materials**: `docs/marketing/` - Product marketing and promotion guides
+- **Document Templates**: `docs/templates/` - Business document templates (quotations, etc.)
+- **Archive**: `docs/archive/` - Historical documentation for reference
 
 ---
 
