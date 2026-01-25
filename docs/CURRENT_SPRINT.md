@@ -288,10 +288,10 @@ We currently maintain two parallel backends (desktop IPC vs web REST) with dupli
 
 ---
 
-### [T-24] Unified Database Location (Web + Desktop) !!!
+### ~~[T-24] Unified Database Location (Web + Desktop)~~ ✅ **COMPLETED Jan 25, 2026**
 
 **Priority**: CRITICAL  
-**Status**: Active (Option 2 selected)  
+**Status**: ✅ COMPLETED
 **Owner**: Dev Team  
 
 **Goal**: Ensure all app modes (Electron Desktop and Web mode via backend+frontend) use the exact same database file.
@@ -355,9 +355,23 @@ Then run normally:
 3. DB location must be clearly documented
 
 **Acceptance Criteria**:
-- Logs confirm both Electron and backend open the same DB path (the `DATABASE_PATH` value)
-- Creating a client/sale in Desktop is visible in Web mode immediately
-- No `*.db` files exist inside the repo
+- ✅ Logs confirm both Electron and backend open the same DB path (the `DATABASE_PATH` value)
+- ✅ Creating a client/sale in Desktop is visible in Web mode immediately
+- ✅ No `*.db` files exist inside the repo
+
+**Completion Summary (Jan 25, 2026)**:
+- ✅ Database path resolution implemented in `@liratek/core/src/db/dbPath.ts`
+- ✅ Both electron-app and backend use `resolveDatabasePath()` from shared core
+- ✅ Configuration file created: `~/Documents/LiraTek/db-path.txt`
+- ✅ Points to authoritative DB: `~/Library/Application Support/liratek/phone_shop.db`
+- ✅ Verified: Both modes resolve to same database path (source: file:db-path.txt)
+- ✅ Database contains mock data: users=1, clients=4, sales=10
+- ✅ All acceptance criteria met and verified
+
+**Implementation**:
+- Resolution order: DATABASE_PATH env var → ~/Documents/LiraTek/db-path.txt → platform defaults
+- Both modes log the resolved path and source for verification
+- SQLite WAL mode ensures consistency across concurrent access
 
 ---
 
