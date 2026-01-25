@@ -18,5 +18,10 @@ module.exports = {
     '^\\.\\./connection$': '<rootDir>/src/database/connection.ts',
     '^better-sqlite3$': '<rootDir>/src/__mocks__/better-sqlite3.ts',
     '^electron$': '<rootDir>/src/__mocks__/electron.ts',
+    // Map @liratek/core to source files for testing
+    '^@liratek/core$': '<rootDir>/../packages/core/src/index.ts',
   },
+  transformIgnorePatterns: [
+    'node_modules/(?!(@liratek/core)/)',
+  ],
 };
