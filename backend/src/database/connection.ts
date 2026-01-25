@@ -1,7 +1,12 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
-import { resolveDatabasePath, initDatabase as initCoreDatabase } from '@liratek/core';
+import {
+  resolveDatabasePath,
+  resolveDatabaseKey,
+  applySqlCipherKey,
+  initDatabase as initCoreDatabase,
+} from '@liratek/core';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 
@@ -11,6 +16,9 @@ const __dirname = dirname(__filename);
 // Database path
 const resolved = resolveDatabasePath();
 const DB_PATH = resolved.path;
+
+// Optional SQLCipher key
+const resolvedKey = resolveDatabaseKey();
 
 let dbInstance: Database.Database | null = null;
 
@@ -39,6 +47,10 @@ export function getDatabase(): Database.Database {
         }
 
         dbInstance = new Database(DB_PATH);
+
+        // Apply SQLCipher key (if provided) BEFORE any other access
+        const keyResult = applySqlCipherKey(dbInstance, resolvedKey.key);
+
         dbInstance.pragma('journal_mode = WAL');
         dbInstance.pragma('foreign_keys = ON');
         ensureSchema(dbInstance);
@@ -47,6 +59,10 @@ export function getDatabase(): Database.Database {
         initCoreDatabase(dbInstance);
         
         console.log(`📦 Database connected: ${DB_PATH} (source: ${resolved.source})`);
+        console.log(
+          `🔐 SQLCipher: keySource=${resolvedKey.source}, applied=${keyResult.applied}, supported=${keyResult.supported}` +
+            (keyResult.error ? `, error=${keyResult.error}` : ''),
+        );
     }
     return dbInstance;
 }
