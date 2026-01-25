@@ -1,6 +1,6 @@
 import { jest } from '@jest/globals';
 import { BaseRepository } from "../BaseRepository";
-import { mockDatabase, resetAllMocks } from "../../../__mocks__/better-sqlite3";
+import { resetAllMocks } from "../../../__mocks__/better-sqlite3";
 
 jest.mock("better-sqlite3");
 

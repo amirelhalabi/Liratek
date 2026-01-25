@@ -18,5 +18,18 @@
     "@typescript-eslint/no-unused-vars": ["error", { "argsIgnorePattern": "^_" }],
     "@typescript-eslint/no-var-requires": "off"
   },
+  "overrides": [
+    {
+      "files": [
+        "src/**/__tests__/**",
+        "src/**/__mocks__/**",
+        "src/jest.setup.ts"
+      ],
+      "rules": {
+        "@typescript-eslint/no-explicit-any": "off",
+        "@typescript-eslint/no-unused-vars": "off"
+      }
+    }
+  ],
   "ignorePatterns": ["dist", "node_modules", "*.config.js", "*.config.cjs"]
 }

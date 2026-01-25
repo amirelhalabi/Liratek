@@ -30,14 +30,10 @@ jest.mock("../../../../packages/core/src/utils/crypto", () => ({
     .mockReturnValue({ valid: true, errors: [] }),
 }));
 
-import {
-  getUserRepository,
-} from "../../../../packages/core/src/repositories/index";
+import { getUserRepository } from "../../../../packages/core/src/repositories/index";
 
 import {
-  hashPassword,
   verifyPassword,
-  needsMigration,
   validatePasswordComplexity,
 } from "../../../../packages/core/src/utils/crypto";
 
