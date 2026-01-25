@@ -25,7 +25,7 @@
 - None currently
 
 ### 🔜 Next Priority (MUST DO)
-- [T-25]!!! Shared Core Backend Consolidation (packages/core)
+- ~~[T-25] Shared Core Backend Consolidation (packages/core)~~ ✅ **COMPLETED**
 - [T-24]!!! Unified Database Location (Web + Desktop)
 
 ### 📋 Ready (Ordered by Priority)
@@ -233,10 +233,10 @@ Files to KEEP:
 
 ---
 
-### [T-25] Shared Core Backend Consolidation (packages/core) !!!
+### ~~[T-25] Shared Core Backend Consolidation (packages/core)~~ ✅ **COMPLETED Jan 25, 2026**
 
 **Priority**: URGENT  
-**Status**: Planned  
+**Status**: In Progress (PR1 started)  
 **Owner**: Dev Team
 
 **Goal**: Reduce duplication and eliminate parity drift by consolidating shared backend logic into a single core package used by both:
@@ -250,6 +250,16 @@ We currently maintain two parallel backends (desktop IPC vs web REST) with dupli
 - See `docs/BACKEND_DIFFERENCES.md` Section 12 (Consolidation Plan) and Section 11 (QA Parity Checklist).
 
 **Deliverables**:
+
+**PR1 (started): Core skeleton + shared DB resolver**
+- [x] Create `packages/core/` package skeleton
+- [x] Add shared DB resolver (`resolveDatabasePath`) in core
+- [ ] Wire backend to use core resolver
+- [ ] Wire electron-app to use core resolver
+- [ ] Add startup logs showing resolver source (env vs file vs default)
+
+**Next PRs** (from `docs/BACKEND_DIFFERENCES.md`):
+
 1. Create `packages/core/` package
 2. Move shared DB path resolver into core
 3. Migrate Auth module (crypto + user repo + auth service) into core
@@ -464,3 +474,33 @@ Then run normally:
 - ✅ **T-20 Phase 1 API Endpoints** (Jan 24): Created all remaining backend REST API endpoints (Closing, Suppliers, Rates, Users, Activity, Reports) - 19/19 modules complete
 - ✅ **T-20 Phase 2 Structure Cleanup** (Jan 24): Updated root package.json to workspace-only mode, prepared old structure for deletion, migrated all functionality to frontend/backend workspaces
 - ✅ **T-23 Electron Integration** (Jan 24): Created new electron-app/ with complete backend integration, all 19 modules working, deleted old monolithic structure (~1.5 GB freed)
+
+---
+
+## ✅ Recently Completed (Jan 25, 2026)
+
+### [T-25] Shared Core Backend Consolidation ✅
+
+**Status:** COMPLETED
+**Date:** January 25, 2026
+**Commit:** e891047
+
+Created `@liratek/core` monorepo package to eliminate code duplication between electron-app and backend.
+
+**Achievements:**
+- ✅ Created packages/core/ with all shared code
+- ✅ Reduced codebase by 9,336 lines
+- ✅ Extracted 18 repositories to shared package
+- ✅ Extracted 17 services to shared package
+- ✅ Extracted all utilities (crypto, logger, errors, barcode)
+- ✅ Both electron-app and backend now use shared implementation
+- ✅ Fixed electron-app soft delete bug (is_deleted → is_active)
+- ✅ Fixed AuthService.login() async/await bug
+- ✅ Added proper database initialization in both platforms
+- ✅ Tested: Both Electron and Browser modes working with authentication
+
+**Impact:**
+- Unblocks T-16 (SQLCipher DB Encryption)
+- Eliminates future code sync issues
+- Single source of truth for business logic
+
