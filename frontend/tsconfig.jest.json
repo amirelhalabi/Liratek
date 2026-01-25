@@ -1,0 +1,65 @@
+{
+  "extends": "./tsconfig.node.json",
+  "compilerOptions": {
+    "lib": [
+      "ES2023",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "verbatimModuleSyntax": false,
+    "jsx": "react-jsx",
+    "types": [
+      "node",
+      "jest",
+      "@testing-library/jest-dom",
+      "vite/client"
+    ],
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": [
+        "src/*"
+      ],
+      "@/components/*": [
+        "src/components/*"
+      ],
+      "@/pages/*": [
+        "src/pages/*"
+      ],
+      "@/contexts/*": [
+        "src/contexts/*"
+      ],
+      "@/utils/*": [
+        "src/utils/*"
+      ],
+      "@/types/*": [
+        "src/types/*"
+      ],
+      "@/config/*": [
+        "src/config/*"
+      ],
+      "@shared/*": [
+        "../packages/core/src/*"
+      ],
+      "@liratek/core": [
+        "../packages/core/src/index.ts"
+      ]
+    }
+  },
+  "include": [
+    "src",
+    "jest.setup.ts",
+    "jest.config.ts",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/__tests__/**/*.ts",
+    "**/__tests__/**/*.tsx"
+  ],
+  "exclude": [
+    "backend/**",
+    "**/node_modules/**"
+  ]
+}

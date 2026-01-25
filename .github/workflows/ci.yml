@@ -23,7 +23,7 @@ jobs:
         run: corepack enable
 
       - name: Install dependencies
-        run: yarn install --immutable --mode=skip-build
+        run: yarn install --immutable
 
       - name: Run ESLint
         run: yarn lint
@@ -44,7 +44,7 @@ jobs:
         run: corepack enable
 
       - name: Install dependencies
-        run: yarn install --immutable --mode=skip-build
+        run: yarn install --immutable
 
       - name: TypeScript check
         run: yarn typecheck
@@ -65,7 +65,7 @@ jobs:
         run: corepack enable
 
       - name: Install dependencies
-        run: yarn install --immutable --mode=skip-build
+        run: yarn install --immutable
 
       - name: Run tests
         run: yarn test
@@ -76,13 +76,12 @@ jobs:
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
-          files: ./coverage/lcov.info
+          files: ./coverage/**/lcov.info
           fail_ci_if_error: false
 
-  build:
-    name: Build
+  backend-tests:
+    name: Backend Tests
     runs-on: ubuntu-latest
-    needs: [lint, typecheck, test]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -96,7 +95,111 @@ jobs:
         run: corepack enable
 
       - name: Install dependencies
-        run: yarn install --immutable --mode=skip-build
+        run: yarn install --immutable
+
+      - name: Backend typecheck
+        run: yarn workspace @liratek/backend typecheck
+
+      - name: Backend tests
+        run: yarn workspace @liratek/backend test
+
+  frontend-tests:
+    name: Frontend Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Frontend typecheck
+        run: yarn workspace @liratek/frontend typecheck
+
+      - name: Frontend tests
+        run: yarn workspace @liratek/frontend test
+
+  # e2e-tests disabled temporarily (slow + flaky while refactoring)
+  # Re-enable once stable by removing the `if: false` and uncommenting this job.
+  e2e-tests:
+    if: false
+    name: E2E Tests (disabled)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('frontend/package.json') }}
+
+      - name: Install Playwright browsers
+        run: yarn workspace @liratek/frontend exec playwright install --with-deps chromium
+
+      - name: Build backend + frontend (for faster E2E)
+        run: |
+          yarn workspace @liratek/backend build
+          yarn workspace @liratek/frontend build
+
+      - name: Start backend
+        run: yarn workspace @liratek/backend start &
+
+      - name: Start frontend (preview)
+        run: yarn workspace @liratek/frontend preview --host 0.0.0.0 --port 5173 &
+
+      - name: Wait for services
+        run: npx wait-on http://localhost:3000/health http://localhost:5173 --timeout 60000
+
+      - name: Run E2E tests
+        run: yarn workspace @liratek/frontend test:e2e:ci
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 7
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: [lint, typecheck, test, backend-tests, frontend-tests]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: yarn install --immutable
 
       - name: Build
         run: yarn build
