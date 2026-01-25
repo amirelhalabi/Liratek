@@ -8,22 +8,17 @@ import {
   getExpenseService,
   resetExpenseService,
 } from "../ExpenseService";
-import {
-  ExpenseRepository,
-  ExpenseEntity,
-  CreateExpenseData,
-  getExpenseRepository,
-} from "../../database/repositories/ExpenseRepository";
+import { ExpenseEntity, CreateExpenseData } from "@liratek/core";
 
-// Mock the repository module
-jest.mock("../../database/repositories/ExpenseRepository", () => ({
+jest.mock("../../../../packages/core/src/repositories/ExpenseRepository", () => ({
   getExpenseRepository: jest.fn(),
-  ExpenseRepository: jest.fn(),
 }));
+
+import { getExpenseRepository } from "../../../../packages/core/src/repositories/ExpenseRepository";
 
 describe("ExpenseService", () => {
   let service: ExpenseService;
-  let mockRepo: jest.Mocked<ExpenseRepository>;
+  let mockRepo: any;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -36,7 +31,7 @@ describe("ExpenseService", () => {
       getExpenseById: jest.fn(),
       deleteExpense: jest.fn(),
       logActivity: jest.fn(),
-    } as unknown as jest.Mocked<ExpenseRepository>;
+    };
 
     (getExpenseRepository as jest.Mock).mockReturnValue(mockRepo);
 

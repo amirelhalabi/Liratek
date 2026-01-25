@@ -4,9 +4,8 @@ import { mockDatabase, resetAllMocks } from "../../../__mocks__/better-sqlite3";
 
 jest.mock("better-sqlite3");
 
-jest.mock("../connection", () => ({
-  getDatabase: () => mockDatabase,
-}));
+// Core repositories use @liratek/core db/connection, provided via global test hook.
+// No need to mock backend connection module here.
 
 type TestEntity = { id: number; name: string; created_at?: string };
 
@@ -17,13 +16,19 @@ class TestRepo extends BaseRepository<TestEntity> {
 }
 
 describe("BaseRepository", () => {
+  let testDb: any;
+
   beforeEach(() => {
     resetAllMocks();
+    // Ensure @liratek/core is using a mock DB
+    testDb = (globalThis as any).__LIRATEK_TEST_DB__;
+    expect(testDb).toBeTruthy();
+    expect(typeof testDb.prepare).toBe('function');
   });
 
   it("findById returns entity when found", () => {
     // Arrange
-    mockDatabase.prepare.mockImplementationOnce((sql: string) => {
+    testDb.prepare.mockImplementationOnce((sql: string) => {
       const stmt = { ...require("../../../__mocks__/better-sqlite3").mockStatement, _sql: sql };
       stmt.get = jest.fn(() => ({ id: 1, name: "A" }));
       return stmt;
@@ -33,13 +38,13 @@ describe("BaseRepository", () => {
     const res = repo.findById(1);
 
     expect(res).toEqual({ id: 1, name: "A" });
-    expect(mockDatabase.prepare).toHaveBeenCalledWith(
+    expect(testDb.prepare).toHaveBeenCalledWith(
       "SELECT * FROM test_table WHERE id = ?",
     );
   });
 
   it("findAll builds ORDER BY / LIMIT / OFFSET", () => {
-    mockDatabase.prepare.mockImplementationOnce((sql: string) => {
+    testDb.prepare.mockImplementationOnce((sql: string) => {
       const stmt = { ...require("../../../__mocks__/better-sqlite3").mockStatement, _sql: sql };
       stmt.all = jest.fn(() => [{ id: 1, name: "A" }]);
       return stmt;
@@ -54,13 +59,13 @@ describe("BaseRepository", () => {
     });
 
     expect(res).toEqual([{ id: 1, name: "A" }]);
-    expect(mockDatabase.prepare).toHaveBeenCalledWith(
+    expect(testDb.prepare).toHaveBeenCalledWith(
       "SELECT * FROM test_table ORDER BY id DESC LIMIT ? OFFSET ?",
     );
   });
 
   it("delete executes delete query", () => {
-    mockDatabase.prepare.mockImplementationOnce((sql: string) => {
+    testDb.prepare.mockImplementationOnce((sql: string) => {
       const stmt = { ...require("../../../__mocks__/better-sqlite3").mockStatement, _sql: sql };
       stmt.run = jest.fn(() => ({ changes: 1 }));
       return stmt;
@@ -70,8 +75,8 @@ describe("BaseRepository", () => {
     const ok = repo.delete(1);
 
     expect(ok).toBe(true);
-    expect(mockDatabase.prepare).toHaveBeenCalledWith(
-      "DELETE FROM test_table WHERE id = ?",
-    );
+    expect(testDb.prepare).toHaveBeenCalled();
+    const sqls = testDb.prepare.mock.calls.map((c: any[]) => c[0]);
+    expect(sqls).toContain("DELETE FROM test_table WHERE id = ?");
   });
 });

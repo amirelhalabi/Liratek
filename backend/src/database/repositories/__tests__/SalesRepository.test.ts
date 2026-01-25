@@ -1,22 +1,21 @@
 import { jest } from '@jest/globals';
 import { SalesRepository } from "../SalesRepository";
-import { mockDatabase, resetAllMocks } from "../../../__mocks__/better-sqlite3";
+import { resetAllMocks } from "../../../__mocks__/better-sqlite3";
 
 jest.mock("better-sqlite3");
 
-jest.mock("../connection", () => ({
-  getDatabase: () => mockDatabase,
-}));
+let testDb: any;
 
 describe("SalesRepository", () => {
   beforeEach(() => {
     resetAllMocks();
+    testDb = (globalThis as any).__LIRATEK_TEST_DB__;
   });
 
   it("deleteSaleItems deletes by sale_id", () => {
     const repo = new SalesRepository();
 
-    (mockDatabase.prepare as any).mockImplementationOnce((sql: any) => {
+    (testDb.prepare as any).mockImplementationOnce((sql: any) => {
       const stmt = {
         ...require("../../../__mocks__/better-sqlite3").mockStatement,
         _sql: sql,
@@ -27,7 +26,7 @@ describe("SalesRepository", () => {
 
     repo.deleteSaleItems(10);
 
-    expect(mockDatabase.prepare).toHaveBeenCalledWith(
+    expect(testDb.prepare).toHaveBeenCalledWith(
       "DELETE FROM sale_items WHERE sale_id = ?",
     );
   });
@@ -35,7 +34,7 @@ describe("SalesRepository", () => {
   it("deleteSaleItems throws DatabaseError on failure", () => {
     const repo = new SalesRepository();
 
-    (mockDatabase.prepare as any).mockImplementationOnce(() => {
+    (testDb.prepare as any).mockImplementationOnce(() => {
       throw new Error("boom");
     });
 

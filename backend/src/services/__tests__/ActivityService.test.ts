@@ -9,21 +9,20 @@ import {
   resetActivityService,
 } from "../ActivityService";
 import {
-  ActivityRepository,
   ActivityLogEntity,
   SyncErrorEntity,
-  getActivityRepository,
-} from "../../database/repositories/ActivityRepository";
+} from "@liratek/core";
 
-// Mock the repository module
-jest.mock("../../database/repositories/ActivityRepository", () => ({
+// Mock the core repository module used by @liratek/core ActivityService
+jest.mock("../../../../packages/core/src/repositories/ActivityRepository", () => ({
   getActivityRepository: jest.fn(),
-  ActivityRepository: jest.fn(),
 }));
+
+import { getActivityRepository } from "../../../../packages/core/src/repositories/ActivityRepository";
 
 describe("ActivityService", () => {
   let service: ActivityService;
-  let mockRepo: jest.Mocked<ActivityRepository>;
+  let mockRepo: any;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -34,10 +33,9 @@ describe("ActivityService", () => {
       getRecentLogs: jest.fn(),
       logActivity: jest.fn(),
       getSyncErrors: jest.fn(),
-    } as unknown as jest.Mocked<ActivityRepository>;
+    };
 
     (getActivityRepository as jest.Mock).mockReturnValue(mockRepo);
-
     service = new ActivityService();
   });
 

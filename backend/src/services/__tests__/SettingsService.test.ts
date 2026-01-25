@@ -8,21 +8,18 @@ import {
   getSettingsService,
   resetSettingsService,
 } from "../SettingsService";
-import {
-  SettingsRepository,
-  SettingEntity,
-  getSettingsRepository,
-} from "../../database/repositories/SettingsRepository";
+import { SettingEntity } from "@liratek/core";
 
-// Mock the repository module
-jest.mock("../../database/repositories/SettingsRepository", () => ({
+// Mock core repository used by @liratek/core SettingsService
+jest.mock("../../../../packages/core/src/repositories/SettingsRepository", () => ({
   getSettingsRepository: jest.fn(),
-  SettingsRepository: jest.fn(),
 }));
+
+import { getSettingsRepository } from "../../../../packages/core/src/repositories/SettingsRepository";
 
 describe("SettingsService", () => {
   let service: SettingsService;
-  let mockRepo: jest.Mocked<SettingsRepository>;
+  let mockRepo: any;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -34,7 +31,7 @@ describe("SettingsService", () => {
       getSetting: jest.fn(),
       getSettingValue: jest.fn(),
       upsertSetting: jest.fn(),
-    } as unknown as jest.Mocked<SettingsRepository>;
+    };
 
     (getSettingsRepository as jest.Mock).mockReturnValue(mockRepo);
 

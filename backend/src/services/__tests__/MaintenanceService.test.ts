@@ -4,16 +4,17 @@
 
 import { jest } from '@jest/globals';
 import { MaintenanceService, SaveJobParams } from "../MaintenanceService";
-import { MaintenanceRepository } from "../../database/repositories/MaintenanceRepository";
 
-// Mock the repository
-jest.mock("../../database/repositories/MaintenanceRepository", () => ({
+// Mock core repository used by @liratek/core MaintenanceService
+jest.mock("../../../../packages/core/src/repositories/MaintenanceRepository", () => ({
   MaintenanceRepository: jest.fn(),
 }));
 
+import { MaintenanceRepository } from "../../../../packages/core/src/repositories/MaintenanceRepository";
+
 describe("MaintenanceService", () => {
   let service: MaintenanceService;
-  let mockRepo: jest.Mocked<MaintenanceRepository>;
+  let mockRepo: any;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -27,7 +28,7 @@ describe("MaintenanceService", () => {
       getJobs: jest.fn(),
       deleteJob: jest.fn(),
       logActivity: jest.fn(),
-    } as unknown as jest.Mocked<MaintenanceRepository>;
+    };
 
     // Make the constructor return our mock
     (MaintenanceRepository as jest.Mock).mockImplementation(() => mockRepo);

@@ -11,22 +11,17 @@ import {
   CreateClosingData,
   UpdateClosingData,
 } from "../ClosingService";
-import {
-  ClosingRepository,
-  SystemExpectedBalances,
-  DailyStatsSnapshot,
-  getClosingRepository,
-} from "../../database/repositories/ClosingRepository";
+import type { SystemExpectedBalances, DailyStatsSnapshot } from "@liratek/core";
 
-// Mock the repository module
-jest.mock("../../database/repositories/ClosingRepository", () => ({
+jest.mock("../../../../packages/core/src/repositories/ClosingRepository", () => ({
   getClosingRepository: jest.fn(),
-  ClosingRepository: jest.fn(),
 }));
+
+import { getClosingRepository } from "../../../../packages/core/src/repositories/ClosingRepository";
 
 describe("ClosingService", () => {
   let service: ClosingService;
-  let mockRepo: jest.Mocked<ClosingRepository>;
+  let mockRepo: any;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -39,7 +34,7 @@ describe("ClosingService", () => {
       updateDailyClosing: jest.fn(),
       getSystemExpectedBalances: jest.fn(),
       getDailyStatsSnapshot: jest.fn(),
-    } as unknown as jest.Mocked<ClosingRepository>;
+    };
 
     (getClosingRepository as jest.Mock).mockReturnValue(mockRepo);
 

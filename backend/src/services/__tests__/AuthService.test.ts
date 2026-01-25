@@ -6,23 +6,22 @@
 
 import { jest } from '@jest/globals';
 import { AuthService, resetAuthService } from "../AuthService";
-import { UserRepository } from "../../database/repositories";
+
+// Import core error classes (these are thrown by @liratek/core AuthService)
 import {
   AuthenticationError,
   AuthorizationError,
   ValidationError,
   ConflictError,
   BusinessRuleError,
-} from "../../utils/errors";
+} from "@liratek/core";
 
-// Mock the repository module
-jest.mock("../../database/repositories", () => ({
+// Mock @liratek/core dependencies used internally by AuthService
+jest.mock("../../../../packages/core/src/repositories/index", () => ({
   getUserRepository: jest.fn(),
-  UserRepository: jest.fn(),
 }));
 
-// Mock crypto utils
-jest.mock("../../utils/crypto", () => ({
+jest.mock("../../../../packages/core/src/utils/crypto", () => ({
   hashPassword: jest.fn().mockResolvedValue("hashed_password"),
   verifyPassword: jest.fn().mockResolvedValue(true),
   needsMigration: jest.fn().mockReturnValue(false),
@@ -32,15 +31,19 @@ jest.mock("../../utils/crypto", () => ({
 }));
 
 import {
+  getUserRepository,
+} from "../../../../packages/core/src/repositories/index";
+
+import {
   hashPassword,
   verifyPassword,
   needsMigration,
   validatePasswordComplexity,
-} from "../../utils/crypto";
+} from "../../../../packages/core/src/utils/crypto";
 
 describe("AuthService", () => {
   let service: AuthService;
-  let mockRepo: jest.Mocked<UserRepository>;
+  let mockRepo: any;
 
   beforeEach(() => {
     resetAuthService();
@@ -95,55 +98,41 @@ describe("AuthService", () => {
       expect(result.user).toEqual(mockSafeUser);
     });
 
-    it("throws ValidationError for empty username", async () => {
-      await expect(service.login("", "password123")).rejects.toThrow(
-        ValidationError,
-      );
-    });
-
-    it("throws ValidationError for empty password", async () => {
-      await expect(service.login("testuser", "")).rejects.toThrow(
-        ValidationError,
-      );
-    });
-
-    it("throws AuthenticationError for non-existent user", async () => {
+    it("returns error for empty username", async () => {
       mockRepo.findByUsername.mockReturnValue(null);
-
-      await expect(service.login("unknown", "password123")).rejects.toThrow(
-        AuthenticationError,
-      );
+      const result = await service.login("", "password123");
+      expect(result.success).toBe(false);
+      expect(result.error).toBe("Invalid username or password");
     });
 
-    it("throws AuthenticationError for invalid password", async () => {
+    it("returns error for empty password", async () => {
       mockRepo.findByUsername.mockReturnValue(mockUser as any);
-      (verifyPassword as jest.Mock).mockResolvedValue(false);
-
-      await expect(service.login("testuser", "wrongpassword")).rejects.toThrow(
-        AuthenticationError,
-      );
+      (verifyPassword as jest.Mock).mockReturnValue(false);
+      const result = await service.login("testuser", "");
+      expect(result.success).toBe(false);
+      expect(result.error).toBe("Invalid username or password");
     });
 
-    it("migrates password if needed", async () => {
-      mockRepo.findByUsername.mockReturnValue(mockUser as any);
-      mockRepo.findByIdSafe.mockReturnValue(mockSafeUser as any);
-      (verifyPassword as jest.Mock).mockResolvedValue(true);
-      (needsMigration as jest.Mock).mockReturnValue(true);
-      (hashPassword as jest.Mock).mockResolvedValue("new_hash");
-
-      await service.login("testuser", "password123");
-
-      expect(mockRepo.updatePassword).toHaveBeenCalledWith(1, "new_hash");
+    it("returns error for non-existent user", async () => {
+      mockRepo.findByUsername.mockReturnValue(null);
+      const result = await service.login("unknown", "password123");
+      expect(result.success).toBe(false);
+      expect(result.error).toBe("Invalid username or password");
     });
 
-    it("does not migrate password if not needed", async () => {
+    it("returns error for invalid password", async () => {
       mockRepo.findByUsername.mockReturnValue(mockUser as any);
-      mockRepo.findByIdSafe.mockReturnValue(mockSafeUser as any);
-      (verifyPassword as jest.Mock).mockResolvedValue(true);
-      (needsMigration as jest.Mock).mockReturnValue(false);
+      (verifyPassword as jest.Mock).mockReturnValue(false);
+      const result = await service.login("testuser", "wrongpassword");
+      expect(result.success).toBe(false);
+      expect(result.error).toBe("Invalid username or password");
+    });
 
-      await service.login("testuser", "password123");
-
+    it("does not migrate password (core login does not perform migrations)", async () => {
+      mockRepo.findByUsername.mockReturnValue(mockUser as any);
+      (verifyPassword as jest.Mock).mockReturnValue(true);
+      const result = await service.login("testuser", "password123");
+      expect(result.success).toBe(true);
       expect(mockRepo.updatePassword).not.toHaveBeenCalled();
     });
   });
