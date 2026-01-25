@@ -1542,10 +1542,10 @@ __metadata:
 
 "@liratek/core@file:../packages/core::locator=%40liratek%2Fbackend%40workspace%3Abackend":
   version: 0.0.0
-  resolution: "@liratek/core@file:../packages/core#../packages/core::hash=50418d&locator=%40liratek%2Fbackend%40workspace%3Abackend"
+  resolution: "@liratek/core@file:../packages/core#../packages/core::hash=29b70c&locator=%40liratek%2Fbackend%40workspace%3Abackend"
   dependencies:
     better-sqlite3: "npm:^12.6.2"
-  checksum: 0fdb810b91b18490503ddb6f5ee39dc7f9495f83775a0ae98f80c00dee774effc52de207ac91258755cd50494150275c7b11814d35c41eb4973633871cf2b633
+  checksum: c07ab19d7c9f9c0e27dd25cd7630e0ac723b593188c1c06148d369c35ff4c2cbba15c3298ff96de6c3b7b6414692a28ecd145250d7abbc69d8385785a74f79ae
   languageName: node
   linkType: hard
 
