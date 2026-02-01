@@ -70,6 +70,8 @@ contextBridge.exposeInMainWorld("api", {
   // Sales operations
   processSale: (saleData: unknown) =>
     ipcRenderer.invoke("sales:process", saleData),
+  getSale: (saleId: number) => ipcRenderer.invoke("sales:get", saleId),
+  getSaleItems: (saleId: number) => ipcRenderer.invoke("sales:get-items", saleId),
   getDashboardStats: () => ipcRenderer.invoke("sales:get-dashboard-stats"),
   getDrawerBalances: () => ipcRenderer.invoke("dashboard:get-drawer-balances"),
   getProfitSalesChart: (type: "Sales" | "Profit") =>

@@ -9,6 +9,7 @@ export default function Login() {
   const navigate = useNavigate();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -18,7 +19,7 @@ export default function Login() {
     setLoading(true);
 
     try {
-      const result = await login(username, password);
+      const result = await login(username, password, rememberMe);
       // If login is successful, redirect to dashboard
       if (result.success) {
         navigate("/");
@@ -93,6 +94,19 @@ export default function Login() {
                   required
                 />
               </div>
+            </div>
+
+            <div className="flex items-center">
+              <input
+                id="remember-me"
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+                className="w-4 h-4 bg-slate-900 border-slate-700 rounded text-violet-600 focus:ring-2 focus:ring-violet-500 focus:ring-offset-0"
+              />
+              <label htmlFor="remember-me" className="ml-2 text-sm text-slate-400">
+                Remember me for 1 day
+              </label>
             </div>
 
             <button

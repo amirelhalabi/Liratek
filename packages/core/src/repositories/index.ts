@@ -172,6 +172,19 @@ export {
 } from "./SettingsRepository.js";
 export type { SettingEntity } from "./SettingsRepository.js";
 
+// Session Repository
+export {
+  SessionRepository,
+  getSessionRepository,
+  resetSessionRepository,
+  SESSION_DURATION,
+} from "./SessionRepository.js";
+export type {
+  SessionEntity,
+  CreateSessionData,
+  UpdateSessionData,
+} from "./SessionRepository.js";
+
 // Expense Repository
 export {
   ExpenseRepository,

@@ -9,6 +9,7 @@ import {
   CheckCircle,
 } from "lucide-react";
 import * as api from "../../../../api/backendApi";
+import Select from "../../../../shared/components/ui/Select";
 
 type Provider = "MTC" | "Alfa";
 type RechargeType = "CREDIT_TRANSFER" | "VOUCHER" | "DAYS";
@@ -201,20 +202,22 @@ export default function Recharge() {
               <label className="block text-sm font-medium text-slate-400 mb-2 uppercase tracking-wider">
                 Paid By
               </label>
-              <select
+              <Select
                 value={paidBy}
-                onChange={(e) =>
+                onChange={(value) =>
                   setPaidBy(
-                    e.target.value as "CASH" | "OMT" | "WHISH" | "BINANCE",
+                    value as "CASH" | "OMT" | "WHISH" | "BINANCE",
                   )
                 }
-                className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-4 text-lg font-bold text-white focus:outline-none focus:border-orange-500 transition-colors"
-              >
-                <option value="CASH">Cash (General)</option>
-                <option value="OMT">OMT</option>
-                <option value="WHISH">Whish</option>
-                <option value="BINANCE">Binance</option>
-              </select>
+                options={[
+                  { value: "CASH", label: "Cash (General)" },
+                  { value: "OMT", label: "OMT" },
+                  { value: "WHISH", label: "Whish" },
+                  { value: "BINANCE", label: "Binance" },
+                ]}
+                ringColor="ring-orange-500"
+                buttonClassName="py-4 text-lg font-bold rounded-xl"
+              />
               <p className="text-xs text-slate-500 mt-2">
                 Customer payment increases the selected drawer by the full price.
               </p>

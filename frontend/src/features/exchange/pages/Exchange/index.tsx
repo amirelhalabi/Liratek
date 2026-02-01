@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { RefreshCw, ArrowRightLeft, History, ArrowRight } from "lucide-react";
+import * as api from "../../../../api/backendApi";
 
 type Currency = { id: number; code: string; name: string; is_active: number };
 
@@ -37,19 +38,7 @@ export default function Exchange() {
   useEffect(() => {
     const loadRates = async () => {
       try {
-        if (!window.api) {
-          setRates([
-            { from_code: "USD", to_code: "LBP", rate: 89500 },
-            { from_code: "EUR", to_code: "USD", rate: 1.08 },
-          ]);
-          return;
-        }
-        const list = window.api
-          ? await window.api.rates.list()
-          : await (async () => {
-              const { getExchangeRates } = await import("../../../../api/backendApi");
-              return getExchangeRates();
-            })();
+        const list = await api.getRates();
         setRates(list);
       } catch (e) {
         console.error("Failed to load rates", e);
@@ -116,23 +105,8 @@ export default function Exchange() {
 
   const loadCurrencies = async () => {
     try {
-      if (!window.api) {
-        setCurrencies([
-          { id: 1, code: "USD", name: "US Dollar", is_active: 1 },
-          { id: 2, code: "LBP", name: "Lebanese Pound", is_active: 1 },
-          { id: 3, code: "EUR", name: "Euro", is_active: 1 },
-        ]);
-        setFromCurrency("USD");
-        setToCurrency("LBP");
-        return;
-      }
-      const list = window.api
-        ? await window.api.currencies.list()
-        : await (async () => {
-            const { getCurrenciesList } = await import("../../../../api/backendApi");
-            return getCurrenciesList();
-          })();
-      const active = (list as Currency[]).filter((c) => c.is_active === 1);
+      const list = await api.getCurrencies();
+      const active = (list as Currency[]).filter((c: any) => c.is_active === 1);
       setCurrencies(active);
       if (active.length >= 2) {
         setFromCurrency(active[0].code);
@@ -145,26 +119,7 @@ export default function Exchange() {
 
   const loadHistory = async () => {
     try {
-      if (!window.api) {
-        setTransactions([
-          {
-            id: 1,
-            created_at: new Date().toISOString(),
-            from_currency: "USD",
-            to_currency: "LBP",
-            rate: 89500,
-            amount_in: 100,
-            amount_out: 8950000,
-          },
-        ]);
-        return;
-      }
-      const history = window.api
-        ? await window.api.getExchangeHistory()
-        : await (async () => {
-            const { getExchangeHistory } = await import("../../../../api/backendApi");
-            return getExchangeHistory();
-          })();
+      const history = await api.getExchangeHistory();
       setTransactions(history);
     } catch (error) {
       console.error("Failed to load history:", error);
@@ -191,45 +146,15 @@ export default function Exchange() {
     }
 
     try {
-      if (!window.api) {
-        setAmountIn("");
-        setAmountOut("");
-        setClientName("");
-        const newTx: ExchangeTx = {
-          id: Date.now(),
-          created_at: new Date().toISOString(),
-          from_currency: fromCurrency,
-          to_currency: toCurrency,
-          rate: r,
-          amount_in: inp,
-          amount_out: out,
-        };
-        setTransactions((prev) => [newTx, ...prev]);
-        return;
-      }
-
-      const result = window.api
-        ? await window.api.addExchangeTransaction({
-            fromCurrency,
-            toCurrency,
-            amountIn: inp,
-            amountOut: out,
-            rate: r,
-            clientName: clientName,
-            note: `Exchange ${fromCurrency} to ${toCurrency}`,
-          })
-        : await (async () => {
-            const { addExchangeTransaction } = await import("../../../../api/backendApi");
-            return addExchangeTransaction({
-              fromCurrency,
-              toCurrency,
-              amountIn: inp,
-              amountOut: out,
-              rate: r,
-              clientName: clientName,
-              note: `Exchange ${fromCurrency} to ${toCurrency}`,
-            });
-          })();
+      const result = await api.addExchangeTransaction({
+        fromCurrency,
+        toCurrency,
+        amountIn: inp,
+        amountOut: out,
+        rate: r,
+        clientName: clientName,
+        note: `Exchange ${fromCurrency} to ${toCurrency}`,
+      });
 
       if (result.success) {
         setAmountIn("");

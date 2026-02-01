@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Search, ShoppingCart } from "lucide-react";
 import type { Product } from "../../../../../types";
+import * as api from "../../../../../api/backendApi";
 
 interface ProductSearchProps {
   onAddToCart: (product: Product) => void;
@@ -14,14 +15,8 @@ export default function ProductSearch({ onAddToCart }: ProductSearchProps) {
   const loadProducts = useCallback(async () => {
     setLoading(true);
     try {
-      if (window.api) {
-        const data = await window.api.getProducts(search);
-        setProducts(data as unknown as Product[]);
-      } else {
-        const { getProducts } = await import("../../../../../api/backendApi");
-        const data = await getProducts(search);
-        setProducts(data as unknown as Product[]);
-      }
+      const data = await api.getProducts(search);
+      setProducts(data as unknown as Product[]);
     } catch (error) {
       console.error("Error loading products:", error);
     } finally {
@@ -78,7 +73,17 @@ export default function ProductSearch({ onAddToCart }: ProductSearchProps) {
                 onClick={() => onAddToCart(product)}
                 className="group relative flex flex-col items-start p-4 bg-slate-800 border border-slate-700 rounded-xl hover:border-violet-500 hover:bg-slate-750 transition-all text-left"
               >
-                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                {/* Stock Badge - Always visible on top-left */}
+                <div className="absolute top-2 left-2 z-10">
+                  <span
+                    className={`text-xs px-2 py-1 rounded-full font-medium ${product.stock_quantity > 0 ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"}`}
+                  >
+                    {product.stock_quantity} left
+                  </span>
+                </div>
+
+                {/* Add Button - Shows on hover */}
+                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
                   <div className="bg-violet-600 text-white text-xs px-2 py-1 rounded-full">
                     Add
                   </div>
@@ -104,14 +109,10 @@ export default function ProductSearch({ onAddToCart }: ProductSearchProps) {
                   {product.category}
                 </div>
 
-                <div className="mt-auto flex items-center justify-between w-full">
-                  <span className="text-violet-400 font-bold">
+                {/* Price - Now has full width */}
+                <div className="mt-auto w-full">
+                  <span className="text-violet-400 font-bold text-lg">
                     ${product.retail_price.toFixed(2)}
-                  </span>
-                  <span
-                    className={`text-xs px-2 py-0.5 rounded-full ${product.stock_quantity > 0 ? "bg-emerald-500/10 text-emerald-500" : "bg-red-500/10 text-red-500"}`}
-                  >
-                    {product.stock_quantity} left
                   </span>
                 </div>
               </button>

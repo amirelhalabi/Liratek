@@ -79,7 +79,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         c.id, 
         c.full_name, 
         c.phone_number,
-        ROUND(SUM(dl.amount_usd) + SUM(dl.amount_lbp) / ?, 2) as total_debt
+        COALESCE(ROUND(SUM(dl.amount_usd) + SUM(dl.amount_lbp) / ?, 2), 0) as total_debt
       FROM debt_ledger dl
       JOIN clients c ON dl.client_id = c.id
       GROUP BY c.id
@@ -113,7 +113,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
     const rate = rateResult?.rate || 89000;
 
     const stmt = this.db.prepare(
-      "SELECT ROUND(SUM(amount_usd) + SUM(amount_lbp) / ?, 2) as total FROM debt_ledger WHERE client_id = ?",
+      "SELECT COALESCE(ROUND(SUM(amount_usd) + SUM(amount_lbp) / ?, 2), 0) as total FROM debt_ledger WHERE client_id = ?",
     );
     const result = stmt.get(rate, clientId) as { total: number | null };
     return result?.total || 0;

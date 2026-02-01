@@ -15,6 +15,7 @@ import {
   resolveDatabaseKey,
   applySqlCipherKey,
   initDatabase as initCoreDatabase,
+  getSessionRepository,
 } from '@liratek/core';
 
 function loadDotEnvFile(envFilePath: string) {
@@ -283,8 +284,47 @@ async function registerHandlers() {
     updaterHandlers.registerUpdaterHandlers();
     
     console.log('[ELECTRON] All IPC handlers registered');
+    
+    // Start periodic session cleanup
+    startSessionCleanup();
   } catch (error) {
     console.error('[ELECTRON] Failed to register handlers:', error);
     throw error;
   }
+}
+
+/**
+ * Start periodic session cleanup
+ * Runs every 5 minutes to clean up expired and inactive sessions
+ */
+function startSessionCleanup() {
+  const CLEANUP_INTERVAL = 5 * 60 * 1000; // 5 minutes
+
+  const cleanupSessions = () => {
+    try {
+      const sessionRepo = getSessionRepository();
+      
+      // Delete expired sessions (past expires_at)
+      const expiredCount = sessionRepo.deleteExpiredSessions();
+      
+      // Delete inactive short sessions (30+ min of inactivity)
+      const inactiveCount = sessionRepo.deleteInactiveSessions();
+      
+      const totalCleaned = expiredCount + inactiveCount;
+      
+      if (totalCleaned > 0) {
+        console.log(`[SESSION-CLEANUP] Cleaned up ${totalCleaned} sessions (${expiredCount} expired, ${inactiveCount} inactive)`);
+      }
+    } catch (error) {
+      console.error('[SESSION-CLEANUP] Error during session cleanup:', error);
+    }
+  };
+
+  // Run cleanup immediately on startup
+  cleanupSessions();
+
+  // Then run every 5 minutes
+  setInterval(cleanupSessions, CLEANUP_INTERVAL);
+  
+  console.log('[SESSION-CLEANUP] Periodic session cleanup started (every 5 minutes)');
 }

@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { logger } from '../server.js';
+import { getAuthService } from '../services/index.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 
@@ -8,6 +9,7 @@ export interface AuthRequest extends Request {
     user?: {
         userId: number;
         role: string;
+        sessionToken?: string;
     };
 }
 
@@ -22,9 +24,34 @@ export function authenticateJWT(req: AuthRequest, res: Response, next: NextFunct
     const token = authHeader.substring(7);
 
     try {
-        const decoded = jwt.verify(token, JWT_SECRET) as { userId: number; role: string };
-        req.user = decoded;
-        next();
+        const decoded = jwt.verify(token, JWT_SECRET) as { 
+            userId: number; 
+            role: string;
+            sessionToken?: string;
+        };
+
+        // If session token exists, validate it against database
+        if (decoded.sessionToken) {
+            const authService = getAuthService();
+            authService.validateSession(decoded.sessionToken).then(user => {
+                if (!user) {
+                    logger.warn({ userId: decoded.userId }, 'Session expired or invalid');
+                    res.status(401).json({ error: 'Session expired' });
+                    return;
+                }
+
+                // Session is valid, proceed
+                req.user = decoded;
+                next();
+            }).catch(error => {
+                logger.error({ error }, 'Session validation error');
+                res.status(401).json({ error: 'Session validation failed' });
+            });
+        } else {
+            // Old JWT without session token, just verify JWT
+            req.user = decoded;
+            next();
+        }
     } catch (error) {
         logger.error({ error }, 'JWT verification failed');
         res.status(401).json({ error: 'Invalid token' });

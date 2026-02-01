@@ -6,11 +6,15 @@ import {
   ChevronDown,
   ChevronUp,
   Receipt,
+  Eye,
+  X,
 } from "lucide-react";
 import PageHeader from "../../../../shared/components/layouts/PageHeader";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { EXCHANGE_RATE } from "@/config/constants";
 import { roundLBPUp } from "@/config/denominations";
+import Select from "../../../../shared/components/ui/Select";
+import * as api from "../../../../api/backendApi";
 
 type DebtFilter = "ongoing" | "closed" | "all";
 type SortOrder = "desc" | "asc";
@@ -29,7 +33,23 @@ export default function Debts() {
     amount_usd: number;
     amount_lbp: number;
     note?: string;
+    sale_id?: number | null;
     is_paid: boolean;
+  };
+  
+  type SaleDetail = {
+    id: number;
+    final_amount_usd: number;
+    paid_usd: number;
+    paid_lbp: number;
+    status: string;
+    created_at: string;
+    items: Array<{
+      product_name: string;
+      quantity: number;
+      price_per_unit: number;
+      subtotal: number;
+    }>;
   };
   const [debtors, setDebtors] = useState<Debtor[]>([]);
   const [selectedClient, setSelectedClient] = useState<Debtor | null>(null);
@@ -37,7 +57,9 @@ export default function Debts() {
   const [searchTerm, setSearchTerm] = useState("");
   const [showRepaymentModal, setShowRepaymentModal] = useState(false);
   const [totalDebt, setTotalDebt] = useState(0);
-  const [debtFilter, setDebtFilter] = useState<DebtFilter>("ongoing"); // New state for filter
+  const [debtFilter, setDebtFilter] = useState<DebtFilter>("ongoing");
+  const [selectedSale, setSelectedSale] = useState<SaleDetail | null>(null);
+  const [showSaleDetails, setShowSaleDetails] = useState(false); // New state for filter
   const [dateSortOrder, setDateSortOrder] = useState<SortOrder>("desc"); // Default: most recent first
 
   // Repayment State
@@ -115,6 +137,26 @@ export default function Debts() {
       setTotalDebt(total || 0);
     } catch (error) {
       console.error("Failed to load client total:", error);
+    }
+  };
+
+  const loadSaleDetails = async (saleId: number) => {
+    try {
+      const sale = await api.getSale(saleId);
+      const items = await api.getSaleItems(saleId);
+      
+      setSelectedSale({
+        ...sale,
+        items: items.map((item: any) => ({
+          product_name: item.name || 'Unknown Product',
+          quantity: item.quantity || 0,
+          price_per_unit: item.sold_price_usd || 0,
+          subtotal: (item.sold_price_usd || 0) * (item.quantity || 0),
+        })),
+      });
+      setShowSaleDetails(true);
+    } catch (error) {
+      console.error("Failed to load sale details:", error);
     }
   };
 
@@ -268,18 +310,19 @@ export default function Debts() {
             <label className="block text-sm font-medium text-slate-400 mb-2">
               Show Debts:
             </label>
-            <select
+            <Select
               value={debtFilter}
-              onChange={(e) => {
-                setDebtFilter(e.target.value as DebtFilter);
+              onChange={(value) => {
+                setDebtFilter(value as DebtFilter);
                 setSelectedClient(null); // Reset selected client
               }}
-              className="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-red-500"
-            >
-              <option value="ongoing">Ongoing</option>
-              <option value="closed">Closed</option>
-              <option value="all">All</option>
-            </select>
+              options={[
+                { value: "ongoing", label: "Ongoing" },
+                { value: "closed", label: "Closed" },
+                { value: "all", label: "All" },
+              ]}
+              ringColor="ring-red-500"
+            />
             </div>
           </div>
 
@@ -392,6 +435,7 @@ export default function Debts() {
                     </th>
                     <th className="pb-3 text-sm font-medium">Type</th>
                     <th className="pb-3 text-sm font-medium">Note</th>
+                    <th className="pb-3 text-sm font-medium text-center">Details</th>
                     <th
                       className="pb-3 text-sm font-medium text-center"
                       colSpan={2}
@@ -445,19 +489,37 @@ export default function Debts() {
                           <td className="py-3 text-slate-400 text-sm">
                             {item.note || "-"}
                           </td>
+                          {/* Details Button */}
+                          <td className="py-3 text-center">
+                            {item.sale_id ? (
+                              <button
+                                onClick={() => loadSaleDetails(item.sale_id!)}
+                                className="p-1.5 rounded-lg bg-violet-500/10 hover:bg-violet-500/20 text-violet-400 transition-all"
+                                title="View Sale Details"
+                              >
+                                <Eye size={16} />
+                              </button>
+                            ) : (
+                              <span className="text-slate-600">-</span>
+                            )}
+                          </td>
                           {/* USD Column */}
                           <td
                             className={`py-3 text-center font-mono font-bold ${
                               item.amount_usd > 0
                                 ? "text-red-400"
-                                : "text-emerald-400"
+                                : item.amount_usd < 0
+                                  ? "text-emerald-400"
+                                  : "text-slate-600"
                             }`}
                           >
-                            {item.amount_usd !== 0 && (
+                            {item.amount_usd !== 0 && Math.abs(item.amount_usd) > 0 ? (
                               <>
                                 {item.amount_usd > 0 ? "+" : ""}$
                                 {Math.abs(item.amount_usd).toFixed(2)}
                               </>
+                            ) : (
+                              <span className="text-slate-600">-</span>
                             )}
                           </td>
                           {/* LBP Column */}
@@ -470,11 +532,13 @@ export default function Debts() {
                                   : "text-slate-600"
                             }`}
                           >
-                            {item.amount_lbp !== 0 && (
+                            {item.amount_lbp !== 0 && Math.abs(item.amount_lbp) > 0 ? (
                               <>
                                 {item.amount_lbp > 0 ? "+" : ""}
                                 {Math.abs(item.amount_lbp).toLocaleString()} LBP
                               </>
+                            ) : (
+                              <span className="text-slate-600">-</span>
                             )}
                           </td>
                         </tr>
@@ -582,6 +646,111 @@ export default function Debts() {
         </div>
       )}
       </div>
+
+      {/* Sale Details Modal */}
+      {showSaleDetails && selectedSale && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-800 rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto border border-slate-700">
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 border-b border-slate-700">
+              <h2 className="text-xl font-bold text-white">
+                Sale Details - #{selectedSale.id}
+              </h2>
+              <button
+                onClick={() => {
+                  setShowSaleDetails(false);
+                  setSelectedSale(null);
+                }}
+                className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
+              >
+                <X size={20} className="text-slate-400" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-6 space-y-6">
+              {/* Sale Info */}
+              <div className="flex gap-4 p-4 bg-slate-900 rounded-lg">
+                <div className="flex-[2]">
+                  <p className="text-slate-500 text-sm">Date</p>
+                  <p className="text-white font-medium">
+                    {new Date(selectedSale.created_at).toLocaleString()}
+                  </p>
+                </div>
+                <div className="flex-1">
+                  <p className="text-slate-500 text-sm">Total Amount</p>
+                  <p className="text-white font-medium">
+                    ${selectedSale.final_amount_usd.toFixed(2)}
+                  </p>
+                </div>
+                <div className="flex-1">
+                  <p className="text-slate-500 text-sm">Amount Paid</p>
+                  <p className="text-emerald-400 font-medium">
+                    ${selectedSale.paid_usd.toFixed(2)}
+                    {selectedSale.paid_lbp > 0 &&
+                      ` + ${selectedSale.paid_lbp.toLocaleString()} LBP`}
+                  </p>
+                </div>
+              </div>
+
+              {/* Items Table */}
+              <div>
+                <h3 className="text-lg font-semibold text-white mb-3">Items</h3>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="border-b border-slate-700">
+                      <tr className="text-left text-slate-400">
+                        <th className="pb-3 text-sm font-medium">Product</th>
+                        <th className="pb-3 text-sm font-medium text-center">Qty</th>
+                        <th className="pb-3 text-sm font-medium text-right">Price</th>
+                        <th className="pb-3 text-sm font-medium text-right">Subtotal</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-700">
+                      {selectedSale.items.map((item, index) => (
+                        <tr key={index}>
+                          <td className="py-3 text-white">{item.product_name}</td>
+                          <td className="py-3 text-slate-300 text-center">
+                            {item.quantity}
+                          </td>
+                          <td className="py-3 text-slate-300 text-right">
+                            ${item.price_per_unit.toFixed(2)}
+                          </td>
+                          <td className="py-3 text-white font-medium text-right">
+                            ${item.subtotal.toFixed(2)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Summary */}
+              <div className="border-t border-slate-700 pt-4 space-y-2">
+                <div className="flex justify-between text-slate-400">
+                  <span>Total Amount:</span>
+                  <span className="text-white font-medium">
+                    ${selectedSale.final_amount_usd.toFixed(2)}
+                  </span>
+                </div>
+                <div className="flex justify-between text-slate-400">
+                  <span>Amount Paid:</span>
+                  <span className="text-emerald-400 font-medium">
+                    ${selectedSale.paid_usd.toFixed(2)}
+                  </span>
+                </div>
+                <div className="flex justify-between text-lg font-bold border-t border-slate-700 pt-2">
+                  <span className="text-white">Outstanding Debt:</span>
+                  <span className="text-red-400">
+                    ${(selectedSale.final_amount_usd - selectedSale.paid_usd).toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
-}
+};

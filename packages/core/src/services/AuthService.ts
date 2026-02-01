@@ -12,7 +12,8 @@
  */
 
 import { UserRepository, getUserRepository } from "../repositories/index.js";
-import type { SafeUser, CreateUserData } from "../repositories/index.js";
+import { SessionRepository, getSessionRepository } from "../repositories/index.js";
+import type { SafeUser, CreateUserData, SessionEntity, CreateSessionData } from "../repositories/index.js";
 import { validatePasswordComplexity, hashPassword, verifyPassword } from "../utils/crypto.js";
 import {
   AuthenticationError,
@@ -29,7 +30,15 @@ import {
 export interface LoginResult {
   success: boolean;
   user?: SafeUser;
+  token?: string; // Session token
   error?: string;
+}
+
+export interface LoginOptions {
+  rememberMe?: boolean;
+  deviceType?: "electron" | "web" | "mobile";
+  deviceInfo?: string;
+  ipAddress?: string;
 }
 
 export interface CreateUserResult {
@@ -49,9 +58,11 @@ export interface ChangePasswordResult {
 
 export class AuthService {
   private userRepo: UserRepository;
+  private sessionRepo: SessionRepository;
 
-  constructor(userRepo?: UserRepository) {
+  constructor(userRepo?: UserRepository, sessionRepo?: SessionRepository) {
     this.userRepo = userRepo ?? getUserRepository();
+    this.sessionRepo = sessionRepo ?? getSessionRepository();
   }
 
   // ---------------------------------------------------------------------------
@@ -60,8 +71,13 @@ export class AuthService {
 
   /**
    * Authenticate a user with username and password
+   * Creates a session in the database upon successful login
    */
-  async login(username: string, password: string): Promise<LoginResult> {
+  async login(
+    username: string, 
+    password: string,
+    options: LoginOptions = {}
+  ): Promise<LoginResult> {
     try {
       const user = this.userRepo.findByUsername(username);
       if (!user) {
@@ -73,12 +89,91 @@ export class AuthService {
         return { success: false, error: "Invalid username or password" };
       }
 
+      // Create session in database
+      const sessionData: CreateSessionData = {
+        user_id: user.id,
+        device_type: options.deviceType || "unknown",
+        device_info: options.deviceInfo,
+        ip_address: options.ipAddress,
+        remember_me: options.rememberMe || false,
+      };
+
+      const session = this.sessionRepo.createSession(sessionData);
+
       // Create safe user object (without password)
       const { password_hash, ...safeUser } = user;
       
-      return { success: true, user: safeUser as SafeUser };
+      return { 
+        success: true, 
+        user: safeUser as SafeUser,
+        token: session.token,
+      };
     } catch (error) {
       return { success: false, error: "Authentication failed" };
+    }
+  }
+
+  /**
+   * Validate a session token
+   * Returns the user if session is valid, null otherwise
+   */
+  async validateSession(token: string): Promise<SafeUser | null> {
+    try {
+      const session = this.sessionRepo.validateSession(token);
+
+      if (!session) {
+        return null;
+      }
+
+      // Update activity timestamp
+      this.sessionRepo.updateActivity(session.id);
+
+      // Get user
+      const user = this.userRepo.findById(session.user_id);
+
+      if (!user || user.is_active !== 1) {
+        // User no longer exists or is inactive
+        this.sessionRepo.delete(session.id);
+        return null;
+      }
+
+      const { password_hash, ...safeUser } = user;
+      return safeUser as SafeUser;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  /**
+   * Logout a user by deleting their session
+   */
+  async logout(token: string): Promise<boolean> {
+    try {
+      return this.sessionRepo.deleteByToken(token);
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /**
+   * Logout user from all devices
+   */
+  async logoutAll(userId: number): Promise<number> {
+    try {
+      return this.sessionRepo.deleteByUserId(userId);
+    } catch (error) {
+      return 0;
+    }
+  }
+
+  /**
+   * Get all active sessions for a user
+   */
+  async getUserSessions(userId: number): Promise<SessionEntity[]> {
+    try {
+      return this.sessionRepo.findActiveByUserId(userId);
+    } catch (error) {
+      return [];
     }
   }
 

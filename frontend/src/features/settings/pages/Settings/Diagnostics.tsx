@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import UpdatesPanel from "./UpdatesPanel";
+import Select from "../../../../shared/components/ui/Select";
 
 export default function Diagnostics() {
   const [errors, setErrors] = useState<
@@ -319,18 +320,20 @@ export default function Diagnostics() {
         )}
 
         <div className="flex flex-col md:flex-row gap-3 items-start md:items-center">
-          <select
+          <Select
             value={selectedBackupPath}
-            onChange={(e) => setSelectedBackupPath(e.target.value)}
-            className="w-full md:flex-1 bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white"
-          >
-            <option value="">Select a backup...</option>
-            {backups.map((b) => (
-              <option key={b.path} value={b.path}>
-                {b.filename}
-              </option>
-            ))}
-          </select>
+            onChange={(value) => setSelectedBackupPath(value)}
+            options={[
+              { value: "", label: "Select a backup..." },
+              ...backups.map((b) => ({
+                value: b.path,
+                label: b.filename,
+              })),
+            ]}
+            ringColor="ring-violet-500"
+            buttonClassName="bg-slate-900"
+            className="w-full md:flex-1"
+          />
 
           <button
             onClick={verifySelected}

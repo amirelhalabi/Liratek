@@ -17,6 +17,7 @@
     "test:e2e:local": "concurrently -k -s first -n backend,frontend \"yarn --cwd ../backend dev\" \"yarn dev --host 0.0.0.0 --port 5173\" --success first && wait-on http://localhost:3000/health http://localhost:5173 && playwright test"
   },
   "dependencies": {
+    "@headlessui/react": "^2.2.9",
     "clsx": "^2.1.1",
     "lucide-react": "^0.561.0",
     "react": "^19.2.0",

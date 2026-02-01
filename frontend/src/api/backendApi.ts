@@ -6,10 +6,14 @@ function isElectron(): boolean {
 
 export type ApiUser = { id: number; username: string; role: string };
 
-export async function login(username: string, password: string) {
+export async function login(username: string, password: string, rememberMe: boolean = false) {
+  if (isElectron()) {
+    return (window as any).api.login(username, password, rememberMe);
+  }
+  
   const res = await requestJson<{ success: boolean; user?: ApiUser; token?: string; error?: string }>(
     '/api/auth/login',
-    { method: 'POST', body: { username, password }, auth: false },
+    { method: 'POST', body: { username, password, rememberMe }, auth: false },
   );
 
   if (res.success && res.token) setToken(res.token);
@@ -17,6 +21,10 @@ export async function login(username: string, password: string) {
 }
 
 export async function logout(): Promise<void> {
+  if (isElectron()) {
+    return (window as any).api.logout();
+  }
+  
   try {
     await requestJson('/api/auth/logout', { method: 'POST' });
   } finally {
@@ -37,11 +45,17 @@ export async function getClients(search: string) {
 }
 
 export async function deleteClient(id: number) {
+  if (isElectron()) {
+    return (window as any).api.deleteClient(id);
+  }
   return requestJson<{ success: boolean; error?: string }>(`/api/clients/${id}`, { method: 'DELETE' });
 }
 
 // Inventory
-export async function getProducts(search: string) {
+export async function getProducts(search: string = '') {
+  if (isElectron()) {
+    return (window as any).api.getProducts(search);
+  }
   const qs = new URLSearchParams();
   if (search) qs.set('search', search);
   const res = await requestJson<{ success: boolean; products: any[] }>(`/api/inventory/products?${qs.toString()}`);
@@ -57,19 +71,31 @@ export type ProductWriteResult = {
 };
 
 export async function createProduct(payload: any): Promise<ProductWriteResult> {
+  if (isElectron()) {
+    return (window as any).api.createProduct(payload);
+  }
   return requestJson<ProductWriteResult>(`/api/inventory/products`, { method: 'POST', body: payload });
 }
 
 export async function updateProduct(id: number, payload: any): Promise<ProductWriteResult> {
+  if (isElectron()) {
+    return (window as any).api.updateProduct(payload);
+  }
   return requestJson<ProductWriteResult>(`/api/inventory/products/${id}`, { method: 'PUT', body: payload });
 }
 
 export async function deleteProduct(id: number): Promise<ProductWriteResult> {
+  if (isElectron()) {
+    return (window as any).api.deleteProduct(id);
+  }
   return requestJson<ProductWriteResult>(`/api/inventory/products/${id}`, { method: 'DELETE' });
 }
 
 // Sales
 export async function getDrafts() {
+  if (isElectron()) {
+    return (window as any).api.getDrafts();
+  }
   const res = await requestJson<{ success: boolean; drafts: any[] }>(`/api/sales/drafts`);
   return res.drafts;
 }
@@ -81,16 +107,41 @@ export type ProcessSaleResult = {
 };
 
 export async function processSale(payload: any): Promise<ProcessSaleResult> {
+  if (isElectron()) {
+    return (window as any).api.processSale(payload);
+  }
   return requestJson<ProcessSaleResult>(`/api/sales/process`, { method: 'POST', body: payload });
+}
+
+export async function getSale(saleId: number) {
+  if (isElectron()) {
+    return (window as any).api.getSale(saleId);
+  }
+  const res = await requestJson<{ success: boolean; sale: any }>(`/api/sales/${saleId}`);
+  return res.sale;
+}
+
+export async function getSaleItems(saleId: number) {
+  if (isElectron()) {
+    return (window as any).api.getSaleItems(saleId);
+  }
+  const res = await requestJson<{ success: boolean; items: any[] }>(`/api/sales/${saleId}/items`);
+  return res.items;
 }
 
 // Debts
 export async function getDebtors() {
+  if (isElectron()) {
+    return (window as any).api.getDebtors();
+  }
   const res = await requestJson<{ success: boolean; debtors: any[] }>(`/api/debts/debtors`);
   return res.debtors;
 }
 
 export async function getClientDebtHistory(clientId: number) {
+  if (isElectron()) {
+    return (window as any).api.getClientDebtHistory(clientId);
+  }
   const res = await requestJson<{ success: boolean; history: any[] }>(`/api/debts/clients/${clientId}/history`);
   return res.history;
 }
@@ -101,6 +152,9 @@ export async function getClientDebtTotal(clientId: number) {
 }
 
 export async function addRepayment(payload: any) {
+  if (isElectron()) {
+    return (window as any).api.addRepayment(payload);
+  }
   return requestJson<{ success: boolean; error?: string }>(`/api/debts/repayments`, { method: 'POST', body: payload });
 }
 
@@ -116,6 +170,10 @@ export async function getCurrenciesList() {
 }
 
 export async function getExchangeHistory(limit?: number) {
+  if (isElectron()) {
+    // Electron preload exposes getExchangeHistory() without limit
+    return (window as any).api.getExchangeHistory();
+  }
   const qs = new URLSearchParams();
   if (limit) qs.set('limit', String(limit));
   const res = await requestJson<{ success: boolean; history: any[] }>(`/api/exchange/history?${qs.toString()}`);
@@ -123,20 +181,32 @@ export async function getExchangeHistory(limit?: number) {
 }
 
 export async function addExchangeTransaction(payload: any) {
+  if (isElectron()) {
+    return (window as any).api.addExchangeTransaction(payload);
+  }
   return requestJson<{ success: boolean; id?: number; error?: string }>(`/api/exchange/transactions`, { method: 'POST', body: payload });
 }
 
 // Expenses
 export async function getTodayExpenses() {
+  if (isElectron()) {
+    return (window as any).api.getTodayExpenses();
+  }
   const res = await requestJson<{ success: boolean; expenses: any[] }>(`/api/expenses/today`);
   return res.expenses;
 }
 
 export async function addExpense(payload: any) {
+  if (isElectron()) {
+    return (window as any).api.addExpense(payload);
+  }
   return requestJson<{ success: boolean; id?: number; error?: string }>(`/api/expenses`, { method: 'POST', body: payload });
 }
 
 export async function deleteExpense(id: number) {
+  if (isElectron()) {
+    return (window as any).api.deleteExpense(id);
+  }
   return requestJson<{ success: boolean; error?: string }>(`/api/expenses/${id}`, { method: 'DELETE' });
 }
 
@@ -373,6 +443,9 @@ export async function updateDailyClosing(id: number, data: {
 // ==================== Suppliers API ====================
 
 export async function getSuppliers(search?: string) {
+  if (isElectron()) {
+    return (window as any).api.listSuppliers(search);
+  }
   const qs = new URLSearchParams();
   if (search) qs.set('search', search);
   const res = await requestJson<{ success: boolean; suppliers: any[] }>(`/api/suppliers?${qs.toString()}`);
@@ -380,6 +453,9 @@ export async function getSuppliers(search?: string) {
 }
 
 export async function getSupplierBalances() {
+  if (isElectron()) {
+    return (window as any).api.getSupplierBalances();
+  }
   const res = await requestJson<{ success: boolean; balances: any[] }>('/api/suppliers/balances');
   return res.balances || [];
 }
@@ -419,7 +495,10 @@ export async function addSupplierLedgerEntry(supplierId: number, data: {
 // ==================== Rates API ====================
 
 export async function getRates() {
-  const res = await requestJson<{ success: boolean; rates: any[] }>('/api/rates');
+  if (isElectron()) {
+    return (window as any).api.rates.list();
+  }
+  const res = await requestJson<{ success: boolean; rates: any[] }>(`/api/rates`);
   return res.rates || [];
 }
 
@@ -433,6 +512,9 @@ export async function setRate(from_code: string, to_code: string, rate: number) 
 // ==================== Users API ====================
 
 export async function getNonAdminUsers() {
+  if (isElectron()) {
+    return (window as any).api.getNonAdminUsers();
+  }
   const res = await requestJson<{ success: boolean; users: any[] }>('/api/users/non-admins');
   return res.users || [];
 }
@@ -472,6 +554,10 @@ export async function setUserPassword(userId: number, password: string) {
 // ==================== Activity API ====================
 
 export async function getRecentActivity(limit: number = 100) {
+  if (isElectron()) {
+    // Electron exposes activity.getRecent(limit)
+    return (window as any).api.activity.getRecent(limit);
+  }
   const res = await requestJson<{ success: boolean; activities: any[] }>(`/api/activity/recent?limit=${limit}`);
   return res.activities || [];
 }

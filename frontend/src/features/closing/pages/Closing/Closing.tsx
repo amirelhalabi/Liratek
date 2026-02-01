@@ -13,6 +13,7 @@ import { DrawerCard } from "../../components/DrawerCard";
 import { VarianceCard } from "../../components/VarianceCard";
 import { AlertBanner } from "../../components/AlertBanner";
 import { appEvents } from "../../../../shared/utils/appEvents";
+import * as api from "../../../../api/backendApi";
 import { useAuth } from "../../../auth/context/AuthContext";
 import { generateClosingReport } from "../../utils/closingReportGenerator";
 import { X, ChevronLeft, ChevronRight } from "lucide-react";
@@ -94,10 +95,8 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
 
       // Load variance threshold (defaults to 5%)
       try {
-        const settingsApi = window.api.settings;
-        if (!settingsApi) return;
-        const settings = await settingsApi.getAll();
-        const map = new Map(settings.map((s) => [s.key_name, s.value]));
+        const settings = await api.getAllSettings();
+        const map = new Map(settings.map((s: any) => [s.key_name, s.value]));
         const pct = Number(map.get("closing_variance_threshold_pct") ?? 5);
         if (isFinite(pct) && pct >= 0) setVarianceThresholdPct(pct);
       } catch (e) {
@@ -163,26 +162,14 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
 
     try {
       // 1) Create closing record
-      const result = window.api
-        ? await window.api.closing.createDailyClosing({
-            closing_date: closingDate,
-            amounts,
-            variance_notes: notes,
-            system_expected_usd: expectedUsd,
-            system_expected_lbp: expectedLbp,
-            ...(user?.id != null ? { user_id: user.id } : {}),
-          })
-        : await (async () => {
-            const { createDailyClosing } = await import('../../../../api/backendApi');
-            return createDailyClosing({
-              closing_date: closingDate,
-              amounts,
-              variance_notes: notes,
-              system_expected_usd: expectedUsd,
-              system_expected_lbp: expectedLbp,
-              ...(user?.id != null ? { user_id: user.id } : {}),
-            });
-          })();
+      const result = await api.createDailyClosing({
+        closing_date: closingDate,
+        amounts,
+        variance_notes: notes,
+        system_expected_usd: expectedUsd,
+        system_expected_lbp: expectedLbp,
+        ...(user?.id != null ? { user_id: user.id } : {}),
+      });
 
       if (!result.success) {
         setStepError(result.error || "Failed to save closing");
@@ -199,12 +186,7 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
 
       // 2) Generate and attach report PDF
       try {
-        const dailyStats = window.api
-          ? await window.api.closing.getDailyStatsSnapshot()
-          : await (async () => {
-              const { getDailyStatsSnapshot } = await import('../../../../api/backendApi');
-              return getDailyStatsSnapshot();
-            })();
+        const dailyStats = await api.getDailyStatsSnapshot();
 
         const reportText = generateClosingReport(
           {
@@ -222,30 +204,13 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
 
         const html = `<!doctype html><html><head><meta charset="utf-8" /><title>Daily Closing Report</title></head><body><pre style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; white-space: pre-wrap;">${escapeHtml(reportText)}</pre></body></html>`;
 
-        const pdfRes = window.api
-          ? await window.api.report.generatePDF(
-              html,
-              `closing_${closingDate}.pdf`,
-            )
-          : await (async () => {
-              const { generatePDF } = await import('../../../../api/backendApi');
-              return generatePDF(html, `closing_${closingDate}.pdf`);
-            })();
+        const pdfRes = await api.generatePDF(html, `closing_${closingDate}.pdf`);
 
         if (pdfRes?.success && pdfRes.path) {
-          await (window.api
-            ? window.api.closing.updateDailyClosing({
-                id: Number(result.id),
-                report_path: pdfRes.path,
-                ...(user?.id != null ? { user_id: user.id } : {}),
-              })
-            : (async () => {
-                const { updateDailyClosing } = await import('../../../../api/backendApi');
-                return updateDailyClosing(Number(result.id), {
-                  report_path: pdfRes.path as string,
-                  ...(user?.id != null ? { user_id: user.id } : {}),
-                });
-              })());
+          await api.updateDailyClosing(Number(result.id), {
+            report_path: pdfRes.path,
+            ...(user?.id != null ? { user_id: user.id } : {}),
+          });
         }
       } catch (reportError) {
         // Don't block closing if report generation fails.

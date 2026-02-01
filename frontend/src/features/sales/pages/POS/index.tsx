@@ -9,6 +9,7 @@ import CheckoutModal, {
 } from "./components/CheckoutModal";
 import { appEvents } from "../../../../shared/utils/appEvents";
 import type { Product, CartItem, SaleRequest } from "../../../../types";
+import * as api from "../../../../api/backendApi";
 
 export default function POS() {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
@@ -50,12 +51,7 @@ export default function POS() {
   >(undefined);
 
   const fetchDrafts = useCallback(async () => {
-    const data = window.api
-      ? await window.api.getDrafts()
-      : await (async () => {
-          const { getDrafts } = await import("../../../../api/backendApi");
-          return getDrafts();
-        })();
+    const data = await api.getDrafts();
     setDrafts(data as unknown as Draft[]);
   }, []);
 
@@ -121,7 +117,7 @@ export default function POS() {
         })),
       };
 
-      const result = await window.api.processSale(saleRequest);
+      const result = await api.processSale(saleRequest);
 
       if (result.success) {
         setIsCheckoutOpen(false);
@@ -194,7 +190,7 @@ export default function POS() {
         })),
       };
 
-      const result = await window.api.processSale(saleRequest);
+      const result = await api.processSale(saleRequest);
 
       if (result.success) {
         setIsCheckoutOpen(false);

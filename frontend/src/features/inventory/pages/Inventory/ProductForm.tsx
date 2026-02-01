@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import { X, Save } from "lucide-react";
+import Select from "../../../../shared/components/ui/Select";
+import * as api from "../../../../api/backendApi";
 import type { Product } from "../../../../types";
 
 interface ProductFormProps {
@@ -67,19 +69,9 @@ export default function ProductForm({
 
       let result;
       if (product) {
-        if (window.api) {
-          result = await window.api.updateProduct(payload);
-        } else {
-          const { updateProduct } = await import("../../../../api/backendApi");
-          result = await updateProduct(product.id, payload);
-        }
+        result = await api.updateProduct(product.id, payload);
       } else {
-        if (window.api) {
-          result = await window.api.createProduct(payload);
-        } else {
-          const { createProduct } = await import("../../../../api/backendApi");
-          result = await createProduct(payload);
-        }
+        result = await api.createProduct(payload);
       }
 
       if (result.success) {
@@ -198,19 +190,20 @@ export default function ProductForm({
               <label className="block text-sm font-medium text-slate-400 mb-1">
                 Category
               </label>
-              <select
-                name="category"
+              <Select
                 value={formData.category}
-                onChange={handleChange}
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
-              >
-                <option>Accessories</option>
-                <option>Phones</option>
-                <option>Chargers</option>
-                <option>Audio</option>
-                <option>Parts</option>
-                <option>Services</option>
-              </select>
+                onChange={(value) => handleChange({ target: { name: 'category', value } } as any)}
+                options={[
+                  { value: "Accessories", label: "Accessories" },
+                  { value: "Phones", label: "Phones" },
+                  { value: "Chargers", label: "Chargers" },
+                  { value: "Audio", label: "Audio" },
+                  { value: "Parts", label: "Parts" },
+                  { value: "Services", label: "Services" },
+                ]}
+                ringColor="ring-violet-600"
+                buttonClassName="bg-slate-950"
+              />
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-400 mb-1">

@@ -7,6 +7,7 @@ import {
   type ReceiptData,
 } from "../../../utils/receiptFormatter";
 import type { Client, CartItem, SaleRequest } from "../../../../../types";
+import * as api from "../../../../../api/backendApi";
 
 export type PaymentData = Omit<SaleRequest, "items" | "status" | "id"> & {
   cart?: CartItem[];
@@ -80,12 +81,7 @@ export default function CheckoutModal({
   useEffect(() => {
     // Fetch clients for search
     const fetchClients = async () => {
-      const data = window.api
-        ? await window.api.getClients("")
-        : await (async () => {
-            const { getClients } = await import("../../../../../api/backendApi");
-            return getClients("");
-          })();
+      const data = await api.getClients("");
       setClients(data);
     };
     fetchClients();
@@ -829,8 +825,8 @@ export default function CheckoutModal({
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6">
-              <pre className="font-mono text-xs text-slate-300 bg-slate-800/50 p-4 rounded-lg overflow-x-auto">
+            <div className="flex-1 overflow-y-auto p-6 flex justify-center">
+              <pre className="font-mono text-xs text-slate-300 bg-slate-800/50 p-4 rounded-lg">
                 {receiptPreview}
               </pre>
             </div>

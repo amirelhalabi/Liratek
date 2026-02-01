@@ -29,6 +29,40 @@ router.get('/top-products', (_req, res) => {
   res.json({ success: true, products });
 });
 
+// GET /api/sales/:id
+router.get('/:id', (req, res) => {
+  const service = getSalesService();
+  const saleId = parseInt(req.params.id, 10);
+  
+  if (isNaN(saleId)) {
+    return res.status(400).json({ success: false, error: 'Invalid sale ID' });
+  }
+  
+  try {
+    const sale = service.getSale(saleId);
+    return res.json({ success: true, sale });
+  } catch (error: any) {
+    return res.status(404).json({ success: false, error: error.message });
+  }
+});
+
+// GET /api/sales/:id/items
+router.get('/:id/items', (req, res) => {
+  const service = getSalesService();
+  const saleId = parseInt(req.params.id, 10);
+  
+  if (isNaN(saleId)) {
+    return res.status(400).json({ success: false, error: 'Invalid sale ID' });
+  }
+  
+  try {
+    const items = service.getSaleItems(saleId);
+    return res.json({ success: true, items });
+  } catch (error: any) {
+    return res.status(404).json({ success: false, error: error.message });
+  }
+});
+
 // POST /api/sales/process
 router.post('/process', requireRole(['admin']), (req, res) => {
   const service = getSalesService();

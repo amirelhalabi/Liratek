@@ -293,7 +293,7 @@ export default function Dashboard() {
                     </p>
                   </div>
                   <div className="flex-1">
-                    <p className="text-base font-bold text-violet-400">
+                    <p className="text-base font-bold text-violet-400 text-right">
                       {stat.lbpValue.toLocaleString()} LBP
                     </p>
                   </div>
@@ -336,7 +336,7 @@ export default function Dashboard() {
                     </p>
                   </div>
                   <div className="flex-1">
-                    <p className="text-base font-bold text-violet-400">
+                    <p className="text-base font-bold text-violet-400 text-right">
                       {stat.lbpValue.toLocaleString()} LBP
                     </p>
                   </div>

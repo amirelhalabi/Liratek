@@ -5,6 +5,7 @@
 
 import { useState, useCallback } from "react";
 import type { SystemExpectedBalances } from "../types";
+import * as api from "../../../api/backendApi";
 
 export function useSystemExpected() {
   const [systemExpected, setSystemExpected] =
@@ -16,12 +17,7 @@ export function useSystemExpected() {
     try {
       setLoading(true);
       setError(null);
-      const balances = window.api
-        ? await window.api.closing.getSystemExpectedBalances()
-        : await (async () => {
-            const { getSystemExpectedBalances } = await import('../../../api/backendApi');
-            return getSystemExpectedBalances();
-          })();
+      const balances = await api.getSystemExpectedBalances();
       setSystemExpected(balances);
     } catch (err) {
       const message =

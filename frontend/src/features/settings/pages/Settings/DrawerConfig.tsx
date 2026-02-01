@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { appEvents } from "../../../../shared/utils/appEvents";
+import * as api from "../../../../api/backendApi";
 
 export default function DrawerConfig() {
   const [drawerLimitGeneral, setDrawerLimitGeneral] = useState("");
@@ -12,8 +13,8 @@ export default function DrawerConfig() {
   const load = async () => {
     setIsLoading(true);
     try {
-      const settings = await window.api.settings.getAll();
-      const map = new Map(settings.map((s) => [s.key_name, s.value]));
+      const settings = await api.getAllSettings();
+      const map = new Map(settings.map((s: any) => [s.key_name, s.value]));
       setDrawerLimitGeneral((map.get("drawer_limit_general") as string) || "");
       setDrawerLimitOMT((map.get("drawer_limit_omt") as string) || "");
       setClosingVarianceThresholdPct(
@@ -37,9 +38,9 @@ export default function DrawerConfig() {
         throw new Error("Closing variance threshold must be between 0 and 100");
 
       await Promise.all([
-        window.api.settings.update("drawer_limit_general", drawerLimitGeneral),
-        window.api.settings.update("drawer_limit_omt", drawerLimitOMT),
-        window.api.settings.update(
+        api.updateSetting("drawer_limit_general", drawerLimitGeneral),
+        api.updateSetting("drawer_limit_omt", drawerLimitOMT),
+        api.updateSetting(
           "closing_variance_threshold_pct",
           String(thresholdPct),
         ),

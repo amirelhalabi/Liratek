@@ -381,8 +381,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
 
         // Handle Debt (If Partial Payment AND Completed)
         if (status === "completed") {
-          const totalPaidUSD =
-            sale.payment_usd + sale.payment_lbp / sale.exchange_rate;
+          // Use derived payment totals (accounts for new payment lines structure)
+          const totalPaidUSD = paymentUsd + paymentLbp / sale.exchange_rate;
           if (sale.final_amount - totalPaidUSD > 0.05) {
             if (!finalClientId) {
               throw new Error("Cannot create debt for anonymous client");
@@ -392,9 +392,9 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             const debtStmt = db.prepare(`
               INSERT INTO debt_ledger (
                 client_id, transaction_type, amount_usd, sale_id, note
-              ) VALUES (?, 'Sale Debt', ?, ?, 'Balance from Sale')
+              ) VALUES (?, ?, ?, ?, ?)
             `);
-            debtStmt.run(finalClientId, debtAmount, saleId);
+            debtStmt.run(finalClientId, 'Sale Debt', debtAmount, saleId, 'Balance from Sale');
           }
         }
 

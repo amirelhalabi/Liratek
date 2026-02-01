@@ -195,32 +195,25 @@ Frontend (React)
 
 ### Process Communication (IPC)
 
-- **Main Process (Node.js)**: Manages SQLite database, file system, and system events. Defined in `electron/`
-- **Renderer Process (React)**: Modern UI with Tailwind CSS. Defined in `src/`
-- **IPC Bridge**: Secure communication via `preload.ts` using `contextBridge`
+- **Main Process (Node.js)**: Electron main process in `electron-app/` (registers IPC handlers that call `@liratek/core`).
+- **Renderer Process (React)**: UI in `frontend/`.
+- **IPC Bridge**: Secure communication via `electron-app/preload.ts` using `contextBridge`.
+
+> Note: Desktop mode does **not** require the REST backend to be running. In desktop mode, API calls must route to `window.api` (IPC), not HTTP.
 
 ### Directory Structure
 
 ```
 liratek/
-├── electron/               # Main process logic
-│   ├── db/                # SQL schema and migrations
-│   ├── handlers/          # IPC request management (13 modules)
-│   ├── services/          # Core business logic (domain layer)
-│   └── database/
-│       └── repositories/  # Data access layer
-├── src/                   # Renderer process
-│   ├── features/          # Modular feature pages
-│   ├── shared/            # Reusable UI components and hooks
-│   └── types/             # TypeScript definitions
-├── backend/               # Standalone backend (migration in progress)
-│   ├── src/api/          # REST API endpoints
-│   └── src/services/     # Business logic
-├── frontend/              # Standalone frontend (migration in progress)
-│   └── src/              # React app for browser mode
-├── packages/shared/       # Shared types, Zod schemas, and DTOs
-└── docs/                  # Documentation
+├── packages/core/          # Shared business logic (services/repositories/utils)
+├── electron-app/           # Electron main process + preload + IPC handlers
+├── backend/                # Express REST API + WebSocket server (web mode)
+├── frontend/               # React UI (runs in Electron renderer and in browser)
+│   └── src/api/            # `backendApi.ts` dual-mode facade (IPC vs HTTP)
+└── docs/                   # Documentation
 ```
+
+**Important:** in Desktop (Electron) mode the renderer must route API calls via `window.api` (IPC). In Web mode the renderer routes via HTTP to `http://localhost:3000/api`.
 
 ---
 
@@ -686,49 +679,41 @@ Check encryption status in application logs:
 
 ---
 
-## 🔄 API Migration
+## 🔄 API Integration (Dual-Mode)
 
-### Migration Status: 57% Complete (13/23 modules)
+The UI (`frontend/`) runs in **two modes**:
 
-The app is being refactored from monolithic Electron to:
-- **Backend**: Standalone Node.js/Express REST API + WebSocket server
-- **Frontend**: Modern web app (runs in browser or Electron)
+- **Desktop (Electron)**: UI calls IPC via `window.api` (defined in `electron-app/preload.ts`).
+- **Web (Browser)**: UI calls REST endpoints via HTTP (`backend/` on port 3000).
 
-### ✅ Completed Modules
+To keep components clean, we route calls through a single facade:
+- `frontend/src/api/backendApi.ts`
 
-REST endpoints available at `http://localhost:3000/api`:
+### Current State (Feb 2026)
 
-1. `/api/auth` - Authentication
-2. `/api/settings` - Shop configuration
-3. `/api/dashboard` - Stats and analytics
-4. `/api/clients` - Client management
-5. `/api/inventory` - Product management
-6. `/api/sales` - POS and sales
-7. `/api/debts` - Debt tracking
-8. `/api/exchange` - Currency exchange
-9. `/api/expenses` - Expense tracking
-10. `/api/recharge` - MTC/Alfa recharges
-11. `/api/services` - OMT/Whish services
-12. `/api/maintenance` - Repair tracking
-13. `/api/currencies` - Currency management
+- Most feature pages now call `backendApi.ts` instead of calling `window.api` directly.
+- **Desktop mode must not call HTTP** unless the backend server is explicitly running.
+- The base URL for HTTP requests defaults to `http://localhost:3000` (see `frontend/src/api/httpClient.ts`).
 
-### ⏳ Remaining Modules
+### Known Risk / Required Hardening
 
-High priority:
-- `/api/closing` - Daily audit workflow
-- `/api/suppliers` - Supplier management
+We added task **T-26** to ensure *every exported function* in `backendApi.ts` correctly routes:
+- Desktop → IPC (`window.api.*`)
+- Web → HTTP (`requestJson`)
 
-Medium priority:
-- `/api/rates` - Exchange rates
-- `/api/users` - User management
-- `/api/activity` - Activity logs
+### Testing
 
-Low priority:
-- `/api/reports` - PDF generation
-- `/api/diagnostics` - DB diagnostics
-- `/api/updater` - Auto-update
+**Electron Mode (desktop)** (does not require backend server):
+```bash
+npm run dev
+```
 
-### Testing Migration
+**Browser Mode (web)**:
+```bash
+npm run dev:web
+# backend: http://localhost:3000
+# frontend: http://localhost:5173
+```
 
 **Electron Mode** (all features):
 ```bash

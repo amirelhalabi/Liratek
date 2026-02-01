@@ -11,31 +11,41 @@ const JWT_EXPIRES_IN: jwt.SignOptions['expiresIn'] =
 // POST /api/auth/login
 router.post('/login', async (req, res): Promise<void> => {
   try {
-    const { username, password } = req.body;
+    const { username, password, rememberMe } = req.body;
 
     if (!username || password === undefined || password === null) {
       res.status(400).json({ error: 'Username and password required' });
       return;
     }
 
-    // Use AuthService so we support SCRYPT:<salt>:<hash> (same as Electron)
+    // Use AuthService with database session support
     const authService = getAuthService();
-    const result = await authService.login(username, password);
+    const result = await authService.login(username, password, {
+      rememberMe: rememberMe || false,
+      deviceType: 'web',
+      deviceInfo: req.headers['user-agent'] || 'Unknown',
+      ipAddress: req.ip || req.socket.remoteAddress,
+    });
 
-    if (!result.success || !result.user) {
+    if (!result.success || !result.user || !result.token) {
       res.status(401).json({ error: result.error || 'Invalid credentials' });
       return;
     }
 
-    const token = jwt.sign(
-      { userId: result.user.id, role: result.user.role },
+    // Create JWT that includes the session token
+    const jwtToken = jwt.sign(
+      { 
+        userId: result.user.id, 
+        role: result.user.role,
+        sessionToken: result.token, // Link JWT to database session
+      },
       JWT_SECRET,
       { expiresIn: JWT_EXPIRES_IN },
     );
 
     logger.info(
-      { userId: result.user.id, username: result.user.username },
-      'User logged in',
+      { userId: result.user.id, username: result.user.username, rememberMe },
+      'User logged in with database session',
     );
 
     res.json({
@@ -45,7 +55,8 @@ router.post('/login', async (req, res): Promise<void> => {
         username: result.user.username,
         role: result.user.role,
       },
-      token,
+      token: jwtToken,
+      sessionToken: result.token, // Also return session token separately
     });
   } catch (error) {
     logger.error({ error }, 'Login error');
@@ -89,9 +100,35 @@ router.get('/me', async (req, res): Promise<void> => {
 });
 
 // POST /api/auth/logout
-router.post('/logout', (_req, res): void => {
-    // With JWT, logout is handled client-side by removing the token
-    res.json({ success: true });
+router.post('/logout', async (req, res): Promise<void> => {
+    try {
+        // Extract session token from JWT
+        const authHeader = req.headers.authorization;
+        if (authHeader && authHeader.startsWith('Bearer ')) {
+            const token = authHeader.substring(7);
+            try {
+                const decoded = jwt.verify(token, JWT_SECRET) as { 
+                    userId: number; 
+                    role: string; 
+                    sessionToken?: string;
+                };
+
+                // Delete session from database if sessionToken exists
+                if (decoded.sessionToken) {
+                    const authService = getAuthService();
+                    await authService.logout(decoded.sessionToken);
+                    logger.info({ userId: decoded.userId }, 'User logged out, session deleted');
+                }
+            } catch (error) {
+                logger.warn({ error }, 'Failed to decode JWT during logout');
+            }
+        }
+
+        res.json({ success: true });
+    } catch (error) {
+        logger.error({ error }, 'Logout error');
+        res.status(500).json({ error: 'Internal server error' });
+    }
 });
 
 export default router;

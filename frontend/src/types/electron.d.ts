@@ -35,16 +35,18 @@ export interface ElectronAPI {
   login: (
     username: string,
     password: string,
+    rememberMe?: boolean,
   ) => Promise<{
     success: boolean;
     user?: { id: number; username: string; role: string };
     sessionToken?: string | null;
     error?: string;
   }>;
-  logout: (userId: number) => Promise<{ success: boolean }>;
-  restoreSession: () => Promise<{
+  logout: (sessionToken: string) => Promise<{ success: boolean }>;
+  restoreSession: (sessionToken?: string) => Promise<{
     success: boolean;
     user?: { id: number; username: string; role: string };
+    sessionToken?: string;
     error?: string;
   }>;
   getCurrentUser: (
@@ -126,6 +128,8 @@ export interface ElectronAPI {
   processSale: (
     saleData: import("@liratek/core").SaleRequest,
   ) => Promise<{ success: boolean; saleId?: number; error?: string }>;
+  getSale: (saleId: number) => Promise<any>;
+  getSaleItems: (saleId: number) => Promise<any[]>;
 
   // Recharge
   getRechargeStock: () => Promise<{ mtc: number; alfa: number }>;

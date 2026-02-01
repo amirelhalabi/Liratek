@@ -38,24 +38,25 @@ export class RechargeRepository extends BaseRepository<{ id: number }> {
   }
 
   /**
-   * Get virtual stock totals for MTC and Alfa
+   * Get virtual stock totals for MTC and Alfa from drawer balances
+   * This reads from the drawer_balances table instead of products table
    */
   getVirtualStock(): VirtualStock {
     const mtc = this.db
       .prepare(
-        "SELECT SUM(stock_quantity) as total FROM products WHERE item_type = 'Virtual_MTC'",
+        "SELECT balance FROM drawer_balances WHERE drawer_name = 'MTC' AND currency_code = 'USD'",
       )
-      .get() as { total: number | null };
+      .get() as { balance: number | null };
 
     const alfa = this.db
       .prepare(
-        "SELECT SUM(stock_quantity) as total FROM products WHERE item_type = 'Virtual_Alfa'",
+        "SELECT balance FROM drawer_balances WHERE drawer_name = 'Alfa' AND currency_code = 'USD'",
       )
-      .get() as { total: number | null };
+      .get() as { balance: number | null };
 
     return {
-      mtc: mtc?.total || 0,
-      alfa: alfa?.total || 0,
+      mtc: mtc?.balance || 0,
+      alfa: alfa?.balance || 0,
     };
   }
 

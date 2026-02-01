@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { appEvents } from "../../../../shared/utils/appEvents";
+import * as api from "../../../../api/backendApi";
 
 export default function NotificationsConfig() {
   const [pollMs, setPollMs] = useState("60000");
@@ -14,8 +15,8 @@ export default function NotificationsConfig() {
   const [saving, setSaving] = useState(false);
 
   const load = async () => {
-    const settings = await window.api.settings.getAll();
-    const map = new Map(settings.map((s) => [s.key_name, s.value]));
+    const settings = await api.getAllSettings();
+    const map = new Map(settings.map((s: any) => [s.key_name, s.value]));
     setPollMs(String(map.get("notifications_poll_interval_ms") || "60000"));
     setWarnLow(Number(map.get("notifications_warn_low_stock") ?? 1) === 1);
     setWarnDrawer(
@@ -45,25 +46,25 @@ export default function NotificationsConfig() {
         throw new Error("Auto-backup keep count must be >= 1");
 
       await Promise.all([
-        window.api.settings.update("notifications_poll_interval_ms", String(v)),
-        window.api.settings.update(
+        api.updateSetting("notifications_poll_interval_ms", String(v)),
+        api.updateSetting(
           "notifications_warn_low_stock",
           warnLow ? "1" : "0",
         ),
-        window.api.settings.update(
+        api.updateSetting(
           "notifications_warn_drawer_limits",
           warnDrawer ? "1" : "0",
         ),
-        window.api.settings.update(
+        api.updateSetting(
           "auto_backup_enabled",
           autoBackupEnabled ? "1" : "0",
         ),
-        window.api.settings.update(
+        api.updateSetting(
           "auto_backup_interval_hours",
           String(intervalHoursNum),
         ),
-        window.api.settings.update("auto_backup_keep_count", String(keepCountNum)),
-        window.api.settings.update(
+        api.updateSetting("auto_backup_keep_count", String(keepCountNum)),
+        api.updateSetting(
           "auto_backup_verify_enabled",
           autoBackupVerifyEnabled ? "1" : "0",
         ),

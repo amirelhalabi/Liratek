@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import * as api from "../../../../api/backendApi";
 
 export default function RatesManager() {
   const [list, setList] = useState<
@@ -18,12 +19,7 @@ export default function RatesManager() {
   const load = async () => {
     setLoading(true);
     try {
-      const rows = window.api
-        ? await window.api.rates.list()
-        : await (async () => {
-            const { getRates } = await import('../../../../api/backendApi');
-            return getRates();
-          })();
+      const rows = await api.getRates();
       setList(rows);
     } finally {
       setLoading(false);
@@ -37,12 +33,7 @@ export default function RatesManager() {
     if (!from || !to || !rate) return;
     const r = parseFloat(rate);
     if (!r || r <= 0) return alert("Invalid rate");
-    const res = window.api
-      ? await window.api.rates.set(from, to, r)
-      : await (async () => {
-          const { setRate } = await import('../../../../api/backendApi');
-          return setRate(from, to, r);
-        })();
+    const res = await api.setRate(from, to, r);
     if (!res.success) return alert(res.error);
     setRate("");
     load();

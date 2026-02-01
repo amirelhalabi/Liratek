@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import Select from "../../../../shared/components/ui/Select";
+import * as api from "../../../../api/backendApi";
 
 type Supplier = {
   id: number;
@@ -54,14 +56,14 @@ export default function SupplierLedger() {
 
   const refresh = async () => {
     const [sups, bals] = await Promise.all([
-      window.api.listSuppliers(),
-      window.api.getSupplierBalances(),
+      api.getSuppliers(),
+      api.getSupplierBalances(),
     ]);
     setSuppliers(sups);
     setBalances(bals);
 
     if (selectedSupplierId) {
-      const rows = await window.api.getSupplierLedger(selectedSupplierId, 200);
+      const rows = await api.getSupplierLedger(selectedSupplierId, 200);
       setLedger(rows);
     }
   };
@@ -73,12 +75,12 @@ export default function SupplierLedger() {
 
   useEffect(() => {
     if (!selectedSupplierId) return;
-    window.api.getSupplierLedger(selectedSupplierId, 200).then(setLedger);
+    api.getSupplierLedger(selectedSupplierId, 200).then(setLedger);
   }, [selectedSupplierId]);
 
   const handleCreateSupplier = async () => {
     if (!newSupplierName.trim()) return;
-    const res = await window.api.createSupplier({ name: newSupplierName.trim() });
+    const res = await api.createSupplier({ name: newSupplierName.trim() });
     if (!res.success) {
       alert(res.error || "Failed to create supplier");
       return;
@@ -92,7 +94,14 @@ export default function SupplierLedger() {
       alert("Select a supplier first");
       return;
     }
-    const payload: Parameters<typeof window.api.addSupplierLedgerEntry>[0] = {
+    const payload: {
+      supplier_id: number;
+      entry_type: string;
+      amount_usd: number;
+      amount_lbp: number;
+      note?: string;
+      drawer_name?: string;
+    } = {
       supplier_id: selectedSupplierId,
       entry_type: entryType,
       amount_usd: amountUSD || 0,
@@ -101,7 +110,7 @@ export default function SupplierLedger() {
     if (note.trim()) payload.note = note.trim();
     if (withdrawFromDrawer) payload.drawer_name = selectedDrawer;
 
-    const res = await window.api.addSupplierLedgerEntry(payload);
+    const res = await api.addSupplierLedgerEntry(selectedSupplierId, payload);
     if (!res.success) {
       alert(res.error || "Failed to add entry");
       return;
@@ -196,15 +205,17 @@ export default function SupplierLedger() {
               <div className="grid grid-cols-12 gap-3 mb-4">
                 <div className="col-span-3">
                   <label className="block text-xs text-slate-400 mb-1">Entry Type</label>
-                  <select
+                  <Select
                     value={entryType}
-                    onChange={(e) => setEntryType(e.target.value as "TOP_UP" | "PAYMENT" | "ADJUSTMENT")}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white"
-                  >
-                    <option value="TOP_UP">TOP_UP</option>
-                    <option value="PAYMENT">PAYMENT</option>
-                    <option value="ADJUSTMENT">ADJUSTMENT</option>
-                  </select>
+                    onChange={(value) => setEntryType(value as "TOP_UP" | "PAYMENT" | "ADJUSTMENT")}
+                    options={[
+                      { value: "TOP_UP", label: "TOP_UP" },
+                      { value: "PAYMENT", label: "PAYMENT" },
+                      { value: "ADJUSTMENT", label: "ADJUSTMENT" },
+                    ]}
+                    ringColor="ring-violet-500"
+                    buttonClassName="bg-slate-950"
+                  />
                 </div>
                 <div className="col-span-3">
                   <label className="block text-xs text-slate-400 mb-1">Amount USD</label>
@@ -246,16 +257,18 @@ export default function SupplierLedger() {
                   </label>
 
                   {withdrawFromDrawer && (
-                    <select
+                    <Select
                       value={selectedDrawer}
-                      onChange={(e) => setSelectedDrawer(e.target.value)}
-                      className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-sm text-white"
-                    >
-                      <option value="General">General</option>
-                      <option value="OMT">OMT</option>
-                      <option value="Whish">Whish</option>
-                      <option value="Binance">Binance</option>
-                    </select>
+                      onChange={(value) => setSelectedDrawer(value)}
+                      options={[
+                        { value: "General", label: "General" },
+                        { value: "OMT", label: "OMT" },
+                        { value: "Whish", label: "Whish" },
+                        { value: "Binance", label: "Binance" },
+                      ]}
+                      ringColor="ring-violet-500"
+                      buttonClassName="bg-slate-950 text-sm px-2 py-1"
+                    />
                   )}
                 </div>
                 <div className="col-span-12 flex justify-end">
