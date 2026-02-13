@@ -16,7 +16,6 @@ docker compose up --build
 
 Set `JWT_SECRET` in `docker-compose.yml` before deploying.
 
-
 ```bash
 # Install dependencies (from project root)
 yarn install
@@ -35,11 +34,13 @@ yarn start
 ## API Endpoints
 
 ### Authentication
+
 - `POST /api/auth/login` - User login
 - `GET /api/auth/me` - Get current user (requires auth)
 - `POST /api/auth/logout` - User logout
 
 ### Health Check
+
 - `GET /health` - Server health status
 
 ## Environment Variables

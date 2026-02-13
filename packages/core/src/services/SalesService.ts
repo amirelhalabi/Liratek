@@ -84,6 +84,30 @@ export class SalesService {
     }
   }
 
+  /**
+   * Get a single sale by ID
+   */
+  getSale(saleId: number) {
+    try {
+      return this.salesRepo.findById(saleId);
+    } catch (error) {
+      console.error("Failed to get sale:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get sale items with product details
+   */
+  getSaleItems(saleId: number) {
+    try {
+      return this.salesRepo.getSaleItems(saleId);
+    } catch (error) {
+      console.error("Failed to get sale items:", error);
+      return [];
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Dashboard Statistics
   // ---------------------------------------------------------------------------

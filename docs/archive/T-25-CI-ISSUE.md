@@ -17,6 +17,7 @@ T-25 (Code Deduplication via @liratek/core) is **fully complete** and working in
 **Problem:** CI builds were failing with 100+ TypeScript errors when compiling `electron-app` because the `@liratek/core` package wasn't being built before the electron compilation step.
 
 **Error Pattern:**
+
 ```
 Error: database/repositories/index.ts(1,15): error TS2307: Cannot find module '@liratek/core'
 Error: utils/errors.ts(1,15): error TS2307: Cannot find module '@liratek/core'
@@ -26,6 +27,7 @@ Error: utils/errors.ts(1,15): error TS2307: Cannot find module '@liratek/core'
 **Root Cause:** The build script was running `build:frontend` → `electron:build`, but `@liratek/core` needed to be compiled first since electron-app imports from it.
 
 **Solution Applied:**
+
 1. Added `build:core` script to root package.json
 2. Updated build order: `build:core` → `build:frontend` → `electron:build`
 3. Updated all GitHub Actions workflows (.github/workflows/build.yml) to include core build step
@@ -49,6 +51,7 @@ Error: utils/errors.ts(1,15): error TS2307: Cannot find module '@liratek/core'
 ### Changes Made
 
 **Root package.json:**
+
 ```json
 "scripts": {
   "build": "npm run build:core && npm run build:frontend && npm run electron:build",
@@ -58,6 +61,7 @@ Error: utils/errors.ts(1,15): error TS2307: Cannot find module '@liratek/core'
 ```
 
 **GitHub Actions (.github/workflows/build.yml):**
+
 ```yaml
 - name: Install dependencies
   run: yarn install --immutable

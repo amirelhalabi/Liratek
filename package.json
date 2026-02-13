@@ -39,7 +39,8 @@
     "typecheck:backend": "cd backend && npm run typecheck",
     "typecheck:electron": "cd electron-app && npx tsc --noEmit",
     "clean": "rimraf dist dist-electron coverage releases release frontend/dist frontend/coverage backend/dist backend/coverage electron-app/dist",
-    "install:all": "npm install && cd frontend && npm install && cd ../backend && npm install && cd ../electron-app && npm install"
+    "install:all": "npm install && cd frontend && npm install && cd ../backend && npm install && cd ../electron-app && npm install",
+    "format": "prettier --write ."
   },
   "dependencies": {
     "@types/recharts": "^2.0.1",

@@ -7,6 +7,8 @@ import {
   type ReceiptData,
 } from "../../../utils/receiptFormatter";
 import type { Client, CartItem, SaleRequest } from "../../../../../types";
+import * as api from "../../../../../api/backendApi";
+import { useSession } from "../../../../sessions/context/SessionContext";
 
 export type PaymentData = Omit<SaleRequest, "items" | "status" | "id"> & {
   cart?: CartItem[];
@@ -45,6 +47,7 @@ export default function CheckoutModal({
   draftData,
   onRestoreDraftComplete,
 }: CheckoutModalProps) {
+  const { activeSession } = useSession();
   const [isLoading, setIsLoading] = useState(false);
   const [clients, setClients] = useState<Client[]>([]);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
@@ -77,21 +80,26 @@ export default function CheckoutModal({
     .filter((p) => p.currency_code === "LBP")
     .reduce((acc, p) => acc + (p.amount || 0), 0);
 
+  // Track if customer was auto-filled from session
+  const [isAutoFilledFromSession, setIsAutoFilledFromSession] = useState(false);
+
   useEffect(() => {
     // Fetch clients for search
     const fetchClients = async () => {
-      const data = window.api
-        ? await window.api.getClients("")
-        : await (async () => {
-            const { getClients } = await import("../../../../../api/backendApi");
-            return getClients("");
-          })();
+      const data = await api.getClients("");
       setClients(data);
     };
     fetchClients();
 
-    // Use timeout to simulate fetching settings for exchange rate, or valid future implementation
-  }, []);
+    // Auto-fill customer from active session
+    if (activeSession && !draftData) {
+      setClientSearch(activeSession.customer_name || "");
+      if (activeSession.customer_phone) {
+        setSecondaryInput(activeSession.customer_phone);
+      }
+      setIsAutoFilledFromSession(true);
+    }
+  }, [activeSession, draftData]);
 
   // Restore draft data when it's provided
   useEffect(() => {
@@ -106,30 +114,30 @@ export default function CheckoutModal({
       setPaymentLines([
         ...(restoredUSD
           ? [
-            {
-              method: "CASH" as const,
-              currency_code: "USD" as const,
-              amount: restoredUSD,
-            },
-          ]
+              {
+                method: "CASH" as const,
+                currency_code: "USD" as const,
+                amount: restoredUSD,
+              },
+            ]
           : []),
         ...(restoredLBP
           ? [
-            {
-              method: "CASH" as const,
-              currency_code: "LBP" as const,
-              amount: restoredLBP,
-            },
-          ]
+              {
+                method: "CASH" as const,
+                currency_code: "LBP" as const,
+                amount: restoredLBP,
+              },
+            ]
           : []),
         ...(!restoredUSD && !restoredLBP
           ? [
-            {
-              method: "CASH" as const,
-              currency_code: "USD" as const,
-              amount: 0,
-            },
-          ]
+              {
+                method: "CASH" as const,
+                currency_code: "USD" as const,
+                amount: 0,
+              },
+            ]
           : []),
       ]);
       setChangeGivenUSD(draftData.changeGivenUSD ?? 0);
@@ -169,9 +177,9 @@ export default function CheckoutModal({
   // Determine whether creating a debt is allowed: existing client must have phone, new client must have both fields
   const canCreateDebt = selectedClient
     ? !!(
-      selectedClient.phone_number &&
-      selectedClient.phone_number.trim().length > 0
-    )
+        selectedClient.phone_number &&
+        selectedClient.phone_number.trim().length > 0
+      )
     : isNewClientInfoComplete;
 
   const finalAmount = Math.max(0, totalAmount - discount);
@@ -354,6 +362,7 @@ export default function CheckoutModal({
                           setSelectedClient(null);
                         }
                         setSecondaryInput(""); // Clear secondary input on primary search change
+                        setIsAutoFilledFromSession(false); // User is manually typing
                       }}
                       className="bg-transparent border-none text-white w-full px-3 focus:outline-none"
                       placeholder="Search Name or Phone..."
@@ -372,9 +381,10 @@ export default function CheckoutModal({
                     )}
                   </div>
 
-                  {/* Dropdown Results */}
+                  {/* Dropdown Results - Hide if auto-filled from session */}
                   {clientSearch &&
                     !selectedClient &&
+                    !isAutoFilledFromSession &&
                     filteredClients.length > 0 && (
                       <div className="absolute top-full left-0 right-0 mt-2 bg-slate-800 border border-slate-700 rounded-xl shadow-xl z-20 max-h-48 overflow-y-auto">
                         {filteredClients.map((client) => (
@@ -520,9 +530,9 @@ export default function CheckoutModal({
                               prev.map((p, i) =>
                                 i === idx
                                   ? {
-                                    ...p,
-                                    method: e.target.value as PaymentMethod,
-                                  }
+                                      ...p,
+                                      method: e.target.value as PaymentMethod,
+                                    }
                                   : p,
                               ),
                             )
@@ -543,10 +553,10 @@ export default function CheckoutModal({
                               prev.map((p, i) =>
                                 i === idx
                                   ? {
-                                    ...p,
-                                    currency_code:
-                                      e.target.value as PaymentCurrencyCode,
-                                  }
+                                      ...p,
+                                      currency_code: e.target
+                                        .value as PaymentCurrencyCode,
+                                    }
                                   : p,
                               ),
                             )
@@ -570,10 +580,9 @@ export default function CheckoutModal({
                                 prev.map((p, i) =>
                                   i === idx
                                     ? {
-                                      ...p,
-                                      amount:
-                                        parseFloat(e.target.value) || 0,
-                                    }
+                                        ...p,
+                                        amount: parseFloat(e.target.value) || 0,
+                                      }
                                     : p,
                                 ),
                               )
@@ -604,8 +613,10 @@ export default function CheckoutModal({
                 </div>
 
                 <div className="mt-3 text-xs text-slate-400">
-                  Totals: <span className="font-mono">${paidUSD.toFixed(2)}</span> USD +{" "}
-                  <span className="font-mono">{paidLBP.toLocaleString()}</span> LBP
+                  Totals:{" "}
+                  <span className="font-mono">${paidUSD.toFixed(2)}</span> USD +{" "}
+                  <span className="font-mono">{paidLBP.toLocaleString()}</span>{" "}
+                  LBP
                 </div>
               </div>
 
@@ -829,8 +840,8 @@ export default function CheckoutModal({
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6">
-              <pre className="font-mono text-xs text-slate-300 bg-slate-800/50 p-4 rounded-lg overflow-x-auto">
+            <div className="flex-1 overflow-y-auto p-6 flex justify-center">
+              <pre className="font-mono text-xs text-slate-300 bg-slate-800/50 p-4 rounded-lg">
                 {receiptPreview}
               </pre>
             </div>

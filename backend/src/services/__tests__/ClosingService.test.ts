@@ -2,7 +2,7 @@
  * ClosingService Unit Tests
  */
 
-import { jest } from '@jest/globals';
+import { jest } from "@jest/globals";
 import {
   ClosingService,
   getClosingService,
@@ -13,9 +13,12 @@ import {
 } from "../ClosingService";
 import type { SystemExpectedBalances, DailyStatsSnapshot } from "@liratek/core";
 
-jest.mock("../../../../packages/core/src/repositories/ClosingRepository", () => ({
-  getClosingRepository: jest.fn(),
-}));
+jest.mock(
+  "../../../../packages/core/src/repositories/ClosingRepository",
+  () => ({
+    getClosingRepository: jest.fn(),
+  }),
+);
 
 import { getClosingRepository } from "../../../../packages/core/src/repositories/ClosingRepository";
 
@@ -317,6 +320,7 @@ describe("ClosingService", () => {
       expect(result).toEqual({
         generalDrawer: { usd: 0, lbp: 0, eur: 0 },
         omtDrawer: { usd: 0, lbp: 0, eur: 0 },
+        omtAppDrawer: { usd: 0, lbp: 0, eur: 0 },
         whishDrawer: { usd: 0, lbp: 0, eur: 0 },
         binanceDrawer: { usd: 0, lbp: 0, eur: 0 },
         mtcDrawer: { usd: 0, lbp: 0, eur: 0 },

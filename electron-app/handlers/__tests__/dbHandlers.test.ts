@@ -113,31 +113,35 @@ describe("dbHandlers IPC: Closing functionality", () => {
       const drawerBalances = new Map<string, number>([
         ["General|USD", 1100],
         ["General|LBP", 1600000],
-        ["OMT|USD", 0],
-        ["OMT|LBP", 0],
-        ["Whish|USD", 0],
-        ["Whish|LBP", 0],
+        ["OMT_System|USD", 0],
+        ["OMT_System|LBP", 0],
+        ["OMT_App|USD", 0],
+        ["OMT_App|LBP", 0],
+        ["Whish_App|USD", 0],
+        ["Whish_App|LBP", 0],
         ["Binance|USD", 0],
         ["Binance|LBP", 0],
         ["MTC|USD", 0],
         ["Alfa|USD", 0],
       ]);
 
-      (mockDbInstance.prepare as jest.Mock).mockImplementation((sql: string) => {
-        if (sql.includes("FROM drawer_balances")) {
-          return {
-            get: jest.fn((drawer_name: string, currency_code: string) => {
-              const key = `${drawer_name}|${currency_code}`;
-              const balance = drawerBalances.get(key);
-              return balance != null ? { balance } : undefined;
-            }),
-            run: jest.fn(),
-            all: jest.fn(),
-            _sql: sql,
-          };
-        }
-        return { get: jest.fn(), run: jest.fn(), all: jest.fn(), _sql: sql };
-      });
+      (mockDbInstance.prepare as jest.Mock).mockImplementation(
+        (sql: string) => {
+          if (sql.includes("FROM drawer_balances")) {
+            return {
+              get: jest.fn((drawer_name: string, currency_code: string) => {
+                const key = `${drawer_name}|${currency_code}`;
+                const balance = drawerBalances.get(key);
+                return balance != null ? { balance } : undefined;
+              }),
+              run: jest.fn(),
+              all: jest.fn(),
+              _sql: sql,
+            };
+          }
+          return { get: jest.fn(), run: jest.fn(), all: jest.fn(), _sql: sql };
+        },
+      );
 
       const handler = ipcMain.handle.mock.calls.find(
         (call) => call[0] === "closing:get-system-expected-balances",

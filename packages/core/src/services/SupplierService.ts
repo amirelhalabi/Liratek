@@ -25,13 +25,17 @@ export class SupplierService {
     return this.repo.getSupplierBalances();
   }
 
-  getSupplierLedger(supplierId: number, limit?: number): SupplierLedgerEntryEntity[] {
+  getSupplierLedger(
+    supplierId: number,
+    limit?: number,
+  ): SupplierLedgerEntryEntity[] {
     return this.repo.getSupplierLedger(supplierId, limit);
   }
 
   createSupplier(data: CreateSupplierData): SupplierResult {
     try {
-      if (!data.name?.trim()) return { success: false, error: "Supplier name is required" };
+      if (!data.name?.trim())
+        return { success: false, error: "Supplier name is required" };
       const res = this.repo.createSupplier(data);
       return { success: true, id: res.id };
     } catch (e) {
@@ -39,9 +43,12 @@ export class SupplierService {
     }
   }
 
-  addLedgerEntry(data: CreateSupplierLedgerEntryData & { drawer_name?: string }): SupplierResult {
+  addLedgerEntry(
+    data: CreateSupplierLedgerEntryData & { drawer_name?: string },
+  ): SupplierResult {
     try {
-      if (!data.supplier_id) return { success: false, error: "supplier_id is required" };
+      if (!data.supplier_id)
+        return { success: false, error: "supplier_id is required" };
       const res = this.repo.addLedgerEntry(data);
       return { success: true, id: res.id };
     } catch (e) {

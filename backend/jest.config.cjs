@@ -1,28 +1,26 @@
 /** @type {import('jest').Config} */
 module.exports = {
-  testEnvironment: 'node',
+  testEnvironment: "node",
   globals: {
-    'ts-jest': {
+    "ts-jest": {
       diagnostics: false,
     },
   },
-  roots: ['<rootDir>/src'],
-  testRegex: '(/__tests__/.*|(\\.|/)(test|spec))\\.tsx?$',
-  moduleFileExtensions: ['ts', 'js', 'json'],
+  roots: ["<rootDir>/src"],
+  testRegex: "(/__tests__/.*|(\\.|/)(test|spec))\\.tsx?$",
+  moduleFileExtensions: ["ts", "js", "json"],
   transform: {
-    '^.+\\.ts$': ['ts-jest', { tsconfig: '<rootDir>/tsconfig.json' }],
+    "^.+\\.ts$": ["ts-jest", { tsconfig: "<rootDir>/tsconfig.json" }],
   },
   moduleNameMapper: {
-    '^(\\.{1,2}/.*)\\.js$': '$1',
+    "^(\\.{1,2}/.*)\\.js$": "$1",
     // Ensure repository imports like "../connection.js" resolve consistently in tests
-    '^\\.\\./connection$': '<rootDir>/src/database/connection.ts',
-    '^better-sqlite3$': '<rootDir>/src/__mocks__/better-sqlite3.ts',
-    '^electron$': '<rootDir>/src/__mocks__/electron.ts',
+    "^\\.\\./connection$": "<rootDir>/src/database/connection.ts",
+    "^better-sqlite3$": "<rootDir>/src/__mocks__/better-sqlite3.ts",
+    "^electron$": "<rootDir>/src/__mocks__/electron.ts",
     // Map @liratek/core to source files for testing
-    '^@liratek/core$': '<rootDir>/../packages/core/src/index.ts',
+    "^@liratek/core$": "<rootDir>/../packages/core/src/index.ts",
   },
-  setupFilesAfterEnv: ['<rootDir>/src/jest.setup.ts'],
-  transformIgnorePatterns: [
-    'node_modules/(?!(@liratek/core)/)',
-  ],
+  setupFilesAfterEnv: ["<rootDir>/src/jest.setup.ts"],
+  transformIgnorePatterns: ["node_modules/(?!(@liratek/core)/)"],
 };

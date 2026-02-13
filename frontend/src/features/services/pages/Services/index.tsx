@@ -11,6 +11,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import * as api from "../../../../api/backendApi";
+import { useSession } from "../../../sessions/context/SessionContext";
 
 type Provider = "OMT" | "WHISH";
 type ServiceType = "SEND" | "RECEIVE" | "BILL_PAYMENT";
@@ -41,6 +42,7 @@ interface Transaction {
 }
 
 export default function Services() {
+  const { activeSession, linkTransaction } = useSession();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [analytics, setAnalytics] = useState<Analytics>({
     today: { commissionUSD: 0, commissionLBP: 0, count: 0 },
@@ -61,7 +63,12 @@ export default function Services() {
 
   useEffect(() => {
     loadData();
-  }, []);
+
+    // Auto-fill customer from active session
+    if (activeSession && activeSession.customer_name) {
+      setClientName(activeSession.customer_name);
+    }
+  }, [activeSession]);
 
   const loadData = async () => {
     try {
@@ -103,6 +110,21 @@ export default function Services() {
       });
 
       if (result.success) {
+        // Link to active session if exists
+        if (activeSession && result.transaction?.id) {
+          try {
+            await linkTransaction({
+              transactionType: "financial_service",
+              transactionId: result.transaction.id,
+              amountUsd: parseFloat(amountUSD) || 0,
+              amountLbp: parseFloat(amountLBP) || 0,
+            });
+          } catch (err) {
+            console.error("Failed to link service to session:", err);
+            // Don't block the transaction completion
+          }
+        }
+
         // Reset form
         setAmountUSD("");
         setAmountLBP("");

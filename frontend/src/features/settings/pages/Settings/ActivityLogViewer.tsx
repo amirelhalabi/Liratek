@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import * as api from "../../../../api/backendApi";
 
 export default function ActivityLogViewer() {
   type ActivityLogRow = {
@@ -17,12 +18,7 @@ export default function ActivityLogViewer() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = window.api
-        ? ((await window.api.activity.getRecent?.(Number(limit) || 200)) as any)
-        : await (async () => {
-            const { getRecentActivity } = await import('../../../../api/backendApi');
-            return getRecentActivity(Number(limit) || 200);
-          })();
+      const res = await api.getRecentActivity(Number(limit) || 200);
       setLogs((res as ActivityLogRow[]) || []);
     } finally {
       setLoading(false);

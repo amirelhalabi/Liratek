@@ -56,4 +56,16 @@ export function registerSalesHandlers(): void {
   ipcMain.handle("sales:get-top-products", () => {
     return salesService.getTopProducts();
   });
+
+  // Get Sale by ID
+  ipcMain.handle("sales:get", (_event, saleId: number) => {
+    salesLogger.debug({ saleId }, "Getting sale by ID");
+    return salesService.getSale(saleId);
+  });
+
+  // Get Sale Items by Sale ID
+  ipcMain.handle("sales:get-items", (_event, saleId: number) => {
+    salesLogger.debug({ saleId }, "Getting sale items");
+    return salesService.getSaleItems(saleId);
+  });
 }

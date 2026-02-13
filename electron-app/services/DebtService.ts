@@ -89,7 +89,16 @@ export class DebtService {
    * Process a debt repayment
    */
   addRepayment(data: RepaymentData): RepaymentResult {
-    const { clientId, amountUSD, amountLBP, paidAmountUSD, paidAmountLBP, drawerName, note, userId } = data;
+    const {
+      clientId,
+      amountUSD,
+      amountLBP,
+      paidAmountUSD,
+      paidAmountLBP,
+      drawerName,
+      note,
+      userId,
+    } = data;
 
     // Validate
     if (!clientId) {

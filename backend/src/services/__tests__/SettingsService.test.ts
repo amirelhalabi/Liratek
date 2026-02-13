@@ -2,7 +2,7 @@
  * SettingsService Unit Tests
  */
 
-import { jest } from '@jest/globals';
+import { jest } from "@jest/globals";
 import {
   SettingsService,
   getSettingsService,
@@ -11,9 +11,12 @@ import {
 import { SettingEntity } from "@liratek/core";
 
 // Mock core repository used by @liratek/core SettingsService
-jest.mock("../../../../packages/core/src/repositories/SettingsRepository", () => ({
-  getSettingsRepository: jest.fn(),
-}));
+jest.mock(
+  "../../../../packages/core/src/repositories/SettingsRepository",
+  () => ({
+    getSettingsRepository: jest.fn(),
+  }),
+);
 
 import { getSettingsRepository } from "../../../../packages/core/src/repositories/SettingsRepository";
 

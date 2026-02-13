@@ -4,7 +4,7 @@
  * Tests all business logic in DebtService with mocked repository.
  */
 
-import { jest } from '@jest/globals';
+import { jest } from "@jest/globals";
 import { DebtService, resetDebtService } from "../DebtService";
 import { DebtRepository } from "../../database/repositories";
 

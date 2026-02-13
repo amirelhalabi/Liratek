@@ -2,7 +2,7 @@
  * RateService Unit Tests
  */
 
-import { jest } from '@jest/globals';
+import { jest } from "@jest/globals";
 import { RateService, getRateService, resetRateService } from "../RateService";
 import {
   RateRepository,

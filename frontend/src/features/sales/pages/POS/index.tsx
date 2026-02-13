@@ -9,8 +9,11 @@ import CheckoutModal, {
 } from "./components/CheckoutModal";
 import { appEvents } from "../../../../shared/utils/appEvents";
 import type { Product, CartItem, SaleRequest } from "../../../../types";
+import * as api from "../../../../api/backendApi";
+import { useSession } from "../../../sessions/context/SessionContext";
 
 export default function POS() {
+  const { activeSession, linkTransaction } = useSession();
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
 
@@ -50,12 +53,7 @@ export default function POS() {
   >(undefined);
 
   const fetchDrafts = useCallback(async () => {
-    const data = window.api
-      ? await window.api.getDrafts()
-      : await (async () => {
-          const { getDrafts } = await import("../../../../api/backendApi");
-          return getDrafts();
-        })();
+    const data = await api.getDrafts();
     setDrafts(data as unknown as Draft[]);
   }, []);
 
@@ -72,10 +70,12 @@ export default function POS() {
       const existing = prev.find((p) => p.id === product.id);
       if (existing) {
         return prev.map((p) =>
-          p.id === product.id ? ({ ...p, quantity: (p.quantity || 0) + 1 } as any) : p,
+          p.id === product.id
+            ? ({ ...p, quantity: (p.quantity || 0) + 1 } as any)
+            : p,
         ) as any;
       }
-      return ([...prev, ({ ...product, quantity: 1 } as any)] as any);
+      return [...prev, { ...product, quantity: 1 } as any] as any;
     });
   };
 
@@ -121,7 +121,7 @@ export default function POS() {
         })),
       };
 
-      const result = await window.api.processSale(saleRequest);
+      const result = await api.processSale(saleRequest);
 
       if (result.success) {
         setIsCheckoutOpen(false);
@@ -160,11 +160,11 @@ export default function POS() {
     setCheckoutDraftData({
       selectedClient: (draft.client_id
         ? {
-          id: draft.client_id,
-          full_name: draft.client_name || "",
-          phone_number: draft.client_phone || "",
-          whatsapp_opt_in: 0,
-        }
+            id: draft.client_id,
+            full_name: draft.client_name || "",
+            phone_number: draft.client_phone || "",
+            whatsapp_opt_in: 0,
+          }
         : null) as any,
       clientSearchInput: draft.client_name || "",
       clientSearchSecondary: draft.client_phone || "",
@@ -194,9 +194,24 @@ export default function POS() {
         })),
       };
 
-      const result = await window.api.processSale(saleRequest);
+      const result = await api.processSale(saleRequest);
 
       if (result.success) {
+        // Link to active session if exists
+        if (activeSession && result.saleId) {
+          try {
+            await linkTransaction({
+              transactionType: "sale",
+              transactionId: result.saleId,
+              amountUsd: saleRequest.final_amount || 0,
+              amountLbp: 0, // Sales are tracked in USD
+            });
+          } catch (err) {
+            console.error("Failed to link sale to session:", err);
+            // Don't block the sale completion
+          }
+        }
+
         setIsCheckoutOpen(false);
         setCartItems([]);
         setCurrentDraftId(undefined);
@@ -216,7 +231,7 @@ export default function POS() {
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       <PageHeader icon={ShoppingCart} title="Point of Sale" />
-      
+
       <div className="flex h-full min-h-0 gap-4 overflow-hidden relative">
         {/* Left: Product Selection */}
         <div className="flex-1 min-w-0">

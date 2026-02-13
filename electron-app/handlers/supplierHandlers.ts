@@ -13,19 +13,33 @@ export function registerSupplierHandlers(): void {
     return service.getSupplierBalances();
   });
 
-  ipcMain.handle("suppliers:ledger", (_e, supplierId: number, limit?: number) => {
-    return service.getSupplierLedger(supplierId, limit);
-  });
+  ipcMain.handle(
+    "suppliers:ledger",
+    (_e, supplierId: number, limit?: number) => {
+      return service.getSupplierLedger(supplierId, limit);
+    },
+  );
 
-  ipcMain.handle("suppliers:create", (e, data: { name: string; contact_name?: string; phone?: string; note?: string }) => {
-    try {
-      const { requireRole } = require("../session");
-      const auth = requireRole(e.sender.id, ["admin"]);
-      if (!auth.ok) return { success: false, error: auth.error };
-    } catch { }
+  ipcMain.handle(
+    "suppliers:create",
+    (
+      e,
+      data: {
+        name: string;
+        contact_name?: string;
+        phone?: string;
+        note?: string;
+      },
+    ) => {
+      try {
+        const { requireRole } = require("../session");
+        const auth = requireRole(e.sender.id, ["admin"]);
+        if (!auth.ok) return { success: false, error: auth.error };
+      } catch {}
 
-    return service.createSupplier(data);
-  });
+      return service.createSupplier(data);
+    },
+  );
 
   ipcMain.handle(
     "suppliers:add-ledger-entry",
@@ -44,7 +58,7 @@ export function registerSupplierHandlers(): void {
         const { requireRole } = require("../session");
         const auth = requireRole(e.sender.id, ["admin"]);
         if (!auth.ok) return { success: false, error: auth.error };
-      } catch { }
+      } catch {}
 
       return service.addLedgerEntry({ ...data, created_by: 1 });
     },

@@ -2,7 +2,7 @@
  * CurrencyService Unit Tests
  */
 
-import { jest } from '@jest/globals';
+import { jest } from "@jest/globals";
 import {
   CurrencyService,
   getCurrencyService,

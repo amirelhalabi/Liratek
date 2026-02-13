@@ -11,7 +11,9 @@ jest.mock("electron", () => ({
 
 jest.mock("electron-updater", () => ({
   autoUpdater: {
-    checkForUpdates: jest.fn(async () => ({ updateInfo: { version: "1.0.1" } })),
+    checkForUpdates: jest.fn(async () => ({
+      updateInfo: { version: "1.0.1" },
+    })),
     downloadUpdate: jest.fn(async () => "downloaded"),
     quitAndInstall: jest.fn(),
   },

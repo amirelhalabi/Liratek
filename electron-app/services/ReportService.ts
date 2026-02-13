@@ -145,7 +145,9 @@ export class ReportService {
   /**
    * Remove older backups, keeping the most recent `keepCount`.
    */
-  async pruneBackups(keepCount = 30): Promise<{ success: boolean; deleted?: number; error?: string }> {
+  async pruneBackups(
+    keepCount = 30,
+  ): Promise<{ success: boolean; deleted?: number; error?: string }> {
     try {
       const list = await this.listBackups();
       if (!list.success)
@@ -160,7 +162,7 @@ export class ReportService {
       for (const b of toDelete) {
         try {
           fs.unlinkSync(b.path);
-        } catch { }
+        } catch {}
       }
 
       return { success: true, deleted: toDelete.length };
@@ -189,7 +191,8 @@ export class ReportService {
 
       // Dynamic import to avoid bundling issues in some environments
       // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const Database = require("better-sqlite3") as typeof import("better-sqlite3");
+      const Database =
+        require("better-sqlite3") as typeof import("better-sqlite3");
       const db = new Database(resolved, { readonly: true });
       try {
         const row = db.prepare("PRAGMA integrity_check").get() as
@@ -209,7 +212,9 @@ export class ReportService {
    * Restore the DB from a backup file.
    * Note: caller should quit/relaunch after restore.
    */
-  async restoreDatabaseFromBackup(backupPath: string): Promise<RestoreDbResult> {
+  async restoreDatabaseFromBackup(
+    backupPath: string,
+  ): Promise<RestoreDbResult> {
     try {
       const backupsDir = this.getBackupsDir();
       const resolved = path.resolve(backupPath);
@@ -231,7 +236,7 @@ export class ReportService {
       fs.copyFileSync(tmpTarget, target);
       try {
         fs.unlinkSync(tmpTarget);
-      } catch { }
+      } catch {}
 
       return { success: true };
     } catch (error) {

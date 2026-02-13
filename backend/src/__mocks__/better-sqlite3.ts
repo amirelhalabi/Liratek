@@ -1,10 +1,10 @@
 // Mock for better-sqlite3 used by backend unit tests (ESM)
-import { jest } from '@jest/globals';
+import { jest } from "@jest/globals";
 
 // Mock for a single Statement object
 export const mockStatement = {
   run: jest.fn(function (this: any, ..._args: any[]) {
-    if (this._sql.trim().toUpperCase().startsWith('INSERT')) {
+    if (this._sql.trim().toUpperCase().startsWith("INSERT")) {
       return { changes: 1, lastInsertRowid: 1 };
     }
     return { changes: 1 };

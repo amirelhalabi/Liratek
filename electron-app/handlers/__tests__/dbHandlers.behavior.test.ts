@@ -39,7 +39,10 @@ jest.mock("../../db", () => ({
             return { lastInsertRowid: rowstore.at(-1).id };
           }),
         } as any;
-      if (sql.includes("INSERT INTO payments") || sql.includes("INSERT INTO drawer_balances"))
+      if (
+        sql.includes("INSERT INTO payments") ||
+        sql.includes("INSERT INTO drawer_balances")
+      )
         return { run: jest.fn(() => ({})) } as any;
       return stmtObj;
     }),

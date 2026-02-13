@@ -8,6 +8,7 @@ import { useAuth } from "../../../auth/context/AuthContext";
 import type { DrawerType } from "../../types";
 import { DRAWER_ORDER } from "../../config/drawers";
 import { useCurrencies } from "../../hooks/useCurrencies";
+import * as api from "../../../../api/backendApi";
 import { useDrawerAmounts } from "../../hooks/useDrawerAmounts";
 import { DrawerCard } from "../../components/DrawerCard";
 import { X } from "lucide-react";
@@ -83,20 +84,11 @@ export default function Opening({ isOpen, onClose }: OpeningProps) {
     );
 
     try {
-      const result = window.api
-        ? await window.api.closing.setOpeningBalances({
-            closing_date: closingDate,
-            amounts,
-            ...(user?.id != null ? { user_id: user.id } : {}),
-          })
-        : await (async () => {
-            const { setOpeningBalances } = await import('../../../../api/backendApi');
-            return setOpeningBalances({
-              closing_date: closingDate,
-              amounts,
-              ...(user?.id != null ? { user_id: user.id } : {}),
-            });
-          })();
+      const result = await api.setOpeningBalances({
+        closing_date: closingDate,
+        amounts,
+        ...(user?.id != null ? { user_id: user.id } : {}),
+      });
 
       if (result.success) {
         alert("Opening balances saved successfully!");

@@ -114,7 +114,7 @@ export default function Dashboard() {
         alfaCredits: rechargeStock?.alfa || 0,
         monthlyNetProfit: monthlyPL?.netProfitUSD || 0,
       });
-      const formattedChartData = profitChartData.map((d) => ({
+      const formattedChartData = profitChartData.map((d: any) => ({
         ...d,
         date: new Date(d.date).toLocaleDateString("en-US", {
           month: "short",
@@ -133,10 +133,10 @@ export default function Dashboard() {
       // Calculate max values for Y-axis domain
       if (chartType === "Sales" && formattedChartData.length > 0) {
         const currentMaxUsd = Math.max(
-          ...formattedChartData.map((d) => d.usd || 0),
+          ...formattedChartData.map((d: any) => d.usd || 0),
         );
         const currentMaxLbp = Math.max(
-          ...formattedChartData.map((d) => d.lbp || 0),
+          ...formattedChartData.map((d: any) => d.lbp || 0),
         );
 
         // Round up USD to the next thousand
@@ -293,7 +293,7 @@ export default function Dashboard() {
                     </p>
                   </div>
                   <div className="flex-1">
-                    <p className="text-base font-bold text-violet-400">
+                    <p className="text-base font-bold text-violet-400 text-right">
                       {stat.lbpValue.toLocaleString()} LBP
                     </p>
                   </div>
@@ -336,7 +336,7 @@ export default function Dashboard() {
                     </p>
                   </div>
                   <div className="flex-1">
-                    <p className="text-base font-bold text-violet-400">
+                    <p className="text-base font-bold text-violet-400 text-right">
                       {stat.lbpValue.toLocaleString()} LBP
                     </p>
                   </div>

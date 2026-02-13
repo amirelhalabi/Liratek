@@ -5,6 +5,7 @@
 
 import { useState, useCallback } from "react";
 import type { SystemExpectedBalances } from "../types";
+import * as api from "../../../api/backendApi";
 
 export function useSystemExpected() {
   const [systemExpected, setSystemExpected] =
@@ -16,12 +17,7 @@ export function useSystemExpected() {
     try {
       setLoading(true);
       setError(null);
-      const balances = window.api
-        ? await window.api.closing.getSystemExpectedBalances()
-        : await (async () => {
-            const { getSystemExpectedBalances } = await import('../../../api/backendApi');
-            return getSystemExpectedBalances();
-          })();
+      const balances = await api.getSystemExpectedBalances();
       setSystemExpected(balances);
     } catch (err) {
       const message =
@@ -38,8 +34,17 @@ export function useSystemExpected() {
   const getExpectedAmount = useCallback(
     (drawer: string, currencyCode: string): number => {
       if (!systemExpected) return 0;
-      const drawerKey =
-        `${drawer.toLowerCase()}Drawer` as keyof SystemExpectedBalances;
+      const drawerKeyMap: Record<string, keyof SystemExpectedBalances> = {
+        General: "generalDrawer",
+        OMT_System: "omtDrawer",
+        OMT_App: "omtAppDrawer",
+        Whish_App: "whishDrawer",
+        Binance: "binanceDrawer",
+        MTC: "mtcDrawer",
+        Alfa: "alfaDrawer",
+      };
+
+      const drawerKey = drawerKeyMap[drawer] ?? ("generalDrawer" as const);
       const drawerBalances = systemExpected[drawerKey];
       return drawerBalances?.[currencyCode.toLowerCase()] || 0;
     },

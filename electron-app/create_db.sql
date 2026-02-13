@@ -24,6 +24,26 @@ CREATE TABLE IF NOT EXISTS users (
 -- Seed admin user if not exists
 INSERT OR IGNORE INTO users (id, username, password_hash, role, is_active) VALUES (1, 'admin', '', 'admin', 1);
 
+-- Sessions (for unified session management across Electron and Web)
+CREATE TABLE IF NOT EXISTS sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    token TEXT UNIQUE NOT NULL,
+    device_type TEXT DEFAULT 'unknown',
+    device_info TEXT,
+    ip_address TEXT,
+    remember_me INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_activity_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    expires_at DATETIME NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
+CREATE INDEX IF NOT EXISTS idx_sessions_last_activity ON sessions(last_activity_at);
+
 -- Activity Logs
 CREATE TABLE IF NOT EXISTS activity_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -157,6 +177,34 @@ CREATE TABLE IF NOT EXISTS debt_ledger (
     FOREIGN KEY (created_by) REFERENCES users(id)
 );
 
+-- Customer Visit Sessions
+CREATE TABLE IF NOT EXISTS customer_sessions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  customer_name TEXT,
+  customer_phone TEXT,
+  customer_notes TEXT,
+  started_at TEXT NOT NULL DEFAULT (datetime('now')),
+  closed_at TEXT,
+  started_by TEXT NOT NULL,
+  closed_by TEXT,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  CHECK (is_active IN (0, 1))
+);
+
+CREATE TABLE IF NOT EXISTS customer_session_transactions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id INTEGER NOT NULL,
+  transaction_type TEXT NOT NULL, -- 'sale', 'recharge', 'expense', 'omt', 'whish', 'exchange', 'maintenance'
+  transaction_id INTEGER NOT NULL,
+  amount_usd REAL NOT NULL DEFAULT 0,
+  amount_lbp REAL NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (session_id) REFERENCES customer_sessions(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_customer_sessions_active ON customer_sessions(is_active, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_customer_session_transactions_session ON customer_session_transactions(session_id);
+
 -- Supplier Ledger
 CREATE TABLE IF NOT EXISTS supplier_ledger (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -274,10 +322,12 @@ CREATE TABLE IF NOT EXISTS drawer_balances (
 -- Seed Initial Drawer Balances
 INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('General', 'USD', 0);
 INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('General', 'LBP', 0);
-INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('OMT', 'USD', 0);
-INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('OMT', 'LBP', 0);
-INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Whish', 'USD', 0);
-INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Whish', 'LBP', 0);
+INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('OMT_System', 'USD', 0);
+INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('OMT_System', 'LBP', 0);
+INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('OMT_App', 'USD', 0);
+INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('OMT_App', 'LBP', 0);
+INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Whish_App', 'USD', 0);
+INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Whish_App', 'LBP', 0);
 INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Binance', 'USD', 0);
 INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Binance', 'LBP', 0);
 INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('MTC', 'USD', 0);

@@ -94,12 +94,26 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
 
       // Outflow in fromCurrency
       const fromDelta = -Math.abs(data.amountIn);
-      insertPayment.run(id, drawerName, data.fromCurrency, fromDelta, note, createdBy);
+      insertPayment.run(
+        id,
+        drawerName,
+        data.fromCurrency,
+        fromDelta,
+        note,
+        createdBy,
+      );
       upsertBalanceDelta.run(drawerName, data.fromCurrency, fromDelta);
 
       // Inflow in toCurrency
       const toDelta = Math.abs(data.amountOut);
-      insertPayment.run(id, drawerName, data.toCurrency, toDelta, note, createdBy);
+      insertPayment.run(
+        id,
+        drawerName,
+        data.toCurrency,
+        toDelta,
+        note,
+        createdBy,
+      );
       upsertBalanceDelta.run(drawerName, data.toCurrency, toDelta);
 
       return { id };

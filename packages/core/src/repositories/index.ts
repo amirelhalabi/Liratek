@@ -172,6 +172,19 @@ export {
 } from "./SettingsRepository.js";
 export type { SettingEntity } from "./SettingsRepository.js";
 
+// Session Repository
+export {
+  SessionRepository,
+  getSessionRepository,
+  resetSessionRepository,
+  SESSION_DURATION,
+} from "./SessionRepository.js";
+export type {
+  SessionEntity,
+  CreateSessionData,
+  UpdateSessionData,
+} from "./SessionRepository.js";
+
 // Expense Repository
 export {
   ExpenseRepository,
@@ -202,4 +215,19 @@ export {
   getActivityRepository,
   resetActivityRepository,
 } from "./ActivityRepository.js";
-export type { ActivityLogEntity, SyncErrorEntity } from "./ActivityRepository.js";
+export type {
+  ActivityLogEntity,
+  SyncErrorEntity,
+} from "./ActivityRepository.js";
+
+// Customer Session Repository
+export {
+  CustomerSessionRepository,
+  getCustomerSessionRepository,
+  resetCustomerSessionRepository,
+} from "./CustomerSessionRepository.js";
+export type {
+  CustomerSession,
+  CreateCustomerSessionData,
+  SessionTransaction,
+} from "./CustomerSessionRepository.js";

@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import { Plus, Trash2, Calendar, DollarSign } from "lucide-react";
+import Select from "../../../../shared/components/ui/Select";
+import * as api from "../../../../api/backendApi";
 
 type PaidByMethod = "CASH" | "OMT" | "WHISH" | "BINANCE";
 
@@ -46,26 +48,7 @@ export default function Expenses() {
 
   const loadTodayExpenses = async () => {
     try {
-      if (!window.api) {
-        setExpenses([
-          {
-            id: 1,
-            description: "Mock Shop Rent",
-            category: "Bill",
-            expense_type: "Cash_Out",
-            amount_usd: 50.0,
-            amount_lbp: 0,
-            expense_date: new Date().toISOString(),
-          },
-        ]);
-        return;
-      }
-      const data = window.api
-        ? await window.api.getTodayExpenses()
-        : await (async () => {
-            const { getTodayExpenses } = await import("../../../../api/backendApi");
-            return getTodayExpenses();
-          })();
+      const data = await api.getTodayExpenses();
       setExpenses(data);
     } catch (error) {
       console.error("Failed to load expenses:", error);
@@ -82,35 +65,10 @@ export default function Expenses() {
     }
 
     try {
-      if (!window.api) {
-        const newEx: Expense = {
-          id: Date.now(),
-          ...formData,
-        };
-        setExpenses((prev) => [newEx, ...prev]);
-        setFormData({
-          description: "",
-          category: "Shop_Supply",
-          expense_type: "Cash_Out",
-          amount_usd: 0,
-          amount_lbp: 0,
-          expense_date: new Date().toISOString().split("T")[0],
-        });
-        return;
-      }
-
-      const result = window.api
-        ? await window.api.addExpense({
-            ...formData,
-            expense_date: new Date(formData.expense_date).toISOString(),
-          })
-        : await (async () => {
-            const { addExpense } = await import("../../../../api/backendApi");
-            return addExpense({
-              ...formData,
-              expense_date: new Date(formData.expense_date).toISOString(),
-            });
-          })();
+      const result = await api.addExpense({
+        ...formData,
+        expense_date: new Date(formData.expense_date).toISOString(),
+      });
 
       if (result.success) {
         setFormData({
@@ -134,16 +92,7 @@ export default function Expenses() {
   const handleDelete = async (id: number) => {
     if (!confirm("Delete this expense?")) return;
     try {
-      if (!window.api) {
-        setExpenses((prev) => prev.filter((e) => e.id !== id));
-        return;
-      }
-      const result = window.api
-        ? await window.api.deleteExpense(id)
-        : await (async () => {
-            const { deleteExpense } = await import("../../../../api/backendApi");
-            return deleteExpense(id);
-          })();
+      const result = await api.deleteExpense(id);
       if (result.success) {
         loadTodayExpenses();
       }
@@ -172,13 +121,17 @@ export default function Expenses() {
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-slate-800 border border-slate-700/50 rounded-xl p-5 shadow-lg hover:border-slate-600 transition-colors">
-          <p className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">Total USD</p>
+          <p className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">
+            Total USD
+          </p>
           <p className="text-2xl font-bold text-white">
             ${totalUSD.toFixed(2)}
           </p>
         </div>
         <div className="bg-slate-800 border border-slate-700/50 rounded-xl p-5 shadow-lg hover:border-slate-600 transition-colors">
-          <p className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">Total LBP</p>
+          <p className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">
+            Total LBP
+          </p>
           <p className="text-2xl font-bold text-white">
             {totalLBP.toLocaleString()}
           </p>
@@ -213,7 +166,7 @@ export default function Expenses() {
                 onChange={(e) =>
                   setFormData({ ...formData, description: e.target.value })
                 }
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-white focus:ring-2 focus:ring-orange-500 outline-none transition-all"
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-white focus:border-orange-500 focus:ring-2 focus:ring-orange-500/50 outline-none transition-all"
                 placeholder="e.g., Shop rent, Coffee, Repair"
               />
             </div>
@@ -224,37 +177,38 @@ export default function Expenses() {
                 <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
                   Category
                 </label>
-                <select
+                <Select
                   value={formData.category}
-                  onChange={(e) =>
-                    setFormData({ ...formData, category: e.target.value })
+                  onChange={(value) =>
+                    setFormData({ ...formData, category: value })
                   }
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-white focus:ring-2 focus:ring-orange-500 outline-none transition-all text-sm"
-                >
-                  {EXPENSE_CATEGORIES.map((cat) => (
-                    <option key={cat} value={cat}>
-                      {cat.replace(/_/g, " ")}
-                    </option>
-                  ))}
-                </select>
+                  options={EXPENSE_CATEGORIES.map((cat) => ({
+                    value: cat,
+                    label: cat.replace(/_/g, " "),
+                  }))}
+                  ringColor="ring-orange-500"
+                  buttonClassName="text-sm"
+                />
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
                   Type
                 </label>
-                <select
+                <Select
                   value={formData.expense_type}
-                  onChange={(e) =>
+                  onChange={(value) =>
                     setFormData({
                       ...formData,
-                      expense_type: e.target.value as "Cash_Out" | "Non_Cash",
+                      expense_type: value as "Cash_Out" | "Non_Cash",
                     })
                   }
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-white focus:ring-2 focus:ring-orange-500 outline-none transition-all text-sm"
-                >
-                  <option value="Cash_Out">Cash Out</option>
-                  <option value="Non_Cash">Non-Cash</option>
-                </select>
+                  options={[
+                    { value: "Cash_Out", label: "Cash Out" },
+                    { value: "Non_Cash", label: "Non-Cash" },
+                  ]}
+                  ringColor="ring-orange-500"
+                  buttonClassName="text-sm"
+                />
               </div>
             </div>
 
@@ -263,22 +217,18 @@ export default function Expenses() {
               <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
                 Paid By
               </label>
-              <select
+              <Select
                 value={formData.paid_by_method || "CASH"}
-                onChange={(e) =>
+                onChange={(value) =>
                   setFormData({
                     ...formData,
-                    paid_by_method: e.target.value as PaidByMethod,
+                    paid_by_method: value as PaidByMethod,
                   })
                 }
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-white focus:ring-2 focus:ring-orange-500 outline-none transition-all text-sm"
-              >
-                {PAID_BY_METHODS.map((m) => (
-                  <option key={m.value} value={m.value}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
+                options={PAID_BY_METHODS}
+                ringColor="ring-orange-500"
+                buttonClassName="text-sm"
+              />
             </div>
 
             {/* Amounts */}
@@ -288,7 +238,9 @@ export default function Expenses() {
                   Amount (USD)
                 </label>
                 <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-orange-500 font-bold">$</span>
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-orange-500 font-bold">
+                    $
+                  </span>
                   <input
                     type="number"
                     value={formData.amount_usd || ""}
@@ -380,9 +332,13 @@ export default function Expenses() {
                     className="hover:bg-slate-700/20 transition-colors"
                   >
                     <td className="px-6 py-4">
-                      <div className="text-sm text-white font-medium">{expense.description}</div>
+                      <div className="text-sm text-white font-medium">
+                        {expense.description}
+                      </div>
                       <div className="text-xs text-slate-500">
-                        {expense.expense_type === "Cash_Out" ? "Cash Out" : "Non-Cash"}
+                        {expense.expense_type === "Cash_Out"
+                          ? "Cash Out"
+                          : "Non-Cash"}
                       </div>
                     </td>
                     <td className="px-6 py-4">

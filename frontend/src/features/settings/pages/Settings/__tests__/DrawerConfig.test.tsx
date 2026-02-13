@@ -30,7 +30,9 @@ describe("DrawerConfig", () => {
     });
 
     expect(screen.getByLabelText(/OMT Drawer Limit/i)).toHaveValue(500);
-    expect(screen.getByLabelText(/Closing Variance Threshold/i)).toHaveValue(7.5);
+    expect(screen.getByLabelText(/Closing Variance Threshold/i)).toHaveValue(
+      7.5,
+    );
 
     fireEvent.change(screen.getByLabelText(/Closing Variance Threshold/i), {
       target: { value: "10" },

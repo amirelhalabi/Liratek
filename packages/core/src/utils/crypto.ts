@@ -4,10 +4,10 @@
  * NOTE: This is intentionally kept compatible with existing code in both backends.
  */
 
-import crypto from 'node:crypto';
+import crypto from "node:crypto";
 
-const SCRYPT_PREFIX = 'SCRYPT:';
-const HASHED_PREFIX = 'HASHED:';
+const SCRYPT_PREFIX = "SCRYPT:";
+const HASHED_PREFIX = "HASHED:";
 const KEY_LENGTH = 64;
 const SALT_LENGTH = 16;
 
@@ -18,7 +18,7 @@ const SALT_LENGTH = 16;
 export function hashPassword(password: string): string {
   const salt = crypto.randomBytes(SALT_LENGTH);
   const derived = crypto.scryptSync(password, salt, KEY_LENGTH);
-  return SCRYPT_PREFIX + salt.toString('hex') + ':' + derived.toString('hex');
+  return SCRYPT_PREFIX + salt.toString("hex") + ":" + derived.toString("hex");
 }
 
 /**
@@ -34,9 +34,9 @@ export function verifyPassword(password: string, stored?: string): boolean {
 
   // Current format: scrypt hash
   if (stored.startsWith(SCRYPT_PREFIX)) {
-    const [, saltHex, hashHex] = stored.split(':');
-    const salt = Buffer.from(saltHex, 'hex');
-    const expected = Buffer.from(hashHex, 'hex');
+    const [, saltHex, hashHex] = stored.split(":");
+    const salt = Buffer.from(saltHex, "hex");
+    const expected = Buffer.from(hashHex, "hex");
     const derived = crypto.scryptSync(password, salt, expected.length);
     return crypto.timingSafeEqual(expected, derived);
   }
@@ -47,7 +47,7 @@ export function verifyPassword(password: string, stored?: string): boolean {
   }
 
   // Legacy: empty string with default admin password
-  if (stored === '' && password === 'admin123') return true;
+  if (stored === "" && password === "admin123") return true;
 
   // Legacy: plain text
   if (stored === password) return true;
@@ -89,16 +89,16 @@ export function validatePasswordComplexity(password: string): {
     );
   }
   if (PASSWORD_REQUIREMENTS.requireUppercase && !/[A-Z]/.test(password)) {
-    errors.push('Password must contain an uppercase letter');
+    errors.push("Password must contain an uppercase letter");
   }
   if (PASSWORD_REQUIREMENTS.requireLowercase && !/[a-z]/.test(password)) {
-    errors.push('Password must contain a lowercase letter');
+    errors.push("Password must contain a lowercase letter");
   }
   if (PASSWORD_REQUIREMENTS.requireNumber && !/\d/.test(password)) {
-    errors.push('Password must contain a number');
+    errors.push("Password must contain a number");
   }
   if (PASSWORD_REQUIREMENTS.requireSpecial && !/[@$!%*?&]/.test(password)) {
-    errors.push('Password must contain a special character (@$!%*?&)');
+    errors.push("Password must contain a special character (@$!%*?&)");
   }
 
   return { valid: errors.length === 0, errors };

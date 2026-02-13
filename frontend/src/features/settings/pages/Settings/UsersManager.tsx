@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import Select from "../../../../shared/components/ui/Select";
+import * as api from "../../../../api/backendApi";
 
 export default function UsersManager() {
   const [list, setList] = useState<
@@ -17,8 +19,8 @@ export default function UsersManager() {
   const load = async () => {
     setLoading(true);
     try {
-      const rows = await window.api.getNonAdminUsers();
-      const normalized = rows.map((u) => ({
+      const rows = await api.getNonAdminUsers();
+      const normalized = rows.map((u: any) => ({
         ...u,
         role: (u.role === "admin" ? "admin" : "staff") as "admin" | "staff",
       }));
@@ -33,13 +35,13 @@ export default function UsersManager() {
   }, []);
 
   const toggleActive = async (id: number, is_active: number) => {
-    await window.api.setUserActive(id, is_active ? 0 : 1);
+    await api.setUserActive(id, is_active ? false : true);
     load();
   };
 
   const changeRole = async (id: number, role: "admin" | "staff") => {
     const newRole = role === "admin" ? "staff" : "admin";
-    await window.api.setUserRole(id, newRole);
+    await api.setUserRole(id, newRole);
     load();
   };
 
@@ -52,7 +54,11 @@ export default function UsersManager() {
       alert("Password must be at least 8 chars with upper, lower, and a digit");
       return;
     }
-    const res = await window.api.createUser(newUsername, newPassword, newRole);
+    const res = await api.createUser({
+      username: newUsername,
+      password: newPassword,
+      role: newRole,
+    });
     if (!res.success) {
       alert(res.error);
       return;
@@ -66,7 +72,7 @@ export default function UsersManager() {
   const setPassword = async (id: number) => {
     const pwd = prompt("Enter new password");
     if (!pwd) return;
-    const res = await window.api.setUserPassword(id, pwd);
+    const res = await api.setUserPassword(id, pwd);
     if (!res.success) alert(res.error);
   };
 
@@ -86,14 +92,16 @@ export default function UsersManager() {
           type="password"
           className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white"
         />
-        <select
+        <Select
           value={newRole}
-          onChange={(e) => setNewRole(e.target.value as "admin" | "staff")}
-          className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white"
-        >
-          <option value="staff">Staff</option>
-          <option value="admin">Admin</option>
-        </select>
+          onChange={(value) => setNewRole(value as "admin" | "staff")}
+          options={[
+            { value: "staff", label: "Staff" },
+            { value: "admin", label: "Admin" },
+          ]}
+          ringColor="ring-violet-500"
+          buttonClassName="bg-slate-800 px-2 py-1"
+        />
         <button
           onClick={createUser}
           className="px-3 py-1 bg-violet-600 rounded text-white"

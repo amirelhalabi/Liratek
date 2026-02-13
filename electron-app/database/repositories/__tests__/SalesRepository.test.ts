@@ -1,5 +1,8 @@
 import { SalesRepository } from "../SalesRepository";
-import { mockDatabase, resetAllMocks } from "../../../../__mocks__/better-sqlite3";
+import {
+  mockDatabase,
+  resetAllMocks,
+} from "../../../../__mocks__/better-sqlite3";
 
 jest.mock("better-sqlite3");
 
@@ -15,14 +18,16 @@ describe("SalesRepository", () => {
   it("deleteSaleItems deletes by sale_id", () => {
     const repo = new SalesRepository();
 
-    (mockDatabase.prepare as jest.Mock).mockImplementationOnce((sql: string) => {
-      const stmt = {
-        ...require("../../../../__mocks__/better-sqlite3").mockStatement,
-        _sql: sql,
-      };
-      stmt.run = jest.fn(() => ({ changes: 2 }));
-      return stmt;
-    });
+    (mockDatabase.prepare as jest.Mock).mockImplementationOnce(
+      (sql: string) => {
+        const stmt = {
+          ...require("../../../../__mocks__/better-sqlite3").mockStatement,
+          _sql: sql,
+        };
+        stmt.run = jest.fn(() => ({ changes: 2 }));
+        return stmt;
+      },
+    );
 
     repo.deleteSaleItems(10);
 
@@ -38,6 +43,8 @@ describe("SalesRepository", () => {
       throw new Error("boom");
     });
 
-    expect(() => repo.deleteSaleItems(10)).toThrow(/Failed to delete sale items/);
+    expect(() => repo.deleteSaleItems(10)).toThrow(
+      /Failed to delete sale items/,
+    );
   });
 });

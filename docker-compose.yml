@@ -26,7 +26,7 @@ services:
       # Runtime override read by the frontend (globalThis.__LIRATEK_BACKEND_URL)
       # You can inject it via a small inline script later if needed.
       # For now, frontend defaults to http://localhost:3000.
-      
+
       # VITE_BACKEND_URL is not used by our client yet (kept for future)
       VITE_BACKEND_URL: http://localhost:3000
     ports:

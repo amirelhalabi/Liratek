@@ -4,7 +4,7 @@
  * Tests all business logic in ClientService with mocked repository.
  */
 
-import { jest } from '@jest/globals';
+import { jest } from "@jest/globals";
 import {
   ClientService,
   resetClientService,

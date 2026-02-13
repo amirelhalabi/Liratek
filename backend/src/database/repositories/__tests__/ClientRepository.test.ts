@@ -1,4 +1,4 @@
-import { jest } from '@jest/globals';
+import { jest } from "@jest/globals";
 import { ClientRepository } from "../ClientRepository";
 import { resetAllMocks } from "../../../__mocks__/better-sqlite3";
 
@@ -17,8 +17,13 @@ describe("ClientRepository", () => {
 
     // mock query execution
     (testDb.prepare as any).mockImplementationOnce((sql: any) => {
-      const stmt = { ...require("../../../__mocks__/better-sqlite3").mockStatement, _sql: sql };
-      stmt.all = jest.fn(() => [{ id: 1, name: "Ali", phone: "1", created_at: "" }]);
+      const stmt = {
+        ...require("../../../__mocks__/better-sqlite3").mockStatement,
+        _sql: sql,
+      };
+      stmt.all = jest.fn(() => [
+        { id: 1, name: "Ali", phone: "1", created_at: "" },
+      ]);
       return stmt;
     });
 
@@ -31,7 +36,9 @@ describe("ClientRepository", () => {
     const repo = new ClientRepository();
 
     (testDb.prepare as any).mockImplementationOnce(() => {
-      const stmt = { ...require("../../../__mocks__/better-sqlite3").mockStatement };
+      const stmt = {
+        ...require("../../../__mocks__/better-sqlite3").mockStatement,
+      };
       stmt.run = jest.fn(() => {
         const err: any = new Error("constraint");
         err.code = "SQLITE_CONSTRAINT_UNIQUE";
@@ -50,7 +57,10 @@ describe("ClientRepository", () => {
 
     // hasSalesHistory query
     (testDb.prepare as any).mockImplementationOnce((sql: any) => {
-      const stmt = { ...require("../../../__mocks__/better-sqlite3").mockStatement, _sql: sql };
+      const stmt = {
+        ...require("../../../__mocks__/better-sqlite3").mockStatement,
+        _sql: sql,
+      };
       stmt.get = jest.fn(() => ({ count: 2 }));
       return stmt;
     });
@@ -63,14 +73,20 @@ describe("ClientRepository", () => {
 
     // hasSalesHistory query
     (testDb.prepare as any).mockImplementationOnce((sql: any) => {
-      const stmt = { ...require("../../../__mocks__/better-sqlite3").mockStatement, _sql: sql };
+      const stmt = {
+        ...require("../../../__mocks__/better-sqlite3").mockStatement,
+        _sql: sql,
+      };
       stmt.get = jest.fn(() => ({ count: 0 }));
       return stmt;
     });
 
     // delete query from BaseRepository
     (testDb.prepare as any).mockImplementationOnce((sql: any) => {
-      const stmt = { ...require("../../../__mocks__/better-sqlite3").mockStatement, _sql: sql };
+      const stmt = {
+        ...require("../../../__mocks__/better-sqlite3").mockStatement,
+        _sql: sql,
+      };
       stmt.run = jest.fn(() => ({ changes: 1 }));
       return stmt;
     });

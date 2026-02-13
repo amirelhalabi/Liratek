@@ -9,11 +9,14 @@ import {
   CheckCircle,
 } from "lucide-react";
 import * as api from "../../../../api/backendApi";
+import Select from "../../../../shared/components/ui/Select";
+import { useSession } from "../../../sessions/context/SessionContext";
 
 type Provider = "MTC" | "Alfa";
 type RechargeType = "CREDIT_TRANSFER" | "VOUCHER" | "DAYS";
 
 export default function Recharge() {
+  const { activeSession, linkTransaction } = useSession();
   const [activeProvider, setActiveProvider] = useState<Provider>("MTC");
   const [rechargeType, setRechargeType] =
     useState<RechargeType>("CREDIT_TRANSFER");
@@ -21,7 +24,9 @@ export default function Recharge() {
 
   // Form
   const [phoneNumber, setPhoneNumber] = useState("");
-  const [paidBy, setPaidBy] = useState<"CASH" | "OMT" | "WHISH" | "BINANCE">("CASH");
+  const [paidBy, setPaidBy] = useState<"CASH" | "OMT" | "WHISH" | "BINANCE">(
+    "CASH",
+  );
   const [amount, setAmount] = useState(""); // Amount of credit to send
   const [price, setPrice] = useState(""); // Price to client
   const [cost, setCost] = useState(""); // Cost to dealer (optional/auto-calc)
@@ -66,6 +71,21 @@ export default function Recharge() {
       });
 
       if (result.success) {
+        // Link to active session if exists
+        if (activeSession && result.recharge?.id) {
+          try {
+            await linkTransaction({
+              transactionType: "recharge",
+              transactionId: result.recharge.id,
+              amountUsd: parseFloat(price) || 0,
+              amountLbp: 0,
+            });
+          } catch (err) {
+            console.error("Failed to link recharge to session:", err);
+            // Don't block the recharge completion
+          }
+        }
+
         alert("Recharge Successful!");
         setAmount("");
         setPrice("");
@@ -201,22 +221,23 @@ export default function Recharge() {
               <label className="block text-sm font-medium text-slate-400 mb-2 uppercase tracking-wider">
                 Paid By
               </label>
-              <select
+              <Select
                 value={paidBy}
-                onChange={(e) =>
-                  setPaidBy(
-                    e.target.value as "CASH" | "OMT" | "WHISH" | "BINANCE",
-                  )
+                onChange={(value) =>
+                  setPaidBy(value as "CASH" | "OMT" | "WHISH" | "BINANCE")
                 }
-                className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-4 text-lg font-bold text-white focus:outline-none focus:border-orange-500 transition-colors"
-              >
-                <option value="CASH">Cash (General)</option>
-                <option value="OMT">OMT</option>
-                <option value="WHISH">Whish</option>
-                <option value="BINANCE">Binance</option>
-              </select>
+                options={[
+                  { value: "CASH", label: "Cash (General)" },
+                  { value: "OMT", label: "OMT" },
+                  { value: "WHISH", label: "Whish" },
+                  { value: "BINANCE", label: "Binance" },
+                ]}
+                ringColor="ring-orange-500"
+                buttonClassName="py-4 text-lg font-bold rounded-xl"
+              />
               <p className="text-xs text-slate-500 mt-2">
-                Customer payment increases the selected drawer by the full price.
+                Customer payment increases the selected drawer by the full
+                price.
               </p>
             </div>
 

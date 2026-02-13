@@ -31,7 +31,7 @@ describe("useDrawerAmounts", () => {
     });
 
     expect(result.current.amounts.General).toEqual({ USD: 0, LBP: 0 });
-    expect(result.current.amounts.OMT).toEqual({ USD: 0, LBP: 0 });
+    expect(result.current.amounts.OMT_System).toEqual({ USD: 0, LBP: 0 });
     expect(result.current.amounts.MTC).toEqual({ USD: 0, LBP: 0 });
     expect(result.current.amounts.Alfa).toEqual({ USD: 0, LBP: 0 });
   });
@@ -164,7 +164,7 @@ describe("useDrawerAmounts", () => {
 
     act(() => {
       result.current.updateAmount("General", "USD", 100);
-      result.current.updateAmount("OMT", "LBP", 50000);
+      result.current.updateAmount("OMT_System", "LBP", 50000);
     });
 
     expect(result.current.hasAnyAmounts).toBe(true);
@@ -174,7 +174,7 @@ describe("useDrawerAmounts", () => {
     });
 
     expect(result.current.amounts.General.USD).toBe(0);
-    expect(result.current.amounts.OMT.LBP).toBe(0);
+    expect(result.current.amounts.OMT_System.LBP).toBe(0);
     expect(result.current.hasAnyAmounts).toBe(false);
   });
 
@@ -190,12 +190,12 @@ describe("useDrawerAmounts", () => {
     act(() => {
       result.current.updateAmount("General", "USD", 100);
       result.current.updateAmount("General", "LBP", 150000);
-      result.current.updateAmount("OMT", "USD", 50);
+      result.current.updateAmount("OMT_System", "USD", 50);
     });
 
     expect(result.current.amounts.General.USD).toBe(100);
     expect(result.current.amounts.General.LBP).toBe(150000);
-    expect(result.current.amounts.OMT.USD).toBe(50);
+    expect(result.current.amounts.OMT_System.USD).toBe(50);
   });
 
   it("should handle empty currencies array", () => {

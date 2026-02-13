@@ -4,6 +4,7 @@ import { useAuth } from "../../../auth/context/AuthContext";
 import PageHeader from "../../../../shared/components/layouts/PageHeader";
 import ProductForm from "./ProductForm";
 import type { Product } from "../../../../types";
+import * as api from "../../../../api/backendApi";
 
 export default function ProductList() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -17,14 +18,8 @@ export default function ProductList() {
   const loadProducts = useCallback(async () => {
     setLoading(true);
     try {
-      if (window.api) {
-        const data = await window.api.getProducts(search);
-        setProducts(data as unknown as Product[]);
-      } else {
-        const { getProducts } = await import("../../../../api/backendApi");
-        const data = await getProducts(search);
-        setProducts(data as unknown as Product[]);
-      }
+      const data = await api.getProducts(search);
+      setProducts(data as unknown as Product[]);
     } catch (error) {
       console.error("Failed to load products:", error);
     } finally {
@@ -48,12 +43,7 @@ export default function ProductList() {
   const handleDelete = async (id: number) => {
     if (!confirm("Are you sure you want to delete this product?")) return;
     try {
-      if (window.api) {
-        await window.api.deleteProduct(id);
-      } else {
-        const { deleteProduct } = await import("../../../../api/backendApi");
-        await deleteProduct(id);
-      }
+      await api.deleteProduct(id);
       loadProducts(); // Refresh list
     } catch (error) {
       console.error("Failed to delete:", error);
@@ -73,8 +63,8 @@ export default function ProductList() {
 
   return (
     <div className="space-y-6">
-      <PageHeader 
-        icon={Package} 
+      <PageHeader
+        icon={Package}
         title="Inventory"
         actions={
           <button

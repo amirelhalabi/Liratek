@@ -8,9 +8,10 @@ type UINotification = {
 };
 
 import { appEvents } from "../../utils/appEvents";
-import { LogOut, Bell, Search, X } from "lucide-react";
+import { LogOut, Bell, X, Search } from "lucide-react";
 import { useMemo } from "react";
 import { useAuth } from "../../../features/auth/context/AuthContext";
+import * as api from "../../../api/backendApi";
 
 function NotificationHistory() {
   const [items, setItems] = useState<UINotification[]>(
@@ -90,10 +91,10 @@ export default function TopBar() {
     let mounted = true;
     const refresh = async () => {
       try {
-        const low = await window.api.getLowStockProducts?.();
+        const low = await api.getLowStockProducts();
         if (!mounted) return;
-        const settings = await window.api.settings.getAll();
-        const map = new Map(settings.map((s) => [s.key_name, s.value]));
+        const settings = await api.getAllSettings();
+        const map = new Map(settings.map((s: any) => [s.key_name, s.value]));
         const warnLow =
           Number(map.get("notifications_warn_low_stock") ?? 1) === 1;
         if (warnLow && Array.isArray(low) && low.length > 0)
@@ -104,12 +105,7 @@ export default function TopBar() {
           );
         const genLimit = Number(map.get("drawer_limit_general") || 0);
         const omtLimit = Number(map.get("drawer_limit_omt") || 0);
-        const balances = window.api
-          ? await window.api.closing.getSystemExpectedBalances?.()
-          : await (async () => {
-              const { getSystemExpectedBalances } = await import('../../../api/backendApi');
-              return getSystemExpectedBalances();
-            })();
+        const balances = await api.getSystemExpectedBalances();
         const genUsd = balances?.generalDrawer?.usd || 0;
         const omtUsd = balances?.omtDrawer?.usd || 0;
         const warnDrawer =
@@ -189,13 +185,13 @@ export default function TopBar() {
                   >
                     Clear
                   </button>
+                  <button
+                    onClick={() => setIsNotificationsOpen(false)}
+                    className="text-slate-400 hover:text-white"
+                  >
+                    <X size={16} />
+                  </button>
                 </div>
-                <button
-                  onClick={() => setIsNotificationsOpen(false)}
-                  className="text-slate-400 hover:text-white"
-                >
-                  <X size={16} />
-                </button>
               </div>
               <div className="max-h-80 overflow-y-auto p-2">
                 <NotificationHistory />

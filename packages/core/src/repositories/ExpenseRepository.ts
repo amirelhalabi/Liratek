@@ -5,7 +5,7 @@ export interface ExpenseEntity {
   description: string;
   category: string;
   expense_type: string;
-  paid_by_method?: "CASH" | "OMT" | "WHISH" | "BINANCE";
+  paid_by_method?: "CASH" | "DEBT" | "OMT" | "WHISH" | "BINANCE";
   amount_usd: number;
   amount_lbp: number;
   expense_date: string;
@@ -17,7 +17,7 @@ export interface CreateExpenseData {
   description: string;
   category: string;
   expense_type: string;
-  paid_by_method?: "CASH" | "OMT" | "WHISH" | "BINANCE";
+  paid_by_method?: "CASH" | "DEBT" | "OMT" | "WHISH" | "BINANCE";
   amount_usd: number;
   amount_lbp: number;
   expense_date: string;
@@ -36,11 +36,13 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
     const drawerName =
       paidBy === "CASH"
         ? "General"
-        : paidBy === "OMT"
-          ? "OMT"
-          : paidBy === "WHISH"
-            ? "Whish"
-            : "Binance";
+        : paidBy === "DEBT"
+          ? "General" // no drawer impact; placeholder
+          : paidBy === "OMT"
+            ? "OMT_System"
+            : paidBy === "WHISH"
+              ? "Whish_App"
+              : "Binance";
 
     return this.db.transaction(() => {
       const stmt = this.db.prepare(`
@@ -58,8 +60,8 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
       );
       const expenseId = Number(result.lastInsertRowid);
 
-      // Only Cash_Out affects drawers
-      if (data.expense_type === "Cash_Out") {
+      // Only Cash_Out affects drawers, and DEBT means no drawer movement.
+      if (data.expense_type === "Cash_Out" && paidBy !== "DEBT") {
         const upsertBalance = this.db.prepare(`
           INSERT INTO drawer_balances (drawer_name, currency_code, balance)
           VALUES (?, ?, ?)
@@ -82,14 +84,30 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
         // USD outflow
         if (data.amount_usd && data.amount_usd !== 0) {
           const delta = -Math.abs(data.amount_usd);
-          insertPayment.run(expenseId, paidBy, drawerName, "USD", delta, note, createdBy);
+          insertPayment.run(
+            expenseId,
+            paidBy,
+            drawerName,
+            "USD",
+            delta,
+            note,
+            createdBy,
+          );
           upsertBalance.run(drawerName, "USD", delta);
         }
 
         // LBP outflow
         if (data.amount_lbp && data.amount_lbp !== 0) {
           const delta = -Math.abs(data.amount_lbp);
-          insertPayment.run(expenseId, paidBy, drawerName, "LBP", delta, note, createdBy);
+          insertPayment.run(
+            expenseId,
+            paidBy,
+            drawerName,
+            "LBP",
+            delta,
+            note,
+            createdBy,
+          );
           upsertBalance.run(drawerName, "LBP", delta);
         }
       }

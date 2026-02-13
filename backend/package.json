@@ -1,43 +1,43 @@
 {
-    "name": "@liratek/backend",
-    "version": "1.0.0",
-    "description": "LiraTek POS Backend API Server",
-    "main": "dist/server.js",
-    "type": "module",
-    "scripts": {
-        "dev": "tsx watch src/server.ts",
-        "build": "tsc",
-        "start": "node dist/server.js",
-        "typecheck": "yarn workspace @liratek/core build && tsc --noEmit -p tsconfig.typecheck.json",
-        "lint": "eslint src --max-warnings=9999",
-        "test": "node ../node_modules/jest/bin/jest.js --config jest.config.cjs",
-        "test:coverage": "node ../node_modules/jest/bin/jest.js --config jest.config.cjs --coverage --coverageDirectory ../coverage/backend --coverageReporters=lcov"
-    },
-    "dependencies": {
-        "@liratek/core": "workspace:*",
-        "bcrypt": "^5.1.1",
-        "better-sqlite3": "^12.6.2",
-        "cors": "^2.8.5",
-        "dotenv": "^16.4.1",
-        "express": "^4.18.2",
-        "helmet": "^7.1.0",
-        "jsonwebtoken": "^9.0.2",
-        "pino": "^8.19.0",
-        "pino-http": "^9.0.0",
-        "socket.io": "^4.6.1",
-        "zod": "^3.22.4"
-    },
-    "devDependencies": {
-        "@types/bcrypt": "^5.0.2",
-        "@types/better-sqlite3": "^7.6.9",
-        "@types/cors": "^2.8.17",
-        "@types/express": "^4.17.21",
-        "@types/jsonwebtoken": "^9.0.5",
-        "@types/node": "^20.11.16",
-        "@typescript-eslint/eslint-plugin": "^6.20.0",
-        "@typescript-eslint/parser": "^6.20.0",
-        "eslint": "^8.56.0",
-        "tsx": "^4.7.1",
-        "typescript": "^5.3.3"
-    }
+  "name": "@liratek/backend",
+  "version": "1.0.0",
+  "description": "LiraTek POS Backend API Server",
+  "main": "dist/server.js",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "typecheck": "yarn workspace @liratek/core build && tsc --noEmit -p tsconfig.typecheck.json",
+    "lint": "eslint src --max-warnings=9999",
+    "test": "node ../node_modules/jest/bin/jest.js --config jest.config.cjs",
+    "test:coverage": "node ../node_modules/jest/bin/jest.js --config jest.config.cjs --coverage --coverageDirectory ../coverage/backend --coverageReporters=lcov"
+  },
+  "dependencies": {
+    "@liratek/core": "workspace:*",
+    "bcrypt": "^5.1.1",
+    "better-sqlite3": "^12.6.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.1",
+    "express": "^4.18.2",
+    "helmet": "^7.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "pino": "^8.19.0",
+    "pino-http": "^9.0.0",
+    "socket.io": "^4.6.1",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/bcrypt": "^5.0.2",
+    "@types/better-sqlite3": "^7.6.9",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/jsonwebtoken": "^9.0.5",
+    "@types/node": "^20.11.16",
+    "@typescript-eslint/eslint-plugin": "^6.20.0",
+    "@typescript-eslint/parser": "^6.20.0",
+    "eslint": "^8.56.0",
+    "tsx": "^4.7.1",
+    "typescript": "^5.3.3"
+  }
 }

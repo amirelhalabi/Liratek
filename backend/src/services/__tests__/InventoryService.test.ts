@@ -4,7 +4,7 @@
  * Tests all business logic in InventoryService with mocked repository.
  */
 
-import { jest } from '@jest/globals';
+import { jest } from "@jest/globals";
 import { InventoryService, resetInventoryService } from "../InventoryService";
 import { ProductRepository } from "../../database/repositories";
 import { ValidationError, NotFoundError } from "../../utils/errors";

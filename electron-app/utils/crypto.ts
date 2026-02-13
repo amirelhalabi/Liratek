@@ -10,4 +10,4 @@ export {
   needsMigration,
   PASSWORD_REQUIREMENTS,
   validatePasswordComplexity,
-} from '@liratek/core';
+} from "@liratek/core";

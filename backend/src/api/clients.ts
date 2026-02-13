@@ -1,6 +1,6 @@
-import express from 'express';
-import { authenticateJWT, requireRole } from '../middleware/auth.js';
-import { getClientService } from '../services/index.js';
+import express from "express";
+import { authenticateJWT, requireRole } from "../middleware/auth.js";
+import { getClientService } from "../services/index.js";
 
 const router = express.Router();
 
@@ -8,25 +8,26 @@ const router = express.Router();
 router.use(authenticateJWT);
 
 // GET /api/clients?search=...
-router.get('/', (req, res) => {
-  const search = typeof req.query.search === 'string' ? req.query.search : undefined;
+router.get("/", (req, res) => {
+  const search =
+    typeof req.query.search === "string" ? req.query.search : undefined;
   const service = getClientService();
   const clients = service.getClients(search);
   res.json({ success: true, clients });
 });
 
 // GET /api/clients/:id
-router.get('/:id', (req, res) => {
+router.get("/:id", (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isFinite(id)) {
-    res.status(400).json({ success: false, error: 'Invalid id' });
+    res.status(400).json({ success: false, error: "Invalid id" });
     return;
   }
 
   const service = getClientService();
   const client = service.getClientById(id);
   if (!client) {
-    res.status(404).json({ success: false, error: 'Client not found' });
+    res.status(404).json({ success: false, error: "Client not found" });
     return;
   }
 
@@ -34,17 +35,17 @@ router.get('/:id', (req, res) => {
 });
 
 // POST /api/clients (admin)
-router.post('/', requireRole(['admin']), (req, res) => {
+router.post("/", requireRole(["admin"]), (req, res) => {
   const service = getClientService();
   const result = service.createClient(req.body);
   res.status(result.success ? 201 : 400).json(result);
 });
 
 // PUT /api/clients/:id (admin)
-router.put('/:id', requireRole(['admin']), (req, res) => {
+router.put("/:id", requireRole(["admin"]), (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isFinite(id)) {
-    res.status(400).json({ success: false, error: 'Invalid id' });
+    res.status(400).json({ success: false, error: "Invalid id" });
     return;
   }
 
@@ -54,10 +55,10 @@ router.put('/:id', requireRole(['admin']), (req, res) => {
 });
 
 // DELETE /api/clients/:id (admin)
-router.delete('/:id', requireRole(['admin']), (req, res) => {
+router.delete("/:id", requireRole(["admin"]), (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isFinite(id)) {
-    res.status(400).json({ success: false, error: 'Invalid id' });
+    res.status(400).json({ success: false, error: "Invalid id" });
     return;
   }
 

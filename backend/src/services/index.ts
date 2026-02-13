@@ -15,10 +15,10 @@ import {
   SalesService,
   SettingsService,
   SupplierService,
-} from '@liratek/core';
+} from "@liratek/core";
 
 // Re-export all core services/types
-export * from '@liratek/core';
+export * from "@liratek/core";
 
 // Web-backend convenience singletons (legacy API expects getXService())
 let _activity: ActivityService | null = null;

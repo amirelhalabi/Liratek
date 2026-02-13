@@ -55,7 +55,7 @@ export interface DraftSaleWithItems extends SaleWithClient {
   items: SaleItemWithProduct[];
 }
 
-export type PaymentMethod = "CASH" | "OMT" | "WHISH" | "BINANCE";
+export type PaymentMethod = "CASH" | "DEBT" | "OMT" | "WHISH" | "BINANCE";
 export type PaymentCurrencyCode = "USD" | "LBP";
 
 export interface PaymentLine {
@@ -68,7 +68,12 @@ export interface SaleRequest {
   client_id: number | null;
   client_name?: string;
   client_phone?: string;
-  items: { product_id: number; quantity: number; price: number; imei?: string }[];
+  items: {
+    product_id: number;
+    quantity: number;
+    price: number;
+    imei?: string;
+  }[];
   total_amount: number;
   discount: number;
   final_amount: number;
@@ -192,9 +197,9 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             case "CASH":
               return "General";
             case "OMT":
-              return "OMT";
+              return "OMT_System";
             case "WHISH":
-              return "Whish";
+              return "Whish_App";
             case "BINANCE":
               return "Binance";
             default:
@@ -278,17 +283,29 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         const paymentLines: PaymentLine[] = sale.payments?.length
           ? sale.payments
           : [
-            ...(paymentUsd
-              ? [{ method: "CASH" as const, currency_code: "USD" as const, amount: paymentUsd }]
-              : []),
-            ...(paymentLbp
-              ? [{ method: "CASH" as const, currency_code: "LBP" as const, amount: paymentLbp }]
-              : []),
-          ];
+              ...(paymentUsd
+                ? [
+                    {
+                      method: "CASH" as const,
+                      currency_code: "USD" as const,
+                      amount: paymentUsd,
+                    },
+                  ]
+                : []),
+              ...(paymentLbp
+                ? [
+                    {
+                      method: "CASH" as const,
+                      currency_code: "LBP" as const,
+                      amount: paymentLbp,
+                    },
+                  ]
+                : []),
+            ];
 
-        db.prepare(`DELETE FROM payments WHERE source_type = 'SALE' AND source_id = ?`).run(
-          saleId,
-        );
+        db.prepare(
+          `DELETE FROM payments WHERE source_type = 'SALE' AND source_id = ?`,
+        ).run(saleId);
 
         const insertPayment = db.prepare(`
           INSERT INTO payments (
@@ -381,8 +398,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
 
         // Handle Debt (If Partial Payment AND Completed)
         if (status === "completed") {
-          const totalPaidUSD =
-            sale.payment_usd + sale.payment_lbp / sale.exchange_rate;
+          // Use derived payment totals (accounts for new payment lines structure)
+          const totalPaidUSD = paymentUsd + paymentLbp / sale.exchange_rate;
           if (sale.final_amount - totalPaidUSD > 0.05) {
             if (!finalClientId) {
               throw new Error("Cannot create debt for anonymous client");
@@ -392,9 +409,15 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             const debtStmt = db.prepare(`
               INSERT INTO debt_ledger (
                 client_id, transaction_type, amount_usd, sale_id, note
-              ) VALUES (?, 'Sale Debt', ?, ?, 'Balance from Sale')
+              ) VALUES (?, ?, ?, ?, ?)
             `);
-            debtStmt.run(finalClientId, debtAmount, saleId);
+            debtStmt.run(
+              finalClientId,
+              "Sale Debt",
+              debtAmount,
+              saleId,
+              "Balance from Sale",
+            );
           }
         }
 
@@ -580,7 +603,12 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
    */
   addSaleItem(
     saleId: number,
-    item: { product_id: number; quantity: number; price: number; imei?: string | null },
+    item: {
+      product_id: number;
+      quantity: number;
+      price: number;
+      imei?: string | null;
+    },
   ): void {
     try {
       this.execute(

@@ -17,10 +17,10 @@ export const DRAWER_CONFIGS: Record<DrawerType, DrawerConfig> = {
       accent: "blue-500",
     },
   },
-  OMT: {
-    type: "OMT",
-    label: "OMT",
-    description: "Money transfers",
+  OMT_System: {
+    type: "OMT_System",
+    label: "OMT System",
+    description: "OMT system",
     icon: "dollar-sign",
     color: {
       border: "border-green-500/30",
@@ -28,10 +28,21 @@ export const DRAWER_CONFIGS: Record<DrawerType, DrawerConfig> = {
       accent: "green-500",
     },
   },
-  Whish: {
-    type: "Whish",
-    label: "Whish",
-    description: "Whish wallet",
+  OMT_App: {
+    type: "OMT_App",
+    label: "OMT App",
+    description: "OMT app wallet",
+    icon: "smartphone",
+    color: {
+      border: "border-lime-500/30",
+      background: "bg-lime-500/5",
+      accent: "lime-500",
+    },
+  },
+  Whish_App: {
+    type: "Whish_App",
+    label: "Whish App",
+    description: "Whish app",
     icon: "dollar-sign",
     color: {
       border: "border-emerald-500/30",
@@ -76,8 +87,9 @@ export const DRAWER_CONFIGS: Record<DrawerType, DrawerConfig> = {
 
 export const DRAWER_ORDER: DrawerType[] = [
   "General",
-  "OMT",
-  "Whish",
+  "OMT_System",
+  "OMT_App",
+  "Whish_App",
   "Binance",
   "MTC",
   "Alfa",

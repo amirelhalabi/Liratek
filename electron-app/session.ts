@@ -46,25 +46,64 @@ export function storeEncryptedSession(userId: number): string | null {
     };
 
     let dataToStore: Buffer;
-    
+
     if (safeStorage.isEncryptionAvailable()) {
       dataToStore = safeStorage.encryptString(JSON.stringify(sessionData));
       console.log("[SESSION] Encrypted session stored (safeStorage)");
     } else {
       // Fallback for development: use base64 encoding
-      console.warn("[SESSION] safeStorage not available, using base64 fallback (NOT SECURE for production)");
-      dataToStore = Buffer.from(JSON.stringify(sessionData), 'utf-8');
+      console.warn(
+        "[SESSION] safeStorage not available, using base64 fallback (NOT SECURE for production)",
+      );
+      dataToStore = Buffer.from(JSON.stringify(sessionData), "utf-8");
     }
 
     fs.writeFileSync(getSessionFilePath(), dataToStore);
-    
+
     // Update cache
     storedSessionCache = sessionData;
-    
+
     return token;
   } catch (error) {
     console.error("[SESSION] Failed to store session:", error);
     return null;
+  }
+}
+
+/**
+ * Store database session token to encrypted file (for persistence across refreshes)
+ * This is used by the new database-backed session system
+ */
+export function storeSessionTokenToFile(token: string, userId: number): void {
+  try {
+    const sessionData: StoredSession = {
+      userId,
+      token,
+      createdAt: Date.now(),
+    };
+
+    let dataToStore: Buffer;
+
+    if (safeStorage.isEncryptionAvailable()) {
+      dataToStore = safeStorage.encryptString(JSON.stringify(sessionData));
+      console.log(
+        "[SESSION] Database session token stored to encrypted file (safeStorage)",
+      );
+    } else {
+      // Fallback for development: use base64 encoding
+      console.warn(
+        "[SESSION] safeStorage not available, using base64 fallback (NOT SECURE for production)",
+      );
+      dataToStore = Buffer.from(JSON.stringify(sessionData), "utf-8");
+    }
+
+    fs.writeFileSync(getSessionFilePath(), dataToStore);
+
+    // Update cache
+    storedSessionCache = sessionData;
+  } catch (error) {
+    console.error("[SESSION] Failed to store session token to file:", error);
+    throw error;
   }
 }
 
@@ -87,25 +126,27 @@ export function getEncryptedSession(): StoredSession | null {
 
     const fileData = fs.readFileSync(filePath);
     let decrypted: string;
-    
+
     if (safeStorage.isEncryptionAvailable()) {
       // Try to decrypt with safeStorage
       try {
         decrypted = safeStorage.decryptString(fileData);
       } catch (decryptError) {
         // Might be a base64-encoded session from fallback mode
-        console.warn("[SESSION] Failed to decrypt with safeStorage, trying base64 fallback");
-        decrypted = fileData.toString('utf-8');
+        console.warn(
+          "[SESSION] Failed to decrypt with safeStorage, trying base64 fallback",
+        );
+        decrypted = fileData.toString("utf-8");
       }
     } else {
       // No safeStorage, treat as base64-encoded
-      decrypted = fileData.toString('utf-8');
+      decrypted = fileData.toString("utf-8");
     }
 
     const session: StoredSession = JSON.parse(decrypted);
 
-    // Check if session is expired (7 days max)
-    const MAX_SESSION_AGE = 7 * 24 * 60 * 60 * 1000;
+    // Check if session is expired ( days max)
+    const MAX_SESSION_AGE = 1 * 24 * 60 * 60 * 1000;
     if (Date.now() - session.createdAt > MAX_SESSION_AGE) {
       console.log("[SESSION] Stored session expired, clearing");
       clearEncryptedSession();

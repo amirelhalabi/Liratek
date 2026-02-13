@@ -23,6 +23,7 @@ import {
   storeEncryptedSession,
   getEncryptedSession,
   clearEncryptedSession,
+  storeSessionTokenToFile,
 } from "../session.js";
 
 // =============================================================================
@@ -51,7 +52,10 @@ export function registerAuthHandlers(): void {
       );
     }
   } catch (e) {
-    authLogger.warn({ error: e instanceof Error ? e.message : String(e) }, "Admin seed warning");
+    authLogger.warn(
+      { error: e instanceof Error ? e.message : String(e) },
+      "Admin seed warning",
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -59,40 +63,75 @@ export function registerAuthHandlers(): void {
   // ---------------------------------------------------------------------------
   ipcMain.handle(
     "auth:login",
-    async (event, username: string, password: string) => {
+    async (
+      event,
+      username: string,
+      password: string,
+      rememberMe: boolean = false,
+    ) => {
       try {
-        authLogger.debug({ username }, "Login attempt");
+        authLogger.debug({ username, rememberMe }, "Login attempt");
 
-        const result = await authService.login(username, password);
+        // Login with database session
+        const result = await authService.login(username, password, {
+          rememberMe,
+          deviceType: "electron",
+          deviceInfo: `Electron ${process.versions.electron}`,
+        });
 
-        if (!result.success || !result.user) {
+        if (!result.success || !result.user || !result.token) {
           return { success: false, error: "Invalid username or password" };
         }
 
         // Log activity
         logActivity(db, result.user.id, "LOGIN");
 
-        // Bind session to this renderer (webContents)
-        let sessionToken: string | null = null;
+        // Bind session to this renderer (webContents) for backwards compatibility
         try {
-          setSession(event.sender.id, result.user.id, result.user.role as "admin" | "staff");
-          sessionToken = storeEncryptedSession(result.user.id);
-          authLogger.info({ userId: result.user.id, tokenCreated: !!sessionToken }, "Session storage attempted");
+          setSession(
+            event.sender.id,
+            result.user.id,
+            result.user.role as "admin" | "staff",
+          );
         } catch (e) {
-          authLogger.warn({ error: e instanceof Error ? e.message : String(e) }, "Failed to set session");
+          authLogger.warn(
+            { error: e instanceof Error ? e.message : String(e) },
+            "Failed to set in-memory session",
+          );
+        }
+
+        // Store session token in encrypted file for persistence across refreshes
+        // (localStorage gets cleared on Cmd+R in Electron)
+        try {
+          storeSessionTokenToFile(result.token, result.user.id);
+          authLogger.info(
+            { userId: result.user.id },
+            "Session token stored to encrypted file",
+          );
+        } catch (e) {
+          authLogger.warn(
+            { error: e instanceof Error ? e.message : String(e) },
+            "Failed to store session token to file",
+          );
         }
 
         authLogger.info(
-          { username, userId: result.user.id },
-          "Login successful",
+          { username, userId: result.user.id, rememberMe },
+          "Login successful with database session",
         );
         return {
           success: true,
           user: result.user,
-          sessionToken,
+          sessionToken: result.token,
         };
       } catch (error) {
-        authLogger.error({ error: error instanceof Error ? error.message : String(error), username }, "Login error");
+        authLogger.error(
+          {
+            error: error instanceof Error ? error.message : String(error),
+            username,
+          },
+          "Login error",
+        );
         return {
           success: false,
           error: isAppError(error)
@@ -106,24 +145,44 @@ export function registerAuthHandlers(): void {
   // ---------------------------------------------------------------------------
   // Logout Handler
   // ---------------------------------------------------------------------------
-  ipcMain.handle("auth:logout", (_event, userId: number) => {
+  ipcMain.handle("auth:logout", async (_event, sessionToken: string) => {
     try {
-      authLogger.debug({ userId }, "Logout");
+      authLogger.debug({ token: sessionToken?.substring(0, 10) }, "Logout");
 
-      // Clear encrypted session
-      try {
-        clearEncryptedSession();
-        clearSession(_event.sender.id);
-      } catch (e) {
-        authLogger.warn({ error: e instanceof Error ? e.message : String(e) }, "Failed to clear session");
+      // Delete session from database
+      const success = await authService.logout(sessionToken);
+
+      if (success) {
+        // Clear in-memory session for backwards compatibility
+        try {
+          clearSession(_event.sender.id);
+        } catch (e) {
+          authLogger.warn(
+            { error: e instanceof Error ? e.message : String(e) },
+            "Failed to clear in-memory session",
+          );
+        }
+
+        // Clear encrypted session file
+        try {
+          clearEncryptedSession();
+          authLogger.info("Encrypted session file cleared");
+        } catch (e) {
+          authLogger.warn(
+            { error: e instanceof Error ? e.message : String(e) },
+            "Failed to clear encrypted session file",
+          );
+        }
+
+        authLogger.info("Logout successful");
       }
 
-      // Log activity
-      logActivity(db, userId, "LOGOUT");
-
-      return { success: true };
+      return { success };
     } catch (error) {
-      authLogger.error({ error: error instanceof Error ? error.message : String(error), userId }, "Logout error");
+      authLogger.error(
+        { error: error instanceof Error ? error.message : String(error) },
+        "Logout error",
+      );
       return { success: false, error: "Failed to logout" };
     }
   });
@@ -131,46 +190,182 @@ export function registerAuthHandlers(): void {
   // ---------------------------------------------------------------------------
   // Restore Session Handler
   // ---------------------------------------------------------------------------
-  ipcMain.handle("auth:restore-session", (event) => {
-    try {
-      const stored = getEncryptedSession();
-
-      if (!stored) {
-        // This is normal on first run - don't log as error
-        return { success: false, error: "No session" };
-      }
-
-      const user = authService.getUserById(stored.userId);
-
-      if (!user) {
-        authLogger.debug(
-          { userId: stored.userId },
-          "Stored session user not found or inactive",
+  ipcMain.handle(
+    "auth:restore-session",
+    async (event, sessionToken?: string) => {
+      try {
+        authLogger.info(
+          { hasToken: !!sessionToken },
+          "🔍 [SESSION-RESTORE] Starting session restoration",
         );
-        clearEncryptedSession();
-        return { success: false, error: "User not found" };
+
+        // Try to restore from provided token first
+        if (sessionToken) {
+          authLogger.info(
+            { tokenPrefix: sessionToken.substring(0, 10) },
+            "🔍 [SESSION-RESTORE] Validating provided session token from localStorage",
+          );
+
+          const user = await authService.validateSession(sessionToken);
+
+          if (user) {
+            // Restore in-memory session for backwards compatibility
+            setSession(
+              event.sender.id,
+              user.id,
+              user.role as "admin" | "staff",
+            );
+            authLogger.info(
+              { username: user.username, userId: user.id },
+              "✅ [SESSION-RESTORE] Session restored from localStorage token",
+            );
+
+            return {
+              success: true,
+              user: {
+                id: user.id,
+                username: user.username,
+                role: user.role,
+              },
+              sessionToken,
+            };
+          } else {
+            authLogger.warn(
+              { tokenPrefix: sessionToken.substring(0, 10) },
+              "❌ [SESSION-RESTORE] localStorage token validation failed (expired or invalid)",
+            );
+          }
+        } else {
+          authLogger.info(
+            "🔍 [SESSION-RESTORE] No session token in localStorage",
+          );
+        }
+
+        // Fallback: try encrypted session file (persists across refreshes)
+        authLogger.info(
+          "🔍 [SESSION-RESTORE] Checking for session token in encrypted file",
+        );
+        const stored = getEncryptedSession();
+
+        if (stored && stored.token) {
+          authLogger.info(
+            { tokenPrefix: stored.token.substring(0, 10) },
+            "🔍 [SESSION-RESTORE] Found token in encrypted file, validating against database",
+          );
+
+          const user = await authService.validateSession(stored.token);
+
+          if (user) {
+            // Restore in-memory session for backwards compatibility
+            setSession(
+              event.sender.id,
+              user.id,
+              user.role as "admin" | "staff",
+            );
+            authLogger.info(
+              { username: user.username, userId: user.id },
+              "✅ [SESSION-RESTORE] Session restored from encrypted file token",
+            );
+
+            return {
+              success: true,
+              user: {
+                id: user.id,
+                username: user.username,
+                role: user.role,
+              },
+              sessionToken: stored.token,
+            };
+          } else {
+            authLogger.warn(
+              { tokenPrefix: stored.token.substring(0, 10) },
+              "❌ [SESSION-RESTORE] Encrypted file token validation failed (expired or invalid)",
+            );
+            clearEncryptedSession();
+          }
+        }
+
+        // Legacy fallback: try old encrypted session for migration (userId-based)
+        authLogger.info(
+          "🔍 [SESSION-RESTORE] Checking for old encrypted session (legacy migration)",
+        );
+        const storedLegacy = getEncryptedSession();
+
+        if (storedLegacy && !storedLegacy.token) {
+          // Old format without token field - needs migration
+          authLogger.info(
+            { userId: storedLegacy.userId },
+            "🔍 [SESSION-RESTORE] Found old encrypted session (no token), attempting migration",
+          );
+
+          const user = authService.getUserById(storedLegacy.userId);
+
+          if (user) {
+            authLogger.info(
+              { username: user.username, userId: user.id },
+              "🔍 [SESSION-RESTORE] User found, creating new database session",
+            );
+
+            // Migrate to new session system
+            const result = await authService.login(user.username, "", {
+              rememberMe: true,
+              deviceType: "electron",
+              deviceInfo: `Electron ${process.versions.electron}`,
+            });
+
+            if (result.success && result.user && result.token) {
+              // Store new token to file
+              storeSessionTokenToFile(result.token, result.user.id);
+              setSession(
+                event.sender.id,
+                user.id,
+                user.role as "admin" | "staff",
+              );
+              authLogger.info(
+                { username: user.username, userId: user.id },
+                "✅ [SESSION-RESTORE] Migrated old encrypted session to database",
+              );
+
+              return {
+                success: true,
+                user: result.user,
+                sessionToken: result.token,
+              };
+            } else {
+              authLogger.warn(
+                "❌ [SESSION-RESTORE] Failed to create new session during migration",
+              );
+            }
+          } else {
+            authLogger.warn(
+              { userId: storedLegacy.userId },
+              "❌ [SESSION-RESTORE] User from encrypted session not found in database",
+            );
+          }
+
+          clearEncryptedSession();
+          authLogger.info(
+            "🗑️ [SESSION-RESTORE] Cleared invalid encrypted session",
+          );
+        } else {
+          authLogger.info(
+            "ℹ️ [SESSION-RESTORE] No legacy encrypted session found",
+          );
+        }
+
+        authLogger.info(
+          "❌ [SESSION-RESTORE] No valid session found, user needs to login",
+        );
+        return { success: false, error: "No session" };
+      } catch (error) {
+        authLogger.error(
+          { error: error instanceof Error ? error.message : String(error) },
+          "💥 [SESSION-RESTORE] Restore session error",
+        );
+        return { success: false, error: "Failed to restore session" };
       }
-
-      // Restore in-memory session
-      setSession(event.sender.id, user.id, user.role as "admin" | "staff");
-      authLogger.info(
-        { username: user.username, userId: user.id },
-        "Session restored",
-      );
-
-      return {
-        success: true,
-        user: {
-          id: user.id,
-          username: user.username,
-          role: user.role,
-        },
-      };
-    } catch (error) {
-      authLogger.error({ error: error instanceof Error ? error.message : String(error) }, "Restore session error");
-      return { success: false, error: "Failed to restore session" };
-    }
-  });
+    },
+  );
 
   // ---------------------------------------------------------------------------
   // Get Current User Handler
@@ -181,7 +376,13 @@ export function registerAuthHandlers(): void {
       authLogger.debug({ userId, found: !!user }, "Get current user");
       return user || null;
     } catch (error) {
-      authLogger.error({ error: error instanceof Error ? error.message : String(error), userId }, "Get current user error");
+      authLogger.error(
+        {
+          error: error instanceof Error ? error.message : String(error),
+          userId,
+        },
+        "Get current user error",
+      );
       return null;
     }
   });
@@ -246,7 +447,13 @@ export function registerAuthHandlers(): void {
         );
         return { success: result.success, error: result.error };
       } catch (error) {
-        authLogger.error({ error: error instanceof Error ? error.message : String(error), userId: data.id }, "Set password error");
+        authLogger.error(
+          {
+            error: error instanceof Error ? error.message : String(error),
+            userId: data.id,
+          },
+          "Set password error",
+        );
         return {
           success: false,
           error: isAppError(error) ? error.message : "Failed to set password",
@@ -267,7 +474,10 @@ export function registerAuthHandlers(): void {
       const users = authService.getAllUsers();
       return users.filter((u) => u.role !== "admin");
     } catch (error) {
-      authLogger.error({ error: error instanceof Error ? error.message : String(error) }, "List non-admin users error");
+      authLogger.error(
+        { error: error instanceof Error ? error.message : String(error) },
+        "List non-admin users error",
+      );
       return [];
     }
   });
@@ -356,7 +566,10 @@ function logActivity(
       JSON.stringify({ timestamp: new Date().toISOString() }),
     );
   } catch (e) {
-    authLogger.warn({ error: e instanceof Error ? e.message : String(e), action, userId }, "Failed to log activity");
+    authLogger.warn(
+      { error: e instanceof Error ? e.message : String(e), action, userId },
+      "Failed to log activity",
+    );
   }
 }
 

@@ -3,29 +3,32 @@
  * Uses backend services directly (no REST API in Electron mode)
  */
 
-import { app, BrowserWindow, ipcMain } from 'electron';
-import * as path from 'path';
-import { fileURLToPath } from 'url';
-import * as fs from 'fs';
-import os from 'os';
-import crypto from 'crypto';
-import Database from 'better-sqlite3';
+import { app, BrowserWindow, ipcMain } from "electron";
+import * as path from "path";
+import { fileURLToPath } from "url";
+import * as fs from "fs";
+import os from "os";
+import crypto from "crypto";
+import Database from "better-sqlite3";
 import {
   resolveDatabasePath,
   resolveDatabaseKey,
   applySqlCipherKey,
   initDatabase as initCoreDatabase,
-} from '@liratek/core';
+  migrateDrawerNames,
+  migrateCustomerSessions,
+  getSessionRepository,
+} from "@liratek/core";
 
 function loadDotEnvFile(envFilePath: string) {
   if (!fs.existsSync(envFilePath)) return;
 
-  const content = fs.readFileSync(envFilePath, 'utf8');
+  const content = fs.readFileSync(envFilePath, "utf8");
   for (const rawLine of content.split(/\r?\n/)) {
     const line = rawLine.trim();
-    if (!line || line.startsWith('#')) continue;
+    if (!line || line.startsWith("#")) continue;
 
-    const eq = line.indexOf('=');
+    const eq = line.indexOf("=");
     if (eq === -1) continue;
 
     const key = line.slice(0, eq).trim();
@@ -39,7 +42,6 @@ function loadDotEnvFile(envFilePath: string) {
   }
 }
 
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -51,7 +53,7 @@ const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
+  app.on("second-instance", () => {
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.focus();
@@ -64,7 +66,7 @@ function createWindow() {
     width: 1400,
     height: 900,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.cjs'),
+      preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
@@ -79,37 +81,37 @@ function createWindow() {
   // Production: Load from built files
   else {
     // In production builds, frontend should be built under frontend/dist
-    mainWindow.loadFile(path.join(__dirname, '../../frontend/dist/index.html'));
+    mainWindow.loadFile(path.join(__dirname, "../../frontend/dist/index.html"));
   }
 
-  mainWindow.on('closed', () => {
+  mainWindow.on("closed", () => {
     mainWindow = null;
   });
 }
 
 // Load electron-app/.env (repo-local, gitignored)
-loadDotEnvFile(path.join(__dirname, '../.env'));
+loadDotEnvFile(path.join(__dirname, "../.env"));
 
 app.whenReady().then(async () => {
-  console.log('[ELECTRON] App ready, creating window...');
-  
+  console.log("[ELECTRON] App ready, creating window...");
+
   // Initialize database and services
   initializeBackend();
-  
+
   // Register IPC handlers
   await registerHandlers();
-  
+
   createWindow();
 
-  app.on('activate', () => {
+  app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
     }
   });
 });
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
+app.on("window-all-closed", () => {
+  if (process.platform !== "darwin") {
     app.quit();
   }
 });
@@ -126,87 +128,108 @@ function initializeDatabase() {
     `[ELECTRON] DB path resolved: ${dbPath} (source: ${resolved.source})`,
   );
 
-  console.log('[ELECTRON] Database path:', dbPath, `(source: ${resolved.source})`);
-  
+  console.log(
+    "[ELECTRON] Database path:",
+    dbPath,
+    `(source: ${resolved.source})`,
+  );
+
   try {
     db = new Database(dbPath);
 
     // Apply SQLCipher key (if provided) BEFORE any other access
     const keyResult = applySqlCipherKey(db, resolvedKey.key);
 
-    db.pragma('journal_mode = WAL');
-    db.pragma('foreign_keys = ON');
+    db.pragma("journal_mode = WAL");
+    db.pragma("foreign_keys = ON");
 
     console.log(
       `🔐 SQLCipher: keySource=${resolvedKey.source}, applied=${keyResult.applied}, supported=${keyResult.supported}` +
-        (keyResult.error ? `, error=${keyResult.error}` : ''),
+        (keyResult.error ? `, error=${keyResult.error}` : ""),
     );
 
-    if (resolvedKey.source !== 'none' && !keyResult.applied) {
+    if (resolvedKey.source !== "none" && !keyResult.applied) {
       throw new Error(
         keyResult.supported
-          ? `SQLCipher key could not be applied: ${keyResult.error || 'unknown error'}`
-          : `SQLCipher is not supported by this SQLite build. Provide a SQLCipher-enabled build of SQLite/better-sqlite3. (details: ${keyResult.error || 'unknown'})`,
+          ? `SQLCipher key could not be applied: ${keyResult.error || "unknown error"}`
+          : `SQLCipher is not supported by this SQLite build. Provide a SQLCipher-enabled build of SQLite/better-sqlite3. (details: ${keyResult.error || "unknown"})`,
       );
     }
-    
-    // Check if database has schema
-    const tableCheck = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='users'").get();
-    
-    if (!tableCheck) {
-      console.log('[ELECTRON] Database has no schema, initializing from create_db.sql...');
 
-      const schemaPath = path.join(__dirname, '../create_db.sql');
+    // Check if database has schema
+    const tableCheck = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='users'",
+      )
+      .get();
+
+    if (!tableCheck) {
+      console.log(
+        "[ELECTRON] Database has no schema, initializing from create_db.sql...",
+      );
+
+      const schemaPath = path.join(__dirname, "../create_db.sql");
       if (!fs.existsSync(schemaPath)) {
         throw new Error(`Schema file not found at ${schemaPath}`);
       }
 
-      const schema = fs.readFileSync(schemaPath, 'utf8');
+      const schema = fs.readFileSync(schemaPath, "utf8");
       db.exec(schema);
 
       const afterCheck = db
-        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name='users'",
+        )
         .get();
 
       if (!afterCheck) {
-        throw new Error('Database schema initialization failed (users table still missing)');
+        throw new Error(
+          "Database schema initialization failed (users table still missing)",
+        );
       }
 
-      console.log('[ELECTRON] Database schema initialized');
+      console.log("[ELECTRON] Database schema initialized");
     } else {
-      console.log('[ELECTRON] Database schema OK');
+      console.log("[ELECTRON] Database schema OK");
     }
-    
+
     // Ensure default admin user exists for first-run
     try {
       const adminRow = db
-        .prepare("SELECT id, password_hash FROM users WHERE username = 'admin' LIMIT 1")
+        .prepare(
+          "SELECT id, password_hash FROM users WHERE username = 'admin' LIMIT 1",
+        )
         .get() as { id?: number; password_hash?: string } | undefined;
 
       if (!adminRow) {
-        console.log('[ELECTRON] Seeding default admin user...');
-        const salt = crypto.randomBytes(16).toString('hex');
-        const hash = crypto.scryptSync('admin123', Buffer.from(salt, 'hex'), 64).toString('hex');
+        console.log("[ELECTRON] Seeding default admin user...");
+        const salt = crypto.randomBytes(16).toString("hex");
+        const hash = crypto
+          .scryptSync("admin123", Buffer.from(salt, "hex"), 64)
+          .toString("hex");
         const passwordHash = `SCRYPT:${salt}:${hash}`;
 
         db.prepare(
           "INSERT INTO users (username, password_hash, role, is_active) VALUES (?, ?, 'admin', 1)",
-        ).run('admin', passwordHash);
+        ).run("admin", passwordHash);
 
-        console.log('[ELECTRON] Default admin user created (admin/admin123)');
+        console.log("[ELECTRON] Default admin user created (admin/admin123)");
       }
     } catch (e) {
       // Don't block app startup on seeding issues
-      console.warn('[ELECTRON] Admin seed warning', e);
+      console.warn("[ELECTRON] Admin seed warning", e);
     }
 
     // Initialize @liratek/core database singleton
     initCoreDatabase(db);
-    
-    console.log('[ELECTRON] Database connected successfully');
+    // Apply idempotent migrations
+    migrateDrawerNames(db);
+    migrateCustomerSessions(db);
+
+    console.log("[ELECTRON] Database connected successfully");
     return db;
   } catch (error) {
-    console.error('[ELECTRON] Database connection failed:', error);
+    console.error("[ELECTRON] Database connection failed:", error);
     throw error;
   }
 }
@@ -216,15 +239,15 @@ function initializeDatabase() {
  * Services are imported from copied electron/services folder
  */
 function initializeBackend() {
-  console.log('[ELECTRON] Initializing backend services...');
-  
+  console.log("[ELECTRON] Initializing backend services...");
+
   // Initialize database
   initializeDatabase();
-  
+
   // Services are initialized on-demand by handlers
   // Each service gets the db instance when needed
-  
-  console.log('[ELECTRON] Backend services initialized');
+
+  console.log("[ELECTRON] Backend services initialized");
 }
 
 /**
@@ -233,7 +256,7 @@ function initializeBackend() {
  */
 export function getDb(): Database.Database {
   if (!db) {
-    throw new Error('Database not initialized');
+    throw new Error("Database not initialized");
   }
   return db;
 }
@@ -243,27 +266,29 @@ export function getDb(): Database.Database {
  * These connect the frontend (renderer) to backend services
  */
 async function registerHandlers() {
-  console.log('[ELECTRON] Registering IPC handlers...');
-  
+  console.log("[ELECTRON] Registering IPC handlers...");
+
   try {
     // Import and register all handlers
-    const authHandlers = await import('./handlers/authHandlers.js');
-    const clientHandlers = await import('./handlers/clientHandlers.js');
-    const currencyHandlers = await import('./handlers/currencyHandlers.js');
-    const dbHandlers = await import('./handlers/dbHandlers.js');
-    const debtHandlers = await import('./handlers/debtHandlers.js');
-    const exchangeHandlers = await import('./handlers/exchangeHandlers.js');
-    const financialHandlers = await import('./handlers/financialHandlers.js');
-    const inventoryHandlers = await import('./handlers/inventoryHandlers.js');
-    const maintenanceHandlers = await import('./handlers/maintenanceHandlers.js');
-    const omtHandlers = await import('./handlers/omtHandlers.js');
-    const rateHandlers = await import('./handlers/rateHandlers.js');
-    const rechargeHandlers = await import('./handlers/rechargeHandlers.js');
-    const reportHandlers = await import('./handlers/reportHandlers.js');
-    const salesHandlers = await import('./handlers/salesHandlers.js');
-    const supplierHandlers = await import('./handlers/supplierHandlers.js');
-    const updaterHandlers = await import('./handlers/updaterHandlers.js');
-    
+    const authHandlers = await import("./handlers/authHandlers.js");
+    const clientHandlers = await import("./handlers/clientHandlers.js");
+    const currencyHandlers = await import("./handlers/currencyHandlers.js");
+    const dbHandlers = await import("./handlers/dbHandlers.js");
+    const debtHandlers = await import("./handlers/debtHandlers.js");
+    const exchangeHandlers = await import("./handlers/exchangeHandlers.js");
+    const financialHandlers = await import("./handlers/financialHandlers.js");
+    const inventoryHandlers = await import("./handlers/inventoryHandlers.js");
+    const maintenanceHandlers =
+      await import("./handlers/maintenanceHandlers.js");
+    const omtHandlers = await import("./handlers/omtHandlers.js");
+    const rateHandlers = await import("./handlers/rateHandlers.js");
+    const rechargeHandlers = await import("./handlers/rechargeHandlers.js");
+    const reportHandlers = await import("./handlers/reportHandlers.js");
+    const salesHandlers = await import("./handlers/salesHandlers.js");
+    const supplierHandlers = await import("./handlers/supplierHandlers.js");
+    const updaterHandlers = await import("./handlers/updaterHandlers.js");
+    const sessionHandlers = await import("./handlers/sessionHandlers.js");
+
     // Register all handlers (they auto-register with ipcMain)
     authHandlers.registerAuthHandlers();
     clientHandlers.registerClientHandlers();
@@ -281,10 +306,54 @@ async function registerHandlers() {
     salesHandlers.registerSalesHandlers();
     supplierHandlers.registerSupplierHandlers();
     updaterHandlers.registerUpdaterHandlers();
-    
-    console.log('[ELECTRON] All IPC handlers registered');
+    sessionHandlers.registerSessionHandlers();
+
+    console.log("[ELECTRON] All IPC handlers registered");
+
+    // Start periodic session cleanup
+    startSessionCleanup();
   } catch (error) {
-    console.error('[ELECTRON] Failed to register handlers:', error);
+    console.error("[ELECTRON] Failed to register handlers:", error);
     throw error;
   }
+}
+
+/**
+ * Start periodic session cleanup
+ * Runs every 5 minutes to clean up expired and inactive sessions
+ */
+function startSessionCleanup() {
+  const CLEANUP_INTERVAL = 5 * 60 * 1000; // 5 minutes
+
+  const cleanupSessions = () => {
+    try {
+      const sessionRepo = getSessionRepository();
+
+      // Delete expired sessions (past expires_at)
+      const expiredCount = sessionRepo.deleteExpiredSessions();
+
+      // Delete inactive short sessions (30+ min of inactivity)
+      const inactiveCount = sessionRepo.deleteInactiveSessions();
+
+      const totalCleaned = expiredCount + inactiveCount;
+
+      if (totalCleaned > 0) {
+        console.log(
+          `[SESSION-CLEANUP] Cleaned up ${totalCleaned} sessions (${expiredCount} expired, ${inactiveCount} inactive)`,
+        );
+      }
+    } catch (error) {
+      console.error("[SESSION-CLEANUP] Error during session cleanup:", error);
+    }
+  };
+
+  // Run cleanup immediately on startup
+  cleanupSessions();
+
+  // Then run every 5 minutes
+  setInterval(cleanupSessions, CLEANUP_INTERVAL);
+
+  console.log(
+    "[SESSION-CLEANUP] Periodic session cleanup started (every 5 minutes)",
+  );
 }

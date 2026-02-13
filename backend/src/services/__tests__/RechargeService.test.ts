@@ -2,7 +2,7 @@
  * RechargeService Unit Tests
  */
 
-import { jest } from '@jest/globals';
+import { jest } from "@jest/globals";
 import {
   RechargeService,
   getRechargeService,

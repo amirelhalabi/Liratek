@@ -114,34 +114,45 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
 
         // Decrease drawer for PAYMENT, Increase for TOP_UP (refund style), or Adjustment
         // Logic: Debt is liability. Payment reduces liability and reduces asset (Cash).
-        // TOP_UP increases liability and (theoretically) increases asset if we got stock? 
+        // TOP_UP increases liability and (theoretically) increases asset if we got stock?
         // Usually, payments are the ones affecting cash.
         if (data.entry_type === "PAYMENT") {
-          if (data.amount_usd) upsertBalanceDelta.run(data.drawer_name, "USD", -data.amount_usd);
-          if (data.amount_lbp) upsertBalanceDelta.run(data.drawer_name, "LBP", -data.amount_lbp);
+          if (data.amount_usd)
+            upsertBalanceDelta.run(data.drawer_name, "USD", -data.amount_usd);
+          if (data.amount_lbp)
+            upsertBalanceDelta.run(data.drawer_name, "LBP", -data.amount_lbp);
 
           // Log to payments table
-          this.db.prepare(`
+          this.db
+            .prepare(
+              `
             INSERT INTO payments (source_type, source_id, method, drawer_name, currency_code, amount, note, created_by)
             VALUES ('SUPPLIER_PAYMENT', ?, 'CASH', ?, ?, ?, ?, ?)
-          `).run(
-            entryId,
-            data.drawer_name,
-            data.amount_usd ? "USD" : "LBP",
-            -(data.amount_usd || data.amount_lbp),
-            data.note || `Supplier Payment: ${data.supplier_id}`,
-            data.created_by || 1
-          );
+          `,
+            )
+            .run(
+              entryId,
+              data.drawer_name,
+              data.amount_usd ? "USD" : "LBP",
+              -(data.amount_usd || data.amount_lbp),
+              data.note || `Supplier Payment: ${data.supplier_id}`,
+              data.created_by || 1,
+            );
         }
       }
 
       return { id: entryId };
     } catch (e) {
-      throw new DatabaseError("Failed to add supplier ledger entry", { cause: e });
+      throw new DatabaseError("Failed to add supplier ledger entry", {
+        cause: e,
+      });
     }
   }
 
-  getSupplierLedger(supplierId: number, limit = 200): SupplierLedgerEntryEntity[] {
+  getSupplierLedger(
+    supplierId: number,
+    limit = 200,
+  ): SupplierLedgerEntryEntity[] {
     try {
       return this.query<SupplierLedgerEntryEntity>(
         `SELECT * FROM supplier_ledger WHERE supplier_id = ? ORDER BY created_at DESC LIMIT ?`,
@@ -177,7 +188,8 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
 
 let supplierRepositoryInstance: SupplierRepository | null = null;
 export function getSupplierRepository(): SupplierRepository {
-  if (!supplierRepositoryInstance) supplierRepositoryInstance = new SupplierRepository();
+  if (!supplierRepositoryInstance)
+    supplierRepositoryInstance = new SupplierRepository();
   return supplierRepositoryInstance;
 }
 export function resetSupplierRepository(): void {

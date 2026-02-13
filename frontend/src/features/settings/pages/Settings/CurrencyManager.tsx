@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import * as api from "../../../../api/backendApi";
 
 export default function CurrencyManager() {
   const [list, setList] = useState<
@@ -11,7 +12,7 @@ export default function CurrencyManager() {
   const load = async () => {
     setLoading(true);
     try {
-      const rows = await window.api.currencies.list();
+      const rows = await api.getCurrencies();
       setList(rows);
     } finally {
       setLoading(false);
@@ -24,7 +25,7 @@ export default function CurrencyManager() {
 
   const handleAdd = async () => {
     if (!code || !name) return;
-    const res = await window.api.currencies.create(code, name);
+    const res = await api.createCurrency(code, name);
     if (res.success) {
       setCode("");
       setName("");
@@ -35,13 +36,13 @@ export default function CurrencyManager() {
   };
 
   const handleToggle = async (id: number, active: number) => {
-    await window.api.currencies.update({ id, is_active: active ? 0 : 1 });
+    await api.updateCurrency(id, { is_active: active ? 0 : 1 });
     load();
   };
 
   const handleDelete = async (id: number) => {
     if (!confirm("Delete currency?")) return;
-    const res = await window.api.currencies.delete(id);
+    const res = await api.deleteCurrency(id);
     if (!res.success) alert(res.error);
     load();
   };

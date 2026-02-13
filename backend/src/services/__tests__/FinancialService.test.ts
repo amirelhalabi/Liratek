@@ -2,7 +2,7 @@
  * FinancialService Unit Tests
  */
 
-import { jest } from '@jest/globals';
+import { jest } from "@jest/globals";
 import {
   FinancialService,
   getFinancialService,

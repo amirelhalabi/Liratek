@@ -37,6 +37,7 @@ export interface DrawerBalances {
 export interface SystemExpectedBalances {
   generalDrawer: DrawerBalances;
   omtDrawer: DrawerBalances;
+  omtAppDrawer: DrawerBalances;
   whishDrawer: DrawerBalances;
   binanceDrawer: DrawerBalances;
   mtcDrawer: DrawerBalances;
@@ -297,10 +298,31 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
     };
 
     return {
-      generalDrawer: { usd: getBalance("General", "USD"), lbp: getBalance("General", "LBP"), eur: 0 },
-      omtDrawer: { usd: getBalance("OMT", "USD"), lbp: getBalance("OMT", "LBP"), eur: 0 },
-      whishDrawer: { usd: getBalance("Whish", "USD"), lbp: getBalance("Whish", "LBP"), eur: 0 },
-      binanceDrawer: { usd: getBalance("Binance", "USD"), lbp: getBalance("Binance", "LBP"), eur: 0 },
+      generalDrawer: {
+        usd: getBalance("General", "USD"),
+        lbp: getBalance("General", "LBP"),
+        eur: 0,
+      },
+      omtDrawer: {
+        usd: getBalance("OMT_System", "USD"),
+        lbp: getBalance("OMT_System", "LBP"),
+        eur: 0,
+      },
+      omtAppDrawer: {
+        usd: getBalance("OMT_App", "USD"),
+        lbp: getBalance("OMT_App", "LBP"),
+        eur: 0,
+      },
+      whishDrawer: {
+        usd: getBalance("Whish_App", "USD"),
+        lbp: getBalance("Whish_App", "LBP"),
+        eur: 0,
+      },
+      binanceDrawer: {
+        usd: getBalance("Binance", "USD"),
+        lbp: getBalance("Binance", "LBP"),
+        eur: 0,
+      },
       mtcDrawer: { usd: getBalance("MTC", "USD"), lbp: 0, eur: 0 },
       alfaDrawer: { usd: getBalance("Alfa", "USD"), lbp: 0, eur: 0 },
     };
