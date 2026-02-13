@@ -12,9 +12,21 @@
  */
 
 import { UserRepository, getUserRepository } from "../repositories/index.js";
-import { SessionRepository, getSessionRepository } from "../repositories/index.js";
-import type { SafeUser, CreateUserData, SessionEntity, CreateSessionData } from "../repositories/index.js";
-import { validatePasswordComplexity, hashPassword, verifyPassword } from "../utils/crypto.js";
+import {
+  SessionRepository,
+  getSessionRepository,
+} from "../repositories/index.js";
+import type {
+  SafeUser,
+  CreateUserData,
+  SessionEntity,
+  CreateSessionData,
+} from "../repositories/index.js";
+import {
+  validatePasswordComplexity,
+  hashPassword,
+  verifyPassword,
+} from "../utils/crypto.js";
 import {
   AuthenticationError,
   AuthorizationError,
@@ -74,9 +86,9 @@ export class AuthService {
    * Creates a session in the database upon successful login
    */
   async login(
-    username: string, 
+    username: string,
     password: string,
-    options: LoginOptions = {}
+    options: LoginOptions = {},
   ): Promise<LoginResult> {
     try {
       const user = this.userRepo.findByUsername(username);
@@ -102,9 +114,9 @@ export class AuthService {
 
       // Create safe user object (without password)
       const { password_hash, ...safeUser } = user;
-      
-      return { 
-        success: true, 
+
+      return {
+        success: true,
         user: safeUser as SafeUser,
         token: session.token,
       };

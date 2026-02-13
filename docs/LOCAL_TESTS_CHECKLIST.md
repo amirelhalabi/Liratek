@@ -8,10 +8,12 @@
 ## 🎯 Testing Approach
 
 ### Test Environments:
+
 - **Desktop Mode:** Electron app (`npm run dev`)
 - **Web Mode:** Browser + Backend server (`npm run dev:web`)
 
 ### Coverage:
+
 - ✅ All migrated features (59 API calls across 23 files)
 - ✅ Real-time updates (WebSocket)
 - ✅ Electron-only features (Desktop only)
@@ -21,6 +23,7 @@
 ## 🔐 1. Authentication & Session Management
 
 ### Desktop Mode:
+
 - [ ] Login with valid credentials
   - [ ] Session persists after app restart (restoreSession)
   - [ ] "Remember Me" functionality works
@@ -30,6 +33,7 @@
 - [ ] Opening balance prompt shows after first login
 
 ### Web Mode:
+
 - [ ] Login with valid credentials
   - [ ] Session cookie/token works
   - [ ] "Remember Me" functionality works
@@ -45,6 +49,7 @@
 ## 📊 2. Dashboard
 
 ### Desktop Mode:
+
 - [ ] Dashboard loads without errors
 - [ ] All statistics display correctly:
   - [ ] Today's sales total
@@ -55,6 +60,7 @@
 - [ ] Real-time updates when sale is processed
 
 ### Web Mode:
+
 - [ ] Dashboard loads without errors
 - [ ] All statistics display correctly
 - [ ] Real-time updates via WebSocket when sale is processed
@@ -66,6 +72,7 @@
 ## 💰 3. Sales / POS
 
 ### Desktop Mode:
+
 - [ ] Product search works
 - [ ] Add products to cart
 - [ ] Checkout modal opens
@@ -78,6 +85,7 @@
 - [ ] Drafts list loads
 
 ### Web Mode:
+
 - [ ] Product search works (via `/api/inventory/products`)
 - [ ] Add products to cart
 - [ ] Checkout modal opens
@@ -92,6 +100,7 @@
 ## 👥 4. Clients Management
 
 ### Desktop Mode:
+
 - [ ] Client list loads
 - [ ] Search clients by name/phone
 - [ ] Create new client
@@ -100,6 +109,7 @@
 - [ ] View client details
 
 ### Web Mode:
+
 - [ ] Client list loads (via `/api/clients`)
 - [ ] Search functionality works
 - [ ] Create new client (via POST `/api/clients`)
@@ -112,6 +122,7 @@
 ## 📦 5. Inventory Management
 
 ### Desktop Mode:
+
 - [ ] Product list loads with search
 - [ ] Create new product
 - [ ] Edit product (including category via Select component)
@@ -120,6 +131,7 @@
 - [ ] Low stock warnings (if configured)
 
 ### Web Mode:
+
 - [ ] Product list loads (via `/api/inventory/products`)
 - [ ] Search works with debounce
 - [ ] Create product (via POST `/api/inventory/products`)
@@ -132,6 +144,7 @@
 ## 💸 6. Expenses
 
 ### Desktop Mode:
+
 - [ ] Today's expenses load
 - [ ] Category selector works (via Select component)
 - [ ] Type selector (Cash Out / Non-Cash) works
@@ -141,6 +154,7 @@
 - [ ] Expenses display with correct totals
 
 ### Web Mode:
+
 - [ ] Expenses load (via `/api/expenses/today`)
 - [ ] All Select components work properly
 - [ ] Add expense (via POST `/api/expenses`)
@@ -152,6 +166,7 @@
 ## 💱 7. Exchange
 
 ### Desktop Mode:
+
 - [ ] Currency list loads
 - [ ] Exchange rates load
 - [ ] From/To currency selection works
@@ -161,6 +176,7 @@
 - [ ] Transaction history displays
 
 ### Web Mode:
+
 - [ ] Currencies load (via `/api/currencies`)
 - [ ] Rates load (via `/api/rates`)
 - [ ] Currency Select components work
@@ -173,6 +189,7 @@
 ## 📱 8. Recharge
 
 ### Desktop Mode:
+
 - [ ] Provider selection (MTC/Alfa)
 - [ ] Recharge type selection
 - [ ] Stock levels display
@@ -181,6 +198,7 @@
 - [ ] Stock updates after transaction
 
 ### Web Mode:
+
 - [ ] Stock loads (via `/api/recharge/stock`)
 - [ ] Paid By Select component works
 - [ ] Process recharge (via POST `/api/recharge/process`)
@@ -191,19 +209,21 @@
 ## 💳 9. Debts Management
 
 ### Desktop Mode:
+
 - [ ] Debtors list loads
 - [ ] Filter: Ongoing/Closed/All (Select component works)
 - [ ] Client debt history displays
 - [ ] Eye icon opens sale details modal
   - [ ] Sale info displays correctly
   - [ ] Items list shows products with prices
-  - [ ] Amounts display: paid_usd, paid_lbp (not payment_*)
+  - [ ] Amounts display: paid*usd, paid_lbp (not payment*\*)
   - [ ] LBP shows "-" when 0
   - [ ] USD shows "-" when 0
 - [ ] Add repayment
 - [ ] Mark debt as closed
 
 ### Web Mode:
+
 - [ ] Debtors load (via `/api/debts/debtors`)
 - [ ] Filter Select component works
 - [ ] Client debt history loads (via `/api/debts/:clientId/history`)
@@ -216,6 +236,7 @@
 ## 🔒 10. Closing / Opening
 
 ### Desktop Mode:
+
 - [ ] Opening modal shows on first login
 - [ ] All drawer amounts can be entered
 - [ ] Currency amounts for each drawer
@@ -226,6 +247,7 @@
 - [ ] Closing report generates (PDF)
 
 ### Web Mode:
+
 - [ ] Opening modal works (via POST `/api/closing/opening-balances`)
 - [ ] Closing process works (via POST `/api/closing/daily-closing`)
 - [ ] System expected balances load (via `/api/closing/system-expected-balances`)
@@ -238,25 +260,23 @@
 ## ⚙️ 11. Settings
 
 ### Desktop Mode:
+
 - [ ] **Currency Manager**
   - [ ] List currencies
   - [ ] Add new currency
   - [ ] Toggle active/inactive
   - [ ] Delete currency
-  
 - [ ] **Notifications Config**
   - [ ] Settings load
   - [ ] Update poll interval
   - [ ] Toggle low stock warnings
   - [ ] Toggle drawer limit warnings
   - [ ] Auto-backup settings
-  
 - [ ] **Drawer Config**
   - [ ] Load drawer limits
   - [ ] Update General drawer limit
   - [ ] Update OMT drawer limit
   - [ ] Update variance threshold
-  
 - [ ] **Supplier Ledger**
   - [ ] Suppliers list loads
   - [ ] Supplier balances display
@@ -264,23 +284,21 @@
   - [ ] Create new supplier
   - [ ] Add ledger entry (TOP_UP/PAYMENT/ADJUSTMENT)
   - [ ] Drawer selection works (if withdrawing)
-  
 - [ ] **Users Manager**
   - [ ] Non-admin users list
   - [ ] Create new user with role Select
   - [ ] Toggle user active/inactive
   - [ ] Change user role
   - [ ] Set user password
-  
 - [ ] **Rates Manager**
   - [ ] Rates list loads
   - [ ] Set/update exchange rate
-  
 - [ ] **Activity Log Viewer**
   - [ ] Recent activity loads with limit
   - [ ] Activity displays correctly
 
 ### Web Mode:
+
 - [ ] **All Settings pages work via:**
   - Currencies: `/api/currencies/*`
   - Settings: `/api/settings/*`
@@ -297,6 +315,7 @@
 ## 🎨 12. UI Components (Both Modes)
 
 ### Custom Select Component (Headless UI):
+
 - [ ] Dropdown opens on click
 - [ ] Dropdown list perfectly aligns with button (no offset to left)
 - [ ] Selected item shows checkmark
@@ -312,6 +331,7 @@
   - [ ] Settings pages (multiple)
 
 ### Notifications:
+
 - [ ] Top bar notifications display
 - [ ] Low stock warnings
 - [ ] Drawer limit warnings
@@ -322,9 +342,11 @@
 ## 🔄 13. Real-Time Updates (WebSocket)
 
 ### Desktop Mode:
+
 - [ ] Not applicable (uses Electron IPC events)
 
 ### Web Mode:
+
 - [ ] WebSocket connects on login
   - Check browser console for: `socket.io connection established`
 - [ ] WebSocket disconnects on logout
@@ -335,6 +357,7 @@
 - [ ] No WebSocket errors in console
 
 **How to Test:**
+
 1. Open two browser windows
 2. Window 1: Dashboard
 3. Window 2: POS - Process a sale
@@ -347,12 +370,14 @@
 These should NOT work in web mode:
 
 ### Updates Panel (Settings > Updates):
+
 - [ ] Check for updates button
 - [ ] Download update
 - [ ] Install update
 - [ ] Update status displays
 
 ### Diagnostics (Settings > Diagnostics):
+
 - [ ] Database backup
 - [ ] Database restore
 - [ ] View backups list
@@ -366,11 +391,13 @@ These should NOT work in web mode:
 ## 🐛 15. Error Handling
 
 ### Desktop Mode:
+
 - [ ] Network errors show user-friendly messages
 - [ ] Invalid input validation
 - [ ] Electron IPC errors handled
 
 ### Web Mode:
+
 - [ ] 401 Unauthorized redirects to login
 - [ ] 404 Not Found shows appropriate error
 - [ ] 500 Server Error shows error message
@@ -382,12 +409,14 @@ These should NOT work in web mode:
 ## 🔍 16. Console & Network Inspection
 
 ### Desktop Mode:
+
 - [ ] Open DevTools (Ctrl+Shift+I / Cmd+Opt+I)
 - [ ] No console errors during normal operation
 - [ ] No uncaught promise rejections
 - [ ] Electron IPC messages working
 
 ### Web Mode:
+
 - [ ] Open browser DevTools
 - [ ] Network tab shows:
   - [ ] API calls to correct endpoints
@@ -405,6 +434,7 @@ These should NOT work in web mode:
 ## 📈 17. Performance
 
 ### Both Modes:
+
 - [ ] Pages load within 2 seconds
 - [ ] Search has debounce (not instant)
 - [ ] Large lists paginate or virtualize
@@ -416,12 +446,14 @@ These should NOT work in web mode:
 ## ✅ 18. Final Verification
 
 ### Desktop Mode Checklist:
+
 - [ ] All features work
 - [ ] Electron-specific features work
 - [ ] No regressions from migration
 - [ ] App feels responsive
 
 ### Web Mode Checklist:
+
 - [ ] Login/logout works
 - [ ] All migrated features work (59 API calls)
 - [ ] WebSocket real-time updates work
@@ -430,6 +462,7 @@ These should NOT work in web mode:
 - [ ] Electron-only features gracefully disabled
 
 ### Both Modes:
+
 - [ ] Build succeeds (`npm run build`)
 - [ ] Tests pass (`npm test`)
 - [ ] No TypeScript errors
@@ -451,17 +484,17 @@ These should NOT work in web mode:
 
 ## 📝 Test Results Log
 
-**Tester:** _________________  
-**Date:** _________________  
+**Tester:** ********\_********  
+**Date:** ********\_********  
 **Mode Tested:** Desktop / Web (circle one)
 
 ### Issues Found:
 
 | Issue # | Severity | Description | Status |
-|---------|----------|-------------|--------|
-| 1 | | | |
-| 2 | | | |
-| 3 | | | |
+| ------- | -------- | ----------- | ------ |
+| 1       |          |             |        |
+| 2       |          |             |        |
+| 3       |          |             |        |
 
 ### Overall Status:
 

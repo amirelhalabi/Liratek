@@ -166,9 +166,7 @@ export interface ElectronAPI {
     }>
   >;
   getDrafts: () => Promise<
-    Array<
-      import("@liratek/core").SaleRequest & { id: number; status: "draft" }
-    >
+    Array<import("@liratek/core").SaleRequest & { id: number; status: "draft" }>
   >;
   getTopProducts: () => Promise<
     { name: string; total_quantity: number; total_revenue: number }[]
@@ -334,7 +332,10 @@ export interface ElectronAPI {
   getSupplierBalances: () => Promise<
     Array<{ supplier_id: number; total_usd: number; total_lbp: number }>
   >;
-  getSupplierLedger: (supplierId: number, limit?: number) => Promise<
+  getSupplierLedger: (
+    supplierId: number,
+    limit?: number,
+  ) => Promise<
     Array<{
       id: number;
       supplier_id: number;
@@ -414,9 +415,21 @@ export interface ElectronAPI {
 
   // Diagnostics
   updater: {
-    getStatus: () => Promise<{ packaged: boolean; platform: string; version: string }>;
-    check: () => Promise<{ success: boolean; updateInfo?: unknown; error?: string }>;
-    download: () => Promise<{ success: boolean; result?: unknown; error?: string }>;
+    getStatus: () => Promise<{
+      packaged: boolean;
+      platform: string;
+      version: string;
+    }>;
+    check: () => Promise<{
+      success: boolean;
+      updateInfo?: unknown;
+      error?: string;
+    }>;
+    download: () => Promise<{
+      success: boolean;
+      result?: unknown;
+      error?: string;
+    }>;
     quitAndInstall: () => Promise<{ success: boolean; error?: string }>;
   };
 
@@ -452,7 +465,9 @@ export interface ElectronAPI {
       ok?: boolean;
       error?: string;
     }>;
-    restoreDatabase: (path: string) => Promise<{ success: boolean; error?: string }>;
+    restoreDatabase: (
+      path: string,
+    ) => Promise<{ success: boolean; error?: string }>;
   };
 
   // Closing
@@ -543,13 +558,22 @@ export interface ElectronAPI {
       transactions?: any[];
       error?: string;
     }>;
-    update: (sessionId: number, data: {
-      customer_name?: string;
-      customer_phone?: string;
-      customer_notes?: string;
-    }) => Promise<{ success: boolean; error?: string }>;
-    close: (sessionId: number, closedBy: string) => Promise<{ success: boolean; error?: string }>;
-    list: (limit: number, offset: number) => Promise<{
+    update: (
+      sessionId: number,
+      data: {
+        customer_name?: string;
+        customer_phone?: string;
+        customer_notes?: string;
+      },
+    ) => Promise<{ success: boolean; error?: string }>;
+    close: (
+      sessionId: number,
+      closedBy: string,
+    ) => Promise<{ success: boolean; error?: string }>;
+    list: (
+      limit: number,
+      offset: number,
+    ) => Promise<{
       success: boolean;
       sessions?: any[];
       error?: string;

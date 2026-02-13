@@ -17,13 +17,10 @@ export default function ProductForm({
 }: ProductFormProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
-  const [duplicateInfo, setDuplicateInfo] = useState<
-    | null
-    | {
-        attempted: string;
-        suggested: string;
-      }
-  >(null);
+  const [duplicateInfo, setDuplicateInfo] = useState<null | {
+    attempted: string;
+    suggested: string;
+  }>(null);
   const [formData, setFormData] = useState({
     barcode: "",
     name: "",
@@ -123,10 +120,13 @@ export default function ProductForm({
                 Duplicate Barcode Detected
               </div>
               <div className="text-slate-300">
-                The barcode <span className="font-mono">{duplicateInfo.attempted}</span> already exists.
+                The barcode{" "}
+                <span className="font-mono">{duplicateInfo.attempted}</span>{" "}
+                already exists.
               </div>
               <div className="text-slate-400 mt-1">
-                Suggested: <span className="font-mono">{duplicateInfo.suggested}</span>
+                Suggested:{" "}
+                <span className="font-mono">{duplicateInfo.suggested}</span>
               </div>
               <div className="mt-3 flex gap-2">
                 <button
@@ -192,7 +192,9 @@ export default function ProductForm({
               </label>
               <Select
                 value={formData.category}
-                onChange={(value) => handleChange({ target: { name: 'category', value } } as any)}
+                onChange={(value) =>
+                  handleChange({ target: { name: "category", value } } as any)
+                }
                 options={[
                   { value: "Accessories", label: "Accessories" },
                   { value: "Phones", label: "Phones" },

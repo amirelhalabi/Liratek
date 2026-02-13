@@ -70,10 +70,12 @@ export default function POS() {
       const existing = prev.find((p) => p.id === product.id);
       if (existing) {
         return prev.map((p) =>
-          p.id === product.id ? ({ ...p, quantity: (p.quantity || 0) + 1 } as any) : p,
+          p.id === product.id
+            ? ({ ...p, quantity: (p.quantity || 0) + 1 } as any)
+            : p,
         ) as any;
       }
-      return ([...prev, ({ ...product, quantity: 1 } as any)] as any);
+      return [...prev, { ...product, quantity: 1 } as any] as any;
     });
   };
 
@@ -158,11 +160,11 @@ export default function POS() {
     setCheckoutDraftData({
       selectedClient: (draft.client_id
         ? {
-          id: draft.client_id,
-          full_name: draft.client_name || "",
-          phone_number: draft.client_phone || "",
-          whatsapp_opt_in: 0,
-        }
+            id: draft.client_id,
+            full_name: draft.client_name || "",
+            phone_number: draft.client_phone || "",
+            whatsapp_opt_in: 0,
+          }
         : null) as any,
       clientSearchInput: draft.client_name || "",
       clientSearchSecondary: draft.client_phone || "",
@@ -199,13 +201,13 @@ export default function POS() {
         if (activeSession && result.saleId) {
           try {
             await linkTransaction({
-              transactionType: 'sale',
+              transactionType: "sale",
               transactionId: result.saleId,
               amountUsd: saleRequest.final_amount || 0,
               amountLbp: 0, // Sales are tracked in USD
             });
           } catch (err) {
-            console.error('Failed to link sale to session:', err);
+            console.error("Failed to link sale to session:", err);
             // Don't block the sale completion
           }
         }
@@ -229,7 +231,7 @@ export default function POS() {
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       <PageHeader icon={ShoppingCart} title="Point of Sale" />
-      
+
       <div className="flex h-full min-h-0 gap-4 overflow-hidden relative">
         {/* Left: Product Selection */}
         <div className="flex-1 min-w-0">

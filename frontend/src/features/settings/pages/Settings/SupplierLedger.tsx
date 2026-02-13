@@ -12,7 +12,11 @@ type Supplier = {
   created_at: string;
 };
 
-type SupplierBalance = { supplier_id: number; total_usd: number; total_lbp: number };
+type SupplierBalance = {
+  supplier_id: number;
+  total_usd: number;
+  total_lbp: number;
+};
 
 type LedgerEntry = {
   id: number;
@@ -28,14 +32,16 @@ type LedgerEntry = {
 export default function SupplierLedger() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [balances, setBalances] = useState<SupplierBalance[]>([]);
-  const [selectedSupplierId, setSelectedSupplierId] = useState<number | null>(null);
+  const [selectedSupplierId, setSelectedSupplierId] = useState<number | null>(
+    null,
+  );
   const [ledger, setLedger] = useState<LedgerEntry[]>([]);
 
   const [newSupplierName, setNewSupplierName] = useState("");
 
-  const [entryType, setEntryType] = useState<"TOP_UP" | "PAYMENT" | "ADJUSTMENT">(
-    "TOP_UP",
-  );
+  const [entryType, setEntryType] = useState<
+    "TOP_UP" | "PAYMENT" | "ADJUSTMENT"
+  >("TOP_UP");
   const [amountUSD, setAmountUSD] = useState<number>(0);
   const [amountLBP, setAmountLBP] = useState<number>(0);
   const [note, setNote] = useState<string>("");
@@ -158,17 +164,17 @@ export default function SupplierLedger() {
                 <button
                   key={s.id}
                   onClick={() => setSelectedSupplierId(s.id)}
-                  className={`w-full text-left p-3 rounded-lg transition-colors ${active ? "bg-slate-800" : "hover:bg-slate-800/50"
-                    }`}
+                  className={`w-full text-left p-3 rounded-lg transition-colors ${
+                    active ? "bg-slate-800" : "hover:bg-slate-800/50"
+                  }`}
                 >
                   <div className="flex items-center justify-between">
                     <div className="font-semibold text-white">{s.name}</div>
                     <div className="text-xs text-slate-400">ID: {s.id}</div>
                   </div>
                   <div className="mt-1 text-xs text-slate-400 font-mono">
-                    Owed: ${Number(b?.total_usd || 0).toFixed(2)} | {Number(
-                      b?.total_lbp || 0,
-                    ).toLocaleString()} LBP
+                    Owed: ${Number(b?.total_usd || 0).toFixed(2)} |{" "}
+                    {Number(b?.total_lbp || 0).toLocaleString()} LBP
                   </div>
                 </button>
               );
@@ -184,12 +190,16 @@ export default function SupplierLedger() {
         {/* Right: Ledger + add entry */}
         <div className="col-span-7 bg-slate-900 border border-slate-700 rounded-xl p-4">
           {!selectedSupplier ? (
-            <div className="text-slate-400 text-sm">Select a supplier to view ledger.</div>
+            <div className="text-slate-400 text-sm">
+              Select a supplier to view ledger.
+            </div>
           ) : (
             <>
               <div className="flex items-center justify-between mb-4">
                 <div>
-                  <div className="text-white font-bold text-lg">{selectedSupplier.name}</div>
+                  <div className="text-white font-bold text-lg">
+                    {selectedSupplier.name}
+                  </div>
                   <div className="text-xs text-slate-400">
                     Add TOP_UP to increase debt, PAYMENT to decrease debt.
                   </div>
@@ -204,10 +214,14 @@ export default function SupplierLedger() {
 
               <div className="grid grid-cols-12 gap-3 mb-4">
                 <div className="col-span-3">
-                  <label className="block text-xs text-slate-400 mb-1">Entry Type</label>
+                  <label className="block text-xs text-slate-400 mb-1">
+                    Entry Type
+                  </label>
                   <Select
                     value={entryType}
-                    onChange={(value) => setEntryType(value as "TOP_UP" | "PAYMENT" | "ADJUSTMENT")}
+                    onChange={(value) =>
+                      setEntryType(value as "TOP_UP" | "PAYMENT" | "ADJUSTMENT")
+                    }
                     options={[
                       { value: "TOP_UP", label: "TOP_UP" },
                       { value: "PAYMENT", label: "PAYMENT" },
@@ -218,27 +232,37 @@ export default function SupplierLedger() {
                   />
                 </div>
                 <div className="col-span-3">
-                  <label className="block text-xs text-slate-400 mb-1">Amount USD</label>
+                  <label className="block text-xs text-slate-400 mb-1">
+                    Amount USD
+                  </label>
                   <input
                     type="number"
                     value={amountUSD || ""}
-                    onChange={(e) => setAmountUSD(parseFloat(e.target.value) || 0)}
+                    onChange={(e) =>
+                      setAmountUSD(parseFloat(e.target.value) || 0)
+                    }
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white font-mono"
                     placeholder="0"
                   />
                 </div>
                 <div className="col-span-3">
-                  <label className="block text-xs text-slate-400 mb-1">Amount LBP</label>
+                  <label className="block text-xs text-slate-400 mb-1">
+                    Amount LBP
+                  </label>
                   <input
                     type="number"
                     value={amountLBP || ""}
-                    onChange={(e) => setAmountLBP(parseFloat(e.target.value) || 0)}
+                    onChange={(e) =>
+                      setAmountLBP(parseFloat(e.target.value) || 0)
+                    }
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white font-mono"
                     placeholder="0"
                   />
                 </div>
                 <div className="col-span-3">
-                  <label className="block text-xs text-slate-400 mb-1">Note</label>
+                  <label className="block text-xs text-slate-400 mb-1">
+                    Note
+                  </label>
                   <input
                     value={note}
                     onChange={(e) => setNote(e.target.value)}

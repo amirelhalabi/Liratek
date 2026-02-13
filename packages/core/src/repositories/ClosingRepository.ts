@@ -318,7 +318,11 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
         lbp: getBalance("Whish_App", "LBP"),
         eur: 0,
       },
-      binanceDrawer: { usd: getBalance("Binance", "USD"), lbp: getBalance("Binance", "LBP"), eur: 0 },
+      binanceDrawer: {
+        usd: getBalance("Binance", "USD"),
+        lbp: getBalance("Binance", "LBP"),
+        eur: 0,
+      },
       mtcDrawer: { usd: getBalance("MTC", "USD"), lbp: 0, eur: 0 },
       alfaDrawer: { usd: getBalance("Alfa", "USD"), lbp: 0, eur: 0 },
     };

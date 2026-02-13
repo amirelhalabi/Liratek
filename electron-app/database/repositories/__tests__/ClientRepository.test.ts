@@ -1,5 +1,8 @@
 import { ClientRepository } from "../ClientRepository";
-import { mockDatabase, resetAllMocks } from "../../../../__mocks__/better-sqlite3";
+import {
+  mockDatabase,
+  resetAllMocks,
+} from "../../../../__mocks__/better-sqlite3";
 
 jest.mock("better-sqlite3");
 
@@ -16,11 +19,18 @@ describe("ClientRepository", () => {
     const repo = new ClientRepository();
 
     // mock query execution
-    (mockDatabase.prepare as jest.Mock).mockImplementationOnce((sql: string) => {
-      const stmt = { ...require("../../../../__mocks__/better-sqlite3").mockStatement, _sql: sql };
-      stmt.all = jest.fn(() => [{ id: 1, name: "Ali", phone: "1", created_at: "" }]);
-      return stmt;
-    });
+    (mockDatabase.prepare as jest.Mock).mockImplementationOnce(
+      (sql: string) => {
+        const stmt = {
+          ...require("../../../../__mocks__/better-sqlite3").mockStatement,
+          _sql: sql,
+        };
+        stmt.all = jest.fn(() => [
+          { id: 1, name: "Ali", phone: "1", created_at: "" },
+        ]);
+        return stmt;
+      },
+    );
 
     const res = repo.findAllClients("Ali");
     expect(res.length).toBe(1);
@@ -31,7 +41,9 @@ describe("ClientRepository", () => {
     const repo = new ClientRepository();
 
     (mockDatabase.prepare as jest.Mock).mockImplementationOnce(() => {
-      const stmt = { ...require("../../../../__mocks__/better-sqlite3").mockStatement };
+      const stmt = {
+        ...require("../../../../__mocks__/better-sqlite3").mockStatement,
+      };
       stmt.run = jest.fn(() => {
         const err: any = new Error("constraint");
         err.code = "SQLITE_CONSTRAINT_UNIQUE";
@@ -49,11 +61,16 @@ describe("ClientRepository", () => {
     const repo = new ClientRepository();
 
     // hasSalesHistory query
-    (mockDatabase.prepare as jest.Mock).mockImplementationOnce((sql: string) => {
-      const stmt = { ...require("../../../../__mocks__/better-sqlite3").mockStatement, _sql: sql };
-      stmt.get = jest.fn(() => ({ count: 2 }));
-      return stmt;
-    });
+    (mockDatabase.prepare as jest.Mock).mockImplementationOnce(
+      (sql: string) => {
+        const stmt = {
+          ...require("../../../../__mocks__/better-sqlite3").mockStatement,
+          _sql: sql,
+        };
+        stmt.get = jest.fn(() => ({ count: 2 }));
+        return stmt;
+      },
+    );
 
     expect(() => repo.deleteClient(1)).toThrow(/Cannot delete client/);
   });
@@ -62,18 +79,28 @@ describe("ClientRepository", () => {
     const repo = new ClientRepository();
 
     // hasSalesHistory query
-    (mockDatabase.prepare as jest.Mock).mockImplementationOnce((sql: string) => {
-      const stmt = { ...require("../../../../__mocks__/better-sqlite3").mockStatement, _sql: sql };
-      stmt.get = jest.fn(() => ({ count: 0 }));
-      return stmt;
-    });
+    (mockDatabase.prepare as jest.Mock).mockImplementationOnce(
+      (sql: string) => {
+        const stmt = {
+          ...require("../../../../__mocks__/better-sqlite3").mockStatement,
+          _sql: sql,
+        };
+        stmt.get = jest.fn(() => ({ count: 0 }));
+        return stmt;
+      },
+    );
 
     // delete query from BaseRepository
-    (mockDatabase.prepare as jest.Mock).mockImplementationOnce((sql: string) => {
-      const stmt = { ...require("../../../../__mocks__/better-sqlite3").mockStatement, _sql: sql };
-      stmt.run = jest.fn(() => ({ changes: 1 }));
-      return stmt;
-    });
+    (mockDatabase.prepare as jest.Mock).mockImplementationOnce(
+      (sql: string) => {
+        const stmt = {
+          ...require("../../../../__mocks__/better-sqlite3").mockStatement,
+          _sql: sql,
+        };
+        stmt.run = jest.fn(() => ({ changes: 1 }));
+        return stmt;
+      },
+    );
 
     const ok = repo.deleteClient(1);
     expect(ok).toBe(true);

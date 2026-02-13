@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type Database from "better-sqlite3";
 
 export interface ApplySqlCipherKeyResult {
   applied: boolean;
@@ -38,10 +38,11 @@ export function applySqlCipherKey(
 
     return { applied: true, supported: true };
   } catch (e: any) {
-    const msg = typeof e?.message === 'string' ? e.message : String(e);
+    const msg = typeof e?.message === "string" ? e.message : String(e);
 
     // If pragma isn't recognized, we treat it as "not supported".
-    const notSupported = /unknown pragma/i.test(msg) || /no such pragma/i.test(msg);
+    const notSupported =
+      /unknown pragma/i.test(msg) || /no such pragma/i.test(msg);
 
     return {
       applied: false,

@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 
-console.log('[PRELOAD] Starting preload script...');
+console.log("[PRELOAD] Starting preload script...");
 
 contextBridge.exposeInMainWorld("api", {
   // Database operations
@@ -71,7 +71,8 @@ contextBridge.exposeInMainWorld("api", {
   processSale: (saleData: unknown) =>
     ipcRenderer.invoke("sales:process", saleData),
   getSale: (saleId: number) => ipcRenderer.invoke("sales:get", saleId),
-  getSaleItems: (saleId: number) => ipcRenderer.invoke("sales:get-items", saleId),
+  getSaleItems: (saleId: number) =>
+    ipcRenderer.invoke("sales:get-items", saleId),
   getDashboardStats: () => ipcRenderer.invoke("sales:get-dashboard-stats"),
   getDrawerBalances: () => ipcRenderer.invoke("dashboard:get-drawer-balances"),
   getProfitSalesChart: (type: "Sales" | "Profit") =>
@@ -82,9 +83,10 @@ contextBridge.exposeInMainWorld("api", {
 
   // Debt
   getDebtSummary: () => ipcRenderer.invoke("dashboard:get-debt-summary"),
-  
+
   // Financial
-  getMonthlyPL: (month: string) => ipcRenderer.invoke("financial:get-monthly-pl", month),
+  getMonthlyPL: (month: string) =>
+    ipcRenderer.invoke("financial:get-monthly-pl", month),
   getDebtors: () => ipcRenderer.invoke("debt:get-debtors"),
   getClientDebtHistory: (clientId: number) =>
     ipcRenderer.invoke("debt:get-client-history", clientId),
@@ -245,7 +247,8 @@ contextBridge.exposeInMainWorld("api", {
   }) => ipcRenderer.invoke("recharge:process", data),
 
   // Suppliers
-  listSuppliers: (search?: string) => ipcRenderer.invoke("suppliers:list", search),
+  listSuppliers: (search?: string) =>
+    ipcRenderer.invoke("suppliers:list", search),
   getSupplierBalances: () => ipcRenderer.invoke("suppliers:balances"),
   getSupplierLedger: (supplierId: number, limit?: number) =>
     ipcRenderer.invoke("suppliers:ledger", supplierId, limit),
@@ -280,12 +283,16 @@ contextBridge.exposeInMainWorld("api", {
       started_by: string;
     }) => ipcRenderer.invoke("session:start", data),
     getActive: () => ipcRenderer.invoke("session:getActive"),
-    get: (sessionId: number) => ipcRenderer.invoke("session:getDetails", sessionId),
-    update: (sessionId: number, data: {
-      customer_name?: string;
-      customer_phone?: string;
-      customer_notes?: string;
-    }) => ipcRenderer.invoke("session:update", sessionId, data),
+    get: (sessionId: number) =>
+      ipcRenderer.invoke("session:getDetails", sessionId),
+    update: (
+      sessionId: number,
+      data: {
+        customer_name?: string;
+        customer_phone?: string;
+        customer_notes?: string;
+      },
+    ) => ipcRenderer.invoke("session:update", sessionId, data),
     close: (sessionId: number, closedBy: string) =>
       ipcRenderer.invoke("session:close", sessionId, closedBy),
     list: (limit: number, offset: number) =>
@@ -299,4 +306,4 @@ contextBridge.exposeInMainWorld("api", {
   },
 });
 
-console.log('[PRELOAD] window.api exposed successfully');
+console.log("[PRELOAD] window.api exposed successfully");

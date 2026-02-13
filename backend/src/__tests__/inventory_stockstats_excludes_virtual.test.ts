@@ -14,10 +14,16 @@ describe("Inventory stock stats exclude virtual telecom credits", () => {
     // Call; it will hit mock DB and return default.
     repo.getStockStats();
 
-    const sqlCalls = (mockDatabase.prepare as any).mock.calls.map((c: any[]) => c[0]);
-    const stockSql = sqlCalls.find((s: string) => s.includes("SUM(cost_price_usd * stock_quantity)"));
+    const sqlCalls = (mockDatabase.prepare as any).mock.calls.map(
+      (c: any[]) => c[0],
+    );
+    const stockSql = sqlCalls.find((s: string) =>
+      s.includes("SUM(cost_price_usd * stock_quantity)"),
+    );
 
     expect(stockSql).toBeTruthy();
-    expect(stockSql).toContain("item_type NOT IN ('Virtual_MTC', 'Virtual_Alfa')");
+    expect(stockSql).toContain(
+      "item_type NOT IN ('Virtual_MTC', 'Virtual_Alfa')",
+    );
   });
 });

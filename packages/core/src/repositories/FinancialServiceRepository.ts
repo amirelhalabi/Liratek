@@ -79,7 +79,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
     id: number;
     drawer: string;
   } {
-    const mapDrawerName = (provider: CreateFinancialServiceData["provider"]): string => {
+    const mapDrawerName = (
+      provider: CreateFinancialServiceData["provider"],
+    ): string => {
       switch (provider) {
         case "OMT":
           return "OMT_System";
@@ -145,13 +147,29 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       if (data.amountUSD && data.amountUSD !== 0) {
         const delta = sign * Math.abs(data.amountUSD);
         // method: align with provider for now (OMT/WHISH), otherwise OTHER
-        insertPayment.run(id, data.provider, drawerName, "USD", delta, note, createdBy);
+        insertPayment.run(
+          id,
+          data.provider,
+          drawerName,
+          "USD",
+          delta,
+          note,
+          createdBy,
+        );
         upsertBalanceDelta.run(drawerName, "USD", delta);
       }
 
       if (data.amountLBP && data.amountLBP !== 0) {
         const delta = sign * Math.abs(data.amountLBP);
-        insertPayment.run(id, data.provider, drawerName, "LBP", delta, note, createdBy);
+        insertPayment.run(
+          id,
+          data.provider,
+          drawerName,
+          "LBP",
+          delta,
+          note,
+          createdBy,
+        );
         upsertBalanceDelta.run(drawerName, "LBP", delta);
       }
 
@@ -159,13 +177,29 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       // If in your business model commission is paid out separately, we can revise.
       if (data.commissionUSD && data.commissionUSD !== 0) {
         const delta = Math.abs(data.commissionUSD);
-        insertPayment.run(id, data.provider, drawerName, "USD", delta, "Commission", createdBy);
+        insertPayment.run(
+          id,
+          data.provider,
+          drawerName,
+          "USD",
+          delta,
+          "Commission",
+          createdBy,
+        );
         upsertBalanceDelta.run(drawerName, "USD", delta);
       }
 
       if (data.commissionLBP && data.commissionLBP !== 0) {
         const delta = Math.abs(data.commissionLBP);
-        insertPayment.run(id, data.provider, drawerName, "LBP", delta, "Commission", createdBy);
+        insertPayment.run(
+          id,
+          data.provider,
+          drawerName,
+          "LBP",
+          delta,
+          "Commission",
+          createdBy,
+        );
         upsertBalanceDelta.run(drawerName, "LBP", delta);
       }
 
@@ -235,10 +269,10 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
     `,
       )
       .get() as {
-        today_commission_usd: number;
-        today_commission_lbp: number;
-        today_count: number;
-      };
+      today_commission_usd: number;
+      today_commission_lbp: number;
+      today_count: number;
+    };
 
     // This month's commission
     const monthStats = this.db
@@ -253,10 +287,10 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
     `,
       )
       .get() as {
-        month_commission_usd: number;
-        month_commission_lbp: number;
-        month_count: number;
-      };
+      month_commission_usd: number;
+      month_commission_lbp: number;
+      month_count: number;
+    };
 
     // By Provider Today
     const byProvider = this.db

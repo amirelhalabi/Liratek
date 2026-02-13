@@ -63,8 +63,8 @@ export default function ProductList() {
 
   return (
     <div className="space-y-6">
-      <PageHeader 
-        icon={Package} 
+      <PageHeader
+        icon={Package}
         title="Inventory"
         actions={
           <button

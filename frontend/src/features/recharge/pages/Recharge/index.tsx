@@ -24,7 +24,9 @@ export default function Recharge() {
 
   // Form
   const [phoneNumber, setPhoneNumber] = useState("");
-  const [paidBy, setPaidBy] = useState<"CASH" | "OMT" | "WHISH" | "BINANCE">("CASH");
+  const [paidBy, setPaidBy] = useState<"CASH" | "OMT" | "WHISH" | "BINANCE">(
+    "CASH",
+  );
   const [amount, setAmount] = useState(""); // Amount of credit to send
   const [price, setPrice] = useState(""); // Price to client
   const [cost, setCost] = useState(""); // Cost to dealer (optional/auto-calc)
@@ -73,13 +75,13 @@ export default function Recharge() {
         if (activeSession && result.recharge?.id) {
           try {
             await linkTransaction({
-              transactionType: 'recharge',
+              transactionType: "recharge",
               transactionId: result.recharge.id,
               amountUsd: parseFloat(price) || 0,
               amountLbp: 0,
             });
           } catch (err) {
-            console.error('Failed to link recharge to session:', err);
+            console.error("Failed to link recharge to session:", err);
             // Don't block the recharge completion
           }
         }
@@ -222,9 +224,7 @@ export default function Recharge() {
               <Select
                 value={paidBy}
                 onChange={(value) =>
-                  setPaidBy(
-                    value as "CASH" | "OMT" | "WHISH" | "BINANCE",
-                  )
+                  setPaidBy(value as "CASH" | "OMT" | "WHISH" | "BINANCE")
                 }
                 options={[
                   { value: "CASH", label: "Cash (General)" },
@@ -236,7 +236,8 @@ export default function Recharge() {
                 buttonClassName="py-4 text-lg font-bold rounded-xl"
               />
               <p className="text-xs text-slate-500 mt-2">
-                Customer payment increases the selected drawer by the full price.
+                Customer payment increases the selected drawer by the full
+                price.
               </p>
             </div>
 

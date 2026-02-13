@@ -1,7 +1,7 @@
-import { useState } from 'react';
-import { UserPlus, X } from 'lucide-react';
-import { StartSessionModal } from './StartSessionModal';
-import { useSession } from '../context/SessionContext';
+import { useState } from "react";
+import { UserPlus } from "lucide-react";
+import { StartSessionModal } from "./StartSessionModal";
+import { useSession } from "../context/SessionContext";
 
 export function MessengerStyleSessionButton() {
   const { allActiveSessions, activeSession, switchToSession } = useSession();
@@ -9,23 +9,23 @@ export function MessengerStyleSessionButton() {
   const [showNewSessionModal, setShowNewSessionModal] = useState(false);
 
   const getInitials = (name?: string) => {
-    if (!name) return '?';
+    if (!name) return "?";
     return name
-      .split(' ')
-      .map(word => word[0])
-      .join('')
+      .split(" ")
+      .map((word) => word[0])
+      .join("")
       .toUpperCase()
       .slice(0, 2);
   };
 
   const getAvatarColor = (sessionId: number) => {
     const colors = [
-      'from-violet-600 to-violet-700',
-      'from-blue-600 to-blue-700',
-      'from-green-600 to-green-700',
-      'from-orange-600 to-orange-700',
-      'from-pink-600 to-pink-700',
-      'from-cyan-600 to-cyan-700',
+      "from-violet-600 to-violet-700",
+      "from-blue-600 to-blue-700",
+      "from-green-600 to-green-700",
+      "from-orange-600 to-orange-700",
+      "from-pink-600 to-pink-700",
+      "from-cyan-600 to-cyan-700",
     ];
     return colors[sessionId % colors.length];
   };
@@ -54,7 +54,7 @@ export function MessengerStyleSessionButton() {
     <>
       {/* Background Overlay when expanded */}
       {isExpanded && (
-        <div 
+        <div
           className="fixed inset-0 bg-black/30 backdrop-blur-sm z-40 transition-opacity duration-200"
           onClick={() => setIsExpanded(false)}
         />
@@ -69,7 +69,7 @@ export function MessengerStyleSessionButton() {
             <button
               onClick={handleNewSessionClick}
               className="w-14 h-14 rounded-full bg-gradient-to-br from-violet-600 to-violet-700 hover:from-violet-700 hover:to-violet-800 text-white shadow-xl flex items-center justify-center transition-all hover:scale-110 border-2 border-violet-500/50 animate-in slide-in-from-bottom-2 duration-200"
-              style={{ animationDelay: '0ms' }}
+              style={{ animationDelay: "0ms" }}
               title="New Customer Session"
             >
               <UserPlus size={20} />
@@ -81,14 +81,16 @@ export function MessengerStyleSessionButton() {
                 key={session.id}
                 onClick={() => handleSessionClick(session.id)}
                 className={`w-14 h-14 rounded-full bg-gradient-to-br ${getAvatarColor(session.id)} hover:scale-110 text-white shadow-xl flex items-center justify-center font-bold transition-all border-2 ${
-                  activeSession?.id === session.id 
-                    ? 'border-white ring-4 ring-violet-400/50' 
-                    : 'border-slate-700'
+                  activeSession?.id === session.id
+                    ? "border-white ring-4 ring-violet-400/50"
+                    : "border-slate-700"
                 } animate-in slide-in-from-bottom-2 duration-200`}
                 style={{ animationDelay: `${(index + 1) * 50}ms` }}
-                title={session.customer_name || 'Unknown Customer'}
+                title={session.customer_name || "Unknown Customer"}
               >
-                <span className="text-sm">{getInitials(session.customer_name)}</span>
+                <span className="text-sm">
+                  {getInitials(session.customer_name)}
+                </span>
               </button>
             ))}
           </div>
@@ -98,7 +100,11 @@ export function MessengerStyleSessionButton() {
         <button
           onClick={handleMainButtonClick}
           className="w-16 h-16 rounded-full bg-gradient-to-br from-violet-600 to-violet-700 hover:from-violet-700 hover:to-violet-800 text-white shadow-2xl flex items-center justify-center transition-all hover:scale-110 border-2 border-violet-500/50"
-          title={allActiveSessions.length === 0 ? "New Customer Session" : "Manage Sessions"}
+          title={
+            allActiveSessions.length === 0
+              ? "New Customer Session"
+              : "Manage Sessions"
+          }
         >
           {isExpanded ? (
             <div className="text-4xl font-light leading-none">−</div>
@@ -116,9 +122,9 @@ export function MessengerStyleSessionButton() {
       </div>
 
       {/* New Session Modal */}
-      <StartSessionModal 
-        isOpen={showNewSessionModal} 
-        onClose={() => setShowNewSessionModal(false)} 
+      <StartSessionModal
+        isOpen={showNewSessionModal}
+        onClose={() => setShowNewSessionModal(false)}
       />
     </>
   );

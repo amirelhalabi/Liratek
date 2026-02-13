@@ -1,4 +1,4 @@
-import { jest } from '@jest/globals';
+import { jest } from "@jest/globals";
 import { BaseRepository } from "../BaseRepository";
 import { resetAllMocks } from "../../../__mocks__/better-sqlite3";
 
@@ -23,13 +23,16 @@ describe("BaseRepository", () => {
     // Ensure @liratek/core is using a mock DB
     testDb = (globalThis as any).__LIRATEK_TEST_DB__;
     expect(testDb).toBeTruthy();
-    expect(typeof testDb.prepare).toBe('function');
+    expect(typeof testDb.prepare).toBe("function");
   });
 
   it("findById returns entity when found", () => {
     // Arrange
     testDb.prepare.mockImplementationOnce((sql: string) => {
-      const stmt = { ...require("../../../__mocks__/better-sqlite3").mockStatement, _sql: sql };
+      const stmt = {
+        ...require("../../../__mocks__/better-sqlite3").mockStatement,
+        _sql: sql,
+      };
       stmt.get = jest.fn(() => ({ id: 1, name: "A" }));
       return stmt;
     });
@@ -45,7 +48,10 @@ describe("BaseRepository", () => {
 
   it("findAll builds ORDER BY / LIMIT / OFFSET", () => {
     testDb.prepare.mockImplementationOnce((sql: string) => {
-      const stmt = { ...require("../../../__mocks__/better-sqlite3").mockStatement, _sql: sql };
+      const stmt = {
+        ...require("../../../__mocks__/better-sqlite3").mockStatement,
+        _sql: sql,
+      };
       stmt.all = jest.fn(() => [{ id: 1, name: "A" }]);
       return stmt;
     });
@@ -66,7 +72,10 @@ describe("BaseRepository", () => {
 
   it("delete executes delete query", () => {
     testDb.prepare.mockImplementationOnce((sql: string) => {
-      const stmt = { ...require("../../../__mocks__/better-sqlite3").mockStatement, _sql: sql };
+      const stmt = {
+        ...require("../../../__mocks__/better-sqlite3").mockStatement,
+        _sql: sql,
+      };
       stmt.run = jest.fn(() => ({ changes: 1 }));
       return stmt;
     });

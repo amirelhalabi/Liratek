@@ -1,4 +1,10 @@
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  useEffect,
+} from "react";
 import {
   startSession as apiStartSession,
   getActiveSession as _apiGetActiveSession,
@@ -7,7 +13,7 @@ import {
   closeSession as apiCloseSession,
   listSessions,
   linkTransactionToSession,
-} from '../../../api/backendApi';
+} from "../../../api/backendApi";
 
 interface CustomerSession {
   id: number;
@@ -39,11 +45,24 @@ interface SessionContextValue {
   isFloatingWindowMinimized: boolean;
 
   // Actions
-  startSession: (data: { customer_name: string; customer_phone?: string; customer_notes?: string }) => Promise<void>;
+  startSession: (data: {
+    customer_name: string;
+    customer_phone?: string;
+    customer_notes?: string;
+  }) => Promise<void>;
   switchToSession: (sessionId: number) => Promise<void>;
   closeCurrentSession: () => Promise<void>;
-  updateSessionInfo: (data: { customer_name?: string; customer_phone?: string; customer_notes?: string }) => Promise<void>;
-  linkTransaction: (data: { transactionType: string; transactionId: number; amountUsd: number; amountLbp: number }) => Promise<void>;
+  updateSessionInfo: (data: {
+    customer_name?: string;
+    customer_phone?: string;
+    customer_notes?: string;
+  }) => Promise<void>;
+  linkTransaction: (data: {
+    transactionType: string;
+    transactionId: number;
+    amountUsd: number;
+    amountLbp: number;
+  }) => Promise<void>;
 
   // Window controls
   openFloatingWindow: () => void;
@@ -61,17 +80,24 @@ const SessionContext = createContext<SessionContextValue | null>(null);
 export function useSession() {
   const context = useContext(SessionContext);
   if (!context) {
-    throw new Error('useSession must be used within SessionProvider');
+    throw new Error("useSession must be used within SessionProvider");
   }
   return context;
 }
 
 export function SessionProvider({ children }: { children: React.ReactNode }) {
-  const [activeSession, setActiveSession] = useState<CustomerSession | null>(null);
-  const [allActiveSessions, setAllActiveSessions] = useState<CustomerSession[]>([]);
-  const [sessionTransactions, setSessionTransactions] = useState<SessionTransaction[]>([]);
+  const [activeSession, setActiveSession] = useState<CustomerSession | null>(
+    null,
+  );
+  const [allActiveSessions, setAllActiveSessions] = useState<CustomerSession[]>(
+    [],
+  );
+  const [sessionTransactions, setSessionTransactions] = useState<
+    SessionTransaction[]
+  >([]);
   const [isFloatingWindowOpen, setIsFloatingWindowOpen] = useState(false);
-  const [isFloatingWindowMinimized, setIsFloatingWindowMinimized] = useState(true); // Default to minimized
+  const [isFloatingWindowMinimized, setIsFloatingWindowMinimized] =
+    useState(true); // Default to minimized
 
   // Load active sessions on mount
   useEffect(() => {
@@ -83,7 +109,9 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       const data = await listSessions(50, 0);
 
       if (data.success && data.sessions) {
-        const active = data.sessions.filter((s: CustomerSession) => s.is_active === 1);
+        const active = data.sessions.filter(
+          (s: CustomerSession) => s.is_active === 1,
+        );
         setAllActiveSessions(active);
 
         // Set first active as current if we don't have one
@@ -93,7 +121,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         }
       }
     } catch (err) {
-      console.error('Failed to load sessions:', err);
+      console.error("Failed to load sessions:", err);
     }
   }, [activeSession]);
 
@@ -110,7 +138,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         setSessionTransactions(data.transactions);
       }
     } catch (err) {
-      console.error('Failed to load session transactions:', err);
+      console.error("Failed to load session transactions:", err);
     }
   }, [activeSession]);
 
@@ -120,44 +148,58 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     }
   }, [activeSession, refreshSessionTransactions]);
 
-  const startSession = useCallback(async (data: { customer_name: string; customer_phone?: string; customer_notes?: string }) => {
-    try {
-      const result = await apiStartSession(data);
-      if (result.success && result.sessionId) {
-        // Refresh the list to get the new session
-        await refreshActiveSessions();
+  const startSession = useCallback(
+    async (data: {
+      customer_name: string;
+      customer_phone?: string;
+      customer_notes?: string;
+    }) => {
+      try {
+        const result = await apiStartSession(data);
+        if (result.success && result.sessionId) {
+          // Refresh the list to get the new session
+          await refreshActiveSessions();
 
-        // Fetch the updated list to find the new session
-        const updatedData = await listSessions(50, 0);
-        if (updatedData.success && updatedData.sessions) {
-          const active = updatedData.sessions.filter((s: CustomerSession) => s.is_active === 1);
-          setAllActiveSessions(active);
+          // Fetch the updated list to find the new session
+          const updatedData = await listSessions(50, 0);
+          if (updatedData.success && updatedData.sessions) {
+            const active = updatedData.sessions.filter(
+              (s: CustomerSession) => s.is_active === 1,
+            );
+            setAllActiveSessions(active);
 
-          // Find and set the new session as active
-          const newSession = active.find(s => s.id === result.sessionId);
-          if (newSession) {
-            setActiveSession(newSession);
-            setIsFloatingWindowOpen(true);
-            setIsFloatingWindowMinimized(false);
+            // Find and set the new session as active
+            const newSession = active.find(
+              (s: CustomerSession) => s.id === result.sessionId,
+            );
+            if (newSession) {
+              setActiveSession(newSession);
+              setIsFloatingWindowOpen(true);
+              setIsFloatingWindowMinimized(false);
+            }
           }
+        } else if (result.error) {
+          throw new Error(result.error);
         }
-      } else if (result.error) {
-        throw new Error(result.error);
+      } catch (err) {
+        console.error("Failed to start session:", err);
+        throw err;
       }
-    } catch (err) {
-      console.error('Failed to start session:', err);
-      throw err;
-    }
-  }, [refreshActiveSessions]);
+    },
+    [refreshActiveSessions],
+  );
 
-  const switchToSession = useCallback(async (sessionId: number) => {
-    const session = allActiveSessions.find(s => s.id === sessionId);
-    if (session) {
-      setActiveSession(session);
-      setIsFloatingWindowOpen(true);
-      setIsFloatingWindowMinimized(false);
-    }
-  }, [allActiveSessions]);
+  const switchToSession = useCallback(
+    async (sessionId: number) => {
+      const session = allActiveSessions.find((s) => s.id === sessionId);
+      if (session) {
+        setActiveSession(session);
+        setIsFloatingWindowOpen(true);
+        setIsFloatingWindowMinimized(false);
+      }
+    },
+    [allActiveSessions],
+  );
 
   const closeCurrentSession = useCallback(async () => {
     if (!activeSession) return;
@@ -173,42 +215,57 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         throw new Error(result.error);
       }
     } catch (err) {
-      console.error('Failed to close session:', err);
+      console.error("Failed to close session:", err);
       throw err;
     }
   }, [activeSession, refreshActiveSessions]);
 
-  const updateSessionInfo = useCallback(async (data: { customer_name?: string; customer_phone?: string; customer_notes?: string }) => {
-    if (!activeSession) return;
+  const updateSessionInfo = useCallback(
+    async (data: {
+      customer_name?: string;
+      customer_phone?: string;
+      customer_notes?: string;
+    }) => {
+      if (!activeSession) return;
 
-    try {
-      const result = await apiUpdateSession(activeSession.id, data);
-      if (result.success) {
-        // Update local state
-        setActiveSession(prev => prev ? { ...prev, ...data } : null);
-        await refreshActiveSessions();
-      } else if (result.error) {
-        throw new Error(result.error);
+      try {
+        const result = await apiUpdateSession(activeSession.id, data);
+        if (result.success) {
+          // Update local state
+          setActiveSession((prev) => (prev ? { ...prev, ...data } : null));
+          await refreshActiveSessions();
+        } else if (result.error) {
+          throw new Error(result.error);
+        }
+      } catch (err) {
+        console.error("Failed to update session:", err);
+        throw err;
       }
-    } catch (err) {
-      console.error('Failed to update session:', err);
-      throw err;
-    }
-  }, [activeSession, refreshActiveSessions]);
+    },
+    [activeSession, refreshActiveSessions],
+  );
 
-  const linkTransaction = useCallback(async (data: { transactionType: string; transactionId: number; amountUsd: number; amountLbp: number }) => {
-    if (!activeSession) {
-      return;
-    }
+  const linkTransaction = useCallback(
+    async (data: {
+      transactionType: string;
+      transactionId: number;
+      amountUsd: number;
+      amountLbp: number;
+    }) => {
+      if (!activeSession) {
+        return;
+      }
 
-    try {
-      await linkTransactionToSession(data);
-      // Refresh transactions list
-      await refreshSessionTransactions();
-    } catch (err) {
-      console.error('Failed to link transaction:', err);
-    }
-  }, [activeSession, refreshSessionTransactions]);
+      try {
+        await linkTransactionToSession(data);
+        // Refresh transactions list
+        await refreshSessionTransactions();
+      } catch (err) {
+        console.error("Failed to link transaction:", err);
+      }
+    },
+    [activeSession, refreshSessionTransactions],
+  );
 
   const value: SessionContextValue = {
     activeSession,
@@ -232,5 +289,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     refreshSessionTransactions,
   };
 
-  return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
+  return (
+    <SessionContext.Provider value={value}>{children}</SessionContext.Provider>
+  );
 }

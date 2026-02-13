@@ -85,9 +85,9 @@ export default function Debts() {
       const data = window.api
         ? await window.api.getDebtors()
         : await (async () => {
-          const { getDebtors } = await import("../../../../api/backendApi");
-          return getDebtors();
-        })();
+            const { getDebtors } = await import("../../../../api/backendApi");
+            return getDebtors();
+          })();
       setDebtors(data);
     } catch (error) {
       console.error("Failed to load debtors:", error);
@@ -99,9 +99,10 @@ export default function Debts() {
       const data = window.api
         ? await window.api.getClientDebtHistory(clientId)
         : await (async () => {
-          const { getClientDebtHistory } = await import("../../../../api/backendApi");
-          return getClientDebtHistory(clientId);
-        })();
+            const { getClientDebtHistory } =
+              await import("../../../../api/backendApi");
+            return getClientDebtHistory(clientId);
+          })();
       setHistory(data);
       // Reset sort to default (desc) when loading new client
       setDateSortOrder("desc");
@@ -131,9 +132,10 @@ export default function Debts() {
       const total = window.api
         ? await window.api.getClientDebtTotal(clientId)
         : await (async () => {
-          const { getClientDebtTotal } = await import("../../../../api/backendApi");
-          return getClientDebtTotal(clientId);
-        })();
+            const { getClientDebtTotal } =
+              await import("../../../../api/backendApi");
+            return getClientDebtTotal(clientId);
+          })();
       setTotalDebt(total || 0);
     } catch (error) {
       console.error("Failed to load client total:", error);
@@ -148,7 +150,7 @@ export default function Debts() {
       setSelectedSale({
         ...sale,
         items: items.map((item: any) => ({
-          product_name: item.name || 'Unknown Product',
+          product_name: item.name || "Unknown Product",
           quantity: item.quantity || 0,
           price_per_unit: item.sold_price_usd || 0,
           subtotal: (item.sold_price_usd || 0) * (item.quantity || 0),
@@ -200,28 +202,28 @@ export default function Debts() {
     try {
       const result = window.api
         ? await window.api.addRepayment({
-          clientId: selectedClient.id,
-          amountUSD: totalDebtReductionUSD,
-          amountLBP: debtReductionLBP,
-          paidAmountUSD: paidUSD,
-          paidAmountLBP: paidLBP,
-          drawerName: "General",
-          note: repayNote,
-          ...(user?.id != null ? { userId: user.id } : {}),
-        } as any)
-        : await (async () => {
-          const { addRepayment } = await import("../../../../api/backendApi");
-          return addRepayment({
-            client_id: selectedClient.id,
-            amount_usd: totalDebtReductionUSD,
-            amount_lbp: debtReductionLBP,
-            paid_amount_usd: paidUSD,
-            paid_amount_lbp: paidLBP,
-            drawer_name: "General",
+            clientId: selectedClient.id,
+            amountUSD: totalDebtReductionUSD,
+            amountLBP: debtReductionLBP,
+            paidAmountUSD: paidUSD,
+            paidAmountLBP: paidLBP,
+            drawerName: "General",
             note: repayNote,
-            ...(user?.id != null ? { user_id: user.id } : {}),
-          });
-        })();
+            ...(user?.id != null ? { userId: user.id } : {}),
+          } as any)
+        : await (async () => {
+            const { addRepayment } = await import("../../../../api/backendApi");
+            return addRepayment({
+              client_id: selectedClient.id,
+              amount_usd: totalDebtReductionUSD,
+              amount_lbp: debtReductionLBP,
+              paid_amount_usd: paidUSD,
+              paid_amount_lbp: paidLBP,
+              drawer_name: "General",
+              note: repayNote,
+              ...(user?.id != null ? { user_id: user.id } : {}),
+            });
+          })();
 
       if (result.success) {
         alert("Repayment processed!");
@@ -237,9 +239,10 @@ export default function Debts() {
         const updatedTotal = window.api
           ? await window.api.getClientDebtTotal(selectedClient.id)
           : await (async () => {
-            const { getClientDebtTotal } = await import("../../../../api/backendApi");
-            return getClientDebtTotal(selectedClient.id);
-          })();
+              const { getClientDebtTotal } =
+                await import("../../../../api/backendApi");
+              return getClientDebtTotal(selectedClient.id);
+            })();
 
         if (updatedTotal > 0.01) {
           // Client still has debt, reload their history
@@ -288,7 +291,6 @@ export default function Debts() {
     <div className="space-y-6 animate-in fade-in duration-500">
       <PageHeader icon={Receipt} title="Debts" />
 
-
       <div className="flex h-full min-h-0 gap-6 overflow-hidden">
         {/* Left: Debtors List */}
         <div className="w-1/3 flex flex-col bg-slate-800 rounded-xl border border-slate-700 shadow-xl overflow-hidden">
@@ -332,10 +334,11 @@ export default function Debts() {
               <button
                 key={client.id}
                 onClick={() => setSelectedClient(client)}
-                className={`w-full text-left p-3 rounded-lg border transition-all ${selectedClient?.id === client.id
-                  ? "bg-red-500/10 border-red-500/50 shadow-md"
-                  : "bg-slate-700/30 border-transparent hover:bg-slate-700/50"
-                  }`}
+                className={`w-full text-left p-3 rounded-lg border transition-all ${
+                  selectedClient?.id === client.id
+                    ? "bg-red-500/10 border-red-500/50 shadow-md"
+                    : "bg-slate-700/30 border-transparent hover:bg-slate-700/50"
+                }`}
               >
                 <div className="flex justify-between items-start">
                   <div>
@@ -435,7 +438,9 @@ export default function Debts() {
                       </th>
                       <th className="pb-3 text-sm font-medium">Type</th>
                       <th className="pb-3 text-sm font-medium">Note</th>
-                      <th className="pb-3 text-sm font-medium text-center">Details</th>
+                      <th className="pb-3 text-sm font-medium text-center">
+                        Details
+                      </th>
                       <th
                         className="pb-3 text-sm font-medium text-center"
                         colSpan={2}
@@ -477,10 +482,11 @@ export default function Debts() {
                             </td>
                             <td className="py-3">
                               <span
-                                className={`px-2 py-1 rounded text-xs font-bold ${item.amount_usd > 0
-                                  ? "bg-red-500/20 text-red-400"
-                                  : "bg-emerald-500/20 text-emerald-400"
-                                  }`}
+                                className={`px-2 py-1 rounded text-xs font-bold ${
+                                  item.amount_usd > 0
+                                    ? "bg-red-500/20 text-red-400"
+                                    : "bg-emerald-500/20 text-emerald-400"
+                                }`}
                               >
                                 {item.amount_usd > 0 ? "Debt" : "Repayment"}
                               </span>
@@ -504,14 +510,16 @@ export default function Debts() {
                             </td>
                             {/* USD Column */}
                             <td
-                              className={`py-3 text-center font-mono font-bold ${item.amount_usd > 0
-                                ? "text-red-400"
-                                : item.amount_usd < 0
-                                  ? "text-emerald-400"
-                                  : "text-slate-600"
-                                }`}
+                              className={`py-3 text-center font-mono font-bold ${
+                                item.amount_usd > 0
+                                  ? "text-red-400"
+                                  : item.amount_usd < 0
+                                    ? "text-emerald-400"
+                                    : "text-slate-600"
+                              }`}
                             >
-                              {item.amount_usd !== 0 && Math.abs(item.amount_usd) > 0 ? (
+                              {item.amount_usd !== 0 &&
+                              Math.abs(item.amount_usd) > 0 ? (
                                 <>
                                   {item.amount_usd > 0 ? "+" : ""}$
                                   {Math.abs(item.amount_usd).toFixed(2)}
@@ -522,17 +530,22 @@ export default function Debts() {
                             </td>
                             {/* LBP Column */}
                             <td
-                              className={`py-3 text-center font-mono font-bold ${item.amount_lbp > 0
-                                ? "text-red-400"
-                                : item.amount_lbp < 0
-                                  ? "text-emerald-400"
-                                  : "text-slate-600"
-                                }`}
+                              className={`py-3 text-center font-mono font-bold ${
+                                item.amount_lbp > 0
+                                  ? "text-red-400"
+                                  : item.amount_lbp < 0
+                                    ? "text-emerald-400"
+                                    : "text-slate-600"
+                              }`}
                             >
-                              {item.amount_lbp !== 0 && Math.abs(item.amount_lbp) > 0 ? (
+                              {item.amount_lbp !== 0 &&
+                              Math.abs(item.amount_lbp) > 0 ? (
                                 <>
                                   {item.amount_lbp > 0 ? "+" : ""}
-                                  {Math.abs(item.amount_lbp).toLocaleString()} LBP
+                                  {Math.abs(
+                                    item.amount_lbp,
+                                  ).toLocaleString()}{" "}
+                                  LBP
                                 </>
                               ) : (
                                 <span className="text-slate-600">-</span>
@@ -698,15 +711,23 @@ export default function Debts() {
                     <thead className="border-b border-slate-700">
                       <tr className="text-left text-slate-400">
                         <th className="pb-3 text-sm font-medium">Product</th>
-                        <th className="pb-3 text-sm font-medium text-center">Qty</th>
-                        <th className="pb-3 text-sm font-medium text-right">Price</th>
-                        <th className="pb-3 text-sm font-medium text-right">Subtotal</th>
+                        <th className="pb-3 text-sm font-medium text-center">
+                          Qty
+                        </th>
+                        <th className="pb-3 text-sm font-medium text-right">
+                          Price
+                        </th>
+                        <th className="pb-3 text-sm font-medium text-right">
+                          Subtotal
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-700">
                       {selectedSale.items.map((item, index) => (
                         <tr key={index}>
-                          <td className="py-3 text-white">{item.product_name}</td>
+                          <td className="py-3 text-white">
+                            {item.product_name}
+                          </td>
                           <td className="py-3 text-slate-300 text-center">
                             {item.quantity}
                           </td>
@@ -740,7 +761,10 @@ export default function Debts() {
                 <div className="flex justify-between text-lg font-bold border-t border-slate-700 pt-2">
                   <span className="text-white">Outstanding Debt:</span>
                   <span className="text-red-400">
-                    ${(selectedSale.final_amount_usd - selectedSale.paid_usd).toFixed(2)}
+                    $
+                    {(
+                      selectedSale.final_amount_usd - selectedSale.paid_usd
+                    ).toFixed(2)}
                   </span>
                 </div>
               </div>
@@ -750,4 +774,4 @@ export default function Debts() {
       )}
     </div>
   );
-};
+}

@@ -50,7 +50,7 @@ jest.mock("path", () => ({
 describe("ReportService", () => {
   beforeEach(() => {
     // Ensure resolveDatabasePath() returns the expected DB path in tests
-    process.env.DATABASE_PATH = '/mock/userData/phone_shop.db';
+    process.env.DATABASE_PATH = "/mock/userData/phone_shop.db";
   });
 
   afterEach(() => {

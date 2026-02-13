@@ -102,7 +102,6 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
       } catch (e) {
         console.error("[Closing] Failed to load variance threshold:", e);
       }
-
     } else if (step === 2) {
       setStep(3);
     }
@@ -204,7 +203,10 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
 
         const html = `<!doctype html><html><head><meta charset="utf-8" /><title>Daily Closing Report</title></head><body><pre style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; white-space: pre-wrap;">${escapeHtml(reportText)}</pre></body></html>`;
 
-        const pdfRes = await api.generatePDF(html, `closing_${closingDate}.pdf`);
+        const pdfRes = await api.generatePDF(
+          html,
+          `closing_${closingDate}.pdf`,
+        );
 
         if (pdfRes?.success && pdfRes.path) {
           await api.updateDailyClosing(Number(result.id), {
@@ -375,94 +377,122 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
                 </div>
               )}
 
-              {!systemLoading && !systemError && systemExpected && (() => {
-                const flagged: Array<{ drawer: DrawerType; currency: string; variance: number; expected: number; pct: number }> = [];
+              {!systemLoading &&
+                !systemError &&
+                systemExpected &&
+                (() => {
+                  const flagged: Array<{
+                    drawer: DrawerType;
+                    currency: string;
+                    variance: number;
+                    expected: number;
+                    pct: number;
+                  }> = [];
 
-                for (const drawer of DRAWER_ORDER) {
-                  const drawerCurrencies =
-                    drawer === "MTC" || drawer === "Alfa"
-                      ? currencies.filter((c) => c.code === "USD")
-                      : currencies;
-
-                  const drawerKey =
-                    drawer === "General"
-                      ? "generalDrawer"
-                      : drawer === "OMT_System"
-                        ? "omtDrawer"
-                        : drawer === "OMT_App"
-                          ? "omtAppDrawer"
-                        : drawer === "MTC"
-                          ? "mtcDrawer"
-                          : "alfaDrawer";
-
-                  const expectedObj = systemExpected[drawerKey];
-
-                  for (const currency of drawerCurrencies) {
-                    const expected = expectedObj?.[currency.code.toLowerCase()] || 0;
-                    const physical = drawerAmounts.amounts[drawer]?.[currency.code] ?? 0;
-                    const variance = physical - expected;
-                    const pct = expected !== 0 ? (Math.abs(variance) / expected) * 100 : 0;
-
-                    if (varianceThresholdPct > 0 && pct >= varianceThresholdPct && Math.abs(variance) > 0.01) {
-                      flagged.push({ drawer, currency: currency.code, variance, expected, pct });
-                    }
-                  }
-                }
-
-                return (
-                  <>
-                    {flagged.length > 0 && (
-                      <AlertBanner type="warning">
-                        Variance threshold exceeded ({varianceThresholdPct}%+):{" "}
-                        {flagged
-                          .slice(0, 4)
-                          .map((f) =>
-                            `${f.drawer} ${f.currency} ${f.variance > 0 ? "+" : ""}${f.variance.toFixed(2)} (${f.pct.toFixed(1)}%)`,
-                          )
-                          .join(" • ")}
-                        {flagged.length > 4 ? " • ..." : ""}
-                      </AlertBanner>
-                    )}
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {DRAWER_ORDER.map((drawer) => {
+                  for (const drawer of DRAWER_ORDER) {
                     const drawerCurrencies =
                       drawer === "MTC" || drawer === "Alfa"
                         ? currencies.filter((c) => c.code === "USD")
                         : currencies;
 
-                    return (
-                      <VarianceCard
-                        key={drawer}
-                        drawer={drawer}
-                        currencies={drawerCurrencies}
-                        physicalAmounts={drawerAmounts.amounts[drawer] || {}}
-                        getExpectedAmount={(currencyCode: string) => {
-                          // Map drawer to systemExpected field
-                          const drawerKey =
-                            drawer === "General"
-                              ? "generalDrawer"
-                              : drawer === "OMT_System"
-                                ? "omtDrawer"
-                                : drawer === "OMT_App"
-                                  ? "omtAppDrawer"
-                                : drawer === "MTC"
-                                  ? "mtcDrawer"
-                                  : "alfaDrawer";
-                          const expected = systemExpected[drawerKey];
-                          if (!expected) return 0;
+                    const drawerKey =
+                      drawer === "General"
+                        ? "generalDrawer"
+                        : drawer === "OMT_System"
+                          ? "omtDrawer"
+                          : drawer === "OMT_App"
+                            ? "omtAppDrawer"
+                            : drawer === "MTC"
+                              ? "mtcDrawer"
+                              : "alfaDrawer";
 
-                          // Map currency code to field (usd, lbp, eur)
-                          const currencyKey = currencyCode.toLowerCase();
-                          return expected[currencyKey] || 0;
-                        }}
-                      />
-                    );
-                  })}
-                    </div>
-                  </>
-                );
-              })()}
+                    const expectedObj = systemExpected[drawerKey];
+
+                    for (const currency of drawerCurrencies) {
+                      const expected =
+                        expectedObj?.[currency.code.toLowerCase()] || 0;
+                      const physical =
+                        drawerAmounts.amounts[drawer]?.[currency.code] ?? 0;
+                      const variance = physical - expected;
+                      const pct =
+                        expected !== 0
+                          ? (Math.abs(variance) / expected) * 100
+                          : 0;
+
+                      if (
+                        varianceThresholdPct > 0 &&
+                        pct >= varianceThresholdPct &&
+                        Math.abs(variance) > 0.01
+                      ) {
+                        flagged.push({
+                          drawer,
+                          currency: currency.code,
+                          variance,
+                          expected,
+                          pct,
+                        });
+                      }
+                    }
+                  }
+
+                  return (
+                    <>
+                      {flagged.length > 0 && (
+                        <AlertBanner type="warning">
+                          Variance threshold exceeded ({varianceThresholdPct}
+                          %+):{" "}
+                          {flagged
+                            .slice(0, 4)
+                            .map(
+                              (f) =>
+                                `${f.drawer} ${f.currency} ${f.variance > 0 ? "+" : ""}${f.variance.toFixed(2)} (${f.pct.toFixed(1)}%)`,
+                            )
+                            .join(" • ")}
+                          {flagged.length > 4 ? " • ..." : ""}
+                        </AlertBanner>
+                      )}
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {DRAWER_ORDER.map((drawer) => {
+                          const drawerCurrencies =
+                            drawer === "MTC" || drawer === "Alfa"
+                              ? currencies.filter((c) => c.code === "USD")
+                              : currencies;
+
+                          return (
+                            <VarianceCard
+                              key={drawer}
+                              drawer={drawer}
+                              currencies={drawerCurrencies}
+                              physicalAmounts={
+                                drawerAmounts.amounts[drawer] || {}
+                              }
+                              getExpectedAmount={(currencyCode: string) => {
+                                // Map drawer to systemExpected field
+                                const drawerKey =
+                                  drawer === "General"
+                                    ? "generalDrawer"
+                                    : drawer === "OMT_System"
+                                      ? "omtDrawer"
+                                      : drawer === "OMT_App"
+                                        ? "omtAppDrawer"
+                                        : drawer === "MTC"
+                                          ? "mtcDrawer"
+                                          : "alfaDrawer";
+                                const expected = systemExpected[drawerKey];
+                                if (!expected) return 0;
+
+                                // Map currency code to field (usd, lbp, eur)
+                                const currencyKey = currencyCode.toLowerCase();
+                                return expected[currencyKey] || 0;
+                              }}
+                            />
+                          );
+                        })}
+                      </div>
+                    </>
+                  );
+                })()}
             </>
           )}
 

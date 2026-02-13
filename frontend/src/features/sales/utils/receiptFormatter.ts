@@ -75,7 +75,8 @@ export function formatReceipt58mm(data: ReceiptData): string {
   receipt += "ITEMS\n";
   receipt += "-".repeat(width) + "\n";
   // Align "Price" header so "P" aligns with "$" in amounts below
-  receipt += padRight("Item", 20) + padRight("Qty", 6) + " ".repeat(6) + "Price\n";
+  receipt +=
+    padRight("Item", 20) + padRight("Qty", 6) + " ".repeat(6) + "Price\n";
   receipt += "-".repeat(width) + "\n";
 
   data.items.forEach((item) => {
@@ -83,15 +84,15 @@ export function formatReceipt58mm(data: ReceiptData): string {
     const itemName = item.name.substring(0, 20);
     const priceStr = `$${item.price.toFixed(2)}`;
     const subtotalStr = `$${item.subtotal.toFixed(2)}`;
-    
+
     receipt += padRight(itemName, 20);
     receipt += padRight(item.quantity.toString(), 6);
     receipt += priceStr.padStart(14, " ") + "\n";
-    
+
     if (item.imei) {
       receipt += `  IMEI: ${item.imei}\n`;
     }
-    
+
     receipt += padRight("", 26); // 20 + 6 for item name and qty columns
     receipt += subtotalStr.padStart(14, " ") + "\n";
   });
@@ -102,38 +103,64 @@ export function formatReceipt58mm(data: ReceiptData): string {
   const subtotalStr = `$${data.subtotal.toFixed(2)}`;
   const totalStr = `$${data.total.toFixed(2)}`;
   const lbpStr = `≈ ${(data.total * data.exchange_rate).toLocaleString()} LBP`;
-  
-  receipt += "Subtotal:" + " ".repeat(width - 9 - subtotalStr.length) + subtotalStr + "\n";
+
+  receipt +=
+    "Subtotal:" +
+    " ".repeat(width - 9 - subtotalStr.length) +
+    subtotalStr +
+    "\n";
   if (data.discount > 0) {
     const discountStr = `-$${data.discount.toFixed(2)}`;
-    receipt += "Discount:" + " ".repeat(width - 9 - discountStr.length) + discountStr + "\n";
+    receipt +=
+      "Discount:" +
+      " ".repeat(width - 9 - discountStr.length) +
+      discountStr +
+      "\n";
   }
-  receipt += "TOTAL:" + " ".repeat(width - 6 - totalStr.length) + totalStr + "\n";
+  receipt +=
+    "TOTAL:" + " ".repeat(width - 6 - totalStr.length) + totalStr + "\n";
   receipt += lbpStr.padStart(width, " ") + "\n";
   receipt += "\n";
 
   // Payment
   receipt += "PAYMENT\n";
   receipt += "-".repeat(width) + "\n";
-  
+
   const paidUsdStr = `$${data.payment_usd.toFixed(2)}`;
   const changeUsdStr = `$${data.change_usd.toFixed(2)}`;
-  
-  receipt += "Paid USD:" + " ".repeat(width - 9 - paidUsdStr.length) + paidUsdStr + "\n";
-  
+
+  receipt +=
+    "Paid USD:" + " ".repeat(width - 9 - paidUsdStr.length) + paidUsdStr + "\n";
+
   if (data.payment_lbp > 0) {
     const paidLbpStr = `${data.payment_lbp.toLocaleString()}`;
-    receipt += "Paid LBP:" + " ".repeat(width - 9 - paidLbpStr.length) + paidLbpStr + "\n";
-    
+    receipt +=
+      "Paid LBP:" +
+      " ".repeat(width - 9 - paidLbpStr.length) +
+      paidLbpStr +
+      "\n";
+
     const rateUsdStr = `$${(data.payment_lbp / data.exchange_rate).toFixed(2)}`;
-    receipt += "(@ Rate):" + " ".repeat(width - 9 - rateUsdStr.length) + rateUsdStr + "\n";
+    receipt +=
+      "(@ Rate):" +
+      " ".repeat(width - 9 - rateUsdStr.length) +
+      rateUsdStr +
+      "\n";
   }
-  
-  receipt += "Change USD:" + " ".repeat(width - 11 - changeUsdStr.length) + changeUsdStr + "\n";
-  
+
+  receipt +=
+    "Change USD:" +
+    " ".repeat(width - 11 - changeUsdStr.length) +
+    changeUsdStr +
+    "\n";
+
   if (data.change_lbp > 0) {
     const changeLbpStr = `${data.change_lbp.toLocaleString()} LBP`;
-    receipt += "Change LBP:" + " ".repeat(width - 11 - changeLbpStr.length) + changeLbpStr + "\n";
+    receipt +=
+      "Change LBP:" +
+      " ".repeat(width - 11 - changeLbpStr.length) +
+      changeLbpStr +
+      "\n";
   }
 
   receipt += "\n" + padCenter("=".repeat(width)) + "\n";

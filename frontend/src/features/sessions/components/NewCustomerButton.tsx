@@ -1,7 +1,7 @@
-import { useState } from 'react';
-import { UserPlus } from 'lucide-react';
-import { StartSessionModal } from './StartSessionModal';
-import { useSession } from '../context/SessionContext';
+import { useState } from "react";
+import { UserPlus } from "lucide-react";
+import { StartSessionModal } from "./StartSessionModal";
+import { useSession } from "../context/SessionContext";
 
 export function NewCustomerButton() {
   const { allActiveSessions } = useSession();
@@ -23,7 +23,10 @@ export function NewCustomerButton() {
         )}
       </button>
 
-      <StartSessionModal isOpen={showModal} onClose={() => setShowModal(false)} />
+      <StartSessionModal
+        isOpen={showModal}
+        onClose={() => setShowModal(false)}
+      />
     </>
   );
 }

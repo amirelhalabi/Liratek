@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { useSession } from '../context/SessionContext';
+import { useState, useEffect } from "react";
+import { useSession } from "../context/SessionContext";
 
 export function SessionFloatingWindow() {
   const {
@@ -50,7 +50,7 @@ export function SessionFloatingWindow() {
 
   // Load saved position from localStorage
   useEffect(() => {
-    const saved = localStorage.getItem('sessionWindowPosition');
+    const saved = localStorage.getItem("sessionWindowPosition");
     if (saved) {
       try {
         const pos = JSON.parse(saved);
@@ -63,7 +63,7 @@ export function SessionFloatingWindow() {
     }
 
     // Load badge position
-    const savedBadge = localStorage.getItem('sessionBadgePosition');
+    const savedBadge = localStorage.getItem("sessionBadgePosition");
     if (savedBadge) {
       try {
         const pos = JSON.parse(savedBadge);
@@ -79,14 +79,17 @@ export function SessionFloatingWindow() {
   // Save position when changed
   useEffect(() => {
     if (position.x !== 0 || position.y !== 0) {
-      localStorage.setItem('sessionWindowPosition', JSON.stringify(position));
+      localStorage.setItem("sessionWindowPosition", JSON.stringify(position));
     }
   }, [position]);
 
   // Save badge position when changed
   useEffect(() => {
     if (badgePosition.x !== 0 || badgePosition.y !== 0) {
-      localStorage.setItem('sessionBadgePosition', JSON.stringify(badgePosition));
+      localStorage.setItem(
+        "sessionBadgePosition",
+        JSON.stringify(badgePosition),
+      );
     }
   }, [badgePosition]);
 
@@ -137,11 +140,11 @@ export function SessionFloatingWindow() {
 
   useEffect(() => {
     if (isDragging) {
-      window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
+      window.addEventListener("mousemove", handleMouseMove);
+      window.addEventListener("mouseup", handleMouseUp);
       return () => {
-        window.removeEventListener('mousemove', handleMouseMove);
-        window.removeEventListener('mouseup', handleMouseUp);
+        window.removeEventListener("mousemove", handleMouseMove);
+        window.removeEventListener("mouseup", handleMouseUp);
       };
     }
   }, [isDragging, dragStart]);
@@ -156,7 +159,10 @@ export function SessionFloatingWindow() {
     setIsBadgeDragging(true);
     setBadgeWasDragged(false); // Reset drag flag
     setDragStartPosition({ x: e.clientX, y: e.clientY }); // Remember start position
-    setBadgeDragStart({ x: e.clientX - badgePosition.x, y: e.clientY - badgePosition.y });
+    setBadgeDragStart({
+      x: e.clientX - badgePosition.x,
+      y: e.clientY - badgePosition.y,
+    });
   };
 
   const handleBadgeMouseMove = (e: MouseEvent) => {
@@ -165,7 +171,7 @@ export function SessionFloatingWindow() {
     // Check if mouse has moved significantly (more than 5px) - indicates actual drag
     const dragDistance = Math.sqrt(
       Math.pow(e.clientX - dragStartPosition.x, 2) +
-      Math.pow(e.clientY - dragStartPosition.y, 2)
+        Math.pow(e.clientY - dragStartPosition.y, 2),
     );
 
     if (dragDistance > 5) {
@@ -212,11 +218,11 @@ export function SessionFloatingWindow() {
 
   useEffect(() => {
     if (isBadgeDragging) {
-      window.addEventListener('mousemove', handleBadgeMouseMove);
-      window.addEventListener('mouseup', handleBadgeMouseUp);
+      window.addEventListener("mousemove", handleBadgeMouseMove);
+      window.addEventListener("mouseup", handleBadgeMouseUp);
       return () => {
-        window.removeEventListener('mousemove', handleBadgeMouseMove);
-        window.removeEventListener('mouseup', handleBadgeMouseUp);
+        window.removeEventListener("mousemove", handleBadgeMouseMove);
+        window.removeEventListener("mouseup", handleBadgeMouseUp);
       };
     }
   }, [isBadgeDragging, badgeDragStart, badgePosition, dragStartPosition]);
@@ -225,7 +231,7 @@ export function SessionFloatingWindow() {
 
   // Minimized state - draggable badge
   if (isFloatingWindowMinimized) {
-    const initials = getInitials(activeSession.customer_name || 'Customer');
+    const initials = getInitials(activeSession.customer_name || "Customer");
 
     return (
       <div
@@ -235,9 +241,9 @@ export function SessionFloatingWindow() {
         style={{
           left: `${badgePosition.x}px`,
           top: `${badgePosition.y}px`,
-          transition: isBadgeDragging ? 'none' : 'transform 0.2s ease-out',
+          transition: isBadgeDragging ? "none" : "transform 0.2s ease-out",
         }}
-        title={`Session: ${activeSession.customer_name || 'Customer'} (Drag to move)`}
+        title={`Session: ${activeSession.customer_name || "Customer"} (Drag to move)`}
       >
         <span className="text-lg">{initials}</span>
       </div>
@@ -265,7 +271,10 @@ export function SessionFloatingWindow() {
       // Grow height for 1-3 transactions (no scroll needed)
       return {
         width: fullWidth,
-        height: Math.min(headerHeight + 50 + (transactionCount * transactionItemHeight), maxHeight),
+        height: Math.min(
+          headerHeight + 50 + transactionCount * transactionItemHeight,
+          maxHeight,
+        ),
       };
     } else {
       // Max height reached, enable scrolling
@@ -288,7 +297,7 @@ export function SessionFloatingWindow() {
         width: `${windowDimensions.width}px`,
         height: `${windowDimensions.height}px`,
         // Only transition width/height, not position during drag
-        transition: isDragging ? 'width 0.3s, height 0.3s' : 'all 0.3s',
+        transition: isDragging ? "width 0.3s, height 0.3s" : "all 0.3s",
       }}
     >
       {/* Title Bar (Draggable) - Compact one-line layout */}
@@ -297,13 +306,27 @@ export function SessionFloatingWindow() {
         onMouseDown={handleMouseDown}
       >
         <div className="flex items-center gap-2 min-w-0 flex-1">
-          <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+          <svg
+            className="w-4 h-4 flex-shrink-0"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+            />
           </svg>
           <div className="truncate text-sm">
-            <span className="font-semibold">{activeSession.customer_name || 'Customer'}</span>
+            <span className="font-semibold">
+              {activeSession.customer_name || "Customer"}
+            </span>
             {activeSession.customer_phone && (
-              <span className="ml-2 opacity-90">{activeSession.customer_phone}</span>
+              <span className="ml-2 opacity-90">
+                {activeSession.customer_phone}
+              </span>
             )}
           </div>
         </div>
@@ -316,27 +339,51 @@ export function SessionFloatingWindow() {
             className="hover:bg-violet-800 px-1.5 py-1 rounded transition-colors"
             title="Minimize"
           >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
+            <svg
+              className="w-3.5 h-3.5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M20 12H4"
+              />
             </svg>
           </button>
           <button
             onClick={async (e) => {
               e.stopPropagation();
-              if (window.confirm(`Close session for ${activeSession.customer_name || 'this customer'}?`)) {
+              if (
+                window.confirm(
+                  `Close session for ${activeSession.customer_name || "this customer"}?`,
+                )
+              ) {
                 try {
                   await closeCurrentSession();
                 } catch (err) {
-                  console.error('Failed to close session:', err);
-                  alert('Failed to close session');
+                  console.error("Failed to close session:", err);
+                  alert("Failed to close session");
                 }
               }
             }}
             className="hover:bg-violet-800 px-1.5 py-1 rounded transition-colors"
             title="Close Session"
           >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            <svg
+              className="w-3.5 h-3.5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M6 18L18 6M6 6l12 12"
+              />
             </svg>
           </button>
         </div>
@@ -366,11 +413,17 @@ export function SessionFloatingWindow() {
                 </div>
                 <div className="text-sm font-semibold">
                   {tx.amount_usd > 0 && (
-                    <span className="text-green-400">${tx.amount_usd.toFixed(2)}</span>
+                    <span className="text-green-400">
+                      ${tx.amount_usd.toFixed(2)}
+                    </span>
                   )}
-                  {tx.amount_usd > 0 && tx.amount_lbp > 0 && <span className="mx-1 text-slate-500">+</span>}
+                  {tx.amount_usd > 0 && tx.amount_lbp > 0 && (
+                    <span className="mx-1 text-slate-500">+</span>
+                  )}
                   {tx.amount_lbp > 0 && (
-                    <span className="text-blue-400">{tx.amount_lbp.toLocaleString()} LBP</span>
+                    <span className="text-blue-400">
+                      {tx.amount_lbp.toLocaleString()} LBP
+                    </span>
                   )}
                 </div>
               </li>
@@ -383,16 +436,23 @@ export function SessionFloatingWindow() {
       {sessionTransactions.length > 0 && (
         <div className="px-4 py-3 bg-slate-800/50 border-t border-slate-700 rounded-b-2xl">
           <div className="flex justify-between items-center text-sm">
-            <span className="font-medium text-slate-300">Total ({sessionTransactions.length} transactions)</span>
+            <span className="font-medium text-slate-300">
+              Total ({sessionTransactions.length} transactions)
+            </span>
             <div className="font-bold">
               {getTotals(sessionTransactions).usd > 0 && (
-                <span className="text-green-400">${getTotals(sessionTransactions).usd.toFixed(2)}</span>
+                <span className="text-green-400">
+                  ${getTotals(sessionTransactions).usd.toFixed(2)}
+                </span>
               )}
-              {getTotals(sessionTransactions).usd > 0 && getTotals(sessionTransactions).lbp > 0 && (
-                <span className="mx-1 text-slate-500">+</span>
-              )}
+              {getTotals(sessionTransactions).usd > 0 &&
+                getTotals(sessionTransactions).lbp > 0 && (
+                  <span className="mx-1 text-slate-500">+</span>
+                )}
               {getTotals(sessionTransactions).lbp > 0 && (
-                <span className="text-blue-400">{getTotals(sessionTransactions).lbp.toLocaleString()} LBP</span>
+                <span className="text-blue-400">
+                  {getTotals(sessionTransactions).lbp.toLocaleString()} LBP
+                </span>
               )}
             </div>
           </div>
@@ -405,37 +465,37 @@ export function SessionFloatingWindow() {
 // Helper functions
 function getInitials(name: string): string {
   return name
-    .split(' ')
+    .split(" ")
     .map((n) => n[0])
-    .join('')
+    .join("")
     .toUpperCase()
     .slice(0, 2);
 }
 
 function formatTransactionType(type: string): string {
   const map: Record<string, string> = {
-    sale: 'Sale',
-    recharge: 'Recharge',
-    exchange: 'Exchange',
-    omt: 'OMT',
-    whish: 'Whish',
-    maintenance: 'Maintenance',
-    expense: 'Expense',
+    sale: "Sale",
+    recharge: "Recharge",
+    exchange: "Exchange",
+    omt: "OMT",
+    whish: "Whish",
+    maintenance: "Maintenance",
+    expense: "Expense",
   };
   return map[type] || type.charAt(0).toUpperCase() + type.slice(1);
 }
 
-function getTransactionIcon(type: string): JSX.Element {
+function getTransactionIcon(type: string) {
   const iconMap: Record<string, string> = {
-    sale: '🛒',
-    recharge: '📱',
-    exchange: '💱',
-    omt: '💸',
-    whish: '💳',
-    maintenance: '🔧',
-    expense: '💰',
+    sale: "🛒",
+    recharge: "📱",
+    exchange: "💱",
+    omt: "💸",
+    whish: "💳",
+    maintenance: "🔧",
+    expense: "💰",
   };
-  return <span>{iconMap[type] || '📄'}</span>;
+  return <span>{iconMap[type] || "📄"}</span>;
 }
 
 function formatTime(iso: string): string {
@@ -445,15 +505,15 @@ function formatTime(iso: string): string {
     const diff = now.getTime() - date.getTime();
     const mins = Math.floor(diff / 60000);
 
-    if (mins < 1) return 'Just now';
+    if (mins < 1) return "Just now";
     if (mins < 60) return `${mins}m ago`;
 
     const hours = Math.floor(mins / 60);
     if (hours < 24) return `${hours}h ago`;
 
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   } catch {
-    return '';
+    return "";
   }
 }
 
@@ -463,6 +523,6 @@ function getTotals(transactions: any[]): { usd: number; lbp: number } {
       usd: acc.usd + (tx.amount_usd || 0),
       lbp: acc.lbp + (tx.amount_lbp || 0),
     }),
-    { usd: 0, lbp: 0 }
+    { usd: 0, lbp: 0 },
   );
 }

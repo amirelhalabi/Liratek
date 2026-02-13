@@ -9,7 +9,11 @@ describe("UpdatesPanel", () => {
       updater: {
         getStatus: jest
           .fn()
-          .mockResolvedValue({ packaged: false, platform: "darwin", version: "1.0.0" }),
+          .mockResolvedValue({
+            packaged: false,
+            platform: "darwin",
+            version: "1.0.0",
+          }),
         check: jest.fn().mockResolvedValue({ success: true, updateInfo: null }),
         download: jest.fn().mockResolvedValue({ success: true }),
         quitAndInstall: jest.fn().mockResolvedValue({ success: true }),

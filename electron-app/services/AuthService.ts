@@ -11,9 +11,20 @@
  * - Activity logging
  */
 
-import { UserRepository, getUserRepository } from "../database/repositories/index.js";
-import { SessionRepository, getSessionRepository } from "../database/repositories/index.js";
-import type { SafeUser, CreateUserData, SessionEntity, CreateSessionData } from "../database/repositories/index.js";
+import {
+  UserRepository,
+  getUserRepository,
+} from "../database/repositories/index.js";
+import {
+  SessionRepository,
+  getSessionRepository,
+} from "../database/repositories/index.js";
+import type {
+  SafeUser,
+  CreateUserData,
+  SessionEntity,
+  CreateSessionData,
+} from "../database/repositories/index.js";
 import {
   hashPassword,
   verifyPassword,
@@ -81,7 +92,7 @@ export class AuthService {
   async login(
     username: string,
     password: string,
-    options: LoginOptions = {}
+    options: LoginOptions = {},
   ): Promise<LoginResult> {
     // Validate input
     if (!username?.trim()) {
@@ -125,8 +136,8 @@ export class AuthService {
     if (!safeUser) {
       return { success: false, error: "Failed to load user profile" };
     }
-    return { 
-      success: true, 
+    return {
+      success: true,
       user: safeUser,
       token: session.token,
     };

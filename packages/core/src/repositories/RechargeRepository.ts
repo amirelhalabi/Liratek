@@ -16,7 +16,12 @@ export interface VirtualStock {
   alfa: number;
 }
 
-export type RechargePaidByMethod = "CASH" | "DEBT" | "OMT" | "WHISH" | "BINANCE";
+export type RechargePaidByMethod =
+  | "CASH"
+  | "DEBT"
+  | "OMT"
+  | "WHISH"
+  | "BINANCE";
 
 export interface RechargeData {
   provider: "MTC" | "Alfa";

@@ -63,7 +63,7 @@ export default function Services() {
 
   useEffect(() => {
     loadData();
-    
+
     // Auto-fill customer from active session
     if (activeSession && activeSession.customer_name) {
       setClientName(activeSession.customer_name);
@@ -114,13 +114,13 @@ export default function Services() {
         if (activeSession && result.transaction?.id) {
           try {
             await linkTransaction({
-              transactionType: 'financial_service',
+              transactionType: "financial_service",
               transactionId: result.transaction.id,
               amountUsd: parseFloat(amountUSD) || 0,
               amountLbp: parseFloat(amountLBP) || 0,
             });
           } catch (err) {
-            console.error('Failed to link service to session:', err);
+            console.error("Failed to link service to session:", err);
             // Don't block the transaction completion
           }
         }

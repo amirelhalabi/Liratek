@@ -143,7 +143,12 @@ export class CustomerSessionRepository {
    */
   updateSession(
     sessionId: number,
-    data: Partial<Pick<CustomerSession, "customer_name" | "customer_phone" | "customer_notes">>,
+    data: Partial<
+      Pick<
+        CustomerSession,
+        "customer_name" | "customer_phone" | "customer_notes"
+      >
+    >,
   ): void {
     const fields: string[] = [];
     const values: any[] = [];
@@ -181,7 +186,9 @@ export class CustomerSessionRepository {
   }
 }
 
-export function getCustomerSessionRepository(db?: Database.Database): CustomerSessionRepository {
+export function getCustomerSessionRepository(
+  db?: Database.Database,
+): CustomerSessionRepository {
   if (!repositoryInstance || db) {
     repositoryInstance = new CustomerSessionRepository(db);
   }

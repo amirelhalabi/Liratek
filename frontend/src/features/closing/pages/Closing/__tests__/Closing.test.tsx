@@ -35,7 +35,7 @@ const emitSpy = jest.fn();
 jest.mock("../../../../../shared/utils/appEvents", () => ({
   appEvents: {
     emit: (...args: any[]) => emitSpy(...args),
-    on: jest.fn(() => () => { }),
+    on: jest.fn(() => () => {}),
     off: jest.fn(),
   },
 }));
@@ -69,9 +69,11 @@ describe("Closing modal", () => {
         createDailyClosing: jest.fn(),
       },
       settings: {
-        getAll: jest.fn().mockResolvedValue([
-          { key_name: "closing_variance_threshold_pct", value: "5" },
-        ]),
+        getAll: jest
+          .fn()
+          .mockResolvedValue([
+            { key_name: "closing_variance_threshold_pct", value: "5" },
+          ]),
         update: jest.fn(),
       },
     };
@@ -206,7 +208,7 @@ describe("Closing modal", () => {
   });
 
   it("step 3: allows adding notes and saves successfully", async () => {
-    jest.spyOn(window, "alert").mockImplementation(() => { });
+    jest.spyOn(window, "alert").mockImplementation(() => {});
 
     setupDrawerAmounts({
       hasAnyAmounts: true,

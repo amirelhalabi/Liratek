@@ -30,14 +30,26 @@ export default function Diagnostics() {
   const [lastBackupAt, setLastBackupAt] = useState<string | null>(null);
   const [lastVerifyAt, setLastVerifyAt] = useState<string | null>(null);
   const [lastVerifyOk, setLastVerifyOk] = useState<boolean | null>(null);
-  const [autoVerifyEnabled, setAutoVerifyEnabled] = useState<boolean | null>(null);
+  const [autoVerifyEnabled, setAutoVerifyEnabled] = useState<boolean | null>(
+    null,
+  );
 
-  const [autoBackupEnabled, setAutoBackupEnabled] = useState<boolean | null>(null);
-  const [autoBackupIntervalHours, setAutoBackupIntervalHours] = useState<number | null>(null);
-  const [autoBackupKeepCount, setAutoBackupKeepCount] = useState<number | null>(null);
+  const [autoBackupEnabled, setAutoBackupEnabled] = useState<boolean | null>(
+    null,
+  );
+  const [autoBackupIntervalHours, setAutoBackupIntervalHours] = useState<
+    number | null
+  >(null);
+  const [autoBackupKeepCount, setAutoBackupKeepCount] = useState<number | null>(
+    null,
+  );
 
-  const [fkStartupViolationCount, setFkStartupViolationCount] = useState<number | null>(null);
-  const [fkStartupCheckedAt, setFkStartupCheckedAt] = useState<string | null>(null);
+  const [fkStartupViolationCount, setFkStartupViolationCount] = useState<
+    number | null
+  >(null);
+  const [fkStartupCheckedAt, setFkStartupCheckedAt] = useState<string | null>(
+    null,
+  );
 
   const load = async () => {
     setLoading(true);
@@ -83,7 +95,9 @@ export default function Diagnostics() {
           ? null
           : String(map.get("last_backup_verify_ok")) === "1",
       );
-      setAutoVerifyEnabled(Number(map.get("auto_backup_verify_enabled") ?? 0) === 1);
+      setAutoVerifyEnabled(
+        Number(map.get("auto_backup_verify_enabled") ?? 0) === 1,
+      );
 
       setFkStartupCheckedAt(String(map.get("fk_last_check_at") ?? "") || null);
       const fkCount = Number(map.get("fk_last_violation_count") ?? "");
@@ -161,7 +175,6 @@ export default function Diagnostics() {
   useEffect(() => {
     load();
     loadBackups();
-     
   }, []);
 
   return (
@@ -263,7 +276,9 @@ export default function Diagnostics() {
                 <div className="text-xs text-slate-500 mt-1 space-y-1">
                   <div>
                     Last backup:{" "}
-                    {lastBackupAt ? new Date(lastBackupAt).toLocaleString() : "—"}
+                    {lastBackupAt
+                      ? new Date(lastBackupAt).toLocaleString()
+                      : "—"}
                   </div>
                   <div>
                     Auto backup:{" "}
@@ -282,7 +297,12 @@ export default function Diagnostics() {
                         : "After first successful backup"}
                   </div>
                   <div>
-                    Auto verify: {autoVerifyEnabled == null ? "—" : autoVerifyEnabled ? "Enabled" : "Disabled"}
+                    Auto verify:{" "}
+                    {autoVerifyEnabled == null
+                      ? "—"
+                      : autoVerifyEnabled
+                        ? "Enabled"
+                        : "Disabled"}
                   </div>
                   <div>
                     Last verify:{" "}
@@ -353,7 +373,8 @@ export default function Diagnostics() {
 
         {verifyResult && (
           <div className="text-sm text-slate-300">
-            Integrity check: <span className="font-semibold">{verifyResult}</span>
+            Integrity check:{" "}
+            <span className="font-semibold">{verifyResult}</span>
           </div>
         )}
 
@@ -398,7 +419,9 @@ export default function Diagnostics() {
               ) : (
                 errors.map((e) => (
                   <tr key={e.id} className="border-t border-slate-800">
-                    <td className="p-2 text-xs text-slate-400">{e.created_at}</td>
+                    <td className="p-2 text-xs text-slate-400">
+                      {e.created_at}
+                    </td>
                     <td className="p-2 font-mono text-xs">{e.endpoint}</td>
                     <td className="p-2 text-sm">{e.error}</td>
                   </tr>

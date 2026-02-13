@@ -54,7 +54,11 @@ export default function UsersManager() {
       alert("Password must be at least 8 chars with upper, lower, and a digit");
       return;
     }
-    const res = await api.createUser({ username: newUsername, password: newPassword, role: newRole });
+    const res = await api.createUser({
+      username: newUsername,
+      password: newPassword,
+      role: newRole,
+    });
     if (!res.success) {
       alert(res.error);
       return;

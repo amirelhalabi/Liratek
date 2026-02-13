@@ -1,8 +1,11 @@
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
+import fs from "fs";
+import os from "os";
+import path from "path";
 
-export type DbKeyResolutionSource = 'env:DATABASE_KEY' | 'file:db-key.txt' | 'none';
+export type DbKeyResolutionSource =
+  | "env:DATABASE_KEY"
+  | "file:db-key.txt"
+  | "none";
 
 export interface ResolvedDbKey {
   key?: string;
@@ -21,16 +24,21 @@ export interface ResolvedDbKey {
 export function resolveDatabaseKey(): ResolvedDbKey {
   const env = process.env.DATABASE_KEY?.trim();
   if (env) {
-    return { key: env, source: 'env:DATABASE_KEY' };
+    return { key: env, source: "env:DATABASE_KEY" };
   }
 
-  const configFile = path.join(os.homedir(), 'Documents', 'LiraTek', 'db-key.txt');
+  const configFile = path.join(
+    os.homedir(),
+    "Documents",
+    "LiraTek",
+    "db-key.txt",
+  );
   if (fs.existsSync(configFile)) {
-    const key = fs.readFileSync(configFile, 'utf8').trim();
+    const key = fs.readFileSync(configFile, "utf8").trim();
     if (key) {
-      return { key, source: 'file:db-key.txt', configFile };
+      return { key, source: "file:db-key.txt", configFile };
     }
   }
 
-  return { source: 'none' };
+  return { source: "none" };
 }

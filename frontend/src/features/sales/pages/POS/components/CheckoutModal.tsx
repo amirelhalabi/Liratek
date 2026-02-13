@@ -114,30 +114,30 @@ export default function CheckoutModal({
       setPaymentLines([
         ...(restoredUSD
           ? [
-            {
-              method: "CASH" as const,
-              currency_code: "USD" as const,
-              amount: restoredUSD,
-            },
-          ]
+              {
+                method: "CASH" as const,
+                currency_code: "USD" as const,
+                amount: restoredUSD,
+              },
+            ]
           : []),
         ...(restoredLBP
           ? [
-            {
-              method: "CASH" as const,
-              currency_code: "LBP" as const,
-              amount: restoredLBP,
-            },
-          ]
+              {
+                method: "CASH" as const,
+                currency_code: "LBP" as const,
+                amount: restoredLBP,
+              },
+            ]
           : []),
         ...(!restoredUSD && !restoredLBP
           ? [
-            {
-              method: "CASH" as const,
-              currency_code: "USD" as const,
-              amount: 0,
-            },
-          ]
+              {
+                method: "CASH" as const,
+                currency_code: "USD" as const,
+                amount: 0,
+              },
+            ]
           : []),
       ]);
       setChangeGivenUSD(draftData.changeGivenUSD ?? 0);
@@ -177,9 +177,9 @@ export default function CheckoutModal({
   // Determine whether creating a debt is allowed: existing client must have phone, new client must have both fields
   const canCreateDebt = selectedClient
     ? !!(
-      selectedClient.phone_number &&
-      selectedClient.phone_number.trim().length > 0
-    )
+        selectedClient.phone_number &&
+        selectedClient.phone_number.trim().length > 0
+      )
     : isNewClientInfoComplete;
 
   const finalAmount = Math.max(0, totalAmount - discount);
@@ -530,9 +530,9 @@ export default function CheckoutModal({
                               prev.map((p, i) =>
                                 i === idx
                                   ? {
-                                    ...p,
-                                    method: e.target.value as PaymentMethod,
-                                  }
+                                      ...p,
+                                      method: e.target.value as PaymentMethod,
+                                    }
                                   : p,
                               ),
                             )
@@ -553,10 +553,10 @@ export default function CheckoutModal({
                               prev.map((p, i) =>
                                 i === idx
                                   ? {
-                                    ...p,
-                                    currency_code:
-                                      e.target.value as PaymentCurrencyCode,
-                                  }
+                                      ...p,
+                                      currency_code: e.target
+                                        .value as PaymentCurrencyCode,
+                                    }
                                   : p,
                               ),
                             )
@@ -580,10 +580,9 @@ export default function CheckoutModal({
                                 prev.map((p, i) =>
                                   i === idx
                                     ? {
-                                      ...p,
-                                      amount:
-                                        parseFloat(e.target.value) || 0,
-                                    }
+                                        ...p,
+                                        amount: parseFloat(e.target.value) || 0,
+                                      }
                                     : p,
                                 ),
                               )
@@ -614,8 +613,10 @@ export default function CheckoutModal({
                 </div>
 
                 <div className="mt-3 text-xs text-slate-400">
-                  Totals: <span className="font-mono">${paidUSD.toFixed(2)}</span> USD +{" "}
-                  <span className="font-mono">{paidLBP.toLocaleString()}</span> LBP
+                  Totals:{" "}
+                  <span className="font-mono">${paidUSD.toFixed(2)}</span> USD +{" "}
+                  <span className="font-mono">{paidLBP.toLocaleString()}</span>{" "}
+                  LBP
                 </div>
               </div>
 

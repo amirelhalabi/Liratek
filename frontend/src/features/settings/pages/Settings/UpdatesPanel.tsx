@@ -79,7 +79,10 @@ export default function UpdatesPanel() {
           <div>Version: {status.version}</div>
           <div>Platform: {status.platform}</div>
           <div>
-            Updater: {status.packaged ? "Enabled (packaged build)" : "Disabled (dev mode)"}
+            Updater:{" "}
+            {status.packaged
+              ? "Enabled (packaged build)"
+              : "Disabled (dev mode)"}
           </div>
         </div>
       )}

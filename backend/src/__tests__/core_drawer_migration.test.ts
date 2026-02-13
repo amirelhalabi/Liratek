@@ -55,12 +55,20 @@ describe("@liratek/core drawer migration", () => {
                 drawer = "Alfa";
                 ccy = "USD";
               }
-              balances.set(key(drawer, ccy), balances.get(key(drawer, ccy)) ?? 0);
+              balances.set(
+                key(drawer, ccy),
+                balances.get(key(drawer, ccy)) ?? 0,
+              );
             }
 
-            if (sql.startsWith("UPDATE drawer_balances SET balance = balance +")) {
+            if (
+              sql.startsWith("UPDATE drawer_balances SET balance = balance +")
+            ) {
               const [delta, drawer, ccy] = args;
-              balances.set(key(drawer, ccy), (balances.get(key(drawer, ccy)) ?? 0) + delta);
+              balances.set(
+                key(drawer, ccy),
+                (balances.get(key(drawer, ccy)) ?? 0) + delta,
+              );
             }
 
             if (sql.startsWith("DELETE FROM drawer_balances")) {
@@ -97,7 +105,13 @@ describe("@liratek/core drawer migration", () => {
 
   it("renames OMT->OMT_System and Whish->Whish_App in balances (merge + delete old)", () => {
     const { db, balances } = makeDb({
-      tables: ["drawer_balances", "payments", "daily_closing_amounts", "daily_closings", "sales"],
+      tables: [
+        "drawer_balances",
+        "payments",
+        "daily_closing_amounts",
+        "daily_closings",
+        "sales",
+      ],
       balances: {
         "OMT::USD": 10,
         "OMT::LBP": 20,

@@ -4,7 +4,11 @@ import { SettingsService } from "../services/SettingsService.js";
 import { ExpenseService } from "../services/ExpenseService.js";
 import { ClosingService } from "../services/ClosingService.js";
 import { ActivityService } from "../services/ActivityService.js";
-import { settingsLogger, expenseLogger, closingLogger } from "../utils/logger.js";
+import {
+  settingsLogger,
+  expenseLogger,
+  closingLogger,
+} from "../utils/logger.js";
 /* eslint-disable @typescript-eslint/no-require-imports */
 
 export function registerDatabaseHandlers(): void {
@@ -269,7 +273,6 @@ export function registerDatabaseHandlers(): void {
     } catch {}
 
     try {
-       
       const { getDatabase } = require("../db");
       const db = getDatabase();
       const rows = db.pragma("foreign_key_check");

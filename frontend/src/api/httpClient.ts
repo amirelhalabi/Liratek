@@ -1,4 +1,4 @@
-type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
+type HttpMethod = "GET" | "POST" | "PUT" | "DELETE";
 
 export type ApiError = {
   status: number;
@@ -8,20 +8,22 @@ export type ApiError = {
 
 function getBaseUrl(): string {
   // Prefer runtime override (works in both Vite and Jest typecheck)
-  const fromGlobal = (globalThis as any).__LIRATEK_BACKEND_URL as string | undefined;
-  return (fromGlobal || 'http://localhost:3000').replace(/\/$/, '');
+  const fromGlobal = (globalThis as any).__LIRATEK_BACKEND_URL as
+    | string
+    | undefined;
+  return (fromGlobal || "http://localhost:3000").replace(/\/$/, "");
 }
 
 function getToken(): string | null {
-  return localStorage.getItem('liratek.jwt');
+  return localStorage.getItem("liratek.jwt");
 }
 
 export function setToken(token: string | null): void {
   if (!token) {
-    localStorage.removeItem('liratek.jwt');
+    localStorage.removeItem("liratek.jwt");
     return;
   }
-  localStorage.setItem('liratek.jwt', token);
+  localStorage.setItem("liratek.jwt", token);
 }
 
 export async function requestJson<T>(
@@ -32,11 +34,11 @@ export async function requestJson<T>(
     auth?: boolean;
   },
 ): Promise<T> {
-  const url = `${getBaseUrl()}${path.startsWith('/') ? '' : '/'}${path}`;
-  const method = options?.method ?? 'GET';
+  const url = `${getBaseUrl()}${path.startsWith("/") ? "" : "/"}${path}`;
+  const method = options?.method ?? "GET";
 
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
+    "Content-Type": "application/json",
   };
 
   if (options?.auth !== false) {

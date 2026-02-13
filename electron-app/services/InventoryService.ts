@@ -22,7 +22,10 @@ import {
 } from "../database/repositories/index.js";
 import { ValidationError, NotFoundError } from "../utils/errors.js";
 import { toErrorString, getRepoConstraintCode } from "../utils/errors.js";
-import { generateUniqueNumericBarcode, suggestDuplicateBarcode } from "../utils/barcode.js";
+import {
+  generateUniqueNumericBarcode,
+  suggestDuplicateBarcode,
+} from "../utils/barcode.js";
 
 // =============================================================================
 // Types

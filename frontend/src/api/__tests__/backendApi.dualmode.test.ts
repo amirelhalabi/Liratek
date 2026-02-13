@@ -11,7 +11,7 @@ function okJson(data: unknown) {
   } as any;
 }
 
-describe('backendApi dual-mode routing', () => {
+describe("backendApi dual-mode routing", () => {
   const originalFetch = globalThis.fetch;
 
   beforeEach(() => {
@@ -25,16 +25,24 @@ describe('backendApi dual-mode routing', () => {
     jest.clearAllMocks();
   });
 
-  it('in Electron mode: all exported functions route via window.api (no fetch)', async () => {
+  it("in Electron mode: all exported functions route via window.api (no fetch)", async () => {
     globalThis.fetch = jest.fn(async () => {
-      throw new Error('fetch should not be called in Electron mode');
+      throw new Error("fetch should not be called in Electron mode");
     }) as any;
 
     const apiStub: any = {
       // Auth
-      login: jest.fn(async () => ({ success: true, user: { id: 1, username: 'admin', role: 'admin' }, sessionToken: 'tok' })),
+      login: jest.fn(async () => ({
+        success: true,
+        user: { id: 1, username: "admin", role: "admin" },
+        sessionToken: "tok",
+      })),
       logout: jest.fn(async () => ({ success: true })),
-      restoreSession: jest.fn(async () => ({ success: true, user: { id: 1, username: 'admin', role: 'admin' }, sessionToken: 'tok' })),
+      restoreSession: jest.fn(async () => ({
+        success: true,
+        user: { id: 1, username: "admin", role: "admin" },
+        sessionToken: "tok",
+      })),
 
       // Clients
       getClients: jest.fn(async () => [{ id: 1 }]),
@@ -46,7 +54,10 @@ describe('backendApi dual-mode routing', () => {
       createProduct: jest.fn(async () => ({ success: true, id: 1 })),
       updateProduct: jest.fn(async () => ({ success: true })),
       deleteProduct: jest.fn(async () => ({ success: true })),
-      getInventoryStockStats: jest.fn(async () => ({ stock_budget_usd: 1, stock_count: 1 })),
+      getInventoryStockStats: jest.fn(async () => ({
+        stock_budget_usd: 1,
+        stock_count: 1,
+      })),
 
       // Sales
       getDrafts: jest.fn(async () => []),
@@ -83,13 +94,16 @@ describe('backendApi dual-mode routing', () => {
       getDashboardStats: jest.fn(async () => ({ totalSalesUSD: 0 })),
       getProfitSalesChart: jest.fn(async () => []),
       getTodaysSales: jest.fn(async () => []),
-      getDrawerBalances: jest.fn(async () => ({ generalDrawer: { usd: 0, lbp: 0 }, omtDrawer: { usd: 0, lbp: 0 } })),
+      getDrawerBalances: jest.fn(async () => ({
+        generalDrawer: { usd: 0, lbp: 0 },
+        omtDrawer: { usd: 0, lbp: 0 },
+      })),
       getDebtSummary: jest.fn(async () => ({ totalDebt: 0, topDebtors: [] })),
-      getMonthlyPL: jest.fn(async () => ({ month: '2026-01' })),
+      getMonthlyPL: jest.fn(async () => ({ month: "2026-01" })),
 
       // Settings
       settings: {
-        getAll: jest.fn(async () => [{ key_name: 'x', value: '1' }]),
+        getAll: jest.fn(async () => [{ key_name: "x", value: "1" }]),
         update: jest.fn(async () => ({ success: true })),
       },
 
@@ -99,7 +113,9 @@ describe('backendApi dual-mode routing', () => {
 
       // Services
       getOMTHistory: jest.fn(async () => []),
-      getOMTAnalytics: jest.fn(async () => ({ today: { commissionUSD: 0, commissionLBP: 0, count: 0 } })),
+      getOMTAnalytics: jest.fn(async () => ({
+        today: { commissionUSD: 0, commissionLBP: 0, count: 0 },
+      })),
       addOMTTransaction: jest.fn(async () => ({ success: true, id: 1 })),
 
       // Maintenance
@@ -138,8 +154,14 @@ describe('backendApi dual-mode routing', () => {
 
       // Reports
       report: {
-        generatePDF: jest.fn(async () => ({ success: true, path: '/tmp/x.pdf' })),
-        backupDatabase: jest.fn(async () => ({ success: true, path: '/tmp/bak' })),
+        generatePDF: jest.fn(async () => ({
+          success: true,
+          path: "/tmp/x.pdf",
+        })),
+        backupDatabase: jest.fn(async () => ({
+          success: true,
+          path: "/tmp/bak",
+        })),
         listBackups: jest.fn(async () => ({ success: true, backups: [] })),
         verifyBackup: jest.fn(async () => ({ success: true, ok: true })),
         restoreDatabase: jest.fn(async () => ({ success: true })),
@@ -147,19 +169,19 @@ describe('backendApi dual-mode routing', () => {
     };
 
     (globalThis as any).window.api = apiStub;
-    localStorage.setItem('sessionToken', 'tok');
+    localStorage.setItem("sessionToken", "tok");
 
-    const apiMod = await import('../backendApi');
+    const apiMod = await import("../backendApi");
 
     // Invoke every export with a minimal argument set.
-    await apiMod.login('admin', 'admin123', false);
+    await apiMod.login("admin", "admin123", false);
     await apiMod.logout();
     await apiMod.me();
 
-    await apiMod.getClients('');
+    await apiMod.getClients("");
     await apiMod.deleteClient(1);
 
-    await apiMod.getProducts('');
+    await apiMod.getProducts("");
     await apiMod.getLowStockProducts();
     await apiMod.createProduct({});
     await apiMod.updateProduct(1, {});
@@ -185,16 +207,16 @@ describe('backendApi dual-mode routing', () => {
     await apiMod.deleteExpense(1);
 
     await apiMod.getDashboardStats();
-    await apiMod.getProfitSalesChart('Sales');
+    await apiMod.getProfitSalesChart("Sales");
     await apiMod.getTodaysSales();
     await apiMod.getDrawerBalances();
     await apiMod.getDebtSummary();
     await apiMod.getInventoryStockStats();
-    await apiMod.getMonthlyPL('2026-01');
+    await apiMod.getMonthlyPL("2026-01");
 
     await apiMod.getAllSettings();
-    await apiMod.getSetting('x');
-    await apiMod.updateSetting('x', '2');
+    await apiMod.getSetting("x");
+    await apiMod.updateSetting("x", "2");
 
     await apiMod.getRechargeStock();
     await apiMod.processRecharge({});
@@ -212,46 +234,54 @@ describe('backendApi dual-mode routing', () => {
     await apiMod.getSystemExpectedBalances();
     await apiMod.hasOpeningBalanceToday();
     await apiMod.getDailyStatsSnapshot();
-    await apiMod.setOpeningBalances({ closing_date: '2026-01-01', amounts: [] });
-    await apiMod.createDailyClosing({ closing_date: '2026-01-01', amounts: [] });
+    await apiMod.setOpeningBalances({
+      closing_date: "2026-01-01",
+      amounts: [],
+    });
+    await apiMod.createDailyClosing({
+      closing_date: "2026-01-01",
+      amounts: [],
+    });
     await apiMod.updateDailyClosing(1, {});
 
-    await apiMod.getSuppliers('');
+    await apiMod.getSuppliers("");
     await apiMod.getSupplierBalances();
     await apiMod.getSupplierLedger(1, 10);
-    await apiMod.createSupplier({ name: 's' });
-    await apiMod.addSupplierLedgerEntry(1, { entry_type: 'TOP_UP' });
+    await apiMod.createSupplier({ name: "s" });
+    await apiMod.addSupplierLedgerEntry(1, { entry_type: "TOP_UP" });
 
     await apiMod.getRates();
-    await apiMod.setRate('USD', 'LBP', 89000);
+    await apiMod.setRate("USD", "LBP", 89000);
 
     await apiMod.getNonAdminUsers();
-    await apiMod.createUser({ username: 'u', password: 'p', role: 'staff' });
+    await apiMod.createUser({ username: "u", password: "p", role: "staff" });
     await apiMod.setUserActive(1, true);
-    await apiMod.setUserRole(1, 'staff');
-    await apiMod.setUserPassword(1, 'p');
+    await apiMod.setUserRole(1, "staff");
+    await apiMod.setUserPassword(1, "p");
 
     await apiMod.getRecentActivity(10);
 
-    await apiMod.generatePDF('<html></html>');
+    await apiMod.generatePDF("<html></html>");
     await apiMod.backupDatabase();
     await apiMod.listBackups();
-    await apiMod.verifyBackup('/tmp/x');
-    await apiMod.restoreDatabase('/tmp/x');
+    await apiMod.verifyBackup("/tmp/x");
+    await apiMod.restoreDatabase("/tmp/x");
 
-    await apiMod.createCurrency('EUR', 'Euro');
-    await apiMod.updateCurrency(1, { name: 'Euro' });
+    await apiMod.createCurrency("EUR", "Euro");
+    await apiMod.updateCurrency(1, { name: "Euro" });
     await apiMod.deleteCurrency(1);
 
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
-  it('in Web mode: a representative call uses HTTP fetch', async () => {
+  it("in Web mode: a representative call uses HTTP fetch", async () => {
     delete (globalThis as any).window.api;
 
-    globalThis.fetch = jest.fn(async () => okJson({ success: true, users: [{ id: 1 }] })) as any;
+    globalThis.fetch = jest.fn(async () =>
+      okJson({ success: true, users: [{ id: 1 }] }),
+    ) as any;
 
-    const apiMod = await import('../backendApi');
+    const apiMod = await import("../backendApi");
     await expect(apiMod.getNonAdminUsers()).resolves.toEqual([{ id: 1 }]);
 
     expect(globalThis.fetch).toHaveBeenCalled();

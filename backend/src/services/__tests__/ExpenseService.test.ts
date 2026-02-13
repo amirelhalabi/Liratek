@@ -2,7 +2,7 @@
  * ExpenseService Unit Tests
  */
 
-import { jest } from '@jest/globals';
+import { jest } from "@jest/globals";
 import {
   ExpenseService,
   getExpenseService,
@@ -10,9 +10,12 @@ import {
 } from "../ExpenseService";
 import { ExpenseEntity, CreateExpenseData } from "@liratek/core";
 
-jest.mock("../../../../packages/core/src/repositories/ExpenseRepository", () => ({
-  getExpenseRepository: jest.fn(),
-}));
+jest.mock(
+  "../../../../packages/core/src/repositories/ExpenseRepository",
+  () => ({
+    getExpenseRepository: jest.fn(),
+  }),
+);
 
 import { getExpenseRepository } from "../../../../packages/core/src/repositories/ExpenseRepository";
 

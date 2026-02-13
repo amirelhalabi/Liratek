@@ -26,7 +26,10 @@ export function registerUpdaterHandlers(): void {
       const res = await autoUpdater.checkForUpdates();
       return { success: true, updateInfo: res?.updateInfo };
     } catch (err) {
-      return { success: false, error: err instanceof Error ? err.message : String(err) };
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
     }
   });
 
@@ -46,7 +49,10 @@ export function registerUpdaterHandlers(): void {
       const res = await autoUpdater.downloadUpdate();
       return { success: true, result: res };
     } catch (err) {
-      return { success: false, error: err instanceof Error ? err.message : String(err) };
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
     }
   });
 
@@ -66,7 +72,10 @@ export function registerUpdaterHandlers(): void {
       autoUpdater.quitAndInstall();
       return { success: true };
     } catch (err) {
-      return { success: false, error: err instanceof Error ? err.message : String(err) };
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
     }
   });
 }

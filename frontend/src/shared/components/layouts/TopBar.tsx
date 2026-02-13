@@ -236,7 +236,6 @@ export default function TopBar() {
             </p>
           </div>
 
-
           <button
             onClick={() => {
               setAwaitingLogout(true);

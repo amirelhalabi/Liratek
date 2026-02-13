@@ -84,14 +84,30 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
         // USD outflow
         if (data.amount_usd && data.amount_usd !== 0) {
           const delta = -Math.abs(data.amount_usd);
-          insertPayment.run(expenseId, paidBy, drawerName, "USD", delta, note, createdBy);
+          insertPayment.run(
+            expenseId,
+            paidBy,
+            drawerName,
+            "USD",
+            delta,
+            note,
+            createdBy,
+          );
           upsertBalance.run(drawerName, "USD", delta);
         }
 
         // LBP outflow
         if (data.amount_lbp && data.amount_lbp !== 0) {
           const delta = -Math.abs(data.amount_lbp);
-          insertPayment.run(expenseId, paidBy, drawerName, "LBP", delta, note, createdBy);
+          insertPayment.run(
+            expenseId,
+            paidBy,
+            drawerName,
+            "LBP",
+            delta,
+            note,
+            createdBy,
+          );
           upsertBalance.run(drawerName, "LBP", delta);
         }
       }

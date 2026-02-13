@@ -68,9 +68,9 @@ export default function ClientList() {
         try {
           const result = await deleteClient(id);
           if (result.success) loadClients();
-          else alert(result.error || 'Delete failed');
+          else alert(result.error || "Delete failed");
         } catch (e: any) {
-          alert(e?.message || 'Delete failed');
+          alert(e?.message || "Delete failed");
         }
       }
     } catch (error) {
@@ -91,8 +91,8 @@ export default function ClientList() {
 
   return (
     <div className="space-y-6">
-      <PageHeader 
-        icon={Users} 
+      <PageHeader
+        icon={Users}
         title="Clients"
         actions={
           <button

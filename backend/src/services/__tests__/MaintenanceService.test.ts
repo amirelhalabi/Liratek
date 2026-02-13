@@ -2,13 +2,16 @@
  * MaintenanceService Unit Tests
  */
 
-import { jest } from '@jest/globals';
+import { jest } from "@jest/globals";
 import { MaintenanceService, SaveJobParams } from "../MaintenanceService";
 
 // Mock core repository used by @liratek/core MaintenanceService
-jest.mock("../../../../packages/core/src/repositories/MaintenanceRepository", () => ({
-  MaintenanceRepository: jest.fn(),
-}));
+jest.mock(
+  "../../../../packages/core/src/repositories/MaintenanceRepository",
+  () => ({
+    MaintenanceRepository: jest.fn(),
+  }),
+);
 
 import { MaintenanceRepository } from "../../../../packages/core/src/repositories/MaintenanceRepository";
 

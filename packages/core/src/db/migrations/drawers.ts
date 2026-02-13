@@ -73,7 +73,9 @@ export function migrateDrawerNames(db: Database.Database): void {
     // 3) Update other tables that store drawer_name
     const renameInTable = (table: string) => {
       if (!tableExists(db, table)) return;
-      for (const [oldName, newName] of Object.entries(CANONICAL_DRAWER_RENAMES)) {
+      for (const [oldName, newName] of Object.entries(
+        CANONICAL_DRAWER_RENAMES,
+      )) {
         db.prepare(`UPDATE ${table} SET drawer_name=? WHERE drawer_name=?`).run(
           newName,
           oldName,
@@ -87,7 +89,9 @@ export function migrateDrawerNames(db: Database.Database): void {
 
     // Some legacy tables may store drawer_name as well
     if (tableExists(db, "sales")) {
-      for (const [oldName, newName] of Object.entries(CANONICAL_DRAWER_RENAMES)) {
+      for (const [oldName, newName] of Object.entries(
+        CANONICAL_DRAWER_RENAMES,
+      )) {
         db.prepare(`UPDATE sales SET drawer_name=? WHERE drawer_name=?`).run(
           newName,
           oldName,

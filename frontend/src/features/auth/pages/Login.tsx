@@ -104,7 +104,10 @@ export default function Login() {
                 onChange={(e) => setRememberMe(e.target.checked)}
                 className="w-4 h-4 bg-slate-900 border-slate-700 rounded text-violet-600 focus:ring-2 focus:ring-violet-500 focus:ring-offset-0"
               />
-              <label htmlFor="remember-me" className="ml-2 text-sm text-slate-400">
+              <label
+                htmlFor="remember-me"
+                className="ml-2 text-sm text-slate-400"
+              >
                 Remember me for 1 day
               </label>
             </div>

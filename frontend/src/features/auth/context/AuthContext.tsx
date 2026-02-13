@@ -34,38 +34,59 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Restore session from encrypted storage on mount
   useEffect(() => {
     let isMounted = true; // Guard against double calls in StrictMode
-    
+
     async function loadUser() {
       try {
         console.log("🔍 [AUTH-CONTEXT] Starting session restoration on mount");
-        
+
         // Try to restore from encrypted session first
         if (window.api) {
           // Try to get stored session token from localStorage
           const storedToken = localStorage.getItem("sessionToken");
-          console.log("🔍 [AUTH-CONTEXT] Stored token in localStorage:", storedToken ? `${storedToken.substring(0, 10)}...` : "none");
-          
-          const result = await window.api.restoreSession(storedToken || undefined);
-          console.log("🔍 [AUTH-CONTEXT] Restore session result:", { success: result.success, hasUser: !!result.user, hasToken: !!result.sessionToken });
-          
+          console.log(
+            "🔍 [AUTH-CONTEXT] Stored token in localStorage:",
+            storedToken ? `${storedToken.substring(0, 10)}...` : "none",
+          );
+
+          const result = await window.api.restoreSession(
+            storedToken || undefined,
+          );
+          console.log("🔍 [AUTH-CONTEXT] Restore session result:", {
+            success: result.success,
+            hasUser: !!result.user,
+            hasToken: !!result.sessionToken,
+          });
+
           // Only update state if component is still mounted (prevents React.StrictMode double-call issues)
           if (!isMounted) {
-            console.log("⚠️ [AUTH-CONTEXT] Component unmounted, skipping state update");
+            console.log(
+              "⚠️ [AUTH-CONTEXT] Component unmounted, skipping state update",
+            );
             return;
           }
-          
+
           if (result.success && result.user) {
             setUser(result.user);
             if (result.sessionToken) {
               setSessionToken(result.sessionToken);
               localStorage.setItem("sessionToken", result.sessionToken);
-              console.log("✅ [AUTH-CONTEXT] Session restored from database, token saved");
+              console.log(
+                "✅ [AUTH-CONTEXT] Session restored from database, token saved",
+              );
             } else {
-              console.warn("⚠️ [AUTH-CONTEXT] Session restored but no token returned");
+              console.warn(
+                "⚠️ [AUTH-CONTEXT] Session restored but no token returned",
+              );
             }
-            console.log("✅ [AUTH-CONTEXT] User logged in:", result.user.username);
+            console.log(
+              "✅ [AUTH-CONTEXT] User logged in:",
+              result.user.username,
+            );
           } else {
-            console.log("❌ [AUTH-CONTEXT] Session restoration failed:", result.error || "unknown");
+            console.log(
+              "❌ [AUTH-CONTEXT] Session restoration failed:",
+              result.error || "unknown",
+            );
           }
         } else {
           // Web mode: try backend session
@@ -88,29 +109,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
     }
-    
+
     loadUser();
-    
+
     // Cleanup function to prevent state updates after unmount
     return () => {
       isMounted = false;
     };
   }, []);
 
-  const login = async (username: string, password: string, rememberMe: boolean = false) => {
+  const login = async (
+    username: string,
+    password: string,
+    rememberMe: boolean = false,
+  ) => {
     try {
       const result = await api.login(username, password, rememberMe);
-      console.log("🔍 [AUTH-CONTEXT] Login result:", { success: result.success, hasUser: !!result.user, hasToken: !!result.sessionToken, rememberMe });
-      
+      console.log("🔍 [AUTH-CONTEXT] Login result:", {
+        success: result.success,
+        hasUser: !!result.user,
+        hasToken: !!result.sessionToken,
+        rememberMe,
+      });
+
       if (result.success && result.user) {
         setUser(result.user);
         // Store session token
         if (result.sessionToken) {
           setSessionToken(result.sessionToken);
           localStorage.setItem("sessionToken", result.sessionToken);
-          console.log("✅ [AUTH-CONTEXT] Login successful, session token saved to localStorage:", result.sessionToken.substring(0, 10) + "...");
+          console.log(
+            "✅ [AUTH-CONTEXT] Login successful, session token saved to localStorage:",
+            result.sessionToken.substring(0, 10) + "...",
+          );
         } else {
-          console.warn("⚠️ [AUTH-CONTEXT] Login successful but no session token returned");
+          console.warn(
+            "⚠️ [AUTH-CONTEXT] Login successful but no session token returned",
+          );
         }
 
         // Check if opening balance needs to be set for today

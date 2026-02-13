@@ -2,8 +2,8 @@ import { useState, useEffect, type ReactNode } from "react";
 import Sidebar from "./Sidebar";
 import TopBar from "./TopBar";
 import NotificationCenter from "../ui/NotificationCenter";
-import { SessionFloatingWindow } from '../../../features/sessions/components/SessionFloatingWindow';
-import { MessengerStyleSessionButton } from '../../../features/sessions/components/MessengerStyleSessionButton';
+import { SessionFloatingWindow } from "../../../features/sessions/components/SessionFloatingWindow";
+import { MessengerStyleSessionButton } from "../../../features/sessions/components/MessengerStyleSessionButton";
 
 import { appEvents } from "../../utils/appEvents";
 import Closing from "../../../features/closing/pages/Closing";
@@ -70,11 +70,9 @@ export default function MainLayout({ children }: MainLayoutProps) {
         </main>
       </div>
       <NotificationCenter /> {/* Render NotificationCenter here */}
-      
       {/* Session Components */}
       <MessengerStyleSessionButton />
       <SessionFloatingWindow />
-      
       {isAdmin && isOpeningModalOpen && (
         <Opening
           isOpen={isOpeningModalOpen}

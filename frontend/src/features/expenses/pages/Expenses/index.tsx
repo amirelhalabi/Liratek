@@ -121,13 +121,17 @@ export default function Expenses() {
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-slate-800 border border-slate-700/50 rounded-xl p-5 shadow-lg hover:border-slate-600 transition-colors">
-          <p className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">Total USD</p>
+          <p className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">
+            Total USD
+          </p>
           <p className="text-2xl font-bold text-white">
             ${totalUSD.toFixed(2)}
           </p>
         </div>
         <div className="bg-slate-800 border border-slate-700/50 rounded-xl p-5 shadow-lg hover:border-slate-600 transition-colors">
-          <p className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">Total LBP</p>
+          <p className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">
+            Total LBP
+          </p>
           <p className="text-2xl font-bold text-white">
             {totalLBP.toLocaleString()}
           </p>
@@ -234,7 +238,9 @@ export default function Expenses() {
                   Amount (USD)
                 </label>
                 <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-orange-500 font-bold">$</span>
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-orange-500 font-bold">
+                    $
+                  </span>
                   <input
                     type="number"
                     value={formData.amount_usd || ""}
@@ -326,9 +332,13 @@ export default function Expenses() {
                     className="hover:bg-slate-700/20 transition-colors"
                   >
                     <td className="px-6 py-4">
-                      <div className="text-sm text-white font-medium">{expense.description}</div>
+                      <div className="text-sm text-white font-medium">
+                        {expense.description}
+                      </div>
                       <div className="text-xs text-slate-500">
-                        {expense.expense_type === "Cash_Out" ? "Cash Out" : "Non-Cash"}
+                        {expense.expense_type === "Cash_Out"
+                          ? "Cash Out"
+                          : "Non-Cash"}
                       </div>
                     </td>
                     <td className="px-6 py-4">

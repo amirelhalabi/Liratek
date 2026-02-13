@@ -50,7 +50,7 @@ A comprehensive, enterprise-grade Point of Sale (POS) and inventory management s
 - **Node.js**: v18.x or v20.x
 - **Yarn**: v4.0.2 (`corepack enable`)
 - **Git**
-- **C++ Build Tools**: 
+- **C++ Build Tools**:
   - macOS: `xcode-select --install`
   - Windows: Visual Studio Build Tools ("Desktop development with C++")
 
@@ -71,23 +71,30 @@ yarn install
 ### 🚀 Running the Application
 
 #### Desktop Mode (Electron - Recommended)
+
 ```bash
 npm run dev
 ```
+
 This starts:
+
 - Frontend dev server (Vite on port 5173)
 - Electron desktop app (loads from Vite with hot reload)
 
 #### Browser Mode (Web Development)
+
 ```bash
 npm run dev:web
 ```
+
 This starts:
+
 - Backend API server (port 3000)
 - Frontend dev server (port 5173)
 - Open http://localhost:5173 in browser
 
 #### Docker Mode (Production-like)
+
 ```bash
 npm run dev:docker
 ```
@@ -99,27 +106,29 @@ npm run dev:docker
 
 ### 🔧 Development Commands
 
-| Command | Description |
-|---------|-------------|
-| `npm run dev` | Desktop app (Electron + Vite) |
-| `npm run dev:web` | Browser mode (Backend + Frontend) |
-| `npm run dev:frontend` | Frontend only (port 5173) |
-| `npm run dev:backend` | Backend API only (port 3000) |
-| `npm run build` | Build everything (core + frontend + electron) |
-| `npm run build:core` | Build shared @liratek/core package |
-| `npm test` | Run all tests |
-| `npm run lint` | Lint all code |
-| `npm run typecheck` | TypeScript type checking |
+| Command                | Description                                   |
+| ---------------------- | --------------------------------------------- |
+| `npm run dev`          | Desktop app (Electron + Vite)                 |
+| `npm run dev:web`      | Browser mode (Backend + Frontend)             |
+| `npm run dev:frontend` | Frontend only (port 5173)                     |
+| `npm run dev:backend`  | Backend API only (port 3000)                  |
+| `npm run build`        | Build everything (core + frontend + electron) |
+| `npm run build:core`   | Build shared @liratek/core package            |
+| `npm test`             | Run all tests                                 |
+| `npm run lint`         | Lint all code                                 |
+| `npm run typecheck`    | TypeScript type checking                      |
 
 ### 🎯 What Mode to Use
 
 **Use Desktop Mode (Electron) when:**
+
 - Developing desktop features
 - Need native OS integration
 - Testing IPC handlers
 - Daily development
 
 **Use Browser Mode when:**
+
 - Developing REST API
 - Testing without Electron
 - Cloud deployment testing
@@ -165,8 +174,9 @@ liratek/
 ### Data Flow
 
 #### Desktop Mode (Electron)
+
 ```
-Frontend (React) 
+Frontend (React)
   → window.api (preload.ts contextBridge)
     → ipcMain handlers (electron-app/handlers/)
       → Services (@liratek/core/services)
@@ -175,6 +185,7 @@ Frontend (React)
 ```
 
 #### Browser Mode (Express)
+
 ```
 Frontend (React)
   → HTTP REST API (backend/src/api/)
@@ -248,16 +259,19 @@ LiraTek uses **SQLite** for low-latency, localized data storage.
 ### Code Organization
 
 **Repositories** (`electron/database/repositories/`):
+
 - Data access layer
 - SQL query management
 - Transaction handling
 
 **Services** (`electron/services/`):
+
 - Business logic layer
 - Validation and error handling
 - Orchestration between repositories
 
 **Handlers** (`electron/handlers/`):
+
 - IPC endpoint definitions
 - Request/response formatting
 - Thin wrappers over services
@@ -265,6 +279,7 @@ LiraTek uses **SQLite** for low-latency, localized data storage.
 ### Writing Tests
 
 **Unit Tests** (Jest):
+
 ```bash
 npm test                    # Run all tests
 npm run test:coverage      # With coverage report
@@ -272,6 +287,7 @@ npm run test:watch         # Watch mode
 ```
 
 **E2E Tests** (Playwright):
+
 ```bash
 cd frontend
 npm run test:e2e           # Run E2E tests
@@ -313,6 +329,7 @@ LiraTek implements intelligent debt repayment logic to handle real-world cash tr
 #### The Problem
 
 When a debt of $262.95 is displayed as "$262 + 85,000 LBP" and a customer pays only 85,000 LBP:
+
 - Standard conversion: 85,000 ÷ 89,000 = $0.9551
 - Actual fractional debt: $0.95
 - This creates a $0.01 discrepancy
@@ -327,6 +344,7 @@ When a debt of $262.95 is displayed as "$262 + 85,000 LBP" and a customer pays o
 4. **Shop gains** small rounding profit (450 LBP ≈ $0.0051)
 
 **Example Flow**:
+
 ```
 Total Debt: $262.95
 ├─ Integer Part: $262
@@ -344,6 +362,7 @@ Remaining Debt: $262.00 ✓ (not $261.99)
 **Implementation**:
 
 Frontend logic detects when paying the fractional portion:
+
 ```typescript
 const integerDebt = Math.floor(totalDebt);
 const fractionalDebt = totalDebt - integerDebt;
@@ -351,7 +370,7 @@ const fractionalLBP = fractionalDebt * EXCHANGE_RATE;
 
 if (paidLBP > 0) {
   const roundedFractionalLBP = Math.ceil(fractionalLBP / 5000) * 5000;
-  
+
   // Check if paying the rounded fractional portion
   if (Math.abs(paidLBP - roundedFractionalLBP) < 1000) {
     // Reduce debt by actual fractional amount
@@ -364,21 +383,23 @@ if (paidLBP > 0) {
 ```
 
 Backend separates payment recording from debt reduction:
+
 ```typescript
 // Record debt reduction in debt_ledger
-INSERT INTO debt_ledger (amount_usd, amount_lbp) 
+INSERT INTO debt_ledger (amount_usd, amount_lbp)
 VALUES (-0.95, 0);  // Actual debt reduction
 
 // Record payment in payments table
-INSERT INTO payments (amount) 
+INSERT INTO payments (amount)
 VALUES (85000);  // Actual payment received
 
 // Update drawer balance
-UPDATE drawer_balances 
+UPDATE drawer_balances
 SET balance = balance + 85000;  // Cash received
 ```
 
 **Benefits**:
+
 - ✅ No rounding errors in debt calculations
 - ✅ Customers pay in practical denominations
 - ✅ Accurate drawer balance tracking
@@ -387,6 +408,7 @@ SET balance = balance + 85000;  // Cash received
 ### Multi-Currency Support
 
 Exchange rate management with configurable rates:
+
 ```typescript
 // src/config/constants.ts
 export const EXCHANGE_RATE = 89000; // 1 USD = 89,000 LBP
@@ -418,6 +440,7 @@ Each drawer tracks balances independently with opening/closing audit workflow.
 ### Module Testing Status
 
 #### ✅ Core Modules (Working in Browser & Electron)
+
 - Authentication (login, logout, session)
 - Dashboard (stats, charts, balances)
 - Clients (CRUD operations)
@@ -433,6 +456,7 @@ Each drawer tracks balances independently with opening/closing audit workflow.
 - Settings (shop config)
 
 #### ⏳ Advanced Features (Partial/Electron Only)
+
 - Closing (daily audits, variance)
 - Opening (balance initialization)
 - Advanced Settings (rates, users, suppliers)
@@ -444,6 +468,7 @@ Each drawer tracks balances independently with opening/closing audit workflow.
 ### Running Tests
 
 **Unit Tests**:
+
 ```bash
 npm test                          # All tests
 npm test -- ClientService.test.ts # Specific test
@@ -451,6 +476,7 @@ npm run test:coverage             # With coverage
 ```
 
 **E2E Tests**:
+
 ```bash
 cd frontend
 npm run test:e2e                  # All E2E tests
@@ -461,16 +487,17 @@ npm run test:e2e:ui               # Interactive mode
 ### Writing Tests
 
 **Repository Test Example**:
-```typescript
-import Database from 'better-sqlite3';
-import { ClientRepository } from '../ClientRepository';
 
-describe('ClientRepository', () => {
+```typescript
+import Database from "better-sqlite3";
+import { ClientRepository } from "../ClientRepository";
+
+describe("ClientRepository", () => {
   let db: Database.Database;
   let repo: ClientRepository;
 
   beforeEach(() => {
-    db = new Database(':memory:');
+    db = new Database(":memory:");
     // Create tables...
     repo = new ClientRepository(db);
   });
@@ -479,10 +506,10 @@ describe('ClientRepository', () => {
     db.close();
   });
 
-  it('should create a client', () => {
+  it("should create a client", () => {
     const result = repo.create({
-      full_name: 'John Doe',
-      phone_number: '1234567890',
+      full_name: "John Doe",
+      phone_number: "1234567890",
     });
     expect(result.success).toBe(true);
   });
@@ -495,16 +522,17 @@ describe('ClientRepository', () => {
 
 ### Build Commands
 
-| Platform | Command | Output |
-|----------|---------|--------|
-| **Windows** | `npm run build:win:x64` | NSIS Installer (.exe) |
-| **macOS (Intel)** | `npm run build:mac:x64` | DMG + ZIP |
-| **macOS (ARM)** | `npm run build:mac:arm64` | DMG + ZIP |
-| **All** | `npm run build:all` | All target installers |
+| Platform          | Command                   | Output                |
+| ----------------- | ------------------------- | --------------------- |
+| **Windows**       | `npm run build:win:x64`   | NSIS Installer (.exe) |
+| **macOS (Intel)** | `npm run build:mac:x64`   | DMG + ZIP             |
+| **macOS (ARM)**   | `npm run build:mac:arm64` | DMG + ZIP             |
+| **All**           | `npm run build:all`       | All target installers |
 
 ### Icon Generation
 
 If icons need refreshing, use **ImageMagick**:
+
 ```bash
 magick convert build/icon.png -define icon:auto-resize=256,128,64,48,32,16 build/icon.ico
 ```
@@ -525,15 +553,18 @@ magick convert build/icon.png -define icon:auto-resize=256,128,64,48,32,16 build
 ### Authentication & Authorization
 
 **Password Security**:
+
 - Scrypt hashing with salt
 - Passwords never stored in plain text
 - Session tokens encrypted using OS keychain
 
 **Role-Based Access**:
+
 - **Admin**: Full system access
 - **Staff**: Limited access (no settings, user management, or closings approval)
 
 **Session Management**:
+
 ```typescript
 // Sessions encrypted using Electron's safeStorage API
 // Leverages native OS keychain:
@@ -558,11 +589,13 @@ LiraTek includes built-in support for database encryption using SQLCipher. The e
 #### Current Implementation
 
 **Key Management** (`@liratek/core`):
+
 - Automatic key resolution from multiple sources
 - Secure key storage outside repository
 - Graceful fallback when encryption not available
 
 **Resolution Order**:
+
 1. `DATABASE_KEY` environment variable
 2. `~/Documents/LiraTek/db-key.txt` file
 3. None (database runs unencrypted)
@@ -570,6 +603,7 @@ LiraTek includes built-in support for database encryption using SQLCipher. The e
 #### Enabling Encryption
 
 **Option 1: Environment Variable**
+
 ```bash
 # Generate a secure key (64 characters recommended)
 DATABASE_KEY=$(openssl rand -hex 32)
@@ -582,6 +616,7 @@ echo "DATABASE_KEY=your-secure-key-here" >> backend/.env
 ```
 
 **Option 2: Configuration File (Recommended)**
+
 ```bash
 # Generate and save key
 openssl rand -hex 32 > ~/Documents/LiraTek/db-key.txt
@@ -634,13 +669,14 @@ node migrate_to_encrypted.js
 ```
 
 **migrate_to_encrypted.js**:
-```javascript
-const Database = require('better-sqlite3'); // Must be SQLCipher-enabled build
-const fs = require('fs');
 
-const oldDb = '~/Library/Application Support/liratek/phone_shop.db';
-const newDb = '~/Library/Application Support/liratek/phone_shop_encrypted.db';
-const key = fs.readFileSync('~/Documents/LiraTek/db-key.txt', 'utf8').trim();
+```javascript
+const Database = require("better-sqlite3"); // Must be SQLCipher-enabled build
+const fs = require("fs");
+
+const oldDb = "~/Library/Application Support/liratek/phone_shop.db";
+const newDb = "~/Library/Application Support/liratek/phone_shop_encrypted.db";
+const key = fs.readFileSync("~/Documents/LiraTek/db-key.txt", "utf8").trim();
 
 // Open unencrypted database
 const db = new Database(oldDb);
@@ -652,10 +688,10 @@ db.exec(`ATTACH DATABASE '${newDb}' AS encrypted KEY '${key}';`);
 db.exec('SELECT sqlcipher_export("encrypted");');
 
 // Detach and close
-db.exec('DETACH DATABASE encrypted;');
+db.exec("DETACH DATABASE encrypted;");
 db.close();
 
-console.log('✅ Migration complete. Backup old DB and rename new DB.');
+console.log("✅ Migration complete. Backup old DB and rename new DB.");
 ```
 
 #### Security Warnings
@@ -669,6 +705,7 @@ console.log('✅ Migration complete. Backup old DB and rename new DB.');
 #### Verification
 
 Check encryption status in application logs:
+
 ```
 🔐 SQLCipher: keySource=file:db-key.txt, applied=true, supported=true
 ```
@@ -687,6 +724,7 @@ The UI (`frontend/`) runs in **two modes**:
 - **Web (Browser)**: UI calls REST endpoints via HTTP (`backend/` on port 3000).
 
 To keep components clean, we route calls through a single facade:
+
 - `frontend/src/api/backendApi.ts`
 
 ### Current State (Feb 2026)
@@ -697,18 +735,21 @@ To keep components clean, we route calls through a single facade:
 
 ### Known Risk / Required Hardening
 
-We added task **T-26** to ensure *every exported function* in `backendApi.ts` correctly routes:
+We added task **T-26** to ensure _every exported function_ in `backendApi.ts` correctly routes:
+
 - Desktop → IPC (`window.api.*`)
 - Web → HTTP (`requestJson`)
 
 ### Testing
 
 **Electron Mode (desktop)** (does not require backend server):
+
 ```bash
 npm run dev
 ```
 
 **Browser Mode (web)**:
+
 ```bash
 npm run dev:web
 # backend: http://localhost:3000
@@ -716,11 +757,13 @@ npm run dev:web
 ```
 
 **Electron Mode** (all features):
+
 ```bash
 npm run dev
 ```
 
 **Browser Mode** (REST API):
+
 ```bash
 cd backend && npm run dev    # Terminal 1
 cd frontend && npm run dev   # Terminal 2
@@ -734,6 +777,7 @@ cd frontend && npm run dev   # Terminal 2
 ### Common Issues
 
 **Database Errors**:
+
 ```bash
 # Missing columns
 Check electron/db/migrations/ and apply manually
@@ -743,6 +787,7 @@ window.api.diagnostics.foreignKeyCheck()
 ```
 
 **Build Errors**:
+
 ```bash
 # Native module issues
 npm run rebuild
@@ -754,6 +799,7 @@ Check tsconfig.json and ensure all @types packages are installed
 ```
 
 **Performance Issues**:
+
 ```bash
 # Slow queries - check indexes
 See electron/db/create_db.sql
@@ -764,6 +810,7 @@ Close database connections properly
 ```
 
 **Docker Issues**:
+
 ```bash
 # Reset everything
 docker compose down -v
@@ -773,12 +820,14 @@ docker compose up --build
 ### Debug Mode
 
 Enable detailed logging:
+
 ```bash
 # Set environment variable
 DEBUG=liratek:* npm run dev
 ```
 
 View logs:
+
 - **Electron**: DevTools Console (Ctrl+Shift+I / Cmd+Option+I)
 - **Backend**: Terminal output
 - **Database**: Check `activity_logs` table
@@ -788,6 +837,7 @@ View logs:
 ## 🐛 Troubleshooting
 
 ### Electron won't start
+
 ```bash
 cd electron-app
 npm rebuild better-sqlite3 --runtime=electron --target=31.0.0
@@ -795,14 +845,17 @@ npm run build
 ```
 
 ### Frontend not loading
+
 - Ensure frontend dev server is running (port 5173)
 - Check `npm run dev:frontend` in separate terminal
 
 ### Database errors
+
 - Database auto-creates in: `~/Library/Application Support/@liratek/electron-app/`
 - Delete database to reset: `rm ~/Library/Application\ Support/@liratek/electron-app/*.db`
 
 ### Build fails with TypeScript errors
+
 - Ensure `@liratek/core` is built first: `npm run build:core`
 - Clean and rebuild: `npm run clean && yarn install && npm run build`
 
@@ -852,6 +905,7 @@ Contributions are welcome! Please:
 ## 📞 Support
 
 For issues, questions, or feature requests:
+
 - Create an issue on GitHub
 - Check existing documentation
 - Review test examples for usage patterns

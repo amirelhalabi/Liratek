@@ -10,13 +10,17 @@ export class CustomerSessionService {
    * Start a new customer visit session
    * Note: Multiple active sessions are allowed, but not for the same customer.
    */
-  async startSession(data: CreateCustomerSessionData): Promise<{ success: boolean; sessionId?: number; error?: string }> {
+  async startSession(
+    data: CreateCustomerSessionData,
+  ): Promise<{ success: boolean; sessionId?: number; error?: string }> {
     try {
       const repo = getCustomerSessionRepository();
-      
+
       // Check if there's already an active session for this customer
       if (data.customer_name) {
-        const existingSession = repo.getActiveSessionByCustomerName(data.customer_name);
+        const existingSession = repo.getActiveSessionByCustomerName(
+          data.customer_name,
+        );
         if (existingSession) {
           return {
             success: false,
@@ -24,13 +28,13 @@ export class CustomerSessionService {
           };
         }
       }
-      
+
       // Allow multiple active sessions for different customers
       // This enables scenarios like:
       // - Customer A arrives, session started
       // - Customer B arrives (urgent), new session started (Customer A's session remains open)
       // - Complete Customer B's transactions, switch back to Customer A
-      
+
       const sessionId = repo.createSession(data);
       return { success: true, sessionId };
     } catch (err: any) {
@@ -41,7 +45,11 @@ export class CustomerSessionService {
   /**
    * Get the current active session
    */
-  async getActiveSession(): Promise<{ success: boolean; session?: CustomerSession; error?: string }> {
+  async getActiveSession(): Promise<{
+    success: boolean;
+    session?: CustomerSession;
+    error?: string;
+  }> {
     try {
       const repo = getCustomerSessionRepository();
       const session = repo.getActiveSession();
@@ -56,7 +64,12 @@ export class CustomerSessionService {
    */
   async getSessionDetails(
     sessionId: number,
-  ): Promise<{ success: boolean; session?: CustomerSession; transactions?: SessionTransaction[]; error?: string }> {
+  ): Promise<{
+    success: boolean;
+    session?: CustomerSession;
+    transactions?: SessionTransaction[];
+    error?: string;
+  }> {
     try {
       const repo = getCustomerSessionRepository();
       const session = repo.getSessionById(sessionId);
@@ -76,7 +89,12 @@ export class CustomerSessionService {
    */
   async updateSession(
     sessionId: number,
-    data: Partial<Pick<CustomerSession, "customer_name" | "customer_phone" | "customer_notes">>,
+    data: Partial<
+      Pick<
+        CustomerSession,
+        "customer_name" | "customer_phone" | "customer_notes"
+      >
+    >,
   ): Promise<{ success: boolean; error?: string }> {
     try {
       const repo = getCustomerSessionRepository();
@@ -95,7 +113,10 @@ export class CustomerSessionService {
   /**
    * Close a customer session
    */
-  async closeSession(sessionId: number, closedBy: string): Promise<{ success: boolean; error?: string }> {
+  async closeSession(
+    sessionId: number,
+    closedBy: string,
+  ): Promise<{ success: boolean; error?: string }> {
     try {
       const repo = getCustomerSessionRepository();
       const session = repo.getSessionById(sessionId);
@@ -131,17 +152,34 @@ export class CustomerSessionService {
         return { success: true, linked: false };
       }
 
-      repo.linkTransaction(session.id, transactionType, transactionId, amountUsd, amountLbp);
+      repo.linkTransaction(
+        session.id,
+        transactionType,
+        transactionId,
+        amountUsd,
+        amountLbp,
+      );
       return { success: true, linked: true };
     } catch (err: any) {
-      return { success: false, linked: false, error: err?.message ?? "Unknown error" };
+      return {
+        success: false,
+        linked: false,
+        error: err?.message ?? "Unknown error",
+      };
     }
   }
 
   /**
    * List recent sessions
    */
-  async listSessions(limit = 50, offset = 0): Promise<{ success: boolean; sessions?: CustomerSession[]; error?: string }> {
+  async listSessions(
+    limit = 50,
+    offset = 0,
+  ): Promise<{
+    success: boolean;
+    sessions?: CustomerSession[];
+    error?: string;
+  }> {
     try {
       const repo = getCustomerSessionRepository();
       const sessions = repo.listSessions(limit, offset);

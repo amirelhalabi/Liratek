@@ -1,5 +1,8 @@
 import { BaseRepository } from "../BaseRepository";
-import { mockDatabase, resetAllMocks } from "../../../../__mocks__/better-sqlite3";
+import {
+  mockDatabase,
+  resetAllMocks,
+} from "../../../../__mocks__/better-sqlite3";
 
 jest.mock("better-sqlite3");
 
@@ -23,7 +26,10 @@ describe("BaseRepository", () => {
   it("findById returns entity when found", () => {
     // Arrange
     mockDatabase.prepare.mockImplementationOnce((sql: string) => {
-      const stmt = { ...require("../../../../__mocks__/better-sqlite3").mockStatement, _sql: sql };
+      const stmt = {
+        ...require("../../../../__mocks__/better-sqlite3").mockStatement,
+        _sql: sql,
+      };
       stmt.get = jest.fn(() => ({ id: 1, name: "A" }));
       return stmt;
     });
@@ -39,7 +45,10 @@ describe("BaseRepository", () => {
 
   it("findAll builds ORDER BY / LIMIT / OFFSET", () => {
     mockDatabase.prepare.mockImplementationOnce((sql: string) => {
-      const stmt = { ...require("../../../../__mocks__/better-sqlite3").mockStatement, _sql: sql };
+      const stmt = {
+        ...require("../../../../__mocks__/better-sqlite3").mockStatement,
+        _sql: sql,
+      };
       stmt.all = jest.fn(() => [{ id: 1, name: "A" }]);
       return stmt;
     });
@@ -60,7 +69,10 @@ describe("BaseRepository", () => {
 
   it("delete executes delete query", () => {
     mockDatabase.prepare.mockImplementationOnce((sql: string) => {
-      const stmt = { ...require("../../../../__mocks__/better-sqlite3").mockStatement, _sql: sql };
+      const stmt = {
+        ...require("../../../../__mocks__/better-sqlite3").mockStatement,
+        _sql: sql,
+      };
       stmt.run = jest.fn(() => ({ changes: 1 }));
       return stmt;
     });

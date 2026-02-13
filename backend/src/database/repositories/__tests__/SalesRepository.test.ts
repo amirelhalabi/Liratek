@@ -1,4 +1,4 @@
-import { jest } from '@jest/globals';
+import { jest } from "@jest/globals";
 import { SalesRepository } from "../SalesRepository";
 import { resetAllMocks } from "../../../__mocks__/better-sqlite3";
 
@@ -38,6 +38,8 @@ describe("SalesRepository", () => {
       throw new Error("boom");
     });
 
-    expect(() => repo.deleteSaleItems(10)).toThrow(/Failed to delete sale items/);
+    expect(() => repo.deleteSaleItems(10)).toThrow(
+      /Failed to delete sale items/,
+    );
   });
 });

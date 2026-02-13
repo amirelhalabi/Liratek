@@ -17,7 +17,10 @@ import type {
 export type { SafeUser, ProductEntity, ClientEntity, SaleRequest, SaleItem };
 
 // Product with aliased field names for frontend compatibility
-export interface Product extends Omit<ProductEntity, 'selling_price_usd' | 'cost_price_usd'> {
+export interface Product extends Omit<
+  ProductEntity,
+  "selling_price_usd" | "cost_price_usd"
+> {
   retail_price: number;
   cost_price: number;
 }

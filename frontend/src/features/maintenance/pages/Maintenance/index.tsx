@@ -121,9 +121,7 @@ export default function Maintenance() {
     }
   };
 
-  const handleCheckoutComplete = async (
-    paymentData: any,
-  ) => {
+  const handleCheckoutComplete = async (paymentData: any) => {
     // Save with payment details
     const jobData = {
       ...(editingJob?.id != null ? { id: editingJob.id } : {}),
@@ -155,13 +153,13 @@ export default function Maintenance() {
       if (activeSession && result.job?.id) {
         try {
           await linkTransaction({
-            transactionType: 'maintenance',
+            transactionType: "maintenance",
             transactionId: result.job.id,
             amountUsd: paymentData.final_amount || 0,
             amountLbp: 0,
           });
         } catch (err) {
-          console.error('Failed to link maintenance to session:', err);
+          console.error("Failed to link maintenance to session:", err);
           // Don't block the job completion
         }
       }

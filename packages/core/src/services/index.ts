@@ -3,7 +3,11 @@
  */
 
 // Auth Service
-export { AuthService, getAuthService, resetAuthService } from "./AuthService.js";
+export {
+  AuthService,
+  getAuthService,
+  resetAuthService,
+} from "./AuthService.js";
 export type {
   LoginResult,
   CreateUserResult,
@@ -16,7 +20,10 @@ export {
   getInventoryService,
   resetInventoryService,
 } from "./InventoryService.js";
-export type { ProductResult, StockAdjustmentResult } from "./InventoryService.js";
+export type {
+  ProductResult,
+  StockAdjustmentResult,
+} from "./InventoryService.js";
 
 // Client Service
 export {
@@ -27,7 +34,11 @@ export {
 export type { ClientResult } from "./ClientService.js";
 
 // Debt Service
-export { DebtService, getDebtService, resetDebtService } from "./DebtService.js";
+export {
+  DebtService,
+  getDebtService,
+  resetDebtService,
+} from "./DebtService.js";
 export type { RepaymentResult, RepaymentData } from "./DebtService.js";
 
 // Sales Service
@@ -55,7 +66,11 @@ export {
 export type { FinancialServiceResult } from "./FinancialService.js";
 
 // Rate Service
-export { RateService, getRateService, resetRateService } from "./RateService.js";
+export {
+  RateService,
+  getRateService,
+  resetRateService,
+} from "./RateService.js";
 export type { RateResult } from "./RateService.js";
 
 // Currency Service

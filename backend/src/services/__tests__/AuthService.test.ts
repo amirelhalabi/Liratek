@@ -4,7 +4,7 @@
  * Tests all business logic in AuthService with mocked repository and crypto.
  */
 
-import { jest } from '@jest/globals';
+import { jest } from "@jest/globals";
 import { AuthService, resetAuthService } from "../AuthService";
 
 // Import core error classes (these are thrown by @liratek/core AuthService)
@@ -20,7 +20,7 @@ import {
 jest.mock("../../../../packages/core/src/repositories/index", () => ({
   getUserRepository: jest.fn(),
   getSessionRepository: jest.fn(() => ({
-    createSession: jest.fn(() => ({ token: 'test-token' })),
+    createSession: jest.fn(() => ({ token: "test-token" })),
     findValidSession: jest.fn(() => null),
     deleteSession: jest.fn(() => ({ success: true })),
   })),

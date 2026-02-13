@@ -35,7 +35,7 @@ export default function Exchange() {
   useEffect(() => {
     loadHistory();
     loadCurrencies();
-    
+
     // Auto-fill customer from active session
     if (activeSession && activeSession.customer_name) {
       setClientName(activeSession.customer_name);
@@ -168,13 +168,15 @@ export default function Exchange() {
         if (activeSession && result.exchange?.id) {
           try {
             await linkTransaction({
-              transactionType: 'exchange',
+              transactionType: "exchange",
               transactionId: result.exchange.id,
-              amountUsd: fromCurrency === 'USD' ? inp : (toCurrency === 'USD' ? out : 0),
-              amountLbp: fromCurrency === 'LBP' ? inp : (toCurrency === 'LBP' ? out : 0),
+              amountUsd:
+                fromCurrency === "USD" ? inp : toCurrency === "USD" ? out : 0,
+              amountLbp:
+                fromCurrency === "LBP" ? inp : toCurrency === "LBP" ? out : 0,
             });
           } catch (err) {
-            console.error('Failed to link exchange to session:', err);
+            console.error("Failed to link exchange to session:", err);
             // Don't block the exchange completion
           }
         }

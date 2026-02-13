@@ -1,1 +1,1 @@
-export * from '@liratek/core';
+export * from "@liratek/core";

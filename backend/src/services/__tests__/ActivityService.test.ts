@@ -2,21 +2,21 @@
  * ActivityService Unit Tests
  */
 
-import { jest } from '@jest/globals';
+import { jest } from "@jest/globals";
 import {
   ActivityService,
   getActivityService,
   resetActivityService,
 } from "../ActivityService";
-import {
-  ActivityLogEntity,
-  SyncErrorEntity,
-} from "@liratek/core";
+import { ActivityLogEntity, SyncErrorEntity } from "@liratek/core";
 
 // Mock the core repository module used by @liratek/core ActivityService
-jest.mock("../../../../packages/core/src/repositories/ActivityRepository", () => ({
-  getActivityRepository: jest.fn(),
-}));
+jest.mock(
+  "../../../../packages/core/src/repositories/ActivityRepository",
+  () => ({
+    getActivityRepository: jest.fn(),
+  }),
+);
 
 import { getActivityRepository } from "../../../../packages/core/src/repositories/ActivityRepository";
 

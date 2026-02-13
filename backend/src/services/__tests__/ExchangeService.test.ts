@@ -2,7 +2,7 @@
  * ExchangeService Unit Tests
  */
 
-import { jest } from '@jest/globals';
+import { jest } from "@jest/globals";
 import {
   ExchangeService,
   getExchangeService,

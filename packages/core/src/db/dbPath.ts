@@ -1,12 +1,12 @@
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
+import fs from "fs";
+import os from "os";
+import path from "path";
 
 export type DbPathResolutionSource =
-  | 'env:DATABASE_PATH'
-  | 'file:db-path.txt'
-  | 'default:macOS-application-support'
-  | 'default:documents';
+  | "env:DATABASE_PATH"
+  | "file:db-path.txt"
+  | "default:macOS-application-support"
+  | "default:documents";
 
 export interface ResolvedDbPath {
   path: string;
@@ -26,32 +26,37 @@ export interface ResolvedDbPath {
 export function resolveDatabasePath(): ResolvedDbPath {
   const env = process.env.DATABASE_PATH?.trim();
   if (env) {
-    return { path: env, source: 'env:DATABASE_PATH' };
+    return { path: env, source: "env:DATABASE_PATH" };
   }
 
-  const configFile = path.join(os.homedir(), 'Documents', 'LiraTek', 'db-path.txt');
+  const configFile = path.join(
+    os.homedir(),
+    "Documents",
+    "LiraTek",
+    "db-path.txt",
+  );
   if (fs.existsSync(configFile)) {
-    const p = fs.readFileSync(configFile, 'utf8').trim();
+    const p = fs.readFileSync(configFile, "utf8").trim();
     if (p) {
-      return { path: p, source: 'file:db-path.txt', configFile };
+      return { path: p, source: "file:db-path.txt", configFile };
     }
   }
 
-  if (process.platform === 'darwin') {
+  if (process.platform === "darwin") {
     return {
       path: path.join(
         os.homedir(),
-        'Library',
-        'Application Support',
-        'liratek',
-        'phone_shop.db',
+        "Library",
+        "Application Support",
+        "liratek",
+        "phone_shop.db",
       ),
-      source: 'default:macOS-application-support',
+      source: "default:macOS-application-support",
     };
   }
 
   return {
-    path: path.join(os.homedir(), 'Documents', 'LiraTek', 'liratek.db'),
-    source: 'default:documents',
+    path: path.join(os.homedir(), "Documents", "LiraTek", "liratek.db"),
+    source: "default:documents",
   };
 }

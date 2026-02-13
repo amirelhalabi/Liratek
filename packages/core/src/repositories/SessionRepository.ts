@@ -106,7 +106,7 @@ export class SessionRepository extends BaseRepository<SessionEntity> {
         rememberMe,
         now,
         now,
-        expiresAt
+        expiresAt,
       );
 
       const insertedId = result.lastInsertRowid as number;

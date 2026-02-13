@@ -52,8 +52,10 @@ export function storeEncryptedSession(userId: number): string | null {
       console.log("[SESSION] Encrypted session stored (safeStorage)");
     } else {
       // Fallback for development: use base64 encoding
-      console.warn("[SESSION] safeStorage not available, using base64 fallback (NOT SECURE for production)");
-      dataToStore = Buffer.from(JSON.stringify(sessionData), 'utf-8');
+      console.warn(
+        "[SESSION] safeStorage not available, using base64 fallback (NOT SECURE for production)",
+      );
+      dataToStore = Buffer.from(JSON.stringify(sessionData), "utf-8");
     }
 
     fs.writeFileSync(getSessionFilePath(), dataToStore);
@@ -84,11 +86,15 @@ export function storeSessionTokenToFile(token: string, userId: number): void {
 
     if (safeStorage.isEncryptionAvailable()) {
       dataToStore = safeStorage.encryptString(JSON.stringify(sessionData));
-      console.log("[SESSION] Database session token stored to encrypted file (safeStorage)");
+      console.log(
+        "[SESSION] Database session token stored to encrypted file (safeStorage)",
+      );
     } else {
       // Fallback for development: use base64 encoding
-      console.warn("[SESSION] safeStorage not available, using base64 fallback (NOT SECURE for production)");
-      dataToStore = Buffer.from(JSON.stringify(sessionData), 'utf-8');
+      console.warn(
+        "[SESSION] safeStorage not available, using base64 fallback (NOT SECURE for production)",
+      );
+      dataToStore = Buffer.from(JSON.stringify(sessionData), "utf-8");
     }
 
     fs.writeFileSync(getSessionFilePath(), dataToStore);
@@ -127,12 +133,14 @@ export function getEncryptedSession(): StoredSession | null {
         decrypted = safeStorage.decryptString(fileData);
       } catch (decryptError) {
         // Might be a base64-encoded session from fallback mode
-        console.warn("[SESSION] Failed to decrypt with safeStorage, trying base64 fallback");
-        decrypted = fileData.toString('utf-8');
+        console.warn(
+          "[SESSION] Failed to decrypt with safeStorage, trying base64 fallback",
+        );
+        decrypted = fileData.toString("utf-8");
       }
     } else {
       // No safeStorage, treat as base64-encoded
-      decrypted = fileData.toString('utf-8');
+      decrypted = fileData.toString("utf-8");
     }
 
     const session: StoredSession = JSON.parse(decrypted);

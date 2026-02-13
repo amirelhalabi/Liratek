@@ -7,7 +7,11 @@ interface PageHeaderProps {
   actions?: React.ReactNode;
 }
 
-export default function PageHeader({ icon: Icon, title, actions }: PageHeaderProps) {
+export default function PageHeader({
+  icon: Icon,
+  title,
+  actions,
+}: PageHeaderProps) {
   return (
     <div className="flex items-center justify-between mb-6">
       <div className="flex items-center gap-3">

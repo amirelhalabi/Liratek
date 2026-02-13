@@ -69,9 +69,13 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
    */
   findAllDebtors(): DebtorSummary[] {
     // Get exchange rate from settings or use default
-    const rateResult = this.db.prepare(`
+    const rateResult = this.db
+      .prepare(
+        `
       SELECT rate FROM exchange_rates WHERE from_code = 'USD' AND to_code = 'LBP' LIMIT 1
-    `).get() as { rate: number } | undefined;
+    `,
+      )
+      .get() as { rate: number } | undefined;
     const rate = rateResult?.rate || 89000;
 
     const stmt = this.db.prepare(`
@@ -107,9 +111,13 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
    */
   getClientDebtTotal(clientId: number): number {
     // Get exchange rate from settings or use default
-    const rateResult = this.db.prepare(`
+    const rateResult = this.db
+      .prepare(
+        `
       SELECT rate FROM exchange_rates WHERE from_code = 'USD' AND to_code = 'LBP' LIMIT 1
-    `).get() as { rate: number } | undefined;
+    `,
+      )
+      .get() as { rate: number } | undefined;
     const rate = rateResult?.rate || 89000;
 
     const stmt = this.db.prepare(
@@ -131,7 +139,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
     // Use paid amounts if provided, otherwise use actual amounts (backward compatible)
     const paidUSD = data.paid_amount_usd ?? data.amount_usd;
     const paidLBP = data.paid_amount_lbp ?? data.amount_lbp;
-    const drawerName = data.drawer_name || 'General';
+    const drawerName = data.drawer_name || "General";
 
     const insertDebtStmt = this.db.prepare(`
       INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, note, created_by)
@@ -157,11 +165,11 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `);
       paymentStmt.run(
-        'debt_repayment',
+        "debt_repayment",
         repaymentId,
-        'cash',
+        "cash",
         drawerName,
-        'USD',
+        "USD",
         paidUSD,
         data.note || null,
         data.created_by || null,
@@ -175,7 +183,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
           balance = drawer_balances.balance + excluded.balance,
           updated_at = CURRENT_TIMESTAMP
       `);
-      drawerStmt.run(drawerName, 'USD', paidUSD);
+      drawerStmt.run(drawerName, "USD", paidUSD);
     }
 
     // LBP payment to drawer
@@ -185,11 +193,11 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `);
       paymentStmt.run(
-        'debt_repayment',
+        "debt_repayment",
         repaymentId,
-        'cash',
+        "cash",
         drawerName,
-        'LBP',
+        "LBP",
         paidLBP,
         data.note || null,
         data.created_by || null,
@@ -203,7 +211,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
           balance = drawer_balances.balance + excluded.balance,
           updated_at = CURRENT_TIMESTAMP
       `);
-      drawerStmt.run(drawerName, 'LBP', paidLBP);
+      drawerStmt.run(drawerName, "LBP", paidLBP);
     }
 
     return { id: repaymentId };
