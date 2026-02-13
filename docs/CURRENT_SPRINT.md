@@ -14,7 +14,6 @@
 ## 🏗️ Sprint Board
 
 ### ✅ Completed
-<<<<<<< HEAD
 - [T-28]!!! Customer Visit Session (FULLY COMPLETED Feb 12)
 - [T-32]!! BUG: MTC credits affecting inventory + dashboard sanity (completed Feb 12)
 - [T-27]!!! Payment Methods Everywhere + Drawer Model Expansion (completed Feb 12)
@@ -24,13 +23,6 @@
 - [T-23]!!! New Electron Backend Integration (completed Jan 24)
 - [T-20]!!! Post-Refactor Cleanup & Verification (completed Feb 1)
 - [T-18]!!! Frontend/Backend Separation (completed Feb 1)
-=======
-- [T-25]!!! Shared Core Backend Consolidation (@liratek/core) (completed Jan 25)
-- [T-24]!!! Unified Database Location (Web + Desktop) (completed Jan 25)
-- [T-23]!!! New Electron Backend Integration (completed Jan 24)
-- [T-20]!!! Post-Refactor Cleanup & Verification (completed Jan 24)
-- [T-18]!!! Frontend/Backend Separation (completed Jan 24)
->>>>>>> origin/dev
 - [T-08]!!! IMEI & Warranty Tracking (completed Jan 24)
 - [T-02]!!! Supplier Ledger Drawer Integration (completed Jan 24)
 - **Financial Reporting & Analytics** (completed Jan 24)
@@ -41,16 +33,11 @@
 - None currently - Ready for next sprint task
 
 ### 🔜 Next Priority (MUST DO)
-<<<<<<< HEAD
 - [T-29]!!! Recharge Module UX + voucher images + debt payment + remove phone fields
 - [T-30]!!! Financial Services (OMT/Whish) improvements: phone param + service dropdown + settlement visibility
 - [T-31]!! Expenses simplification: remove types dropdown
 - [T-33]! New module: Binance transfers (send/receive)
 - [T-34]! New module: Katsh/Ipec/WhishApp services page (new UI)
-=======
-- [T-21]!! Backend REST API Documentation
-- [T-19]!!! Migrate Remaining Features to Backend API
->>>>>>> origin/dev
 
 ### 📋 Ready (Ordered by Priority)
 
