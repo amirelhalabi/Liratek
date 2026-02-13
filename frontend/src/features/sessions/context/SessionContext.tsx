@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import {
   startSession as apiStartSession,
-  getActiveSession as apiGetActiveSession,
+  getActiveSession as _apiGetActiveSession,
   getSessionDetails,
   updateSession as apiUpdateSession,
   closeSession as apiCloseSession,
@@ -37,20 +37,20 @@ interface SessionContextValue {
   sessionTransactions: SessionTransaction[];
   isFloatingWindowOpen: boolean;
   isFloatingWindowMinimized: boolean;
-  
+
   // Actions
   startSession: (data: { customer_name: string; customer_phone?: string; customer_notes?: string }) => Promise<void>;
   switchToSession: (sessionId: number) => Promise<void>;
   closeCurrentSession: () => Promise<void>;
   updateSessionInfo: (data: { customer_name?: string; customer_phone?: string; customer_notes?: string }) => Promise<void>;
   linkTransaction: (data: { transactionType: string; transactionId: number; amountUsd: number; amountLbp: number }) => Promise<void>;
-  
+
   // Window controls
   openFloatingWindow: () => void;
   closeFloatingWindow: () => void;
   minimizeFloatingWindow: () => void;
   expandFloatingWindow: () => void;
-  
+
   // Refresh
   refreshActiveSessions: () => Promise<void>;
   refreshSessionTransactions: () => Promise<void>;
@@ -81,11 +81,11 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const refreshActiveSessions = useCallback(async () => {
     try {
       const data = await listSessions(50, 0);
-      
+
       if (data.success && data.sessions) {
         const active = data.sessions.filter((s: CustomerSession) => s.is_active === 1);
         setAllActiveSessions(active);
-        
+
         // Set first active as current if we don't have one
         if (!activeSession && active.length > 0) {
           setActiveSession(active[0]);
@@ -105,7 +105,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
     try {
       const data = await getSessionDetails(activeSession.id);
-      
+
       if (data.success && data.transactions) {
         setSessionTransactions(data.transactions);
       }
@@ -126,13 +126,13 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       if (result.success && result.sessionId) {
         // Refresh the list to get the new session
         await refreshActiveSessions();
-        
+
         // Fetch the updated list to find the new session
         const updatedData = await listSessions(50, 0);
         if (updatedData.success && updatedData.sessions) {
           const active = updatedData.sessions.filter((s: CustomerSession) => s.is_active === 1);
           setAllActiveSessions(active);
-          
+
           // Find and set the new session as active
           const newSession = active.find(s => s.id === result.sessionId);
           if (newSession) {

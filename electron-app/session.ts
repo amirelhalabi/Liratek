@@ -120,7 +120,6 @@ export function getEncryptedSession(): StoredSession | null {
 
     const fileData = fs.readFileSync(filePath);
     let decrypted: string;
-
     if (safeStorage.isEncryptionAvailable()) {
       // Try to decrypt with safeStorage
       try {

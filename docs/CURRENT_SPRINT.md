@@ -36,7 +36,6 @@
 - [T-29]!!! Recharge Module UX + voucher images + debt payment + remove phone fields
 - [T-30]!!! Financial Services (OMT/Whish) improvements: phone param + service dropdown + settlement visibility
 - [T-31]!! Expenses simplification: remove types dropdown
-- [T-32]!! BUG: MTC credits affecting inventory + dashboard sanity
 - [T-33]! New module: Binance transfers (send/receive)
 - [T-34]! New module: Katsh/Ipec/WhishApp services page (new UI)
 

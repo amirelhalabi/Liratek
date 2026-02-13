@@ -26,7 +26,7 @@ export default function Select({
   className = '',
   buttonClassName = '',
   optionsClassName = '',
-  ringColor = 'ring-violet-500',
+  ringColor: _ringColor = 'ring-violet-500',
 }: SelectProps) {
   const selectedOption = options.find((opt) => opt.value === value);
 
@@ -49,9 +49,8 @@ export default function Select({
             </span>
             <span className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2">
               <ChevronDown
-                className={`h-5 w-5 text-slate-400 transition-transform ${
-                  open ? 'rotate-180' : ''
-                }`}
+                className={`h-5 w-5 text-slate-400 transition-transform ${open ? 'rotate-180' : ''
+                  }`}
                 aria-hidden="true"
               />
             </span>
@@ -76,21 +75,19 @@ export default function Select({
                   key={option.value}
                   value={option.value}
                   className={({ active, selected }) =>
-                    `relative cursor-pointer select-none py-2 pl-10 pr-4 ${
-                      active
-                        ? 'bg-violet-500/20 text-white'
-                        : selected
-                          ? 'bg-slate-800 text-white'
-                          : 'text-slate-300'
+                    `relative cursor-pointer select-none py-2 pl-10 pr-4 ${active
+                      ? 'bg-violet-500/20 text-white'
+                      : selected
+                        ? 'bg-slate-800 text-white'
+                        : 'text-slate-300'
                     }`
                   }
                 >
                   {({ selected }) => (
                     <>
                       <span
-                        className={`block truncate ${
-                          selected ? 'font-medium' : 'font-normal'
-                        }`}
+                        className={`block truncate ${selected ? 'font-medium' : 'font-normal'
+                          }`}
                       >
                         {option.label}
                       </span>

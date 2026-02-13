@@ -161,7 +161,7 @@ export function registerAuthHandlers(): void {
       // Try to restore from provided token first
       if (sessionToken) {
         authLogger.info({ tokenPrefix: sessionToken.substring(0, 10) }, "🔍 [SESSION-RESTORE] Validating provided session token from localStorage");
-        
+
         const user = await authService.validateSession(sessionToken);
 
         if (user) {
@@ -194,7 +194,7 @@ export function registerAuthHandlers(): void {
 
       if (stored && stored.token) {
         authLogger.info({ tokenPrefix: stored.token.substring(0, 10) }, "🔍 [SESSION-RESTORE] Found token in encrypted file, validating against database");
-        
+
         const user = await authService.validateSession(stored.token);
 
         if (user) {
@@ -227,12 +227,12 @@ export function registerAuthHandlers(): void {
       if (storedLegacy && !storedLegacy.token) {
         // Old format without token field - needs migration
         authLogger.info({ userId: storedLegacy.userId }, "🔍 [SESSION-RESTORE] Found old encrypted session (no token), attempting migration");
-        
+
         const user = authService.getUserById(storedLegacy.userId);
 
         if (user) {
           authLogger.info({ username: user.username, userId: user.id }, "🔍 [SESSION-RESTORE] User found, creating new database session");
-          
+
           // Migrate to new session system
           const result = await authService.login(user.username, "", {
             rememberMe: true,

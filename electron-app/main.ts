@@ -95,13 +95,13 @@ loadDotEnvFile(path.join(__dirname, '../.env'));
 
 app.whenReady().then(async () => {
   console.log('[ELECTRON] App ready, creating window...');
-  
+
   // Initialize database and services
   initializeBackend();
-  
+
   // Register IPC handlers
   await registerHandlers();
-  
+
   createWindow();
 
   app.on('activate', () => {
@@ -130,7 +130,7 @@ function initializeDatabase() {
   );
 
   console.log('[ELECTRON] Database path:', dbPath, `(source: ${resolved.source})`);
-  
+
   try {
     db = new Database(dbPath);
 
@@ -142,7 +142,7 @@ function initializeDatabase() {
 
     console.log(
       `🔐 SQLCipher: keySource=${resolvedKey.source}, applied=${keyResult.applied}, supported=${keyResult.supported}` +
-        (keyResult.error ? `, error=${keyResult.error}` : ''),
+      (keyResult.error ? `, error=${keyResult.error}` : ''),
     );
 
     if (resolvedKey.source !== 'none' && !keyResult.applied) {
@@ -152,10 +152,10 @@ function initializeDatabase() {
           : `SQLCipher is not supported by this SQLite build. Provide a SQLCipher-enabled build of SQLite/better-sqlite3. (details: ${keyResult.error || 'unknown'})`,
       );
     }
-    
+
     // Check if database has schema
     const tableCheck = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='users'").get();
-    
+
     if (!tableCheck) {
       console.log('[ELECTRON] Database has no schema, initializing from create_db.sql...');
 
@@ -179,7 +179,7 @@ function initializeDatabase() {
     } else {
       console.log('[ELECTRON] Database schema OK');
     }
-    
+
     // Ensure default admin user exists for first-run
     try {
       const adminRow = db
@@ -208,7 +208,7 @@ function initializeDatabase() {
     // Apply idempotent migrations
     migrateDrawerNames(db);
     migrateCustomerSessions(db);
-    
+
     console.log('[ELECTRON] Database connected successfully');
     return db;
   } catch (error) {
@@ -223,13 +223,13 @@ function initializeDatabase() {
  */
 function initializeBackend() {
   console.log('[ELECTRON] Initializing backend services...');
-  
+
   // Initialize database
   initializeDatabase();
-  
+
   // Services are initialized on-demand by handlers
   // Each service gets the db instance when needed
-  
+
   console.log('[ELECTRON] Backend services initialized');
 }
 
@@ -250,7 +250,7 @@ export function getDb(): Database.Database {
  */
 async function registerHandlers() {
   console.log('[ELECTRON] Registering IPC handlers...');
-  
+
   try {
     // Import and register all handlers
     const authHandlers = await import('./handlers/authHandlers.js');
@@ -270,7 +270,7 @@ async function registerHandlers() {
     const supplierHandlers = await import('./handlers/supplierHandlers.js');
     const updaterHandlers = await import('./handlers/updaterHandlers.js');
     const sessionHandlers = await import('./handlers/sessionHandlers.js');
-    
+
     // Register all handlers (they auto-register with ipcMain)
     authHandlers.registerAuthHandlers();
     clientHandlers.registerClientHandlers();
@@ -289,9 +289,9 @@ async function registerHandlers() {
     supplierHandlers.registerSupplierHandlers();
     updaterHandlers.registerUpdaterHandlers();
     sessionHandlers.registerSessionHandlers();
-    
+
     console.log('[ELECTRON] All IPC handlers registered');
-    
+
     // Start periodic session cleanup
     startSessionCleanup();
   } catch (error) {
@@ -310,15 +310,15 @@ function startSessionCleanup() {
   const cleanupSessions = () => {
     try {
       const sessionRepo = getSessionRepository();
-      
+
       // Delete expired sessions (past expires_at)
       const expiredCount = sessionRepo.deleteExpiredSessions();
-      
+
       // Delete inactive short sessions (30+ min of inactivity)
       const inactiveCount = sessionRepo.deleteInactiveSessions();
-      
+
       const totalCleaned = expiredCount + inactiveCount;
-      
+
       if (totalCleaned > 0) {
         console.log(`[SESSION-CLEANUP] Cleaned up ${totalCleaned} sessions (${expiredCount} expired, ${inactiveCount} inactive)`);
       }
@@ -332,6 +332,6 @@ function startSessionCleanup() {
 
   // Then run every 5 minutes
   setInterval(cleanupSessions, CLEANUP_INTERVAL);
-  
+
   console.log('[SESSION-CLEANUP] Periodic session cleanup started (every 5 minutes)');
 }

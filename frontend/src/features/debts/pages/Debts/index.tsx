@@ -7,7 +7,7 @@ import {
   ChevronUp,
   Receipt,
   Eye,
-  X,
+  X as CloseIcon,
 } from "lucide-react";
 import PageHeader from "../../../../shared/components/layouts/PageHeader";
 import { useAuth } from "@/features/auth/context/AuthContext";
@@ -36,7 +36,7 @@ export default function Debts() {
     sale_id?: number | null;
     is_paid: boolean;
   };
-  
+
   type SaleDetail = {
     id: number;
     final_amount_usd: number;
@@ -85,9 +85,9 @@ export default function Debts() {
       const data = window.api
         ? await window.api.getDebtors()
         : await (async () => {
-            const { getDebtors } = await import("../../../../api/backendApi");
-            return getDebtors();
-          })();
+          const { getDebtors } = await import("../../../../api/backendApi");
+          return getDebtors();
+        })();
       setDebtors(data);
     } catch (error) {
       console.error("Failed to load debtors:", error);
@@ -99,9 +99,9 @@ export default function Debts() {
       const data = window.api
         ? await window.api.getClientDebtHistory(clientId)
         : await (async () => {
-            const { getClientDebtHistory } = await import("../../../../api/backendApi");
-            return getClientDebtHistory(clientId);
-          })();
+          const { getClientDebtHistory } = await import("../../../../api/backendApi");
+          return getClientDebtHistory(clientId);
+        })();
       setHistory(data);
       // Reset sort to default (desc) when loading new client
       setDateSortOrder("desc");
@@ -131,9 +131,9 @@ export default function Debts() {
       const total = window.api
         ? await window.api.getClientDebtTotal(clientId)
         : await (async () => {
-            const { getClientDebtTotal } = await import("../../../../api/backendApi");
-            return getClientDebtTotal(clientId);
-          })();
+          const { getClientDebtTotal } = await import("../../../../api/backendApi");
+          return getClientDebtTotal(clientId);
+        })();
       setTotalDebt(total || 0);
     } catch (error) {
       console.error("Failed to load client total:", error);
@@ -144,7 +144,7 @@ export default function Debts() {
     try {
       const sale = await api.getSale(saleId);
       const items = await api.getSaleItems(saleId);
-      
+
       setSelectedSale({
         ...sale,
         items: items.map((item: any) => ({
@@ -178,9 +178,9 @@ export default function Debts() {
     const integerDebt = Math.floor(totalDebt);
     const fractionalDebt = totalDebt - integerDebt;
     const fractionalLBP = fractionalDebt * EXCHANGE_RATE;
-    
+
     let debtReductionUSD = paidUSD;
-    
+
     // If user is paying LBP and it's approximately the fractional portion
     if (paidLBP > 0) {
       const roundedFractionalLBP = Math.ceil(fractionalLBP / 5000) * 5000;
@@ -193,35 +193,35 @@ export default function Debts() {
         debtReductionUSD += paidLBP / EXCHANGE_RATE;
       }
     }
-    
+
     const debtReductionLBP = 0; // We track debt in USD
     const totalDebtReductionUSD = debtReductionUSD;
 
     try {
       const result = window.api
         ? await window.api.addRepayment({
-            clientId: selectedClient.id,
-            amountUSD: totalDebtReductionUSD,
-            amountLBP: debtReductionLBP,
-            paidAmountUSD: paidUSD,
-            paidAmountLBP: paidLBP,
-            drawerName: "General",
-            note: repayNote,
-            ...(user?.id != null ? { userId: user.id } : {}),
-          } as any)
+          clientId: selectedClient.id,
+          amountUSD: totalDebtReductionUSD,
+          amountLBP: debtReductionLBP,
+          paidAmountUSD: paidUSD,
+          paidAmountLBP: paidLBP,
+          drawerName: "General",
+          note: repayNote,
+          ...(user?.id != null ? { userId: user.id } : {}),
+        } as any)
         : await (async () => {
-            const { addRepayment } = await import("../../../../api/backendApi");
-            return addRepayment({
-              client_id: selectedClient.id,
-              amount_usd: totalDebtReductionUSD,
-              amount_lbp: debtReductionLBP,
-              paid_amount_usd: paidUSD,
-              paid_amount_lbp: paidLBP,
-              drawer_name: "General",
-              note: repayNote,
-              ...(user?.id != null ? { user_id: user.id } : {}),
-            });
-          })();
+          const { addRepayment } = await import("../../../../api/backendApi");
+          return addRepayment({
+            client_id: selectedClient.id,
+            amount_usd: totalDebtReductionUSD,
+            amount_lbp: debtReductionLBP,
+            paid_amount_usd: paidUSD,
+            paid_amount_lbp: paidLBP,
+            drawer_name: "General",
+            note: repayNote,
+            ...(user?.id != null ? { user_id: user.id } : {}),
+          });
+        })();
 
       if (result.success) {
         alert("Repayment processed!");
@@ -237,9 +237,9 @@ export default function Debts() {
         const updatedTotal = window.api
           ? await window.api.getClientDebtTotal(selectedClient.id)
           : await (async () => {
-              const { getClientDebtTotal } = await import("../../../../api/backendApi");
-              return getClientDebtTotal(selectedClient.id);
-            })();
+            const { getClientDebtTotal } = await import("../../../../api/backendApi");
+            return getClientDebtTotal(selectedClient.id);
+          })();
 
         if (updatedTotal > 0.01) {
           // Client still has debt, reload their history
@@ -287,364 +287,360 @@ export default function Debts() {
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       <PageHeader icon={Receipt} title="Debts" />
-      
+
       <div className="flex h-full min-h-0 gap-6 overflow-hidden">
         {/* Left: Debtors List */}
         <div className="w-1/3 flex flex-col bg-slate-800 rounded-xl border border-slate-700 shadow-xl overflow-hidden">
           <div className="p-4 border-b border-slate-700 space-y-4">
             <div className="relative">
-            <Search
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-              size={18}
-            />
-            <input
-              type="text"
-              placeholder="Search client..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-600 rounded-lg pl-10 pr-4 py-2 text-white focus:outline-none focus:border-red-500"
-            />
+              <Search
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                size={18}
+              />
+              <input
+                type="text"
+                placeholder="Search client..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-600 rounded-lg pl-10 pr-4 py-2 text-white focus:outline-none focus:border-red-500"
+              />
             </div>
             {/* New filter dropdown */}
             <div className="mt-4">
-            <label className="block text-sm font-medium text-slate-400 mb-2">
-              Show Debts:
-            </label>
-            <Select
-              value={debtFilter}
-              onChange={(value) => {
-                setDebtFilter(value as DebtFilter);
-                setSelectedClient(null); // Reset selected client
-              }}
-              options={[
-                { value: "ongoing", label: "Ongoing" },
-                { value: "closed", label: "Closed" },
-                { value: "all", label: "All" },
-              ]}
-              ringColor="ring-red-500"
-            />
+              <label className="block text-sm font-medium text-slate-400 mb-2">
+                Show Debts:
+              </label>
+              <Select
+                value={debtFilter}
+                onChange={(value) => {
+                  setDebtFilter(value as DebtFilter);
+                  setSelectedClient(null); // Reset selected client
+                }}
+                options={[
+                  { value: "ongoing", label: "Ongoing" },
+                  { value: "closed", label: "Closed" },
+                  { value: "all", label: "All" },
+                ]}
+                ringColor="ring-red-500"
+              />
             </div>
           </div>
 
-        <div className="flex-1 overflow-y-auto p-2 space-y-2">
-          {filteredDebtors.map((client) => (
-            <button
-              key={client.id}
-              onClick={() => setSelectedClient(client)}
-              className={`w-full text-left p-3 rounded-lg border transition-all ${
-                selectedClient?.id === client.id
+          <div className="flex-1 overflow-y-auto p-2 space-y-2">
+            {filteredDebtors.map((client) => (
+              <button
+                key={client.id}
+                onClick={() => setSelectedClient(client)}
+                className={`w-full text-left p-3 rounded-lg border transition-all ${selectedClient?.id === client.id
                   ? "bg-red-500/10 border-red-500/50 shadow-md"
                   : "bg-slate-700/30 border-transparent hover:bg-slate-700/50"
-              }`}
-            >
-              <div className="flex justify-between items-start">
-                <div>
-                  <div className="font-bold text-slate-200">
-                    {client.full_name}
+                  }`}
+              >
+                <div className="flex justify-between items-start">
+                  <div>
+                    <div className="font-bold text-slate-200">
+                      {client.full_name}
+                    </div>
+                    <div className="text-xs text-slate-500">
+                      {client.phone_number || "No Phone"}
+                    </div>
                   </div>
-                  <div className="text-xs text-slate-500">
-                    {client.phone_number || "No Phone"}
+                  <div className="text-red-400 font-bold">
+                    ${client.total_debt.toFixed(2)}
                   </div>
                 </div>
-                <div className="text-red-400 font-bold">
-                  ${client.total_debt.toFixed(2)}
-                </div>
+              </button>
+            ))}
+            {filteredDebtors.length === 0 && (
+              <div className="text-center text-slate-500 py-8">
+                No debtors found.
               </div>
-            </button>
-          ))}
-          {filteredDebtors.length === 0 && (
-            <div className="text-center text-slate-500 py-8">
-              No debtors found.
-            </div>
-          )}
+            )}
+          </div>
         </div>
-      </div>
 
-      {/* Right: Details & History */}
-      <div className="flex-1 flex flex-col bg-slate-800 rounded-xl border border-slate-700 shadow-xl overflow-hidden">
-        {selectedClient ? (
-          <>
-            <div className="p-6 border-b border-slate-700 flex justify-between items-center bg-slate-800/50">
-              <div>
-                <h2 className="text-2xl font-bold text-white">
-                  {selectedClient.full_name}
-                </h2>
-                <p className="text-slate-400">
-                  Total Debt:{" "}
-                  <span className="text-red-400 font-bold">
-                    ${totalDebt.toFixed(2)}
-                  </span>
-                  {totalDebt > 0 &&
-                    (() => {
-                      const integerUSD = Math.floor(totalDebt);
-                      const fractionUSD = totalDebt - integerUSD;
-                      const rawLBP = fractionUSD * EXCHANGE_RATE;
-                      const roundedLBP = roundLBPUp(rawLBP);
+        {/* Right: Details & History */}
+        <div className="flex-1 flex flex-col bg-slate-800 rounded-xl border border-slate-700 shadow-xl overflow-hidden">
+          {selectedClient ? (
+            <>
+              <div className="p-6 border-b border-slate-700 flex justify-between items-center bg-slate-800/50">
+                <div>
+                  <h2 className="text-2xl font-bold text-white">
+                    {selectedClient.full_name}
+                  </h2>
+                  <p className="text-slate-400">
+                    Total Debt:{" "}
+                    <span className="text-red-400 font-bold">
+                      ${totalDebt.toFixed(2)}
+                    </span>
+                    {totalDebt > 0 &&
+                      (() => {
+                        const integerUSD = Math.floor(totalDebt);
+                        const fractionUSD = totalDebt - integerUSD;
+                        const rawLBP = fractionUSD * EXCHANGE_RATE;
+                        const roundedLBP = roundLBPUp(rawLBP);
+
+                        return (
+                          <span className="text-xs text-slate-500 ml-2">
+                            (i.e., ${integerUSD.toLocaleString()} +{" "}
+                            {roundedLBP.toLocaleString()} LBP)
+                          </span>
+                        );
+                      })()}
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    // Calculate autofill amounts based on debt breakdown
+                    const integerUSD = Math.floor(totalDebt);
+                    const fractionUSD = totalDebt - integerUSD;
+                    const rawLBP = fractionUSD * EXCHANGE_RATE;
+                    const roundedLBP = roundLBPUp(rawLBP);
+
+                    // Autofill the modal inputs with rounded amounts
+                    setRepayAmountUSD(integerUSD.toString());
+                    setRepayAmountLBP(roundedLBP.toString());
+                    setShowRepaymentModal(true);
+                  }}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2 rounded-lg font-bold shadow-lg shadow-emerald-900/20 active:scale-95 transition-all flex items-center gap-2"
+                >
+                  <ArrowDownLeft size={20} />
+                  Settle Debt
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-6">
+                <table className="w-full">
+                  <thead className="text-left text-slate-400 border-b border-slate-700">
+                    <tr>
+                      <th className="pb-3 text-sm font-medium">
+                        <button
+                          onClick={toggleDateSort}
+                          className="flex items-center gap-1 hover:text-slate-200 transition-colors group"
+                        >
+                          Date
+                          {dateSortOrder === "desc" ? (
+                            <ChevronDown
+                              size={16}
+                              className="text-slate-500 group-hover:text-slate-300"
+                            />
+                          ) : (
+                            <ChevronUp
+                              size={16}
+                              className="text-slate-500 group-hover:text-slate-300"
+                            />
+                          )}
+                        </button>
+                      </th>
+                      <th className="pb-3 text-sm font-medium">Type</th>
+                      <th className="pb-3 text-sm font-medium">Note</th>
+                      <th className="pb-3 text-sm font-medium text-center">Details</th>
+                      <th
+                        className="pb-3 text-sm font-medium text-center"
+                        colSpan={2}
+                      >
+                        Amount
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-700/50">
+                    {sortedHistory.map((item, index) => {
+                      // Show "Paid Fully" breakpoint if this is the transition from unpaid to paid
+                      const showPaidFullyBreakpoint =
+                        index > 0 &&
+                        sortedHistory[index - 1].is_paid === false &&
+                        item.is_paid === true;
 
                       return (
-                        <span className="text-xs text-slate-500 ml-2">
-                          (i.e., ${integerUSD.toLocaleString()} +{" "}
-                          {roundedLBP.toLocaleString()} LBP)
-                        </span>
-                      );
-                    })()}
-                </p>
-              </div>
-              <button
-                onClick={() => {
-                  // Calculate autofill amounts based on debt breakdown
-                  const integerUSD = Math.floor(totalDebt);
-                  const fractionUSD = totalDebt - integerUSD;
-                  const rawLBP = fractionUSD * EXCHANGE_RATE;
-                  const roundedLBP = roundLBPUp(rawLBP);
-
-                  // Autofill the modal inputs with rounded amounts
-                  setRepayAmountUSD(integerUSD.toString());
-                  setRepayAmountLBP(roundedLBP.toString());
-                  setShowRepaymentModal(true);
-                }}
-                className="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2 rounded-lg font-bold shadow-lg shadow-emerald-900/20 active:scale-95 transition-all flex items-center gap-2"
-              >
-                <ArrowDownLeft size={20} />
-                Settle Debt
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-6">
-              <table className="w-full">
-                <thead className="text-left text-slate-400 border-b border-slate-700">
-                  <tr>
-                    <th className="pb-3 text-sm font-medium">
-                      <button
-                        onClick={toggleDateSort}
-                        className="flex items-center gap-1 hover:text-slate-200 transition-colors group"
-                      >
-                        Date
-                        {dateSortOrder === "desc" ? (
-                          <ChevronDown
-                            size={16}
-                            className="text-slate-500 group-hover:text-slate-300"
-                          />
-                        ) : (
-                          <ChevronUp
-                            size={16}
-                            className="text-slate-500 group-hover:text-slate-300"
-                          />
-                        )}
-                      </button>
-                    </th>
-                    <th className="pb-3 text-sm font-medium">Type</th>
-                    <th className="pb-3 text-sm font-medium">Note</th>
-                    <th className="pb-3 text-sm font-medium text-center">Details</th>
-                    <th
-                      className="pb-3 text-sm font-medium text-center"
-                      colSpan={2}
-                    >
-                      Amount
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-700/50">
-                  {sortedHistory.map((item, index) => {
-                    // Show "Paid Fully" breakpoint if this is the transition from unpaid to paid
-                    const showPaidFullyBreakpoint =
-                      index > 0 &&
-                      sortedHistory[index - 1].is_paid === false &&
-                      item.is_paid === true;
-
-                    return (
-                      <React.Fragment key={item.id}>
-                        {/* Paid Fully Breakpoint */}
-                        {showPaidFullyBreakpoint && (
-                          <tr>
-                            <td colSpan={4} className="py-3">
-                              <div className="flex items-center gap-3 text-emerald-400">
-                                <div className="flex-1 h-px bg-emerald-500/30"></div>
-                                <span className="text-xs font-bold px-3 py-1 bg-emerald-500/10 rounded-full">
-                                  PAID FULLY
-                                </span>
-                                <div className="flex-1 h-px bg-emerald-500/30"></div>
+                        <React.Fragment key={item.id}>
+                          {/* Paid Fully Breakpoint */}
+                          {showPaidFullyBreakpoint && (
+                            <tr>
+                              <td colSpan={4} className="py-3">
+                                <div className="flex items-center gap-3 text-emerald-400">
+                                  <div className="flex-1 h-px bg-emerald-500/30"></div>
+                                  <span className="text-xs font-bold px-3 py-1 bg-emerald-500/10 rounded-full">
+                                    PAID FULLY
+                                  </span>
+                                  <div className="flex-1 h-px bg-emerald-500/30"></div>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                          <tr className="group hover:bg-slate-700/20">
+                            <td className="py-3 text-slate-300">
+                              {new Date(item.created_at).toLocaleDateString()}
+                              <div className="text-xs text-slate-500">
+                                {new Date(item.created_at).toLocaleTimeString()}
                               </div>
                             </td>
-                          </tr>
-                        )}
-                        <tr className="group hover:bg-slate-700/20">
-                          <td className="py-3 text-slate-300">
-                            {new Date(item.created_at).toLocaleDateString()}
-                            <div className="text-xs text-slate-500">
-                              {new Date(item.created_at).toLocaleTimeString()}
-                            </div>
-                          </td>
-                          <td className="py-3">
-                            <span
-                              className={`px-2 py-1 rounded text-xs font-bold ${
-                                item.amount_usd > 0
+                            <td className="py-3">
+                              <span
+                                className={`px-2 py-1 rounded text-xs font-bold ${item.amount_usd > 0
                                   ? "bg-red-500/20 text-red-400"
                                   : "bg-emerald-500/20 text-emerald-400"
-                              }`}
-                            >
-                              {item.amount_usd > 0 ? "Debt" : "Repayment"}
-                            </span>
-                          </td>
-                          <td className="py-3 text-slate-400 text-sm">
-                            {item.note || "-"}
-                          </td>
-                          {/* Details Button */}
-                          <td className="py-3 text-center">
-                            {item.sale_id ? (
-                              <button
-                                onClick={() => loadSaleDetails(item.sale_id!)}
-                                className="p-1.5 rounded-lg bg-violet-500/10 hover:bg-violet-500/20 text-violet-400 transition-all"
-                                title="View Sale Details"
+                                  }`}
                               >
-                                <Eye size={16} />
-                              </button>
-                            ) : (
-                              <span className="text-slate-600">-</span>
-                            )}
-                          </td>
-                          {/* USD Column */}
-                          <td
-                            className={`py-3 text-center font-mono font-bold ${
-                              item.amount_usd > 0
+                                {item.amount_usd > 0 ? "Debt" : "Repayment"}
+                              </span>
+                            </td>
+                            <td className="py-3 text-slate-400 text-sm">
+                              {item.note || "-"}
+                            </td>
+                            {/* Details Button */}
+                            <td className="py-3 text-center">
+                              {item.sale_id ? (
+                                <button
+                                  onClick={() => loadSaleDetails(item.sale_id!)}
+                                  className="p-1.5 rounded-lg bg-violet-500/10 hover:bg-violet-500/20 text-violet-400 transition-all"
+                                  title="View Sale Details"
+                                >
+                                  <Eye size={16} />
+                                </button>
+                              ) : (
+                                <span className="text-slate-600">-</span>
+                              )}
+                            </td>
+                            {/* USD Column */}
+                            <td
+                              className={`py-3 text-center font-mono font-bold ${item.amount_usd > 0
                                 ? "text-red-400"
                                 : item.amount_usd < 0
                                   ? "text-emerald-400"
                                   : "text-slate-600"
-                            }`}
-                          >
-                            {item.amount_usd !== 0 && Math.abs(item.amount_usd) > 0 ? (
-                              <>
-                                {item.amount_usd > 0 ? "+" : ""}$
-                                {Math.abs(item.amount_usd).toFixed(2)}
-                              </>
-                            ) : (
-                              <span className="text-slate-600">-</span>
-                            )}
-                          </td>
-                          {/* LBP Column */}
-                          <td
-                            className={`py-3 text-center font-mono font-bold ${
-                              item.amount_lbp > 0
+                                }`}
+                            >
+                              {item.amount_usd !== 0 && Math.abs(item.amount_usd) > 0 ? (
+                                <>
+                                  {item.amount_usd > 0 ? "+" : ""}$
+                                  {Math.abs(item.amount_usd).toFixed(2)}
+                                </>
+                              ) : (
+                                <span className="text-slate-600">-</span>
+                              )}
+                            </td>
+                            {/* LBP Column */}
+                            <td
+                              className={`py-3 text-center font-mono font-bold ${item.amount_lbp > 0
                                 ? "text-red-400"
                                 : item.amount_lbp < 0
                                   ? "text-emerald-400"
                                   : "text-slate-600"
-                            }`}
-                          >
-                            {item.amount_lbp !== 0 && Math.abs(item.amount_lbp) > 0 ? (
-                              <>
-                                {item.amount_lbp > 0 ? "+" : ""}
-                                {Math.abs(item.amount_lbp).toLocaleString()} LBP
-                              </>
-                            ) : (
-                              <span className="text-slate-600">-</span>
-                            )}
-                          </td>
-                        </tr>
-                      </React.Fragment>
-                    );
-                  })}
-                </tbody>
-              </table>
+                                }`}
+                            >
+                              {item.amount_lbp !== 0 && Math.abs(item.amount_lbp) > 0 ? (
+                                <>
+                                  {item.amount_lbp > 0 ? "+" : ""}
+                                  {Math.abs(item.amount_lbp).toLocaleString()} LBP
+                                </>
+                              ) : (
+                                <span className="text-slate-600">-</span>
+                              )}
+                            </td>
+                          </tr>
+                        </React.Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center text-slate-500">
+              <div className="w-16 h-16 bg-slate-700/50 rounded-full flex items-center justify-center mb-4">
+                <User size={32} className="opacity-50" />
+              </div>
+              <p>Select a client to view details</p>
             </div>
-          </>
-        ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-slate-500">
-            <div className="w-16 h-16 bg-slate-700/50 rounded-full flex items-center justify-center mb-4">
-              <User size={32} className="opacity-50" />
-            </div>
-            <p>Select a client to view details</p>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
 
-      {/* Repayment Modal */}
-      {showRepaymentModal && (
-        <div
-          className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) {
-              setShowRepaymentModal(false);
-            }
-          }}
-        >
+        {/* Repayment Modal */}
+        {showRepaymentModal && (
           <div
-            className="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-md shadow-2xl overflow-hidden"
-            onMouseDown={(e) => e.stopPropagation()}
+            className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget) {
+                setShowRepaymentModal(false);
+              }
+            }}
           >
-            <h3 className="text-xl font-bold text-white mb-4">
-              Process Repayment
-            </h3>
+            <div
+              className="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-md shadow-2xl overflow-hidden"
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <h3 className="text-xl font-bold text-white mb-4">
+                Process Repayment
+              </h3>
 
-            <div className="space-y-4">
-              {/* Merged Amount Header with Two Columns */}
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2 text-center uppercase">
-                  Amount
-                </label>
-                <div className="grid grid-cols-2 gap-3">
-                  {/* USD Column */}
-                  <div className="relative">
-                    <input
-                      type="number"
-                      value={repayAmountUSD}
-                      onChange={(e) => setRepayAmountUSD(e.target.value)}
-                      className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-3 text-white text-center font-mono text-lg focus:outline-none focus:border-emerald-500"
-                      placeholder="0"
-                    />
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-400 font-bold">
-                      $
-                    </span>
-                  </div>
+              <div className="space-y-4">
+                {/* Merged Amount Header with Two Columns */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2 text-center uppercase">
+                    Amount
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    {/* USD Column */}
+                    <div className="relative">
+                      <input
+                        type="number"
+                        value={repayAmountUSD}
+                        onChange={(e) => setRepayAmountUSD(e.target.value)}
+                        className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-3 text-white text-center font-mono text-lg focus:outline-none focus:border-emerald-500"
+                        placeholder="0"
+                      />
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-400 font-bold">
+                        $
+                      </span>
+                    </div>
 
-                  {/* LBP Column */}
-                  <div className="relative">
-                    <input
-                      type="number"
-                      value={repayAmountLBP}
-                      onChange={(e) => setRepayAmountLBP(e.target.value)}
-                      className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-3 text-white text-center font-mono text-lg focus:outline-none focus:border-emerald-500"
-                      placeholder="0"
-                    />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-violet-400 text-xs font-bold">
-                      LBP
-                    </span>
+                    {/* LBP Column */}
+                    <div className="relative">
+                      <input
+                        type="number"
+                        value={repayAmountLBP}
+                        onChange={(e) => setRepayAmountLBP(e.target.value)}
+                        className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-3 text-white text-center font-mono text-lg focus:outline-none focus:border-emerald-500"
+                        placeholder="0"
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-violet-400 text-xs font-bold">
+                        LBP
+                      </span>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1 uppercase">
-                  Note
-                </label>
-                <input
-                  type="text"
-                  value={repayNote}
-                  onChange={(e) => setRepayNote(e.target.value)}
-                  className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-emerald-500"
-                  placeholder="Optional note..."
-                />
-              </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1 uppercase">
+                    Note
+                  </label>
+                  <input
+                    type="text"
+                    value={repayNote}
+                    onChange={(e) => setRepayNote(e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-emerald-500"
+                    placeholder="Optional note..."
+                  />
+                </div>
 
-              <div className="pt-4 flex gap-3">
-                <button
-                  onClick={() => setShowRepaymentModal(false)}
-                  className="flex-1 py-3 rounded-xl font-bold text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleProcessRepayment}
-                  className="flex-1 py-3 rounded-xl font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-900/20 active:scale-95 transition-all"
-                >
-                  Confirm Payment
-                </button>
+                <div className="pt-4 flex gap-3">
+                  <button
+                    onClick={() => setShowRepaymentModal(false)}
+                    className="flex-1 py-3 rounded-xl font-bold text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleProcessRepayment}
+                    className="flex-1 py-3 rounded-xl font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-900/20 active:scale-95 transition-all"
+                  >
+                    Confirm Payment
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
       </div>
 
       {/* Sale Details Modal */}
@@ -663,7 +659,7 @@ export default function Debts() {
                 }}
                 className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
               >
-                <X size={20} className="text-slate-400" />
+                <CloseIcon size={20} className="text-slate-400" />
               </button>
             </div>
 

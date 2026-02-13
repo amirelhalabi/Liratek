@@ -7,7 +7,7 @@ export function SessionFloatingWindow() {
     sessionTransactions,
     isFloatingWindowOpen,
     isFloatingWindowMinimized,
-    closeFloatingWindow,
+    closeFloatingWindow: _closeFloatingWindow,
     minimizeFloatingWindow,
     expandFloatingWindow,
     closeCurrentSession,
@@ -16,7 +16,7 @@ export function SessionFloatingWindow() {
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-  
+
   // Separate state for minimized badge position
   const [badgePosition, setBadgePosition] = useState({ x: 0, y: 0 });
   const [isBadgeDragging, setIsBadgeDragging] = useState(false);
@@ -28,7 +28,7 @@ export function SessionFloatingWindow() {
     const windowHeight = 500;
     const marginRight = 100; // Right margin from edge
     const marginBottom = 140; // Bottom margin (above FAB + sessions)
-    
+
     return {
       x: window.innerWidth - windowWidth - marginRight,
       y: window.innerHeight - windowHeight - marginBottom,
@@ -41,7 +41,7 @@ export function SessionFloatingWindow() {
     const fabRight = 24; // right-6 = 24px
     const fabSize = 64; // Main FAB is 64x64
     const badgeSize = 64; // Badge is also 64x64
-    
+
     return {
       x: window.innerWidth - fabRight - fabSize - badgeSize - 16, // 16px gap from FAB
       y: window.innerHeight - fabBottom - badgeSize,
@@ -97,34 +97,34 @@ export function SessionFloatingWindow() {
 
   const handleMouseMove = (e: MouseEvent) => {
     if (!isDragging) return;
-    
+
     const newX = e.clientX - dragStart.x;
     const newY = e.clientY - dragStart.y;
-    
+
     // Constrain to vertical column above FAB (same as minimized badge)
     const fabRight = 24; // FAB's right margin (right-6)
     const fabBottom = 24; // FAB's bottom margin (bottom-6)
     const fabSize = 64; // Main FAB button size
-    
+
     // Calculate the FAB's X position
     const fabX = window.innerWidth - fabRight - fabSize;
-    
+
     // Get current window dimensions
     const currentWidth = windowDimensions.width;
     const currentHeight = windowDimensions.height;
-    
+
     // Constrain X to vertical column (window right edge aligns with FAB right edge)
     // Window should be positioned so its right edge aligns with FAB column
     const targetX = fabX + fabSize - currentWidth;
-    
+
     // Allow small horizontal wiggle (±10px) for easier positioning
     const minX = targetX - 10;
     const maxX = targetX + 10;
-    
+
     // Constrain Y to stay above FAB and within viewport
     const minY = 10; // Minimum distance from top
     const maxY = window.innerHeight - currentHeight - fabBottom - fabSize - 20; // Keep above FAB with 20px gap
-    
+
     setPosition({
       x: Math.max(minX, Math.min(newX, maxX)),
       y: Math.max(minY, Math.min(newY, maxY)),
@@ -161,38 +161,38 @@ export function SessionFloatingWindow() {
 
   const handleBadgeMouseMove = (e: MouseEvent) => {
     if (!isBadgeDragging) return;
-    
+
     // Check if mouse has moved significantly (more than 5px) - indicates actual drag
     const dragDistance = Math.sqrt(
-      Math.pow(e.clientX - dragStartPosition.x, 2) + 
+      Math.pow(e.clientX - dragStartPosition.x, 2) +
       Math.pow(e.clientY - dragStartPosition.y, 2)
     );
-    
+
     if (dragDistance > 5) {
       setBadgeWasDragged(true); // Mark as dragged, not just clicked
     }
-    
+
     const newX = e.clientX - badgeDragStart.x;
     const newY = e.clientY - badgeDragStart.y;
-    
+
     // Constrain badge to vertical column above FAB button
     const badgeSize = 64;
     const fabSize = 64; // Main FAB button size
     const fabRight = 24; // FAB's right margin (right-6)
     const fabBottom = 24; // FAB's bottom margin (bottom-6)
-    
+
     // Calculate the FAB's X position
     const fabX = window.innerWidth - fabRight - fabSize;
-    
+
     // Constrain X to stay aligned with FAB (vertical column)
     // Allow small horizontal wiggle room (±10px) for easier alignment
     const minX = fabX - 10;
     const maxX = fabX + 10;
-    
+
     // Constrain Y to stay above FAB and below top of screen
     const minY = 10; // Minimum distance from top
     const maxY = window.innerHeight - badgeSize - fabBottom - fabSize - 20; // Keep above FAB with 20px gap
-    
+
     setBadgePosition({
       x: Math.max(minX, Math.min(newX, maxX)),
       y: Math.max(minY, Math.min(newY, maxY)),
@@ -203,7 +203,7 @@ export function SessionFloatingWindow() {
     setIsBadgeDragging(false);
   };
 
-  const handleBadgeClick = (e: React.MouseEvent) => {
+  const handleBadgeClick = (_e: React.MouseEvent) => {
     // Only expand if badge wasn't dragged - this was a real click
     if (!badgeWasDragged) {
       expandFloatingWindow();
@@ -226,7 +226,7 @@ export function SessionFloatingWindow() {
   // Minimized state - draggable badge
   if (isFloatingWindowMinimized) {
     const initials = getInitials(activeSession.customer_name || 'Customer');
-    
+
     return (
       <div
         onMouseDown={handleBadgeMouseDown}
@@ -251,11 +251,11 @@ export function SessionFloatingWindow() {
     const emptyStateHeight = 80; // Compact empty message
     const transactionItemHeight = 80; // Approximate height per transaction
     const maxHeight = 500; // Maximum window height
-    
+
     // Width calculation
     const minWidth = 280; // Minimum width for header info in one line
     const fullWidth = 400; // Full width when showing transactions
-    
+
     if (transactionCount === 0) {
       return {
         width: minWidth,
@@ -444,13 +444,13 @@ function formatTime(iso: string): string {
     const now = new Date();
     const diff = now.getTime() - date.getTime();
     const mins = Math.floor(diff / 60000);
-    
+
     if (mins < 1) return 'Just now';
     if (mins < 60) return `${mins}m ago`;
-    
+
     const hours = Math.floor(mins / 60);
     if (hours < 24) return `${hours}h ago`;
-    
+
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   } catch {
     return '';
