@@ -6,6 +6,8 @@ import {
   resolveDatabaseKey,
   applySqlCipherKey,
   initDatabase as initCoreDatabase,
+  migrateDrawerNames,
+  migrateCustomerSessions,
 } from '@liratek/core';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
@@ -57,6 +59,9 @@ export function getDatabase(): Database.Database {
         
         // Initialize the @liratek/core database singleton
         initCoreDatabase(dbInstance);
+        // Apply idempotent migrations
+        migrateDrawerNames(dbInstance);
+        migrateCustomerSessions(dbInstance);
         
         console.log(`📦 Database connected: ${DB_PATH} (source: ${resolved.source})`);
         console.log(

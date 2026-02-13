@@ -216,3 +216,15 @@ export {
   resetActivityRepository,
 } from "./ActivityRepository.js";
 export type { ActivityLogEntity, SyncErrorEntity } from "./ActivityRepository.js";
+
+// Customer Session Repository
+export {
+  CustomerSessionRepository,
+  getCustomerSessionRepository,
+  resetCustomerSessionRepository,
+} from "./CustomerSessionRepository.js";
+export type {
+  CustomerSession,
+  CreateCustomerSessionData,
+  SessionTransaction,
+} from "./CustomerSessionRepository.js";

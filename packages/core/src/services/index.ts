@@ -131,3 +131,6 @@ export {
   resetSupplierService,
 } from "./SupplierService.js";
 export type { SupplierResult } from "./SupplierService.js";
+
+// Customer Session Service
+export { CustomerSessionService } from "./CustomerSessionService.js";

@@ -1,5 +1,6 @@
 import { HashRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "../features/auth/context/AuthContext";
+import { SessionProvider } from "../features/sessions/context/SessionContext";
 import Login from "../features/auth/pages/Login";
 import Dashboard from "../features/dashboard/pages/Dashboard";
 import CommissionsDashboard from "../features/dashboard/pages/CommissionsDashboard";
@@ -146,7 +147,9 @@ function App() {
     // HashRouter is recommended for Electron to avoid path issues in production
     <HashRouter>
       <AuthProvider>
-        <AppRoutes />
+        <SessionProvider>
+          <AppRoutes />
+        </SessionProvider>
       </AuthProvider>
     </HashRouter>
   );

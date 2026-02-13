@@ -19,6 +19,11 @@ import {
 // Mock @liratek/core dependencies used internally by AuthService
 jest.mock("../../../../packages/core/src/repositories/index", () => ({
   getUserRepository: jest.fn(),
+  getSessionRepository: jest.fn(() => ({
+    createSession: jest.fn(() => ({ token: 'test-token' })),
+    findValidSession: jest.fn(() => null),
+    deleteSession: jest.fn(() => ({ success: true })),
+  })),
 }));
 
 jest.mock("../../../../packages/core/src/utils/crypto", () => ({
@@ -31,6 +36,7 @@ jest.mock("../../../../packages/core/src/utils/crypto", () => ({
 }));
 
 import { getUserRepository } from "../../../../packages/core/src/repositories/index";
+import { getSessionRepository } from "../../../../packages/core/src/repositories/index";
 
 import {
   verifyPassword,

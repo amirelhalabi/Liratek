@@ -387,6 +387,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
           COALESCE(SUM(stock_quantity), 0) AS stock_count
         FROM ${this.tableName}
         WHERE is_active = 1
+          AND item_type NOT IN ('Virtual_MTC', 'Virtual_Alfa')
       `);
       return result ?? { stock_budget_usd: 0, stock_count: 0 };
     } catch (error) {

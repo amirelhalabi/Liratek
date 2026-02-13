@@ -1,12 +1,14 @@
 import { useState, useEffect, useCallback } from "react";
 import { RefreshCw, ArrowRightLeft, History, ArrowRight } from "lucide-react";
 import * as api from "../../../../api/backendApi";
+import { useSession } from "../../../sessions/context/SessionContext";
 
 type Currency = { id: number; code: string; name: string; is_active: number };
 
 type RateRow = { from_code: string; to_code: string; rate: number };
 
 export default function Exchange() {
+  const { activeSession, linkTransaction } = useSession();
   type ExchangeTx = {
     id: number;
     created_at: string;
@@ -33,7 +35,12 @@ export default function Exchange() {
   useEffect(() => {
     loadHistory();
     loadCurrencies();
-  }, []);
+    
+    // Auto-fill customer from active session
+    if (activeSession && activeSession.customer_name) {
+      setClientName(activeSession.customer_name);
+    }
+  }, [activeSession]);
 
   useEffect(() => {
     const loadRates = async () => {
@@ -157,6 +164,21 @@ export default function Exchange() {
       });
 
       if (result.success) {
+        // Link to active session if exists
+        if (activeSession && result.exchange?.id) {
+          try {
+            await linkTransaction({
+              transactionType: 'exchange',
+              transactionId: result.exchange.id,
+              amountUsd: fromCurrency === 'USD' ? inp : (toCurrency === 'USD' ? out : 0),
+              amountLbp: fromCurrency === 'LBP' ? inp : (toCurrency === 'LBP' ? out : 0),
+            });
+          } catch (err) {
+            console.error('Failed to link exchange to session:', err);
+            // Don't block the exchange completion
+          }
+        }
+
         setAmountIn("");
         setAmountOut("");
         setClientName("");

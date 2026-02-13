@@ -66,6 +66,7 @@ import ratesRoutes from './api/rates.js';
 import usersRoutes from './api/users.js';
 import activityRoutes from './api/activity.js';
 import reportsRoutes from './api/reports.js';
+import sessionsRoutes from './api/sessions.js';
 
 // Health check
 app.get('/health', (_req, res) => {
@@ -93,6 +94,7 @@ app.use('/api/rates', ratesRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/activity', activityRoutes);
 app.use('/api/reports', reportsRoutes);
+app.use('/api/sessions', sessionsRoutes);
 
 app.get('/api', (_req, res) => {
     res.json({ message: 'LiraTek API Server', version: '1.0.0' });

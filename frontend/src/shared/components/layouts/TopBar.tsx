@@ -8,7 +8,7 @@ type UINotification = {
 };
 
 import { appEvents } from "../../utils/appEvents";
-import { LogOut, Bell, Search, X } from "lucide-react";
+import { LogOut, Bell, X, Search } from "lucide-react";
 import { useMemo } from "react";
 import { useAuth } from "../../../features/auth/context/AuthContext";
 import * as api from "../../../api/backendApi";
@@ -185,13 +185,13 @@ export default function TopBar() {
                   >
                     Clear
                   </button>
+                  <button
+                    onClick={() => setIsNotificationsOpen(false)}
+                    className="text-slate-400 hover:text-white"
+                  >
+                    <X size={16} />
+                  </button>
                 </div>
-                <button
-                  onClick={() => setIsNotificationsOpen(false)}
-                  className="text-slate-400 hover:text-white"
-                >
-                  <X size={16} />
-                </button>
               </div>
               <div className="max-h-80 overflow-y-auto p-2">
                 <NotificationHistory />
@@ -235,6 +235,7 @@ export default function TopBar() {
               {user?.role || "Administrator"}
             </p>
           </div>
+
 
           <button
             onClick={() => {

@@ -10,8 +10,10 @@ import CheckoutModal, {
 import { appEvents } from "../../../../shared/utils/appEvents";
 import type { Product, CartItem, SaleRequest } from "../../../../types";
 import * as api from "../../../../api/backendApi";
+import { useSession } from "../../../sessions/context/SessionContext";
 
 export default function POS() {
+  const { activeSession, linkTransaction } = useSession();
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
 
@@ -193,6 +195,21 @@ export default function POS() {
       const result = await api.processSale(saleRequest);
 
       if (result.success) {
+        // Link to active session if exists
+        if (activeSession && result.saleId) {
+          try {
+            await linkTransaction({
+              transactionType: 'sale',
+              transactionId: result.saleId,
+              amountUsd: saleRequest.final_amount || 0,
+              amountLbp: 0, // Sales are tracked in USD
+            });
+          } catch (err) {
+            console.error('Failed to link sale to session:', err);
+            // Don't block the sale completion
+          }
+        }
+
         setIsCheckoutOpen(false);
         setCartItems([]);
         setCurrentDraftId(undefined);

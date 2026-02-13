@@ -16,7 +16,7 @@ export interface VirtualStock {
   alfa: number;
 }
 
-export type RechargePaidByMethod = "CASH" | "OMT" | "WHISH" | "BINANCE";
+export type RechargePaidByMethod = "CASH" | "DEBT" | "OMT" | "WHISH" | "BINANCE";
 
 export interface RechargeData {
   provider: "MTC" | "Alfa";
@@ -135,11 +135,13 @@ export class RechargeRepository extends BaseRepository<{ id: number }> {
         const methodDrawerName =
           paidBy === "CASH"
             ? "General"
-            : paidBy === "OMT"
-              ? "OMT"
-              : paidBy === "WHISH"
-                ? "Whish"
-                : "Binance";
+            : paidBy === "DEBT"
+              ? "General" // placeholder; DEBT does not move drawers
+              : paidBy === "OMT"
+                ? "OMT_System"
+                : paidBy === "WHISH"
+                  ? "Whish_App"
+                  : "Binance";
 
         const providerDrawerName = data.provider === "MTC" ? "MTC" : "Alfa";
         const createdBy = 1;
@@ -161,8 +163,18 @@ export class RechargeRepository extends BaseRepository<{ id: number }> {
         `);
 
         // Customer payment (cash-like inflow)
-        insertPayment.run(saleId, paidBy, methodDrawerName, Math.abs(data.price), note, createdBy);
-        upsertBalanceDelta.run(methodDrawerName, "USD", Math.abs(data.price));
+        // DEBT means no drawer movement.
+        if (paidBy !== "DEBT") {
+          insertPayment.run(
+            saleId,
+            paidBy,
+            methodDrawerName,
+            Math.abs(data.price),
+            note,
+            createdBy,
+          );
+          upsertBalanceDelta.run(methodDrawerName, "USD", Math.abs(data.price));
+        }
 
         // Telecom balance consumed (shop number stock)
         const stockDelta = -Math.abs(data.amount);

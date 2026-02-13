@@ -14,7 +14,7 @@ contextBridge.exposeInMainWorld("api", {
     description: string;
     category: string;
     expense_type: string;
-    paid_by_method?: "CASH" | "OMT" | "WHISH" | "BINANCE";
+    paid_by_method?: "CASH" | "DEBT" | "OMT" | "WHISH" | "BINANCE";
     amount_usd: number;
     amount_lbp: number;
     expense_date: string;
@@ -240,7 +240,7 @@ contextBridge.exposeInMainWorld("api", {
     amount: number;
     cost: number;
     price: number;
-    paid_by_method?: "CASH" | "OMT" | "WHISH" | "BINANCE";
+    paid_by_method?: "CASH" | "DEBT" | "OMT" | "WHISH" | "BINANCE";
     phoneNumber?: string;
   }) => ipcRenderer.invoke("recharge:process", data),
 
@@ -270,6 +270,33 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.invoke("maintenance:get-jobs", statusFilter),
   deleteMaintenanceJob: (id: number) =>
     ipcRenderer.invoke("maintenance:delete", id),
+
+  // Customer Sessions
+  session: {
+    start: (data: {
+      customer_name: string;
+      customer_phone?: string;
+      customer_notes?: string;
+      started_by: string;
+    }) => ipcRenderer.invoke("session:start", data),
+    getActive: () => ipcRenderer.invoke("session:getActive"),
+    get: (sessionId: number) => ipcRenderer.invoke("session:getDetails", sessionId),
+    update: (sessionId: number, data: {
+      customer_name?: string;
+      customer_phone?: string;
+      customer_notes?: string;
+    }) => ipcRenderer.invoke("session:update", sessionId, data),
+    close: (sessionId: number, closedBy: string) =>
+      ipcRenderer.invoke("session:close", sessionId, closedBy),
+    list: (limit: number, offset: number) =>
+      ipcRenderer.invoke("session:list", limit, offset),
+    linkTransaction: (data: {
+      transactionType: string;
+      transactionId: number;
+      amountUsd: number;
+      amountLbp: number;
+    }) => ipcRenderer.invoke("session:linkTransaction", data),
+  },
 });
 
 console.log('[PRELOAD] window.api exposed successfully');

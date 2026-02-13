@@ -10,11 +10,13 @@ import {
 } from "lucide-react";
 import * as api from "../../../../api/backendApi";
 import Select from "../../../../shared/components/ui/Select";
+import { useSession } from "../../../sessions/context/SessionContext";
 
 type Provider = "MTC" | "Alfa";
 type RechargeType = "CREDIT_TRANSFER" | "VOUCHER" | "DAYS";
 
 export default function Recharge() {
+  const { activeSession, linkTransaction } = useSession();
   const [activeProvider, setActiveProvider] = useState<Provider>("MTC");
   const [rechargeType, setRechargeType] =
     useState<RechargeType>("CREDIT_TRANSFER");
@@ -67,6 +69,21 @@ export default function Recharge() {
       });
 
       if (result.success) {
+        // Link to active session if exists
+        if (activeSession && result.recharge?.id) {
+          try {
+            await linkTransaction({
+              transactionType: 'recharge',
+              transactionId: result.recharge.id,
+              amountUsd: parseFloat(price) || 0,
+              amountLbp: 0,
+            });
+          } catch (err) {
+            console.error('Failed to link recharge to session:', err);
+            // Don't block the recharge completion
+          }
+        }
+
         alert("Recharge Successful!");
         setAmount("");
         setPrice("");

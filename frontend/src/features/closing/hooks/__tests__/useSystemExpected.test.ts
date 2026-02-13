@@ -131,7 +131,7 @@ describe("useSystemExpected", () => {
     });
 
     expect(result.current.getExpectedAmount("General", "USD")).toBe(100);
-    expect(result.current.getExpectedAmount("OMT", "LBP")).toBe(75000);
+    expect(result.current.getExpectedAmount("OMT_System", "LBP")).toBe(75000);
     expect(result.current.getExpectedAmount("MTC", "USD")).toBe(25);
   });
 

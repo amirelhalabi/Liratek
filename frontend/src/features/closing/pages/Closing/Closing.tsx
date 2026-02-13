@@ -387,8 +387,10 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
                   const drawerKey =
                     drawer === "General"
                       ? "generalDrawer"
-                      : drawer === "OMT"
+                      : drawer === "OMT_System"
                         ? "omtDrawer"
+                        : drawer === "OMT_App"
+                          ? "omtAppDrawer"
                         : drawer === "MTC"
                           ? "mtcDrawer"
                           : "alfaDrawer";
@@ -440,8 +442,10 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
                           const drawerKey =
                             drawer === "General"
                               ? "generalDrawer"
-                              : drawer === "OMT"
+                              : drawer === "OMT_System"
                                 ? "omtDrawer"
+                                : drawer === "OMT_App"
+                                  ? "omtAppDrawer"
                                 : drawer === "MTC"
                                   ? "mtcDrawer"
                                   : "alfaDrawer";

@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Wrench, Plus, DollarSign, Trash2 } from "lucide-react";
 import CheckoutModal from "../../../sales/pages/POS/components/CheckoutModal";
 import * as api from "../../../../api/backendApi";
+import { useSession } from "../../../sessions/context/SessionContext";
 
 type MaintenanceJob = {
   id: number;
@@ -20,6 +21,7 @@ type MaintenanceJob = {
 };
 
 export default function Maintenance() {
+  const { activeSession, linkTransaction } = useSession();
   const [jobs, setJobs] = useState<MaintenanceJob[]>([]);
   const [filter, setFilter] = useState("All");
 
@@ -149,6 +151,21 @@ export default function Maintenance() {
 
     const result = await api.saveMaintenanceJob(jobData);
     if (result.success) {
+      // Link to active session if exists
+      if (activeSession && result.job?.id) {
+        try {
+          await linkTransaction({
+            transactionType: 'maintenance',
+            transactionId: result.job.id,
+            amountUsd: paymentData.final_amount || 0,
+            amountLbp: 0,
+          });
+        } catch (err) {
+          console.error('Failed to link maintenance to session:', err);
+          // Don't block the job completion
+        }
+      }
+
       setIsCheckoutOpen(false);
       setIsFormOpen(false);
       const data = await api.getMaintenanceJobs(filter);

@@ -55,7 +55,7 @@ export interface DraftSaleWithItems extends SaleWithClient {
   items: SaleItemWithProduct[];
 }
 
-export type PaymentMethod = "CASH" | "OMT" | "WHISH" | "BINANCE";
+export type PaymentMethod = "CASH" | "DEBT" | "OMT" | "WHISH" | "BINANCE";
 export type PaymentCurrencyCode = "USD" | "LBP";
 
 export interface PaymentLine {
@@ -192,9 +192,9 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             case "CASH":
               return "General";
             case "OMT":
-              return "OMT";
+              return "OMT_System";
             case "WHISH":
-              return "Whish";
+              return "Whish_App";
             case "BINANCE":
               return "Binance";
             default:

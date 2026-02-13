@@ -9,7 +9,14 @@ export interface Currency {
   is_active: number;
 }
 
-export type DrawerType = "General" | "OMT" | "Whish" | "Binance" | "MTC" | "Alfa";
+export type DrawerType =
+  | "General"
+  | "OMT_System"
+  | "OMT_App"
+  | "Whish_App"
+  | "Binance"
+  | "MTC"
+  | "Alfa";
 
 export interface DrawerAmount {
   drawer_name: DrawerType;
@@ -32,6 +39,7 @@ export interface DrawerBalances {
 export interface SystemExpectedBalances {
   generalDrawer: { [currencyCode: string]: number };
   omtDrawer: { [currencyCode: string]: number };
+  omtAppDrawer: { [currencyCode: string]: number };
   whishDrawer: { [currencyCode: string]: number };
   binanceDrawer: { [currencyCode: string]: number };
   mtcDrawer: { [currencyCode: string]: number };

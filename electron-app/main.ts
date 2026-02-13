@@ -15,6 +15,8 @@ import {
   resolveDatabaseKey,
   applySqlCipherKey,
   initDatabase as initCoreDatabase,
+  migrateDrawerNames,
+  migrateCustomerSessions,
   getSessionRepository,
 } from '@liratek/core';
 
@@ -203,6 +205,9 @@ function initializeDatabase() {
 
     // Initialize @liratek/core database singleton
     initCoreDatabase(db);
+    // Apply idempotent migrations
+    migrateDrawerNames(db);
+    migrateCustomerSessions(db);
     
     console.log('[ELECTRON] Database connected successfully');
     return db;
@@ -264,6 +269,7 @@ async function registerHandlers() {
     const salesHandlers = await import('./handlers/salesHandlers.js');
     const supplierHandlers = await import('./handlers/supplierHandlers.js');
     const updaterHandlers = await import('./handlers/updaterHandlers.js');
+    const sessionHandlers = await import('./handlers/sessionHandlers.js');
     
     // Register all handlers (they auto-register with ipcMain)
     authHandlers.registerAuthHandlers();
@@ -282,6 +288,7 @@ async function registerHandlers() {
     salesHandlers.registerSalesHandlers();
     supplierHandlers.registerSupplierHandlers();
     updaterHandlers.registerUpdaterHandlers();
+    sessionHandlers.registerSessionHandlers();
     
     console.log('[ELECTRON] All IPC handlers registered');
     

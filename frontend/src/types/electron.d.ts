@@ -10,7 +10,7 @@ export interface ElectronAPI {
     description: string;
     category: string;
     expense_type: string;
-    paid_by_method?: "CASH" | "OMT" | "WHISH" | "BINANCE";
+    paid_by_method?: "CASH" | "DEBT" | "OMT" | "WHISH" | "BINANCE";
     amount_usd: number;
     amount_lbp: number;
     expense_date: string;
@@ -21,7 +21,7 @@ export interface ElectronAPI {
       description: string;
       category: string;
       expense_type: "Cash_Out" | "Non_Cash";
-      paid_by_method?: "CASH" | "OMT" | "WHISH" | "BINANCE";
+      paid_by_method?: "CASH" | "DEBT" | "OMT" | "WHISH" | "BINANCE";
       amount_usd: number;
       amount_lbp: number;
       expense_date: string;
@@ -139,7 +139,7 @@ export interface ElectronAPI {
     amount: number;
     cost: number;
     price: number;
-    paid_by_method?: "CASH" | "OMT" | "WHISH" | "BINANCE";
+    paid_by_method?: "CASH" | "DEBT" | "OMT" | "WHISH" | "BINANCE";
     phoneNumber?: string;
   }) => Promise<{ success: boolean; saleId?: number; error?: string }>;
   getDashboardStats: () => Promise<{
@@ -460,6 +460,7 @@ export interface ElectronAPI {
     getSystemExpectedBalances: () => Promise<{
       generalDrawer: { usd: number; lbp: number; eur: number };
       omtDrawer: { usd: number; lbp: number; eur: number };
+      omtAppDrawer: { usd: number; lbp: number; eur: number };
       whishDrawer: { usd: number; lbp: number; eur: number };
       binanceDrawer: { usd: number; lbp: number; eur: number };
       mtcDrawer: { usd: number; lbp: number; eur: number };
@@ -511,6 +512,54 @@ export interface ElectronAPI {
       totalExpensesLBP: number;
       totalProfitUSD: number;
     }>;
+  };
+
+  // Customer Sessions
+  session: {
+    start: (data: {
+      customer_name: string;
+      customer_phone?: string;
+      customer_notes?: string;
+      started_by: string;
+    }) => Promise<{ success: boolean; sessionId?: number; error?: string }>;
+    getActive: () => Promise<{
+      success: boolean;
+      session?: {
+        id: number;
+        customer_name?: string;
+        customer_phone?: string;
+        customer_notes?: string;
+        started_at: string;
+        closed_at?: string;
+        started_by: string;
+        closed_by?: string;
+        is_active: 1 | 0;
+      };
+      error?: string;
+    }>;
+    get: (sessionId: number) => Promise<{
+      success: boolean;
+      session?: any;
+      transactions?: any[];
+      error?: string;
+    }>;
+    update: (sessionId: number, data: {
+      customer_name?: string;
+      customer_phone?: string;
+      customer_notes?: string;
+    }) => Promise<{ success: boolean; error?: string }>;
+    close: (sessionId: number, closedBy: string) => Promise<{ success: boolean; error?: string }>;
+    list: (limit: number, offset: number) => Promise<{
+      success: boolean;
+      sessions?: any[];
+      error?: string;
+    }>;
+    linkTransaction: (data: {
+      transactionType: string;
+      transactionId: number;
+      amountUsd: number;
+      amountLbp: number;
+    }) => Promise<{ success: boolean; linked: boolean; error?: string }>;
   };
 }
 

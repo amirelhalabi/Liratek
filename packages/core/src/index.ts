@@ -3,12 +3,15 @@ export * from './db/dbPath.js';
 export * from './db/dbKey.js';
 export * from './db/sqlcipher.js';
 export * from './db/connection.js';
+export * from './db/migrations/drawers.js';
+export * from './db/migrations/customer-sessions.js';
 
 // Utilities
 export * from './utils/crypto.js';
 export * from './utils/logger.js';
 export * from './utils/errors.js';
 export * from './utils/barcode.js';
+export * from './utils/payments.js';
 
 // Repositories
 export * from './repositories/index.js';

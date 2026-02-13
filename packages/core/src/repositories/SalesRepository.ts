@@ -55,7 +55,15 @@ export interface DraftSaleWithItems extends SaleWithClient {
   items: SaleItemWithProduct[];
 }
 
-export type PaymentMethod = "CASH" | "OMT" | "WHISH" | "BINANCE";
+import {
+  type PaymentMethod,
+  isDrawerAffectingMethod,
+  paymentMethodToDrawerName,
+} from "../utils/payments.js";
+
+// Backward compatible payment method type (DB values)
+// NOTE: exported for API typing.
+export type { PaymentMethod };
 export type PaymentCurrencyCode = "USD" | "LBP";
 
 export interface PaymentLine {
@@ -187,24 +195,11 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           }
         }
 
-        const mapDrawerName = (method: PaymentMethod): string => {
-          switch (method) {
-            case "CASH":
-              return "General";
-            case "OMT":
-              return "OMT";
-            case "WHISH":
-              return "Whish";
-            case "BINANCE":
-              return "Binance";
-            default:
-              return "General";
-          }
-        };
-
         const sumPayments = (lines: PaymentLine[] | undefined) => {
           const totals = { usd: 0, lbp: 0 };
           for (const p of lines || []) {
+            // DEBT lines represent unpaid amounts and must not count as paid.
+            if (!isDrawerAffectingMethod(p.method)) continue;
             if (p.currency_code === "USD") totals.usd += p.amount;
             if (p.currency_code === "LBP") totals.lbp += p.amount;
           }
@@ -310,7 +305,9 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         const note = sale.note || null;
 
         for (const p of paymentLines) {
-          const drawerName = mapDrawerName(p.method);
+          // DEBT means no drawer movement and should not create a payments row.
+          if (!isDrawerAffectingMethod(p.method)) continue;
+          const drawerName = paymentMethodToDrawerName(p.method);
           insertPayment.run(
             saleId,
             p.method,

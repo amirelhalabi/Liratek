@@ -8,6 +8,7 @@ import {
 } from "../../../utils/receiptFormatter";
 import type { Client, CartItem, SaleRequest } from "../../../../../types";
 import * as api from "../../../../../api/backendApi";
+import { useSession } from "../../../../sessions/context/SessionContext";
 
 export type PaymentData = Omit<SaleRequest, "items" | "status" | "id"> & {
   cart?: CartItem[];
@@ -46,6 +47,7 @@ export default function CheckoutModal({
   draftData,
   onRestoreDraftComplete,
 }: CheckoutModalProps) {
+  const { activeSession } = useSession();
   const [isLoading, setIsLoading] = useState(false);
   const [clients, setClients] = useState<Client[]>([]);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
@@ -78,6 +80,9 @@ export default function CheckoutModal({
     .filter((p) => p.currency_code === "LBP")
     .reduce((acc, p) => acc + (p.amount || 0), 0);
 
+  // Track if customer was auto-filled from session
+  const [isAutoFilledFromSession, setIsAutoFilledFromSession] = useState(false);
+
   useEffect(() => {
     // Fetch clients for search
     const fetchClients = async () => {
@@ -86,8 +91,15 @@ export default function CheckoutModal({
     };
     fetchClients();
 
-    // Use timeout to simulate fetching settings for exchange rate, or valid future implementation
-  }, []);
+    // Auto-fill customer from active session
+    if (activeSession && !draftData) {
+      setClientSearch(activeSession.customer_name || "");
+      if (activeSession.customer_phone) {
+        setSecondaryInput(activeSession.customer_phone);
+      }
+      setIsAutoFilledFromSession(true);
+    }
+  }, [activeSession, draftData]);
 
   // Restore draft data when it's provided
   useEffect(() => {
@@ -350,6 +362,7 @@ export default function CheckoutModal({
                           setSelectedClient(null);
                         }
                         setSecondaryInput(""); // Clear secondary input on primary search change
+                        setIsAutoFilledFromSession(false); // User is manually typing
                       }}
                       className="bg-transparent border-none text-white w-full px-3 focus:outline-none"
                       placeholder="Search Name or Phone..."
@@ -368,9 +381,10 @@ export default function CheckoutModal({
                     )}
                   </div>
 
-                  {/* Dropdown Results */}
+                  {/* Dropdown Results - Hide if auto-filled from session */}
                   {clientSearch &&
                     !selectedClient &&
+                    !isAutoFilledFromSession &&
                     filteredClients.length > 0 && (
                       <div className="absolute top-full left-0 right-0 mt-2 bg-slate-800 border border-slate-700 rounded-xl shadow-xl z-20 max-h-48 overflow-y-auto">
                         {filteredClients.map((client) => (

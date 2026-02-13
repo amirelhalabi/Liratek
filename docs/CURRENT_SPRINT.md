@@ -1,6 +1,6 @@
-# Current Sprint (Jan 23–Jan 30, 2026)
+# Current Sprint (Feb 12–Feb 19, 2026)
 
-**Last Updated**: Feb 1, 2026
+**Last Updated**: Feb 12, 2026
 
 ## 📖 How to Read This Document
 
@@ -14,6 +14,10 @@
 ## 🏗️ Sprint Board
 
 ### ✅ Completed
+- [T-28]!!! Customer Visit Session (FULLY COMPLETED Feb 12)
+- [T-32]!! BUG: MTC credits affecting inventory + dashboard sanity (completed Feb 12)
+- [T-27]!!! Payment Methods Everywhere + Drawer Model Expansion (completed Feb 12)
+- [T-26]!!! Enterprise Hardening: Dual-Mode API Facade (`frontend/src/api/backendApi.ts`) (completed Feb 12)
 - [T-25]!!! Shared Core Backend Consolidation (@liratek/core) (completed Jan 25)
 - [T-24]!!! Unified Database Location (Web + Desktop) (completed Jan 25)
 - [T-23]!!! New Electron Backend Integration (completed Jan 24)
@@ -26,20 +30,39 @@
 - **CI/CD Build Pipeline Fix** (completed Jan 25)
 
 ### 🚧 In Progress
-- None currently - Ready for testing phase
+- None currently - Ready for next sprint task
 
 ### 🔜 Next Priority (MUST DO)
-- [T-26]!!! Enterprise Hardening: Dual-Mode API Facade (`frontend/src/api/backendApi.ts`)
-- [T-21]!! Backend REST API Documentation
-- [T-19]!!! Migrate Remaining Features to Backend API
+- [T-29]!!! Recharge Module UX + voucher images + debt payment + remove phone fields
+- [T-30]!!! Financial Services (OMT/Whish) improvements: phone param + service dropdown + settlement visibility
+- [T-31]!! Expenses simplification: remove types dropdown
+- [T-32]!! BUG: MTC credits affecting inventory + dashboard sanity
+- [T-33]! New module: Binance transfers (send/receive)
+- [T-34]! New module: Katsh/Ipec/WhishApp services page (new UI)
 
 ### 📋 Ready (Ordered by Priority)
+
+**This Sprint Focus (Urgent)**
+
+**High Priority (!!!)**
+- [T-29]!!! Recharge Module UX + voucher images + debt payment + remove phone fields
+- [T-30]!!! Financial Services (OMT/Whish) improvements: phone param + service dropdown + settlement visibility
+
+**Medium Priority (!!)**
+- [T-31]!! Expenses simplification: remove types dropdown
+
+**Low Priority (!)**
+- [T-33]! New module: Binance transfers (send/receive)
+- [T-34]! New module: Katsh/Ipec/WhishApp services page (new UI)
+
+---
+
+**Backlog / Later (post-urgent sprint)**
+
 **High Priority (!!!)**
 - [T-19]!!! Migrate Remaining Features to Backend API
 - [T-01]!!! Two-Wallet System & Mixed Payment Support
-- [T-09]!!! Monthly Analytics & Gross Profit Dashboard
 - [T-10]!!! Real-time Drawer Balances
-- [T-16]!!! SQLCipher DB Encryption
 - [P0-1]!!! Installer QA
 - [P0-2]!!! Build Verification
 - [P0-3]!!! Code Signing
@@ -60,6 +83,7 @@
 **Low Priority (!)**
 - [T-05]! Loto Module
 - [T-06]! Binance Service Module
+- [T-09]! Monthly Analytics & Gross Profit Dashboard (already delivered as Financial Reporting & Analytics)
 - [T-13]! Email Receipt Delivery
 - [T-15]! Data Archival Workflow
 - [P1-2]! Auto-Updater
@@ -199,57 +223,214 @@ Files to KEEP:
 
 
 
-### [T-26] !!! Enterprise Hardening: Dual-Mode API Facade (`frontend/src/api/backendApi.ts`)
+### [T-27] Payment Methods Everywhere + Drawer Model Expansion (OMT System / Whish App / Binance) !!!
+**Added**: Feb 12, 2026  
+**Status**: 🚧 In Progress  
+**Goal**: Standardize and support payment methods across *all* transactions and ensure drawer propagation works in Opening/Closing.
 
-**Status**: 🚨 High Priority (NEW)
+**Why first**: This is a foundation task. Recharge/Services/Binance/Whish all depend on consistent payment+drawer handling.
 
-**Problem Summary**:
-During T-20 migration finalization we consolidated frontend calls through `backendApi.ts` to work in both Desktop (Electron IPC via `window.api`) and Web (HTTP via Express backend). However, the file currently behaves as a *partially implemented facade*: some functions route correctly via `isElectron()`, but many still unconditionally call HTTP (`requestJson`) which defaults to `http://localhost:3000`.
-
-This causes Desktop mode to fail whenever the backend server is not running, and results in mixed-mode regressions (e.g. supplier balances, activity recent, users non-admins, exchange history).
-
-**Root Cause (Engineering Review)**:
-- `backendApi.ts` was gradually modified during migration to replace direct `window.api` calls.
-- Only a subset of functions were updated with `if (isElectron()) { return window.api... }`.
-- Missing routing falls back to HTTP baseUrl from `httpClient.ts` (`http://localhost:3000`), leading to `ERR_CONNECTION_REFUSED` in Desktop.
-- No automated tests exist to validate that **every** exported function has correct dual-mode routing.
+**Scope**:
+- Unify `pay_by` (or equivalent) across modules: `cash`, `debt`, `whish_app`, `omt_system`, `binance`
+- Add drawers in DB + propagation through:
+  - Opening balances
+  - Closing balances
+  - Dashboard drawer balances
+- Drawer naming changes:
+  - Rename `omt` → `omt system`
+  - Rename `wish` → `whish app`
+  - Add `Binance` drawer
+  - Add `Omt app drawer` (clarify in schema as separate from cash drawers)
 
 **Acceptance Criteria**:
-- [ ] Every exported function in `backendApi.ts` must support both modes:
-  - Desktop: uses Electron IPC (window.api)
-  - Web: uses HTTP (requestJson)
-- [ ] Centralize routing to prevent drift:
-  - Introduce an adapter layer or a single helper (e.g. `callIpcOrHttp(name, ipcFn, httpFn)`)
-- [ ] Add automated tests:
-  - Unit tests that assert Desktop mode never calls `fetch` (spy/mocking)
-  - Unit tests that assert Web mode never references `window.api`
-  - Snapshot / lint rule to ensure new exports must declare routing
-- [ ] Update TypeScript types for window.api methods to keep parity
-- [ ] Document how to add a new API function (handlers + preload + backendApi + tests)
+- [ ] Any transaction can be tagged with a payment method from the standardized set
+- [ ] Drawer totals correctly update for all payment methods where applicable
+- [ ] Opening/Closing includes the new drawers and names consistently
+- [ ] Dashboard reflects the new drawers
 
-**Implementation Plan**:
-1. **Refactor backendApi.ts**
-   - Create a helper:
-     - `const isDesktop = () => typeof window !== 'undefined' && !!window.api`
-     - `function ipcOrHttp<T>(ipc: () => Promise<T>, http: () => Promise<T>)`
-   - Replace ad-hoc checks with helper usage.
-   - Ensure consistent naming between IPC methods and HTTP endpoints.
+**Estimate**: 1.5–3 days (depends on schema + migration + UI touch points)
 
-2. **Parity Audit**
-   - Compare:
-     - `electron-app/preload.ts` exposed methods
-     - `backend/src/api/*.ts` HTTP routes
-     - `backendApi.ts` exported functions
-   - Fix mismatches and document.
+---
 
-3. **Add Tests**
-   - Add `frontend/src/api/__tests__/backendApi.dualmode.test.ts`
-   - Mock `global.fetch` and `window.api` to verify routing.
+### [T-28] Customer Visit Session (customerServiceWindow) + cross-module linkage !!!
+**Added**: Feb 12, 2026  
+**Status**: ✅ COMPLETED (Feb 12, 2026)  
+**Goal**: Track customer visits with a dedicated session system that links all transactions (sales, recharges, exchanges, services, maintenance) to customer sessions.
 
-4. **CI Gate**
-   - Add a lint/test that fails if a new `export async function` is added without routing.
+**Implementation Completed**:
+- ✅ **Backend**: REST API endpoints (`/api/sessions/*`), services, repositories, auto-linking endpoint
+- ✅ **Electron**: IPC handlers, preload API, session methods exposed to renderer
+- ✅ **Database**: `customer_sessions` + `customer_session_transactions` tables with auto-migration system
+- ✅ **Frontend**: SessionContext, Messenger-style FAB Speed Dial, draggable floating window
+- ✅ **Auto-linking**: All 5 transaction modules (POS, Recharge, Exchange, Services, Maintenance)
+- ✅ **Auto-fill**: Customer names pre-populated in all transaction forms (no dropdown clutter when session active)
 
-**Priority**: P0 (blocks reliable Desktop operation without backend server)
+**UI Features Implemented**:
+- Messenger-style FAB (bottom-right) with Speed Dial expansion showing all active sessions
+- Draggable minimized badge with vertical column constraint and smart click vs drag detection (5px threshold)
+- Adaptive window dimensions: 280x130px (empty) → 400x500px (with scrolling for 4+ transactions)
+- Compact one-line header: profile icon + name + phone inline
+- Auto-minimize on app load for cleaner initial view
+- X button closes session with confirmation dialog (not just hides window)
+- Smooth animations, no lag during drag (conditional CSS transitions)
+- Vertical column drag constraints for both minimized badge and expanded window
+
+**Session Management**:
+- Multiple active sessions support (different customers simultaneously)
+- Duplicate prevention per customer (cannot create two sessions for same customer)
+- Radio button session switching via FAB Speed Dial
+- Auto-load first active session on app startup
+- Session window shows real-time transaction list with running totals
+
+**Technical Implementation**:
+- Dual-mode support: Electron IPC + HTTP REST API with automatic fallback
+- Database migration system (`migrateCustomerSessions`) for seamless schema updates
+- Smart interaction detection: drag vs click differentiation using distance threshold
+- Conditional CSS transitions: only animate width/height during drag, not position
+- Idempotent migrations: safe to run multiple times
+
+**Acceptance Criteria** (All Met):
+- [x] User can start session, then create transactions in different modules
+- [x] All transactions are automatically linked to the active session
+- [x] Session window shows transaction list in real time with adaptive sizing
+- [x] Session can be closed and later reviewed (marked as closed in database)
+- [x] Multiple sessions supported with easy switching
+- [x] Customer names auto-filled in all transaction forms
+- [x] Messenger-style UX with vertical column constraints
+- [x] Works in both Electron (desktop) and Web modes
+
+---
+
+### [T-29] Recharge Module UX + voucher images + debt payment + remove phone fields !!!
+**Added**: Feb 12, 2026  
+**Status**: Ready  
+**Dependencies**: [T-27] for payment methods  
+**Goal**: Improve recharge workflows and remove unnecessary phone fields.
+
+**Requested changes**:
+- Add voucher images (attach image per voucher / show in UI)
+- Add debt payment support in recharge
+- Remove phone number from voucher card in Recharge module
+- In “days validity” flow also remove phone number field
+
+**Acceptance Criteria**:
+- [ ] Recharge voucher cards show images
+- [ ] Recharge can be paid by debt + other payment methods
+- [ ] No phone number field appears in voucher UI or days-validity flow
+
+**Estimate**: 1–3 days
+
+---
+
+### [T-30] Financial Services (OMT/Whish) improvements: phone param + service dropdown + settlement visibility !!!
+**Added**: Feb 12, 2026  
+**Status**: Ready  
+**Dependencies**: [T-27]  
+**Goal**: Make OMT/Whish transactions capture required phone number and improve clarity of who owes what.
+
+**Global requirement**:
+- These transactions depend on phone number → ensure a phone field exists and is passed as a parameter into transactions.
+
+**OMT specific**:
+- Show what OMT needs from user in USD/LBP and what user needs from OMT
+- Add dropdown service selection:
+  - Bill Payment
+  - Cash To Business
+  - Ministry of Interior Transactions (معاملات وزارة الداخلية)
+  - Cash Out
+  - Ministry of Finance Transactions (معاملات وزارة المالية)
+  - INTRA
+  - Online Brokerage
+
+**Whish specific**:
+- Show what you owe (requires technical discussion: exact accounting model)
+
+**Acceptance Criteria**:
+- [ ] OMT/Whish forms include phone number and it’s stored
+- [ ] OMT supports selecting the service type from the list
+- [ ] OMT UI shows the two-sided settlement view (USD+LBP)
+- [ ] Whish “owe” view implemented per agreed model
+
+**Estimate**: 2–4 days (depends on accounting decision for Whish)
+
+---
+
+### [T-31] Expenses simplification: remove types dropdown !!
+**Added**: Feb 12, 2026  
+**Status**: Ready  
+**Goal**: Remove the expense “types” dropdown to simplify entry.
+
+**Acceptance Criteria**:
+- [ ] UI no longer shows types dropdown
+- [ ] Backend accepts expense without type
+- [ ] Reports unaffected
+
+**Estimate**: 0.5–1 day
+
+---
+
+### [T-32] BUG: MTC credits affecting inventory + dashboard sanity !!
+**Added**: Feb 12, 2026  
+**Status**: Ready  
+**Goal**: Fix incorrect logic where MTC credits appear to affect inventory when they shouldn’t.
+
+**Repro (reported)**:
+- Add credits in opening drawers (e.g., put $100 in MTC drawer)
+- Verify inventory is not affected
+- Ensure dashboard sanity checks reflect correct inventory values
+
+**Acceptance Criteria**:
+- [ ] Opening drawer changes do not mutate inventory
+- [ ] Inventory sanity checks in dashboard reflect true inventory
+- [ ] Add regression test for the scenario
+
+**Estimate**: 0.5–2 days (depending on root cause)
+
+---
+
+### [T-33] New module: Binance transfers (send/receive) !
+**Added**: Feb 12, 2026  
+**Status**: Ready  
+**Dependencies**: [T-27]  
+**Goal**: Track simple Binance finance transactions (send/receive) with payment method integration.
+
+**Acceptance Criteria**:
+- [ ] Create send/receive transactions
+- [ ] Linked to drawers/payment method model
+- [ ] Appears in customer session if active
+
+**Estimate**: 1–3 days
+
+---
+
+### [T-34] New module: Katsh/Ipec/WhishApp services page (new UI) !
+**Added**: Feb 12, 2026  
+**Status**: Ready  
+**Dependencies**: [T-27], [T-28] recommended  
+**Goal**: Add new page with new UI to support common services for Katsh / Ipec / WhishApp.
+
+**Acceptance Criteria**:
+- [ ] New page exists with the required services UI
+- [ ] Transactions are recorded consistently with payment method + optional customer session link
+
+**Estimate**: 2–4 days (depends on service definitions)
+
+---
+
+### [T-26] Enterprise Hardening: Dual-Mode API Facade (`frontend/src/api/backendApi.ts`) !!!
+
+**Status**: ✅ Completed (Feb 12, 2026)
+
+**Completion Summary**:
+- Implemented centralized routing helpers (`ipcOrHttp`, `getElectronApi`) in `frontend/src/api/backendApi.ts`
+- Fixed missing Electron routes (clients, dashboard, suppliers, users, reports, currencies, rates, etc.)
+- Added enforcement tests: `frontend/src/api/__tests__/backendApi.dualmode.test.ts` (Electron mode must not call `fetch`)
+- Verified: `yarn test` + `yarn build` (root + backend + frontend)
+
+**Acceptance Criteria**:
+- [x] Every exported function in `backendApi.ts` supports Desktop + Web
+- [x] Centralized routing to prevent drift
+- [x] Automated tests enforce no HTTP in Electron mode
 
 ### [T-21] Backend REST API Documentation !!
 **Added**: Jan 24, 2026  

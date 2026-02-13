@@ -82,9 +82,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
     const mapDrawerName = (provider: CreateFinancialServiceData["provider"]): string => {
       switch (provider) {
         case "OMT":
-          return "OMT";
+          return "OMT_System";
         case "WHISH":
-          return "Whish";
+          return "Whish_App";
         case "BOB":
         case "OTHER":
         default:
