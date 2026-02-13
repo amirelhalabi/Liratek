@@ -288,6 +288,7 @@ export default function Debts() {
     <div className="space-y-6 animate-in fade-in duration-500">
       <PageHeader icon={Receipt} title="Debts" />
 
+
       <div className="flex h-full min-h-0 gap-6 overflow-hidden">
         {/* Left: Debtors List */}
         <div className="w-1/3 flex flex-col bg-slate-800 rounded-xl border border-slate-700 shadow-xl overflow-hidden">
