@@ -8,8 +8,8 @@ import {
 export class ActivityService {
   private repo: ActivityRepository;
 
-  constructor() {
-    this.repo = getActivityRepository();
+  constructor(repo?: ActivityRepository) {
+    this.repo = repo ?? getActivityRepository();
   }
 
   /**

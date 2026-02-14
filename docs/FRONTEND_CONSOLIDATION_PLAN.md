@@ -1,6 +1,6 @@
 # Frontend Consolidation Plan - @liratek/ui Package
 
-**Status:** 📋 Planned (Not Started)  
+**Status:** 🚧 In Progress  
 **Priority:** Low (Future Enhancement)  
 **Estimated Effort:** 22-29 hours (~3-4 days)  
 **Created:** Feb 1, 2026
@@ -10,6 +10,14 @@
 ## 🎯 Objective
 
 Consolidate frontend components into a shared `@liratek/ui` package (similar to `@liratek/core` for backend) to enable code reusability between Desktop (Electron) and Web applications.
+
+**Definition of Done (for @liratek/ui):**
+
+- `@liratek/ui` builds successfully in isolation and is consumed by the desktop shell without local path hacks.
+- CSS delivery is explicit and documented (either precompiled CSS shipped by `@liratek/ui` or app shell handles Tailwind build).
+- Public API surface is stable: exported components, hooks, config, and types are documented in `src/index.ts`.
+- Adapter contract matches the current dual-mode facade in `frontend/src/api/backendApi.ts` to avoid duplication.
+- At least one adapter-level test validates routing behavior (Electron vs HTTP) and error propagation.
 
 ---
 
@@ -49,6 +57,12 @@ packages/
 frontend/               [SLIMMED DOWN] Desktop app shell
 backend/                [EXISTS] Web app backend
 web-frontend/           [FUTURE] Web app shell
+
+**Module Boundary Decision (current):**
+
+- Keep `@liratek/ui` limited to shared primitives/layouts/hooks/utils/config/types.
+- Keep feature pages and routing inside the app shell (`frontend/`) to minimize risk.
+- Defer moving feature pages until a later phase if needed.
 ```
 
 ---
@@ -139,6 +153,12 @@ packages/ui/
 └── dist/                  ← Built package output
 ```
 
+**Asset Handling (decide before moving):**
+
+- Option A: keep runtime assets (images/fonts) in app shells and pass URLs down as props.
+- Option B: move assets into `@liratek/ui/src/assets` and bundle them as part of the library build.
+- Document whichever option is chosen to avoid mixed patterns.
+
 ---
 
 ## 🔑 Critical Innovation: API Adapter Pattern
@@ -179,6 +199,11 @@ export interface ApiAdapter {
   // ... all other API methods
 }
 ```
+
+**Adapter contract alignment:**
+
+- The adapter interface should be generated from or at least match the surface of `frontend/src/api/backendApi.ts` so that the UI package does not invent a parallel API.
+- Prefer re-exporting types from the existing API layer to avoid drift.
 
 #### 2. Update Components to Use Adapter
 
@@ -271,7 +296,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 
 ---
 
-## 📋 Detailed Migration Plan
+## 📋 Detailed Migration Plan (Low-Risk)
 
 ### PHASE 1: Setup @liratek/ui Package (2-3 hours)
 
@@ -290,6 +315,24 @@ npm init -y
 - Create `tailwind.config.js`
 - Add build scripts to `package.json`
 
+**Build Order + Workspace Scripts (add at root):**
+
+- Root scripts should build `@liratek/ui` before `frontend` and `electron-app`.
+- CI should run `build:ui` before any frontend build step.
+
+Example (root package.json):
+
+```json
+{
+  "scripts": {
+    "build:ui": "yarn workspace @liratek/ui build",
+    "build:frontend": "yarn workspace @liratek/frontend build",
+    "build:desktop": "yarn workspace @liratek/electron-app build",
+    "build": "yarn build:ui && yarn build:frontend && yarn build:desktop"
+  }
+}
+```
+
 **Step 1.3: Install Dependencies**
 
 ```bash
@@ -304,6 +347,12 @@ npm install -D typescript vite tailwindcss @types/react @types/react-dom
 - `src/components/index.ts`
 - `src/hooks/index.ts`
 - `src/utils/index.ts`
+
+**Compatibility Matrix (pin before moving code):**
+
+- React / React DOM versions aligned across `frontend` and `@liratek/ui`.
+- Tailwind version aligned (including plugins like `tailwind-merge`).
+- Vite version aligned for library mode and app builds.
 
 ---
 
@@ -347,6 +396,11 @@ frontend/src/types/*.ts → packages/ui/src/types/
 
 - Keep `electron.d.ts` separate or make it optional
 
+**Tailwind Integration (decide early):**
+
+- If `@liratek/ui` ships precompiled CSS, ensure the consuming app imports it once (e.g., `import '@liratek/ui/styles';`).
+- If the app shell compiles Tailwind, add `packages/ui/src/**/*.{ts,tsx}` to the Tailwind content config in the app.
+
 ---
 
 ### PHASE 3: Abstract API Layer (4-5 hours) ⚠️ **CRITICAL**
@@ -374,43 +428,17 @@ This is the most important phase!
 - Create context provider for API adapter
 - Inject adapter at app root
 
+**Adapter Tests (minimum):**
+
+- One test that ensures Electron mode never calls HTTP.
+- One test that verifies HTTP mode routes to `fetch` and preserves errors.
+
 ---
 
-### PHASE 4: Move Feature Components (8-10 hours) **HIGHEST COMPLEXITY**
+### PHASE 4: Move Feature Components (Optional / Deferred)
 
-**Strategy:** Move one feature at a time, test thoroughly
-
-**4.1: Start with Simplest Feature (e.g., Clients)**
-
-```
-frontend/src/features/clients/
-  → packages/ui/src/components/features/clients/
-```
-
-**4.2: Update API Calls**
-
-- Replace `window.api` with `useApi()` hook
-- Replace direct `backendApi` calls with adapter
-
-**4.3: Test in Desktop App**
-
-```bash
-cd frontend && npm run dev
-```
-
-**4.4: Repeat for Each Feature**
-
-Priority order (simple → complex):
-
-1. ✅ Clients (LOW)
-2. ✅ Inventory (LOW)
-3. ✅ Expenses (MEDIUM)
-4. ✅ Debts (MEDIUM)
-5. ✅ Recharge (MEDIUM)
-6. ✅ Sales/POS (HIGH - complex state management)
-7. ✅ Closing (HIGH - multi-step workflow)
-8. ✅ Dashboard (HIGH - multiple data sources)
-9. ✅ Settings (HIGH - many sub-pages)
+- This phase is intentionally deferred to keep the UI working exactly as it does now.
+- If needed later, move one feature at a time and test thoroughly in Electron mode first.
 
 ---
 
@@ -510,9 +538,9 @@ npm run electron:build     # Then Electron app
 
 ### 1. **Code Reusability** ✅
 
-- Single source of truth for UI components
-- Share 95%+ of code between Desktop and Web
-- Only API layer differs (Electron IPC vs HTTP)
+- Single source of truth for shared UI components
+- Reduced duplication without changing app behavior
+- Easy incremental path to deeper consolidation later
 
 ### 2. **Better Separation of Concerns** ✅
 
@@ -617,10 +645,9 @@ npm run build:web       # Use same built UI
 
 **Timeline:** 3-4 weeks, working part-time
 
-- Week 1: Phase 1-2 (Setup + Simple components)
-- Week 2: Phase 3 (API abstraction) ← Most critical
-- Week 3: Phase 4 (Feature components)
-- Week 4: Phase 5-6 (Integration + Testing)
+- Week 1: Phase 1-2 (Setup + Shared components)
+- Week 2: Phase 5-6 (Integration + Testing)
+- Phase 4 (Feature components) deferred
 
 **Pros:**
 
@@ -660,7 +687,7 @@ npm run build:web       # Use same built UI
 
 ## 💡 Quick Win Alternative: API Adapter Only (4-5 hours)
 
-**Update (Feb 2026):** We effectively implemented the “quick win” using `frontend/src/api/backendApi.ts` as a facade. The next required step is to harden it (see T-26) so Desktop never accidentally uses HTTP when the backend server is not running.
+**Update (Feb 2026):** We effectively implemented the “quick win” using `frontend/src/api/backendApi.ts` as a facade. For the low-risk consolidation, keep this facade as-is (only small cleanup allowed) so runtime behavior does not change.
 
 If full migration is too much, implement just Phase 3 (API Adapter Pattern) for immediate benefits:
 
@@ -722,6 +749,36 @@ const sale = await api.getSale(id); // Instead of window.api.getSale(id)
 - [Backend Consolidation](../packages/core/README.md) - Example of successful consolidation
 
 ---
+
+## ✅ Decision Checklist (Before Phase 1)
+
+- Choose module boundary: shared primitives only, or full feature pages in `@liratek/ui`.
+- Choose asset strategy: app shell assets vs bundled UI assets.
+- Choose Tailwind strategy: `@liratek/ui` ships CSS vs app shell compiles.
+- Confirm version alignment: React, Tailwind, Vite, and shared UI libs.
+- Confirm adapter contract source: mirror `frontend/src/api/backendApi.ts`.
+- Confirm build order in root scripts and CI.
+
+## ✅ Implementation Status (Current)
+
+- [x] Create `@liratek/ui` package scaffold
+- [x] Move shared UI primitives (Select, NotificationCenter)
+- [x] Move shared layout component (PageHeader)
+- [x] Move shared utils (appEvents)
+- [x] Move shared config (constants, denominations)
+- [x] Move shared renderer types
+- [x] Add API adapter scaffolding (types + provider + frontend adapter)
+- [x] Wire ApiProvider at app root
+- [x] Add adapter test for parameter normalization
+- [x] Add shared styles strategy documentation (CSS owned by app shell)
+- [N/A] ~~Migrate additional layouts (MainLayout, Sidebar, TopBar)~~ - **Deferred**: These are app composition layers with feature dependencies
+- [N/A] ~~Migrate hooks (useAuth, useCurrencies, etc.)~~ - **Deferred**: Feature-specific, not general-purpose UI hooks
+- [N/A] ~~Migrate feature pages~~ - **Deferred per plan**
+
+**Migration Complete for Initial Scope:**
+✅ All platform-agnostic shared primitives, utilities, config, and API adapter pattern are now in @liratek/ui
+✅ Frontend properly re-exports for backward compatibility
+✅ Build warnings resolved, tests added, documentation updated
 
 ## ✅ Checklist for When Starting Migration
 

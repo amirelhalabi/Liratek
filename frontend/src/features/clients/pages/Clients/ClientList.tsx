@@ -7,9 +7,10 @@ import {
   Trash2,
   MessageCircle,
 } from "lucide-react";
-import PageHeader from "../../../../shared/components/layouts/PageHeader";
+import { PageHeader } from "@liratek/ui";
 import ClientForm from "./ClientForm";
-import type { Client } from "../../../../types";
+import type { Client } from "@liratek/ui";
+import * as api from "../../../../api/backendApi";
 
 export default function ClientList() {
   const [clients, setClients] = useState<Client[]>([]);
@@ -25,8 +26,7 @@ export default function ClientList() {
         const data = await window.api.getClients(search);
         setClients(data);
       } else {
-        const { getClients } = await import("../../../../api/backendApi");
-        const data = await getClients(search);
+        const data = await api.getClients(search);
         setClients(data as any);
       }
     } catch (error) {
@@ -64,9 +64,8 @@ export default function ClientList() {
           alert(result.error);
         }
       } else {
-        const { deleteClient } = await import("../../../../api/backendApi");
         try {
-          const result = await deleteClient(id);
+          const result = await api.deleteClient(id);
           if (result.success) loadClients();
           else alert(result.error || "Delete failed");
         } catch (e: any) {

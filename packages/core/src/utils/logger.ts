@@ -115,6 +115,7 @@ export const inventoryLogger = logger.child({ module: "inventory" });
 export const clientLogger = logger.child({ module: "client" });
 export const debtLogger = logger.child({ module: "debt" });
 export const exchangeLogger = logger.child({ module: "exchange" });
+export const binanceLogger = logger.child({ module: "binance" });
 export const financialLogger = logger.child({ module: "financial" });
 export const maintenanceLogger = logger.child({ module: "maintenance" });
 export const rechargeLogger = logger.child({ module: "recharge" });

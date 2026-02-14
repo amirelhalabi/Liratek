@@ -3,19 +3,26 @@
  */
 
 import { jest } from "@jest/globals";
-import { RateService, getRateService, resetRateService } from "../RateService";
+
+jest.mock("@liratek/core", () => {
+  const actual =
+    jest.requireActual<typeof import("@liratek/core")>("@liratek/core");
+  return {
+    ...actual,
+    getRateRepository: jest.fn(),
+    RateRepository: jest.fn(),
+  };
+});
+
 import {
+  RateService,
+  getRateService,
+  resetRateService,
   RateRepository,
   getRateRepository,
   type ExchangeRateEntity,
   type SetRateData,
-} from "../../database/repositories";
-
-// Mock the repository module
-jest.mock("../../database/repositories", () => ({
-  getRateRepository: jest.fn(),
-  RateRepository: jest.fn(),
-}));
+} from "@liratek/core";
 
 describe("RateService", () => {
   let service: RateService;

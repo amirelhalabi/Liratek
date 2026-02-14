@@ -15,8 +15,8 @@ export interface ExpenseResult {
 export class ExpenseService {
   private repo: ExpenseRepository;
 
-  constructor() {
-    this.repo = getExpenseRepository();
+  constructor(repo?: ExpenseRepository) {
+    this.repo = repo ?? getExpenseRepository();
   }
 
   /**

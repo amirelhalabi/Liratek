@@ -57,14 +57,18 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
     const createdBy = 1;
     const note = data.note || null;
 
+    // Derive type: BUY = customer buys toCurrency (gives LBP), SELL = customer sells fromCurrency (gives USD/EUR)
+    const type = data.fromCurrency === "LBP" ? "BUY" : "SELL";
+
     return this.db.transaction(() => {
       const stmt = this.db.prepare(`
         INSERT INTO exchange_transactions (
           type, from_currency, to_currency, amount_in, amount_out, rate, client_name, note
-        ) VALUES ('EXCHANGE', ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       const result = stmt.run(
+        type,
         data.fromCurrency,
         data.toCurrency,
         data.amountIn,

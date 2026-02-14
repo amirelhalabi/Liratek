@@ -57,6 +57,14 @@ export {
 } from "./ExchangeService.js";
 export type { ExchangeResult } from "./ExchangeService.js";
 
+// Binance Service
+export {
+  BinanceService,
+  getBinanceService,
+  resetBinanceService,
+} from "./BinanceService.js";
+export type { BinanceResult } from "./BinanceService.js";
+
 // Financial Service (OMT/WHISH/BOB)
 export {
   FinancialService,

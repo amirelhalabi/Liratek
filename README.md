@@ -27,7 +27,7 @@ A comprehensive, enterprise-grade Point of Sale (POS) and inventory management s
 - **Inventory Tracking**: Manage product stock, barcodes, and IMEI/Serial numbers with ease.
 - **Advanced POS**: Multi-item cart, multi-currency checkout, and sales draft support.
 - **Client & Debt Management**: Track customer history and manage dual-currency (USD/LBP) debts with smart rounding logic.
-- **Financial Services**: Built-in support for OMT, Whish, and Mobile Recharges (MTC/Alfa).
+- **Financial Services**: Built-in support for OMT, Whish, IPEC, Katch, Wish App, and Mobile Recharges (MTC/Alfa).
 - **Daily Auditing**: 3-step opening and closing workflow with variance detection and PDF audit trails.
 - **Security First**: Role-based access control, scrypt password hashing, and session encryption.
 
@@ -238,8 +238,8 @@ LiraTek uses **SQLite** for low-latency, localized data storage.
 - **`sales` / `sale_items`**: Transaction records and snapshots
 - **`clients` / `debt_ledger`**: Customer profiling and dual-currency debt tracking with smart rounding
 - **`payments`**: Cash movement tracking linked to sales, debts, expenses, and services
-- **`drawer_balances`**: Running totals for all payment method drawers (General, OMT, Whish, Binance, MTC, Alfa)
-- **`financial_services`**: OMT and Whish transaction logs
+- **`drawer_balances`**: Running totals for all payment method drawers (General, OMT, Whish, Binance, IPEC, Katch, Wish App, MTC, Alfa)
+- **`financial_services`**: OMT, Whish, IPEC, Katch, and Wish App transaction logs
 - **`daily_closings`**: Multi-drawer end-of-day audits and variance tracking
 - **`activity_logs`**: Comprehensive JSON-based audit trail
 - **`recharges`**: MTC/Alfa recharge tracking with virtual stock

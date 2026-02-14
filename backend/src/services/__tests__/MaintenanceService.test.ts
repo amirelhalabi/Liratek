@@ -3,17 +3,21 @@
  */
 
 import { jest } from "@jest/globals";
-import { MaintenanceService, SaveJobParams } from "../MaintenanceService";
 
-// Mock core repository used by @liratek/core MaintenanceService
-jest.mock(
-  "../../../../packages/core/src/repositories/MaintenanceRepository",
-  () => ({
+jest.mock("@liratek/core", () => {
+  const actual =
+    jest.requireActual<typeof import("@liratek/core")>("@liratek/core");
+  return {
+    ...actual,
     MaintenanceRepository: jest.fn(),
-  }),
-);
+  };
+});
 
-import { MaintenanceRepository } from "../../../../packages/core/src/repositories/MaintenanceRepository";
+import {
+  MaintenanceService,
+  SaveJobParams,
+  MaintenanceRepository,
+} from "@liratek/core";
 
 describe("MaintenanceService", () => {
   let service: MaintenanceService;
@@ -36,7 +40,7 @@ describe("MaintenanceService", () => {
     // Make the constructor return our mock
     (MaintenanceRepository as jest.Mock).mockImplementation(() => mockRepo);
 
-    service = new MaintenanceService();
+    service = new MaintenanceService(mockRepo);
   });
 
   // ===========================================================================

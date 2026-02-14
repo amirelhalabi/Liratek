@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
 import { X, Save } from "lucide-react";
-import Select from "../../../../shared/components/ui/Select";
+import { Select } from "@liratek/ui";
 import * as api from "../../../../api/backendApi";
-import type { Product } from "../../../../types";
+import type { Product } from "@liratek/ui";
 
 interface ProductFormProps {
   onClose: () => void;

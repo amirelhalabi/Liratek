@@ -13,7 +13,7 @@ import { BaseRepository } from "./BaseRepository.js";
 
 export interface FinancialServiceEntity {
   id: number;
-  provider: "OMT" | "WHISH" | "BOB" | "OTHER";
+  provider: "OMT" | "WHISH" | "BOB" | "OTHER" | "IPEC" | "KATCH" | "WISH_APP";
   service_type: "SEND" | "RECEIVE" | "BILL_PAYMENT";
   amount_usd: number;
   amount_lbp: number;
@@ -27,7 +27,7 @@ export interface FinancialServiceEntity {
 }
 
 export interface CreateFinancialServiceData {
-  provider: "OMT" | "WHISH" | "BOB" | "OTHER";
+  provider: "OMT" | "WHISH" | "BOB" | "OTHER" | "IPEC" | "KATCH" | "WISH_APP";
   serviceType: "SEND" | "RECEIVE" | "BILL_PAYMENT";
   amountUSD: number;
   amountLBP: number;
@@ -87,6 +87,12 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           return "OMT_System";
         case "WHISH":
           return "Whish_App";
+        case "IPEC":
+          return "IPEC";
+        case "KATCH":
+          return "Katch";
+        case "WISH_APP":
+          return "Wish_App_Money";
         case "BOB":
         case "OTHER":
         default:

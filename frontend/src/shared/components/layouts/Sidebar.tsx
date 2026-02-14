@@ -16,9 +16,11 @@ import {
   SquareActivity, // Imported SquareActivity icon
   Play,
   TrendingUp,
+  Bitcoin,
+  Zap,
 } from "lucide-react";
 import clsx from "clsx";
-import { appEvents } from "../../utils/appEvents";
+import { appEvents } from "@liratek/ui";
 import { useAuth } from "../../../features/auth/context/AuthContext";
 
 interface SidebarProps {
@@ -41,6 +43,8 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
     { to: "/recharge", icon: Smartphone, label: "Recharge" },
     { to: "/expenses", icon: Banknote, label: "Expenses" },
     { to: "/maintenance", icon: Wrench, label: "Maintenance" },
+    { to: "/binance", icon: Bitcoin, label: "Binance" },
+    { to: "/ikw-services", icon: Zap, label: "IPEC/Katch" },
     // REMOVED: { to: '/closing', icon: SquareActivity, label: 'Closing' }, // New Closing page link
     { to: "/settings", icon: Settings, label: "Settings", adminOnly: true },
   ];

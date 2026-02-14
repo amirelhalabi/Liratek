@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { X, Save, MessageCircle } from "lucide-react";
-import type { Client } from "../../../../types";
+import type { Client } from "@liratek/ui";
 
 interface ClientFormProps {
   onClose: () => void;

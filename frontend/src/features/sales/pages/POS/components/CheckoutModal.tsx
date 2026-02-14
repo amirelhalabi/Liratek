@@ -1,12 +1,11 @@
 import { useState, useEffect } from "react";
 import { X, User, Printer, Inbox } from "lucide-react";
-import { EXCHANGE_RATE, DRAWER_B } from "../../../../../config/constants";
-import { roundLBPUp } from "../../../../../config/denominations";
+import { EXCHANGE_RATE, DRAWER_B, roundLBPUp } from "@liratek/ui";
 import {
   formatReceipt58mm,
   type ReceiptData,
 } from "../../../utils/receiptFormatter";
-import type { Client, CartItem, SaleRequest } from "../../../../../types";
+import type { Client, CartItem, SaleRequest } from "@liratek/ui";
 import * as api from "../../../../../api/backendApi";
 import { useSession } from "../../../../sessions/context/SessionContext";
 

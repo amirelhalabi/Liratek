@@ -9,7 +9,7 @@ import {
   CheckCircle,
 } from "lucide-react";
 import * as api from "../../../../api/backendApi";
-import Select from "../../../../shared/components/ui/Select";
+import { Select } from "@liratek/ui";
 import { useSession } from "../../../sessions/context/SessionContext";
 
 type Provider = "MTC" | "Alfa";
@@ -72,11 +72,11 @@ export default function Recharge() {
 
       if (result.success) {
         // Link to active session if exists
-        if (activeSession && result.recharge?.id) {
+        if (activeSession && result.saleId) {
           try {
             await linkTransaction({
               transactionType: "recharge",
-              transactionId: result.recharge.id,
+              transactionId: result.saleId,
               amountUsd: parseFloat(price) || 0,
               amountLbp: 0,
             });

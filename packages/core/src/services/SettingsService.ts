@@ -12,8 +12,8 @@ export interface SettingResult {
 export class SettingsService {
   private repo: SettingsRepository;
 
-  constructor() {
-    this.repo = getSettingsRepository();
+  constructor(repo?: SettingsRepository) {
+    this.repo = repo ?? getSettingsRepository();
   }
 
   /**

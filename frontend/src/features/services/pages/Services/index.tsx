@@ -111,11 +111,11 @@ export default function Services() {
 
       if (result.success) {
         // Link to active session if exists
-        if (activeSession && result.transaction?.id) {
+        if (activeSession && result.id) {
           try {
             await linkTransaction({
               transactionType: "financial_service",
-              transactionId: result.transaction.id,
+              transactionId: result.id,
               amountUsd: parseFloat(amountUSD) || 0,
               amountLbp: parseFloat(amountLBP) || 0,
             });

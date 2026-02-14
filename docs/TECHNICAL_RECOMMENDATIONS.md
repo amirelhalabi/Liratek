@@ -1,0 +1,2425 @@
+# LiraTek POS - Technical Recommendations & Improvement Plan
+
+**Document Version:** 1.0  
+**Date:** February 14, 2026  
+**Author:** Senior Software Engineer Review  
+**Scope:** Comprehensive technical analysis and actionable recommendations
+
+---
+
+## Table of Contents
+
+1. [Executive Summary](#executive-summary)
+2. [Critical Issues (Priority 1)](#critical-issues-priority-1)
+3. [High Priority (Priority 2)](#high-priority-priority-2)
+4. [Medium Priority (Priority 3)](#medium-priority-priority-3)
+5. [Low Priority / Nice to Have (Priority 4)](#low-priority-nice-to-have-priority-4)
+6. [Architecture Recommendations](#architecture-recommendations)
+7. [Database Recommendations](#database-recommendations)
+8. [Backend Recommendations](#backend-recommendations)
+9. [Frontend Recommendations](#frontend-recommendations)
+10. [DevOps & Infrastructure](#devops--infrastructure)
+11. [Testing Strategy](#testing-strategy)
+12. [Security Recommendations](#security-recommendations)
+13. [Performance Optimization](#performance-optimization)
+14. [Implementation Roadmap](#implementation-roadmap)
+
+---
+
+## Executive Summary
+
+LiraTek POS is a well-architected dual-mode application with strong fundamentals. The recent consolidation effort (`@liratek/core`) eliminated 9,336 lines of duplicate code, demonstrating excellent architectural decision-making.
+
+**Overall Grade: B+ (Very Good)**
+
+**Key Strengths:**
+- ✅ Clean separation of concerns (Repository → Service → Handler/Route)
+- ✅ Successful monorepo consolidation reducing duplication
+- ✅ Type-safe TypeScript implementation
+- ✅ Comprehensive test coverage (447 test files)
+- ✅ Dual-mode architecture enabling flexibility
+
+**Key Improvement Areas:**
+- ⚠️ Repository duplication still exists in `electron-app/database/repositories/`
+- ⚠️ Weak type safety in API layer (`unknown` types)
+- ⚠️ Console.log usage instead of consistent logging (61 instances)
+- ⚠️ Missing transaction management in critical operations
+- ⚠️ E2E tests disabled due to flakiness
+
+**Estimated Technical Debt:** ~2-3 weeks of focused work to address critical and high-priority items.
+
+---
+
+## Critical Issues (Priority 1)
+
+### 🔴 C1. Duplicate Repository Code
+
+**Issue:** All 18 repositories exist in both `packages/core/src/repositories/` AND `electron-app/database/repositories/`
+
+**Evidence:**
+```bash
+# All repositories duplicated:
+ActivityRepository.ts, BaseRepository.ts, ClientRepository.ts, ClosingRepository.ts,
+CurrencyRepository.ts, DebtRepository.ts, ExchangeRepository.ts, ExpenseRepository.ts,
+FinancialRepository.ts, FinancialServiceRepository.ts, MaintenanceRepository.ts,
+ProductRepository.ts, RateRepository.ts, RechargeRepository.ts, SalesRepository.ts,
+SettingsRepository.ts, SupplierRepository.ts, UserRepository.ts
+```
+
+**Impact:**
+- Code drift between implementations
+- Maintenance nightmare (bugs fixed in one but not the other)
+- Contradicts the successful `@liratek/core` consolidation effort
+- ~5,000+ lines of unnecessary duplication
+
+**Recommendation:**
+1. **Delete** `electron-app/database/repositories/` entirely
+2. Update all imports in `electron-app/` to use `@liratek/core` repositories
+3. Run full test suite to ensure nothing breaks
+4. Update `electron-app/handlers/` to import from `@liratek/core`
+
+**Code Change:**
+```typescript
+// ❌ OLD (electron-app/handlers/clientHandlers.ts)
+import { getClientService } from '../services/index.js';
+
+// ✅ NEW
+import { getClientService } from '@liratek/core';
+```
+
+**Estimated Effort:** 4-6 hours  
+**Risk:** Low (already proven with services consolidation)
+
+---
+
+### 🔴 C2. Backend Service Layer Redundancy
+
+**Issue:** `backend/src/services/index.ts` duplicates singleton logic already in `@liratek/core`
+
+**Current State:**
+```typescript
+// backend/src/services/index.ts - 88 lines of wrapper code
+let _client: ClientService | null = null;
+export function getClientService(): ClientService {
+  return (_client ??= new ClientService());
+}
+// ... repeated 16 times
+```
+
+**Impact:**
+- Unnecessary abstraction layer
+- Same singleton pattern exists in `@liratek/core`
+- Confusion about which layer owns state
+
+**Recommendation:**
+**Option A (Recommended):** Delete `backend/src/services/` entirely, import directly from core
+```typescript
+// backend/src/api/clients.ts
+// ❌ OLD
+import { getClientService } from '../services/index.js';
+
+// ✅ NEW
+import { getClientService } from '@liratek/core';
+```
+
+**Option B (Alternative):** If you need backend-specific service extensions, use composition:
+```typescript
+// backend/src/services/EnhancedClientService.ts
+import { ClientService } from '@liratek/core';
+
+export class EnhancedClientService extends ClientService {
+  // Add web-specific features here if needed
+  async notifyViaWebSocket(clientId: number) { /* ... */ }
+}
+```
+
+**Estimated Effort:** 2-3 hours  
+**Risk:** Very Low
+
+---
+
+### 🔴 C3. Weak Type Safety in API Layer
+
+**Issue:** API adapter uses `unknown` types, defeating TypeScript's type safety
+
+**Evidence:**
+```typescript
+// packages/ui/src/api/types.ts
+export type ApiAdapter = {
+  getClients: (search?: string) => Promise<unknown[]>;  // ❌
+  getDebtors: () => Promise<unknown[]>;                 // ❌
+  getDashboardStats: () => Promise<unknown>;            // ❌
+  // 10 instances of 'unknown' or 'any'
+};
+```
+
+**Impact:**
+- No autocomplete/IntelliSense for API responses
+- Runtime errors instead of compile-time errors
+- Harder to refactor
+- Poor developer experience
+
+**Recommendation:**
+Create proper type definitions using types already in `@liratek/core`:
+
+```typescript
+// packages/ui/src/api/types.ts
+import type { 
+  ClientEntity, 
+  DebtorSummary, 
+  DashboardStats 
+} from '@liratek/core';
+
+export type ApiAdapter = {
+  getClients: (search?: string) => Promise<ClientEntity[]>;
+  getDebtors: () => Promise<DebtorSummary[]>;
+  getDashboardStats: () => Promise<DashboardStats>;
+  // ... properly typed
+};
+```
+
+**Estimated Effort:** 3-4 hours  
+**Risk:** Low (pure type changes, no runtime impact)
+
+---
+
+### 🔴 C4. Missing Transaction Management
+
+**Issue:** Critical multi-step operations lack database transactions
+
+**Evidence:** Only 12 of 18 repositories implement transaction support, and usage is inconsistent.
+
+**Examples of Missing Transactions:**
+```typescript
+// ❌ SalesRepository.createSale() - Creates sale + items without transaction
+// If sale_items insert fails, sale record is orphaned
+createSale(saleData: SaleRequest): number {
+  const saleId = this.insertSale(saleData);
+  
+  // No transaction - if this fails, sale exists without items
+  saleData.items.forEach(item => {
+    this.insertSaleItem(saleId, item);
+  });
+  
+  return saleId;
+}
+
+// ❌ DebtService.addRepayment() - Updates multiple tables
+// If debt update succeeds but payment insert fails, data is inconsistent
+```
+
+**Impact:**
+- **Data corruption risk** on failures
+- Inconsistent financial records
+- Difficult to debug partial failures
+- Critical for POS system integrity
+
+**Recommendation:**
+Implement transactional wrappers using better-sqlite3's native support:
+
+```typescript
+// packages/core/src/repositories/BaseRepository.ts
+export abstract class BaseRepository<T extends BaseEntity> {
+  
+  protected transaction<R>(callback: () => R): R {
+    const db = getDatabase();
+    return db.transaction(callback)();
+  }
+  
+  // Alternative: manual transaction control
+  protected beginTransaction(): void {
+    getDatabase().exec('BEGIN TRANSACTION');
+  }
+  
+  protected commit(): void {
+    getDatabase().exec('COMMIT');
+  }
+  
+  protected rollback(): void {
+    getDatabase().exec('ROLLBACK');
+  }
+}
+
+// Usage in SalesRepository
+createSale(saleData: SaleRequest): number {
+  return this.transaction(() => {
+    const saleId = this.insertSale(saleData);
+    
+    saleData.items.forEach(item => {
+      this.insertSaleItem(saleId, item);
+    });
+    
+    // Update inventory
+    this.updateProductStock(saleData.items);
+    
+    return saleId;
+  });
+}
+```
+
+**Critical Operations Needing Transactions:**
+1. **Sales Creation** (sale + sale_items + inventory update)
+2. **Debt Repayment** (debt_ledger + payments + drawer_balances)
+3. **Daily Closing** (closing_record + drawer_snapshots + sales summary)
+4. **Refunds** (reverse sale + restore inventory + update payments)
+5. **Supplier Payments** (supplier_ledger + payments + drawer_balances)
+
+**Estimated Effort:** 6-8 hours  
+**Risk:** Medium (requires thorough testing)
+
+---
+
+### 🔴 C5. Inconsistent Logging
+
+**Issue:** Mix of `console.log` (61 instances) and proper `pino` logger usage
+
+**Evidence:**
+```bash
+# Found 61 console.log statements outside tests
+grep -r "console\." packages/core/src backend/src/api electron-app/handlers
+```
+
+**Impact:**
+- No log levels (can't filter in production)
+- No structured logging (can't parse/query logs)
+- No log correlation (can't trace requests)
+- Console.log doesn't work in production builds
+
+**Recommendation:**
+1. **Standardize on `pino` logger** (already in dependencies)
+2. Create logger factory in `@liratek/core`
+3. Replace all `console.*` calls
+
+```typescript
+// packages/core/src/utils/logger.ts
+import pino from 'pino';
+
+export const createLogger = (name: string) => {
+  return pino({
+    name,
+    level: process.env.LOG_LEVEL || 'info',
+    transport: process.env.NODE_ENV !== 'production' ? {
+      target: 'pino-pretty',
+      options: { colorize: true }
+    } : undefined
+  });
+};
+
+export const logger = createLogger('liratek-core');
+
+// Usage in repositories/services
+// ❌ OLD
+console.log('Creating client:', clientData);
+
+// ✅ NEW
+logger.info({ clientData }, 'Creating client');
+logger.error({ err, clientId }, 'Failed to create client');
+```
+
+**Benefits:**
+- Structured JSON logs for production
+- Pretty formatted logs for development
+- Log levels: trace, debug, info, warn, error, fatal
+- Can send logs to external services (Datadog, Sentry, etc.)
+
+**Estimated Effort:** 4-5 hours  
+**Risk:** Low
+
+---
+
+## High Priority (Priority 2)
+
+### 🟠 H1. SELECT * Anti-Pattern
+
+**Issue:** 60 instances of `SELECT *` in repositories
+
+**Why It's Bad:**
+- Fetches unnecessary columns (performance)
+- Breaks if schema changes (fragile)
+- No explicit contract (maintainability)
+- Makes query optimization harder
+
+**Example:**
+```typescript
+// ❌ BAD
+const stmt = db.prepare('SELECT * FROM clients WHERE id = ?');
+
+// ✅ GOOD
+const stmt = db.prepare(`
+  SELECT id, full_name, phone_number, notes, whatsapp_opt_in, created_at
+  FROM clients 
+  WHERE id = ?
+`);
+```
+
+**Recommendation:**
+1. Create TypeScript helpers to generate SELECT clauses from types
+2. Systematically replace all `SELECT *` queries
+
+```typescript
+// packages/core/src/repositories/BaseRepository.ts
+protected getSelectFields<K extends keyof T>(...fields: K[]): string {
+  return fields.join(', ');
+}
+
+// Usage
+const FIELDS = this.getSelectFields('id', 'full_name', 'phone_number');
+const stmt = db.prepare(`SELECT ${FIELDS} FROM clients WHERE id = ?`);
+```
+
+**Estimated Effort:** 6-8 hours  
+**Risk:** Low (wrap in transaction, test each change)
+
+---
+
+### 🟠 H2. Environment Variable Management
+
+**Issue:** 66 direct `process.env` accesses scattered across codebase
+
+**Problems:**
+- No type safety
+- No validation
+- No defaults documentation
+- Hard to track what env vars are needed
+
+**Recommendation:**
+Create centralized config management:
+
+```typescript
+// packages/core/src/config/env.ts
+import { z } from 'zod'; // Already in dependencies
+
+const envSchema = z.object({
+  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+  LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error']).default('info'),
+  DATABASE_PATH: z.string().optional(),
+  LIRATEK_DB_KEY: z.string().optional(),
+  
+  // Backend-specific
+  PORT: z.coerce.number().default(3000),
+  HOST: z.string().default('0.0.0.0'),
+  JWT_SECRET: z.string().min(32),
+  JWT_EXPIRES_IN: z.string().default('7d'),
+  CORS_ORIGIN: z.string().default('http://localhost:5173'),
+});
+
+export type Env = z.infer<typeof envSchema>;
+
+export const env: Env = envSchema.parse(process.env);
+
+// Usage
+// ❌ OLD
+const port = parseInt(process.env.PORT || '3000', 10);
+
+// ✅ NEW
+import { env } from '@liratek/core/config';
+const port = env.PORT;
+```
+
+**Benefits:**
+- Type-safe environment variables
+- Validation on startup (fail fast)
+- Auto-complete for env vars
+- Self-documenting configuration
+
+**Estimated Effort:** 3-4 hours  
+**Risk:** Low
+
+---
+
+### 🟠 H3. Missing Database Migrations System
+
+**Issue:** Schema changes done via manual SQL edits in `create_db.sql`
+
+**Current State:**
+- Migrations exist but are idempotent SQL functions
+- No version tracking
+- No rollback capability
+- No migration history
+
+**Recommendation:**
+Implement proper migration system:
+
+```typescript
+// packages/core/src/db/migrations/index.ts
+export interface Migration {
+  version: number;
+  name: string;
+  up: (db: Database.Database) => void;
+  down: (db: Database.Database) => void;
+}
+
+const migrations: Migration[] = [
+  {
+    version: 1,
+    name: 'add_sessions_table',
+    up: (db) => {
+      db.exec(`CREATE TABLE IF NOT EXISTS sessions (...)`);
+    },
+    down: (db) => {
+      db.exec(`DROP TABLE IF EXISTS sessions`);
+    }
+  },
+  // ...
+];
+
+export function runMigrations(db: Database.Database) {
+  // Create migrations table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      version INTEGER PRIMARY KEY,
+      name TEXT NOT NULL,
+      applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  
+  const currentVersion = db
+    .prepare('SELECT MAX(version) as v FROM schema_migrations')
+    .get() as { v: number | null };
+  
+  const applied = currentVersion?.v || 0;
+  
+  for (const migration of migrations) {
+    if (migration.version > applied) {
+      db.transaction(() => {
+        migration.up(db);
+        db.prepare('INSERT INTO schema_migrations (version, name) VALUES (?, ?)')
+          .run(migration.version, migration.name);
+      })();
+      
+      logger.info({ version: migration.version, name: migration.name }, 'Migration applied');
+    }
+  }
+}
+```
+
+**Estimated Effort:** 6-8 hours  
+**Risk:** Medium
+
+---
+
+### 🟠 H4. E2E Test Flakiness
+
+**Issue:** Playwright tests disabled in CI (`if: false`)
+
+**Root Causes (Common):**
+- Race conditions (page loads, API responses)
+- Hardcoded waits instead of smart waiting
+- Test interdependence (state pollution)
+- Network timing issues
+
+**Recommendation:**
+
+1. **Enable Playwright's auto-waiting:**
+```typescript
+// tests/e2e/_helpers.ts
+export async function waitForApiIdle(page: Page) {
+  await page.waitForLoadState('networkidle');
+}
+
+export async function login(page: Page, username: string, password: string) {
+  await page.goto('/login');
+  await page.fill('[name="username"]', username);
+  await page.fill('[name="password"]', password);
+  
+  // ✅ Wait for navigation instead of timeout
+  await Promise.all([
+    page.waitForNavigation(),
+    page.click('button[type="submit"]')
+  ]);
+}
+```
+
+2. **Isolate test state:**
+```typescript
+// Use unique test data per test
+test('creates client', async ({ page }) => {
+  const uniquePhone = `+961${Date.now()}`; // Unique per run
+  // ...
+});
+```
+
+3. **Add retries for flaky tests:**
+```typescript
+// playwright.config.ts
+export default defineConfig({
+  retries: process.env.CI ? 2 : 0,
+  workers: process.env.CI ? 2 : undefined,
+});
+```
+
+**Estimated Effort:** 8-12 hours  
+**Risk:** Medium
+
+---
+
+### 🟠 H5. Missing API Error Handling Standards
+
+**Issue:** Inconsistent error responses between Electron IPC and REST API
+
+**Evidence:**
+```typescript
+// Electron returns: { success: false, error: "message" }
+// REST returns: { error: "message" } OR { message: "..." }
+// Inconsistent status codes
+```
+
+**Recommendation:**
+Standardize error response format:
+
+```typescript
+// packages/core/src/utils/errors.ts
+export interface ApiError {
+  success: false;
+  error: {
+    code: string;           // e.g., "CLIENT_NOT_FOUND"
+    message: string;        // Human-readable
+    details?: unknown;      // Additional context
+    field?: string;         // For validation errors
+  };
+}
+
+export interface ApiSuccess<T = void> {
+  success: true;
+  data: T;
+}
+
+export type ApiResponse<T = void> = ApiSuccess<T> | ApiError;
+
+// Error factory
+export const createErrorResponse = (
+  code: string,
+  message: string,
+  details?: unknown
+): ApiError => ({
+  success: false,
+  error: { code, message, details }
+});
+```
+
+**Usage:**
+```typescript
+// In handlers/routes
+try {
+  const result = service.createClient(data);
+  return { success: true, data: result };
+} catch (err) {
+  if (err instanceof NotFoundError) {
+    return createErrorResponse('NOT_FOUND', err.message);
+  }
+  if (err instanceof ValidationError) {
+    return createErrorResponse('VALIDATION_ERROR', err.message, err.fields);
+  }
+  return createErrorResponse('INTERNAL_ERROR', 'An unexpected error occurred');
+}
+```
+
+**Estimated Effort:** 4-6 hours  
+**Risk:** Medium (requires updating all handlers/routes)
+
+---
+
+## Medium Priority (Priority 3)
+
+### 🟡 M1. Database Schema Optimization
+
+**Issue:** Missing constraints and potential data integrity issues
+
+**Findings:**
+1. **Missing NOT NULL constraints** on critical fields
+2. **No CHECK constraints** for business rules
+3. **Inconsistent foreign key ON DELETE behavior**
+
+**Recommendations:**
+
+```sql
+-- Example improvements to create_db.sql
+
+-- 1. Add NOT NULL to required fields
+CREATE TABLE clients (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    full_name TEXT NOT NULL,              -- ✅ Add NOT NULL
+    phone_number TEXT UNIQUE NOT NULL,     -- ✅ Add NOT NULL
+    whatsapp_opt_in BOOLEAN NOT NULL DEFAULT 1,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 2. Add CHECK constraints for business rules
+CREATE TABLE sales (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    total_usd DECIMAL(10, 2) NOT NULL CHECK(total_usd >= 0),  -- ✅
+    discount DECIMAL(10, 2) DEFAULT 0 CHECK(discount >= 0),   -- ✅
+    status TEXT NOT NULL CHECK(status IN ('draft', 'completed', 'refunded')),
+    -- ...
+);
+
+-- 3. Add amount validation
+CREATE TABLE debt_ledger (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    transaction_type TEXT NOT NULL 
+        CHECK(transaction_type IN ('SALE', 'REPAYMENT', 'ADJUSTMENT')),
+    amount_usd DECIMAL(10, 2) NOT NULL,
+    amount_lbp DECIMAL(15, 2) NOT NULL,
+    -- At least one amount must be > 0
+    CHECK(amount_usd > 0 OR amount_lbp > 0),
+    -- ...
+);
+
+-- 4. Add unique constraints where needed
+CREATE UNIQUE INDEX idx_unique_active_closing 
+    ON daily_closings(closing_date) 
+    WHERE status = 'open';  -- Only one open closing per day
+
+-- 5. Add partial indexes for performance
+CREATE INDEX idx_active_products 
+    ON products(category, name) 
+    WHERE is_active = 1;  -- Index only active products
+```
+
+**Estimated Effort:** 4-6 hours  
+**Risk:** Medium (requires migration + testing)
+
+---
+
+### 🟡 M2. Frontend Component Architecture
+
+**Issue:** Large feature components mixing concerns (12 large index.tsx files)
+
+**Example:**
+```typescript
+// frontend/src/features/sales/pages/POS/index.tsx
+// 500+ lines mixing:
+// - State management
+// - Business logic
+// - API calls
+// - UI rendering
+// - Form validation
+```
+
+**Recommendation:**
+Apply component composition pattern:
+
+```typescript
+// ❌ OLD: Monolithic component
+export function POS() {
+  const [cart, setCart] = useState([]);
+  const [customer, setCustomer] = useState(null);
+  // ... 50+ lines of state
+  
+  const handleCheckout = async () => {
+    // ... 100+ lines of logic
+  };
+  
+  return (
+    <div>
+      {/* 300+ lines of JSX */}
+    </div>
+  );
+}
+
+// ✅ NEW: Composed components
+export function POS() {
+  return (
+    <POSLayout>
+      <ProductSearch />
+      <Cart />
+      <CheckoutPanel />
+    </POSLayout>
+  );
+}
+
+// Separate business logic
+export function useCheckout() {
+  const handleCheckout = async (cart: CartItem[]) => {
+    // Logic here
+  };
+  
+  return { handleCheckout };
+}
+```
+
+**Benefits:**
+- Easier to test
+- Reusable components
+- Clearer responsibilities
+- Better performance (React.memo on smaller components)
+
+**Estimated Effort:** 12-16 hours (across all features)  
+**Risk:** Low
+
+---
+
+### 🟡 M3. Missing Request Validation
+
+**Issue:** API endpoints don't validate request bodies
+
+**Current State:**
+```typescript
+// backend/src/api/clients.ts
+router.post('/', requireRole(['admin']), (req, res) => {
+  const service = getClientService();
+  const result = service.createClient(req.body);  // ❌ No validation
+  res.status(result.success ? 201 : 400).json(result);
+});
+```
+
+**Recommendation:**
+Use Zod for runtime validation:
+
+```typescript
+// packages/core/src/validators/client.ts
+import { z } from 'zod';
+
+export const createClientSchema = z.object({
+  full_name: z.string().min(1).max(255),
+  phone_number: z.string().regex(/^\+?[0-9]{8,15}$/),
+  notes: z.string().optional(),
+  whatsapp_opt_in: z.boolean().default(true),
+});
+
+export type CreateClientInput = z.infer<typeof createClientSchema>;
+
+// Middleware
+export const validateRequest = <T>(schema: z.ZodSchema<T>) => {
+  return (req: Request, res: Response, next: NextFunction) => {
+    try {
+      req.body = schema.parse(req.body);
+      next();
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        res.status(400).json({
+          success: false,
+          error: 'Validation error',
+          details: err.errors
+        });
+      } else {
+        next(err);
+      }
+    }
+  };
+};
+
+// Usage
+router.post('/', 
+  requireRole(['admin']), 
+  validateRequest(createClientSchema),  // ✅
+  (req, res) => {
+    const result = service.createClient(req.body);
+    res.status(201).json(result);
+  }
+);
+```
+
+**Estimated Effort:** 8-10 hours  
+**Risk:** Low
+
+---
+
+### 🟡 M4. Code Organization - Duplicate electron-app/services
+
+**Issue:** Services in `electron-app/services/` are nearly identical to those in `@liratek/core/services/`
+
+**Example:**
+```typescript
+// electron-app/services/ClientService.ts (150 lines)
+// vs
+// packages/core/src/services/ClientService.ts (259 lines)
+
+// Both have same methods, minimal differences
+```
+
+**Recommendation:**
+Similar to repositories, delete `electron-app/services/` and use `@liratek/core` services directly.
+
+**Exceptions:**
+Keep only truly Electron-specific services:
+- `ReportService.ts` (uses Electron's file system APIs)
+- Any service requiring Electron's IPC or native APIs
+
+**Estimated Effort:** 3-4 hours  
+**Risk:** Low
+
+---
+
+### 🟡 M5. WebSocket Usage Unclear
+
+**Issue:** Socket.IO is configured but usage is minimal
+
+**Current State:**
+```typescript
+// backend/src/server.ts - Socket.IO configured
+// backend/src/websocket/io.ts - Helper module
+// Only used in ws-debug.ts for testing
+```
+
+**Questions:**
+1. Is real-time sync needed?
+2. What events should be broadcasted?
+3. Should client updates trigger notifications?
+
+**Recommendation:**
+Either:
+- **Option A:** Implement real-time features properly (inventory updates, new sales notifications)
+- **Option B:** Remove Socket.IO if not needed (saves resources)
+
+If keeping, implement properly:
+```typescript
+// Example: Real-time inventory updates
+// backend/src/services/InventoryService.ts
+import { broadcastEvent } from '../websocket/io.js';
+
+class InventoryService {
+  updateStock(productId: number, quantity: number) {
+    const result = this.productRepo.updateStock(productId, quantity);
+    
+    // Broadcast to all connected clients
+    broadcastEvent('inventory:updated', {
+      productId,
+      quantity,
+      timestamp: new Date().toISOString()
+    });
+    
+    return result;
+  }
+}
+
+// frontend/src/api/socket.ts
+socket.on('inventory:updated', (data) => {
+  // Update local state/cache
+  queryClient.invalidateQueries(['products', data.productId]);
+});
+```
+
+**Estimated Effort:** 6-8 hours (if implementing), 1 hour (if removing)  
+**Risk:** Low
+
+---
+
+### 🟡 M6. Missing Data Backup Strategy
+
+**Issue:** No automated backup system (critical for POS data)
+
+**Current State:**
+- Manual database file backups only
+- No scheduled backups
+- No backup verification
+- No restore testing
+
+**Recommendation:**
+Implement automated backup system:
+
+```typescript
+// packages/core/src/services/BackupService.ts
+import { resolveDatabasePath } from '../db/dbPath.js';
+import fs from 'fs';
+import path from 'path';
+
+export class BackupService {
+  private backupDir: string;
+  
+  constructor(backupDir?: string) {
+    this.backupDir = backupDir || path.join(
+      process.env.HOME || process.env.USERPROFILE!,
+      'liratek-backups'
+    );
+    
+    // Ensure backup directory exists
+    if (!fs.existsSync(this.backupDir)) {
+      fs.mkdirSync(this.backupDir, { recursive: true });
+    }
+  }
+  
+  /**
+   * Create backup with timestamp
+   */
+  async createBackup(): Promise<string> {
+    const dbPath = resolveDatabasePath().path;
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const backupPath = path.join(
+      this.backupDir,
+      `liratek_${timestamp}.db`
+    );
+    
+    // Use SQLite backup API (safer than file copy)
+    const db = getDatabase();
+    const backup = db.backup(backupPath);
+    
+    await new Promise((resolve, reject) => {
+      backup.on('finish', resolve);
+      backup.on('error', reject);
+    });
+    
+    logger.info({ backupPath }, 'Database backup created');
+    
+    // Verify backup
+    await this.verifyBackup(backupPath);
+    
+    // Cleanup old backups (keep last 30 days)
+    await this.cleanupOldBackups(30);
+    
+    return backupPath;
+  }
+  
+  /**
+   * Verify backup integrity
+   */
+  async verifyBackup(backupPath: string): Promise<boolean> {
+    const backupDb = new Database(backupPath, { readonly: true });
+    
+    try {
+      // Run integrity check
+      const result = backupDb.pragma('integrity_check');
+      const isValid = result[0]?.integrity_check === 'ok';
+      
+      if (!isValid) {
+        throw new Error('Backup integrity check failed');
+      }
+      
+      // Verify table count
+      const tables = backupDb.prepare(
+        "SELECT COUNT(*) as count FROM sqlite_master WHERE type='table'"
+      ).get() as { count: number };
+      
+      if (tables.count < 10) { // Sanity check
+        throw new Error('Backup has too few tables');
+      }
+      
+      logger.info({ backupPath }, 'Backup verified successfully');
+      return true;
+    } finally {
+      backupDb.close();
+    }
+  }
+  
+  /**
+   * List available backups
+   */
+  listBackups(): Array<{ path: string; size: number; created: Date }> {
+    const files = fs.readdirSync(this.backupDir)
+      .filter(f => f.endsWith('.db'))
+      .map(f => {
+        const filePath = path.join(this.backupDir, f);
+        const stats = fs.statSync(filePath);
+        return {
+          path: filePath,
+          size: stats.size,
+          created: stats.birthtime
+        };
+      })
+      .sort((a, b) => b.created.getTime() - a.created.getTime());
+    
+    return files;
+  }
+  
+  /**
+   * Cleanup old backups
+   */
+  async cleanupOldBackups(daysToKeep: number): Promise<number> {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - daysToKeep);
+    
+    const backups = this.listBackups();
+    let deleted = 0;
+    
+    for (const backup of backups) {
+      if (backup.created < cutoff) {
+        fs.unlinkSync(backup.path);
+        deleted++;
+        logger.info({ path: backup.path }, 'Old backup deleted');
+      }
+    }
+    
+    return deleted;
+  }
+}
+
+// Schedule daily backups (Electron main process)
+function scheduleBackups() {
+  const backupService = new BackupService();
+  
+  // Run daily at 2 AM
+  const DAILY = 24 * 60 * 60 * 1000;
+  setInterval(async () => {
+    const hour = new Date().getHours();
+    if (hour === 2) {
+      try {
+        await backupService.createBackup();
+      } catch (err) {
+        logger.error({ err }, 'Backup failed');
+      }
+    }
+  }, 60 * 60 * 1000); // Check hourly
+}
+```
+
+**Additional Features:**
+1. Export to CSV/Excel for external storage
+2. Cloud backup integration (Google Drive, Dropbox)
+3. Backup before major operations (daily closing, refunds)
+4. Restore UI with backup preview
+
+**Estimated Effort:** 8-10 hours  
+**Risk:** Low
+
+---
+
+## Low Priority / Nice to Have (Priority 4)
+
+### 🔵 L1. Performance Monitoring
+
+**Suggestion:** Add application performance monitoring (APM)
+
+**Implementation:**
+```typescript
+// packages/core/src/utils/performance.ts
+export class PerformanceMonitor {
+  private metrics: Map<string, number[]> = new Map();
+  
+  measure<T>(name: string, fn: () => T): T {
+    const start = performance.now();
+    try {
+      return fn();
+    } finally {
+      const duration = performance.now() - start;
+      
+      if (!this.metrics.has(name)) {
+        this.metrics.set(name, []);
+      }
+      this.metrics.get(name)!.push(duration);
+      
+      if (duration > 1000) {
+        logger.warn({ operation: name, duration }, 'Slow operation detected');
+      }
+    }
+  }
+  
+  getStats(name: string) {
+    const times = this.metrics.get(name) || [];
+    if (times.length === 0) return null;
+    
+    const avg = times.reduce((a, b) => a + b, 0) / times.length;
+    const max = Math.max(...times);
+    const min = Math.min(...times);
+    
+    return { avg, max, min, count: times.length };
+  }
+}
+
+// Usage
+const perf = new PerformanceMonitor();
+
+class SalesRepository {
+  createSale(data: SaleRequest) {
+    return perf.measure('SalesRepository.createSale', () => {
+      // ... implementation
+    });
+  }
+}
+```
+
+**Estimated Effort:** 4-6 hours  
+**Risk:** Very Low
+
+---
+
+### 🔵 L2. GraphQL API Alternative
+
+**Suggestion:** Consider GraphQL for the web API (optional)
+
+**Benefits:**
+- Frontend requests exactly what it needs
+- Better type safety
+- Single endpoint
+- Built-in documentation (GraphQL Playground)
+
+**Trade-offs:**
+- More complex than REST
+- Adds dependency
+- Learning curve
+
+**Recommendation:** Only if planning significant web expansion. REST is fine for current needs.
+
+---
+
+### 🔵 L3. Internationalization (i18n)
+
+**Suggestion:** Prepare for multi-language support
+
+**Current State:** All strings hardcoded in English
+
+**If expanding beyond Lebanon:**
+```typescript
+// packages/ui/src/i18n/en.ts
+export const en = {
+  'client.fullName': 'Full Name',
+  'client.phone': 'Phone Number',
+  'sale.total': 'Total',
+  // ...
+};
+
+// packages/ui/src/i18n/ar.ts
+export const ar = {
+  'client.fullName': 'الاسم الكامل',
+  'client.phone': 'رقم الهاتف',
+  'sale.total': 'المجموع',
+};
+
+// Usage with react-i18next
+import { useTranslation } from 'react-i18next';
+
+function ClientForm() {
+  const { t } = useTranslation();
+  return <label>{t('client.fullName')}</label>;
+}
+```
+
+**Estimated Effort:** 20-30 hours  
+**Risk:** Low
+
+---
+
+### 🔵 L4. Code Documentation
+
+**Suggestion:** Add JSDoc comments to all public APIs
+
+**Current State:** Some documentation exists, but inconsistent
+
+**Example:**
+```typescript
+/**
+ * Creates a new client in the system
+ * 
+ * @param data - Client information
+ * @param data.full_name - Customer's full name (required)
+ * @param data.phone_number - Phone number with country code (required)
+ * @param data.whatsapp_opt_in - Whether customer agreed to WhatsApp notifications
+ * 
+ * @returns Result object with success status and client ID
+ * 
+ * @throws {ValidationError} If phone number format is invalid
+ * @throws {DuplicateError} If phone number already exists
+ * 
+ * @example
+ * ```typescript
+ * const result = service.createClient({
+ *   full_name: 'John Doe',
+ *   phone_number: '+96170123456',
+ *   whatsapp_opt_in: true
+ * });
+ * ```
+ */
+createClient(data: CreateClientData): ClientResult {
+  // ...
+}
+```
+
+**Estimated Effort:** 12-16 hours  
+**Risk:** Very Low
+
+---
+
+### 🔵 L5. Storybook for UI Components
+
+**Suggestion:** Use Storybook for component development and documentation
+
+**Benefits:**
+- Visual component library
+- Isolated component development
+- Automatic documentation
+- Design system enforcement
+
+**Setup:**
+```bash
+yarn add -D @storybook/react @storybook/addon-essentials
+```
+
+```typescript
+// packages/ui/src/components/ui/Select.stories.tsx
+import type { Meta, StoryObj } from '@storybook/react';
+import { Select } from './Select';
+
+const meta: Meta<typeof Select> = {
+  component: Select,
+  title: 'UI/Select',
+};
+
+export default meta;
+
+export const Default: StoryObj<typeof Select> = {
+  args: {
+    options: [
+      { value: 'usd', label: 'USD' },
+      { value: 'lbp', label: 'LBP' },
+    ],
+  },
+};
+```
+
+**Estimated Effort:** 8-12 hours (initial setup + key components)  
+**Risk:** Very Low
+
+---
+
+## Architecture Recommendations
+
+### AR1. Consider Event-Driven Architecture
+
+**Current:** Direct service calls everywhere
+
+**Suggested:** Event bus for decoupled communication
+
+```typescript
+// packages/core/src/events/EventBus.ts
+type EventHandler<T = any> = (data: T) => void | Promise<void>;
+
+export class EventBus {
+  private handlers = new Map<string, Set<EventHandler>>();
+  
+  on<T>(event: string, handler: EventHandler<T>) {
+    if (!this.handlers.has(event)) {
+      this.handlers.set(event, new Set());
+    }
+    this.handlers.get(event)!.add(handler);
+  }
+  
+  async emit<T>(event: string, data: T) {
+    const handlers = this.handlers.get(event);
+    if (!handlers) return;
+    
+    await Promise.all(
+      Array.from(handlers).map(h => h(data))
+    );
+  }
+}
+
+export const eventBus = new EventBus();
+
+// Usage
+// When sale is created
+eventBus.emit('sale.created', { saleId: 123, total: 100 });
+
+// Multiple listeners
+eventBus.on('sale.created', async (data) => {
+  // Update inventory
+  await inventoryService.decrementStock(data.items);
+});
+
+eventBus.on('sale.created', async (data) => {
+  // Send notification
+  await notificationService.notifyNewSale(data);
+});
+
+eventBus.on('sale.created', async (data) => {
+  // Log activity
+  await activityService.log('SALE_CREATED', data);
+});
+```
+
+**Benefits:**
+- Loose coupling between modules
+- Easy to add new features (just add listener)
+- Better testability
+- Supports future webhooks/integrations
+
+**Estimated Effort:** 12-16 hours  
+**Risk:** Medium
+
+---
+
+### AR2. Repository Factory Pattern
+
+**Current:** Manual repository instantiation
+
+**Suggested:** Factory with dependency injection
+
+```typescript
+// packages/core/src/repositories/RepositoryFactory.ts
+export class RepositoryFactory {
+  private static instances = new Map<string, any>();
+  
+  static getRepository<T extends BaseRepository<any>>(
+    RepoClass: new () => T
+  ): T {
+    const key = RepoClass.name;
+    
+    if (!this.instances.has(key)) {
+      this.instances.set(key, new RepoClass());
+    }
+    
+    return this.instances.get(key);
+  }
+  
+  static reset() {
+    this.instances.clear();
+  }
+}
+
+// Usage
+const clientRepo = RepositoryFactory.getRepository(ClientRepository);
+```
+
+**Benefits:**
+- Centralized instance management
+- Easier testing (mock factory)
+- Consistent initialization
+
+**Estimated Effort:** 4-6 hours  
+**Risk:** Low
+
+---
+
+### AR3. Domain-Driven Design Layers
+
+**Suggestion:** Formalize DDD layers
+
+**Current Structure:**
+```
+Repository → Service → Handler/Route
+```
+
+**Suggested Structure:**
+```
+Entity (domain models)
+  ↓
+Repository (data access)
+  ↓
+Domain Service (business rules)
+  ↓
+Application Service (use cases)
+  ↓
+API Handler/Route (presentation)
+```
+
+**Example:**
+```typescript
+// Domain Layer
+// packages/core/src/domain/Client.ts
+export class Client {
+  constructor(
+    public id: number,
+    public fullName: string,
+    public phone: string,
+    private debtAmount: number
+  ) {}
+  
+  canPurchaseOnCredit(amount: number): boolean {
+    return this.debtAmount + amount <= 1000; // Business rule
+  }
+  
+  get hasDebt(): boolean {
+    return this.debtAmount > 0;
+  }
+}
+
+// Application Layer
+// packages/core/src/application/CreateSaleUseCase.ts
+export class CreateSaleUseCase {
+  execute(command: CreateSaleCommand): SaleResult {
+    const client = this.clientRepo.findById(command.clientId);
+    
+    // Business logic in domain
+    if (!client.canPurchaseOnCredit(command.total)) {
+      return { success: false, error: 'Credit limit exceeded' };
+    }
+    
+    // Orchestration
+    const sale = this.saleRepo.create(command);
+    this.inventoryRepo.decrementStock(command.items);
+    
+    return { success: true, saleId: sale.id };
+  }
+}
+```
+
+**Estimated Effort:** 20-30 hours (gradual migration)  
+**Risk:** Medium-High
+
+---
+
+## Database Recommendations
+
+### DB1. Add Database Query Optimization
+
+**Issue:** No query performance tracking
+
+**Recommendations:**
+
+1. **Enable SQLite query profiling:**
+```typescript
+// packages/core/src/db/connection.ts
+if (process.env.NODE_ENV === 'development') {
+  db.pragma('stats = ON');
+  
+  // Log slow queries
+  db.function('slow_query_log', (query: string, duration: number) => {
+    if (duration > 100) { // ms
+      logger.warn({ query, duration }, 'Slow query detected');
+    }
+  });
+}
+```
+
+2. **Add missing indexes:**
+```sql
+-- High-frequency queries that need indexes
+
+-- Sale searches by date range
+CREATE INDEX IF NOT EXISTS idx_sales_created_at_desc 
+  ON sales(created_at DESC);
+
+-- Client search by name
+CREATE INDEX IF NOT EXISTS idx_clients_full_name 
+  ON clients(full_name COLLATE NOCASE);
+
+-- Product search optimization
+CREATE INDEX IF NOT EXISTS idx_products_search 
+  ON products(name, barcode) 
+  WHERE is_active = 1;
+
+-- Debt queries optimization
+CREATE INDEX IF NOT EXISTS idx_debt_client_date 
+  ON debt_ledger(client_id, created_at DESC);
+```
+
+3. **ANALYZE statistics:**
+```typescript
+// Run periodically (daily closing)
+db.exec('ANALYZE');
+```
+
+**Estimated Effort:** 3-4 hours  
+**Risk:** Very Low
+
+---
+
+### DB2. Implement Soft Deletes Consistently
+
+**Issue:** Mix of hard deletes and soft deletes
+
+**Current State:**
+- Some tables have `is_active` flag
+- Others do hard deletes (data loss risk)
+
+**Recommendation:**
+Standardize on soft deletes for business data:
+
+```sql
+-- Add deleted_at column to all business tables
+ALTER TABLE clients ADD COLUMN deleted_at DATETIME DEFAULT NULL;
+ALTER TABLE products ADD COLUMN deleted_at DATETIME DEFAULT NULL;
+ALTER TABLE sales ADD COLUMN deleted_at DATETIME DEFAULT NULL;
+
+-- Create view for active records
+CREATE VIEW active_clients AS 
+  SELECT * FROM clients WHERE deleted_at IS NULL;
+
+CREATE VIEW active_products AS 
+  SELECT * FROM products WHERE deleted_at IS NULL;
+```
+
+```typescript
+// BaseRepository soft delete
+class BaseRepository<T> {
+  softDelete(id: number): boolean {
+    const stmt = this.db.prepare(`
+      UPDATE ${this.tableName} 
+      SET deleted_at = datetime('now') 
+      WHERE id = ?
+    `);
+    
+    const result = stmt.run(id);
+    return result.changes > 0;
+  }
+  
+  restore(id: number): boolean {
+    const stmt = this.db.prepare(`
+      UPDATE ${this.tableName} 
+      SET deleted_at = NULL 
+      WHERE id = ?
+    `);
+    
+    const result = stmt.run(id);
+    return result.changes > 0;
+  }
+}
+```
+
+**Benefits:**
+- Audit trail (can see what was deleted and when)
+- Recover from accidental deletions
+- Compliance (some regulations require data retention)
+
+**Estimated Effort:** 6-8 hours  
+**Risk:** Medium
+
+---
+
+### DB3. Database Connection Pooling
+
+**Issue:** Single connection shared across all operations
+
+**Current State:**
+```typescript
+// packages/core/src/db/connection.ts
+let db: Database.Database | null = null; // Single connection
+```
+
+**For Web Backend:**
+Consider connection pooling for concurrent requests:
+
+```typescript
+// backend/src/database/pool.ts
+import Database from 'better-sqlite3';
+
+class DatabasePool {
+  private pool: Database.Database[] = [];
+  private readonly maxConnections = 5;
+  
+  getConnection(): Database.Database {
+    if (this.pool.length < this.maxConnections) {
+      const db = new Database(DB_PATH);
+      db.pragma('journal_mode = WAL');
+      this.pool.push(db);
+      return db;
+    }
+    
+    // Round-robin selection
+    return this.pool[Math.floor(Math.random() * this.pool.length)];
+  }
+  
+  closeAll() {
+    this.pool.forEach(db => db.close());
+    this.pool = [];
+  }
+}
+```
+
+**Note:** SQLite in WAL mode supports multiple readers, so this is mainly for write concurrency.
+
+**Estimated Effort:** 4-6 hours  
+**Risk:** Medium
+
+---
+
+## Backend Recommendations
+
+### BE1. Add Rate Limiting
+
+**Issue:** No rate limiting on API endpoints
+
+**Recommendation:**
+```typescript
+// backend/src/middleware/rateLimit.ts
+import rateLimit from 'express-rate-limit';
+
+export const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+  message: 'Too many requests from this IP, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+export const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5, // 5 login attempts per 15 minutes
+  message: 'Too many login attempts, please try again later.',
+  skipSuccessfulRequests: true,
+});
+
+// Usage
+app.use('/api/', apiLimiter);
+app.use('/api/auth/login', authLimiter);
+```
+
+**Estimated Effort:** 2-3 hours  
+**Risk:** Low
+
+---
+
+### BE2. Add Request Correlation IDs
+
+**Issue:** Hard to trace requests across logs
+
+**Recommendation:**
+```typescript
+// backend/src/middleware/requestId.ts
+import { randomUUID } from 'crypto';
+
+export function requestIdMiddleware(req, res, next) {
+  req.id = randomUUID();
+  res.setHeader('X-Request-ID', req.id);
+  next();
+}
+
+// Update logger to include request ID
+app.use((req, res, next) => {
+  req.log = logger.child({ requestId: req.id });
+  next();
+});
+
+// Usage in routes
+router.get('/clients', (req, res) => {
+  req.log.info('Fetching clients');
+  // ...
+});
+```
+
+**Estimated Effort:** 2-3 hours  
+**Risk:** Very Low
+
+---
+
+### BE3. Add Health Check Endpoints
+
+**Current:** Basic `/health` endpoint
+
+**Recommendation:** Comprehensive health checks
+
+```typescript
+// backend/src/api/health.ts
+import { Router } from 'express';
+import { getDatabase } from '../database/connection.js';
+
+const router = Router();
+
+router.get('/health', (_req, res) => {
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+  });
+});
+
+router.get('/health/detailed', (_req, res) => {
+  const checks = {
+    database: checkDatabase(),
+    memory: checkMemory(),
+    disk: checkDisk(),
+  };
+  
+  const allHealthy = Object.values(checks).every(c => c.healthy);
+  
+  res.status(allHealthy ? 200 : 503).json({
+    status: allHealthy ? 'healthy' : 'unhealthy',
+    timestamp: new Date().toISOString(),
+    checks,
+  });
+});
+
+function checkDatabase() {
+  try {
+    const db = getDatabase();
+    db.prepare('SELECT 1').get();
+    return { healthy: true };
+  } catch (err) {
+    return { healthy: false, error: err.message };
+  }
+}
+
+function checkMemory() {
+  const usage = process.memoryUsage();
+  const heapUsedMB = usage.heapUsed / 1024 / 1024;
+  const threshold = 500; // MB
+  
+  return {
+    healthy: heapUsedMB < threshold,
+    heapUsedMB: Math.round(heapUsedMB),
+    threshold,
+  };
+}
+
+function checkDisk() {
+  // Implement disk space check
+  return { healthy: true };
+}
+```
+
+**Estimated Effort:** 3-4 hours  
+**Risk:** Very Low
+
+---
+
+## Frontend Recommendations
+
+### FE1. Add React Query for Data Fetching
+
+**Issue:** Manual state management for server data
+
+**Current State:**
+```typescript
+const [clients, setClients] = useState([]);
+const [loading, setLoading] = useState(false);
+
+useEffect(() => {
+  setLoading(true);
+  api.getClients().then(data => {
+    setClients(data);
+    setLoading(false);
+  });
+}, []);
+```
+
+**Recommendation:**
+Use React Query (TanStack Query):
+
+```typescript
+// frontend/src/hooks/useClients.ts
+import { useQuery } from '@tanstack/react-query';
+
+export function useClients(search?: string) {
+  return useQuery({
+    queryKey: ['clients', search],
+    queryFn: () => api.getClients(search),
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+}
+
+// Usage
+function ClientList() {
+  const { data: clients, isLoading, error } = useClients();
+  
+  if (isLoading) return <LoadingSpinner />;
+  if (error) return <ErrorMessage error={error} />;
+  
+  return <Table data={clients} />;
+}
+```
+
+**Benefits:**
+- Automatic caching
+- Background refetching
+- Optimistic updates
+- Error handling
+- Loading states
+
+**Estimated Effort:** 8-12 hours  
+**Risk:** Low
+
+---
+
+### FE2. Add Error Boundary
+
+**Issue:** Uncaught errors crash entire app
+
+**Recommendation:**
+```typescript
+// frontend/src/components/ErrorBoundary.tsx
+import React from 'react';
+
+interface Props {
+  children: React.ReactNode;
+  fallback?: React.ReactNode;
+}
+
+interface State {
+  hasError: boolean;
+  error: Error | null;
+}
+
+export class ErrorBoundary extends React.Component<Props, State> {
+  constructor(props: Props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+  
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    logger.error({ error, errorInfo }, 'React error boundary caught error');
+  }
+  
+  render() {
+    if (this.state.hasError) {
+      return this.props.fallback || (
+        <div className="error-container">
+          <h1>Something went wrong</h1>
+          <p>{this.state.error?.message}</p>
+          <button onClick={() => window.location.reload()}>
+            Reload Page
+          </button>
+        </div>
+      );
+    }
+    
+    return this.props.children;
+  }
+}
+
+// Usage in App.tsx
+<ErrorBoundary>
+  <App />
+</ErrorBoundary>
+```
+
+**Estimated Effort:** 2-3 hours  
+**Risk:** Very Low
+
+---
+
+### FE3. Add Form State Management
+
+**Issue:** Manual form state management
+
+**Recommendation:**
+Use React Hook Form:
+
+```typescript
+// frontend/src/features/clients/ClientForm.tsx
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { createClientSchema } from '@liratek/core';
+
+export function ClientForm() {
+  const { register, handleSubmit, formState: { errors } } = useForm({
+    resolver: zodResolver(createClientSchema),
+  });
+  
+  const onSubmit = async (data) => {
+    await api.createClient(data);
+  };
+  
+  return (
+    <form onSubmit={handleSubmit(onSubmit)}>
+      <input {...register('full_name')} />
+      {errors.full_name && <span>{errors.full_name.message}</span>}
+      
+      <input {...register('phone_number')} />
+      {errors.phone_number && <span>{errors.phone_number.message}</span>}
+      
+      <button type="submit">Create</button>
+    </form>
+  );
+}
+```
+
+**Benefits:**
+- Less boilerplate
+- Built-in validation
+- Error handling
+- Dirty state tracking
+
+**Estimated Effort:** 6-8 hours  
+**Risk:** Low
+
+---
+
+## Security Recommendations
+
+### SEC1. SQL Injection Prevention Audit
+
+**Current State:** Using parameterized queries (✅ Good!)
+
+**Verification Needed:**
+- Ensure ALL queries use parameterized statements
+- No string concatenation in SQL
+
+```typescript
+// ❌ DANGEROUS - SQL Injection risk
+const query = `SELECT * FROM clients WHERE name = '${userName}'`;
+
+// ✅ SAFE - Parameterized query
+const stmt = db.prepare('SELECT * FROM clients WHERE name = ?');
+stmt.get(userName);
+```
+
+**Action:** Code audit for string interpolation in SQL queries.
+
+**Estimated Effort:** 2-3 hours  
+**Risk:** Very Low (already using prepared statements)
+
+---
+
+### SEC2. JWT Secret Management
+
+**Issue:** JWT_SECRET in environment variable (potential risk)
+
+**Current:**
+```typescript
+JWT_SECRET: process.env.JWT_SECRET || 'default-secret'
+```
+
+**Recommendation:**
+
+1. **Never use default secrets:**
+```typescript
+// Fail if JWT_SECRET not provided
+if (!process.env.JWT_SECRET) {
+  throw new Error('JWT_SECRET environment variable is required');
+}
+```
+
+2. **Generate strong secrets:**
+```bash
+# Generate 256-bit secret
+node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+```
+
+3. **Consider key rotation:**
+```typescript
+// Support multiple secrets for rotation
+const secrets = [
+  process.env.JWT_SECRET,
+  process.env.JWT_SECRET_OLD, // For graceful rotation
+].filter(Boolean);
+
+function verifyToken(token: string) {
+  for (const secret of secrets) {
+    try {
+      return jwt.verify(token, secret);
+    } catch (err) {
+      continue;
+    }
+  }
+  throw new Error('Invalid token');
+}
+```
+
+**Estimated Effort:** 2-3 hours  
+**Risk:** Low
+
+---
+
+### SEC3. Add Content Security Policy
+
+**Issue:** No CSP headers in web mode
+
+**Recommendation:**
+```typescript
+// backend/src/server.ts
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"], // Remove unsafe-inline if possible
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'"],
+      fontSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      mediaSrc: ["'self'"],
+      frameSrc: ["'none'"],
+    },
+  },
+  hsts: {
+    maxAge: 31536000,
+    includeSubDomains: true,
+    preload: true,
+  },
+}));
+```
+
+**Estimated Effort:** 2-3 hours  
+**Risk:** Low
+
+---
+
+## Performance Optimization
+
+### PERF1. Bundle Size Optimization
+
+**Recommendation:**
+
+1. **Analyze bundle:**
+```bash
+yarn workspace @liratek/frontend build
+npx vite-bundle-visualizer
+```
+
+2. **Code splitting:**
+```typescript
+// frontend/src/app/App.tsx
+import { lazy, Suspense } from 'react';
+
+const Dashboard = lazy(() => import('../features/dashboard/Dashboard'));
+const Clients = lazy(() => import('../features/clients/Clients'));
+
+function App() {
+  return (
+    <Suspense fallback={<LoadingSpinner />}>
+      <Routes>
+        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/clients" element={<Clients />} />
+      </Routes>
+    </Suspense>
+  );
+}
+```
+
+3. **Tree shaking:**
+Ensure all imports are ES modules:
+```typescript
+// ❌ BAD - imports entire library
+import _ from 'lodash';
+
+// ✅ GOOD - tree-shakeable
+import { debounce } from 'lodash-es';
+```
+
+**Estimated Effort:** 4-6 hours  
+**Risk:** Low
+
+---
+
+### PERF2. Database Query Batching
+
+**Issue:** N+1 query problem in some endpoints
+
+**Example:**
+```typescript
+// ❌ BAD - N+1 queries
+const sales = getSales();
+sales.forEach(sale => {
+  sale.client = getClient(sale.client_id); // N queries
+});
+
+// ✅ GOOD - Single query with JOIN
+const sales = db.prepare(`
+  SELECT 
+    s.*,
+    c.full_name as client_name,
+    c.phone_number as client_phone
+  FROM sales s
+  LEFT JOIN clients c ON s.client_id = c.id
+  WHERE s.created_at >= ?
+`).all(startDate);
+```
+
+**Estimated Effort:** 4-6 hours  
+**Risk:** Low
+
+---
+
+## Testing Strategy
+
+### TEST1. Add Integration Tests
+
+**Current:** Unit tests exist, but no integration tests
+
+**Recommendation:**
+```typescript
+// backend/src/__tests__/integration/sales.integration.test.ts
+describe('Sales Flow Integration', () => {
+  let testDb: Database.Database;
+  
+  beforeEach(() => {
+    testDb = new Database(':memory:');
+    // Setup schema
+    testDb.exec(fs.readFileSync('electron-app/create_db.sql', 'utf-8'));
+    initDatabase(testDb);
+  });
+  
+  afterEach(() => {
+    testDb.close();
+  });
+  
+  it('should create sale and update inventory', () => {
+    // Create product
+    const productService = getInventoryService();
+    const product = productService.createProduct({
+      name: 'iPhone',
+      stock: 10,
+      // ...
+    });
+    
+    // Create sale
+    const salesService = getSalesService();
+    const sale = salesService.createSale({
+      items: [{ product_id: product.id!, quantity: 2 }],
+      // ...
+    });
+    
+    // Verify inventory decreased
+    const updated = productService.getProduct(product.id!);
+    expect(updated.stock).toBe(8);
+  });
+});
+```
+
+**Estimated Effort:** 12-16 hours  
+**Risk:** Low
+
+---
+
+### TEST2. Add Contract Tests
+
+**Issue:** No tests verifying API contracts between frontend and backend
+
+**Recommendation:**
+Use Pact or similar contract testing:
+
+```typescript
+// frontend/src/__tests__/contracts/clients.pact.test.ts
+import { pactWith } from 'jest-pact';
+
+pactWith({ consumer: 'Frontend', provider: 'Backend' }, provider => {
+  describe('GET /api/clients', () => {
+    beforeEach(() =>
+      provider.addInteraction({
+        state: 'clients exist',
+        uponReceiving: 'a request for all clients',
+        withRequest: {
+          method: 'GET',
+          path: '/api/clients',
+        },
+        willRespondWith: {
+          status: 200,
+          body: {
+            success: true,
+            clients: eachLike({
+              id: like(1),
+              full_name: like('John Doe'),
+              phone_number: like('+96170123456'),
+            }),
+          },
+        },
+      })
+    );
+    
+    it('returns a list of clients', async () => {
+      const clients = await api.getClients();
+      expect(clients).toHaveLength(1);
+    });
+  });
+});
+```
+
+**Estimated Effort:** 8-12 hours  
+**Risk:** Medium
+
+---
+
+## DevOps & Infrastructure
+
+### DEVOPS1. Add Docker Development Environment
+
+**Current:** Docker for production only
+
+**Recommendation:**
+Create docker-compose for local development:
+
+```yaml
+# docker-compose.dev.yml
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.dev
+    volumes:
+      - ./backend:/app/backend
+      - ./packages:/app/packages
+      - backend_node_modules:/app/backend/node_modules
+    environment:
+      - NODE_ENV=development
+      - DATABASE_PATH=/data/dev.db
+    ports:
+      - "3000:3000"
+    command: npm run dev
+  
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile.dev
+    volumes:
+      - ./frontend:/app/frontend
+      - ./packages:/app/packages
+      - frontend_node_modules:/app/frontend/node_modules
+    ports:
+      - "5173:5173"
+    command: npm run dev
+
+volumes:
+  backend_node_modules:
+  frontend_node_modules:
+```
+
+**Estimated Effort:** 4-6 hours  
+**Risk:** Low
+
+---
+
+### DEVOPS2. Add GitHub Actions for Releases
+
+**Current:** Manual releases
+
+**Recommendation:**
+```yaml
+# .github/workflows/release.yml
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-electron:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macos-latest, windows-latest]
+    
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      
+      - run: corepack enable
+      - run: yarn install --immutable
+      - run: yarn build
+      
+      - name: Build Electron App
+        run: yarn electron:build
+      
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-${{ matrix.os }}
+          path: releases/
+      
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: releases/*
+```
+
+**Estimated Effort:** 6-8 hours  
+**Risk:** Low
+
+---
+
+## Implementation Roadmap
+
+### Phase 1: Critical Fixes (Week 1-2)
+**Total Effort: ~35-45 hours**
+
+1. **C1:** Delete duplicate repositories (4-6h)
+2. **C2:** Remove backend service layer redundancy (2-3h)
+3. **C3:** Fix weak type safety in API layer (3-4h)
+4. **C4:** Implement transaction management (6-8h)
+5. **C5:** Standardize logging (4-5h)
+6. **H2:** Environment variable management (3-4h)
+7. **SEC2:** JWT secret management (2-3h)
+8. **BE1:** Add rate limiting (2-3h)
+
+**Expected Outcomes:**
+- Eliminated ~5,000 lines of duplicate code
+- Type-safe API layer
+- Data integrity guaranteed with transactions
+- Professional logging
+- Better security
+
+---
+
+### Phase 2: High Priority Improvements (Week 3-4)
+**Total Effort: ~35-45 hours**
+
+1. **H1:** Replace SELECT * queries (6-8h)
+2. **H3:** Database migrations system (6-8h)
+3. **H4:** Fix E2E test flakiness (8-12h)
+4. **H5:** Standardize error handling (4-6h)
+5. **M3:** Request validation with Zod (8-10h)
+6. **DB1:** Query optimization (3-4h)
+
+**Expected Outcomes:**
+- Stable CI/CD pipeline
+- Proper migration system
+- Validated API inputs
+- Better query performance
+
+---
+
+### Phase 3: Medium Priority (Week 5-6)
+**Total Effort: ~30-40 hours**
+
+1. **M1:** Database schema optimization (4-6h)
+2. **M2:** Frontend component refactoring (12-16h)
+3. **M6:** Automated backup system (8-10h)
+4. **FE1:** Add React Query (8-12h)
+
+**Expected Outcomes:**
+- Cleaner frontend architecture
+- Automated backups
+- Better data fetching
+
+---
+
+### Phase 4: Polish & Nice-to-Haves (Week 7-8)
+**Total Effort: ~20-30 hours**
+
+1. **L1:** Performance monitoring (4-6h)
+2. **L4:** Code documentation (12-16h)
+3. **PERF1:** Bundle optimization (4-6h)
+4. **TEST1:** Integration tests (12-16h)
+
+**Expected Outcomes:**
+- Better observability
+- Documented codebase
+- Faster load times
+
+---
+
+## Success Metrics
+
+### Code Quality
+- [ ] Zero duplicate repositories
+- [ ] 100% TypeScript type safety (no `any` or `unknown` in public APIs)
+- [ ] All SQL queries parameterized
+- [ ] Zero console.log in production code
+
+### Testing
+- [ ] E2E tests passing in CI
+- [ ] >80% code coverage
+- [ ] All critical paths have integration tests
+
+### Performance
+- [ ] All queries < 100ms (p95)
+- [ ] Frontend bundle < 500KB gzipped
+- [ ] API responses < 200ms (p95)
+
+### Security
+- [ ] No hardcoded secrets
+- [ ] All inputs validated
+- [ ] SQL injection audit passed
+- [ ] CSP headers configured
+
+### Reliability
+- [ ] Automated daily backups
+- [ ] Transaction wrapping on critical operations
+- [ ] Graceful error handling
+- [ ] Health check endpoints
+
+---
+
+## Conclusion
+
+LiraTek POS is a well-built application with solid foundations. The recommendations in this document address technical debt and prepare the codebase for future growth.
+
+**Priority Focus:**
+1. **Eliminate duplicate code** (Critical)
+2. **Add transaction management** (Critical - data integrity)
+3. **Fix type safety** (Critical - developer experience)
+4. **Stabilize E2E tests** (High - CI reliability)
+
+**Total Estimated Effort:** 120-160 hours (3-4 weeks of focused work)
+
+**Expected ROI:**
+- **Reduced Bugs:** Transaction management prevents data corruption
+- **Faster Development:** Type safety catches errors at compile time
+- **Lower Maintenance:** Single source of truth eliminates drift
+- **Better Reliability:** Comprehensive testing and monitoring
+
+**Next Steps:**
+1. Review and prioritize recommendations
+2. Create tracking tickets (Jira/GitHub Issues)
+3. Start with Phase 1 (Critical Fixes)
+4. Measure success metrics after each phase
+
+---
+
+**Document End**

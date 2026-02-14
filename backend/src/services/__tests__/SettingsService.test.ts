@@ -3,22 +3,23 @@
  */
 
 import { jest } from "@jest/globals";
+
+jest.mock("@liratek/core", () => {
+  const actual =
+    jest.requireActual<typeof import("@liratek/core")>("@liratek/core");
+  return {
+    ...actual,
+    getSettingsRepository: jest.fn(),
+  };
+});
+
 import {
   SettingsService,
   getSettingsService,
   resetSettingsService,
-} from "../SettingsService";
-import { SettingEntity } from "@liratek/core";
-
-// Mock core repository used by @liratek/core SettingsService
-jest.mock(
-  "../../../../packages/core/src/repositories/SettingsRepository",
-  () => ({
-    getSettingsRepository: jest.fn(),
-  }),
-);
-
-import { getSettingsRepository } from "../../../../packages/core/src/repositories/SettingsRepository";
+  SettingEntity,
+  getSettingsRepository,
+} from "@liratek/core";
 
 describe("SettingsService", () => {
   let service: SettingsService;
@@ -38,7 +39,7 @@ describe("SettingsService", () => {
 
     (getSettingsRepository as jest.Mock).mockReturnValue(mockRepo);
 
-    service = new SettingsService();
+    service = new SettingsService(mockRepo);
   });
 
   // ===========================================================================

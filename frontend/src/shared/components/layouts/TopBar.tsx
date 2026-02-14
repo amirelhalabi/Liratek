@@ -7,7 +7,7 @@ type UINotification = {
   duration?: number;
 };
 
-import { appEvents } from "../../utils/appEvents";
+import { appEvents } from "@liratek/ui";
 import { LogOut, Bell, X, Search } from "lucide-react";
 import { useMemo } from "react";
 import { useAuth } from "../../../features/auth/context/AuthContext";

@@ -257,7 +257,10 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       }
 
       try {
-        await linkTransactionToSession(data);
+        await linkTransactionToSession({
+          ...data,
+          sessionId: activeSession.id,
+        });
         // Refresh transactions list
         await refreshSessionTransactions();
       } catch (err) {

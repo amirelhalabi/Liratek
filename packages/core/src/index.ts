@@ -5,6 +5,8 @@ export * from "./db/sqlcipher.js";
 export * from "./db/connection.js";
 export * from "./db/migrations/drawers.js";
 export * from "./db/migrations/customer-sessions.js";
+export * from "./db/migrations/binance-transactions.js";
+export * from "./db/migrations/ikw-providers.js";
 
 // Utilities
 export * from "./utils/crypto.js";

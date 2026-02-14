@@ -5,14 +5,18 @@
  */
 
 import { jest } from "@jest/globals";
-import { DebtService, resetDebtService } from "../DebtService";
-import { DebtRepository } from "../../database/repositories";
 
-// Mock the repository module
-jest.mock("../../database/repositories", () => ({
-  getDebtRepository: jest.fn(),
-  DebtRepository: jest.fn(),
-}));
+jest.mock("@liratek/core", () => {
+  const actual =
+    jest.requireActual<typeof import("@liratek/core")>("@liratek/core");
+  return {
+    ...actual,
+    getDebtRepository: jest.fn(),
+    DebtRepository: jest.fn(),
+  };
+});
+
+import { DebtService, resetDebtService, DebtRepository } from "@liratek/core";
 
 describe("DebtService", () => {
   let service: DebtService;

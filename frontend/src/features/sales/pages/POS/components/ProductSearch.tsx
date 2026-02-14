@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Search, ShoppingCart } from "lucide-react";
-import type { Product } from "../../../../../types";
+import type { Product } from "@liratek/ui";
 import * as api from "../../../../../api/backendApi";
 
 interface ProductSearchProps {

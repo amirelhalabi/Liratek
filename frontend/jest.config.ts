@@ -17,6 +17,7 @@ const config: Config = {
     "^@/(.*)$": "<rootDir>/src/$1",
     "^@shared/(.*)$": "<rootDir>/../packages/shared/src/$1",
     "^@liratek/core$": "<rootDir>/../packages/core/src/index.ts",
+    "^@liratek/ui$": "<rootDir>/../packages/ui/src/index.ts",
   },
 };
 

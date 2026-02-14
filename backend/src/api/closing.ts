@@ -19,12 +19,10 @@ router.get("/system-expected-balances", requireAuth, async (_req, res) => {
     res.json({ success: true, balances });
   } catch (error) {
     logger.error({ error }, "Get system expected balances error");
-    res
-      .status(500)
-      .json({
-        success: false,
-        error: "Failed to get system expected balances",
-      });
+    res.status(500).json({
+      success: false,
+      error: "Failed to get system expected balances",
+    });
   }
 });
 

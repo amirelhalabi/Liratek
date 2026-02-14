@@ -257,7 +257,7 @@ export class AuthService {
     }
 
     // Verify current password
-    const isValid = await verifyPassword(currentPassword, user.password_hash);
+    const isValid = verifyPassword(currentPassword, user.password_hash);
     if (!isValid) {
       throw new AuthenticationError("Current password is incorrect");
     }

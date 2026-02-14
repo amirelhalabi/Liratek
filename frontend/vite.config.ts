@@ -14,6 +14,7 @@ export default defineConfig({
         __dirname,
         "../packages/shared/src/index.ts",
       ),
+      "@liratek/ui": path.resolve(__dirname, "../packages/ui/src/index.ts"),
       "@shared": path.resolve(__dirname, "../packages/core/src"),
       // General @/ alias - this will match all @/... imports
       "@": path.resolve(__dirname, "./src"),
@@ -25,6 +26,6 @@ export default defineConfig({
   },
   build: {
     // Electron loads local files - chunk size warning not relevant for desktop apps
-    chunkSizeWarningLimit: 800,
+    chunkSizeWarningLimit: 1200,
   },
 });

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Plus, Trash2, Calendar, DollarSign } from "lucide-react";
-import Select from "../../../../shared/components/ui/Select";
+import { Select } from "@liratek/ui";
 import * as api from "../../../../api/backendApi";
 
 type PaidByMethod = "CASH" | "OMT" | "WHISH" | "BINANCE";

@@ -198,6 +198,18 @@ contextBridge.exposeInMainWorld("api", {
     note?: string;
   }) => ipcRenderer.invoke("exchange:add-transaction", data),
   getExchangeHistory: () => ipcRenderer.invoke("exchange:get-history"),
+
+  // Binance
+  addBinanceTransaction: (data: {
+    type: "SEND" | "RECEIVE";
+    amount: number;
+    currencyCode?: string;
+    description?: string;
+    clientName?: string;
+  }) => ipcRenderer.invoke("binance:add-transaction", data),
+  getBinanceHistory: (limit?: number) =>
+    ipcRenderer.invoke("binance:get-history", limit),
+  getBinanceTodayStats: () => ipcRenderer.invoke("binance:get-today-stats"),
   rates: {
     list: () => ipcRenderer.invoke("rates:list"),
     set: (from_code: string, to_code: string, rate: number) =>

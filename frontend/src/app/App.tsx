@@ -13,9 +13,13 @@ import Services from "../features/services/pages/Services";
 import Recharge from "../features/recharge/pages/Recharge";
 import Expenses from "../features/expenses/pages/Expenses";
 import Maintenance from "../features/maintenance/pages/Maintenance";
+import Binance from "../features/binance/pages/Binance";
+import IKWServices from "../features/ikw-services/pages/IKWServices";
 import Settings from "../features/settings/pages/Settings";
 import MainLayout from "../shared/components/layouts/MainLayout";
 import "../index.css";
+import { ApiProvider } from "@liratek/ui";
+import { backendApiAdapter } from "../api/adapter";
 
 // Wrapper for protected routes
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -121,6 +125,22 @@ function AppRoutes() {
         }
       />
       <Route
+        path="/binance"
+        element={
+          <ProtectedRoute>
+            <Binance />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/ikw-services"
+        element={
+          <ProtectedRoute>
+            <IKWServices />
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/expenses"
         element={
           <ProtectedRoute>
@@ -146,11 +166,13 @@ function App() {
   return (
     // HashRouter is recommended for Electron to avoid path issues in production
     <HashRouter>
-      <AuthProvider>
-        <SessionProvider>
-          <AppRoutes />
-        </SessionProvider>
-      </AuthProvider>
+      <ApiProvider adapter={backendApiAdapter}>
+        <AuthProvider>
+          <SessionProvider>
+            <AppRoutes />
+          </SessionProvider>
+        </AuthProvider>
+      </ApiProvider>
     </HashRouter>
   );
 }

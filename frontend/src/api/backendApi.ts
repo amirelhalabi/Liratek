@@ -317,6 +317,46 @@ export async function addExchangeTransaction(payload: any) {
   );
 }
 
+// Binance
+export async function getBinanceHistory(limit?: number) {
+  if (isElectron()) {
+    return (window as any).api.getBinanceHistory(limit);
+  }
+  const qs = new URLSearchParams();
+  if (limit) qs.set("limit", String(limit));
+  const res = await requestJson<{ success: boolean; history: any[] }>(
+    `/api/binance/history?${qs.toString()}`,
+  );
+  return res.history;
+}
+
+export async function getBinanceTodayStats() {
+  if (isElectron()) {
+    return (window as any).api.getBinanceTodayStats();
+  }
+  const res = await requestJson<{
+    success: boolean;
+    stats: { totalSent: number; totalReceived: number; count: number };
+  }>(`/api/binance/today-stats`);
+  return res.stats;
+}
+
+export async function addBinanceTransaction(payload: {
+  type: "SEND" | "RECEIVE";
+  amount: number;
+  currencyCode?: string;
+  description?: string;
+  clientName?: string;
+}) {
+  if (isElectron()) {
+    return (window as any).api.addBinanceTransaction(payload);
+  }
+  return requestJson<{ success: boolean; id?: number; error?: string }>(
+    `/api/binance/transactions`,
+    { method: "POST", body: payload },
+  );
+}
+
 // Expenses
 export async function getTodayExpenses() {
   if (isElectron()) {
@@ -1131,6 +1171,7 @@ export async function listSessions(limit = 50, offset = 0) {
 }
 
 export async function linkTransactionToSession(data: {
+  sessionId: number;
   transactionType: string;
   transactionId: number;
   amountUsd: number;

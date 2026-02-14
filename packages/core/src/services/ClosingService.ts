@@ -44,8 +44,8 @@ export interface UpdateClosingData {
 export class ClosingService {
   private repo: ClosingRepository;
 
-  constructor() {
-    this.repo = getClosingRepository();
+  constructor(repo?: ClosingRepository) {
+    this.repo = repo ?? getClosingRepository();
   }
 
   /**
@@ -120,6 +120,9 @@ export class ClosingService {
         binanceDrawer: { usd: 0, lbp: 0, eur: 0 },
         mtcDrawer: { usd: 0, lbp: 0, eur: 0 },
         alfaDrawer: { usd: 0, lbp: 0, eur: 0 },
+        ipecDrawer: { usd: 0, lbp: 0, eur: 0 },
+        katchDrawer: { usd: 0, lbp: 0, eur: 0 },
+        wishAppDrawer: { usd: 0, lbp: 0, eur: 0 },
       };
     }
   }

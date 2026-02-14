@@ -3,23 +3,26 @@
  */
 
 import { jest } from "@jest/globals";
+
+jest.mock("@liratek/core", () => {
+  const actual =
+    jest.requireActual<typeof import("@liratek/core")>("@liratek/core");
+  return {
+    ...actual,
+    getRechargeRepository: jest.fn(),
+    RechargeRepository: jest.fn(),
+  };
+});
+
 import {
   RechargeService,
   getRechargeService,
   resetRechargeService,
-} from "../RechargeService";
-import {
   RechargeRepository,
   getRechargeRepository,
   type VirtualStock,
   type RechargeData,
-} from "../../database/repositories";
-
-// Mock the repository module
-jest.mock("../../database/repositories", () => ({
-  getRechargeRepository: jest.fn(),
-  RechargeRepository: jest.fn(),
-}));
+} from "@liratek/core";
 
 describe("RechargeService", () => {
   let service: RechargeService;

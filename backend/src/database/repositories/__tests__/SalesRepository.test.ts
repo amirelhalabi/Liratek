@@ -1,5 +1,5 @@
 import { jest } from "@jest/globals";
-import { SalesRepository } from "../SalesRepository";
+import { SalesRepository } from "@liratek/core";
 import { resetAllMocks } from "../../../__mocks__/better-sqlite3";
 
 jest.mock("better-sqlite3");

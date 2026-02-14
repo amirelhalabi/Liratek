@@ -484,8 +484,8 @@ These should NOT work in web mode:
 
 ## 📝 Test Results Log
 
-**Tester:** ********\_********  
-**Date:** ********\_********  
+**Tester:** **\*\*\*\***\_**\*\*\*\***  
+**Date:** **\*\*\*\***\_**\*\*\*\***  
 **Mode Tested:** Desktop / Web (circle one)
 
 ### Issues Found:

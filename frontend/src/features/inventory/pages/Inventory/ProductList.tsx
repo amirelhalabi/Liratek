@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { Plus, Search, Package, Edit2, Trash2 } from "lucide-react";
 import { useAuth } from "../../../auth/context/AuthContext";
-import PageHeader from "../../../../shared/components/layouts/PageHeader";
+import { PageHeader } from "@liratek/ui";
 import ProductForm from "./ProductForm";
-import type { Product } from "../../../../types";
+import type { Product } from "@liratek/ui";
 import * as api from "../../../../api/backendApi";
 
 export default function ProductList() {

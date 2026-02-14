@@ -42,6 +42,9 @@ export interface SystemExpectedBalances {
   binanceDrawer: DrawerBalances;
   mtcDrawer: DrawerBalances;
   alfaDrawer: DrawerBalances;
+  ipecDrawer: DrawerBalances;
+  katchDrawer: DrawerBalances;
+  wishAppDrawer: DrawerBalances;
 }
 
 export interface DailyStatsSnapshot {
@@ -320,11 +323,26 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
       },
       binanceDrawer: {
         usd: getBalance("Binance", "USD"),
-        lbp: getBalance("Binance", "LBP"),
+        lbp: 0,
         eur: 0,
       },
       mtcDrawer: { usd: getBalance("MTC", "USD"), lbp: 0, eur: 0 },
       alfaDrawer: { usd: getBalance("Alfa", "USD"), lbp: 0, eur: 0 },
+      ipecDrawer: {
+        usd: getBalance("IPEC", "USD"),
+        lbp: getBalance("IPEC", "LBP"),
+        eur: 0,
+      },
+      katchDrawer: {
+        usd: getBalance("Katch", "USD"),
+        lbp: getBalance("Katch", "LBP"),
+        eur: 0,
+      },
+      wishAppDrawer: {
+        usd: getBalance("Wish_App_Money", "USD"),
+        lbp: getBalance("Wish_App_Money", "LBP"),
+        eur: 0,
+      },
     };
   }
 

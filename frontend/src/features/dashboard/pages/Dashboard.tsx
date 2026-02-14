@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { appEvents } from "../../../shared/utils/appEvents";
+import { appEvents, PageHeader } from "@liratek/ui";
 import {
   DollarSign,
   Users,
@@ -8,7 +8,6 @@ import {
   BarChart2,
   Package,
 } from "lucide-react";
-import PageHeader from "../../../shared/components/layouts/PageHeader";
 import {
   LineChart,
   Line,
@@ -18,9 +17,8 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
-  BarChart,
-  Bar,
 } from "recharts";
+import * as api from "../../../api/backendApi";
 type ChartType = "Sales" | "Profit";
 
 export default function Dashboard() {
@@ -56,12 +54,21 @@ export default function Dashboard() {
   };
   type DebtSummary = {
     totalDebt: number;
-    topDebtors: { full_name: string; total_debt: number }[];
+    totalDebtUsd: number;
+    totalDebtLbp: number;
+    topDebtors: {
+      full_name: string;
+      total_debt: number;
+      total_debt_usd: number;
+      total_debt_lbp: number;
+    }[];
   };
   const [chartData, setChartData] = useState<ChartPoint[]>([]);
   const [todaysSales, setTodaysSales] = useState<TodaySale[]>([]);
   const [debtSummary, setDebtSummary] = useState<DebtSummary>({
     totalDebt: 0,
+    totalDebtUsd: 0,
+    totalDebtLbp: 0,
     topDebtors: [],
   });
   const [chartType, setChartType] = useState<ChartType>("Sales");
@@ -92,19 +99,16 @@ export default function Dashboard() {
             window.api.getRechargeStock(),
             window.api.getMonthlyPL(new Date().toISOString().slice(0, 7)),
           ])
-        : await (async () => {
-            const api = await import("../../../api/backendApi");
-            return Promise.all([
-              api.getDashboardStats(),
-              api.getProfitSalesChart(chartType),
-              api.getTodaysSales(),
-              api.getDrawerBalances(),
-              api.getDebtSummary(),
-              api.getInventoryStockStats(),
-              api.getRechargeStock(),
-              api.getMonthlyPL(new Date().toISOString().slice(0, 7)),
-            ]);
-          })();
+        : await Promise.all([
+            api.getDashboardStats(),
+            api.getProfitSalesChart(chartType),
+            api.getTodaysSales(),
+            api.getDrawerBalances(),
+            api.getDebtSummary(),
+            api.getInventoryStockStats(),
+            api.getRechargeStock(),
+            api.getMonthlyPL(new Date().toISOString().slice(0, 7)),
+          ]);
 
       setStats({
         ...statsData,
@@ -196,7 +200,8 @@ export default function Dashboard() {
     },
     {
       label: "Total Debt",
-      singleValue: `$${debtSummary.totalDebt.toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
+      usdValue: debtSummary.totalDebtUsd,
+      lbpValue: debtSummary.totalDebtLbp,
       icon: Users,
       color: "text-red-400",
       bg: "bg-red-400/10",
@@ -288,7 +293,7 @@ export default function Dashboard() {
                     <p className="text-base font-bold text-emerald-400">
                       $
                       {stat.usdValue.toLocaleString(undefined, {
-                        maximumFractionDigits: 0,
+                        maximumFractionDigits: 2,
                       })}
                     </p>
                   </div>
@@ -331,7 +336,7 @@ export default function Dashboard() {
                     <p className="text-base font-bold text-emerald-400">
                       $
                       {stat.usdValue.toLocaleString(undefined, {
-                        maximumFractionDigits: 0,
+                        maximumFractionDigits: 2,
                       })}
                     </p>
                   </div>
@@ -475,47 +480,33 @@ export default function Dashboard() {
                 <BarChart2 size={16} className="text-red-400" />
                 Top Debtors
               </h3>
-              <div className="flex-1">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={debtSummary.topDebtors}
-                    layout="vertical"
-                    margin={{ top: 0, right: 30, left: 0, bottom: 0 }}
-                  >
-                    <XAxis type="number" hide />
-                    <YAxis
-                      dataKey="full_name"
-                      type="category"
-                      axisLine={false}
-                      tickLine={false}
-                      tick={{ fill: "#a1a1aa", fontSize: 12 }}
-                      width={80}
-                      style={{
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    />
-                    <Tooltip
-                      cursor={{ fill: "rgba(156, 163, 175, 0.1)" }}
-                      formatter={(value) =>
-                        typeof value === "number"
-                          ? `${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
-                          : value
-                      }
-                      contentStyle={{
-                        backgroundColor: "rgba(30, 41, 59, 0.9)",
-                        borderColor: "#475569",
-                      }}
-                    />
-                    <Bar
-                      dataKey="total_debt"
-                      name="Debt"
-                      fill="#ef4444"
-                      barSize={10}
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
+              <div className="flex-1 min-h-[150px] overflow-y-auto space-y-2">
+                {debtSummary.topDebtors.length > 0 ? (
+                  debtSummary.topDebtors.map((debtor, i) => (
+                    <div
+                      key={i}
+                      className="flex items-center justify-between p-2.5 bg-slate-700/20 rounded-lg"
+                    >
+                      <span className="text-sm text-slate-300 truncate mr-3">
+                        {debtor.full_name}
+                      </span>
+                      <div className="text-right shrink-0">
+                        <span className="text-sm font-bold text-red-400">
+                          ${debtor.total_debt_usd.toFixed(2)}
+                        </span>
+                        {debtor.total_debt_lbp !== 0 && (
+                          <span className="text-xs text-red-400/70 ml-2">
+                            {debtor.total_debt_lbp.toLocaleString()} LBP
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="flex items-center justify-center h-full text-slate-500 text-sm">
+                    No debtors
+                  </div>
+                )}
               </div>
             </div>
 

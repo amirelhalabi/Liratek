@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { appEvents } from "../../../../shared/utils/appEvents";
+import { appEvents } from "@liratek/ui";
 import * as api from "../../../../api/backendApi";
 
 export default function DrawerConfig() {

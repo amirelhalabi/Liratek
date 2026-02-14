@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { TrendingUp, PieChart as PieChartIcon, Activity } from "lucide-react";
-import PageHeader from "../../../shared/components/layouts/PageHeader";
+import { PageHeader } from "@liratek/ui";
 import {
   ResponsiveContainer,
   PieChart,

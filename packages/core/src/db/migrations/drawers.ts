@@ -13,6 +13,9 @@ export const CANONICAL_DRAWERS: string[] = [
   "Binance",
   "MTC",
   "Alfa",
+  "IPEC",
+  "Katch",
+  "Wish_App_Money",
 ];
 
 const CURRENCIES: string[] = ["USD", "LBP"];

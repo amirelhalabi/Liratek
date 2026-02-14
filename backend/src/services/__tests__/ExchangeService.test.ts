@@ -3,23 +3,26 @@
  */
 
 import { jest } from "@jest/globals";
+
+jest.mock("@liratek/core", () => {
+  const actual =
+    jest.requireActual<typeof import("@liratek/core")>("@liratek/core");
+  return {
+    ...actual,
+    getExchangeRepository: jest.fn(),
+    ExchangeRepository: jest.fn(),
+  };
+});
+
 import {
   ExchangeService,
   getExchangeService,
   resetExchangeService,
-} from "../ExchangeService";
-import {
   ExchangeRepository,
   getExchangeRepository,
   type CreateExchangeData,
   type ExchangeTransactionEntity,
-} from "../../database/repositories";
-
-// Mock the repository module
-jest.mock("../../database/repositories", () => ({
-  getExchangeRepository: jest.fn(),
-  ExchangeRepository: jest.fn(),
-}));
+} from "@liratek/core";
 
 describe("ExchangeService", () => {
   let service: ExchangeService;

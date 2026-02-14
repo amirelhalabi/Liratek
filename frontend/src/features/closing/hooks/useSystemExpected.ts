@@ -42,6 +42,9 @@ export function useSystemExpected() {
         Binance: "binanceDrawer",
         MTC: "mtcDrawer",
         Alfa: "alfaDrawer",
+        IPEC: "ipecDrawer",
+        Katch: "katchDrawer",
+        Wish_App_Money: "wishAppDrawer",
       };
 
       const drawerKey = drawerKeyMap[drawer] ?? ("generalDrawer" as const);

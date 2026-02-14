@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect } from "react";
 import type { ReactNode } from "react";
-import { appEvents } from "../../../shared/utils/appEvents";
+import { appEvents } from "@liratek/ui";
 import * as api from "../../../api/backendApi";
 
 interface User {
@@ -92,8 +92,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // Web mode: try backend session
           console.warn("Running in web mode - using backend API");
           try {
-            const { me } = await import("../../../api/backendApi");
-            const result = await me();
+            const result = await api.me();
             if (result.success && result.user) {
               setUser(result.user);
             }

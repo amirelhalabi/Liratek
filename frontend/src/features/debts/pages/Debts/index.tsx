@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   Search,
   User,
@@ -9,11 +9,8 @@ import {
   Eye,
   X as CloseIcon,
 } from "lucide-react";
-import PageHeader from "../../../../shared/components/layouts/PageHeader";
+import { PageHeader, EXCHANGE_RATE, roundLBPUp, Select } from "@liratek/ui";
 import { useAuth } from "@/features/auth/context/AuthContext";
-import { EXCHANGE_RATE } from "@/config/constants";
-import { roundLBPUp } from "@/config/denominations";
-import Select from "../../../../shared/components/ui/Select";
 import * as api from "../../../../api/backendApi";
 
 type DebtFilter = "ongoing" | "closed" | "all";
@@ -26,6 +23,8 @@ export default function Debts() {
     full_name: string;
     phone_number?: string;
     total_debt: number;
+    total_debt_usd: number;
+    total_debt_lbp: number;
   };
   type DebtHistoryItem = {
     id: number;
@@ -84,10 +83,7 @@ export default function Debts() {
       // Now getDebtors returns all clients with debt history
       const data = window.api
         ? await window.api.getDebtors()
-        : await (async () => {
-            const { getDebtors } = await import("../../../../api/backendApi");
-            return getDebtors();
-          })();
+        : await api.getDebtors();
       setDebtors(data);
     } catch (error) {
       console.error("Failed to load debtors:", error);
@@ -98,11 +94,7 @@ export default function Debts() {
     try {
       const data = window.api
         ? await window.api.getClientDebtHistory(clientId)
-        : await (async () => {
-            const { getClientDebtHistory } =
-              await import("../../../../api/backendApi");
-            return getClientDebtHistory(clientId);
-          })();
+        : await api.getClientDebtHistory(clientId);
       setHistory(data);
       // Reset sort to default (desc) when loading new client
       setDateSortOrder("desc");
@@ -111,17 +103,46 @@ export default function Debts() {
     }
   };
 
-  // Sorted history based on current sort order
-  const sortedHistory = useMemo(() => {
-    if (!history.length) return [];
-    const sorted = [...history];
-    sorted.sort((a, b) => {
-      const dateA = new Date(a.created_at).getTime();
-      const dateB = new Date(b.created_at).getTime();
-      return dateSortOrder === "desc" ? dateB - dateA : dateA - dateB;
-    });
-    return sorted;
+  // Split history into debts (purchases) and payments (repayments)
+  const debtEntries = useMemo(() => {
+    return [...history]
+      .filter((item) => item.amount_usd > 0 || item.amount_lbp > 0)
+      .sort((a, b) => {
+        const dateA = new Date(a.created_at).getTime();
+        const dateB = new Date(b.created_at).getTime();
+        return dateSortOrder === "desc" ? dateB - dateA : dateA - dateB;
+      });
   }, [history, dateSortOrder]);
+
+  const paymentEntries = useMemo(() => {
+    return [...history]
+      .filter((item) => item.amount_usd < 0 || item.amount_lbp < 0)
+      .sort((a, b) => {
+        const dateA = new Date(a.created_at).getTime();
+        const dateB = new Date(b.created_at).getTime();
+        return dateSortOrder === "desc" ? dateB - dateA : dateA - dateB;
+      });
+  }, [history, dateSortOrder]);
+
+  const debtTotals = useMemo(() => {
+    return debtEntries.reduce(
+      (acc, item) => ({
+        usd: acc.usd + (item.amount_usd > 0 ? item.amount_usd : 0),
+        lbp: acc.lbp + (item.amount_lbp > 0 ? item.amount_lbp : 0),
+      }),
+      { usd: 0, lbp: 0 },
+    );
+  }, [debtEntries]);
+
+  const paymentTotals = useMemo(() => {
+    return paymentEntries.reduce(
+      (acc, item) => ({
+        usd: acc.usd + Math.abs(item.amount_usd < 0 ? item.amount_usd : 0),
+        lbp: acc.lbp + Math.abs(item.amount_lbp < 0 ? item.amount_lbp : 0),
+      }),
+      { usd: 0, lbp: 0 },
+    );
+  }, [paymentEntries]);
 
   const toggleDateSort = () => {
     setDateSortOrder((prev) => (prev === "desc" ? "asc" : "desc"));
@@ -131,11 +152,7 @@ export default function Debts() {
     try {
       const total = window.api
         ? await window.api.getClientDebtTotal(clientId)
-        : await (async () => {
-            const { getClientDebtTotal } =
-              await import("../../../../api/backendApi");
-            return getClientDebtTotal(clientId);
-          })();
+        : await api.getClientDebtTotal(clientId);
       setTotalDebt(total || 0);
     } catch (error) {
       console.error("Failed to load client total:", error);
@@ -211,19 +228,16 @@ export default function Debts() {
             note: repayNote,
             ...(user?.id != null ? { userId: user.id } : {}),
           } as any)
-        : await (async () => {
-            const { addRepayment } = await import("../../../../api/backendApi");
-            return addRepayment({
-              client_id: selectedClient.id,
-              amount_usd: totalDebtReductionUSD,
-              amount_lbp: debtReductionLBP,
-              paid_amount_usd: paidUSD,
-              paid_amount_lbp: paidLBP,
-              drawer_name: "General",
-              note: repayNote,
-              ...(user?.id != null ? { user_id: user.id } : {}),
-            });
-          })();
+        : await api.addRepayment({
+            client_id: selectedClient.id,
+            amount_usd: totalDebtReductionUSD,
+            amount_lbp: debtReductionLBP,
+            paid_amount_usd: paidUSD,
+            paid_amount_lbp: paidLBP,
+            drawer_name: "General",
+            note: repayNote,
+            ...(user?.id != null ? { user_id: user.id } : {}),
+          });
 
       if (result.success) {
         alert("Repayment processed!");
@@ -238,11 +252,7 @@ export default function Debts() {
         // Check if client still has debt after repayment
         const updatedTotal = window.api
           ? await window.api.getClientDebtTotal(selectedClient.id)
-          : await (async () => {
-              const { getClientDebtTotal } =
-                await import("../../../../api/backendApi");
-              return getClientDebtTotal(selectedClient.id);
-            })();
+          : await api.getClientDebtTotal(selectedClient.id);
 
         if (updatedTotal > 0.01) {
           // Client still has debt, reload their history
@@ -293,7 +303,7 @@ export default function Debts() {
 
       <div className="flex h-full min-h-0 gap-6 overflow-hidden">
         {/* Left: Debtors List */}
-        <div className="w-1/3 flex flex-col bg-slate-800 rounded-xl border border-slate-700 shadow-xl overflow-hidden">
+        <div className="w-[280px] min-w-[280px] flex flex-col bg-slate-800 rounded-xl border border-slate-700 shadow-xl overflow-hidden">
           <div className="p-4 border-b border-slate-700 space-y-4">
             <div className="relative">
               <Search
@@ -349,8 +359,15 @@ export default function Debts() {
                       {client.phone_number || "No Phone"}
                     </div>
                   </div>
-                  <div className="text-red-400 font-bold">
-                    ${client.total_debt.toFixed(2)}
+                  <div className="text-right">
+                    <div className="text-red-400 font-bold text-sm">
+                      ${client.total_debt_usd.toFixed(2)}
+                    </div>
+                    {client.total_debt_lbp !== 0 && (
+                      <div className="text-red-400/70 text-xs font-medium">
+                        {client.total_debt_lbp.toLocaleString()} LBP
+                      </div>
+                    )}
                   </div>
                 </div>
               </button>
@@ -367,30 +384,21 @@ export default function Debts() {
         <div className="flex-1 flex flex-col bg-slate-800 rounded-xl border border-slate-700 shadow-xl overflow-hidden">
           {selectedClient ? (
             <>
-              <div className="p-6 border-b border-slate-700 flex justify-between items-center bg-slate-800/50">
+              <div className="px-5 py-3 border-b border-slate-700 flex justify-between items-center bg-slate-800/50">
                 <div>
-                  <h2 className="text-2xl font-bold text-white">
+                  <h2 className="text-xl font-bold text-white">
                     {selectedClient.full_name}
                   </h2>
-                  <p className="text-slate-400">
+                  <p className="text-slate-400 text-sm">
                     Total Debt:{" "}
                     <span className="text-red-400 font-bold">
-                      ${totalDebt.toFixed(2)}
+                      ${(debtTotals.usd - paymentTotals.usd).toFixed(2)}
                     </span>
-                    {totalDebt > 0 &&
-                      (() => {
-                        const integerUSD = Math.floor(totalDebt);
-                        const fractionUSD = totalDebt - integerUSD;
-                        const rawLBP = fractionUSD * EXCHANGE_RATE;
-                        const roundedLBP = roundLBPUp(rawLBP);
-
-                        return (
-                          <span className="text-xs text-slate-500 ml-2">
-                            (i.e., ${integerUSD.toLocaleString()} +{" "}
-                            {roundedLBP.toLocaleString()} LBP)
-                          </span>
-                        );
-                      })()}
+                    <span className="text-slate-500 mx-1.5">|</span>
+                    <span className="text-red-400 font-bold">
+                      {(debtTotals.lbp - paymentTotals.lbp).toLocaleString()}{" "}
+                      LBP
+                    </span>
                   </p>
                 </div>
                 <button
@@ -413,150 +421,228 @@ export default function Debts() {
                 </button>
               </div>
 
-              <div className="flex-1 overflow-y-auto p-6">
-                <table className="w-full">
-                  <thead className="text-left text-slate-400 border-b border-slate-700">
-                    <tr>
-                      <th className="pb-3 text-sm font-medium">
-                        <button
-                          onClick={toggleDateSort}
-                          className="flex items-center gap-1 hover:text-slate-200 transition-colors group"
-                        >
-                          Date
-                          {dateSortOrder === "desc" ? (
-                            <ChevronDown
-                              size={16}
-                              className="text-slate-500 group-hover:text-slate-300"
-                            />
-                          ) : (
-                            <ChevronUp
-                              size={16}
-                              className="text-slate-500 group-hover:text-slate-300"
-                            />
-                          )}
-                        </button>
-                      </th>
-                      <th className="pb-3 text-sm font-medium">Type</th>
-                      <th className="pb-3 text-sm font-medium">Note</th>
-                      <th className="pb-3 text-sm font-medium text-center">
-                        Details
-                      </th>
-                      <th
-                        className="pb-3 text-sm font-medium text-center"
-                        colSpan={2}
-                      >
-                        Amount
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-700/50">
-                    {sortedHistory.map((item, index) => {
-                      // Show "Paid Fully" breakpoint if this is the transition from unpaid to paid
-                      const showPaidFullyBreakpoint =
-                        index > 0 &&
-                        sortedHistory[index - 1].is_paid === false &&
-                        item.is_paid === true;
-
-                      return (
-                        <React.Fragment key={item.id}>
-                          {/* Paid Fully Breakpoint */}
-                          {showPaidFullyBreakpoint && (
-                            <tr>
-                              <td colSpan={4} className="py-3">
-                                <div className="flex items-center gap-3 text-emerald-400">
-                                  <div className="flex-1 h-px bg-emerald-500/30"></div>
-                                  <span className="text-xs font-bold px-3 py-1 bg-emerald-500/10 rounded-full">
-                                    PAID FULLY
-                                  </span>
-                                  <div className="flex-1 h-px bg-emerald-500/30"></div>
-                                </div>
-                              </td>
-                            </tr>
-                          )}
-                          <tr className="group hover:bg-slate-700/20">
-                            <td className="py-3 text-slate-300">
+              {/* Two Tables Side by Side */}
+              <div className="flex-1 flex gap-4 p-4 overflow-hidden">
+                {/* Left: Purchases (Debts) */}
+                <div className="flex-1 flex flex-col bg-slate-900/40 rounded-lg border border-slate-700/50 overflow-hidden">
+                  <div className="px-4 py-2.5 border-b border-slate-700/50 flex items-center justify-between">
+                    <h3 className="text-xs font-bold text-red-400 uppercase tracking-wider">
+                      Purchases
+                    </h3>
+                    <span className="text-xs text-slate-500">
+                      {debtEntries.length}
+                    </span>
+                  </div>
+                  <div className="flex-1 overflow-y-auto">
+                    <table className="w-full">
+                      <thead className="sticky top-0 bg-slate-900/95 backdrop-blur-sm text-left text-slate-400 border-b border-slate-700/50">
+                        <tr>
+                          <th className="px-4 py-2 text-xs font-medium">
+                            <button
+                              onClick={toggleDateSort}
+                              className="flex items-center gap-1 hover:text-slate-200 transition-colors"
+                            >
+                              Date
+                              {dateSortOrder === "desc" ? (
+                                <ChevronDown
+                                  size={14}
+                                  className="text-slate-500"
+                                />
+                              ) : (
+                                <ChevronUp
+                                  size={14}
+                                  className="text-slate-500"
+                                />
+                              )}
+                            </button>
+                          </th>
+                          <th className="px-3 py-2 text-xs font-medium">
+                            Note
+                          </th>
+                          <th className="px-3 py-2 text-xs font-medium text-right">
+                            USD
+                          </th>
+                          <th className="px-3 py-2 text-xs font-medium text-right">
+                            LBP
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-700/30">
+                        {debtEntries.map((item) => (
+                          <tr key={item.id} className="hover:bg-slate-800/50">
+                            <td className="px-4 py-2.5 text-slate-300 text-sm whitespace-nowrap">
                               {new Date(item.created_at).toLocaleDateString()}
-                              <div className="text-xs text-slate-500">
+                              <div className="text-[10px] text-slate-500">
                                 {new Date(item.created_at).toLocaleTimeString()}
                               </div>
                             </td>
-                            <td className="py-3">
-                              <span
-                                className={`px-2 py-1 rounded text-xs font-bold ${
-                                  item.amount_usd > 0
-                                    ? "bg-red-500/20 text-red-400"
-                                    : "bg-emerald-500/20 text-emerald-400"
-                                }`}
-                              >
-                                {item.amount_usd > 0 ? "Debt" : "Repayment"}
-                              </span>
+                            <td className="px-3 py-2.5 text-slate-400 text-sm">
+                              <div className="flex items-center gap-1.5">
+                                <span className="truncate max-w-[120px]">
+                                  {item.note || "-"}
+                                </span>
+                                {item.sale_id && (
+                                  <button
+                                    onClick={() =>
+                                      loadSaleDetails(item.sale_id!)
+                                    }
+                                    className="shrink-0 p-1 rounded bg-violet-500/10 hover:bg-violet-500/20 text-violet-400 transition-all"
+                                    title="View Sale Details"
+                                  >
+                                    <Eye size={13} />
+                                  </button>
+                                )}
+                              </div>
                             </td>
-                            <td className="py-3 text-slate-400 text-sm">
-                              {item.note || "-"}
-                            </td>
-                            {/* Details Button */}
-                            <td className="py-3 text-center">
-                              {item.sale_id ? (
-                                <button
-                                  onClick={() => loadSaleDetails(item.sale_id!)}
-                                  className="p-1.5 rounded-lg bg-violet-500/10 hover:bg-violet-500/20 text-violet-400 transition-all"
-                                  title="View Sale Details"
-                                >
-                                  <Eye size={16} />
-                                </button>
+                            <td className="px-3 py-2.5 text-right font-mono text-sm font-bold text-red-400">
+                              {item.amount_usd > 0 ? (
+                                `$${item.amount_usd.toFixed(2)}`
                               ) : (
                                 <span className="text-slate-600">-</span>
                               )}
                             </td>
-                            {/* USD Column */}
-                            <td
-                              className={`py-3 text-center font-mono font-bold ${
-                                item.amount_usd > 0
-                                  ? "text-red-400"
-                                  : item.amount_usd < 0
-                                    ? "text-emerald-400"
-                                    : "text-slate-600"
-                              }`}
-                            >
-                              {item.amount_usd !== 0 &&
-                              Math.abs(item.amount_usd) > 0 ? (
-                                <>
-                                  {item.amount_usd > 0 ? "+" : ""}$
-                                  {Math.abs(item.amount_usd).toFixed(2)}
-                                </>
-                              ) : (
-                                <span className="text-slate-600">-</span>
-                              )}
-                            </td>
-                            {/* LBP Column */}
-                            <td
-                              className={`py-3 text-center font-mono font-bold ${
-                                item.amount_lbp > 0
-                                  ? "text-red-400"
-                                  : item.amount_lbp < 0
-                                    ? "text-emerald-400"
-                                    : "text-slate-600"
-                              }`}
-                            >
-                              {item.amount_lbp !== 0 &&
-                              Math.abs(item.amount_lbp) > 0 ? (
-                                <>
-                                  {item.amount_lbp > 0 ? "+" : ""}
-                                  {Math.abs(
-                                    item.amount_lbp,
-                                  ).toLocaleString()}{" "}
-                                  LBP
-                                </>
+                            <td className="px-3 py-2.5 text-right font-mono text-sm font-bold text-red-400">
+                              {item.amount_lbp > 0 ? (
+                                `${item.amount_lbp.toLocaleString()}`
                               ) : (
                                 <span className="text-slate-600">-</span>
                               )}
                             </td>
                           </tr>
-                        </React.Fragment>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                        ))}
+                        {debtEntries.length === 0 && (
+                          <tr>
+                            <td
+                              colSpan={4}
+                              className="px-4 py-8 text-center text-slate-500 text-sm"
+                            >
+                              No purchases on debt
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                  {/* Footer total */}
+                  <div className="px-4 py-2.5 border-t border-slate-700/50 bg-slate-900/80 flex justify-between items-center">
+                    <span className="text-xs font-bold text-slate-400 uppercase">
+                      Total Owed
+                    </span>
+                    <div className="flex gap-3">
+                      <span className="font-mono text-sm font-bold text-red-400">
+                        ${debtTotals.usd.toFixed(2)}
+                      </span>
+                      {debtTotals.lbp > 0 && (
+                        <span className="font-mono text-sm font-bold text-red-400">
+                          {debtTotals.lbp.toLocaleString()} LBP
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right: Payments (Repayments) */}
+                <div className="flex-1 flex flex-col bg-slate-900/40 rounded-lg border border-slate-700/50 overflow-hidden">
+                  <div className="px-4 py-2.5 border-b border-slate-700/50 flex items-center justify-between">
+                    <h3 className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
+                      Payments
+                    </h3>
+                    <span className="text-xs text-slate-500">
+                      {paymentEntries.length}
+                    </span>
+                  </div>
+                  <div className="flex-1 overflow-y-auto">
+                    <table className="w-full">
+                      <thead className="sticky top-0 bg-slate-900/95 backdrop-blur-sm text-left text-slate-400 border-b border-slate-700/50">
+                        <tr>
+                          <th className="px-4 py-2 text-xs font-medium">
+                            <button
+                              onClick={toggleDateSort}
+                              className="flex items-center gap-1 hover:text-slate-200 transition-colors"
+                            >
+                              Date
+                              {dateSortOrder === "desc" ? (
+                                <ChevronDown
+                                  size={14}
+                                  className="text-slate-500"
+                                />
+                              ) : (
+                                <ChevronUp
+                                  size={14}
+                                  className="text-slate-500"
+                                />
+                              )}
+                            </button>
+                          </th>
+                          <th className="px-3 py-2 text-xs font-medium">
+                            Note
+                          </th>
+                          <th className="px-3 py-2 text-xs font-medium text-right">
+                            USD
+                          </th>
+                          <th className="px-3 py-2 text-xs font-medium text-right">
+                            LBP
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-700/30">
+                        {paymentEntries.map((item) => (
+                          <tr key={item.id} className="hover:bg-slate-800/50">
+                            <td className="px-4 py-2.5 text-slate-300 text-sm whitespace-nowrap">
+                              {new Date(item.created_at).toLocaleDateString()}
+                              <div className="text-[10px] text-slate-500">
+                                {new Date(item.created_at).toLocaleTimeString()}
+                              </div>
+                            </td>
+                            <td className="px-3 py-2.5 text-slate-400 text-sm">
+                              {item.note || "-"}
+                            </td>
+                            <td className="px-3 py-2.5 text-right font-mono text-sm font-bold text-emerald-400">
+                              {Math.abs(item.amount_usd) > 0 ? (
+                                `$${Math.abs(item.amount_usd).toFixed(2)}`
+                              ) : (
+                                <span className="text-slate-600">-</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2.5 text-right font-mono text-sm font-bold text-emerald-400">
+                              {Math.abs(item.amount_lbp) > 0 ? (
+                                `${Math.abs(item.amount_lbp).toLocaleString()}`
+                              ) : (
+                                <span className="text-slate-600">-</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                        {paymentEntries.length === 0 && (
+                          <tr>
+                            <td
+                              colSpan={4}
+                              className="px-4 py-8 text-center text-slate-500 text-sm"
+                            >
+                              No payments recorded
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                  {/* Footer total */}
+                  <div className="px-4 py-2.5 border-t border-slate-700/50 bg-slate-900/80 flex justify-between items-center">
+                    <span className="text-xs font-bold text-slate-400 uppercase">
+                      Total Paid
+                    </span>
+                    <div className="flex gap-3">
+                      <span className="font-mono text-sm font-bold text-emerald-400">
+                        ${paymentTotals.usd.toFixed(2)}
+                      </span>
+                      {paymentTotals.lbp > 0 && (
+                        <span className="font-mono text-sm font-bold text-emerald-400">
+                          {paymentTotals.lbp.toLocaleString()} LBP
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
               </div>
             </>
           ) : (

@@ -165,11 +165,11 @@ export default function Exchange() {
 
       if (result.success) {
         // Link to active session if exists
-        if (activeSession && result.exchange?.id) {
+        if (activeSession && result.id) {
           try {
             await linkTransaction({
               transactionType: "exchange",
-              transactionId: result.exchange.id,
+              transactionId: result.id,
               amountUsd:
                 fromCurrency === "USD" ? inp : toCurrency === "USD" ? out : 0,
               amountLbp:

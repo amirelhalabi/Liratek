@@ -1,14 +1,14 @@
 import { useState, useEffect, useCallback } from "react";
 import { FileText, X, ShoppingCart } from "lucide-react";
-import PageHeader from "../../../../shared/components/layouts/PageHeader";
+import { PageHeader } from "@liratek/ui";
 import ProductSearch from "./components/ProductSearch";
 import Cart from "./components/Cart";
 import CheckoutModal, {
   type PaymentData,
   type CheckoutDraftData,
 } from "./components/CheckoutModal";
-import { appEvents } from "../../../../shared/utils/appEvents";
-import type { Product, CartItem, SaleRequest } from "../../../../types";
+import { appEvents } from "@liratek/ui";
+import type { Product, CartItem, SaleRequest } from "@liratek/ui";
 import * as api from "../../../../api/backendApi";
 import { useSession } from "../../../sessions/context/SessionContext";
 

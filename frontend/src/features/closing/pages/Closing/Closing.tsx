@@ -12,7 +12,7 @@ import { useSystemExpected } from "../../hooks/useSystemExpected";
 import { DrawerCard } from "../../components/DrawerCard";
 import { VarianceCard } from "../../components/VarianceCard";
 import { AlertBanner } from "../../components/AlertBanner";
-import { appEvents } from "../../../../shared/utils/appEvents";
+import { appEvents } from "@liratek/ui";
 import * as api from "../../../../api/backendApi";
 import { useAuth } from "../../../auth/context/AuthContext";
 import { generateClosingReport } from "../../utils/closingReportGenerator";
@@ -137,13 +137,19 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
       (systemExpected?.generalDrawer.usd ?? 0) +
       (systemExpected?.omtDrawer.usd ?? 0) +
       (systemExpected?.mtcDrawer.usd ?? 0) +
-      (systemExpected?.alfaDrawer.usd ?? 0);
+      (systemExpected?.alfaDrawer.usd ?? 0) +
+      (systemExpected?.ipecDrawer.usd ?? 0) +
+      (systemExpected?.katchDrawer.usd ?? 0) +
+      (systemExpected?.wishAppDrawer.usd ?? 0);
 
     const expectedLbp =
       (systemExpected?.generalDrawer.lbp ?? 0) +
       (systemExpected?.omtDrawer.lbp ?? 0) +
       (systemExpected?.mtcDrawer.lbp ?? 0) +
-      (systemExpected?.alfaDrawer.lbp ?? 0);
+      (systemExpected?.alfaDrawer.lbp ?? 0) +
+      (systemExpected?.ipecDrawer.lbp ?? 0) +
+      (systemExpected?.katchDrawer.lbp ?? 0) +
+      (systemExpected?.wishAppDrawer.lbp ?? 0);
 
     const expectedEur =
       (systemExpected?.generalDrawer.eur ?? 0) +
@@ -331,7 +337,9 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {DRAWER_ORDER.map((drawer) => {
                     const drawerCurrencies =
-                      drawer === "MTC" || drawer === "Alfa"
+                      drawer === "MTC" ||
+                      drawer === "Alfa" ||
+                      drawer === "Binance"
                         ? currencies.filter((c) => c.code === "USD")
                         : currencies;
 
@@ -391,7 +399,9 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
 
                   for (const drawer of DRAWER_ORDER) {
                     const drawerCurrencies =
-                      drawer === "MTC" || drawer === "Alfa"
+                      drawer === "MTC" ||
+                      drawer === "Alfa" ||
+                      drawer === "Binance"
                         ? currencies.filter((c) => c.code === "USD")
                         : currencies;
 
@@ -455,7 +465,9 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {DRAWER_ORDER.map((drawer) => {
                           const drawerCurrencies =
-                            drawer === "MTC" || drawer === "Alfa"
+                            drawer === "MTC" ||
+                            drawer === "Alfa" ||
+                            drawer === "Binance"
                               ? currencies.filter((c) => c.code === "USD")
                               : currencies;
 

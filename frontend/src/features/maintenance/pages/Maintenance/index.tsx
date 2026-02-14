@@ -150,11 +150,11 @@ export default function Maintenance() {
     const result = await api.saveMaintenanceJob(jobData);
     if (result.success) {
       // Link to active session if exists
-      if (activeSession && result.job?.id) {
+      if (activeSession && result.id) {
         try {
           await linkTransaction({
             transactionType: "maintenance",
-            transactionId: result.job.id,
+            transactionId: result.id,
             amountUsd: paymentData.final_amount || 0,
             amountLbp: 0,
           });

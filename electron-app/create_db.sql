@@ -276,10 +276,23 @@ CREATE TABLE IF NOT EXISTS exchange_transactions (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- Financial Services (OMT, Whish, etc.)
+-- Binance Transactions (Send/Receive)
+CREATE TABLE IF NOT EXISTS binance_transactions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    type TEXT CHECK(type IN ('SEND', 'RECEIVE')) NOT NULL,
+    amount DECIMAL(15, 2) NOT NULL,
+    currency_code TEXT NOT NULL DEFAULT 'USDT',
+    description TEXT,
+    client_name TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_by INTEGER,
+    FOREIGN KEY (created_by) REFERENCES users(id)
+);
+
+-- Financial Services (OMT, Whish, IPEC, Katch, Wish App, etc.)
 CREATE TABLE IF NOT EXISTS financial_services (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    provider TEXT CHECK(provider IN ('OMT', 'WHISH', 'BOB', 'OTHER')) NOT NULL,
+    provider TEXT CHECK(provider IN ('OMT', 'WHISH', 'BOB', 'OTHER', 'IPEC', 'KATCH', 'WISH_APP')) NOT NULL,
     service_type TEXT CHECK(service_type IN ('SEND', 'RECEIVE', 'BILL_PAYMENT')) NOT NULL,
     amount_usd DECIMAL(10, 2) DEFAULT 0,
     amount_lbp DECIMAL(15, 2) DEFAULT 0,
@@ -329,9 +342,14 @@ INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALU
 INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Whish_App', 'USD', 0);
 INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Whish_App', 'LBP', 0);
 INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Binance', 'USD', 0);
-INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Binance', 'LBP', 0);
 INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('MTC', 'USD', 0);
 INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Alfa', 'USD', 0);
+INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('IPEC', 'USD', 0);
+INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('IPEC', 'LBP', 0);
+INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Katch', 'USD', 0);
+INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Katch', 'LBP', 0);
+INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Wish_App_Money', 'USD', 0);
+INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Wish_App_Money', 'LBP', 0);
 
 -- Daily Closings
 CREATE TABLE IF NOT EXISTS daily_closings (
@@ -408,6 +426,8 @@ CREATE INDEX IF NOT EXISTS idx_activity_logs_created_at ON activity_logs(created
 CREATE INDEX IF NOT EXISTS idx_activity_logs_user_id_created_at ON activity_logs(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_maintenance_status_created_at ON maintenance(status, created_at);
 CREATE INDEX IF NOT EXISTS idx_exchange_transactions_created_at ON exchange_transactions(created_at);
+CREATE INDEX IF NOT EXISTS idx_binance_transactions_created_at ON binance_transactions(created_at);
+CREATE INDEX IF NOT EXISTS idx_binance_transactions_type_created_at ON binance_transactions(type, created_at);
 CREATE INDEX IF NOT EXISTS idx_financial_services_provider_type_created_at ON financial_services(provider, service_type, created_at);
 CREATE INDEX IF NOT EXISTS idx_financial_services_created_at ON financial_services(created_at);
 CREATE INDEX IF NOT EXISTS idx_daily_closings_date ON daily_closings(closing_date);

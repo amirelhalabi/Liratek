@@ -3,24 +3,27 @@
  */
 
 import { jest } from "@jest/globals";
+
+jest.mock("@liratek/core", () => {
+  const actual =
+    jest.requireActual<typeof import("@liratek/core")>("@liratek/core");
+  return {
+    ...actual,
+    getFinancialServiceRepository: jest.fn(),
+    FinancialServiceRepository: jest.fn(),
+  };
+});
+
 import {
   FinancialService,
   getFinancialService,
   resetFinancialService,
-} from "../FinancialService";
-import {
   FinancialServiceRepository,
   getFinancialServiceRepository,
   type CreateFinancialServiceData,
   type FinancialServiceEntity,
   type FinancialServiceAnalytics,
-} from "../../database/repositories";
-
-// Mock the repository module
-jest.mock("../../database/repositories", () => ({
-  getFinancialServiceRepository: jest.fn(),
-  FinancialServiceRepository: jest.fn(),
-}));
+} from "@liratek/core";
 
 describe("FinancialService", () => {
   let service: FinancialService;
@@ -117,6 +120,78 @@ describe("FinancialService", () => {
       const result = service.addTransaction(bobData);
 
       expect(result).toEqual({ success: true, id: 3 });
+    });
+
+    it("should handle IPEC transactions", () => {
+      const ipecData: CreateFinancialServiceData = {
+        provider: "IPEC",
+        serviceType: "SEND",
+        amountUSD: 150,
+        amountLBP: 0,
+        commissionUSD: 7,
+        commissionLBP: 0,
+        note: "IPEC transfer",
+      };
+
+      mockRepo.createTransaction.mockReturnValue({
+        id: 4,
+        drawer: "IPEC",
+      });
+
+      const result = service.addTransaction(ipecData);
+
+      expect(result).toEqual({ success: true, id: 4 });
+      expect(mockRepo.createTransaction).toHaveBeenCalledWith(ipecData);
+      expect(mockRepo.logActivity).toHaveBeenCalledWith(ipecData, "IPEC");
+    });
+
+    it("should handle KATCH transactions", () => {
+      const katchData: CreateFinancialServiceData = {
+        provider: "KATCH",
+        serviceType: "RECEIVE",
+        amountUSD: 80,
+        amountLBP: 500000,
+        commissionUSD: 4,
+        commissionLBP: 200000,
+        note: "Katch receive",
+      };
+
+      mockRepo.createTransaction.mockReturnValue({
+        id: 5,
+        drawer: "Katch",
+      });
+
+      const result = service.addTransaction(katchData);
+
+      expect(result).toEqual({ success: true, id: 5 });
+      expect(mockRepo.createTransaction).toHaveBeenCalledWith(katchData);
+      expect(mockRepo.logActivity).toHaveBeenCalledWith(katchData, "Katch");
+    });
+
+    it("should handle WISH_APP transactions", () => {
+      const wishData: CreateFinancialServiceData = {
+        provider: "WISH_APP",
+        serviceType: "BILL_PAYMENT",
+        amountUSD: 0,
+        amountLBP: 2000000,
+        commissionUSD: 0,
+        commissionLBP: 100000,
+        note: "Wish App bill",
+      };
+
+      mockRepo.createTransaction.mockReturnValue({
+        id: 6,
+        drawer: "Wish_App_Money",
+      });
+
+      const result = service.addTransaction(wishData);
+
+      expect(result).toEqual({ success: true, id: 6 });
+      expect(mockRepo.createTransaction).toHaveBeenCalledWith(wishData);
+      expect(mockRepo.logActivity).toHaveBeenCalledWith(
+        wishData,
+        "Wish_App_Money",
+      );
     });
 
     it("should return error when createTransaction fails", () => {

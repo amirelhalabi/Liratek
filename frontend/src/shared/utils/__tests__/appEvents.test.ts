@@ -1,4 +1,4 @@
-import { appEvents } from "../appEvents";
+import { appEvents } from "@liratek/ui";
 
 test("appEvents on/emit/off works", () => {
   const calls: any[] = [];

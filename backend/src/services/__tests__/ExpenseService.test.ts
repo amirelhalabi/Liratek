@@ -3,21 +3,24 @@
  */
 
 import { jest } from "@jest/globals";
+
+jest.mock("@liratek/core", () => {
+  const actual =
+    jest.requireActual<typeof import("@liratek/core")>("@liratek/core");
+  return {
+    ...actual,
+    getExpenseRepository: jest.fn(),
+  };
+});
+
 import {
   ExpenseService,
   getExpenseService,
   resetExpenseService,
-} from "../ExpenseService";
-import { ExpenseEntity, CreateExpenseData } from "@liratek/core";
-
-jest.mock(
-  "../../../../packages/core/src/repositories/ExpenseRepository",
-  () => ({
-    getExpenseRepository: jest.fn(),
-  }),
-);
-
-import { getExpenseRepository } from "../../../../packages/core/src/repositories/ExpenseRepository";
+  ExpenseEntity,
+  CreateExpenseData,
+  getExpenseRepository,
+} from "@liratek/core";
 
 describe("ExpenseService", () => {
   let service: ExpenseService;
@@ -38,7 +41,7 @@ describe("ExpenseService", () => {
 
     (getExpenseRepository as jest.Mock).mockReturnValue(mockRepo);
 
-    service = new ExpenseService();
+    service = new ExpenseService(mockRepo);
   });
 
   // ===========================================================================

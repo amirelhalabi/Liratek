@@ -123,7 +123,8 @@ router.post("/:id/close", async (req: Request, res: Response) => {
  */
 router.post("/link-transaction", async (req: Request, res: Response) => {
   try {
-    const { transactionType, transactionId, amountUsd, amountLbp } = req.body;
+    const { sessionId, transactionType, transactionId, amountUsd, amountLbp } =
+      req.body;
 
     if (!transactionType || !transactionId) {
       return res.status(400).json({
@@ -132,12 +133,20 @@ router.post("/link-transaction", async (req: Request, res: Response) => {
       });
     }
 
-    const result = await sessionService.linkTransactionToActiveSession(
-      transactionType,
-      transactionId,
-      amountUsd || 0,
-      amountLbp || 0,
-    );
+    const result = sessionId
+      ? await sessionService.linkTransactionToSession(
+          sessionId,
+          transactionType,
+          transactionId,
+          amountUsd || 0,
+          amountLbp || 0,
+        )
+      : await sessionService.linkTransactionToActiveSession(
+          transactionType,
+          transactionId,
+          amountUsd || 0,
+          amountLbp || 0,
+        );
 
     return res.json(result);
   } catch (err: any) {

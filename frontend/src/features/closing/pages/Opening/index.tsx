@@ -193,7 +193,9 @@ export default function Opening({ isOpen, onClose }: OpeningProps) {
                 {DRAWER_ORDER.map((drawer) => {
                   // MTC and Alfa only use USD (credits stored in shop's phone)
                   const drawerCurrencies =
-                    drawer === "MTC" || drawer === "Alfa"
+                    drawer === "MTC" ||
+                    drawer === "Alfa" ||
+                    drawer === "Binance"
                       ? currencies.filter((c) => c.code === "USD")
                       : currencies;
 

@@ -111,6 +111,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
           selling_price_usd as retail_price
         FROM ${this.tableName} 
         WHERE is_active = 1
+          AND item_type NOT IN ('Virtual_MTC', 'Virtual_Alfa')
       `;
       const params: (string | number)[] = [];
 

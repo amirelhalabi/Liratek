@@ -32,7 +32,7 @@ jest.mock("../../../hooks/useSystemExpected", () => ({
 }));
 
 const emitSpy = jest.fn();
-jest.mock("../../../../../shared/utils/appEvents", () => ({
+jest.mock("@liratek/ui", () => ({
   appEvents: {
     emit: (...args: any[]) => emitSpy(...args),
     on: jest.fn(() => () => {}),

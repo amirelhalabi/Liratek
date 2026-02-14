@@ -62,9 +62,7 @@ export class CustomerSessionService {
   /**
    * Get session by ID with its transactions
    */
-  async getSessionDetails(
-    sessionId: number,
-  ): Promise<{
+  async getSessionDetails(sessionId: number): Promise<{
     success: boolean;
     session?: CustomerSession;
     transactions?: SessionTransaction[];
@@ -132,6 +130,35 @@ export class CustomerSessionService {
       return { success: true };
     } catch (err: any) {
       return { success: false, error: err?.message ?? "Unknown error" };
+    }
+  }
+
+  /**
+   * Link a transaction to a specific session by ID
+   */
+  async linkTransactionToSession(
+    sessionId: number,
+    transactionType: string,
+    transactionId: number,
+    amountUsd: number,
+    amountLbp: number,
+  ): Promise<{ success: boolean; linked: boolean; error?: string }> {
+    try {
+      const repo = getCustomerSessionRepository();
+      repo.linkTransaction(
+        sessionId,
+        transactionType,
+        transactionId,
+        amountUsd,
+        amountLbp,
+      );
+      return { success: true, linked: true };
+    } catch (err: any) {
+      return {
+        success: false,
+        linked: false,
+        error: err?.message ?? "Unknown error",
+      };
     }
   }
 

@@ -3,22 +3,24 @@
  */
 
 import { jest } from "@jest/globals";
+
+jest.mock("@liratek/core", () => {
+  const actual =
+    jest.requireActual<typeof import("@liratek/core")>("@liratek/core");
+  return {
+    ...actual,
+    getActivityRepository: jest.fn(),
+  };
+});
+
 import {
   ActivityService,
   getActivityService,
   resetActivityService,
-} from "../ActivityService";
-import { ActivityLogEntity, SyncErrorEntity } from "@liratek/core";
-
-// Mock the core repository module used by @liratek/core ActivityService
-jest.mock(
-  "../../../../packages/core/src/repositories/ActivityRepository",
-  () => ({
-    getActivityRepository: jest.fn(),
-  }),
-);
-
-import { getActivityRepository } from "../../../../packages/core/src/repositories/ActivityRepository";
+  ActivityLogEntity,
+  SyncErrorEntity,
+  getActivityRepository,
+} from "@liratek/core";
 
 describe("ActivityService", () => {
   let service: ActivityService;
@@ -36,7 +38,7 @@ describe("ActivityService", () => {
     };
 
     (getActivityRepository as jest.Mock).mockReturnValue(mockRepo);
-    service = new ActivityService();
+    service = new ActivityService(mockRepo);
   });
 
   // ===========================================================================

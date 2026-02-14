@@ -97,6 +97,18 @@ export type {
   CreateExchangeData,
 } from "./ExchangeRepository.js";
 
+// Binance Repository
+export {
+  BinanceRepository,
+  getBinanceRepository,
+  resetBinanceRepository,
+} from "./BinanceRepository.js";
+export type {
+  BinanceTransactionEntity,
+  CreateBinanceTransactionData,
+  BinanceTodayStats,
+} from "./BinanceRepository.js";
+
 // Financial Service Repository (OMT, WHISH, BOB)
 export {
   FinancialServiceRepository,

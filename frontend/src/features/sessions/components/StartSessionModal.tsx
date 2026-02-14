@@ -3,7 +3,7 @@ import type { FormEvent } from "react";
 import { useSession } from "../context/SessionContext";
 import { User, X } from "lucide-react";
 import * as api from "../../../api/backendApi";
-import type { Client } from "../../../types";
+import type { Client } from "@liratek/ui";
 
 interface StartSessionModalProps {
   isOpen: boolean;

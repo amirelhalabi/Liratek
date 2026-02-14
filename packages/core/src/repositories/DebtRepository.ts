@@ -28,15 +28,21 @@ export interface DebtorSummary {
   full_name: string;
   phone_number: string;
   total_debt: number;
+  total_debt_usd: number;
+  total_debt_lbp: number;
 }
 
 export interface TopDebtor {
   full_name: string;
   total_debt: number;
+  total_debt_usd: number;
+  total_debt_lbp: number;
 }
 
 export interface DebtSummary {
   totalDebt: number;
+  totalDebtUsd: number;
+  totalDebtLbp: number;
   topDebtors: TopDebtor[];
 }
 
@@ -78,7 +84,9 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         c.id, 
         c.full_name, 
         c.phone_number,
-        COALESCE(ROUND(SUM(dl.amount_usd) + (SUM(dl.amount_lbp) / ?), 2), 0) as total_debt
+        ROUND(COALESCE(SUM(dl.amount_usd), 0) + (COALESCE(SUM(dl.amount_lbp), 0) / ?), 2) as total_debt,
+        ROUND(COALESCE(SUM(dl.amount_usd), 0), 2) as total_debt_usd,
+        ROUND(COALESCE(SUM(dl.amount_lbp), 0), 2) as total_debt_lbp
       FROM debt_ledger dl
       JOIN clients c ON dl.client_id = c.id
       GROUP BY c.id
@@ -112,7 +120,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
     const rate = rateResult?.rate || 89000;
 
     const stmt = this.db.prepare(
-      `SELECT COALESCE(ROUND(SUM(amount_usd) + (SUM(amount_lbp) / ?), 2), 0) as total 
+      `SELECT ROUND(COALESCE(SUM(amount_usd), 0) + (COALESCE(SUM(amount_lbp), 0) / ?), 2) as total 
        FROM debt_ledger 
        WHERE client_id = ?`,
     );
@@ -164,10 +172,14 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
     const totalDebtResult = this.db
       .prepare(
         `
-      SELECT ROUND(SUM(amount_usd) + (SUM(amount_lbp) / ?), 2) as totalDebt FROM debt_ledger
+      SELECT 
+        ROUND(COALESCE(SUM(amount_usd), 0) + (COALESCE(SUM(amount_lbp), 0) / ?), 2) as totalDebt,
+        ROUND(COALESCE(SUM(amount_usd), 0), 2) as totalDebtUsd,
+        ROUND(COALESCE(SUM(amount_lbp), 0), 2) as totalDebtLbp
+      FROM debt_ledger
     `,
       )
-      .get(rate) as { totalDebt: number | null };
+      .get(rate) as { totalDebt: number | null; totalDebtUsd: number | null; totalDebtLbp: number | null };
 
     // Top N debtors (only those with positive debt)
     const topDebtors = this.db
@@ -175,7 +187,9 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         `
       SELECT 
         c.full_name,
-        ROUND(SUM(dl.amount_usd) + (SUM(dl.amount_lbp) / ?), 2) as total_debt
+        ROUND(COALESCE(SUM(dl.amount_usd), 0) + (COALESCE(SUM(dl.amount_lbp), 0) / ?), 2) as total_debt,
+        ROUND(COALESCE(SUM(dl.amount_usd), 0), 2) as total_debt_usd,
+        ROUND(COALESCE(SUM(dl.amount_lbp), 0), 2) as total_debt_lbp
       FROM debt_ledger dl
       JOIN clients c ON dl.client_id = c.id
       GROUP BY dl.client_id
@@ -188,6 +202,8 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
 
     return {
       totalDebt: totalDebtResult?.totalDebt || 0,
+      totalDebtUsd: totalDebtResult?.totalDebtUsd || 0,
+      totalDebtLbp: totalDebtResult?.totalDebtLbp || 0,
       topDebtors,
     };
   }

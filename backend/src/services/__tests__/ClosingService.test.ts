@@ -3,6 +3,16 @@
  */
 
 import { jest } from "@jest/globals";
+
+jest.mock("@liratek/core", () => {
+  const actual =
+    jest.requireActual<typeof import("@liratek/core")>("@liratek/core");
+  return {
+    ...actual,
+    getClosingRepository: jest.fn(),
+  };
+});
+
 import {
   ClosingService,
   getClosingService,
@@ -10,17 +20,10 @@ import {
   SetOpeningBalancesData,
   CreateClosingData,
   UpdateClosingData,
-} from "../ClosingService";
-import type { SystemExpectedBalances, DailyStatsSnapshot } from "@liratek/core";
-
-jest.mock(
-  "../../../../packages/core/src/repositories/ClosingRepository",
-  () => ({
-    getClosingRepository: jest.fn(),
-  }),
-);
-
-import { getClosingRepository } from "../../../../packages/core/src/repositories/ClosingRepository";
+  SystemExpectedBalances,
+  DailyStatsSnapshot,
+  getClosingRepository,
+} from "@liratek/core";
 
 describe("ClosingService", () => {
   let service: ClosingService;
@@ -41,7 +44,7 @@ describe("ClosingService", () => {
 
     (getClosingRepository as jest.Mock).mockReturnValue(mockRepo);
 
-    service = new ClosingService();
+    service = new ClosingService(mockRepo);
   });
 
   // ===========================================================================
@@ -297,10 +300,14 @@ describe("ClosingService", () => {
       const mockBalances: SystemExpectedBalances = {
         generalDrawer: { usd: 1500, lbp: 135000000, eur: 100 },
         omtDrawer: { usd: 500, lbp: 45000000, eur: 0 },
+        omtAppDrawer: { usd: 0, lbp: 0, eur: 0 },
         whishDrawer: { usd: 0, lbp: 0, eur: 0 },
         binanceDrawer: { usd: 0, lbp: 0, eur: 0 },
         mtcDrawer: { usd: 200, lbp: 0, eur: 0 },
         alfaDrawer: { usd: 150, lbp: 0, eur: 0 },
+        ipecDrawer: { usd: 0, lbp: 0, eur: 0 },
+        katchDrawer: { usd: 0, lbp: 0, eur: 0 },
+        wishAppDrawer: { usd: 0, lbp: 0, eur: 0 },
       };
       mockRepo.getSystemExpectedBalances.mockReturnValue(mockBalances);
 
@@ -325,6 +332,9 @@ describe("ClosingService", () => {
         binanceDrawer: { usd: 0, lbp: 0, eur: 0 },
         mtcDrawer: { usd: 0, lbp: 0, eur: 0 },
         alfaDrawer: { usd: 0, lbp: 0, eur: 0 },
+        ipecDrawer: { usd: 0, lbp: 0, eur: 0 },
+        katchDrawer: { usd: 0, lbp: 0, eur: 0 },
+        wishAppDrawer: { usd: 0, lbp: 0, eur: 0 },
       });
     });
 
@@ -332,10 +342,14 @@ describe("ClosingService", () => {
       const mockBalances: SystemExpectedBalances = {
         generalDrawer: { usd: 0, lbp: 0, eur: 0 },
         omtDrawer: { usd: 0, lbp: 0, eur: 0 },
+        omtAppDrawer: { usd: 0, lbp: 0, eur: 0 },
         whishDrawer: { usd: 0, lbp: 0, eur: 0 },
         binanceDrawer: { usd: 0, lbp: 0, eur: 0 },
         mtcDrawer: { usd: 0, lbp: 0, eur: 0 },
         alfaDrawer: { usd: 0, lbp: 0, eur: 0 },
+        ipecDrawer: { usd: 0, lbp: 0, eur: 0 },
+        katchDrawer: { usd: 0, lbp: 0, eur: 0 },
+        wishAppDrawer: { usd: 0, lbp: 0, eur: 0 },
       };
       mockRepo.getSystemExpectedBalances.mockReturnValue(mockBalances);
 

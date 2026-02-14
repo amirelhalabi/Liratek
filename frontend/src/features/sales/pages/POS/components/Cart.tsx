@@ -1,5 +1,5 @@
 import { Trash2, Plus, Minus, CreditCard, History } from "lucide-react";
-import type { CartItem } from "../../../../../types";
+import type { CartItem } from "@liratek/ui";
 
 interface CartProps {
   items: CartItem[];

@@ -1,6 +1,6 @@
 # Current Sprint (Feb 12–Feb 19, 2026)
 
-**Last Updated**: Feb 12, 2026
+**Last Updated**: Feb 13, 2026
 
 ## 📖 How to Read This Document
 
@@ -15,6 +15,12 @@
 
 ### ✅ Completed
 
+- [T-34]! New module: IPEC/Katch/WishApp services page (completed Feb 13)
+- [T-33]! New module: Binance transfers (completed Feb 13)
+- [T-36] Debts page redesign — split tables + USD/LBP display (completed Feb 13)
+- [T-37] Dashboard improvements — USD/LBP totals, decimal precision, Top Debtors list (completed Feb 13)
+- [T-38] Runtime bug fixes — Exchange CHECK, session linking, recharge credits (completed Feb 13)
+- [T-35]!! Frontend Consolidation - @liratek/ui Package (completed Feb 13)
 - [T-28]!!! Customer Visit Session (FULLY COMPLETED Feb 12)
 - [T-32]!! BUG: MTC credits affecting inventory + dashboard sanity (completed Feb 12)
 - [T-27]!!! Payment Methods Everywhere + Drawer Model Expansion (completed Feb 12)
@@ -39,8 +45,6 @@
 - [T-29]!!! Recharge Module UX + voucher images + debt payment + remove phone fields
 - [T-30]!!! Financial Services (OMT/Whish) improvements: phone param + service dropdown + settlement visibility
 - [T-31]!! Expenses simplification: remove types dropdown
-- [T-33]! New module: Binance transfers (send/receive)
-- [T-34]! New module: Katsh/Ipec/WhishApp services page (new UI)
 
 ### 📋 Ready (Ordered by Priority)
 
@@ -57,8 +61,7 @@
 
 **Low Priority (!)**
 
-- [T-33]! New module: Binance transfers (send/receive)
-- [T-34]! New module: Katsh/Ipec/WhishApp services page (new UI)
+- (All low priority tasks completed this sprint)
 
 ---
 
@@ -328,6 +331,49 @@ Files to KEEP:
 
 ---
 
+### [T-35] Frontend Consolidation - @liratek/ui Package !!
+
+**Added**: Feb 13, 2026  
+**Status**: ✅ COMPLETED (Feb 13, 2026)  
+**Goal**: Consolidate shared frontend components, utilities, config, and types into a reusable `@liratek/ui` package to enable code sharing between Desktop and future Web deployments.
+
+**Implementation Completed**:
+
+- ✅ **Package Structure**: Created `packages/ui/` with proper workspace configuration
+- ✅ **UI Primitives**: Migrated Select, NotificationCenter, PageHeader to @liratek/ui
+- ✅ **Utilities**: Moved appEvents (type-safe event emitter) to shared package
+- ✅ **Config**: Moved constants (EXCHANGE_RATE, DRAWER names) and denominations (bill rounding) to shared package
+- ✅ **Types**: Consolidated renderer types with @liratek/core re-exports
+- ✅ **API Adapter**: Implemented platform abstraction layer (types, provider, frontend adapter)
+- ✅ **Build Configuration**: Updated Vite, TypeScript, and Jest configs with @liratek/ui paths
+- ✅ **Import Refactoring**: Updated 27 files to import directly from @liratek/ui
+- ✅ **Cleanup**: Removed all re-export stubs and empty directories
+- ✅ **Testing**: All builds passing, tests verified, adapter tested
+
+**Architecture Decisions**:
+
+- Kept layouts (MainLayout, Sidebar, TopBar) in frontend - they orchestrate app-specific features
+- Kept feature hooks (useAuth, useCurrencies, etc.) in frontend - they're not general-purpose UI hooks
+- Only moved truly platform-agnostic shared primitives to @liratek/ui
+- CSS delivery owned by app shell (documented in README)
+- API adapter pattern enables future web shell without code duplication
+
+**Build Results**:
+
+- ✅ Typecheck: Clean (no errors)
+- ✅ Production build: 965.62 kB (gzip: 275.98 kB) in 1.96s
+- ✅ Tests: All passing
+- ✅ No warnings or errors
+
+**Files Affected**:
+
+- Created: `packages/ui/` with 15+ source files
+- Updated: 27 files across frontend features
+- Removed: 7 re-export stub files + 2 empty directories
+- Documentation: Updated consolidation plan and package README
+
+---
+
 ### [T-29] Recharge Module UX + voucher images + debt payment + remove phone fields !!!
 
 **Added**: Feb 12, 2026  
@@ -431,33 +477,59 @@ Files to KEEP:
 ### [T-33] New module: Binance transfers (send/receive) !
 
 **Added**: Feb 12, 2026  
-**Status**: Ready  
+**Status**: ✅ COMPLETED (Feb 13, 2026)  
 **Dependencies**: [T-27]  
 **Goal**: Track simple Binance finance transactions (send/receive) with payment method integration.
 
+**Implementation Completed**:
+
+- ✅ **Database**: `binance_transactions` table with type/amount/fee/address/txHash/description, migration `002_add_binance_transactions.sql`
+- ✅ **Core**: `BinanceRepository` (CRUD + analytics + drawer integration) + `BinanceService` (business logic wrapper)
+- ✅ **Electron**: `binanceHandlers.ts` with IPC channels (`binance:add-transaction`, `binance:get-history`, `binance:get-analytics`), preload API, main.ts registration
+- ✅ **Backend**: REST API routes (`/api/binance/transactions`, `/api/binance/history`, `/api/binance/analytics`) in `backend/src/api/binance.ts`
+- ✅ **Frontend**: Full page component at `features/binance/pages/Binance/index.tsx` with SEND/RECEIVE toggle, stats cards, transaction history table, session integration
+- ✅ **Closing/Opening**: Binance drawer added (USD-only), LBP hardcoded to 0
+- ✅ **Tests**: `BinanceService.test.ts` — all passing
+- ✅ **Sidebar**: Binance entry with Bitcoin icon
+
+**Architecture**: Standalone `binance_transactions` table (not `financial_services`) since Binance transactions have distinct fields (fee, wallet address, tx hash, USDT currency). Uses same drawer_balances/payments ledger pattern.
+
 **Acceptance Criteria**:
 
-- [ ] Create send/receive transactions
-- [ ] Linked to drawers/payment method model
-- [ ] Appears in customer session if active
-
-**Estimate**: 1–3 days
+- [x] Create send/receive transactions
+- [x] Linked to drawers/payment method model
+- [x] Appears in customer session if active
 
 ---
 
-### [T-34] New module: Katsh/Ipec/WhishApp services page (new UI) !
+### [T-34] New module: IPEC/Katch/WishApp services page (new UI) !
 
 **Added**: Feb 12, 2026  
-**Status**: Ready  
+**Status**: ✅ COMPLETED (Feb 13, 2026)  
 **Dependencies**: [T-27], [T-28] recommended  
-**Goal**: Add new page with new UI to support common services for Katsh / Ipec / WhishApp.
+**Goal**: Add new page with new UI to support common services for IPEC / Katch / Wish App.
+
+**Implementation Completed**:
+
+- ✅ **Database**: Expanded `financial_services` CHECK constraint to include `'IPEC','KATCH','WISH_APP'` providers. Migration `003_add_ikw_providers.sql` + core migration function `migrateIKWProviders()`. Added 6 new `drawer_balances` seeds: IPEC (USD/LBP), Katch (USD/LBP), Wish_App_Money (USD/LBP)
+- ✅ **Core Repository**: Extended `FinancialServiceRepository` provider union type + drawer mapping (IPEC→`IPEC`, KATCH→`Katch`, WISH_APP→`Wish_App_Money`)
+- ✅ **Core ClosingRepository**: Added `ipecDrawer`, `katchDrawer`, `wishAppDrawer` to `SystemExpectedBalances` interface + `getSystemExpectedBalances()` implementation
+- ✅ **Electron**: Mirror changes in electron-app repos + migration registered in `main.ts`
+- ✅ **Frontend Page**: `features/ikw-services/pages/IKWServices/index.tsx` — 3-way provider toggle (IPEC blue / Katch orange / Wish App purple), service type buttons (SEND/RECEIVE/BILL_PAYMENT), amount+commission form, stats grid with per-provider breakdown, transaction history table, session auto-fill+link
+- ✅ **Routing**: `/ikw-services` route in `App.tsx`
+- ✅ **Sidebar**: "IPEC/Katch" entry with Zap icon
+- ✅ **Closing/Opening**: 3 new drawers added to `DrawerType` union, `DRAWER_CONFIGS`, `DRAWER_ORDER`, `useSystemExpected` hook, and closing expected balance sums
+- ✅ **Tests**: All 312 backend tests passing (23 suites), all type-checks clean across core/frontend/electron-app
+  - `core_ikw_migration.test.ts` — 4 tests: no-op when table missing, skip rebuild when already migrated, full migration flow, idempotent drawer seeding
+  - `FinancialService.test.ts` — 3 new tests: IPEC/KATCH/WISH_APP provider transactions with correct drawer mapping
+  - `ClosingService.test.ts` — updated mocks include ipecDrawer/katchDrawer/wishAppDrawer
+
+**Architecture**: Leverages existing `financial_services` table infrastructure — same table, same repository, same IPC/API channels as OMT/WHISH. Only added new provider values + drawers + frontend page. Zero code duplication.
 
 **Acceptance Criteria**:
 
-- [ ] New page exists with the required services UI
-- [ ] Transactions are recorded consistently with payment method + optional customer session link
-
-**Estimate**: 2–4 days (depends on service definitions)
+- [x] New page exists with the required services UI
+- [x] Transactions are recorded consistently with payment method + optional customer session link
 
 ---
 
@@ -868,6 +940,48 @@ Then run normally:
 - ✅ **Variance Threshold Alerts**: Visual warnings for cash discrepancies in Closing
 - ✅ **Performance Hardening**: Database indexes and optimized query patterns
 - ✅ **Backup Automation**: Automated local DB backups with restore verification
+
+---
+
+## 📈 Recent Completions (Feb 13, 2026)
+
+### [T-33] Binance Module ✅
+- Full-stack Binance send/receive module: DB table + migration, core repo/service, electron handlers+preload, backend REST API, frontend page with stats+history, session integration
+- Binance drawer: USD-only in closing/opening, LBP hardcoded to 0
+- Tests: BinanceService.test.ts passing
+
+### [T-34] IPEC/Katch/Wish App Module ✅
+- Extended `financial_services` CHECK constraint with 3 new providers (`IPEC`, `KATCH`, `WISH_APP`)
+- Core migration `migrateIKWProviders()` + SQL migration `003_add_ikw_providers.sql`
+- 6 new drawer_balances seeds (IPEC USD/LBP, Katch USD/LBP, Wish_App_Money USD/LBP)
+- Updated FinancialServiceRepository drawer mapping in both core and electron-app
+- 3 new drawers in ClosingRepository `SystemExpectedBalances` + closing/opening UI
+- New frontend page: `features/ikw-services/pages/IKWServices/index.tsx` with 3-way provider toggle (IPEC blue / Katch orange / Wish App purple)
+- Route `/ikw-services`, sidebar entry "IPEC/Katch" with Zap icon
+- Unit tests: `core_ikw_migration.test.ts` (4 tests), FinancialService IPEC/KATCH/WISH_APP tests (3 tests), ClosingService drawer mocks updated
+
+### [T-36] Debts Page Redesign ✅
+- Split single mixed timeline table into two side-by-side tables: Purchases (left, red) and Payments (right, emerald)
+- Added `total_debt_usd` and `total_debt_lbp` to DebtorSummary and TopDebtor interfaces
+- Updated debtor sidebar to show USD + LBP separately
+- Added COALESCE wrappers to all DebtRepository SUM queries for NULL safety
+
+### [T-37] Dashboard Improvements ✅
+- Total Debt card: now shows USD and LBP separately instead of single value
+- Top Debtors: replaced Recharts BarChart with simple list showing USD + LBP per debtor
+- USD precision: changed `maximumFractionDigits` from 0 to 2 for all USD values on dashboard cards (shows $139.64 instead of $140)
+- Added `totalDebtUsd` / `totalDebtLbp` to `DebtSummary` interface + SQL queries
+
+### [T-38] Runtime Bug Fixes ✅
+- **Exchange CHECK constraint**: DB only allows 'BUY'/'SELL', code had 'EXCHANGE' → derived from fromCurrency
+- **Session linking**: Used `getActiveSession()` instead of explicit session ID → threaded sessionId from React state
+- **Recharge credits**: Fixed incorrect credit balance updates
+- **Top Debtors chart empty**: ResponsiveContainer height issue → added `min-h-[150px]`
+- **Backend test fixes**: Fixed jest.requireActual pattern for AuthService, ActivityService, ClosingService stubs
+
+### Test Status
+- **All 312 backend tests passing** (23 suites)
+- **All type-checks clean** across core, frontend, and electron-app
 
 ---
 

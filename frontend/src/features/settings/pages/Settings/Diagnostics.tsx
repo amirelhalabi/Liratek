@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import UpdatesPanel from "./UpdatesPanel";
-import Select from "../../../../shared/components/ui/Select";
+import { Select } from "@liratek/ui";
 
 export default function Diagnostics() {
   const [errors, setErrors] = useState<

@@ -16,7 +16,10 @@ export type DrawerType =
   | "Whish_App"
   | "Binance"
   | "MTC"
-  | "Alfa";
+  | "Alfa"
+  | "IPEC"
+  | "Katch"
+  | "Wish_App_Money";
 
 export interface DrawerAmount {
   drawer_name: DrawerType;
@@ -44,6 +47,9 @@ export interface SystemExpectedBalances {
   binanceDrawer: { [currencyCode: string]: number };
   mtcDrawer: { [currencyCode: string]: number };
   alfaDrawer: { [currencyCode: string]: number };
+  ipecDrawer: { [currencyCode: string]: number };
+  katchDrawer: { [currencyCode: string]: number };
+  wishAppDrawer: { [currencyCode: string]: number };
 }
 
 export interface DrawerConfig {

@@ -27,7 +27,8 @@
       "@/types/*": ["src/types/*"],
       "@/config/*": ["src/config/*"],
       "@shared/*": ["../packages/core/dist/*"],
-      "@liratek/core": ["../packages/core/dist/index.d.ts"]
+      "@liratek/core": ["../packages/core/dist/index.d.ts"],
+      "@liratek/ui": ["../packages/ui/src/index.ts"]
     },
 
     /* Linting */

@@ -25,8 +25,8 @@ export interface SaveJobParams {
 export class MaintenanceService {
   private repo: MaintenanceRepository;
 
-  constructor() {
-    this.repo = new MaintenanceRepository();
+  constructor(repo?: MaintenanceRepository) {
+    this.repo = repo ?? new MaintenanceRepository();
   }
 
   /**
