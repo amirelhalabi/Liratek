@@ -1,6 +1,7 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
+import env from "../config/env.js";
 
 export type DbKeyResolutionSource =
   | "env:DATABASE_KEY"
@@ -22,9 +23,9 @@ export interface ResolvedDbKey {
  * 3) none
  */
 export function resolveDatabaseKey(): ResolvedDbKey {
-  const env = process.env.DATABASE_KEY?.trim();
-  if (env) {
-    return { key: env, source: "env:DATABASE_KEY" };
+  const dbKey = env.DATABASE_KEY;
+  if (dbKey) {
+    return { key: dbKey, source: "env:DATABASE_KEY" };
   }
 
   const configFile = path.join(

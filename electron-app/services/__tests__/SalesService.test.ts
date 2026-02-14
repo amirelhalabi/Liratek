@@ -5,10 +5,11 @@
  */
 
 import { SalesService, resetSalesService } from "../SalesService";
-import { SalesRepository } from "../../database/repositories";
+import { SalesRepository, getSalesRepository } from "@liratek/core";
 
 // Mock the repository module
-jest.mock("../../database/repositories", () => ({
+jest.mock("@liratek/core", () => ({
+  ...jest.requireActual("@liratek/core"),
   getSalesRepository: jest.fn(),
   SalesRepository: jest.fn(),
 }));

@@ -22,6 +22,11 @@ export class ActivityRepository extends BaseRepository<ActivityLogEntity> {
     super("activity_logs");
   }
 
+  // Override getColumns() to use explicit columns instead of SELECT *
+  protected getColumns(): string {
+    return "id, user_id, action, table_name, record_id, details_json, created_at";
+  }
+
   /**
    * Get recent activity logs
    */

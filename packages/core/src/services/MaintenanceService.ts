@@ -3,6 +3,7 @@ import {
   MaintenanceJob,
 } from "../repositories/MaintenanceRepository.js";
 import { toErrorString } from "../utils/errors.js";
+import { maintenanceLogger } from "../utils/logger.js";
 
 export interface SaveJobParams {
   id?: number;
@@ -48,7 +49,10 @@ export class MaintenanceService {
               params.client_phone,
             );
           } catch (e) {
-            console.error("Auto-create client failed", e);
+            maintenanceLogger.error(
+              { error: e, clientName: params.client_name },
+              "Auto-create client failed",
+            );
           }
         }
 
@@ -83,8 +87,14 @@ export class MaintenanceService {
               amount_usd: params.final_amount_usd,
               status: params.status,
             });
-            console.log(
-              `[MAINTENANCE] Job ${params.id} completed: ${params.device_name} - $${params.final_amount_usd} [Drawer B]`,
+            maintenanceLogger.info(
+              {
+                jobId: params.id,
+                device: params.device_name,
+                amountUSD: params.final_amount_usd,
+                status: params.status,
+              },
+              `Job ${params.id} completed: ${params.device_name} - $${params.final_amount_usd}`,
             );
           }
           return { success: true, id: params.id };
@@ -96,14 +106,22 @@ export class MaintenanceService {
             device: params.device_name,
             price_usd: params.price_usd,
           });
-          console.log(
-            `[MAINTENANCE] New job: ${params.device_name} - $${params.price_usd} [Drawer B]`,
+          maintenanceLogger.info(
+            {
+              jobId: newId,
+              device: params.device_name,
+              priceUSD: params.price_usd,
+            },
+            `New job: ${params.device_name} - $${params.price_usd}`,
           );
           return { success: true, id: newId };
         }
       });
     } catch (error) {
-      console.error("MaintenanceService.saveJob error:", error);
+      maintenanceLogger.error(
+        { error, params },
+        "MaintenanceService.saveJob error",
+      );
       return { success: false, error: toErrorString(error) };
     }
   }
@@ -115,7 +133,10 @@ export class MaintenanceService {
     try {
       return this.repo.getJobs(statusFilter);
     } catch (error) {
-      console.error("MaintenanceService.getJobs error:", error);
+      maintenanceLogger.error(
+        { error, statusFilter },
+        "MaintenanceService.getJobs error",
+      );
       return [];
     }
   }

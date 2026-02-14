@@ -5,7 +5,7 @@
  */
 
 import { AuthService, resetAuthService } from "../AuthService";
-import { UserRepository } from "../../database/repositories";
+import { UserRepository, getUserRepository } from "@liratek/core";
 import {
   AuthenticationError,
   AuthorizationError,
@@ -15,7 +15,8 @@ import {
 } from "../../utils/errors";
 
 // Mock the repository module
-jest.mock("../../database/repositories", () => ({
+jest.mock("@liratek/core", () => ({
+  ...jest.requireActual("@liratek/core"),
   getUserRepository: jest.fn(),
   UserRepository: jest.fn(),
 }));

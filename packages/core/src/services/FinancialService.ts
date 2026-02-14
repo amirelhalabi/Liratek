@@ -12,6 +12,7 @@ import {
   type CreateFinancialServiceData,
   type FinancialServiceAnalytics,
 } from "../repositories/index.js";
+import { financialLogger } from "../utils/logger.js";
 
 // =============================================================================
 // Types
@@ -48,13 +49,23 @@ export class FinancialService {
       // Log the activity
       this.fsRepo.logActivity(data, result.drawer);
 
-      console.log(
-        `[OMT/WHISH] ${data.provider} - ${data.serviceType}: Commission $${data.commissionUSD} [${result.drawer}]`,
+      financialLogger.info(
+        {
+          provider: data.provider,
+          serviceType: data.serviceType,
+          commissionUSD: data.commissionUSD,
+          drawer: result.drawer,
+          id: result.id,
+        },
+        `${data.provider} - ${data.serviceType}: Commission $${data.commissionUSD}`,
       );
 
       return { success: true, id: result.id };
     } catch (error) {
-      console.error("Failed to add financial service transaction:", error);
+      financialLogger.error(
+        { error, data },
+        "Failed to add financial service transaction",
+      );
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error),
@@ -73,7 +84,10 @@ export class FinancialService {
     try {
       return this.fsRepo.getHistory(provider);
     } catch (error) {
-      console.error("Failed to get financial services history:", error);
+      financialLogger.error(
+        { error, provider },
+        "Failed to get financial services history",
+      );
       return [];
     }
   }
@@ -89,7 +103,7 @@ export class FinancialService {
     try {
       return this.fsRepo.getAnalytics();
     } catch (error) {
-      console.error("Failed to get analytics:", error);
+      financialLogger.error({ error }, "Failed to get analytics");
       return {
         today: { commissionUSD: 0, commissionLBP: 0, count: 0 },
         month: { commissionUSD: 0, commissionLBP: 0, count: 0 },

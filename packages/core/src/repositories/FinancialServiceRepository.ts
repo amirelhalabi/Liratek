@@ -68,6 +68,11 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
     super("financial_services", { softDelete: false });
   }
 
+  // Override getColumns() to use explicit columns instead of SELECT *
+  protected getColumns(): string {
+    return "id, provider, service_type, reference_number, amount_usd, commission_usd, client_name, note, created_at, created_by";
+  }
+
   // ---------------------------------------------------------------------------
   // Transaction Operations
   // ---------------------------------------------------------------------------
@@ -240,7 +245,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
    * Get transaction history, optionally filtered by provider
    */
   getHistory(provider?: string, limit: number = 50): FinancialServiceEntity[] {
-    let query = "SELECT * FROM financial_services";
+    let query = `SELECT ${this.getColumns()} FROM financial_services`;
     const params: (string | number)[] = [];
 
     if (provider) {

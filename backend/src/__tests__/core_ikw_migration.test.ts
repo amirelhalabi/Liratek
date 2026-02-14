@@ -120,9 +120,8 @@ describe("@liratek/core IKW providers migration", () => {
     // Should NOT rename or recreate the table
     expect(calls.filter((c) => c.sql.includes("RENAME")).length).toBe(0);
     expect(
-      calls.filter(
-        (c) => c.sql.includes("DROP TABLE financial_services_old"),
-      ).length,
+      calls.filter((c) => c.sql.includes("DROP TABLE financial_services_old"))
+        .length,
     ).toBe(0);
 
     // Drawer seeds should still be inserted
@@ -156,9 +155,7 @@ describe("@liratek/core IKW providers migration", () => {
 
     // Should rename old table
     expect(
-      execCalls.some((s) =>
-        s.includes("RENAME TO financial_services_old"),
-      ),
+      execCalls.some((s) => s.includes("RENAME TO financial_services_old")),
     ).toBe(true);
 
     // Should create new table with IPEC/KATCH/WISH_APP in CHECK
@@ -193,9 +190,7 @@ describe("@liratek/core IKW providers migration", () => {
       ),
     ).toBe(true);
     expect(
-      execCalls.some((s) =>
-        s.includes("idx_financial_services_created_at"),
-      ),
+      execCalls.some((s) => s.includes("idx_financial_services_created_at")),
     ).toBe(true);
 
     // Drawer seeds

@@ -52,9 +52,14 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     super("suppliers", { softDelete: false });
   }
 
+  // Override getColumns() to use explicit columns instead of SELECT *
+  protected getColumns(): string {
+    return "id, name, contact_name, phone, note, is_active, created_at";
+  }
+
   listSuppliers(search?: string): SupplierEntity[] {
     try {
-      let sql = `SELECT * FROM suppliers WHERE is_active = 1`;
+      let sql = `SELECT ${this.getColumns()} FROM suppliers WHERE is_active = 1`;
       const params: string[] = [];
       if (search?.trim()) {
         sql += ` AND name LIKE ?`;
@@ -155,7 +160,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
   ): SupplierLedgerEntryEntity[] {
     try {
       return this.query<SupplierLedgerEntryEntity>(
-        `SELECT * FROM supplier_ledger WHERE supplier_id = ? ORDER BY created_at DESC LIMIT ?`,
+        `SELECT id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, created_at FROM supplier_ledger WHERE supplier_id = ? ORDER BY created_at DESC LIMIT ?`,
         supplierId,
         limit,
       );

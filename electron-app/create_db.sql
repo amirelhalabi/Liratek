@@ -437,3 +437,32 @@ CREATE INDEX IF NOT EXISTS idx_payments_source ON payments(source_type, source_i
 CREATE INDEX IF NOT EXISTS idx_payments_drawer_currency ON payments(drawer_name, currency_code, created_at);
 CREATE INDEX IF NOT EXISTS idx_drawer_balances_drawer ON drawer_balances(drawer_name);
 CREATE INDEX IF NOT EXISTS idx_supplier_ledger_supplier_id_created_at ON supplier_ledger(supplier_id, created_at);
+
+-- ============================================================================
+-- ADDITIONAL INDEXES (Added 2026-02-14)
+-- ============================================================================
+
+-- Client indexes
+CREATE INDEX IF NOT EXISTS idx_clients_full_name ON clients(full_name COLLATE NOCASE);
+
+-- Product indexes
+CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);
+CREATE INDEX IF NOT EXISTS idx_products_status ON products(status);
+CREATE INDEX IF NOT EXISTS idx_products_active_category ON products(is_active, category);
+CREATE INDEX IF NOT EXISTS idx_products_active_status ON products(is_active, status);
+
+-- Expense indexes
+CREATE INDEX IF NOT EXISTS idx_expenses_category ON expenses(category);
+CREATE INDEX IF NOT EXISTS idx_expenses_type ON expenses(expense_type);
+CREATE INDEX IF NOT EXISTS idx_expenses_date_category ON expenses(expense_date, category);
+CREATE INDEX IF NOT EXISTS idx_expenses_type_date ON expenses(expense_type, expense_date DESC);
+
+-- Maintenance indexes
+CREATE INDEX IF NOT EXISTS idx_maintenance_client_id ON maintenance(client_id);
+
+-- Sales indexes
+CREATE INDEX IF NOT EXISTS idx_sales_drawer_name ON sales(drawer_name);
+CREATE INDEX IF NOT EXISTS idx_sales_status_drawer ON sales(status, drawer_name);
+
+-- Debt ledger indexes
+CREATE INDEX IF NOT EXISTS idx_debt_ledger_client_type ON debt_ledger(client_id, transaction_type);

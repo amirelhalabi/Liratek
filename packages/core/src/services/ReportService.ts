@@ -2,6 +2,7 @@ import { BrowserWindow, app } from "electron";
 import path from "path";
 import fs from "fs";
 import { toErrorString } from "../utils/errors.js";
+import logger from "../utils/logger.js";
 
 export interface GeneratePdfResult {
   success: boolean;
@@ -86,7 +87,7 @@ export class ReportService {
 
       return { success: true, path: outPath };
     } catch (error) {
-      console.error("Failed to generate PDF report:", error);
+      logger.error({ error, filename }, "Failed to generate PDF report");
       return { success: false, error: toErrorString(error) };
     } finally {
       win.destroy();
@@ -111,7 +112,7 @@ export class ReportService {
 
       return { success: true, path: outPath };
     } catch (error) {
-      console.error("Failed to backup database:", error);
+      logger.error({ error }, "Failed to backup database");
       return { success: false, error: toErrorString(error) };
     }
   }

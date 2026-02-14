@@ -13,10 +13,11 @@ import {
   type CreateFinancialServiceData,
   type FinancialServiceEntity,
   type FinancialServiceAnalytics,
-} from "../../database/repositories";
+} from "@liratek/core";
 
 // Mock the repository module
-jest.mock("../../database/repositories", () => ({
+jest.mock("@liratek/core", () => ({
+  ...jest.requireActual("@liratek/core"),
   getFinancialServiceRepository: jest.fn(),
   FinancialServiceRepository: jest.fn(),
 }));

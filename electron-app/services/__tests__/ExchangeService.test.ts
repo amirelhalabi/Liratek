@@ -12,10 +12,11 @@ import {
   getExchangeRepository,
   type CreateExchangeData,
   type ExchangeTransactionEntity,
-} from "../../database/repositories";
+} from "@liratek/core";
 
 // Mock the repository module
-jest.mock("../../database/repositories", () => ({
+jest.mock("@liratek/core", () => ({
+  ...jest.requireActual("@liratek/core"),
   getExchangeRepository: jest.fn(),
   ExchangeRepository: jest.fn(),
 }));

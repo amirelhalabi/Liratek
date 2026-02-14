@@ -51,6 +51,11 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
     super("clients", { softDelete: false });
   }
 
+  // Override getColumns() to use explicit columns instead of SELECT *
+  protected getColumns(): string {
+    return "id, full_name, phone_number, notes, whatsapp_opt_in, created_at";
+  }
+
   // ---------------------------------------------------------------------------
   // Client-Specific Queries
   // ---------------------------------------------------------------------------
@@ -60,7 +65,7 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
    */
   findAllClients(search?: string): ClientEntity[] {
     try {
-      let query = `SELECT * FROM ${this.tableName} WHERE 1=1`;
+      let query = `SELECT ${this.getColumns()} FROM ${this.tableName} WHERE 1=1`;
       const params: string[] = [];
 
       if (search) {
@@ -103,7 +108,7 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
    */
   findByPhone(phoneNumber: string): ClientEntity | null {
     try {
-      const query = `SELECT * FROM ${this.tableName} WHERE phone_number = ?`;
+      const query = `SELECT ${this.getColumns()} FROM ${this.tableName} WHERE phone_number = ?`;
       return this.queryOne<ClientEntity>(query, phoneNumber);
     } catch (error) {
       throw new DatabaseError("Failed to find client by phone", {
@@ -293,7 +298,7 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
       const searchTerm = `%${term}%`;
 
       const query = `
-        SELECT * FROM ${this.tableName} 
+        SELECT ${this.getColumns()} FROM ${this.tableName} 
         WHERE full_name LIKE ? OR phone_number LIKE ?
         ORDER BY full_name ASC 
         LIMIT ?
@@ -349,7 +354,7 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
   findWhatsAppOptedIn(): ClientEntity[] {
     try {
       return this.query<ClientEntity>(
-        `SELECT * FROM ${this.tableName} WHERE whatsapp_opt_in = 1 ORDER BY full_name ASC`,
+        `SELECT ${this.getColumns()} FROM ${this.tableName} WHERE whatsapp_opt_in = 1 ORDER BY full_name ASC`,
       );
     } catch (error) {
       throw new DatabaseError("Failed to find WhatsApp opted-in clients", {

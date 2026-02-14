@@ -5,9 +5,9 @@
  */
 
 import { ipcMain } from "electron";
-import { getFinancialService } from "../services/index.js";
+import { getFinancialService } from "@liratek/core";
 import { financialLogger } from "../utils/logger.js";
-import type { CreateFinancialServiceData } from "../database/repositories/index.js";
+import type { CreateFinancialServiceData } from "@liratek/core";
 
 export function registerOMTHandlers(): void {
   const financialService = getFinancialService();

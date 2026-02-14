@@ -6,7 +6,7 @@
  */
 
 import { ipcMain } from "electron";
-import { getInventoryService } from "../services/index.js";
+import { getInventoryService } from "@liratek/core";
 import { inventoryLogger } from "../utils/logger.js";
 /* eslint-disable @typescript-eslint/no-require-imports */
 

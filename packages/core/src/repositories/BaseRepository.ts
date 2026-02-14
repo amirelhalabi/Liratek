@@ -15,6 +15,7 @@
 import type Database from "better-sqlite3";
 import { getDatabase } from "../db/connection.js";
 import { DatabaseError, NotFoundError } from "../utils/errors.js";
+import { dbLogger } from "../utils/logger.js";
 
 // =============================================================================
 // Types
@@ -79,6 +80,12 @@ export abstract class BaseRepository<T extends BaseEntity> {
     return getDatabase();
   }
 
+  /**
+   * Get columns to select. Must be overridden in child classes to use explicit columns.
+   * This prevents SELECT * anti-pattern and ensures column-level control.
+   */
+  protected abstract getColumns(): string;
+
   // ---------------------------------------------------------------------------
   // Core CRUD Operations
   // ---------------------------------------------------------------------------
@@ -89,8 +96,8 @@ export abstract class BaseRepository<T extends BaseEntity> {
   findById(id: number): T | null {
     try {
       const query = this.softDelete
-        ? `SELECT * FROM ${this.tableName} WHERE id = ? AND is_active = 1`
-        : `SELECT * FROM ${this.tableName} WHERE id = ?`;
+        ? `SELECT ${this.getColumns()} FROM ${this.tableName} WHERE id = ? AND is_active = 1`
+        : `SELECT ${this.getColumns()} FROM ${this.tableName} WHERE id = ?`;
 
       return (this.db.prepare(query).get(id) as T | undefined) ?? null;
     } catch (error) {
@@ -125,8 +132,8 @@ export abstract class BaseRepository<T extends BaseEntity> {
       } = options;
 
       let query = this.softDelete
-        ? `SELECT * FROM ${this.tableName} WHERE is_active = 1`
-        : `SELECT * FROM ${this.tableName}`;
+        ? `SELECT ${this.getColumns()} FROM ${this.tableName} WHERE is_active = 1`
+        : `SELECT ${this.getColumns()} FROM ${this.tableName}`;
 
       query += ` ORDER BY ${orderBy} ${orderDirection}`;
 
@@ -356,7 +363,10 @@ export abstract class BaseRepository<T extends BaseEntity> {
       const result = stmt.get(...params);
       return (result as R | undefined) ?? null;
     } catch (error) {
-      console.error("[BaseRepository] Query failed:", sql, params, error);
+      dbLogger.error(
+        { error, sql: sql.substring(0, 200), paramCount: params.length },
+        "Query failed",
+      );
       throw new DatabaseError("Query execution failed", { cause: error });
     }
   }

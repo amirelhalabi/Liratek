@@ -6,9 +6,9 @@
  */
 
 import { ipcMain } from "electron";
-import { getSalesService } from "../services/index.js";
+import { getSalesService } from "@liratek/core";
 import { salesLogger } from "../utils/logger.js";
-import type { SaleRequest } from "../database/repositories/index.js";
+import type { SaleRequest } from "@liratek/core";
 
 export function registerSalesHandlers(): void {
   const salesService = getSalesService();

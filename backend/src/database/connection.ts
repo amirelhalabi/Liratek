@@ -11,6 +11,7 @@ import {
 } from "@liratek/core";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
+import { dbLogger } from "@liratek/core";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -42,7 +43,7 @@ function ensureSchema(db: Database.Database): void {
   const sql = fs.readFileSync(schemaPath, "utf-8");
 
   db.exec(sql);
-  console.log(`📦 Database schema initialized from: ${schemaPath}`);
+  dbLogger.info({ schemaPath }, "Database schema initialized");
 }
 
 export function getDatabase(): Database.Database {
@@ -68,12 +69,18 @@ export function getDatabase(): Database.Database {
     migrateDrawerNames(dbInstance);
     migrateCustomerSessions(dbInstance);
 
-    console.log(
-      `📦 Database connected: ${DB_PATH} (source: ${resolved.source})`,
+    dbLogger.info(
+      { path: DB_PATH, source: resolved.source },
+      "Database connected",
     );
-    console.log(
-      `🔐 SQLCipher: keySource=${resolvedKey.source}, applied=${keyResult.applied}, supported=${keyResult.supported}` +
-        (keyResult.error ? `, error=${keyResult.error}` : ""),
+    dbLogger.info(
+      {
+        keySource: resolvedKey.source,
+        applied: keyResult.applied,
+        supported: keyResult.supported,
+        error: keyResult.error,
+      },
+      "SQLCipher key status",
     );
 
     if (resolvedKey.source !== "none" && !keyResult.applied) {
@@ -91,7 +98,7 @@ export function closeDatabase(): void {
   if (dbInstance) {
     dbInstance.close();
     dbInstance = null;
-    console.log("📦 Database closed");
+    dbLogger.info("Database closed");
   }
 }
 

@@ -3,10 +3,11 @@
  */
 
 import { MaintenanceService, SaveJobParams } from "../MaintenanceService";
-import { MaintenanceRepository } from "../../database/repositories/MaintenanceRepository";
+import { MaintenanceRepository } from "@liratek/core";
 
 // Mock the repository
-jest.mock("../../database/repositories/MaintenanceRepository", () => ({
+jest.mock("@liratek/core", () => ({
+  ...jest.requireActual("@liratek/core"),
   MaintenanceRepository: jest.fn(),
 }));
 

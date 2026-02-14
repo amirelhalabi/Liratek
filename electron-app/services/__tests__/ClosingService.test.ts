@@ -15,10 +15,11 @@ import {
   SystemExpectedBalances,
   DailyStatsSnapshot,
   getClosingRepository,
-} from "../../database/repositories/ClosingRepository";
+} from "@liratek/core";
 
 // Mock the repository module
-jest.mock("../../database/repositories/ClosingRepository", () => ({
+jest.mock("@liratek/core", () => ({
+  ...jest.requireActual("@liratek/core"),
   getClosingRepository: jest.fn(),
   ClosingRepository: jest.fn(),
 }));

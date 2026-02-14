@@ -1,6 +1,14 @@
 import express from "express";
 import { authenticateJWT, requireRole } from "../middleware/auth.js";
-import { getInventoryService } from "../services/index.js";
+import {
+  getInventoryService,
+  createProductSchema,
+  searchProductsSchema,
+  createErrorResponse,
+  createSuccessResponse,
+  ErrorCodes,
+} from "@liratek/core";
+import { validateRequest, validateQuery } from "../middleware/validation.js";
 
 const router = express.Router();
 
@@ -8,12 +16,12 @@ const router = express.Router();
 router.use(authenticateJWT);
 
 // GET /api/inventory/products?search=...
-router.get("/products", (req, res) => {
+router.get("/products", validateQuery(searchProductsSchema), (req, res) => {
+  const service = getInventoryService();
   const search =
     typeof req.query.search === "string" ? req.query.search : undefined;
-  const service = getInventoryService();
   const products = service.getProducts(search);
-  res.json({ success: true, products });
+  res.json(createSuccessResponse({ products }));
 });
 
 // GET /api/inventory/products/:id
@@ -34,11 +42,33 @@ router.get("/products/:id", (req, res) => {
 });
 
 // POST /api/inventory/products (admin)
-router.post("/products", requireRole(["admin"]), (req, res) => {
-  const service = getInventoryService();
-  const result = service.createProduct(req.body);
-  res.status(result.success ? 201 : 400).json(result);
-});
+router.post(
+  "/products",
+  requireRole(["admin"]),
+  validateRequest(createProductSchema),
+  (req, res): void => {
+    const service = getInventoryService();
+    const result = service.createProduct(req.body);
+
+    if (!result.success) {
+      const errorMsg = result.error || "Failed to create product";
+      const statusCode = errorMsg.includes("already") ? 409 : 400;
+      res
+        .status(statusCode)
+        .json(
+          createErrorResponse(
+            errorMsg.includes("already")
+              ? ErrorCodes.DUPLICATE_BARCODE
+              : ErrorCodes.VALIDATION_ERROR,
+            errorMsg,
+          ),
+        );
+      return;
+    }
+
+    res.status(201).json(createSuccessResponse({ id: result.id }));
+  },
+);
 
 // PUT /api/inventory/products/:id (admin)
 router.put("/products/:id", requireRole(["admin"]), (req, res) => {

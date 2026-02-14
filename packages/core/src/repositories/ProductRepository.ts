@@ -94,6 +94,11 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
     super("products", { softDelete: true });
   }
 
+  // Override getColumns() from BaseRepository
+  protected getColumns(): string {
+    return "id, barcode, name, item_type, category, description, cost_price_usd, selling_price_usd, min_stock_level, stock_quantity, imei, color, image_url, warranty_expiry, status, is_active, created_at, is_deleted, updated_at";
+  }
+
   // ---------------------------------------------------------------------------
   // Product-Specific Queries
   // ---------------------------------------------------------------------------
@@ -156,7 +161,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
    */
   findByBarcode(barcode: string): ProductEntity | null {
     try {
-      const query = `SELECT * FROM ${this.tableName} WHERE barcode = ? AND is_active = 1`;
+      const query = `SELECT ${this.getColumns()} FROM ${this.tableName} WHERE barcode = ? AND is_active = 1`;
       return this.queryOne<ProductEntity>(query, barcode);
     } catch (error) {
       throw new DatabaseError("Failed to find product by barcode", {

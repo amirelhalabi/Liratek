@@ -6,7 +6,12 @@
 
 import { Router } from "express";
 import { requireAuth, AuthRequest } from "../middleware/auth.js";
-import { getClosingService } from "../services/index.js";
+import { validateRequest } from "../middleware/validation.js";
+import {
+  getClosingService,
+  setOpeningBalancesSchema,
+  createDailyClosingSchema,
+} from "@liratek/core";
 import { logger } from "../server.js";
 
 const router = Router();
@@ -53,80 +58,64 @@ router.get("/daily-stats-snapshot", requireAuth, async (_req, res) => {
 });
 
 // POST /api/closing/opening-balances
-router.post("/opening-balances", requireAuth, async (req: AuthRequest, res) => {
-  try {
-    const { closing_date, amounts, user_id } = req.body;
-
-    if (!closing_date || !amounts || !Array.isArray(amounts)) {
-      res.status(400).json({
-        success: false,
-        error: "Missing required fields: closing_date, amounts",
+router.post(
+  "/opening-balances",
+  requireAuth,
+  validateRequest(setOpeningBalancesSchema),
+  async (req: AuthRequest, res) => {
+    try {
+      const result = closingService.setOpeningBalances({
+        ...req.body,
+        userId: req.body.userId || req.user?.userId,
       });
-    }
 
-    const result = closingService.setOpeningBalances({
-      closing_date,
-      amounts,
-      user_id: user_id || req.user?.userId,
-    });
-
-    if (result.success) {
-      logger.info({ closing_date, user_id }, "Opening balances set");
-      res.json(result);
-    } else {
-      res.status(400).json(result);
+      if (result.success) {
+        logger.info(
+          { closingDate: req.body.closingDate, userId: req.body.userId },
+          "Opening balances set",
+        );
+        res.json(result);
+      } else {
+        res.status(400).json(result);
+      }
+    } catch (error) {
+      logger.error({ error }, "Set opening balances error");
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to set opening balances" });
     }
-  } catch (error) {
-    logger.error({ error }, "Set opening balances error");
-    res
-      .status(500)
-      .json({ success: false, error: "Failed to set opening balances" });
-  }
-});
+  },
+);
 
 // POST /api/closing/daily-closing
-router.post("/daily-closing", requireAuth, async (req: AuthRequest, res) => {
-  try {
-    const {
-      closing_date,
-      amounts,
-      user_id,
-      variance_notes,
-      report_path,
-      system_expected_usd,
-      system_expected_lbp,
-    } = req.body;
-
-    if (!closing_date || !amounts || !Array.isArray(amounts)) {
-      res.status(400).json({
-        success: false,
-        error: "Missing required fields: closing_date, amounts",
+router.post(
+  "/daily-closing",
+  requireAuth,
+  validateRequest(createDailyClosingSchema),
+  async (req: AuthRequest, res) => {
+    try {
+      const result = closingService.createDailyClosing({
+        ...req.body,
+        userId: req.body.userId || req.user?.userId,
       });
-    }
 
-    const result = closingService.createDailyClosing({
-      closing_date,
-      amounts,
-      user_id: user_id || req.user?.userId,
-      variance_notes,
-      report_path,
-      system_expected_usd,
-      system_expected_lbp,
-    });
-
-    if (result.success) {
-      logger.info({ closing_date, user_id }, "Daily closing created");
-      res.json(result);
-    } else {
-      res.status(400).json(result);
+      if (result.success) {
+        logger.info(
+          { closingDate: req.body.closingDate, userId: req.body.userId },
+          "Daily closing created",
+        );
+        res.json(result);
+      } else {
+        res.status(400).json(result);
+      }
+    } catch (error) {
+      logger.error({ error }, "Create daily closing error");
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to create daily closing" });
     }
-  } catch (error) {
-    logger.error({ error }, "Create daily closing error");
-    res
-      .status(500)
-      .json({ success: false, error: "Failed to create daily closing" });
-  }
-});
+  },
+);
 
 // PUT /api/closing/daily-closing/:id
 router.put("/daily-closing/:id", requireAuth, async (req: AuthRequest, res) => {

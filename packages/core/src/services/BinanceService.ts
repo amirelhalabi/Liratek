@@ -12,6 +12,7 @@ import {
   type CreateBinanceTransactionData,
   type BinanceTodayStats,
 } from "../repositories/index.js";
+import { binanceLogger } from "../utils/logger.js";
 
 // =============================================================================
 // Types
@@ -46,13 +47,19 @@ export class BinanceService {
       const result = this.binanceRepo.createTransaction(data);
       this.binanceRepo.logActivity(data);
 
-      console.log(
-        `[BINANCE] ${data.type}: ${data.amount} ${data.currencyCode || "USDT"} – ${data.description || "no description"}`,
+      binanceLogger.info(
+        {
+          type: data.type,
+          amount: data.amount,
+          currency: data.currencyCode || "USDT",
+          description: data.description,
+        },
+        `${data.type}: ${data.amount} ${data.currencyCode || "USDT"}`,
       );
 
       return { success: true, id: result.id };
     } catch (error) {
-      console.error("Failed to add Binance transaction:", error);
+      binanceLogger.error({ error }, "Failed to add Binance transaction");
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error),
@@ -71,7 +78,7 @@ export class BinanceService {
     try {
       return this.binanceRepo.getHistory(limit);
     } catch (error) {
-      console.error("Failed to get Binance history:", error);
+      binanceLogger.error({ error, limit }, "Failed to get Binance history");
       return [];
     }
   }

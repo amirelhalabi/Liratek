@@ -122,22 +122,16 @@ describe("DebtService", () => {
       expect(result).toEqual({ success: true, id: 123 });
     });
 
-    it("logs repayment on success", () => {
-      const consoleSpy = jest.spyOn(console, "log").mockImplementation();
+    it("returns success with repayment ID", () => {
       mockRepo.addRepayment.mockReturnValue({ id: 456 });
 
-      service.addRepayment({
+      const result = service.addRepayment({
         clientId: 1,
         amountUSD: 100,
         amountLBP: 500000,
       });
 
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining(
-          "[DEBT] Repayment of $100 and 500000 LBP for client 1",
-        ),
-      );
-      consoleSpy.mockRestore();
+      expect(result).toEqual({ success: true, id: 456 });
     });
 
     it("returns error for missing client ID", () => {

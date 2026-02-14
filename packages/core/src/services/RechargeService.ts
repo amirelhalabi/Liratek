@@ -10,6 +10,7 @@ import {
   type VirtualStock,
   type RechargeData,
 } from "../repositories/index.js";
+import { rechargeLogger } from "../utils/logger.js";
 
 // =============================================================================
 // Types
@@ -39,7 +40,7 @@ export class RechargeService {
     try {
       return this.rechargeRepo.getVirtualStock();
     } catch (error) {
-      console.error("Failed to get recharge stock:", error);
+      rechargeLogger.error({ error }, "Failed to get recharge stock");
       return { mtc: 0, alfa: 0 };
     }
   }

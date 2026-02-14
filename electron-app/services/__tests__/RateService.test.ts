@@ -8,10 +8,11 @@ import {
   getRateRepository,
   type ExchangeRateEntity,
   type SetRateData,
-} from "../../database/repositories";
+} from "@liratek/core";
 
 // Mock the repository module
-jest.mock("../../database/repositories", () => ({
+jest.mock("@liratek/core", () => ({
+  ...jest.requireActual("@liratek/core"),
   getRateRepository: jest.fn(),
   RateRepository: jest.fn(),
 }));

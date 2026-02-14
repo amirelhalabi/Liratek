@@ -85,8 +85,7 @@ describe("SalesService", () => {
       expect(result).toEqual({ success: false, error: "Transaction failed" });
     });
 
-    it("logs sale details on success", () => {
-      const consoleSpy = jest.spyOn(console, "log").mockImplementation();
+    it("returns success with sale ID", () => {
       mockRepo.processSale.mockReturnValue({ success: true, saleId: 456 });
 
       const saleRequest = createSaleRequest({
@@ -95,16 +94,12 @@ describe("SalesService", () => {
         status: "draft" as const,
       });
 
-      service.processSale(saleRequest);
+      const result = service.processSale(saleRequest);
 
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("[SALES] OMT_Drawer - Sale #456"),
-      );
-      consoleSpy.mockRestore();
+      expect(result).toEqual({ success: true, saleId: 456 });
     });
 
     it("uses default drawer name when not specified", () => {
-      const consoleSpy = jest.spyOn(console, "log").mockImplementation();
       mockRepo.processSale.mockReturnValue({ success: true, saleId: 789 });
 
       const saleRequest = createSaleRequest({
@@ -112,12 +107,9 @@ describe("SalesService", () => {
         drawer_name: undefined,
       });
 
-      service.processSale(saleRequest);
+      const result = service.processSale(saleRequest);
 
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("General_Drawer_B"),
-      );
-      consoleSpy.mockRestore();
+      expect(result).toEqual({ success: true, saleId: 789 });
     });
   });
 
@@ -187,9 +179,8 @@ describe("SalesService", () => {
       });
     });
 
-    it("logs dashboard stats on success", () => {
-      const consoleSpy = jest.spyOn(console, "log").mockImplementation();
-      mockRepo.getDashboardStats.mockReturnValue({
+    it("returns dashboard stats from repository", () => {
+      const expectedStats = {
         totalSalesUSD: 500,
         totalSalesLBP: 450000,
         cashCollectedUSD: 500,
@@ -197,14 +188,12 @@ describe("SalesService", () => {
         ordersCount: 5,
         activeClients: 2,
         lowStockCount: 1,
-      });
+      };
+      mockRepo.getDashboardStats.mockReturnValue(expectedStats);
 
-      service.getDashboardStats();
+      const result = service.getDashboardStats();
 
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("[SALES] Dashboard stats"),
-      );
-      consoleSpy.mockRestore();
+      expect(result).toEqual(expectedStats);
     });
   });
 

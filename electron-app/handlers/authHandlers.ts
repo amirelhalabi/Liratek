@@ -11,7 +11,7 @@
 
 import { ipcMain } from "electron";
 import { getDatabase } from "../db.js";
-import { getAuthService } from "../services/AuthService.js";
+import { getAuthService } from "@liratek/core";
 import { hashPassword } from "../utils/crypto.js";
 import { isAppError } from "../utils/errors.js";
 import { authLogger } from "../utils/logger.js";

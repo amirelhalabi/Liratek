@@ -28,6 +28,11 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
     super("expenses");
   }
 
+  // Override getColumns() to use explicit columns instead of SELECT *
+  protected getColumns(): string {
+    return "id, description, category, expense_type, amount_usd, amount_lbp, expense_date, paid_by_method";
+  }
+
   /**
    * Create a new expense
    */
@@ -122,7 +127,7 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
   getTodayExpenses(): ExpenseEntity[] {
     return this.db
       .prepare(
-        `SELECT * FROM expenses 
+        `SELECT ${this.getColumns()} FROM expenses 
          WHERE DATE(expense_date) = DATE('now')
          ORDER BY expense_date DESC`,
       )
@@ -133,9 +138,9 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
    * Get expense by ID
    */
   getExpenseById(id: number): ExpenseEntity | undefined {
-    return this.db.prepare("SELECT * FROM expenses WHERE id = ?").get(id) as
-      | ExpenseEntity
-      | undefined;
+    return this.db
+      .prepare(`SELECT ${this.getColumns()} FROM expenses WHERE id = ?`)
+      .get(id) as ExpenseEntity | undefined;
   }
 
   /**

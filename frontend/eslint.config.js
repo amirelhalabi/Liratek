@@ -42,6 +42,8 @@ export default defineConfig([
       "react-hooks/immutability": "off",
       // Warn instead of error for set-state-in-effect (valid patterns exist)
       "react-hooks/set-state-in-effect": "warn",
+      // Prevent console usage - use proper logging
+      "no-console": ["error", { allow: ["warn", "error"] }],
     },
   },
   // Disable strict rules for test files and mocks

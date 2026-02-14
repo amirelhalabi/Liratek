@@ -946,11 +946,13 @@ Then run normally:
 ## 📈 Recent Completions (Feb 13, 2026)
 
 ### [T-33] Binance Module ✅
+
 - Full-stack Binance send/receive module: DB table + migration, core repo/service, electron handlers+preload, backend REST API, frontend page with stats+history, session integration
 - Binance drawer: USD-only in closing/opening, LBP hardcoded to 0
 - Tests: BinanceService.test.ts passing
 
 ### [T-34] IPEC/Katch/Wish App Module ✅
+
 - Extended `financial_services` CHECK constraint with 3 new providers (`IPEC`, `KATCH`, `WISH_APP`)
 - Core migration `migrateIKWProviders()` + SQL migration `003_add_ikw_providers.sql`
 - 6 new drawer_balances seeds (IPEC USD/LBP, Katch USD/LBP, Wish_App_Money USD/LBP)
@@ -961,18 +963,21 @@ Then run normally:
 - Unit tests: `core_ikw_migration.test.ts` (4 tests), FinancialService IPEC/KATCH/WISH_APP tests (3 tests), ClosingService drawer mocks updated
 
 ### [T-36] Debts Page Redesign ✅
+
 - Split single mixed timeline table into two side-by-side tables: Purchases (left, red) and Payments (right, emerald)
 - Added `total_debt_usd` and `total_debt_lbp` to DebtorSummary and TopDebtor interfaces
 - Updated debtor sidebar to show USD + LBP separately
 - Added COALESCE wrappers to all DebtRepository SUM queries for NULL safety
 
 ### [T-37] Dashboard Improvements ✅
+
 - Total Debt card: now shows USD and LBP separately instead of single value
 - Top Debtors: replaced Recharts BarChart with simple list showing USD + LBP per debtor
 - USD precision: changed `maximumFractionDigits` from 0 to 2 for all USD values on dashboard cards (shows $139.64 instead of $140)
 - Added `totalDebtUsd` / `totalDebtLbp` to `DebtSummary` interface + SQL queries
 
 ### [T-38] Runtime Bug Fixes ✅
+
 - **Exchange CHECK constraint**: DB only allows 'BUY'/'SELL', code had 'EXCHANGE' → derived from fromCurrency
 - **Session linking**: Used `getActiveSession()` instead of explicit session ID → threaded sessionId from React state
 - **Recharge credits**: Fixed incorrect credit balance updates
@@ -980,6 +985,7 @@ Then run normally:
 - **Backend test fixes**: Fixed jest.requireActual pattern for AuthService, ActivityService, ClosingService stubs
 
 ### Test Status
+
 - **All 312 backend tests passing** (23 suites)
 - **All type-checks clean** across core, frontend, and electron-app
 

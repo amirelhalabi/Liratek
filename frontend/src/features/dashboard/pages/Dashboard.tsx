@@ -162,7 +162,7 @@ export default function Dashboard() {
 
     // Subscribe to refresh events
     const unsubscribe = appEvents.on("sale:completed", () => {
-      console.log("[DASHBOARD] Sale completed, refreshing stats...");
+      // Sale completed, refresh dashboard stats
       loadData();
     });
 

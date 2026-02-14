@@ -46,6 +46,11 @@ export class BinanceRepository extends BaseRepository<BinanceTransactionEntity> 
     super("binance_transactions", { softDelete: false });
   }
 
+  // Override getColumns() to use explicit columns instead of SELECT *
+  protected getColumns(): string {
+    return "id, type, amount, currency_code, description, client_name, created_at, created_by";
+  }
+
   // ---------------------------------------------------------------------------
   // Transaction Operations
   // ---------------------------------------------------------------------------
@@ -143,7 +148,7 @@ export class BinanceRepository extends BaseRepository<BinanceTransactionEntity> 
    */
   getHistory(limit: number = 50): BinanceTransactionEntity[] {
     const stmt = this.db.prepare(`
-      SELECT * FROM binance_transactions 
+      SELECT ${this.getColumns()} FROM binance_transactions 
       ORDER BY created_at DESC 
       LIMIT ?
     `);
@@ -155,7 +160,7 @@ export class BinanceRepository extends BaseRepository<BinanceTransactionEntity> 
    */
   getTodayTransactions(): BinanceTransactionEntity[] {
     const stmt = this.db.prepare(`
-      SELECT * FROM binance_transactions 
+      SELECT ${this.getColumns()} FROM binance_transactions 
       WHERE DATE(created_at, 'localtime') = DATE('now', 'localtime')
       ORDER BY created_at DESC
     `);

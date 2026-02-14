@@ -5,6 +5,7 @@ import {
   getExpenseRepository,
 } from "../repositories/ExpenseRepository.js";
 import { toErrorString } from "../utils/errors.js";
+import { expenseLogger } from "../utils/logger.js";
 
 export interface ExpenseResult {
   success: boolean;
@@ -35,12 +36,20 @@ export class ExpenseService {
         amount_lbp: data.amount_lbp,
       });
 
-      console.log(
-        `[EXPENSE] Added: ${data.category} (${data.expense_type}) paid_by=${data.paid_by_method || "CASH"}`,
+      expenseLogger.info(
+        {
+          id,
+          category: data.category,
+          expenseType: data.expense_type,
+          paidBy: data.paid_by_method || "CASH",
+          amountUSD: data.amount_usd,
+          amountLBP: data.amount_lbp,
+        },
+        `Added: ${data.category} (${data.expense_type})`,
       );
       return { success: true, id };
     } catch (error) {
-      console.error("ExpenseService.addExpense error:", error);
+      expenseLogger.error({ error, data }, "ExpenseService.addExpense error");
       return { success: false, error: toErrorString(error) };
     }
   }
@@ -52,7 +61,7 @@ export class ExpenseService {
     try {
       return this.repo.getTodayExpenses();
     } catch (error) {
-      console.error("ExpenseService.getTodayExpenses error:", error);
+      expenseLogger.error({ error }, "ExpenseService.getTodayExpenses error");
       return [];
     }
   }
@@ -73,12 +82,15 @@ export class ExpenseService {
           category: expense.category,
           amount_usd: expense.amount_usd,
         });
-        console.log(`[EXPENSE] Deleted: ${expense.category}`);
+        expenseLogger.info(
+          { id, category: expense.category, amountUSD: expense.amount_usd },
+          `Deleted: ${expense.category}`,
+        );
       }
 
       return { success: true };
     } catch (error) {
-      console.error("ExpenseService.deleteExpense error:", error);
+      expenseLogger.error({ error, id }, "ExpenseService.deleteExpense error");
       return { success: false, error: toErrorString(error) };
     }
   }

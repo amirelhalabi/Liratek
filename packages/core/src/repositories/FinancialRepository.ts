@@ -22,6 +22,11 @@ export class FinancialRepository extends BaseRepository<{ id: number }> {
     super("sales", { softDelete: false }); // Base table doesn't matter much for aggregations
   }
 
+  // Override getColumns() - This repository uses aggregations, not direct selects
+  protected getColumns(): string {
+    return "id"; // Minimal since this repo only does aggregations
+  }
+
   /**
    * Get Monthly P&L Aggregation
    * @param month format 'YYYY-MM'

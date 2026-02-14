@@ -16,6 +16,9 @@ export interface SettingEntity {
 export class SettingsRepository {
   protected db: Database.Database;
 
+  // Define explicit columns instead of SELECT *
+  private readonly columns = "id, key_name, value, created_at, updated_at";
+
   constructor() {
     this.db = getDatabase();
   }
@@ -25,7 +28,7 @@ export class SettingsRepository {
    */
   getAllSettings(): SettingEntity[] {
     return this.db
-      .prepare("SELECT * FROM system_settings")
+      .prepare(`SELECT ${this.columns} FROM system_settings`)
       .all() as SettingEntity[];
   }
 
@@ -34,7 +37,7 @@ export class SettingsRepository {
    */
   getSetting(key: string): SettingEntity | undefined {
     return this.db
-      .prepare("SELECT * FROM system_settings WHERE key_name = ?")
+      .prepare(`SELECT ${this.columns} FROM system_settings WHERE key_name = ?`)
       .get(key) as SettingEntity | undefined;
   }
 

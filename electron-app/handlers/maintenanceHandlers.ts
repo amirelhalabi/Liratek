@@ -1,10 +1,10 @@
 import { ipcMain } from "electron";
-import { MaintenanceService } from "../services/MaintenanceService.js";
+import { getMaintenanceService } from "@liratek/core";
 import { maintenanceLogger } from "../utils/logger.js";
 /* eslint-disable @typescript-eslint/no-require-imports */
 
 export function registerMaintenanceHandlers(): void {
-  const service = new MaintenanceService();
+  const service = getMaintenanceService();
 
   // Add / Update Maintenance Job (Drawer B - General Drawer)
   type MaintenanceJobInput = {

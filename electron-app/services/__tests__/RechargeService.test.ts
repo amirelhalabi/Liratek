@@ -12,10 +12,11 @@ import {
   getRechargeRepository,
   type VirtualStock,
   type RechargeData,
-} from "../../database/repositories";
+} from "@liratek/core";
 
 // Mock the repository module
-jest.mock("../../database/repositories", () => ({
+jest.mock("@liratek/core", () => ({
+  ...jest.requireActual("@liratek/core"),
   getRechargeRepository: jest.fn(),
   RechargeRepository: jest.fn(),
 }));

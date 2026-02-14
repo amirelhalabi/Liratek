@@ -3,7 +3,7 @@
  */
 
 import { ipcMain } from "electron";
-import { getFinancialRepository } from "../database/repositories/FinancialRepository.js";
+import { getFinancialRepository } from "@liratek/core";
 
 export function registerFinancialHandlers(): void {
   const repo = getFinancialRepository();

@@ -43,6 +43,11 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
     super("maintenance");
   }
 
+  // Override getColumns() to use explicit columns instead of SELECT *
+  protected getColumns(): string {
+    return "id, client_id, client_name, device_name, issue_description, cost_usd, price_usd, discount_usd, final_amount_usd, paid_usd, paid_lbp, exchange_rate, status, note, created_at, updated_at";
+  }
+
   /**
    * Create a new maintenance job
    */
@@ -108,12 +113,12 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
   getJobs(statusFilter?: string): MaintenanceRow[] {
     if (statusFilter && statusFilter !== "All") {
       const stmt = this.db.prepare(
-        `SELECT * FROM maintenance WHERE status = ? ORDER BY created_at DESC`,
+        `SELECT ${this.getColumns()} FROM maintenance WHERE status = ? ORDER BY created_at DESC`,
       );
       return stmt.all(statusFilter) as MaintenanceRow[];
     }
     const stmt = this.db.prepare(
-      `SELECT * FROM maintenance ORDER BY created_at DESC`,
+      `SELECT ${this.getColumns()} FROM maintenance ORDER BY created_at DESC`,
     );
     return stmt.all() as MaintenanceRow[];
   }

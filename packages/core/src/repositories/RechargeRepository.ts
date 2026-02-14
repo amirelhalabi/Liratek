@@ -6,6 +6,7 @@
  */
 
 import { BaseRepository } from "./BaseRepository.js";
+import { rechargeLogger } from "../utils/logger.js";
 
 // =============================================================================
 // Entity Types
@@ -40,6 +41,11 @@ export interface RechargeData {
 export class RechargeRepository extends BaseRepository<{ id: number }> {
   constructor() {
     super("products", { softDelete: false });
+  }
+
+  // Override getColumns() - This repository uses drawer_balances for virtual stock, not products directly
+  protected getColumns(): string {
+    return "id, barcode, name, item_type, category, description, cost_price_usd, selling_price_usd, min_stock_level, stock_quantity, imei, color, image_url, warranty_expiry, status, is_active, created_at, is_deleted, updated_at";
   }
 
   /**
@@ -216,13 +222,21 @@ export class RechargeRepository extends BaseRepository<{ id: number }> {
         return saleId;
       })();
 
-      console.log(
-        `[RECHARGE] ${data.provider} ${data.type}: ${data.amount} @ $${data.price} paid_by=${data.paid_by_method || "CASH"}`,
+      rechargeLogger.info(
+        {
+          saleId: result,
+          provider: data.provider,
+          type: data.type,
+          amount: data.amount,
+          price: data.price,
+          paidBy: data.paid_by_method || "CASH",
+        },
+        `${data.provider} ${data.type}: ${data.amount} @ $${data.price}`,
       );
 
       return { success: true, saleId: result };
     } catch (error) {
-      console.error("Recharge failed:", error);
+      rechargeLogger.error({ error, data }, "Recharge failed");
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error),

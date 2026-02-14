@@ -9,7 +9,10 @@
     "build:main": "tsc -p tsconfig.json",
     "build:preload": "tsc -p tsconfig.preload.json && mv dist/preload.js dist/preload.cjs 2>/dev/null || true",
     "setup:dist": "cp dist-package.json dist/package.json",
-    "start": "electron ."
+    "start": "electron .",
+    "env:setup": "[ -f .env ] || cp .env.dev .env",
+    "env:dev": "cp .env.dev .env",
+    "env:prod": "cp .env.prod .env"
   },
   "dependencies": {
     "@liratek/core": "workspace:*",

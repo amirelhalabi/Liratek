@@ -7,6 +7,7 @@
 
 import { BaseRepository } from "./BaseRepository.js";
 import { DatabaseError } from "../utils/errors.js";
+import { salesLogger } from "../utils/logger.js";
 
 // =============================================================================
 // Types
@@ -162,6 +163,11 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
     super("sales", { softDelete: false });
   }
 
+  // Override getColumns() to use explicit columns instead of SELECT *
+  protected getColumns(): string {
+    return "id, client_id, total_amount_usd, discount_usd, final_amount_usd, paid_usd, paid_lbp, change_given_usd, change_given_lbp, exchange_rate_snapshot, status, note, created_at, drawer_name";
+  }
+
   // ---------------------------------------------------------------------------
   // Full Transaction Processing
   // ---------------------------------------------------------------------------
@@ -196,7 +202,10 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             );
             finalClientId = clientResult.lastInsertRowid as number;
           } catch (e) {
-            console.error("Auto-create client failed", e);
+            salesLogger.error(
+              { error: e, clientName: sale.client_name },
+              "Auto-create client failed",
+            );
           }
         }
 
@@ -440,7 +449,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
 
       return processTransaction();
     } catch (error) {
-      console.error("Sale transaction failed:", error);
+      salesLogger.error({ error, sale }, "Sale transaction failed");
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error),

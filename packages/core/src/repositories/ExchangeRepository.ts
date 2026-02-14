@@ -44,6 +44,11 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
     super("exchange_transactions", { softDelete: false });
   }
 
+  // Override getColumns() to use explicit columns instead of SELECT *
+  protected getColumns(): string {
+    return "id, type, from_currency, to_currency, amount_in, amount_out, rate, client_name, note, created_at, created_by";
+  }
+
   // ---------------------------------------------------------------------------
   // Transaction Operations
   // ---------------------------------------------------------------------------
@@ -153,7 +158,7 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
    */
   getHistory(limit: number = 50): ExchangeTransactionEntity[] {
     const stmt = this.db.prepare(`
-      SELECT * FROM exchange_transactions 
+      SELECT ${this.getColumns()} FROM exchange_transactions 
       ORDER BY created_at DESC 
       LIMIT ?
     `);
@@ -165,7 +170,7 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
    */
   getTodayTransactions(): ExchangeTransactionEntity[] {
     const stmt = this.db.prepare(`
-      SELECT * FROM exchange_transactions 
+      SELECT ${this.getColumns()} FROM exchange_transactions 
       WHERE DATE(created_at, 'localtime') = DATE('now', 'localtime')
       ORDER BY created_at DESC
     `);

@@ -38,6 +38,11 @@ export class CurrencyRepository extends BaseRepository<CurrencyEntity> {
     super("currencies", { softDelete: false });
   }
 
+  // Override getColumns() to use explicit columns instead of SELECT *
+  protected getColumns(): string {
+    return "id, code, name, is_active, created_at";
+  }
+
   /**
    * Get all currencies
    */

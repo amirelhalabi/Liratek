@@ -158,9 +158,80 @@ export function isAppError(error: unknown): error is AppError {
   return error instanceof AppError;
 }
 
+// =============================================================================
+// Standardized API Response Types
+// =============================================================================
+
+/**
+ * Standardized error response structure
+ * Used across both Electron IPC and REST API for consistency
+ */
+export interface ApiError {
+  success: false;
+  error: {
+    code: string; // Machine-readable error code (e.g., "CLIENT_NOT_FOUND")
+    message: string; // Human-readable error message
+    details?: unknown; // Additional context (validation errors, etc.)
+    field?: string; // For field-specific validation errors
+  };
+}
+
+/**
+ * Standardized success response structure
+ */
+export interface ApiSuccess<T = void> {
+  success: true;
+  data: T;
+}
+
+/**
+ * Union type for all API responses
+ */
+export type ApiResponse<T = void> = ApiSuccess<T> | ApiError;
+
+// =============================================================================
+// Error Response Factories
+// =============================================================================
+
+/**
+ * Create a standardized error response
+ */
+export function createErrorResponse(
+  code: string,
+  message: string,
+  details?: unknown,
+  field?: string,
+): ApiError {
+  return {
+    success: false,
+    error: {
+      code,
+      message,
+      details,
+      field,
+    },
+  };
+}
+
+/**
+ * Create a standardized success response
+ */
+export function createSuccessResponse<T>(data: T): ApiSuccess<T> {
+  return {
+    success: true,
+    data,
+  };
+}
+
+// =============================================================================
+// Legacy Error Handler (for backward compatibility)
+// =============================================================================
+
 /**
  * Handle any error and return a consistent JSON response
  * Use this in IPC handlers to wrap error handling
+ *
+ * @deprecated Use handleErrorV2() and createErrorResponse() for new code
  */
 export function handleError(error: unknown): {
   success: false;
@@ -191,13 +262,47 @@ export function handleError(error: unknown): {
   // Unknown errors (potential bugs)
   console.error("Unhandled error:", error);
 
-  const isDev = process.env.NODE_ENV === "development";
+  // In development, expose error details; in production, use generic message
   return {
     success: false,
-    error:
-      isDev && error instanceof Error ? error.message : "Internal server error",
+    error: error instanceof Error ? error.message : "Internal server error",
     code: "INTERNAL_ERROR",
   };
+}
+
+/**
+ * Convert unknown error to new standardized error response format
+ */
+export function handleErrorV2(error: unknown): ApiError {
+  // Known operational errors
+  if (isAppError(error)) {
+    return createErrorResponse(error.code, error.message, error.details);
+  }
+
+  // SQLite constraint errors
+  if (error instanceof Error) {
+    if (error.message.includes("UNIQUE constraint")) {
+      return createErrorResponse(
+        "DUPLICATE_ENTRY",
+        "A record with this value already exists",
+      );
+    }
+    if (error.message.includes("FOREIGN KEY constraint")) {
+      return createErrorResponse(
+        "VALIDATION_ERROR",
+        "Invalid reference to related record",
+      );
+    }
+  }
+
+  console.error("Unhandled error:", error);
+
+  // Return generic error for unknown errors
+  return createErrorResponse(
+    "INTERNAL_ERROR",
+    error instanceof Error ? error.message : "Internal server error",
+    error instanceof Error ? { stack: error.stack } : undefined,
+  );
 }
 
 /**
@@ -227,3 +332,61 @@ export function wrapHandler<Args extends unknown[], R>(
     }
   };
 }
+
+/**
+ * Wrap an async handler with standardized error handling (V2 format)
+ */
+export function wrapHandlerV2<Args extends unknown[], R>(
+  handler: (...args: Args) => Promise<ApiSuccess<R>>,
+): (...args: Args) => Promise<ApiSuccess<R> | ApiError> {
+  return async (...args: Args) => {
+    try {
+      return await handler(...args);
+    } catch (error) {
+      return handleErrorV2(error);
+    }
+  };
+}
+
+// =============================================================================
+// Common Error Codes
+// =============================================================================
+
+export const ErrorCodes = {
+  // Validation Errors (400)
+  VALIDATION_ERROR: "VALIDATION_ERROR",
+  REQUIRED_FIELD: "REQUIRED_FIELD",
+  INVALID_FORMAT: "INVALID_FORMAT",
+  INVALID_VALUE: "INVALID_VALUE",
+
+  // Not Found Errors (404)
+  NOT_FOUND: "NOT_FOUND",
+  CLIENT_NOT_FOUND: "CLIENT_NOT_FOUND",
+  PRODUCT_NOT_FOUND: "PRODUCT_NOT_FOUND",
+  SALE_NOT_FOUND: "SALE_NOT_FOUND",
+  USER_NOT_FOUND: "USER_NOT_FOUND",
+
+  // Conflict Errors (409)
+  DUPLICATE_ENTRY: "DUPLICATE_ENTRY",
+  DUPLICATE_PHONE: "DUPLICATE_PHONE",
+  DUPLICATE_BARCODE: "DUPLICATE_BARCODE",
+  DUPLICATE_USERNAME: "DUPLICATE_USERNAME",
+
+  // Authentication/Authorization Errors (401/403)
+  UNAUTHORIZED: "UNAUTHORIZED",
+  INVALID_CREDENTIALS: "INVALID_CREDENTIALS",
+  FORBIDDEN: "FORBIDDEN",
+  INSUFFICIENT_PERMISSIONS: "INSUFFICIENT_PERMISSIONS",
+
+  // Business Logic Errors (422)
+  BUSINESS_RULE_VIOLATION: "BUSINESS_RULE_VIOLATION",
+  INSUFFICIENT_STOCK: "INSUFFICIENT_STOCK",
+  CREDIT_LIMIT_EXCEEDED: "CREDIT_LIMIT_EXCEEDED",
+
+  // Server Errors (500)
+  INTERNAL_ERROR: "INTERNAL_ERROR",
+  DATABASE_ERROR: "DATABASE_ERROR",
+  OPERATION_FAILED: "OPERATION_FAILED",
+} as const;
+
+export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];

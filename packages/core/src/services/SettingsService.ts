@@ -3,6 +3,7 @@ import {
   SettingEntity,
   getSettingsRepository,
 } from "../repositories/SettingsRepository.js";
+import { settingsLogger } from "../utils/logger.js";
 
 export interface SettingResult {
   success: boolean;
@@ -23,7 +24,7 @@ export class SettingsService {
     try {
       return this.repo.getAllSettings();
     } catch (error) {
-      console.error("SettingsService.getAllSettings error:", error);
+      settingsLogger.error({ error }, "SettingsService.getAllSettings error");
       return [];
     }
   }
@@ -35,7 +36,7 @@ export class SettingsService {
     try {
       return this.repo.getSetting(key);
     } catch (error) {
-      console.error("SettingsService.getSetting error:", error);
+      settingsLogger.error({ error, key }, "SettingsService.getSetting error");
       return undefined;
     }
   }
@@ -48,7 +49,10 @@ export class SettingsService {
       const value = this.repo.getSettingValue(key);
       return value !== undefined ? { value } : undefined;
     } catch (error) {
-      console.error("SettingsService.getSettingValue error:", error);
+      settingsLogger.error(
+        { error, key },
+        "SettingsService.getSettingValue error",
+      );
       return undefined;
     }
   }
@@ -61,7 +65,10 @@ export class SettingsService {
       this.repo.upsertSetting(key, value);
       return { success: true };
     } catch (error) {
-      console.error("SettingsService.updateSetting error:", error);
+      settingsLogger.error(
+        { error, key, value },
+        "SettingsService.updateSetting error",
+      );
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error),

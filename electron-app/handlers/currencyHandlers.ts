@@ -5,13 +5,10 @@
  */
 
 import { ipcMain, IpcMainInvokeEvent } from "electron";
-import { getCurrencyService } from "../services/index.js";
+import { getCurrencyService } from "@liratek/core";
 import { requireRole } from "../session.js";
 import { settingsLogger } from "../utils/logger.js";
-import type {
-  CreateCurrencyData,
-  UpdateCurrencyData,
-} from "../database/repositories/index.js";
+import type { CreateCurrencyData, UpdateCurrencyData } from "@liratek/core";
 
 export function registerCurrencyHandlers(): void {
   const currencyService = getCurrencyService();

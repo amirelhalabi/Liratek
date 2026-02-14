@@ -1,6 +1,6 @@
 import express from "express";
 import { authenticateJWT } from "../middleware/auth.js";
-import { getCurrencyService } from "../services/index.js";
+import { getCurrencyService } from "@liratek/core";
 import { logger } from "../server.js";
 
 const router = express.Router();

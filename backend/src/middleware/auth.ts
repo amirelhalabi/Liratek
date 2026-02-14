@@ -1,10 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { logger } from "../server.js";
-import { getAuthService } from "../services/index.js";
-
-const JWT_SECRET =
-  process.env.JWT_SECRET || "your-secret-key-change-in-production";
+import { getAuthService, JWT_SECRET } from "@liratek/core";
 
 export interface AuthRequest extends Request {
   user?: {
@@ -29,7 +26,10 @@ export function authenticateJWT(
   const token = authHeader.substring(7);
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as {
+    const decoded = jwt.verify(
+      token,
+      JWT_SECRET || "your-secret-key-change-in-production",
+    ) as {
       userId: number;
       role: string;
       sessionToken?: string;
@@ -40,7 +40,7 @@ export function authenticateJWT(
       const authService = getAuthService();
       authService
         .validateSession(decoded.sessionToken)
-        .then((user) => {
+        .then((user: any) => {
           if (!user) {
             logger.warn(
               { userId: decoded.userId },
@@ -54,7 +54,7 @@ export function authenticateJWT(
           req.user = decoded;
           next();
         })
-        .catch((error) => {
+        .catch((error: any) => {
           logger.error({ error }, "Session validation error");
           res.status(401).json({ error: "Session validation failed" });
         });

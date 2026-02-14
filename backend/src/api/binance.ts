@@ -1,6 +1,6 @@
 import express from "express";
 import { authenticateJWT, requireRole } from "../middleware/auth.js";
-import { getBinanceService } from "../services/index.js";
+import { getBinanceService } from "@liratek/core";
 
 const router = express.Router();
 

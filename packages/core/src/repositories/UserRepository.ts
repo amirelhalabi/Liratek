@@ -46,6 +46,11 @@ export class UserRepository extends BaseRepository<UserEntity> {
     super("users", { softDelete: true });
   }
 
+  // Override getColumns() to use explicit columns instead of SELECT *
+  protected getColumns(): string {
+    return "id, username, password_hash, role, is_active";
+  }
+
   // ---------------------------------------------------------------------------
   // User-Specific Queries
   // ---------------------------------------------------------------------------
@@ -55,7 +60,7 @@ export class UserRepository extends BaseRepository<UserEntity> {
    */
   findByUsername(username: string): UserEntity | null {
     try {
-      const query = `SELECT * FROM ${this.tableName} WHERE username = ? AND is_active = 1`;
+      const query = `SELECT ${this.getColumns()} FROM ${this.tableName} WHERE username = ? AND is_active = 1`;
       return this.queryOne<UserEntity>(query, username);
     } catch (error) {
       throw new DatabaseError("Failed to find user by username", {
@@ -69,7 +74,7 @@ export class UserRepository extends BaseRepository<UserEntity> {
    */
   findByUsernameIncludingInactive(username: string): UserEntity | null {
     try {
-      const query = `SELECT * FROM ${this.tableName} WHERE username = ?`;
+      const query = `SELECT ${this.getColumns()} FROM ${this.tableName} WHERE username = ?`;
       return this.queryOne<UserEntity>(query, username);
     } catch (error) {
       throw new DatabaseError("Failed to find user by username", {

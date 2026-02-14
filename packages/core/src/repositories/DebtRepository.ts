@@ -63,6 +63,11 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
     super("debt_ledger", { softDelete: false });
   }
 
+  // Override getColumns() to use explicit columns instead of SELECT *
+  protected getColumns(): string {
+    return "id, client_id, transaction_type, amount_usd, amount_lbp, sale_id, note, created_at, created_by";
+  }
+
   // ---------------------------------------------------------------------------
   // Debtor Queries
   // ---------------------------------------------------------------------------
@@ -101,7 +106,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
    */
   findClientHistory(clientId: number): DebtLedgerEntity[] {
     const stmt = this.db.prepare(`
-      SELECT * FROM debt_ledger 
+      SELECT ${this.getColumns()} FROM debt_ledger 
       WHERE client_id = ? 
       ORDER BY created_at DESC
     `);
@@ -134,23 +139,76 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
 
   /**
    * Add a repayment entry (stored as negative values to reduce debt)
+   * Wrapped in transaction to ensure atomicity with payments and drawer updates
    */
   addRepayment(data: CreateRepaymentData): { id: number } {
-    const stmt = this.db.prepare(`
-      INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, note, created_by)
-      VALUES (?, 'Repayment', ?, ?, ?, ?)
-    `);
+    return this.transaction(() => {
+      // 1. Insert debt ledger entry
+      const stmt = this.db.prepare(`
+        INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, note, created_by)
+        VALUES (?, 'Repayment', ?, ?, ?, ?)
+      `);
 
-    // Store as negative values to signify a reduction in debt
-    const result = stmt.run(
-      data.client_id,
-      -data.amount_usd,
-      -data.amount_lbp,
-      data.note || null,
-      data.created_by || null,
-    );
+      // Store as negative values to signify a reduction in debt
+      const result = stmt.run(
+        data.client_id,
+        -data.amount_usd,
+        -data.amount_lbp,
+        data.note || null,
+        data.created_by || null,
+      );
 
-    return { id: Number(result.lastInsertRowid) };
+      const repaymentId = Number(result.lastInsertRowid);
+
+      // 2. Record payment entries for drawer tracking
+      const insertPayment = this.db.prepare(`
+        INSERT INTO payments (
+          source_type, source_id, method, drawer_name, currency_code, amount, note, created_by
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      // 3. Update drawer balances
+      const upsertBalance = this.db.prepare(`
+        INSERT INTO drawer_balances (drawer_name, currency_code, balance)
+        VALUES (?, ?, ?)
+        ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+          balance = drawer_balances.balance + excluded.balance,
+          updated_at = CURRENT_TIMESTAMP
+      `);
+
+      // Default to General drawer for cash repayments
+      const drawerName = "General";
+
+      if (data.amount_usd > 0) {
+        insertPayment.run(
+          "DEBT_REPAYMENT",
+          repaymentId,
+          "CASH",
+          drawerName,
+          "USD",
+          data.amount_usd,
+          data.note || "Debt repayment",
+          data.created_by || null,
+        );
+        upsertBalance.run(drawerName, "USD", data.amount_usd);
+      }
+
+      if (data.amount_lbp > 0) {
+        insertPayment.run(
+          "DEBT_REPAYMENT",
+          repaymentId,
+          "CASH",
+          drawerName,
+          "LBP",
+          data.amount_lbp,
+          data.note || "Debt repayment",
+          data.created_by || null,
+        );
+        upsertBalance.run(drawerName, "LBP", data.amount_lbp);
+      }
+
+      return { id: repaymentId };
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -179,7 +237,11 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       FROM debt_ledger
     `,
       )
-      .get(rate) as { totalDebt: number | null; totalDebtUsd: number | null; totalDebtLbp: number | null };
+      .get(rate) as {
+      totalDebt: number | null;
+      totalDebtUsd: number | null;
+      totalDebtLbp: number | null;
+    };
 
     // Top N debtors (only those with positive debt)
     const topDebtors = this.db

@@ -98,7 +98,11 @@ export {
 export type { RechargeResult } from "./RechargeService.js";
 
 // Maintenance Service
-export { MaintenanceService } from "./MaintenanceService.js";
+export {
+  MaintenanceService,
+  getMaintenanceService,
+  resetMaintenanceService,
+} from "./MaintenanceService.js";
 export type { SaveJobParams } from "./MaintenanceService.js";
 
 // Report Service - Requires Electron APIs, not available in backend mode

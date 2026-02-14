@@ -6,7 +6,7 @@ import {
   getInventoryService,
   getRechargeService,
   getFinancialRepository,
-} from "../services/index.js";
+} from "@liratek/core";
 
 const router = express.Router();
 

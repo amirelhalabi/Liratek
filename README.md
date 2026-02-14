@@ -9,6 +9,7 @@ A comprehensive, enterprise-grade Point of Sale (POS) and inventory management s
 - [Core Features](#-core-features)
 - [Tech Stack](#️-tech-stack)
 - [Getting Started](#-getting-started)
+- [Environment Variables](#-environment-variables)
 - [Architecture](#️-architecture)
 - [Database Schema](#️-database-schema)
 - [Development Guide](#-development-guide)
@@ -142,6 +143,225 @@ npm run dev:docker
 ```bash
 docker compose up --build
 ```
+
+---
+
+## 🔐 Environment Variables
+
+LiraTek is a **monorepo** with multiple runnable projects. Each project has its own environment configuration.
+
+### Quick Setup
+
+**Automatic (Recommended):**
+
+```bash
+# Setup all projects at once
+cd backend && npm run env:setup
+cd ../frontend && npm run env:setup
+cd ../electron-app && npm run env:setup
+```
+
+**Manual:**
+
+```bash
+# Backend
+cp backend/.env.dev backend/.env
+
+# Frontend
+cp frontend/.env.dev frontend/.env
+
+# Electron App
+cp electron-app/.env.dev electron-app/.env
+```
+
+### Environment Management Scripts
+
+Each project has npm scripts for managing environments:
+
+```bash
+# Switch to development mode
+npm run env:dev
+
+# Switch to production mode
+npm run env:prod
+
+# Setup .env if it doesn't exist (safe to run multiple times)
+npm run env:setup
+```
+
+### File Structure
+
+Each project has three environment files:
+
+- **`.env.example`** - Full documentation of all available variables
+- **`.env.dev`** - Safe development defaults (✅ committed to git)
+- **`.env.prod`** - Production template with placeholders (✅ committed to git)
+- **`.env`** - Your actual configuration (❌ gitignored, never commit)
+
+2. **Edit the `.env` files** with your values
+
+3. **Start development** - Variables are auto-loaded
+
+### Backend Environment Variables
+
+Create `backend/.env`:
+
+```bash
+# Environment
+NODE_ENV=development          # development | production | test
+
+# Server
+PORT=3000                     # API server port
+HOST=0.0.0.0                  # Bind address (0.0.0.0 for all interfaces)
+CORS_ORIGIN=http://localhost:5173  # Frontend URL for CORS
+
+# Database
+DATABASE_PATH=/path/to/liratek.db   # Absolute path to SQLite database
+DATABASE_KEY=your-32-char-secret    # Optional: SQLCipher encryption key
+
+# Authentication
+JWT_SECRET=your-secret-key-min-32-chars  # REQUIRED in production
+JWT_EXPIRES_IN=7d                        # Token expiration (7d, 24h, etc.)
+
+# Logging
+LOG_LEVEL=info                # trace | debug | info | warn | error | fatal
+LOG_DIR=/var/log/liratek      # Optional: Log file directory (production)
+```
+
+### Electron App Environment Variables
+
+Create `electron-app/.env`:
+
+```bash
+# Development
+ELECTRON_RENDERER_URL=http://localhost:5173  # Vite dev server URL
+
+# Database (optional - usually auto-detected)
+DATABASE_PATH=/path/to/liratek.db
+DATABASE_KEY=your-32-char-secret
+
+# Logging
+LOG_LEVEL=debug
+```
+
+### Environment Variables Reference
+
+| Variable                  | Required   | Default                 | Description                    |
+| ------------------------- | ---------- | ----------------------- | ------------------------------ |
+| **NODE_ENV**              | No         | `development`           | Application environment        |
+| **PORT**                  | No         | `3000`                  | Backend API port               |
+| **HOST**                  | No         | `0.0.0.0`               | Backend bind address           |
+| **CORS_ORIGIN**           | No         | `http://localhost:5173` | Allowed CORS origin            |
+| **DATABASE_PATH**         | No         | Auto-detected           | SQLite database file path      |
+| **DATABASE_KEY**          | No         | None                    | SQLCipher encryption key       |
+| **JWT_SECRET**            | Production | Random                  | JWT signing secret (32+ chars) |
+| **JWT_EXPIRES_IN**        | No         | `7d`                    | JWT token expiration           |
+| **LOG_LEVEL**             | No         | Environment-based       | Logging verbosity              |
+| **LOG_DIR**               | No         | None                    | Log file directory             |
+| **ELECTRON_RENDERER_URL** | Dev only   | `http://localhost:5173` | Vite dev server URL            |
+
+### Database Path Resolution
+
+LiraTek automatically resolves the database path in this order:
+
+1. **`DATABASE_PATH` environment variable** (highest priority)
+2. **`db-path.txt` file** in project root
+3. **Default location** based on platform:
+   - **macOS**: `~/Library/Application Support/liratek/phone_shop.db`
+   - **Windows**: `%APPDATA%/liratek/phone_shop.db`
+   - **Linux**: `~/.local/share/liratek/phone_shop.db`
+
+### Recommended Setup
+
+#### Development
+
+```bash
+# backend/.env
+NODE_ENV=development
+LOG_LEVEL=debug
+DATABASE_PATH=~/Documents/LiraTek/liratek.db
+JWT_SECRET=dev-secret-key-change-in-production-min-32-chars
+```
+
+#### Production
+
+```bash
+# backend/.env
+NODE_ENV=production
+PORT=3000
+HOST=0.0.0.0
+CORS_ORIGIN=https://yourdomain.com
+DATABASE_PATH=/var/lib/liratek/liratek.db
+DATABASE_KEY=<strong-32-char-encryption-key>
+JWT_SECRET=<strong-random-secret-min-32-chars>
+JWT_EXPIRES_IN=7d
+LOG_LEVEL=info
+LOG_DIR=/var/log/liratek
+```
+
+### Validation
+
+Environment variables are **validated at startup** using Zod schemas:
+
+```typescript
+// Automatic validation on import
+import env from "@liratek/core";
+
+console.log(env.PORT); // Type-safe, validated
+console.log(env.JWT_SECRET); // TypeScript knows the shape
+```
+
+**Invalid configuration will fail fast** with clear error messages:
+
+```
+❌ Environment variable validation failed:
+{
+  JWT_SECRET: {
+    _errors: ['String must contain at least 32 character(s)']
+  }
+}
+```
+
+### Security Best Practices
+
+✅ **DO:**
+
+- Use strong, random secrets (32+ characters)
+- Use different secrets for dev/staging/production
+- Enable `DATABASE_KEY` for production (SQLCipher encryption)
+- Set `NODE_ENV=production` in production
+- Use `.env` files (gitignored)
+- Rotate secrets regularly
+
+❌ **DON'T:**
+
+- Commit `.env` files to Git (use `.env.example` instead)
+- Use weak or default secrets in production
+- Share secrets between environments
+- Hard-code secrets in source code
+
+### Troubleshooting
+
+**Problem: "Invalid environment configuration"**
+
+Solution: Check your `.env` file against `.env.example` and ensure all required fields are valid.
+
+**Problem: "Database not found"**
+
+Solution: Either:
+
+1. Set `DATABASE_PATH` in `.env`
+2. Create `db-path.txt` with absolute path
+3. Let app create DB in default location
+
+**Problem: "JWT validation failed"**
+
+Solution: Ensure `JWT_SECRET` is at least 32 characters in production.
+
+**See also**:
+
+- [docs/LOGGING_GUIDE.md](docs/LOGGING_GUIDE.md) - Logging configuration
+- [packages/core/src/config/env.ts](packages/core/src/config/env.ts) - Environment schema
 
 ---
 
@@ -426,6 +646,52 @@ Supported currencies: USD, LBP, EUR (via exchange module)
 - **Alfa** → Alfa Drawer (recharges)
 
 Each drawer tracks balances independently with opening/closing audit workflow.
+
+---
+
+## 🏥 Health Checks & Monitoring
+
+LiraTek provides comprehensive health check endpoints for monitoring and orchestration.
+
+### Available Endpoints
+
+```bash
+# Basic health check (fast, no dependencies)
+GET /health
+# Returns: { status: "ok", uptime: 123.45, version: "1.0.0" }
+
+# Detailed diagnostics (database, memory, system)
+GET /health/detailed
+# Returns: Full system health including database latency, memory usage, CPU load
+
+# Kubernetes readiness probe
+GET /health/ready
+# Returns 200 if ready to serve traffic, 503 if not
+
+# Kubernetes liveness probe
+GET /health/live
+# Returns 200 if process is alive (for restart decisions)
+```
+
+### Quick Test
+
+```bash
+# Start the backend
+cd backend && npm run dev
+
+# Test health endpoints (in another terminal)
+curl http://localhost:3000/health
+curl http://localhost:3000/health/detailed
+```
+
+### Production Use
+
+- **Load Balancers**: Use `/health` for fast checks
+- **Kubernetes**: Use `/health/ready` and `/health/live` probes
+- **Docker**: Add healthcheck in `docker-compose.yml`
+- **Monitoring**: Poll `/health/detailed` for metrics
+
+See [Health Checks Documentation](docs/HEALTH_CHECKS.md) for complete details.
 
 ---
 
@@ -863,7 +1129,17 @@ npm run build
 
 ## 📚 Additional Documentation
 
+### Core Documentation
+
 - **[CURRENT_SPRINT.md](docs/CURRENT_SPRINT.md)**: Active sprint tasks, roadmap, and recent completions
+- **[ENVIRONMENT_VARIABLES.md](docs/ENVIRONMENT_VARIABLES.md)**: Complete environment variable guide
+- **[HEALTH_CHECKS.md](docs/HEALTH_CHECKS.md)**: Health check endpoints and monitoring
+- **[LOGGING_GUIDE.md](docs/LOGGING_GUIDE.md)**: Structured logging best practices
+- **[API_VALIDATION.md](docs/API_VALIDATION.md)**: Request validation schemas and usage
+- **[RATE_LIMITING.md](docs/RATE_LIMITING.md)**: API rate limiting and abuse prevention
+- **[DATABASE_OPTIMIZATION.md](docs/DATABASE_OPTIMIZATION.md)**: Database indexing and performance
+- **[DATABASE_MIGRATIONS.md](docs/DATABASE_MIGRATIONS.md)**: Migration system and version control
+- **[SELECT_STAR_REFACTORING.md](docs/SELECT_STAR_REFACTORING.md)**: SELECT \* removal progress (21% complete)
 - **Marketing Materials**: `docs/marketing/` - Product marketing and promotion guides
 - **Document Templates**: `docs/templates/` - Business document templates (quotations, etc.)
 - **Archive**: `docs/archive/` - Historical documentation for reference

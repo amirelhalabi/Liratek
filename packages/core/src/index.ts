@@ -3,6 +3,8 @@ export * from "./db/dbPath.js";
 export * from "./db/dbKey.js";
 export * from "./db/sqlcipher.js";
 export * from "./db/connection.js";
+// Migration system
+export * from "./db/migrations/index.js";
 export * from "./db/migrations/drawers.js";
 export * from "./db/migrations/customer-sessions.js";
 export * from "./db/migrations/binance-transactions.js";
@@ -28,3 +30,9 @@ export type {
 
 // Services
 export * from "./services/index.js";
+
+// Validators
+export * from "./validators/index.js";
+
+// Configuration
+export * from "./config/env.js";

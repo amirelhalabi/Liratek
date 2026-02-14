@@ -28,13 +28,15 @@ release
 coverage
 *.lcov
 
-# Environment files (keep .env.example)
-config/.env.development
-config/.env.production
-config/.env.test
+# Environment files
 .env
 .env.local
 .env.*.local
+
+# But DO commit these template files
+!.env.example
+!.env.dev
+!.env.prod
 
 # Database files
 *.db

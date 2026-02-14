@@ -1,6 +1,11 @@
 import express from "express";
 import { authenticateJWT, requireRole } from "../middleware/auth.js";
-import { getExpenseService } from "../services/index.js";
+import { validateRequest, validateParams } from "../middleware/validation.js";
+import {
+  getExpenseService,
+  createExpenseSchema,
+  deleteExpenseSchema,
+} from "@liratek/core";
 
 const router = express.Router();
 
@@ -15,23 +20,28 @@ router.get("/today", (_req, res) => {
 });
 
 // POST /api/expenses (admin)
-router.post("/", requireRole(["admin"]), (req, res) => {
-  const service = getExpenseService();
-  const result = service.addExpense(req.body);
-  res.status(result.success ? 200 : 400).json(result);
-});
+router.post(
+  "/",
+  requireRole(["admin"]),
+  validateRequest(createExpenseSchema),
+  (req, res) => {
+    const service = getExpenseService();
+    const result = service.addExpense(req.body);
+    res.status(result.success ? 200 : 400).json(result);
+  },
+);
 
 // DELETE /api/expenses/:id (admin)
-router.delete("/:id", requireRole(["admin"]), (req, res) => {
-  const id = Number(req.params.id);
-  if (!Number.isFinite(id)) {
-    res.status(400).json({ success: false, error: "Invalid id" });
-    return;
-  }
-
-  const service = getExpenseService();
-  const result = service.deleteExpense(id);
-  res.status(result.success ? 200 : 400).json(result);
-});
+router.delete(
+  "/:id",
+  requireRole(["admin"]),
+  validateParams(deleteExpenseSchema),
+  (req, res) => {
+    const id = req.params.id as unknown as number;
+    const service = getExpenseService();
+    const result = service.deleteExpense(id);
+    res.status(result.success ? 200 : 400).json(result);
+  },
+);
 
 export default router;

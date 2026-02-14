@@ -5,10 +5,10 @@
  */
 
 import { ipcMain, IpcMainInvokeEvent } from "electron";
-import { getRechargeService } from "../services/index.js";
+import { getRechargeService } from "@liratek/core";
 import { requireRole } from "../session.js";
 import { rechargeLogger } from "../utils/logger.js";
-import type { RechargeData } from "../database/repositories/index.js";
+import type { RechargeData } from "@liratek/core";
 
 export function registerRechargeHandlers(): void {
   const rechargeService = getRechargeService();

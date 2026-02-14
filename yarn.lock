@@ -1578,6 +1578,7 @@ __metadata:
     dotenv: "npm:^16.4.1"
     eslint: "npm:^8.56.0"
     express: "npm:^4.18.2"
+    express-rate-limit: "npm:^8.2.1"
     helmet: "npm:^7.1.0"
     jsonwebtoken: "npm:^9.0.2"
     pino: "npm:^8.19.0"
@@ -1599,6 +1600,7 @@ __metadata:
     electron: "npm:^31.7.7"
     pino: "npm:^9.0.0"
     typescript: "npm:~5.9.3"
+    zod: "npm:^4.3.6"
   languageName: unknown
   linkType: soft
 
@@ -1608,6 +1610,7 @@ __metadata:
   dependencies:
     "@eslint/js": "npm:^9.39.1"
     "@headlessui/react": "npm:^2.2.9"
+    "@liratek/ui": "workspace:*"
     "@playwright/test": "npm:^1.58.0"
     "@tailwindcss/postcss": "npm:^4.1.18"
     "@testing-library/dom": "npm:^10.4.1"
@@ -1645,6 +1648,17 @@ __metadata:
     vite: "npm:^7.3.0"
     wait-on: "npm:^9.0.3"
     zod: "npm:^3.23.8"
+  languageName: unknown
+  linkType: soft
+
+"@liratek/ui@workspace:*, @liratek/ui@workspace:packages/ui":
+  version: 0.0.0-use.local
+  resolution: "@liratek/ui@workspace:packages/ui"
+  peerDependencies:
+    "@headlessui/react": ^2.2.9
+    lucide-react: ^0.561.0
+    react: ^19.2.0
+    react-dom: ^19.2.0
   languageName: unknown
   linkType: soft
 
@@ -5770,6 +5784,17 @@ __metadata:
   languageName: node
   linkType: hard
 
+"express-rate-limit@npm:^8.2.1":
+  version: 8.2.1
+  resolution: "express-rate-limit@npm:8.2.1"
+  dependencies:
+    ip-address: "npm:10.0.1"
+  peerDependencies:
+    express: ">= 4.11"
+  checksum: 10c0/54185f211c25655382436b8ad1a2136df0d5dc88f4d9d4438ca7cbc87cef0cd34cb01b8fc62d290445326aa6581470d2ff44502c3f1a34a5ed2c2ce56809fa01
+  languageName: node
+  linkType: hard
+
 "express@npm:^4.18.2":
   version: 4.22.1
   resolution: "express@npm:4.22.1"
@@ -6857,6 +6882,13 @@ __metadata:
   version: 2.0.3
   resolution: "internmap@npm:2.0.3"
   checksum: 10c0/8cedd57f07bbc22501516fbfc70447f0c6812871d471096fad9ea603516eacc2137b633633daf432c029712df0baefd793686388ddf5737e3ea15074b877f7ed
+  languageName: node
+  linkType: hard
+
+"ip-address@npm:10.0.1":
+  version: 10.0.1
+  resolution: "ip-address@npm:10.0.1"
+  checksum: 10c0/1634d79dae18394004775cb6d699dc46b7c23df6d2083164025a2b15240c1164fccde53d0e08bd5ee4fc53913d033ab6b5e395a809ad4b956a940c446e948843
   languageName: node
   linkType: hard
 
@@ -11835,7 +11867,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"zod@npm:^3.25.0 || ^4.0.0":
+"zod@npm:^3.25.0 || ^4.0.0, zod@npm:^4.3.6":
   version: 4.3.6
   resolution: "zod@npm:4.3.6"
   checksum: 10c0/860d25a81ab41d33aa25f8d0d07b091a04acb426e605f396227a796e9e800c44723ed96d0f53a512b57be3d1520f45bf69c0cb3b378a232a00787a2609625307

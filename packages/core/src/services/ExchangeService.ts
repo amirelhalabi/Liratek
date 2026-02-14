@@ -11,6 +11,7 @@ import {
   type ExchangeTransactionEntity,
   type CreateExchangeData,
 } from "../repositories/index.js";
+import { exchangeLogger } from "../utils/logger.js";
 
 // =============================================================================
 // Types
@@ -47,13 +48,24 @@ export class ExchangeService {
       // Log the activity
       this.exchangeRepo.logActivity(data);
 
-      console.log(
-        `[EXCHANGE] ${data.fromCurrency} -> ${data.toCurrency}: ${data.amountIn} -> ${data.amountOut} (Rate: ${data.rate}) [Drawer B]`,
+      exchangeLogger.info(
+        {
+          id: result.id,
+          fromCurrency: data.fromCurrency,
+          toCurrency: data.toCurrency,
+          amountIn: data.amountIn,
+          amountOut: data.amountOut,
+          rate: data.rate,
+        },
+        `${data.fromCurrency} -> ${data.toCurrency}: ${data.amountIn} -> ${data.amountOut} (Rate: ${data.rate})`,
       );
 
       return { success: true, id: result.id };
     } catch (error) {
-      console.error("Failed to add exchange transaction:", error);
+      exchangeLogger.error(
+        { error, data },
+        "Failed to add exchange transaction",
+      );
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error),
@@ -72,7 +84,7 @@ export class ExchangeService {
     try {
       return this.exchangeRepo.getHistory(limit);
     } catch (error) {
-      console.error("Failed to get exchange history:", error);
+      exchangeLogger.error({ error, limit }, "Failed to get exchange history");
       return [];
     }
   }

@@ -1,9 +1,11 @@
 import { ipcMain } from "electron";
 import { z } from "zod";
-import { SettingsService } from "../services/SettingsService.js";
-import { ExpenseService } from "../services/ExpenseService.js";
-import { ClosingService } from "../services/ClosingService.js";
-import { ActivityService } from "../services/ActivityService.js";
+import {
+  getSettingsService,
+  getExpenseService,
+  getClosingService,
+  getActivityService,
+} from "@liratek/core";
 import {
   settingsLogger,
   expenseLogger,
@@ -12,10 +14,10 @@ import {
 /* eslint-disable @typescript-eslint/no-require-imports */
 
 export function registerDatabaseHandlers(): void {
-  const settingsService = new SettingsService();
-  const expenseService = new ExpenseService();
-  const closingService = new ClosingService();
-  const activityService = new ActivityService();
+  const settingsService = getSettingsService();
+  const expenseService = getExpenseService();
+  const closingService = getClosingService();
+  const activityService = getActivityService();
 
   // ==================== SETTINGS ====================
 

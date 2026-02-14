@@ -6,6 +6,7 @@ import {
   DailyStatsSnapshot,
   getClosingRepository,
 } from "../repositories/ClosingRepository.js";
+import { closingLogger } from "../utils/logger.js";
 export interface ClosingResult {
   success: boolean;
   id?: number | bigint;
@@ -111,7 +112,10 @@ export class ClosingService {
     try {
       return this.repo.getSystemExpectedBalances();
     } catch (error) {
-      console.error("ClosingService.getSystemExpectedBalances error:", error);
+      closingLogger.error(
+        { error },
+        "ClosingService.getSystemExpectedBalances error",
+      );
       return {
         generalDrawer: { usd: 0, lbp: 0, eur: 0 },
         omtDrawer: { usd: 0, lbp: 0, eur: 0 },
@@ -134,7 +138,10 @@ export class ClosingService {
     try {
       return this.repo.getDailyStatsSnapshot();
     } catch (error) {
-      console.error("ClosingService.getDailyStatsSnapshot error:", error);
+      closingLogger.error(
+        { error },
+        "ClosingService.getDailyStatsSnapshot error",
+      );
       return {
         salesCount: 0,
         totalSalesUSD: 0,

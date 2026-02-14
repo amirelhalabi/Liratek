@@ -12,10 +12,11 @@ import {
   ExpenseEntity,
   CreateExpenseData,
   getExpenseRepository,
-} from "../../database/repositories/ExpenseRepository";
+} from "@liratek/core";
 
 // Mock the repository module
-jest.mock("../../database/repositories/ExpenseRepository", () => ({
+jest.mock("@liratek/core", () => ({
+  ...jest.requireActual("@liratek/core"),
   getExpenseRepository: jest.fn(),
   ExpenseRepository: jest.fn(),
 }));

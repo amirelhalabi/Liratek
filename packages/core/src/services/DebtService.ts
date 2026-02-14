@@ -17,6 +17,7 @@ import {
   type DebtorSummary,
   type DebtSummary,
 } from "../repositories/index.js";
+import { debtLogger } from "../utils/logger.js";
 
 // =============================================================================
 // Types
@@ -108,13 +109,22 @@ export class DebtService {
         created_by: userId || null,
       });
 
-      console.log(
-        `[DEBT] Repayment of $${amountUSD} and ${amountLBP} LBP for client ${clientId}`,
+      debtLogger.info(
+        {
+          clientId,
+          amountUSD,
+          amountLBP,
+          repaymentId: result.id,
+        },
+        `Repayment of $${amountUSD} and ${amountLBP} LBP for client ${clientId}`,
       );
 
       return { success: true, id: result.id };
     } catch (error) {
-      console.error("Failed to add repayment:", error);
+      debtLogger.error(
+        { error, clientId, amountUSD, amountLBP },
+        "Failed to add repayment",
+      );
       return { success: false, error: (error as Error).message };
     }
   }

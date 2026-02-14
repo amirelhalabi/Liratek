@@ -18,6 +18,7 @@ import {
   type CreateClientData,
 } from "../repositories/index.js";
 import { NotFoundError, getRepoConstraintCode } from "../utils/errors.js";
+import { clientLogger } from "../utils/logger.js";
 
 // =============================================================================
 // Types
@@ -127,7 +128,7 @@ export class ClientService {
       if (repoCode === "DUPLICATE_PHONE") {
         return { success: false, error: "Phone number already registered" };
       }
-      console.error("Create client error:", error);
+      clientLogger.error({ error, data }, "Create client error");
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error),

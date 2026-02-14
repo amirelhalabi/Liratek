@@ -131,15 +131,14 @@ export default function IKWServices() {
         }))
         .sort(
           (a: Transaction, b: Transaction) =>
-            new Date(b.created_at).getTime() -
-            new Date(a.created_at).getTime(),
+            new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
         );
       setTransactions(allHistory);
 
       // Filter analytics to only IKW providers
       const ikwProviders = new Set(["IPEC", "KATCH", "WISH_APP"]);
-      const ikwByProvider = (stats.byProvider || []).filter(
-        (p: any) => ikwProviders.has(p.provider),
+      const ikwByProvider = (stats.byProvider || []).filter((p: any) =>
+        ikwProviders.has(p.provider),
       );
       const ikwTodayUSD = ikwByProvider.reduce(
         (s: number, p: any) => s + (p.commission_usd || 0),
@@ -507,8 +506,7 @@ export default function IKWServices() {
               <tbody className="divide-y divide-slate-700/50">
                 {transactions.map((tx) => {
                   const Icon = serviceTypeIcons[tx.service_type];
-                  const pm =
-                    providerMeta[tx.provider] ?? providerMeta["IPEC"];
+                  const pm = providerMeta[tx.provider] ?? providerMeta["IPEC"];
                   return (
                     <tr
                       key={tx.id}

@@ -13,10 +13,11 @@ import {
   type CurrencyEntity,
   type CreateCurrencyData,
   type UpdateCurrencyData,
-} from "../../database/repositories";
+} from "@liratek/core";
 
 // Mock the repository module
-jest.mock("../../database/repositories", () => ({
+jest.mock("@liratek/core", () => ({
+  ...jest.requireActual("@liratek/core"),
   getCurrencyRepository: jest.fn(),
   CurrencyRepository: jest.fn(),
 }));

@@ -11,10 +11,11 @@ import {
   SettingsRepository,
   SettingEntity,
   getSettingsRepository,
-} from "../../database/repositories/SettingsRepository";
+} from "@liratek/core";
 
 // Mock the repository module
-jest.mock("../../database/repositories/SettingsRepository", () => ({
+jest.mock("@liratek/core", () => ({
+  ...jest.requireActual("@liratek/core"),
   getSettingsRepository: jest.fn(),
   SettingsRepository: jest.fn(),
 }));

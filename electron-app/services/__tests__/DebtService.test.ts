@@ -5,10 +5,11 @@
  */
 
 import { DebtService, resetDebtService } from "../DebtService";
-import { DebtRepository } from "../../database/repositories";
+import { DebtRepository, getDebtRepository } from "@liratek/core";
 
 // Mock the repository module
-jest.mock("../../database/repositories", () => ({
+jest.mock("@liratek/core", () => ({
+  ...jest.requireActual("@liratek/core"),
   getDebtRepository: jest.fn(),
   DebtRepository: jest.fn(),
 }));

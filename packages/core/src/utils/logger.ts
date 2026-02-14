@@ -14,19 +14,33 @@
 import pino, { Logger } from "pino";
 import path from "path";
 import fs from "fs";
+import env, { isDevelopment, isTest, isProduction } from "../config/env.js";
 
 // =============================================================================
 // Configuration
 // =============================================================================
 
-const isDev = process.env.NODE_ENV !== "production";
-const LOG_LEVEL = process.env.LOG_LEVEL || (isDev ? "debug" : "info");
+const isDev = isDevelopment;
+const LOG_LEVEL = env.LOG_LEVEL;
+
+// Validate production environment on startup (lazy evaluation)
+if (isProduction && !isTest) {
+  // Validation happens synchronously during import
+  import("../config/env.js").then(({ validateProductionEnv }) => {
+    try {
+      validateProductionEnv();
+    } catch (error) {
+      console.error("Environment validation failed:", error);
+      process.exit(1);
+    }
+  });
+}
 
 // Log directory (in userData for production, console for dev)
 const getLogPath = (): string | undefined => {
   if (isDev) return undefined; // Use console in dev
   try {
-    const logsRoot = process.env.LOG_DIR || process.cwd();
+    const logsRoot = env.LOG_DIR || process.cwd();
     const logsDir = path.join(logsRoot, "logs");
     if (!fs.existsSync(logsDir)) {
       fs.mkdirSync(logsDir, { recursive: true });
@@ -57,7 +71,7 @@ const createLogger = (): Logger => {
   };
 
   // Tests: never use transports (optional deps may be missing)
-  if (process.env.NODE_ENV === "test") {
+  if (isTest) {
     return pino(options);
   }
 

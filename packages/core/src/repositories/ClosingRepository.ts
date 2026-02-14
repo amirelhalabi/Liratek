@@ -1,4 +1,5 @@
 import { BaseRepository } from "./BaseRepository.js";
+import { closingLogger } from "../utils/logger.js";
 
 export interface DailyClosingEntity {
   id: number;
@@ -74,6 +75,11 @@ export interface ClosingAmount {
 export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
   constructor() {
     super("daily_closings");
+  }
+
+  // Override getColumns() to use explicit columns instead of SELECT *
+  protected getColumns(): string {
+    return "id, closing_date, drawer_name, opening_balance_usd, opening_balance_lbp, physical_usd, physical_lbp, physical_eur, system_expected_usd, system_expected_lbp, variance_usd, notes";
   }
 
   /**
@@ -163,7 +169,10 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
         return { success: true, id: res.lastInsertRowid };
       }
     } catch (error) {
-      console.error("Failed to set opening balances:", error);
+      closingLogger.error(
+        { error, closingDate, amounts },
+        "Failed to set opening balances",
+      );
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error),
@@ -227,10 +236,16 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
         )
         .run(result.lastInsertRowid, JSON.stringify({ amounts }));
 
-      console.log(`[CLOSING] Daily closing created for ${closingDate}`);
+      closingLogger.info(
+        { closingDate, id: result.lastInsertRowid },
+        `Daily closing created for ${closingDate}`,
+      );
       return { success: true, id: result.lastInsertRowid };
     } catch (error) {
-      console.error("Failed to create daily closing:", error);
+      closingLogger.error(
+        { error, closingDate, amounts },
+        "Failed to create daily closing",
+      );
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error),
@@ -247,7 +262,7 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
   ): { success: boolean; error?: string } {
     try {
       const current = this.db
-        .prepare("SELECT * FROM daily_closings WHERE id = ?")
+        .prepare(`SELECT ${this.getColumns()} FROM daily_closings WHERE id = ?`)
         .get(id);
       if (!current) return { success: false, error: "Not found" };
 
@@ -279,7 +294,10 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
       );
       return { success: true };
     } catch (error) {
-      console.error("Failed to update daily closing:", error);
+      closingLogger.error(
+        { error, id, data },
+        "Failed to update daily closing",
+      );
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error),

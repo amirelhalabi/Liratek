@@ -51,7 +51,9 @@ export function migrateIKWProviders(db: Database.Database): void {
     `);
 
     // 3) Copy data
-    db.exec("INSERT INTO financial_services SELECT * FROM financial_services_old");
+    db.exec(
+      "INSERT INTO financial_services SELECT * FROM financial_services_old",
+    );
 
     // 4) Drop old
     db.exec("DROP TABLE financial_services_old");

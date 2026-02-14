@@ -4,6 +4,7 @@ import {
   SyncErrorEntity,
   getActivityRepository,
 } from "../repositories/ActivityRepository.js";
+import logger from "../utils/logger.js";
 
 export class ActivityService {
   private repo: ActivityRepository;
@@ -19,7 +20,7 @@ export class ActivityService {
     try {
       return this.repo.getRecentLogs(limit);
     } catch (error) {
-      console.error("ActivityService.getRecentLogs error:", error);
+      logger.error({ error }, "ActivityService.getRecentLogs error");
       return [];
     }
   }
@@ -43,7 +44,7 @@ export class ActivityService {
         recordId,
       );
     } catch (error) {
-      console.error("ActivityService.logActivity error:", error);
+      logger.error({ error }, "ActivityService.logActivity error");
       return 0;
     }
   }
@@ -55,7 +56,7 @@ export class ActivityService {
     try {
       return this.repo.getSyncErrors(limit);
     } catch (error) {
-      console.error("ActivityService.getSyncErrors error:", error);
+      logger.error({ error }, "ActivityService.getSyncErrors error");
       return { error: error instanceof Error ? error.message : String(error) };
     }
   }
