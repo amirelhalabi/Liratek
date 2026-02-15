@@ -5,8 +5,7 @@
  */
 
 import { ipcMain } from "electron";
-import { getBinanceService } from "@liratek/core";
-import { binanceLogger } from "../utils/logger.js";
+import { getBinanceService, binanceLogger } from "@liratek/core";
 import type { CreateBinanceTransactionData } from "@liratek/core";
 
 export function registerBinanceHandlers(): void {

@@ -6,10 +6,6 @@
  */
 
 import type Database from "better-sqlite3";
-import { migrateDrawerNames } from "./drawers.js";
-import { migrateCustomerSessions } from "./customer-sessions.js";
-import { migrateBinanceTransactions } from "./binance-transactions.js";
-import { migrateIKWProviders } from "./ikw-providers.js";
 
 // =============================================================================
 // Types
@@ -38,93 +34,13 @@ export interface MigrationRecord {
  * All migrations in order
  * Version numbers must be sequential
  */
-export const MIGRATIONS: Migration[] = [
-  {
-    version: 1,
-    name: "add_sessions_table",
-    description: "Add database sessions table for authentication",
-    type: "typescript",
-    up: (db) => {
-      // Sessions table is in core schema (create_db.sql)
-      // This migration ensures it exists
-      db.exec(`
-        CREATE TABLE IF NOT EXISTS sessions (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          user_id INTEGER NOT NULL,
-          token TEXT NOT NULL UNIQUE,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          expires_at DATETIME NOT NULL,
-          last_activity DATETIME DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY (user_id) REFERENCES users(id)
-        );
-      `);
-      db.exec(
-        `CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token);`,
-      );
-      db.exec(
-        `CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);`,
-      );
-    },
-  },
-  {
-    version: 2,
-    name: "add_binance_transactions",
-    description: "Add Binance cryptocurrency transaction tracking",
-    type: "typescript",
-    up: migrateBinanceTransactions,
-  },
-  {
-    version: 3,
-    name: "add_ikw_providers",
-    description:
-      "Add IKW financial service providers (OMT, Whish, Western Union)",
-    type: "typescript",
-    up: migrateIKWProviders,
-  },
-  {
-    version: 4,
-    name: "add_customer_sessions",
-    description:
-      "Add customer session tracking for multi-transaction workflows",
-    type: "typescript",
-    up: migrateCustomerSessions,
-  },
-  {
-    version: 5,
-    name: "migrate_drawer_names",
-    description: "Normalize drawer names to canonical format",
-    type: "typescript",
-    up: migrateDrawerNames,
-  },
-  {
-    version: 6,
-    name: "add_performance_indexes",
-    description: "Add strategic indexes for query optimization",
-    type: "sql",
-    up: (db) => {
-      // This matches electron-app/migrations/004_add_missing_indexes.sql
-      const indexes = [
-        `CREATE INDEX IF NOT EXISTS idx_clients_full_name ON clients(full_name COLLATE NOCASE)`,
-        `CREATE INDEX IF NOT EXISTS idx_products_category ON products(category)`,
-        `CREATE INDEX IF NOT EXISTS idx_products_status ON products(status)`,
-        `CREATE INDEX IF NOT EXISTS idx_products_active_category ON products(is_active, category)`,
-        `CREATE INDEX IF NOT EXISTS idx_products_active_status ON products(is_active, status)`,
-        `CREATE INDEX IF NOT EXISTS idx_expenses_category ON expenses(category)`,
-        `CREATE INDEX IF NOT EXISTS idx_expenses_type ON expenses(expense_type)`,
-        `CREATE INDEX IF NOT EXISTS idx_expenses_date_category ON expenses(expense_date, category)`,
-        `CREATE INDEX IF NOT EXISTS idx_expenses_type_date ON expenses(expense_type, expense_date DESC)`,
-        `CREATE INDEX IF NOT EXISTS idx_maintenance_client_id ON maintenance(client_id)`,
-        `CREATE INDEX IF NOT EXISTS idx_sales_drawer_name ON sales(drawer_name)`,
-        `CREATE INDEX IF NOT EXISTS idx_sales_status_drawer ON sales(status, drawer_name)`,
-        `CREATE INDEX IF NOT EXISTS idx_debt_ledger_client_type ON debt_ledger(client_id, transaction_type)`,
-      ];
-
-      for (const sql of indexes) {
-        db.exec(sql);
-      }
-    },
-  },
-];
+/**
+ * Migration registry.
+ *
+ * Pre-production: the canonical schema lives in create_db.sql.
+ * When the project reaches production, add incremental migrations here.
+ */
+export const MIGRATIONS: Migration[] = [];
 
 // =============================================================================
 // Migration Runner

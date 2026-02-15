@@ -150,7 +150,7 @@ export default function Dashboard() {
         setMaxLbpSales(Math.ceil(currentMaxLbp / 1_000_000) * 1_000_000);
       }
     } catch (_error) {
-      // console.error('Failed to load dashboard data:', error);
+      // logger.error('Failed to load dashboard data:', error);
     }
   }, [chartType]);
 

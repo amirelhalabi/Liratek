@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import logger from "../../../../utils/logger";
 import {
   Smartphone,
   Signal,
@@ -41,7 +42,7 @@ export default function Recharge() {
       const s = await api.getRechargeStock();
       setStock(s);
     } catch (error) {
-      console.error("Failed to load stock", error);
+      logger.error("Failed to load stock", error);
     }
   };
 
@@ -81,7 +82,7 @@ export default function Recharge() {
               amountLbp: 0,
             });
           } catch (err) {
-            console.error("Failed to link recharge to session:", err);
+            logger.error("Failed to link recharge to session:", err);
             // Don't block the recharge completion
           }
         }
@@ -96,7 +97,7 @@ export default function Recharge() {
         alert("Error: " + result.error);
       }
     } catch (error) {
-      console.error(error);
+      logger.error("Operation failed", { error });
       alert("Failed to process");
     } finally {
       setIsSubmitting(false);

@@ -1,5 +1,6 @@
 import { Router, Request, Response } from "express";
 import { CustomerSessionService } from "@liratek/core";
+import type { AuthRequest } from "../middleware/auth.js";
 
 const router = Router();
 const sessionService = new CustomerSessionService();
@@ -11,7 +12,7 @@ const sessionService = new CustomerSessionService();
 router.post("/start", async (req: Request, res: Response) => {
   try {
     const { customer_name, customer_phone, customer_notes } = req.body;
-    const username = (req as any).user?.username || "unknown";
+    const username = (req as AuthRequest).user?.username || "unknown";
 
     const result = await sessionService.startSession({
       customer_name,
@@ -21,10 +22,9 @@ router.post("/start", async (req: Request, res: Response) => {
     });
 
     return res.json(result);
-  } catch (err: any) {
-    return res
-      .status(500)
-      .json({ success: false, error: err?.message ?? "Unknown error" });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return res.status(500).json({ success: false, error: message });
   }
 });
 
@@ -36,10 +36,9 @@ router.get("/active", async (_req: Request, res: Response) => {
   try {
     const result = await sessionService.getActiveSession();
     return res.json(result);
-  } catch (err: any) {
-    return res
-      .status(500)
-      .json({ success: false, error: err?.message ?? "Unknown error" });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return res.status(500).json({ success: false, error: message });
   }
 });
 
@@ -58,10 +57,9 @@ router.get("/:id", async (req: Request, res: Response) => {
 
     const result = await sessionService.getSessionDetails(sessionId);
     return res.json(result);
-  } catch (err: any) {
-    return res
-      .status(500)
-      .json({ success: false, error: err?.message ?? "Unknown error" });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return res.status(500).json({ success: false, error: message });
   }
 });
 
@@ -86,10 +84,9 @@ router.put("/:id", async (req: Request, res: Response) => {
     });
 
     return res.json(result);
-  } catch (err: any) {
-    return res
-      .status(500)
-      .json({ success: false, error: err?.message ?? "Unknown error" });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return res.status(500).json({ success: false, error: message });
   }
 });
 
@@ -106,14 +103,13 @@ router.post("/:id/close", async (req: Request, res: Response) => {
         .json({ success: false, error: "Invalid session ID" });
     }
 
-    const username = (req as any).user?.username || "unknown";
+    const username = (req as AuthRequest).user?.username || "unknown";
     const result = await sessionService.closeSession(sessionId, username);
 
     return res.json(result);
-  } catch (err: any) {
-    return res
-      .status(500)
-      .json({ success: false, error: err?.message ?? "Unknown error" });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return res.status(500).json({ success: false, error: message });
   }
 });
 
@@ -149,10 +145,9 @@ router.post("/link-transaction", async (req: Request, res: Response) => {
         );
 
     return res.json(result);
-  } catch (err: any) {
-    return res
-      .status(500)
-      .json({ success: false, error: err?.message ?? "Unknown error" });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return res.status(500).json({ success: false, error: message });
   }
 });
 
@@ -167,10 +162,9 @@ router.get("/", async (req: Request, res: Response) => {
 
     const result = await sessionService.listSessions(limit, offset);
     return res.json(result);
-  } catch (err: any) {
-    return res
-      .status(500)
-      .json({ success: false, error: err?.message ?? "Unknown error" });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return res.status(500).json({ success: false, error: message });
   }
 });
 

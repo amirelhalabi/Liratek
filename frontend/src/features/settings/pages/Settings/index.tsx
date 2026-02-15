@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import logger from "../../../../utils/logger";
 import { Settings as SettingsIcon, Save, X, Lock } from "lucide-react";
 import UsersManager from "./UsersManager";
 import Diagnostics from "./Diagnostics";
@@ -60,7 +61,7 @@ export default function Settings() {
       setDrawerLimitOMT((settingsMap.get("drawer_limit_omt") as string) || "");
       setWhatsAppApiKey((settingsMap.get("whatsapp_api_key") as string) || "");
     } catch (error) {
-      console.error("Failed to load settings:", error);
+      logger.error("Failed to load settings:", error);
       alert("Failed to load settings.");
     } finally {
       setIsLoading(false);
@@ -80,7 +81,7 @@ export default function Settings() {
       ]);
       alert("Settings saved successfully!");
     } catch (error) {
-      console.error("Failed to save settings:", error);
+      logger.error("Failed to save settings:", error);
       alert("Failed to save settings.");
     } finally {
       setIsSaving(false);

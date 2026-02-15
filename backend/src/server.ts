@@ -5,10 +5,19 @@ import cors from "cors";
 import helmet from "helmet";
 import dotenv from "dotenv";
 import { getDatabase } from "./database/connection.js";
-import { CORS_ORIGIN, PORT, HOST, logger } from "@liratek/core";
+import {
+  CORS_ORIGIN,
+  PORT,
+  HOST,
+  logger,
+  validateProductionEnv,
+} from "@liratek/core";
 
 // Load environment variables
 dotenv.config();
+
+// Validate production environment (will throw if required vars are missing)
+validateProductionEnv();
 
 // Export logger for use in other modules
 export { logger };

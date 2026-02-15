@@ -9,8 +9,11 @@ import {
   resetClientService,
   getClientService,
 } from "../ClientService";
-import { ClientRepository, getClientRepository } from "@liratek/core";
-import { NotFoundError } from "../../utils/errors";
+import {
+  ClientRepository,
+  getClientRepository,
+  NotFoundError,
+} from "@liratek/core";
 
 // Mock the repository module
 jest.mock("@liratek/core", () => ({

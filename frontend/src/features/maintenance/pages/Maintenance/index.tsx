@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import logger from "../../../../utils/logger";
 import { Wrench, Plus, DollarSign, Trash2 } from "lucide-react";
 import CheckoutModal from "../../../sales/pages/POS/components/CheckoutModal";
 import * as api from "../../../../api/backendApi";
@@ -50,7 +51,7 @@ export default function Maintenance() {
         }
       } catch (error) {
         if (!cancelled) {
-          console.error("Failed to load jobs:", error);
+          logger.error("Failed to load jobs:", error);
         }
       }
     })();
@@ -159,7 +160,7 @@ export default function Maintenance() {
             amountLbp: 0,
           });
         } catch (err) {
-          console.error("Failed to link maintenance to session:", err);
+          logger.error("Failed to link maintenance to session:", err);
           // Don't block the job completion
         }
       }

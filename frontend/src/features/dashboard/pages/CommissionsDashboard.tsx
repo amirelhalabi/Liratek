@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import logger from "../../../utils/logger";
 import { TrendingUp, PieChart as PieChartIcon, Activity } from "lucide-react";
 import { PageHeader } from "@liratek/ui";
 import {
@@ -36,7 +37,7 @@ export default function CommissionsDashboard() {
         const analytics = await api.getOMTAnalytics();
         setData(analytics);
       } catch (error) {
-        console.error("Failed to fetch commissions analytics", error);
+        logger.error("Failed to fetch commissions analytics", error);
       } finally {
         setIsLoading(false);
       }

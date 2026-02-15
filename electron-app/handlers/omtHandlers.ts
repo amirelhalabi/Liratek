@@ -5,8 +5,7 @@
  */
 
 import { ipcMain } from "electron";
-import { getFinancialService } from "@liratek/core";
-import { financialLogger } from "../utils/logger.js";
+import { getFinancialService, financialLogger } from "@liratek/core";
 import type { CreateFinancialServiceData } from "@liratek/core";
 
 export function registerOMTHandlers(): void {

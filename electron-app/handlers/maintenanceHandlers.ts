@@ -1,6 +1,5 @@
 import { ipcMain } from "electron";
-import { getMaintenanceService } from "@liratek/core";
-import { maintenanceLogger } from "../utils/logger.js";
+import { getMaintenanceService, maintenanceLogger } from "@liratek/core";
 /* eslint-disable @typescript-eslint/no-require-imports */
 
 export function registerMaintenanceHandlers(): void {

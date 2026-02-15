@@ -4,6 +4,7 @@
  */
 
 import { useEffect, useState } from "react";
+import logger from "../../../../utils/logger";
 import { useAuth } from "../../../auth/context/AuthContext";
 import type { DrawerType } from "../../types";
 import { DRAWER_ORDER } from "../../config/drawers";
@@ -97,7 +98,7 @@ export default function Opening({ isOpen, onClose }: OpeningProps) {
         setSaveError(result.error || "Failed to save opening balances");
       }
     } catch (error) {
-      console.error("[Opening] Save error:", error);
+      logger.error("[Opening] Save error:", error);
       setSaveError(
         error instanceof Error ? error.message : "An unexpected error occurred",
       );

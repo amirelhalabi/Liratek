@@ -5,12 +5,10 @@ import {
   getExpenseService,
   getClosingService,
   getActivityService,
-} from "@liratek/core";
-import {
   settingsLogger,
   expenseLogger,
   closingLogger,
-} from "../utils/logger.js";
+} from "@liratek/core";
 /* eslint-disable @typescript-eslint/no-require-imports */
 
 export function registerDatabaseHandlers(): void {

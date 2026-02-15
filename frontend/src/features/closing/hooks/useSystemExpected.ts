@@ -4,6 +4,7 @@
  */
 
 import { useState, useCallback } from "react";
+import logger from "../../../utils/logger";
 import type { SystemExpectedBalances } from "../types";
 import * as api from "../../../api/backendApi";
 
@@ -25,7 +26,7 @@ export function useSystemExpected() {
           ? err.message
           : "Failed to fetch expected balances";
       setError(message);
-      console.error("[useSystemExpected] Error:", err);
+      logger.error("[useSystemExpected] Error:", err);
     } finally {
       setLoading(false);
     }

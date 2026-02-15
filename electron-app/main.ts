@@ -4,24 +4,21 @@
  */
 
 import { app, BrowserWindow, ipcMain } from "electron";
+import {
+  ELECTRON_RENDERER_URL,
+  resolveDatabasePath,
+  resolveDatabaseKey,
+  applySqlCipherKey,
+  initDatabase as initCoreDatabase,
+  getSessionRepository,
+  logger,
+} from "@liratek/core";
 import * as path from "path";
 import { fileURLToPath } from "url";
 import * as fs from "fs";
 import os from "os";
 import crypto from "crypto";
 import Database from "better-sqlite3";
-import {
-  resolveDatabasePath,
-  resolveDatabaseKey,
-  applySqlCipherKey,
-  initDatabase as initCoreDatabase,
-  migrateDrawerNames,
-  migrateCustomerSessions,
-  migrateBinanceTransactions,
-  migrateIKWProviders,
-  getSessionRepository,
-} from "@liratek/core";
-import { logger } from "./utils/logger.js";
 
 function loadDotEnvFile(envFilePath: string) {
   if (!fs.existsSync(envFilePath)) return;
@@ -77,8 +74,8 @@ function createWindow() {
   });
 
   // Development: Load from Vite dev server
-  if (process.env.ELECTRON_RENDERER_URL) {
-    mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
+  if (ELECTRON_RENDERER_URL) {
+    mainWindow.loadURL(ELECTRON_RENDERER_URL);
     mainWindow.webContents.openDevTools();
   }
   // Production: Load from built files
@@ -220,11 +217,6 @@ function initializeDatabase() {
 
     // Initialize @liratek/core database singleton
     initCoreDatabase(db);
-    // Apply idempotent migrations
-    migrateDrawerNames(db);
-    migrateCustomerSessions(db);
-    migrateBinanceTransactions(db);
-    migrateIKWProviders(db);
 
     logger.info("Database connected successfully");
     return db;

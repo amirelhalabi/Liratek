@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect } from "react";
+import logger from "../../../utils/logger";
 import type { ReactNode } from "react";
 import { appEvents } from "@liratek/ui";
 import * as api from "../../../api/backendApi";
@@ -70,7 +71,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
         }
       } catch (error) {
-        console.error("Failed to restore session:", error);
+        logger.error("Failed to restore session:", error);
       } finally {
         if (isMounted) {
           setIsLoading(false);
@@ -107,7 +108,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const hasOpening = await api.hasOpeningBalanceToday();
           setNeedsOpening(!hasOpening);
         } catch (error) {
-          console.error("Failed to check opening balance:", error);
+          logger.error("Failed to check opening balance:", error);
           // Don't block login on this error
         }
 
@@ -116,7 +117,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       return { success: false, error: result.error || "Login failed" };
     } catch (error) {
-      console.error("Login error:", error);
+      logger.error("Login error:", error);
       return { success: false, error: "An unexpected error occurred" };
     }
   };

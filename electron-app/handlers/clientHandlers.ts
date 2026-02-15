@@ -6,9 +6,8 @@
  */
 
 import { ipcMain, IpcMainInvokeEvent } from "electron";
-import { getClientService } from "@liratek/core";
+import { getClientService, clientLogger } from "@liratek/core";
 import { requireRole } from "../session.js";
-import { clientLogger } from "../utils/logger.js";
 
 interface ClientData {
   id?: number;

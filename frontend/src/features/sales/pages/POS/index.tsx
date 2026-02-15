@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import logger from "../../../../utils/logger";
 import { FileText, X, ShoppingCart } from "lucide-react";
 import { PageHeader } from "@liratek/ui";
 import ProductSearch from "./components/ProductSearch";
@@ -132,7 +133,7 @@ export default function POS() {
         alert("Failed to save draft: " + result.error);
       }
     } catch (error) {
-      console.error("Save draft error:", error);
+      logger.error("Save draft error:", error);
       alert("An unexpected error occurred saving the draft.");
     }
   };
@@ -207,7 +208,7 @@ export default function POS() {
               amountLbp: 0, // Sales are tracked in USD
             });
           } catch (err) {
-            console.error("Failed to link sale to session:", err);
+            logger.error("Failed to link sale to session:", err);
             // Don't block the sale completion
           }
         }
@@ -222,7 +223,7 @@ export default function POS() {
         alert("Sale failed: " + result.error);
       }
     } catch (error) {
-      console.error("Checkout error:", error);
+      logger.error("Checkout error:", error);
       alert("An unexpected error occurred processing the sale.");
     }
   };

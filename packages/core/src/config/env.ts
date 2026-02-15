@@ -76,8 +76,9 @@ function parseEnv(): EnvConfig {
   });
 
   if (!result.success) {
-    console.error("❌ Environment variable validation failed:");
-    console.error(result.error.format());
+    // Use stderr directly since logger isn't initialized yet
+    process.stderr.write("❌ Environment variable validation failed:\n");
+    process.stderr.write(JSON.stringify(result.error.format(), null, 2) + "\n");
     throw new Error("Invalid environment configuration");
   }
 
@@ -138,6 +139,8 @@ export function validateProductionEnv(): void {
 
   // Warn if using default values in production
   if (env.CORS_ORIGIN === "http://localhost:5173") {
-    console.warn("⚠️  WARNING: Using default CORS_ORIGIN in production");
+    process.stderr.write(
+      "⚠️  WARNING: Using default CORS_ORIGIN in production\n",
+    );
   }
 }

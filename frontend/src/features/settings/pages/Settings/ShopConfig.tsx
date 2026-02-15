@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import logger from "../../../../utils/logger";
 import { appEvents } from "@liratek/ui";
 import * as api from "../../../../api/backendApi";
 
@@ -41,7 +42,7 @@ export default function ShopConfig() {
         "success",
       );
     } catch (e) {
-      console.error(e);
+      logger.error("Operation failed", { error: e });
       appEvents.emit(
         "notification:show",
         e instanceof Error ? e.message : "Failed to save",

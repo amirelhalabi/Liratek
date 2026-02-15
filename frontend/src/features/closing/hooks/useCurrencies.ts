@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect } from "react";
+import logger from "../../../utils/logger";
 import type { Currency } from "../types";
 import * as api from "../../../api/backendApi";
 
@@ -33,7 +34,7 @@ export function useCurrencies() {
       const message =
         err instanceof Error ? err.message : "Failed to load currencies";
       setError(message);
-      console.error("[useCurrencies] Error:", err);
+      logger.error("[useCurrencies] Error:", err);
     } finally {
       setLoading(false);
     }

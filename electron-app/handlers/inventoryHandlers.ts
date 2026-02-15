@@ -6,8 +6,7 @@
  */
 
 import { ipcMain } from "electron";
-import { getInventoryService } from "@liratek/core";
-import { inventoryLogger } from "../utils/logger.js";
+import { getInventoryService, inventoryLogger } from "@liratek/core";
 /* eslint-disable @typescript-eslint/no-require-imports */
 
 // =============================================================================
@@ -157,7 +156,7 @@ export function registerInventoryHandlers(): void {
     try {
       return service.getStockStats();
     } catch (error) {
-      console.error("Failed to get stock stats:", error);
+      inventoryLogger.error({ error }, "Failed to get stock stats");
       return { stock_budget_usd: 0, stock_count: 0 };
     }
   });
@@ -167,7 +166,7 @@ export function registerInventoryHandlers(): void {
     try {
       return service.getLowStockProducts();
     } catch (error) {
-      console.error("Failed to get low stock products:", error);
+      inventoryLogger.error({ error }, "Failed to get low stock products");
       return [];
     }
   });

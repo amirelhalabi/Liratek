@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import logger from "../../../../utils/logger";
 import { Plus, Search, Package, Edit2, Trash2 } from "lucide-react";
 import { useAuth } from "../../../auth/context/AuthContext";
 import { PageHeader } from "@liratek/ui";
@@ -21,7 +22,7 @@ export default function ProductList() {
       const data = await api.getProducts(search);
       setProducts(data as unknown as Product[]);
     } catch (error) {
-      console.error("Failed to load products:", error);
+      logger.error("Failed to load products:", error);
     } finally {
       setLoading(false);
     }
@@ -46,7 +47,7 @@ export default function ProductList() {
       await api.deleteProduct(id);
       loadProducts(); // Refresh list
     } catch (error) {
-      console.error("Failed to delete:", error);
+      logger.error("Failed to delete:", error);
     }
   };
 

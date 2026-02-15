@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import logger from "../../../../utils/logger";
 import {
   Plus,
   Search,
@@ -30,7 +31,7 @@ export default function ClientList() {
         setClients(data as any);
       }
     } catch (error) {
-      console.error("Failed to load clients:", error);
+      logger.error("Failed to load clients", { error });
     } finally {
       setLoading(false);
     }
@@ -73,7 +74,7 @@ export default function ClientList() {
         }
       }
     } catch (error) {
-      console.error("Failed to delete:", error);
+      logger.error("Failed to delete client", { error });
     }
   };
 

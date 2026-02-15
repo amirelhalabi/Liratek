@@ -3,12 +3,8 @@ export * from "./db/dbPath.js";
 export * from "./db/dbKey.js";
 export * from "./db/sqlcipher.js";
 export * from "./db/connection.js";
-// Migration system
+// Migration system (runner infrastructure; migrations added post-production)
 export * from "./db/migrations/index.js";
-export * from "./db/migrations/drawers.js";
-export * from "./db/migrations/customer-sessions.js";
-export * from "./db/migrations/binance-transactions.js";
-export * from "./db/migrations/ikw-providers.js";
 
 // Utilities
 export * from "./utils/crypto.js";

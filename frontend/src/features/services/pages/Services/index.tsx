@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import logger from "../../../../utils/logger";
 import {
   Send,
   ArrowDownToLine,
@@ -85,7 +86,7 @@ export default function Services() {
       );
       setAnalytics(stats);
     } catch (error) {
-      console.error("Failed to load data:", error);
+      logger.error("Failed to load data:", error);
     }
   };
 
@@ -120,7 +121,7 @@ export default function Services() {
               amountLbp: parseFloat(amountLBP) || 0,
             });
           } catch (err) {
-            console.error("Failed to link service to session:", err);
+            logger.error("Failed to link service to session:", err);
             // Don't block the transaction completion
           }
         }
@@ -137,7 +138,7 @@ export default function Services() {
         alert("Error: " + result.error);
       }
     } catch (error) {
-      console.error(error);
+      logger.error("Operation failed", { error });
       alert("Transaction failed");
     } finally {
       setIsSubmitting(false);

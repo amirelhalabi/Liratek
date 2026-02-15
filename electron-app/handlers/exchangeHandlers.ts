@@ -5,8 +5,7 @@
  */
 
 import { ipcMain } from "electron";
-import { getExchangeService } from "@liratek/core";
-import { exchangeLogger } from "../utils/logger.js";
+import { getExchangeService, exchangeLogger } from "@liratek/core";
 import type { CreateExchangeData } from "@liratek/core";
 
 export function registerExchangeHandlers(): void {

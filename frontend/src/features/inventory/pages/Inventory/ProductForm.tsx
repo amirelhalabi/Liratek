@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import logger from "../../../../utils/logger";
 import { X, Save } from "lucide-react";
 import { Select } from "@liratek/ui";
 import * as api from "../../../../api/backendApi";
@@ -84,7 +85,7 @@ export default function ProductForm({
         setError(result.error || "Failed to save product");
       }
     } catch (err) {
-      console.error(err);
+      logger.error("Operation failed", { error: err });
       setError("An unexpected error occurred");
     } finally {
       setIsLoading(false);

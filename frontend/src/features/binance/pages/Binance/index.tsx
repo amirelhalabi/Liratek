@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import logger from "../../../../utils/logger";
 import {
   ArrowUpRight,
   ArrowDownLeft,
@@ -59,7 +60,7 @@ export default function Binance() {
       setTransactions(history);
       if (todayStats) setStats(todayStats);
     } catch (error) {
-      console.error("Failed to load Binance data:", error);
+      logger.error("Failed to load Binance data:", error);
     }
   };
 
@@ -94,7 +95,7 @@ export default function Binance() {
               amountLbp: 0,
             });
           } catch (err) {
-            console.error("Failed to link Binance tx to session:", err);
+            logger.error("Failed to link Binance tx to session:", err);
           }
         }
 
@@ -107,7 +108,7 @@ export default function Binance() {
         alert("Error: " + result.error);
       }
     } catch (error) {
-      console.error(error);
+      logger.error("Operation failed", { error });
       alert("Transaction failed");
     }
   };

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import logger from "../../../../../utils/logger";
 import { Search, ShoppingCart } from "lucide-react";
 import type { Product } from "@liratek/ui";
 import * as api from "../../../../../api/backendApi";
@@ -18,7 +19,7 @@ export default function ProductSearch({ onAddToCart }: ProductSearchProps) {
       const data = await api.getProducts(search);
       setProducts(data as unknown as Product[]);
     } catch (error) {
-      console.error("Error loading products:", error);
+      logger.error("Error loading products:", error);
     } finally {
       setLoading(false);
     }

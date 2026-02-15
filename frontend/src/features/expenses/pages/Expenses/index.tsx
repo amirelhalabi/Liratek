@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import logger from "../../../../utils/logger";
 import { Plus, Trash2, Calendar, DollarSign } from "lucide-react";
 import { Select } from "@liratek/ui";
 import * as api from "../../../../api/backendApi";
@@ -51,7 +52,7 @@ export default function Expenses() {
       const data = await api.getTodayExpenses();
       setExpenses(data);
     } catch (error) {
-      console.error("Failed to load expenses:", error);
+      logger.error("Failed to load expenses:", error);
     }
   };
 
@@ -84,7 +85,7 @@ export default function Expenses() {
         alert("Error: " + result.error);
       }
     } catch (error) {
-      console.error(error);
+      logger.error("Operation failed", { error });
       alert("Failed to add expense");
     }
   };
@@ -97,7 +98,7 @@ export default function Expenses() {
         loadTodayExpenses();
       }
     } catch (error) {
-      console.error(error);
+      logger.error("Operation failed", { error });
       alert("Failed to delete expense");
     }
   };

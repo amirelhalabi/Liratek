@@ -42,8 +42,9 @@ router.get("/:id", validateParams(getSaleSchema), (req, res) => {
   try {
     const sale = service.getSale(saleId);
     return res.json({ success: true, sale });
-  } catch (error: any) {
-    return res.status(404).json({ success: false, error: error.message });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Not found";
+    return res.status(404).json({ success: false, error: message });
   }
 });
 
@@ -59,8 +60,9 @@ router.get("/:id/items", (req, res) => {
   try {
     const items = service.getSaleItems(saleId);
     return res.json({ success: true, items });
-  } catch (error: any) {
-    return res.status(404).json({ success: false, error: error.message });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Not found";
+    return res.status(404).json({ success: false, error: message });
   }
 });
 

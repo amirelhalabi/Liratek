@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import logger from "../../../../utils/logger";
 import {
   Search,
   User,
@@ -86,7 +87,7 @@ export default function Debts() {
         : await api.getDebtors();
       setDebtors(data);
     } catch (error) {
-      console.error("Failed to load debtors:", error);
+      logger.error("Failed to load debtors:", error);
     }
   };
 
@@ -99,7 +100,7 @@ export default function Debts() {
       // Reset sort to default (desc) when loading new client
       setDateSortOrder("desc");
     } catch (error) {
-      console.error("Failed to load history:", error);
+      logger.error("Failed to load history:", error);
     }
   };
 
@@ -155,7 +156,7 @@ export default function Debts() {
         : await api.getClientDebtTotal(clientId);
       setTotalDebt(total || 0);
     } catch (error) {
-      console.error("Failed to load client total:", error);
+      logger.error("Failed to load client total:", error);
     }
   };
 
@@ -175,7 +176,7 @@ export default function Debts() {
       });
       setShowSaleDetails(true);
     } catch (error) {
-      console.error("Failed to load sale details:", error);
+      logger.error("Failed to load sale details:", error);
     }
   };
 
@@ -268,7 +269,7 @@ export default function Debts() {
         alert("Error: " + result.error);
       }
     } catch (error) {
-      console.error(error);
+      logger.error("Operation failed", { error });
       alert("Failed to process repayment");
     }
   };

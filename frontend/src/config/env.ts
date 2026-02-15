@@ -27,6 +27,7 @@ export type AppMode = typeof env.appMode;
 
 // Validation (runs at import time)
 if (env.isProd && !import.meta.env.VITE_API_URL) {
+  // Note: Using console.warn here is intentional as this runs before logger is initialized
   console.warn(
     "⚠️ VITE_API_URL not set in production. Using default:",
     env.apiUrl,

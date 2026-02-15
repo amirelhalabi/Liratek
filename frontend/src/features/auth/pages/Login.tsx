@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import logger from "../../../utils/logger";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { Smartphone, Lock, User, AlertCircle } from "lucide-react";
@@ -28,7 +29,7 @@ export default function Login() {
       }
     } catch (err) {
       setError("An unexpected error occurred");
-      console.error(err);
+      logger.error("Login failed", { error: err });
     } finally {
       setLoading(false);
     }

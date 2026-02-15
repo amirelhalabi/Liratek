@@ -6,8 +6,7 @@
  */
 
 import { ipcMain } from "electron";
-import { getSalesService } from "@liratek/core";
-import { salesLogger } from "../utils/logger.js";
+import { getSalesService, salesLogger } from "@liratek/core";
 import type { SaleRequest } from "@liratek/core";
 
 export function registerSalesHandlers(): void {

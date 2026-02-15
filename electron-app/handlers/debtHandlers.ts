@@ -6,8 +6,7 @@
  */
 
 import { ipcMain } from "electron";
-import { getDebtService } from "@liratek/core";
-import { debtLogger } from "../utils/logger.js";
+import { getDebtService, debtLogger } from "@liratek/core";
 
 interface RepaymentData {
   clientId: number;

@@ -4,7 +4,7 @@
 
 import { Request, Response, NextFunction } from "express";
 import { randomUUID } from "crypto";
-import { logger } from "../utils/logger.js";
+import { logger } from "@liratek/core";
 
 // Extend Express Request to include correlationId
 declare module "express-serve-static-core" {

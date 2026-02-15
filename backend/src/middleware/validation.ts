@@ -1,6 +1,12 @@
 import { Request, Response, NextFunction } from "express";
 import { ZodError } from "zod";
 import { createErrorResponse, ErrorCodes } from "@liratek/core";
+import type { ParsedQs } from "qs";
+
+/** Structural type compatible with both Zod v3 and v4 schemas */
+interface Schema {
+  parse(data: unknown): unknown;
+}
 
 /**
  * Express middleware for validating request bodies with Zod schemas
@@ -13,7 +19,7 @@ import { createErrorResponse, ErrorCodes } from "@liratek/core";
  *   }
  * );
  */
-export function validateRequest(schema: any) {
+export function validateRequest(schema: Schema) {
   return (req: Request, res: Response, next: NextFunction): void => {
     try {
       // Validate and parse request body
@@ -51,10 +57,10 @@ export function validateRequest(schema: any) {
 /**
  * Express middleware for validating request query parameters
  */
-export function validateQuery(schema: any) {
+export function validateQuery(schema: Schema) {
   return (req: Request, res: Response, next: NextFunction): void => {
     try {
-      req.query = schema.parse(req.query) as any;
+      req.query = schema.parse(req.query) as ParsedQs;
       next();
     } catch (error) {
       if (error instanceof ZodError) {
@@ -86,10 +92,10 @@ export function validateQuery(schema: any) {
 /**
  * Express middleware for validating request params
  */
-export function validateParams(schema: any) {
+export function validateParams(schema: Schema) {
   return (req: Request, res: Response, next: NextFunction): void => {
     try {
-      req.params = schema.parse(req.params) as any;
+      req.params = schema.parse(req.params) as Record<string, string>;
       next();
     } catch (error) {
       if (error instanceof ZodError) {

@@ -241,7 +241,7 @@ export function handleError(error: unknown): {
 } {
   // Known operational errors
   if (isAppError(error)) {
-    console.warn(`[${error.code}]`, error.message, error.details || "");
+    // Errors are logged by the caller with proper logger context
     return error.toJSON();
   }
 
@@ -260,7 +260,9 @@ export function handleError(error: unknown): {
   }
 
   // Unknown errors (potential bugs)
-  console.error("Unhandled error:", error);
+  // Note: This is a fallback handler. Errors should be logged by the caller.
+  // We use process.stderr to avoid circular dependency with logger
+  process.stderr.write(`Unhandled error: ${error}\n`);
 
   // In development, expose error details; in production, use generic message
   return {
@@ -295,7 +297,9 @@ export function handleErrorV2(error: unknown): ApiError {
     }
   }
 
-  console.error("Unhandled error:", error);
+  // Note: This is a fallback handler. Errors should be logged by the caller.
+  // We use process.stderr to avoid circular dependency with logger
+  process.stderr.write(`Unhandled error: ${error}\n`);
 
   // Return generic error for unknown errors
   return createErrorResponse(

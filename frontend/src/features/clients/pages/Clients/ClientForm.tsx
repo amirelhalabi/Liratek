@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import logger from "../../../../utils/logger";
 import { X, Save, MessageCircle } from "lucide-react";
 import type { Client } from "@liratek/ui";
 
@@ -83,7 +84,7 @@ export default function ClientForm({
         setError(result.error || "Failed to save client");
       }
     } catch (err) {
-      console.error(err);
+      logger.error("Failed to save client", { error: err });
       setError("An unexpected error occurred");
     } finally {
       setIsLoading(false);

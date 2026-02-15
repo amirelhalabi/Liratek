@@ -30,7 +30,7 @@ if (isProduction && !isTest) {
     try {
       validateProductionEnv();
     } catch (error) {
-      console.error("Environment validation failed:", error);
+      process.stderr.write(`Environment validation failed: ${error}\n`);
       process.exit(1);
     }
   });

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import logger from "../../../../utils/logger";
 import { appEvents } from "@liratek/ui";
 import * as api from "../../../../api/backendApi";
 
@@ -51,7 +52,7 @@ export default function DrawerConfig() {
         "success",
       );
     } catch (e) {
-      console.error(e);
+      logger.error("Failed to save drawer configuration", { error: e });
       appEvents.emit(
         "notification:show",
         e instanceof Error ? e.message : "Failed to save",

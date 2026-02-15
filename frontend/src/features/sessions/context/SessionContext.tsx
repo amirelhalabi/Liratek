@@ -5,6 +5,7 @@ import React, {
   useCallback,
   useEffect,
 } from "react";
+import logger from "../../../utils/logger";
 import {
   startSession as apiStartSession,
   getActiveSession as _apiGetActiveSession,
@@ -121,7 +122,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         }
       }
     } catch (err) {
-      console.error("Failed to load sessions:", err);
+      logger.error("Failed to load sessions:", err);
     }
   }, [activeSession]);
 
@@ -138,7 +139,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         setSessionTransactions(data.transactions);
       }
     } catch (err) {
-      console.error("Failed to load session transactions:", err);
+      logger.error("Failed to load session transactions:", err);
     }
   }, [activeSession]);
 
@@ -182,7 +183,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
           throw new Error(result.error);
         }
       } catch (err) {
-        console.error("Failed to start session:", err);
+        logger.error("Failed to start session:", err);
         throw err;
       }
     },
@@ -215,7 +216,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         throw new Error(result.error);
       }
     } catch (err) {
-      console.error("Failed to close session:", err);
+      logger.error("Failed to close session:", err);
       throw err;
     }
   }, [activeSession, refreshActiveSessions]);
@@ -238,7 +239,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
           throw new Error(result.error);
         }
       } catch (err) {
-        console.error("Failed to update session:", err);
+        logger.error("Failed to update session:", err);
         throw err;
       }
     },
@@ -264,7 +265,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         // Refresh transactions list
         await refreshSessionTransactions();
       } catch (err) {
-        console.error("Failed to link transaction:", err);
+        logger.error("Failed to link transaction:", err);
       }
     },
     [activeSession, refreshSessionTransactions],

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import logger from "../../../../../utils/logger";
 import { X, User, Printer, Inbox } from "lucide-react";
 import { EXCHANGE_RATE, DRAWER_B, roundLBPUp } from "@liratek/ui";
 import {
@@ -236,7 +237,7 @@ export default function CheckoutModal({
     try {
       await onComplete(getPaymentData());
     } catch (error) {
-      console.error(error);
+      logger.error("Operation failed", { error });
       setIsLoading(false);
     }
   };
@@ -246,7 +247,7 @@ export default function CheckoutModal({
     try {
       await onSaveDraft(getPaymentData());
     } catch (error) {
-      console.error(error);
+      logger.error("Operation failed", { error });
       setIsLoading(false);
     }
   };

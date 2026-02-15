@@ -15,10 +15,15 @@ import jwt from "jsonwebtoken";
 
 const router = express.Router();
 
-// Get JWT config with defaults (non-null since we provide fallback)
-const jwtSecret: string = (JWT_SECRET ??
-  "your-secret-key-change-in-production") as string;
-const jwtExpiresIn: string = (JWT_EXPIRES_IN ?? "7d") as string;
+// Validate JWT configuration on startup
+if (!JWT_SECRET) {
+  throw new Error(
+    "JWT_SECRET is required. Please set it in your environment variables (min 32 characters).",
+  );
+}
+
+const jwtSecret: string = JWT_SECRET;
+const jwtExpiresIn: string = JWT_EXPIRES_IN;
 
 // POST /api/auth/login
 router.post(

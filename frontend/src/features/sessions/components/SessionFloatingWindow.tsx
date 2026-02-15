@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import logger from "../../../utils/logger";
 import { useSession } from "../context/SessionContext";
 
 export function SessionFloatingWindow() {
@@ -364,7 +365,7 @@ export function SessionFloatingWindow() {
                 try {
                   await closeCurrentSession();
                 } catch (err) {
-                  console.error("Failed to close session:", err);
+                  logger.error("Failed to close session:", err);
                   alert("Failed to close session");
                 }
               }

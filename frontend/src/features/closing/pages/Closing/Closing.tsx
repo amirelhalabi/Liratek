@@ -4,6 +4,7 @@
  */
 
 import { useEffect, useState } from "react";
+import logger from "../../../../utils/logger";
 import type { DrawerType } from "../../types";
 import { DRAWER_ORDER } from "../../config/drawers";
 import { useCurrencies } from "../../hooks/useCurrencies";
@@ -100,7 +101,7 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
         const pct = Number(map.get("closing_variance_threshold_pct") ?? 5);
         if (isFinite(pct) && pct >= 0) setVarianceThresholdPct(pct);
       } catch (e) {
-        console.error("[Closing] Failed to load variance threshold:", e);
+        logger.error("[Closing] Failed to load variance threshold:", e);
       }
     } else if (step === 2) {
       setStep(3);
@@ -222,14 +223,14 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
         }
       } catch (reportError) {
         // Don't block closing if report generation fails.
-        console.error("[Closing] Report generation error:", reportError);
+        logger.error("[Closing] Report generation error:", reportError);
       }
 
       alert("Daily closing saved successfully!");
       appEvents.emit("closing:completed", result);
       onClose();
     } catch (error) {
-      console.error("[Closing] Save error:", error);
+      logger.error("[Closing] Save error:", error);
       setStepError(
         error instanceof Error ? error.message : "An unexpected error occurred",
       );

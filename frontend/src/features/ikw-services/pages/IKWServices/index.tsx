@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import logger from "../../../../utils/logger";
 import {
   Send,
   ArrowDownToLine,
@@ -166,7 +167,7 @@ export default function IKWServices() {
         byProvider: ikwByProvider,
       });
     } catch (error) {
-      console.error("Failed to load IKW data:", error);
+      logger.error("Failed to load IKW data:", error);
     }
   };
 
@@ -200,7 +201,7 @@ export default function IKWServices() {
               amountLbp: parseFloat(amountLBP) || 0,
             });
           } catch (err) {
-            console.error("Failed to link IKW service to session:", err);
+            logger.error("Failed to link IKW service to session:", err);
           }
         }
 
@@ -215,7 +216,7 @@ export default function IKWServices() {
         alert("Error: " + result.error);
       }
     } catch (error) {
-      console.error(error);
+      logger.error("Operation failed", { error });
       alert("Transaction failed");
     } finally {
       setIsSubmitting(false);

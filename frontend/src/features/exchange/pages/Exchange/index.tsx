@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import logger from "../../../../utils/logger";
 import { RefreshCw, ArrowRightLeft, History, ArrowRight } from "lucide-react";
 import * as api from "../../../../api/backendApi";
 import { useSession } from "../../../sessions/context/SessionContext";
@@ -48,7 +49,7 @@ export default function Exchange() {
         const list = await api.getRates();
         setRates(list);
       } catch (e) {
-        console.error("Failed to load rates", e);
+        logger.error("Failed to load rates", e);
       }
     };
     loadRates();
@@ -120,7 +121,7 @@ export default function Exchange() {
         setToCurrency(active[1].code);
       }
     } catch (e) {
-      console.error("Failed to load currencies", e);
+      logger.error("Failed to load currencies", e);
     }
   };
 
@@ -129,7 +130,7 @@ export default function Exchange() {
       const history = await api.getExchangeHistory();
       setTransactions(history);
     } catch (error) {
-      console.error("Failed to load history:", error);
+      logger.error("Failed to load history:", error);
     }
   };
 
@@ -176,7 +177,7 @@ export default function Exchange() {
                 fromCurrency === "LBP" ? inp : toCurrency === "LBP" ? out : 0,
             });
           } catch (err) {
-            console.error("Failed to link exchange to session:", err);
+            logger.error("Failed to link exchange to session:", err);
             // Don't block the exchange completion
           }
         }
@@ -189,7 +190,7 @@ export default function Exchange() {
         alert("Error: " + result.error);
       }
     } catch (error) {
-      console.error(error);
+      logger.error("Operation failed", { error });
       alert("Transaction failed");
     }
   };
