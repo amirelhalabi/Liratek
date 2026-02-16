@@ -3,8 +3,7 @@ import logger from "../../../../utils/logger";
 import { RefreshCw, ArrowRightLeft, History, ArrowRight } from "lucide-react";
 import * as api from "../../../../api/backendApi";
 import { useSession } from "../../../sessions/context/SessionContext";
-
-type Currency = { id: number; code: string; name: string; is_active: number };
+import { useCurrencyContext } from "../../../../contexts/CurrencyContext";
 
 type RateRow = { from_code: string; to_code: string; rate: number };
 
@@ -21,21 +20,34 @@ export default function Exchange() {
   };
   const [transactions, setTransactions] = useState<ExchangeTx[]>([]);
 
+  // Currency context
+  const {
+    activeCurrencies: currencies,
+    getSymbol,
+    getDecimals,
+  } = useCurrencyContext();
+
   // Exchange State
-  const [currencies, setCurrencies] = useState<Currency[]>([]);
-  const [fromCurrency, setFromCurrency] = useState<string>("USD");
-  const [toCurrency, setToCurrency] = useState<string>("LBP");
+  const [fromCurrency, setFromCurrency] = useState<string>("");
+  const [toCurrency, setToCurrency] = useState<string>("");
 
   const [amountIn, setAmountIn] = useState<string>("");
   const [amountOut, setAmountOut] = useState<string>("");
-  const [rate, setRate] = useState<string>("89500");
+  const [rate, setRate] = useState<string>("");
   const [rates, setRates] = useState<RateRow[]>([]);
 
   const [clientName, setClientName] = useState("");
 
+  // Set initial currencies once loaded from context
+  useEffect(() => {
+    if (currencies.length >= 2 && !fromCurrency && !toCurrency) {
+      setFromCurrency(currencies[0].code);
+      setToCurrency(currencies[1].code);
+    }
+  }, [currencies, fromCurrency, toCurrency]);
+
   useEffect(() => {
     loadHistory();
-    loadCurrencies();
 
     // Auto-fill customer from active session
     if (activeSession && activeSession.customer_name) {
@@ -58,22 +70,31 @@ export default function Exchange() {
   const findRate = useCallback(
     (from: string, to: string): number | undefined => {
       if (from === to) return 1;
+      // Direct lookup
       const direct = rates.find(
         (r) => r.from_code === from && r.to_code === to,
       )?.rate;
       if (direct !== undefined) return direct;
-      const viaToUsd = rates.find(
-        (r) => r.from_code === from && r.to_code === "USD",
+      // Inverse lookup
+      const inverse = rates.find(
+        (r) => r.from_code === to && r.to_code === from,
       )?.rate;
-      const viaFromUsd = rates.find(
-        (r) => r.from_code === "USD" && r.to_code === to,
-      )?.rate;
-      if (viaToUsd !== undefined && viaFromUsd !== undefined)
-        return viaToUsd * viaFromUsd;
+      if (inverse !== undefined && inverse !== 0) return 1 / inverse;
       return undefined;
     },
     [rates],
   );
+
+  // Auto-populate rate from DB when currency pair changes
+  useEffect(() => {
+    if (!fromCurrency || !toCurrency || fromCurrency === toCurrency) return;
+    const dbRate = findRate(fromCurrency, toCurrency);
+    if (dbRate !== undefined) {
+      setRate(String(dbRate));
+    } else {
+      setRate("");
+    }
+  }, [fromCurrency, toCurrency, findRate]);
 
   const calculateOutput = useCallback(() => {
     const val = parseFloat(amountIn);
@@ -84,46 +105,14 @@ export default function Exchange() {
       return;
     }
 
-    let result = 0;
-    const mr = findRate(fromCurrency, toCurrency);
-    if (mr !== undefined) {
-      result = val * mr;
-    } else if (fromCurrency === "USD" && toCurrency === "LBP") {
-      result = val * rParsed;
-    } else if (fromCurrency === "LBP" && toCurrency === "USD") {
-      result = val / rParsed;
-    } else if (fromCurrency === "EUR" && toCurrency === "USD") {
-      result = val * rParsed;
-    } else if (fromCurrency === "USD" && toCurrency === "EUR") {
-      result = val / rParsed;
-    } else {
-      result = val * rParsed;
-    }
-
-    if (toCurrency === "LBP") {
-      setAmountOut(result.toFixed(0));
-    } else {
-      setAmountOut(result.toFixed(2));
-    }
-  }, [amountIn, rate, fromCurrency, toCurrency, findRate]);
+    const result = val * rParsed;
+    const decimals = getDecimals(toCurrency);
+    setAmountOut(result.toFixed(decimals));
+  }, [amountIn, rate, toCurrency, getDecimals]);
 
   useEffect(() => {
     calculateOutput();
   }, [calculateOutput]);
-
-  const loadCurrencies = async () => {
-    try {
-      const list = await api.getCurrencies();
-      const active = (list as Currency[]).filter((c: any) => c.is_active === 1);
-      setCurrencies(active);
-      if (active.length >= 2) {
-        setFromCurrency(active[0].code);
-        setToCurrency(active[1].code);
-      }
-    } catch (e) {
-      logger.error("Failed to load currencies", e);
-    }
-  };
 
   const loadHistory = async () => {
     try {
@@ -137,10 +126,12 @@ export default function Exchange() {
   /* calculateOutput defined via useCallback above */
 
   const handleSwap = () => {
-    setFromCurrency(toCurrency);
-    setToCurrency(fromCurrency);
+    const prevFrom = fromCurrency;
+    const prevTo = toCurrency;
+    setFromCurrency(prevTo);
+    setToCurrency(prevFrom);
     setAmountIn(amountOut);
-    // Rate might need inversion logic, but for now let user adjust
+    // Rate will auto-update via the useEffect that watches fromCurrency/toCurrency
   };
 
   const handleProcess = async () => {
@@ -192,17 +183,6 @@ export default function Exchange() {
     } catch (error) {
       logger.error("Operation failed", { error });
       alert("Transaction failed");
-    }
-  };
-
-  const getCurrencyIcon = (curr: string) => {
-    switch (curr) {
-      case "USD":
-        return "$";
-      case "EUR":
-        return "€";
-      case "LBP":
-        return "LBP";
     }
   };
 
@@ -302,7 +282,7 @@ export default function Exchange() {
                 </label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-500 font-bold">
-                    {getCurrencyIcon(fromCurrency)}
+                    {getSymbol(fromCurrency)}
                   </span>
                   <input
                     type="number"
@@ -320,7 +300,7 @@ export default function Exchange() {
                 </label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-red-400 font-bold">
-                    {getCurrencyIcon(toCurrency)}
+                    {getSymbol(toCurrency)}
                   </span>
                   <input
                     type="number"

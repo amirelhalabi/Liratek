@@ -1,6 +1,6 @@
 # Current Sprint (Feb 12–Feb 19, 2026)
 
-**Last Updated**: Feb 13, 2026
+**Last Updated**: Feb 16, 2026
 
 ## 📖 How to Read This Document
 
@@ -15,6 +15,12 @@
 
 ### ✅ Completed
 
+- [T-39]!!! Recharge Consolidation — merge MTC/Alfa + IPEC/Katch + Binance into one page (completed Feb 16)
+- [T-40]!! Dynamic Currencies — DB-driven currency system with module/drawer mappings (completed Feb 16)
+- [T-41]!! DB-Driven Modules — sidebar + settings from modules table (completed Feb 16)
+- [T-42]!! Payment Methods Manager — CRUD settings page + hooks (completed Feb 16)
+- [T-43]! Drawer name fixes — Wish_App_Money→Whish_System, OMT_APP provider, supplier-module linking (completed Feb 16)
+- [T-44]! Documentation consolidation — 8 docs archived, 4 new docs created (completed Feb 16)
 - [T-34]! New module: IPEC/Katch/WishApp services page (completed Feb 13)
 - [T-33]! New module: Binance transfers (completed Feb 13)
 - [T-36] Debts page redesign — split tables + USD/LBP display (completed Feb 13)
@@ -247,32 +253,25 @@ Files to KEEP:
 ### [T-27] Payment Methods Everywhere + Drawer Model Expansion (OMT System / Whish App / Binance) !!!
 
 **Added**: Feb 12, 2026  
-**Status**: 🚧 In Progress  
+**Status**: ✅ COMPLETED (Feb 16, 2026)  
 **Goal**: Standardize and support payment methods across _all_ transactions and ensure drawer propagation works in Opening/Closing.
 
-**Why first**: This is a foundation task. Recharge/Services/Binance/Whish all depend on consistent payment+drawer handling.
+**Implementation Completed**:
 
-**Scope**:
+- ✅ Unified payment methods: CASH, OMT, WHISH, BINANCE, DEBT — all DB-driven via `payment_methods` table
+- ✅ New drawers seeded: OMT_App, Whish_App, Whish_System, Binance (USD+LBP)
+- ✅ Drawer naming fixed: `Wish_App_Money` → `Whish_System`, WHISH→Whish_System, WISH_APP→Whish_App
+- ✅ Opening/Closing includes all drawers dynamically
+- ✅ Dashboard reflects new drawers
+- ✅ `PaymentMethodRepository` + `PaymentMethodService` + settings CRUD page
+- ✅ `usePaymentMethods` hook used across all transaction forms
 
-- Unify `pay_by` (or equivalent) across modules: `cash`, `debt`, `whish_app`, `omt_system`, `binance`
-- Add drawers in DB + propagation through:
-  - Opening balances
-  - Closing balances
-  - Dashboard drawer balances
-- Drawer naming changes:
-  - Rename `omt` → `omt system`
-  - Rename `wish` → `whish app`
-  - Add `Binance` drawer
-  - Add `Omt app drawer` (clarify in schema as separate from cash drawers)
+**Acceptance Criteria** (All Met):
 
-**Acceptance Criteria**:
-
-- [ ] Any transaction can be tagged with a payment method from the standardized set
-- [ ] Drawer totals correctly update for all payment methods where applicable
-- [ ] Opening/Closing includes the new drawers and names consistently
-- [ ] Dashboard reflects the new drawers
-
-**Estimate**: 1.5–3 days (depends on schema + migration + UI touch points)
+- [x] Any transaction can be tagged with a payment method from the standardized set
+- [x] Drawer totals correctly update for all payment methods where applicable
+- [x] Opening/Closing includes the new drawers and names consistently
+- [x] Dashboard reflects the new drawers
 
 ---
 
@@ -777,7 +776,7 @@ Then run normally:
 
 ### [T-01] Two-Wallet System & Mixed Payment Support !!!
 
-**Status**: Ready  
+**Status**: ✅ Completed (Feb 16, 2026) — implemented via Payment Methods system (CASH, OMT, WHISH, BINANCE, DEBT)  
 **Goal**: Support `CASH`, `WHISH`, `OMT`, `BINANCE` payment methods with proper drawer tracking.
 
 ### [T-02] Supplier Ledger (Dual-Currency Debt) !!!
@@ -802,7 +801,7 @@ Then run normally:
 
 ### [T-06] Binance Service Module !
 
-**Status**: Ready  
+**Status**: ✅ Completed (Feb 13, 2026) — consolidated into Mobile Recharge page (Feb 16)  
 **Goal**: Integration for Binance-based payments and transfers.
 
 ### [T-07] Admin-Only Security "Late Entry" !!
@@ -843,7 +842,7 @@ Then run normally:
 
 ### [T-14] Versioned Migration System !!
 
-**Status**: Ready  
+**Status**: ✅ Completed (Feb 16, 2026) — sequential version-based migrations in `packages/core/src/db/migrations/index.ts` (v9–v12)  
 **Goal**: Transition from `ensureColumnExists` to timestamp-based SQL migrations.
 
 ### [T-15] Data Archival Workflow !
@@ -940,6 +939,58 @@ Then run normally:
 - ✅ **Variance Threshold Alerts**: Visual warnings for cash discrepancies in Closing
 - ✅ **Performance Hardening**: Database indexes and optimized query patterns
 - ✅ **Backup Automation**: Automated local DB backups with restore verification
+
+---
+
+## 📈 Recent Completions (Feb 16, 2026)
+
+### Recharge Consolidation (T-39) ✅
+
+- Merged 3 module pages (MTC/Alfa, IPEC/Katch/Whish App/OMT App, Binance) into one consolidated "Mobile Recharge" page
+- Migration v12: routes consolidated to `/recharge`, recharge label → `MTC/Alfa`, `OMT_APP` provider + supplier added, drawer names fixed
+- Sidebar: 3 modules → 1 "Mobile Recharge" link (useMemo-wrapped dedup logic)
+- 7 providers, 3 form modes (telecom/financial/crypto), module-aware visibility
+- Old pages moved to `features/recharge/pages/{Binance,IKWServices}/` — old routes redirect
+- App.tsx: `/binance` and `/ikw-services` redirect to `/recharge`
+
+### Dynamic Currencies (T-40) ✅
+
+- New tables: `currency_modules`, `currency_drawers` — DB-driven currency↔module and currency↔drawer mappings
+- `CurrencyContext` + `CurrencySelect` component for app-wide formatting
+- Expanded `CurrencyManager` settings page: full CRUD for currencies, module assignments, drawer mappings
+- EUR and USDT seeded as new currencies
+- Closing system switched from hardcoded `SystemExpectedBalances` to dynamic `DynamicSystemExpectedBalances`
+
+### DB-Driven Modules (T-41) ✅
+
+- New `modules` table with 15 seeded modules (3 system, 12 toggleable)
+- `ModuleRepository` + `ModuleService` + backend API + electron handlers
+- `ModuleContext` with `useModules()` hook, `isModuleEnabled()` utility
+- `ModulesManager` settings page — toggle modules on/off
+- Sidebar fully DB-driven via `enabledModules` instead of hardcoded array
+- Dynamic shop name via `useShopName()` hook
+
+### Payment Methods Manager (T-42) ✅
+
+- New `payment_methods` table with 5 seeds (CASH, OMT, WHISH, BINANCE, DEBT)
+- Full-stack: `PaymentMethodRepository` → `PaymentMethodService` → API → handlers → preload
+- `usePaymentMethods` hook supplies all transaction forms
+- `PaymentMethodsManager` settings page for CRUD
+
+### Drawer Fixes & Supplier Linking (T-43) ✅
+
+- Fixed: `Wish_App_Money` → `Whish_System` across DB + all code references
+- Fixed: `WHISH` maps to `Whish_System`, `WISH_APP` maps to `Whish_App`
+- Added `OMT_APP` provider — distinct from `OMT`, maps to `OMT_App` drawer
+- Migration v11: supplier-module linking with `module_key`, `provider`, `is_system` columns
+- Migration v12: drawer renames + new drawer seeds (OMT_App, Whish_App, Binance)
+- System suppliers seeded: IPEC, Katch, OMT, Whish, OMT App
+
+### Documentation (T-44) ✅
+
+- 8 docs archived to `docs/archive/`
+- 2 docs deleted (replaced by consolidated LOGGING.md)
+- 4 new docs: DYNAMIC_CURRENCIES.md, LOGGING.md, MODULE_MANAGEMENT.md, RECHARGE_CREDITS.md
 
 ---
 

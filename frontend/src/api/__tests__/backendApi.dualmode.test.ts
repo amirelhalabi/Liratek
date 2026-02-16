@@ -32,74 +32,115 @@ describe("backendApi dual-mode routing", () => {
 
     const apiStub: any = {
       // Auth
-      login: jest.fn(async () => ({
-        success: true,
-        user: { id: 1, username: "admin", role: "admin" },
-        sessionToken: "tok",
-      })),
-      logout: jest.fn(async () => ({ success: true })),
-      restoreSession: jest.fn(async () => ({
-        success: true,
-        user: { id: 1, username: "admin", role: "admin" },
-        sessionToken: "tok",
-      })),
+      auth: {
+        login: jest.fn(async () => ({
+          success: true,
+          user: { id: 1, username: "admin", role: "admin" },
+          sessionToken: "tok",
+        })),
+        logout: jest.fn(async () => ({ success: true })),
+        restoreSession: jest.fn(async () => ({
+          success: true,
+          user: { id: 1, username: "admin", role: "admin" },
+          sessionToken: "tok",
+        })),
+        getNonAdminUsers: jest.fn(async () => []),
+        setUserActive: jest.fn(async () => ({ success: true })),
+        setUserRole: jest.fn(async () => ({ success: true })),
+        createUser: jest.fn(async () => ({ success: true, id: 1 })),
+        setUserPassword: jest.fn(async () => ({ success: true })),
+      },
 
       // Clients
-      getClients: jest.fn(async () => [{ id: 1 }]),
-      deleteClient: jest.fn(async () => ({ success: true })),
+      clients: {
+        getAll: jest.fn(async () => [{ id: 1 }]),
+        delete: jest.fn(async () => ({ success: true })),
+      },
 
       // Inventory
-      getProducts: jest.fn(async () => [{ id: 1 }]),
-      getLowStockProducts: jest.fn(async () => []),
-      createProduct: jest.fn(async () => ({ success: true, id: 1 })),
-      updateProduct: jest.fn(async () => ({ success: true })),
-      deleteProduct: jest.fn(async () => ({ success: true })),
-      getInventoryStockStats: jest.fn(async () => ({
-        stock_budget_usd: 1,
-        stock_count: 1,
-      })),
+      inventory: {
+        getProducts: jest.fn(async () => [{ id: 1 }]),
+        getLowStockProducts: jest.fn(async () => []),
+        createProduct: jest.fn(async () => ({ success: true, id: 1 })),
+        updateProduct: jest.fn(async () => ({ success: true })),
+        deleteProduct: jest.fn(async () => ({ success: true })),
+        getStockStats: jest.fn(async () => ({
+          stock_budget_usd: 1,
+          stock_count: 1,
+        })),
+      },
 
       // Sales
-      getDrafts: jest.fn(async () => []),
-      processSale: jest.fn(async () => ({ success: true, saleId: 1 })),
-      getSale: jest.fn(async () => ({ id: 1 })),
-      getSaleItems: jest.fn(async () => []),
+      sales: {
+        getDrafts: jest.fn(async () => []),
+        process: jest.fn(async () => ({ success: true, saleId: 1 })),
+        get: jest.fn(async () => ({ id: 1 })),
+        getItems: jest.fn(async () => []),
+        getTodaysSales: jest.fn(async () => []),
+      },
 
       // Debts
-      getDebtors: jest.fn(async () => []),
-      getClientDebtHistory: jest.fn(async () => []),
-      getClientDebtTotal: jest.fn(async () => 0),
-      addRepayment: jest.fn(async () => ({ success: true })),
+      debt: {
+        getDebtors: jest.fn(async () => []),
+        getClientHistory: jest.fn(async () => []),
+        getClientTotal: jest.fn(async () => 0),
+        addRepayment: jest.fn(async () => ({ success: true })),
+        getSummary: jest.fn(async () => ({ totalDebt: 0, topDebtors: [] })),
+      },
 
       // Exchange
-      addExchangeTransaction: jest.fn(async () => ({ success: true, id: 1 })),
-      getExchangeHistory: jest.fn(async () => []),
+      exchange: {
+        addTransaction: jest.fn(async () => ({ success: true, id: 1 })),
+        getHistory: jest.fn(async () => []),
+      },
+
+      // Binance
+      binance: {
+        getHistory: jest.fn(async () => []),
+        getTodayStats: jest.fn(async () => ({
+          totalSent: 0,
+          totalReceived: 0,
+          count: 0,
+        })),
+        addTransaction: jest.fn(async () => ({ success: true, id: 1 })),
+      },
+
+      // Currencies
       currencies: {
         list: jest.fn(async () => []),
         create: jest.fn(async () => ({ success: true, id: 1 })),
         update: jest.fn(async () => ({ success: true })),
         delete: jest.fn(async () => ({ success: true })),
       },
+
+      // Rates
       rates: {
         list: jest.fn(async () => []),
         set: jest.fn(async () => ({ success: true })),
       },
 
       // Expenses
-      getTodayExpenses: jest.fn(async () => []),
-      addExpense: jest.fn(async () => ({ success: true, id: 1 })),
-      deleteExpense: jest.fn(async () => ({ success: true })),
+      expenses: {
+        getToday: jest.fn(async () => []),
+        add: jest.fn(async () => ({ success: true, id: 1 })),
+        delete: jest.fn(async () => ({ success: true })),
+      },
 
       // Dashboard
-      getDashboardStats: jest.fn(async () => ({ totalSalesUSD: 0 })),
-      getProfitSalesChart: jest.fn(async () => []),
-      getTodaysSales: jest.fn(async () => []),
-      getDrawerBalances: jest.fn(async () => ({
-        generalDrawer: { usd: 0, lbp: 0 },
-        omtDrawer: { usd: 0, lbp: 0 },
-      })),
-      getDebtSummary: jest.fn(async () => ({ totalDebt: 0, topDebtors: [] })),
-      getMonthlyPL: jest.fn(async () => ({ month: "2026-01" })),
+      dashboard: {
+        getStats: jest.fn(async () => ({ totalSalesUSD: 0 })),
+        getProfitSalesChart: jest.fn(async () => []),
+        getDrawerBalances: jest.fn(async () => ({
+          generalDrawer: { usd: 0, lbp: 0 },
+          omtDrawer: { usd: 0, lbp: 0 },
+        })),
+      },
+
+      // Financial
+      financial: {
+        getMonthlyPL: jest.fn(async () => ({ month: "2026-01" })),
+        getDrawerNames: jest.fn(async () => []),
+      },
 
       // Settings
       settings: {
@@ -108,24 +149,30 @@ describe("backendApi dual-mode routing", () => {
       },
 
       // Recharge
-      getRechargeStock: jest.fn(async () => ({ mtc: 0, alfa: 0 })),
-      processRecharge: jest.fn(async () => ({ success: true, saleId: 1 })),
+      recharge: {
+        getStock: jest.fn(async () => ({ mtc: 0, alfa: 0 })),
+        process: jest.fn(async () => ({ success: true, saleId: 1 })),
+      },
 
-      // Services
-      getOMTHistory: jest.fn(async () => []),
-      getOMTAnalytics: jest.fn(async () => ({
-        today: { commissionUSD: 0, commissionLBP: 0, count: 0 },
-      })),
-      addOMTTransaction: jest.fn(async () => ({ success: true, id: 1 })),
+      // OMT Services
+      omt: {
+        getHistory: jest.fn(async () => []),
+        getAnalytics: jest.fn(async () => ({
+          today: { commissionUSD: 0, commissionLBP: 0, count: 0 },
+        })),
+        addTransaction: jest.fn(async () => ({ success: true, id: 1 })),
+      },
 
       // Maintenance
-      getMaintenanceJobs: jest.fn(async () => []),
-      saveMaintenanceJob: jest.fn(async () => ({ success: true, id: 1 })),
-      deleteMaintenanceJob: jest.fn(async () => ({ success: true })),
+      maintenance: {
+        getJobs: jest.fn(async () => []),
+        save: jest.fn(async () => ({ success: true, id: 1 })),
+        delete: jest.fn(async () => ({ success: true })),
+      },
 
       // Closing
       closing: {
-        getSystemExpectedBalances: jest.fn(async () => ({})),
+        getSystemExpectedBalancesDynamic: jest.fn(async () => ({})),
         hasOpeningBalanceToday: jest.fn(async () => true),
         getDailyStatsSnapshot: jest.fn(async () => ({})),
         setOpeningBalances: jest.fn(async () => ({ success: true })),
@@ -134,18 +181,13 @@ describe("backendApi dual-mode routing", () => {
       },
 
       // Suppliers
-      listSuppliers: jest.fn(async () => []),
-      getSupplierBalances: jest.fn(async () => []),
-      getSupplierLedger: jest.fn(async () => []),
-      createSupplier: jest.fn(async () => ({ success: true, id: 1 })),
-      addSupplierLedgerEntry: jest.fn(async () => ({ success: true, id: 1 })),
-
-      // Users
-      getNonAdminUsers: jest.fn(async () => []),
-      setUserActive: jest.fn(async () => ({ success: true })),
-      setUserRole: jest.fn(async () => ({ success: true })),
-      createUser: jest.fn(async () => ({ success: true, id: 1 })),
-      setUserPassword: jest.fn(async () => ({ success: true })),
+      suppliers: {
+        list: jest.fn(async () => []),
+        getBalances: jest.fn(async () => []),
+        getLedger: jest.fn(async () => []),
+        create: jest.fn(async () => ({ success: true, id: 1 })),
+        addLedgerEntry: jest.fn(async () => ({ success: true, id: 1 })),
+      },
 
       // Activity
       activity: {
@@ -231,7 +273,7 @@ describe("backendApi dual-mode routing", () => {
 
     await apiMod.getCurrencies();
 
-    await apiMod.getSystemExpectedBalances();
+    await apiMod.getSystemExpectedBalancesDynamic();
     await apiMod.hasOpeningBalanceToday();
     await apiMod.getDailyStatsSnapshot();
     await apiMod.setOpeningBalances({

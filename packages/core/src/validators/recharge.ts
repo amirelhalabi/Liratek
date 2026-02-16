@@ -15,7 +15,7 @@ export const createRechargeSchema = z.object({
   amount: positiveIntegerSchema, // e.g., 10000 LBP
   price: positiveDecimalSchema, // USD price
   phoneNumber: phoneNumberSchema,
-  paid_by_method: z.enum(["CASH", "CARD", "TRANSFER"]).default("CASH"),
+  paid_by_method: z.string().min(1).default("CASH"),
   note: z.string().max(500).optional(),
 });
 

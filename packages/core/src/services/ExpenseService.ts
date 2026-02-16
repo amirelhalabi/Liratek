@@ -31,7 +31,6 @@ export class ExpenseService {
       this.repo.logActivity(1, "Add Expense", {
         category: data.category,
         paid_by_method: data.paid_by_method || "CASH",
-        expense_type: data.expense_type,
         amount_usd: data.amount_usd,
         amount_lbp: data.amount_lbp,
       });
@@ -40,12 +39,11 @@ export class ExpenseService {
         {
           id,
           category: data.category,
-          expenseType: data.expense_type,
           paidBy: data.paid_by_method || "CASH",
           amountUSD: data.amount_usd,
           amountLBP: data.amount_lbp,
         },
-        `Added: ${data.category} (${data.expense_type})`,
+        `Added: ${data.category}`,
       );
       return { success: true, id };
     } catch (error) {

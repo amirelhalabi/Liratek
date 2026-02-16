@@ -37,73 +37,147 @@ export interface MigrationRecord {
 /**
  * Migration registry.
  *
- * Pre-production: the canonical schema lives in create_db.sql.
- * When the project reaches production, add incremental migrations here.
+ * The canonical schema lives in create_db.sql (for fresh databases).
+ * Add incremental migrations here for existing databases.
  */
-export const MIGRATIONS: Migration[] = [];
+export const MIGRATIONS: Migration[] = [
+  {
+    version: 9,
+    name: "add_payment_methods_table",
+    description: "Create payment_methods table with seed data",
+    type: "typescript",
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS payment_methods (
+          id             INTEGER PRIMARY KEY AUTOINCREMENT,
+          code           TEXT NOT NULL UNIQUE,
+          label          TEXT NOT NULL,
+          drawer_name    TEXT NOT NULL,
+          affects_drawer INTEGER NOT NULL DEFAULT 1,
+          sort_order     INTEGER NOT NULL DEFAULT 0,
+          is_active      INTEGER NOT NULL DEFAULT 1,
+          is_system      INTEGER NOT NULL DEFAULT 0,
+          created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        INSERT OR IGNORE INTO payment_methods (code, label, drawer_name, affects_drawer, sort_order, is_system) VALUES
+          ('CASH',    'Cash',          'General',    1, 0, 1),
+          ('OMT',     'OMT Wallet',    'OMT_App',    1, 1, 0),
+          ('WHISH',   'Whish Wallet',  'Whish_App',  1, 2, 0),
+          ('BINANCE', 'Binance',       'Binance',    1, 3, 0),
+          ('DEBT',    'Debt (On Tab)', 'General',    0, 4, 1);
+      `);
+    },
+    down(db) {
+      db.exec(`DROP TABLE IF EXISTS payment_methods;`);
+    },
+  },
+  {
+    version: 10,
+    name: "seed_shop_name",
+    description: "Seed default shop_name setting",
+    type: "typescript",
+    up(db) {
+      db.exec(`
+        INSERT OR IGNORE INTO system_settings (key_name, value)
+        VALUES ('shop_name', 'Corner Tech');
+      `);
+    },
+  },
+  {
+    version: 11,
+    name: "supplier_module_linking",
+    description:
+      "Link suppliers to modules/providers, add transaction tracing to ledger, seed system suppliers",
+    type: "typescript",
+    up(db) {
+      db.exec(`
+        ALTER TABLE suppliers ADD COLUMN module_key TEXT DEFAULT NULL REFERENCES modules(key) ON DELETE SET NULL;
+        ALTER TABLE suppliers ADD COLUMN provider TEXT DEFAULT NULL;
+        ALTER TABLE suppliers ADD COLUMN is_system INTEGER NOT NULL DEFAULT 0;
+
+        ALTER TABLE supplier_ledger ADD COLUMN transaction_id INTEGER DEFAULT NULL;
+        ALTER TABLE supplier_ledger ADD COLUMN transaction_type TEXT DEFAULT NULL;
+
+        INSERT OR IGNORE INTO suppliers (name, module_key, provider, is_system) VALUES
+          ('IPEC',  'ipec_katch', 'IPEC',  1),
+          ('Katch', 'ipec_katch', 'KATCH', 1),
+          ('OMT',   'omt_whish',  'OMT',   1),
+          ('Whish', 'omt_whish',  'WHISH', 1);
+      `);
+    },
+  },
+  {
+    version: 12,
+    name: "recharge_consolidation",
+    description:
+      "Consolidate recharge/ipec_katch/binance routes, rename recharge label, add OMT_APP provider + supplier, add LBP to recharge module",
+    type: "typescript",
+    up(db) {
+      db.exec(`
+        -- Rename recharge label
+        UPDATE modules SET label = 'MTC/Alfa' WHERE key = 'recharge';
+
+        -- Point sub-modules to consolidated page
+        UPDATE modules SET route = '/recharge' WHERE key = 'ipec_katch';
+        UPDATE modules SET route = '/recharge' WHERE key = 'binance';
+
+        -- Add LBP to recharge module currencies
+        INSERT OR IGNORE INTO currency_modules (currency_code, module_key) VALUES ('LBP', 'recharge');
+
+        -- Create OMT App supplier
+        INSERT OR IGNORE INTO suppliers (name, module_key, provider, is_system)
+          VALUES ('OMT App', 'ipec_katch', 'OMT_APP', 1);
+
+        -- Rename Wish_App_Money drawer to Whish_System (fix historical mismatch)
+        UPDATE drawer_balances SET drawer_name = 'Whish_System' WHERE drawer_name = 'Wish_App_Money';
+        UPDATE currency_drawers SET drawer_name = 'Whish_System' WHERE drawer_name = 'Wish_App_Money';
+        UPDATE payments SET drawer_name = 'Whish_System' WHERE drawer_name = 'Wish_App_Money';
+        UPDATE daily_closings SET drawer_name = 'Whish_System' WHERE drawer_name = 'Wish_App_Money';
+        UPDATE closing_amounts SET drawer_name = 'Whish_System' WHERE drawer_name = 'Wish_App_Money';
+
+        -- Seed Whish_System drawer if it doesn't exist yet
+        INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Whish_System', 'USD', 0);
+        INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Whish_System', 'LBP', 0);
+        INSERT OR IGNORE INTO currency_drawers (currency_code, drawer_name) VALUES ('USD', 'Whish_System');
+        INSERT OR IGNORE INTO currency_drawers (currency_code, drawer_name) VALUES ('LBP', 'Whish_System');
+
+        -- Seed OMT_App drawer
+        INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('OMT_App', 'USD', 0);
+        INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('OMT_App', 'LBP', 0);
+        INSERT OR IGNORE INTO currency_drawers (currency_code, drawer_name) VALUES ('USD', 'OMT_App');
+        INSERT OR IGNORE INTO currency_drawers (currency_code, drawer_name) VALUES ('LBP', 'OMT_App');
+
+        -- Seed Whish_App drawer
+        INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Whish_App', 'USD', 0);
+        INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Whish_App', 'LBP', 0);
+        INSERT OR IGNORE INTO currency_drawers (currency_code, drawer_name) VALUES ('USD', 'Whish_App');
+        INSERT OR IGNORE INTO currency_drawers (currency_code, drawer_name) VALUES ('LBP', 'Whish_App');
+
+        -- Seed Binance drawer
+        INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Binance', 'USD', 0);
+        INSERT OR IGNORE INTO currency_drawers (currency_code, drawer_name) VALUES ('USD', 'Binance');
+      `);
+    },
+  },
+];
 
 // =============================================================================
 // Migration Runner
 // =============================================================================
 
 /**
- * Ensure migration tracking table exists with version support
+ * Ensure migration tracking table exists.
+ * The table is also created by create_db.sql for fresh databases.
  */
 function ensureMigrationsTable(db: Database.Database): void {
-  // Check if old table exists (name-only)
-  const oldTable = db
-    .prepare(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name='schema_migrations'",
-    )
-    .get() as { name: string } | undefined;
-
-  if (oldTable) {
-    // Check if it has version column
-    const columns = db
-      .prepare("PRAGMA table_info(schema_migrations)")
-      .all() as Array<{ name: string }>;
-    const hasVersion = columns.some((col) => col.name === "version");
-
-    if (!hasVersion) {
-      // Migrate old table to new format
-      db.exec(`
-        CREATE TABLE schema_migrations_new (
-          version INTEGER PRIMARY KEY,
-          name TEXT NOT NULL UNIQUE,
-          applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-      `);
-
-      // Copy existing migrations, assigning versions based on name
-      db.exec(`
-        INSERT INTO schema_migrations_new (version, name, applied_at)
-        SELECT 
-          CASE name
-            WHEN 'add_sessions_table' THEN 1
-            WHEN 'add_binance_transactions' THEN 2
-            WHEN 'add_ikw_providers' THEN 3
-            WHEN 'add_customer_sessions' THEN 4
-            WHEN 'migrate_drawer_names' THEN 5
-            ELSE 99
-          END as version,
-          name,
-          applied_at
-        FROM schema_migrations;
-      `);
-
-      db.exec(`DROP TABLE schema_migrations;`);
-      db.exec(`ALTER TABLE schema_migrations_new RENAME TO schema_migrations;`);
-    }
-  } else {
-    // Create new table with version support
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS schema_migrations (
-        version INTEGER PRIMARY KEY,
-        name TEXT NOT NULL UNIQUE,
-        applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
-  }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      version INTEGER PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
 }
 
 /**

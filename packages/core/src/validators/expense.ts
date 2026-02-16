@@ -9,12 +9,7 @@ export const createExpenseSchema = z.object({
   category: z.string().min(1).max(100),
   amount_usd: positiveDecimalSchema,
   amount_lbp: positiveDecimalSchema.default(0),
-  paid_by_method: z
-    .enum(["CASH", "CARD", "TRANSFER", "DRAWER"])
-    .default("CASH"),
-  expense_type: z
-    .enum(["OPERATIONAL", "SALARY", "RENT", "OTHER"])
-    .default("OPERATIONAL"),
+  paid_by_method: z.string().min(1).default("CASH"),
   description: z.string().max(500).optional(),
 });
 

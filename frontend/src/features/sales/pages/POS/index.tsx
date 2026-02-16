@@ -11,10 +11,12 @@ import CheckoutModal, {
 import { appEvents } from "@liratek/ui";
 import type { Product, CartItem, SaleRequest } from "@liratek/ui";
 import * as api from "../../../../api/backendApi";
+import { useExchangeRate } from "../../../../hooks/useExchangeRate";
 import { useSession } from "../../../sessions/context/SessionContext";
 
 export default function POS() {
   const { activeSession, linkTransaction } = useSession();
+  const { rate: defaultExchangeRate } = useExchangeRate("USD", "LBP");
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
 
@@ -174,7 +176,7 @@ export default function POS() {
       paidLBP: draft.paid_lbp || 0,
       changeGivenUSD: draft.change_given_usd || 0,
       changeGivenLBP: draft.change_given_lbp || 0,
-      exchangeRate: draft.exchange_rate_snapshot || 89000,
+      exchangeRate: draft.exchange_rate_snapshot || defaultExchangeRate,
     });
 
     setIsDraftsOpen(false);

@@ -3,15 +3,13 @@ import logger from "../../../../utils/logger";
 import { Plus, Trash2, Calendar, DollarSign } from "lucide-react";
 import { Select } from "@liratek/ui";
 import * as api from "../../../../api/backendApi";
-
-type PaidByMethod = "CASH" | "OMT" | "WHISH" | "BINANCE";
+import { usePaymentMethods } from "../../../../hooks/usePaymentMethods";
 
 interface Expense {
   id?: number;
   description: string;
   category: string;
-  expense_type: "Cash_Out" | "Non_Cash";
-  paid_by_method?: PaidByMethod;
+  paid_by_method?: string;
   amount_usd: number;
   amount_lbp: number;
   expense_date: string;
@@ -24,19 +22,13 @@ const EXPENSE_CATEGORIES = [
   "Refund_Damaged",
   "Other",
 ];
-const PAID_BY_METHODS: Array<{ value: PaidByMethod; label: string }> = [
-  { value: "CASH", label: "Cash (General Drawer)" },
-  { value: "OMT", label: "OMT Drawer" },
-  { value: "WHISH", label: "Whish Drawer" },
-  { value: "BINANCE", label: "Binance Drawer" },
-];
 
 export default function Expenses() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const { drawerAffectingMethods } = usePaymentMethods();
   const [formData, setFormData] = useState<Expense>({
     description: "",
     category: "Shop_Supply",
-    expense_type: "Cash_Out",
     paid_by_method: "CASH",
     amount_usd: 0,
     amount_lbp: 0,
@@ -75,7 +67,7 @@ export default function Expenses() {
         setFormData({
           description: "",
           category: "Shop_Supply",
-          expense_type: "Cash_Out",
+          paid_by_method: "CASH",
           amount_usd: 0,
           amount_lbp: 0,
           expense_date: new Date().toISOString().split("T")[0],
@@ -105,9 +97,6 @@ export default function Expenses() {
 
   const totalUSD = expenses.reduce((sum, e) => sum + (e.amount_usd || 0), 0);
   const totalLBP = expenses.reduce((sum, e) => sum + (e.amount_lbp || 0), 0);
-  const cashOutUSD = expenses
-    .filter((e) => e.expense_type === "Cash_Out")
-    .reduce((sum, e) => sum + (e.amount_usd || 0), 0);
 
   return (
     <div className="h-full min-h-0 flex flex-col gap-6 animate-in fade-in duration-500">
@@ -120,7 +109,7 @@ export default function Expenses() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-slate-800 border border-slate-700/50 rounded-xl p-5 shadow-lg hover:border-slate-600 transition-colors">
           <p className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">
             Total USD
@@ -135,14 +124,6 @@ export default function Expenses() {
           </p>
           <p className="text-2xl font-bold text-white">
             {totalLBP.toLocaleString()}
-          </p>
-        </div>
-        <div className="bg-slate-800 border border-slate-700/50 rounded-xl p-5 shadow-lg hover:border-slate-600 transition-colors">
-          <p className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">
-            Cash Out (Drawer)
-          </p>
-          <p className="text-2xl font-bold text-red-400">
-            ${cashOutUSD.toFixed(2)}
           </p>
         </div>
       </div>
@@ -172,61 +153,42 @@ export default function Expenses() {
               />
             </div>
 
-            {/* Category & Type in a grid */}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
-                  Category
-                </label>
-                <Select
-                  value={formData.category}
-                  onChange={(value) =>
-                    setFormData({ ...formData, category: value })
-                  }
-                  options={EXPENSE_CATEGORIES.map((cat) => ({
-                    value: cat,
-                    label: cat.replace(/_/g, " "),
-                  }))}
-                  ringColor="ring-orange-500"
-                  buttonClassName="text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
-                  Type
-                </label>
-                <Select
-                  value={formData.expense_type}
-                  onChange={(value) =>
-                    setFormData({
-                      ...formData,
-                      expense_type: value as "Cash_Out" | "Non_Cash",
-                    })
-                  }
-                  options={[
-                    { value: "Cash_Out", label: "Cash Out" },
-                    { value: "Non_Cash", label: "Non-Cash" },
-                  ]}
-                  ringColor="ring-orange-500"
-                  buttonClassName="text-sm"
-                />
-              </div>
+            {/* Category */}
+            <div>
+              <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
+                Category
+              </label>
+              <Select
+                value={formData.category}
+                onChange={(value) =>
+                  setFormData({ ...formData, category: value })
+                }
+                options={EXPENSE_CATEGORIES.map((cat) => ({
+                  value: cat,
+                  label: cat.replace(/_/g, " "),
+                }))}
+                ringColor="ring-orange-500"
+                buttonClassName="text-sm"
+              />
             </div>
 
-            {/* Paid By (drawer method) */}
+            {/* Paid By (payment method) */}
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
                 Paid By
               </label>
               <Select
                 value={formData.paid_by_method || "CASH"}
-                onChange={(value) =>
+                onChange={(value) => {
                   setFormData({
                     ...formData,
-                    paid_by_method: value as PaidByMethod,
-                  })
-                }
-                options={PAID_BY_METHODS}
+                    paid_by_method: value,
+                  });
+                }}
+                options={drawerAffectingMethods.map((m) => ({
+                  value: m.code,
+                  label: m.label,
+                }))}
                 ringColor="ring-orange-500"
                 buttonClassName="text-sm"
               />
@@ -336,11 +298,6 @@ export default function Expenses() {
                       <div className="text-sm text-white font-medium">
                         {expense.description}
                       </div>
-                      <div className="text-xs text-slate-500">
-                        {expense.expense_type === "Cash_Out"
-                          ? "Cash Out"
-                          : "Non-Cash"}
-                      </div>
                     </td>
                     <td className="px-6 py-4">
                       <span className="px-2.5 py-0.5 bg-slate-700 text-slate-300 rounded-full text-xs font-medium">
@@ -348,7 +305,11 @@ export default function Expenses() {
                       </span>
                     </td>
                     <td className="px-6 py-4 text-sm text-slate-400">
-                      {expense.paid_by_method || "CASH"}
+                      {drawerAffectingMethods.find(
+                        (m) => m.code === expense.paid_by_method,
+                      )?.label ||
+                        expense.paid_by_method ||
+                        "Cash"}
                     </td>
                     <td className="px-6 py-4 text-right text-sm font-bold text-orange-400 font-mono">
                       ${expense.amount_usd.toFixed(2)}

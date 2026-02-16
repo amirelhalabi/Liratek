@@ -12,7 +12,6 @@ import {
 } from "../ClosingService";
 import {
   ClosingRepository,
-  SystemExpectedBalances,
   DailyStatsSnapshot,
   getClosingRepository,
 } from "@liratek/core";
@@ -37,7 +36,7 @@ describe("ClosingService", () => {
       setOpeningBalances: jest.fn(),
       createDailyClosing: jest.fn(),
       updateDailyClosing: jest.fn(),
-      getSystemExpectedBalances: jest.fn(),
+      getSystemExpectedBalancesDynamic: jest.fn(),
       getDailyStatsSnapshot: jest.fn(),
     } as unknown as jest.Mocked<ClosingRepository>;
 
@@ -287,62 +286,6 @@ describe("ClosingService", () => {
       const result = service.updateDailyClosing(data);
 
       expect(result).toEqual({ success: false, error: "Not found" });
-    });
-  });
-
-  // ===========================================================================
-  // getSystemExpectedBalances Tests
-  // ===========================================================================
-
-  describe("getSystemExpectedBalances", () => {
-    it("should return system expected balances", () => {
-      const mockBalances: SystemExpectedBalances = {
-        generalDrawer: { usd: 1500, lbp: 135000000, eur: 100 },
-        omtDrawer: { usd: 500, lbp: 45000000, eur: 0 },
-        whishDrawer: { usd: 0, lbp: 0, eur: 0 },
-        binanceDrawer: { usd: 0, lbp: 0, eur: 0 },
-        mtcDrawer: { usd: 200, lbp: 0, eur: 0 },
-        alfaDrawer: { usd: 150, lbp: 0, eur: 0 },
-      };
-      mockRepo.getSystemExpectedBalances.mockReturnValue(mockBalances);
-
-      const result = service.getSystemExpectedBalances();
-
-      expect(result).toEqual(mockBalances);
-      expect(mockRepo.getSystemExpectedBalances).toHaveBeenCalled();
-    });
-
-    it("should return default balances on error", () => {
-      mockRepo.getSystemExpectedBalances.mockImplementation(() => {
-        throw new Error("Query failed");
-      });
-
-      const result = service.getSystemExpectedBalances();
-
-      expect(result).toEqual({
-        generalDrawer: { usd: 0, lbp: 0, eur: 0 },
-        omtDrawer: { usd: 0, lbp: 0, eur: 0 },
-        whishDrawer: { usd: 0, lbp: 0, eur: 0 },
-        binanceDrawer: { usd: 0, lbp: 0, eur: 0 },
-        mtcDrawer: { usd: 0, lbp: 0, eur: 0 },
-        alfaDrawer: { usd: 0, lbp: 0, eur: 0 },
-      });
-    });
-
-    it("should handle zero balances", () => {
-      const mockBalances: SystemExpectedBalances = {
-        generalDrawer: { usd: 0, lbp: 0, eur: 0 },
-        omtDrawer: { usd: 0, lbp: 0, eur: 0 },
-        whishDrawer: { usd: 0, lbp: 0, eur: 0 },
-        binanceDrawer: { usd: 0, lbp: 0, eur: 0 },
-        mtcDrawer: { usd: 0, lbp: 0, eur: 0 },
-        alfaDrawer: { usd: 0, lbp: 0, eur: 0 },
-      };
-      mockRepo.getSystemExpectedBalances.mockReturnValue(mockBalances);
-
-      const result = service.getSystemExpectedBalances();
-
-      expect(result).toEqual(mockBalances);
     });
   });
 

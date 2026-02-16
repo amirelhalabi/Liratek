@@ -5,6 +5,38 @@
 export const LBP_DENOMINATIONS = [5000, 10000, 20000, 50000, 100000] as const;
 export const USD_DENOMINATIONS = [1, 5, 10, 20, 50, 100] as const;
 
+/** Registry of denominations by currency code. Extend this for new currencies. */
+const DENOMINATION_MAP: Record<string, readonly number[]> = {
+  LBP: LBP_DENOMINATIONS,
+  USD: USD_DENOMINATIONS,
+};
+
+/**
+ * Get the bill denominations for a given currency code.
+ * Returns undefined if no denominations are registered for that currency.
+ */
+export function getDenominations(
+  currencyCode: string,
+): readonly number[] | undefined {
+  return DENOMINATION_MAP[currencyCode.toUpperCase()];
+}
+
+/**
+ * Round an amount up to the nearest payable denomination for a given currency.
+ * Falls back to Math.ceil if no denominations are registered.
+ */
+export function roundUpForCurrency(
+  amount: number,
+  currencyCode: string,
+): number {
+  if (amount <= 0) return 0;
+  const code = currencyCode.toUpperCase();
+  if (code === "LBP") return roundLBPUp(amount);
+  if (code === "USD") return roundUSDUp(amount);
+  // Generic: round up to nearest integer for unknown currencies
+  return Math.ceil(amount);
+}
+
 /**
  * Round amount UP to nearest payable denomination
  * Used for change calculation and debt breakdown

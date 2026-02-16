@@ -94,4 +94,57 @@ router.delete("/:id", async (req, res): Promise<void> => {
   }
 });
 
+// GET /api/currencies/by-module/:moduleKey - Get currencies for a module
+router.get("/by-module/:moduleKey", (_req, res): void => {
+  try {
+    const currencyService = getCurrencyService();
+    const currencies = currencyService.getCurrenciesForModule(
+      _req.params.moduleKey,
+    );
+    res.json({ success: true, currencies });
+  } catch (error) {
+    logger.error({ error }, "Get currencies by module error");
+    res
+      .status(500)
+      .json({ success: false, error: "Failed to fetch currencies by module" });
+  }
+});
+
+// GET /api/currencies/:code/modules - Get modules for a currency
+router.get("/:code/modules", (_req, res): void => {
+  try {
+    const currencyService = getCurrencyService();
+    const modules = currencyService.getModulesForCurrency(_req.params.code);
+    res.json({ success: true, modules });
+  } catch (error) {
+    logger.error({ error }, "Get modules for currency error");
+    res
+      .status(500)
+      .json({ success: false, error: "Failed to fetch modules for currency" });
+  }
+});
+
+// PUT /api/currencies/:code/modules - Set modules for a currency (admin only)
+router.put("/:code/modules", async (req, res): Promise<void> => {
+  try {
+    const currencyService = getCurrencyService();
+    const result = currencyService.setModulesForCurrency(
+      req.params.code,
+      req.body.modules,
+    );
+
+    if (!result.success) {
+      res.status(400).json(result);
+      return;
+    }
+
+    res.json(result);
+  } catch (error) {
+    logger.error({ error }, "Set modules for currency error");
+    res
+      .status(500)
+      .json({ success: false, error: "Failed to set modules for currency" });
+  }
+});
+
 export default router;

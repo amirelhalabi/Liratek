@@ -141,7 +141,6 @@ describe("Validation Schemas", () => {
       const validExpense = {
         category: "Utilities",
         amount_usd: 100,
-        expense_type: "OPERATIONAL",
       };
 
       expect(() => createExpenseSchema.parse(validExpense)).not.toThrow();
@@ -156,7 +155,6 @@ describe("Validation Schemas", () => {
       const parsed = createExpenseSchema.parse(expense);
       expect(parsed.amount_lbp).toBe(0);
       expect(parsed.paid_by_method).toBe("CASH");
-      expect(parsed.expense_type).toBe("OPERATIONAL");
     });
   });
 

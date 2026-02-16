@@ -11,17 +11,18 @@ import {
   Legend,
 } from "recharts";
 import * as api from "../../../api/backendApi";
+import { useCurrencyContext } from "../../../contexts/CurrencyContext";
 
 type ProviderStats = {
   provider: string;
-  commission_usd: number;
-  commission_lbp: number;
+  commission: number;
+  currency: string;
   count: number;
 };
 
 type AnalyticsData = {
-  today: { commissionUSD: number; commissionLBP: number; count: number };
-  month: { commissionUSD: number; commissionLBP: number; count: number };
+  today: { commission: number; count: number };
+  month: { commission: number; count: number };
   byProvider: ProviderStats[];
 };
 
@@ -30,6 +31,7 @@ const COLORS = ["#8b5cf6", "#ec4899", "#3b82f6", "#10b981", "#f59e0b"];
 export default function CommissionsDashboard() {
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const { formatAmount } = useCurrencyContext();
 
   useEffect(() => {
     const fetchAnalytics = async () => {
@@ -56,7 +58,7 @@ export default function CommissionsDashboard() {
   const pieData =
     data?.byProvider.map((p) => ({
       name: p.provider,
-      value: p.commission_usd + p.commission_lbp / 89000,
+      value: p.commission,
     })) || [];
 
   return (
@@ -71,12 +73,8 @@ export default function CommissionsDashboard() {
           </p>
           <div className="flex items-end gap-3">
             <span className="text-3xl font-bold text-white">
-              ${data?.month.commissionUSD.toFixed(2)}
+              {formatAmount(data?.month.commission ?? 0, "USD")}
             </span>
-            <span className="text-slate-500 mb-1">USD</span>
-          </div>
-          <div className="mt-2 text-violet-400 font-mono text-sm">
-            + {data?.month.commissionLBP.toLocaleString()} LBP
           </div>
         </div>
 
@@ -86,12 +84,8 @@ export default function CommissionsDashboard() {
           </p>
           <div className="flex items-end gap-3">
             <span className="text-3xl font-bold text-emerald-400">
-              ${data?.today.commissionUSD.toFixed(2)}
+              {formatAmount(data?.today.commission ?? 0, "USD")}
             </span>
-            <span className="text-slate-500 mb-1">USD</span>
-          </div>
-          <div className="mt-2 text-emerald-500/70 font-mono text-sm">
-            + {data?.today.commissionLBP.toLocaleString()} LBP
           </div>
         </div>
 
@@ -144,9 +138,7 @@ export default function CommissionsDashboard() {
                     borderRadius: "8px",
                   }}
                   itemStyle={{ color: "#fff" }}
-                  formatter={(value) =>
-                    `$${Number(value || 0).toFixed(2)} (est)`
-                  }
+                  formatter={(value) => formatAmount(Number(value || 0), "USD")}
                 />
                 <Legend verticalAlign="bottom" height={36} />
               </PieChart>
@@ -166,8 +158,7 @@ export default function CommissionsDashboard() {
                 <tr>
                   <th className="pb-3">Provider</th>
                   <th className="pb-3 text-right">Transactions</th>
-                  <th className="pb-3 text-right">Profit (USD)</th>
-                  <th className="pb-3 text-right">Profit (LBP)</th>
+                  <th className="pb-3 text-right">Commission (USD)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-700/30">
@@ -183,10 +174,7 @@ export default function CommissionsDashboard() {
                       {p.count}
                     </td>
                     <td className="py-4 text-right text-emerald-400 font-mono">
-                      ${p.commission_usd.toFixed(2)}
-                    </td>
-                    <td className="py-4 text-right text-violet-400 font-mono">
-                      {p.commission_lbp.toLocaleString()}
+                      {formatAmount(p.commission, "USD")}
                     </td>
                   </tr>
                 ))}

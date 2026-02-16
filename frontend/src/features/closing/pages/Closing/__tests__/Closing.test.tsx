@@ -146,10 +146,10 @@ describe("Closing modal", () => {
     });
     mockUseSystemExpected.mockReturnValue({
       systemExpected: {
-        generalDrawer: { usd: 5 },
-        omtDrawer: { usd: 0 },
-        mtcDrawer: { usd: 0 },
-        alfaDrawer: { usd: 0 },
+        General: { USD: 5 },
+        OMT: { USD: 0 },
+        MTC: { USD: 0 },
+        Alfa: { USD: 0 },
       },
       loading: false,
       error: null,
@@ -182,10 +182,10 @@ describe("Closing modal", () => {
 
     mockUseSystemExpected.mockReturnValue({
       systemExpected: {
-        generalDrawer: { usd: 100, lbp: 0, eur: 0 },
-        omtDrawer: { usd: 0, lbp: 0, eur: 0 },
-        mtcDrawer: { usd: 0, lbp: 0, eur: 0 },
-        alfaDrawer: { usd: 0, lbp: 0, eur: 0 },
+        General: { USD: 100, LBP: 0, EUR: 0 },
+        OMT: { USD: 0, LBP: 0, EUR: 0 },
+        MTC: { USD: 0, LBP: 0, EUR: 0 },
+        Alfa: { USD: 0, LBP: 0, EUR: 0 },
       },
       loading: false,
       error: null,

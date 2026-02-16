@@ -9,8 +9,13 @@ export const phoneNumberSchema = z
   .string()
   .regex(/^\+?[0-9]{8,15}$/, "Invalid phone number format");
 
-// Currency codes
-export const currencyCodeSchema = z.enum(["USD", "LBP", "EUR"]);
+// Currency codes — dynamic: accepts any 2-10 char string, uppercased.
+// Runtime validation against DB happens at the service layer.
+export const currencyCodeSchema = z
+  .string()
+  .min(2, "Currency code must be at least 2 characters")
+  .max(10, "Currency code must be at most 10 characters")
+  .transform((v) => v.toUpperCase());
 
 // Positive decimal
 export const positiveDecimalSchema = z.number().nonnegative();

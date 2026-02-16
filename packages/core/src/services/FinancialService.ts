@@ -53,11 +53,13 @@ export class FinancialService {
         {
           provider: data.provider,
           serviceType: data.serviceType,
-          commissionUSD: data.commissionUSD,
+          amount: data.amount,
+          currency: data.currency ?? "USD",
+          commission: data.commission,
           drawer: result.drawer,
           id: result.id,
         },
-        `${data.provider} - ${data.serviceType}: Commission $${data.commissionUSD}`,
+        `${data.provider} - ${data.serviceType}: Amount ${data.amount} ${data.currency ?? "USD"}, Commission ${data.commission}`,
       );
 
       return { success: true, id: result.id };
@@ -105,8 +107,8 @@ export class FinancialService {
     } catch (error) {
       financialLogger.error({ error }, "Failed to get analytics");
       return {
-        today: { commissionUSD: 0, commissionLBP: 0, count: 0 },
-        month: { commissionUSD: 0, commissionLBP: 0, count: 0 },
+        today: { commission: 0, count: 0, byCurrency: [] },
+        month: { commission: 0, count: 0, byCurrency: [] },
         byProvider: [],
       };
     }

@@ -31,4 +31,22 @@ export function registerRechargeHandlers(): void {
       return rechargeService.processRecharge(data);
     },
   );
+
+  // Top up MTC/Alfa balance (admin only)
+  ipcMain.handle(
+    "recharge:top-up",
+    (
+      event: IpcMainInvokeEvent,
+      data: { provider: "MTC" | "Alfa"; amount: number; currency?: string },
+    ) => {
+      const auth = requireRole(event.sender.id, ["admin"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+
+      rechargeLogger.info(
+        { provider: data.provider, amount: data.amount },
+        "Processing top-up",
+      );
+      return rechargeService.topUp(data);
+    },
+  );
 }

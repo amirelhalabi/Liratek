@@ -119,6 +119,7 @@ export type {
   FinancialServiceEntity,
   CreateFinancialServiceData,
   ProviderStats,
+  CurrencyStats,
   FinancialServiceAnalytics,
 } from "./FinancialServiceRepository.js";
 
@@ -128,6 +129,18 @@ export {
   getFinancialRepository,
 } from "./FinancialRepository.js";
 export type { MonthlyPL } from "./FinancialRepository.js";
+
+// Payment Method Repository
+export {
+  PaymentMethodRepository,
+  getPaymentMethodRepository,
+  resetPaymentMethodRepository,
+} from "./PaymentMethodRepository.js";
+export type {
+  PaymentMethodEntity,
+  CreatePaymentMethodData,
+  UpdatePaymentMethodData,
+} from "./PaymentMethodRepository.js";
 
 // Rate Repository
 export {
@@ -148,6 +161,14 @@ export type {
   CreateCurrencyData,
   UpdateCurrencyData,
 } from "./CurrencyRepository.js";
+
+// Module Repository
+export {
+  ModuleRepository,
+  getModuleRepository,
+  resetModuleRepository,
+} from "./ModuleRepository.js";
+export type { ModuleEntity } from "./ModuleRepository.js";
 
 // Recharge Repository
 export {
@@ -214,8 +235,7 @@ export {
 export type {
   DailyClosingEntity,
   ClosingAmountEntity,
-  DrawerBalances as ClosingDrawerBalances,
-  SystemExpectedBalances,
+  DynamicSystemExpectedBalances,
   DailyStatsSnapshot,
   OpeningBalanceAmount,
   ClosingAmount,

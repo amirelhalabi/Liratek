@@ -67,7 +67,7 @@ export default function ClientForm({
           ...(formData.notes ? { notes: formData.notes } : {}),
           whatsapp_opt_in: formData.whatsapp_opt_in ? 1 : 0,
         };
-        result = await window.api.updateClient(updatePayload);
+        result = await window.api.clients.update(updatePayload);
       } else {
         const createPayload = {
           full_name: formData.full_name,
@@ -75,7 +75,7 @@ export default function ClientForm({
           notes: formData.notes || "",
           whatsapp_opt_in: formData.whatsapp_opt_in ? 1 : 0,
         };
-        result = await window.api.createClient(createPayload);
+        result = await window.api.clients.create(createPayload);
       }
 
       if (result.success) {

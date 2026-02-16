@@ -8,6 +8,9 @@ export interface SupplierEntity {
   phone: string | null;
   note: string | null;
   is_active: number;
+  module_key: string | null;
+  provider: string | null;
+  is_system: number;
   created_at: string;
 }
 
@@ -21,6 +24,8 @@ export interface SupplierLedgerEntryEntity {
   amount_lbp: number;
   note: string | null;
   created_by: number | null;
+  transaction_id: number | null;
+  transaction_type: string | null;
   created_at: string;
 }
 
@@ -29,6 +34,8 @@ export interface CreateSupplierData {
   contact_name?: string;
   phone?: string;
   note?: string;
+  module_key?: string;
+  provider?: string;
 }
 
 export interface CreateSupplierLedgerEntryData {
@@ -39,6 +46,8 @@ export interface CreateSupplierLedgerEntryData {
   note?: string;
   created_by?: number;
   drawer_name?: string;
+  transaction_id?: number;
+  transaction_type?: string;
 }
 
 export interface SupplierBalance {
@@ -54,7 +63,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
 
   // Override getColumns() to use explicit columns instead of SELECT *
   protected getColumns(): string {
-    return "id, name, contact_name, phone, note, is_active, created_at";
+    return "id, name, contact_name, phone, note, is_active, module_key, provider, is_system, created_at";
   }
 
   listSuppliers(search?: string): SupplierEntity[] {
@@ -75,14 +84,16 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
   createSupplier(data: CreateSupplierData): { id: number } {
     try {
       const stmt = this.db.prepare(`
-        INSERT INTO suppliers (name, contact_name, phone, note, is_active, created_at)
-        VALUES (?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+        INSERT INTO suppliers (name, contact_name, phone, note, module_key, provider, is_active, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
       `);
       const res = stmt.run(
         data.name.trim(),
         data.contact_name ?? null,
         data.phone ?? null,
         data.note ?? null,
+        data.module_key ?? null,
+        data.provider ?? null,
       );
       return { id: Number(res.lastInsertRowid) };
     } catch (e) {
@@ -90,20 +101,58 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     }
   }
 
+  getByProvider(provider: string): SupplierEntity | undefined {
+    try {
+      const rows = this.query<SupplierEntity>(
+        `SELECT ${this.getColumns()} FROM suppliers WHERE provider = ? AND is_active = 1 LIMIT 1`,
+        provider,
+      );
+      return rows[0];
+    } catch (e) {
+      throw new DatabaseError("Failed to get supplier by provider", {
+        cause: e,
+      });
+    }
+  }
+
+  getByModuleKey(moduleKey: string): SupplierEntity[] {
+    try {
+      return this.query<SupplierEntity>(
+        `SELECT ${this.getColumns()} FROM suppliers WHERE module_key = ? AND is_active = 1 ORDER BY name ASC`,
+        moduleKey,
+      );
+    } catch (e) {
+      throw new DatabaseError("Failed to get suppliers by module", {
+        cause: e,
+      });
+    }
+  }
+
   addLedgerEntry(data: CreateSupplierLedgerEntryData): { id: number } {
     try {
+      // Enforce sign convention: PAYMENT amounts stored as negative
+      let amountUsd = data.amount_usd || 0;
+      let amountLbp = data.amount_lbp || 0;
+      if (data.entry_type === "PAYMENT") {
+        amountUsd = -Math.abs(amountUsd);
+        amountLbp = -Math.abs(amountLbp);
+      }
+
       const stmt = this.db.prepare(`
         INSERT INTO supplier_ledger (
-          supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          supplier_id, entry_type, amount_usd, amount_lbp, note, created_by,
+          transaction_id, transaction_type, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       `);
       const res = stmt.run(
         data.supplier_id,
         data.entry_type,
-        data.amount_usd || 0,
-        data.amount_lbp || 0,
+        amountUsd,
+        amountLbp,
         data.note ?? null,
         data.created_by ?? null,
+        data.transaction_id ?? null,
+        data.transaction_type ?? null,
       );
       const entryId = Number(res.lastInsertRowid);
 
@@ -122,10 +171,10 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         // TOP_UP increases liability and (theoretically) increases asset if we got stock?
         // Usually, payments are the ones affecting cash.
         if (data.entry_type === "PAYMENT") {
-          if (data.amount_usd)
-            upsertBalanceDelta.run(data.drawer_name, "USD", -data.amount_usd);
-          if (data.amount_lbp)
-            upsertBalanceDelta.run(data.drawer_name, "LBP", -data.amount_lbp);
+          if (amountUsd)
+            upsertBalanceDelta.run(data.drawer_name, "USD", amountUsd);
+          if (amountLbp)
+            upsertBalanceDelta.run(data.drawer_name, "LBP", amountLbp);
 
           // Log to payments table
           this.db
@@ -138,8 +187,8 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             .run(
               entryId,
               data.drawer_name,
-              data.amount_usd ? "USD" : "LBP",
-              -(data.amount_usd || data.amount_lbp),
+              amountUsd ? "USD" : "LBP",
+              amountUsd || amountLbp,
               data.note || `Supplier Payment: ${data.supplier_id}`,
               data.created_by || 1,
             );
@@ -160,7 +209,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
   ): SupplierLedgerEntryEntity[] {
     try {
       return this.query<SupplierLedgerEntryEntity>(
-        `SELECT id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, created_at FROM supplier_ledger WHERE supplier_id = ? ORDER BY created_at DESC LIMIT ?`,
+        `SELECT id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, transaction_type, created_at FROM supplier_ledger WHERE supplier_id = ? ORDER BY created_at DESC LIMIT ?`,
         supplierId,
         limit,
       );

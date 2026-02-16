@@ -17,6 +17,7 @@ interface RepaymentData {
   drawerName?: string | undefined;
   note?: string;
   userId?: number;
+  paidByMethod?: string;
 }
 
 export function registerDebtHandlers(): void {

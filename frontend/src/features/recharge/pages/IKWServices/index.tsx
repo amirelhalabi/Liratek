@@ -11,6 +11,7 @@ import {
   Hash,
   RefreshCw,
   Zap,
+  AlertTriangle,
 } from "lucide-react";
 import * as api from "../../../../api/backendApi";
 import { useSession } from "../../../sessions/context/SessionContext";
@@ -19,12 +20,12 @@ type Provider = "IPEC" | "KATCH" | "WISH_APP";
 type ServiceType = "SEND" | "RECEIVE" | "BILL_PAYMENT";
 
 interface Analytics {
-  today: { commissionUSD: number; commissionLBP: number; count: number };
-  month: { commissionUSD: number; commissionLBP: number; count: number };
+  today: { commission: number; count: number };
+  month: { commission: number; count: number };
   byProvider: {
     provider: string;
-    commission_usd: number;
-    commission_lbp: number;
+    commission: number;
+    currency: string;
     count: number;
   }[];
 }
@@ -33,10 +34,9 @@ interface Transaction {
   id: number;
   provider: Provider;
   service_type: ServiceType;
-  amount_usd: number;
-  amount_lbp: number;
-  commission_usd: number;
-  commission_lbp: number;
+  amount: number;
+  currency: string;
+  commission: number;
   client_name?: string;
   reference_number?: string;
   note?: string;
@@ -88,22 +88,31 @@ const serviceTypeIcons: Record<ServiceType, typeof Send> = {
   BILL_PAYMENT: Receipt,
 };
 
+interface SupplierOwed {
+  usd: number;
+  lbp: number;
+}
+
+const SUPPLIER_PROVIDERS: Provider[] = ["IPEC", "KATCH"];
+
 export default function IKWServices() {
   const { activeSession, linkTransaction } = useSession();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [analytics, setAnalytics] = useState<Analytics>({
-    today: { commissionUSD: 0, commissionLBP: 0, count: 0 },
-    month: { commissionUSD: 0, commissionLBP: 0, count: 0 },
+    today: { commission: 0, count: 0 },
+    month: { commission: 0, count: 0 },
     byProvider: [],
   });
+  const [owedByProvider, setOwedByProvider] = useState<
+    Record<string, SupplierOwed>
+  >({});
 
   // Form State
   const [provider, setProvider] = useState<Provider>("IPEC");
   const [serviceType, setServiceType] = useState<ServiceType>("SEND");
-  const [amountUSD, setAmountUSD] = useState("");
-  const [amountLBP, setAmountLBP] = useState("");
-  const [commissionUSD, setCommissionUSD] = useState("");
-  const [commissionLBP, setCommissionLBP] = useState("");
+  const [amount, setAmount] = useState("");
+  const currency = "USD"; // Fixed to USD only
+  const [commission, setCommission] = useState("");
   const [clientName, setClientName] = useState("");
   const [referenceNumber, setReferenceNumber] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -117,13 +126,16 @@ export default function IKWServices() {
 
   const loadData = async () => {
     try {
-      // Fetch history for all 3 IKW providers
-      const [ipecH, katchH, wishH, stats] = await Promise.all([
-        api.getOMTHistory("IPEC"),
-        api.getOMTHistory("KATCH"),
-        api.getOMTHistory("WISH_APP"),
-        api.getOMTAnalytics(),
-      ]);
+      // Fetch history for all 3 IKW providers + supplier balances
+      const [ipecH, katchH, wishH, stats, suppliers, balances] =
+        await Promise.all([
+          api.getOMTHistory("IPEC"),
+          api.getOMTHistory("KATCH"),
+          api.getOMTHistory("WISH_APP"),
+          api.getOMTAnalytics(),
+          api.getSuppliers(),
+          api.getSupplierBalances(),
+        ]);
       const allHistory = [...ipecH, ...katchH, ...wishH]
         .map((h: any) => ({
           ...h,
@@ -142,11 +154,7 @@ export default function IKWServices() {
         ikwProviders.has(p.provider),
       );
       const ikwTodayUSD = ikwByProvider.reduce(
-        (s: number, p: any) => s + (p.commission_usd || 0),
-        0,
-      );
-      const ikwTodayLBP = ikwByProvider.reduce(
-        (s: number, p: any) => s + (p.commission_lbp || 0),
+        (s: number, p: any) => s + (p.commission || 0),
         0,
       );
       const ikwTodayCount = ikwByProvider.reduce(
@@ -155,24 +163,35 @@ export default function IKWServices() {
       );
       setAnalytics({
         today: {
-          commissionUSD: ikwTodayUSD,
-          commissionLBP: ikwTodayLBP,
+          commission: ikwTodayUSD,
           count: ikwTodayCount,
         },
         month: stats.month || {
-          commissionUSD: 0,
-          commissionLBP: 0,
+          commission: 0,
           count: 0,
         },
         byProvider: ikwByProvider,
       });
+
+      // Build owed map by provider
+      const owed: Record<string, SupplierOwed> = {};
+      for (const s of suppliers) {
+        if (s.provider && (s.provider === "IPEC" || s.provider === "KATCH")) {
+          const bal = balances.find((b: any) => b.supplier_id === s.id);
+          owed[s.provider] = {
+            usd: Number(bal?.total_usd || 0),
+            lbp: Number(bal?.total_lbp || 0),
+          };
+        }
+      }
+      setOwedByProvider(owed);
     } catch (error) {
       logger.error("Failed to load IKW data:", error);
     }
   };
 
   const handleSubmit = async () => {
-    if (!amountUSD && !amountLBP) {
+    if (!amount && !amount) {
       alert("Please enter an amount.");
       return;
     }
@@ -182,10 +201,9 @@ export default function IKWServices() {
       const result = await api.addOMTTransaction({
         provider: provider as any,
         serviceType,
-        amountUSD: parseFloat(amountUSD) || 0,
-        amountLBP: parseFloat(amountLBP) || 0,
-        commissionUSD: parseFloat(commissionUSD) || 0,
-        commissionLBP: parseFloat(commissionLBP) || 0,
+        amount: parseFloat(amount),
+        currency,
+        commission: parseFloat(commission) || 0,
         ...(clientName ? { clientName } : {}),
         ...(referenceNumber ? { referenceNumber } : {}),
         note: `${providerMeta[provider].label} - ${serviceType}`,
@@ -197,18 +215,18 @@ export default function IKWServices() {
             await linkTransaction({
               transactionType: "financial_service",
               transactionId: result.id,
-              amountUsd: parseFloat(amountUSD) || 0,
-              amountLbp: parseFloat(amountLBP) || 0,
+              amountUsd: parseFloat(amount) || 0,
+              amountLbp: parseFloat(amount) || 0,
             });
           } catch (err) {
             logger.error("Failed to link IKW service to session:", err);
           }
         }
 
-        setAmountUSD("");
-        setAmountLBP("");
-        setCommissionUSD("");
-        setCommissionLBP("");
+        setAmount("");
+        setAmount("");
+        setCommission("");
+        setCommission("");
         setClientName("");
         setReferenceNumber("");
         loadData();
@@ -223,11 +241,15 @@ export default function IKWServices() {
     }
   };
 
-  const formatCurrency = (usd: number, lbp: number) => {
-    const parts = [];
-    if (usd > 0) parts.push(`$${usd.toFixed(2)}`);
-    if (lbp > 0) parts.push(`${lbp.toLocaleString()} LBP`);
-    return parts.join(" + ") || "$0.00";
+  const formatAmount = (amount: number, currency: string) => {
+    if (currency === "USD") {
+      return `$${amount.toFixed(2)}`;
+    } else if (currency === "LBP") {
+      return `${amount.toLocaleString()} LBP`;
+    } else if (currency === "EUR") {
+      return `€${amount.toFixed(2)}`;
+    }
+    return `${amount} ${currency}`;
   };
 
   const meta = providerMeta[provider];
@@ -252,13 +274,8 @@ export default function IKWServices() {
             Today's Earnings
           </h3>
           <p className="text-2xl font-bold text-white mt-1">
-            ${analytics.today.commissionUSD.toFixed(2)}
+            ${analytics.today.commission.toFixed(2)}
           </p>
-          {analytics.today.commissionLBP > 0 && (
-            <p className="text-xs text-slate-400 mt-1">
-              + {analytics.today.commissionLBP.toLocaleString()} LBP
-            </p>
-          )}
           <p className="text-xs text-slate-500 mt-1">
             {analytics.today.count} transactions
           </p>
@@ -275,13 +292,8 @@ export default function IKWServices() {
             Monthly Earnings
           </h3>
           <p className="text-2xl font-bold text-white mt-1">
-            ${analytics.month.commissionUSD.toFixed(2)}
+            ${analytics.month.commission.toFixed(2)}
           </p>
-          {analytics.month.commissionLBP > 0 && (
-            <p className="text-xs text-slate-400 mt-1">
-              + {analytics.month.commissionLBP.toLocaleString()} LBP
-            </p>
-          )}
           <p className="text-xs text-slate-500 mt-1">
             {analytics.month.count} total this month
           </p>
@@ -305,11 +317,49 @@ export default function IKWServices() {
                 {pm.label} Today
               </h3>
               <p className="text-2xl font-bold text-white mt-1">
-                ${(stats?.commission_usd ?? 0).toFixed(2)}
+                ${(stats?.commission ?? 0).toFixed(2)}
               </p>
               <p className="text-xs text-slate-500 mt-1">
                 {stats?.count ?? 0} transactions
               </p>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Owed to Suppliers */}
+      <div className="grid grid-cols-2 gap-4">
+        {SUPPLIER_PROVIDERS.map((p) => {
+          const owed = owedByProvider[p];
+          const hasDebt = owed && (owed.usd !== 0 || owed.lbp !== 0);
+          const pm = providerMeta[p];
+          return (
+            <div
+              key={p}
+              className="bg-slate-800 border border-slate-700/50 rounded-xl p-4 flex items-center gap-4"
+            >
+              <div className={`p-2 rounded-lg ${pm.bgTint}`}>
+                <AlertTriangle
+                  className={`w-5 h-5 ${hasDebt ? "text-red-400" : "text-slate-500"}`}
+                />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-xs text-slate-400 font-medium uppercase tracking-wider">
+                  Owed to {pm.label}
+                </div>
+                <div className="flex items-baseline gap-3 mt-1">
+                  <span
+                    className={`text-lg font-bold font-mono ${hasDebt ? "text-red-400" : "text-slate-500"}`}
+                  >
+                    ${(owed?.usd ?? 0).toFixed(2)}
+                  </span>
+                  <span
+                    className={`text-sm font-mono ${hasDebt ? "text-red-400/70" : "text-slate-600"}`}
+                  >
+                    {(owed?.lbp ?? 0).toLocaleString()} LBP
+                  </span>
+                </div>
+              </div>
             </div>
           );
         })}
@@ -376,8 +426,8 @@ export default function IKWServices() {
                   </span>
                   <input
                     type="number"
-                    value={amountUSD}
-                    onChange={(e) => setAmountUSD(e.target.value)}
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
                     className="w-full bg-slate-900 border border-slate-600 rounded-lg pl-8 pr-4 py-3 text-white focus:outline-none focus:border-violet-500 transition-colors"
                     placeholder="0.00"
                   />
@@ -389,8 +439,8 @@ export default function IKWServices() {
                 </label>
                 <input
                   type="number"
-                  value={amountLBP}
-                  onChange={(e) => setAmountLBP(e.target.value)}
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
                   className="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-violet-500 transition-colors"
                   placeholder="0"
                 />
@@ -409,16 +459,16 @@ export default function IKWServices() {
                   </span>
                   <input
                     type="number"
-                    value={commissionUSD}
-                    onChange={(e) => setCommissionUSD(e.target.value)}
+                    value={commission}
+                    onChange={(e) => setCommission(e.target.value)}
                     className="w-full bg-slate-900 border border-sky-400/30 rounded-lg pl-8 pr-4 py-3 text-sky-400 font-bold focus:outline-none focus:border-sky-400 transition-colors"
                     placeholder="0.00"
                   />
                 </div>
                 <input
                   type="number"
-                  value={commissionLBP}
-                  onChange={(e) => setCommissionLBP(e.target.value)}
+                  value={commission}
+                  onChange={(e) => setCommission(e.target.value)}
                   className="w-full bg-slate-900 border border-sky-400/30 rounded-lg px-4 py-3 text-sky-400 font-bold focus:outline-none focus:border-sky-400 transition-colors"
                   placeholder="LBP"
                 />
@@ -532,10 +582,10 @@ export default function IKWServices() {
                         </div>
                       </td>
                       <td className="px-6 py-4 text-sm font-medium text-white">
-                        {formatCurrency(tx.amount_usd, tx.amount_lbp)}
+                        {formatAmount(tx.amount, tx.currency)}
                       </td>
                       <td className="px-6 py-4 text-sm font-bold text-emerald-400">
-                        {formatCurrency(tx.commission_usd, tx.commission_lbp)}
+                        {tx.commission.toFixed(2)}
                       </td>
                       <td className="px-6 py-4 text-sm text-slate-300">
                         {tx.client_name || "-"}

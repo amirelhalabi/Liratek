@@ -29,6 +29,8 @@ export function registerSupplierHandlers(): void {
         contact_name?: string;
         phone?: string;
         note?: string;
+        module_key?: string;
+        provider?: string;
       },
     ) => {
       try {

@@ -1,12 +1,16 @@
 import { z } from "zod";
-import { positiveDecimalSchema, positiveIntegerSchema } from "./common.js";
+import {
+  positiveDecimalSchema,
+  positiveIntegerSchema,
+  currencyCodeSchema,
+} from "./common.js";
 
 /**
  * Daily closing validation schemas
  */
 
 const drawerAmountSchema = z.object({
-  currency: z.enum(["USD", "LBP", "EUR"]),
+  currency: currencyCodeSchema,
   amount: positiveDecimalSchema,
 });
 

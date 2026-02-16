@@ -24,7 +24,7 @@ export default function ClientList() {
     setLoading(true);
     try {
       if (window.api) {
-        const data = await window.api.getClients(search);
+        const data = await window.api.clients.getAll(search);
         setClients(data);
       } else {
         const data = await api.getClients(search);
@@ -58,7 +58,7 @@ export default function ClientList() {
       return;
     try {
       if (window.api) {
-        const result = await window.api.deleteClient(id);
+        const result = await window.api.clients.delete(id);
         if (result.success) {
           loadClients();
         } else {

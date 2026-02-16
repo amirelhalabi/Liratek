@@ -1,11 +1,14 @@
 import { BaseRepository } from "./BaseRepository.js";
+import {
+  paymentMethodToDrawerName,
+  isDrawerAffectingMethod,
+} from "../utils/payments.js";
 
 export interface ExpenseEntity {
   id: number;
   description: string;
   category: string;
-  expense_type: string;
-  paid_by_method?: "CASH" | "DEBT" | "OMT" | "WHISH" | "BINANCE";
+  paid_by_method?: string;
   amount_usd: number;
   amount_lbp: number;
   expense_date: string;
@@ -16,8 +19,7 @@ export interface ExpenseEntity {
 export interface CreateExpenseData {
   description: string;
   category: string;
-  expense_type: string;
-  paid_by_method?: "CASH" | "DEBT" | "OMT" | "WHISH" | "BINANCE";
+  paid_by_method?: string;
   amount_usd: number;
   amount_lbp: number;
   expense_date: string;
@@ -30,7 +32,7 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
 
   // Override getColumns() to use explicit columns instead of SELECT *
   protected getColumns(): string {
-    return "id, description, category, expense_type, amount_usd, amount_lbp, expense_date, paid_by_method";
+    return "id, description, category, amount_usd, amount_lbp, expense_date, paid_by_method";
   }
 
   /**
@@ -38,26 +40,16 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
    */
   createExpense(data: CreateExpenseData): number {
     const paidBy = data.paid_by_method || "CASH";
-    const drawerName =
-      paidBy === "CASH"
-        ? "General"
-        : paidBy === "DEBT"
-          ? "General" // no drawer impact; placeholder
-          : paidBy === "OMT"
-            ? "OMT_System"
-            : paidBy === "WHISH"
-              ? "Whish_App"
-              : "Binance";
+    const drawerName = paymentMethodToDrawerName(paidBy);
 
     return this.db.transaction(() => {
       const stmt = this.db.prepare(`
-        INSERT INTO expenses (description, category, expense_type, paid_by_method, amount_usd, amount_lbp, expense_date)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO expenses (description, category, paid_by_method, amount_usd, amount_lbp, expense_date)
+        VALUES (?, ?, ?, ?, ?, ?)
       `);
       const result = stmt.run(
         data.description,
         data.category,
-        data.expense_type,
         paidBy,
         data.amount_usd,
         data.amount_lbp,
@@ -65,8 +57,8 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
       );
       const expenseId = Number(result.lastInsertRowid);
 
-      // Only Cash_Out affects drawers, and DEBT means no drawer movement.
-      if (data.expense_type === "Cash_Out" && paidBy !== "DEBT") {
+      // All expenses affect drawer balances (unless paid by non-drawer-affecting method)
+      if (isDrawerAffectingMethod(paidBy)) {
         const upsertBalance = this.db.prepare(`
           INSERT INTO drawer_balances (drawer_name, currency_code, balance)
           VALUES (?, ?, ?)

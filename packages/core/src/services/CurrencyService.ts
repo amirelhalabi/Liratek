@@ -12,6 +12,7 @@ import {
   type UpdateCurrencyData,
 } from "../repositories/index.js";
 import { toErrorString, getRepoConstraintCode } from "../utils/errors.js";
+import { clearCurrencyCache } from "../utils/currency.js";
 
 // =============================================================================
 // Types
@@ -51,6 +52,7 @@ export class CurrencyService {
   createCurrency(data: CreateCurrencyData): CurrencyResult {
     try {
       const result = this.currencyRepo.createCurrency(data);
+      clearCurrencyCache();
       return { success: true, id: result.id };
     } catch (e) {
       const sqliteCode = (e as { code?: string })?.code;
@@ -73,6 +75,7 @@ export class CurrencyService {
       if (!updated) {
         return { success: false, error: "Not found" };
       }
+      clearCurrencyCache();
       return { success: true };
     } catch (e) {
       return { success: false, error: toErrorString(e) };
@@ -85,10 +88,72 @@ export class CurrencyService {
   deleteCurrency(id: number): CurrencyResult {
     try {
       this.currencyRepo.deleteCurrency(id);
+      clearCurrencyCache();
       return { success: true };
     } catch (e) {
       return { success: false, error: toErrorString(e) };
     }
+  }
+
+  // =========================================================================
+  // Currency–Module Junction
+  // =========================================================================
+
+  /** Get module keys enabled for a currency */
+  getModulesForCurrency(code: string): string[] {
+    return this.currencyRepo.getModulesForCurrency(code);
+  }
+
+  /** Get active currencies enabled for a module */
+  getCurrenciesForModule(moduleKey: string): CurrencyEntity[] {
+    return this.currencyRepo.getCurrenciesForModule(moduleKey);
+  }
+
+  /** Set which modules a currency is allowed in */
+  setModulesForCurrency(code: string, modules: string[]): CurrencyResult {
+    try {
+      this.currencyRepo.setModulesForCurrency(code, modules);
+      return { success: true };
+    } catch (e) {
+      return { success: false, error: toErrorString(e) };
+    }
+  }
+
+  // =========================================================================
+  // Currency–Drawer Junction
+  // =========================================================================
+
+  /** Get all drawer-currency mappings */
+  getAllDrawerCurrencies(): Record<string, string[]> {
+    return this.currencyRepo.getAllDrawerCurrencies();
+  }
+
+  /** Get currency codes enabled for a drawer */
+  getCurrenciesForDrawer(drawerName: string): string[] {
+    return this.currencyRepo.getCurrenciesForDrawer(drawerName);
+  }
+
+  /** Get drawer names enabled for a currency */
+  getDrawersForCurrency(code: string): string[] {
+    return this.currencyRepo.getDrawersForCurrency(code);
+  }
+
+  /** Set currencies for a drawer */
+  setCurrenciesForDrawer(
+    drawerName: string,
+    currencies: string[],
+  ): CurrencyResult {
+    try {
+      this.currencyRepo.setCurrenciesForDrawer(drawerName, currencies);
+      return { success: true };
+    } catch (e) {
+      return { success: false, error: toErrorString(e) };
+    }
+  }
+
+  /** Get all configured drawer names */
+  getConfiguredDrawerNames(): string[] {
+    return this.currencyRepo.getConfiguredDrawerNames();
   }
 }
 

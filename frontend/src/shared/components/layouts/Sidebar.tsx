@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { NavLink } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -13,15 +14,38 @@ import {
   BookOpen,
   Send,
   Smartphone,
-  SquareActivity, // Imported SquareActivity icon
+  SquareActivity,
   Play,
   TrendingUp,
   Bitcoin,
   Zap,
+  Circle,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import clsx from "clsx";
 import { appEvents } from "@liratek/ui";
 import { useAuth } from "../../../features/auth/context/AuthContext";
+import { useModules } from "../../../contexts/ModuleContext";
+import { useShopName } from "../../../hooks/useShopName";
+
+// Map Lucide icon names (stored in DB) to actual icon components
+const iconMap: Record<string, LucideIcon> = {
+  LayoutDashboard,
+  TrendingUp,
+  ShoppingCart,
+  BookOpen,
+  Package,
+  Users,
+  RefreshCw,
+  Send,
+  Smartphone,
+  Banknote,
+  Wrench,
+  Bitcoin,
+  Zap,
+  Settings,
+  SquareActivity,
+};
 
 interface SidebarProps {
   isCollapsed: boolean;
@@ -31,26 +55,41 @@ interface SidebarProps {
 export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
-  const allNavItems = [
-    { to: "/", icon: LayoutDashboard, label: "Dashboard" },
-    { to: "/commissions", icon: TrendingUp, label: "Analytics" },
-    { to: "/pos", icon: ShoppingCart, label: "Point of Sale" },
-    { to: "/debts", icon: BookOpen, label: "Debts" },
-    { to: "/products", icon: Package, label: "Inventory" },
-    { to: "/clients", icon: Users, label: "Clients" },
-    { to: "/exchange", icon: RefreshCw, label: "Exchange" },
-    { to: "/services", icon: Send, label: "OMT/Whish" },
-    { to: "/recharge", icon: Smartphone, label: "Recharge" },
-    { to: "/expenses", icon: Banknote, label: "Expenses" },
-    { to: "/maintenance", icon: Wrench, label: "Maintenance" },
-    { to: "/binance", icon: Bitcoin, label: "Binance" },
-    { to: "/ikw-services", icon: Zap, label: "IPEC/Katch" },
-    // REMOVED: { to: '/closing', icon: SquareActivity, label: 'Closing' }, // New Closing page link
-    { to: "/settings", icon: Settings, label: "Settings", adminOnly: true },
-  ];
+  const { enabledModules } = useModules();
+  const shopName = useShopName();
 
-  // Filter nav items based on role
-  const navItems = allNavItems.filter((item) => !item.adminOnly || isAdmin);
+  // Consolidated module group: recharge + ipec_katch + binance → one "Mobile Recharge" link
+  const CONSOLIDATED_KEYS = new Set(["recharge", "ipec_katch", "binance"]);
+
+  // Build nav items from DB modules
+  const navItems = useMemo(() => {
+    let consolidatedInserted = false;
+    return enabledModules
+      .filter((m) => !m.admin_only || isAdmin)
+      .filter((m) => m.route !== "") // Exclude closing (no route — it's a button)
+      .reduce<Array<{ to: string; icon: LucideIcon; label: string }>>(
+        (acc, m) => {
+          if (CONSOLIDATED_KEYS.has(m.key)) {
+            if (!consolidatedInserted) {
+              consolidatedInserted = true;
+              acc.push({
+                to: "/recharge",
+                icon: Smartphone,
+                label: "Mobile Recharge",
+              });
+            }
+            return acc;
+          }
+          acc.push({
+            to: m.route,
+            icon: iconMap[m.icon] || Circle,
+            label: m.label,
+          });
+          return acc;
+        },
+        [],
+      );
+  }, [enabledModules, isAdmin]);
 
   const handleClosingClick = () => {
     appEvents.emit("openClosingModal");
@@ -70,7 +109,7 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
       <div className="h-16 flex items-center justify-between px-4 border-b border-slate-700">
         {!isCollapsed && (
           <h1 className="text-xl font-bold bg-gradient-to-r from-violet-400 to-indigo-400 bg-clip-text text-transparent whitespace-nowrap overflow-hidden">
-            Corner Tech
+            {shopName}
           </h1>
         )}
         <button

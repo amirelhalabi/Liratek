@@ -1,6 +1,8 @@
 import { HashRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "../features/auth/context/AuthContext";
 import { SessionProvider } from "../features/sessions/context/SessionContext";
+import { ModuleProvider } from "../contexts/ModuleContext";
+import { CurrencyProvider } from "../contexts/CurrencyContext";
 import Login from "../features/auth/pages/Login";
 import Dashboard from "../features/dashboard/pages/Dashboard";
 import CommissionsDashboard from "../features/dashboard/pages/CommissionsDashboard";
@@ -13,8 +15,6 @@ import Services from "../features/services/pages/Services";
 import Recharge from "../features/recharge/pages/Recharge";
 import Expenses from "../features/expenses/pages/Expenses";
 import Maintenance from "../features/maintenance/pages/Maintenance";
-import Binance from "../features/binance/pages/Binance";
-import IKWServices from "../features/ikw-services/pages/IKWServices";
 import Settings from "../features/settings/pages/Settings";
 import MainLayout from "../shared/components/layouts/MainLayout";
 import "../index.css";
@@ -124,21 +124,10 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
-      <Route
-        path="/binance"
-        element={
-          <ProtectedRoute>
-            <Binance />
-          </ProtectedRoute>
-        }
-      />
+      <Route path="/binance" element={<Navigate to="/recharge" replace />} />
       <Route
         path="/ikw-services"
-        element={
-          <ProtectedRoute>
-            <IKWServices />
-          </ProtectedRoute>
-        }
+        element={<Navigate to="/recharge" replace />}
       />
       <Route
         path="/expenses"
@@ -165,15 +154,19 @@ function AppRoutes() {
 function App() {
   return (
     // HashRouter is recommended for Electron to avoid path issues in production
-    <HashRouter>
-      <ApiProvider adapter={backendApiAdapter}>
-        <AuthProvider>
-          <SessionProvider>
-            <AppRoutes />
-          </SessionProvider>
-        </AuthProvider>
-      </ApiProvider>
-    </HashRouter>
+    <ModuleProvider>
+      <CurrencyProvider>
+        <HashRouter>
+          <ApiProvider adapter={backendApiAdapter}>
+            <AuthProvider>
+              <SessionProvider>
+                <AppRoutes />
+              </SessionProvider>
+            </AuthProvider>
+          </ApiProvider>
+        </HashRouter>
+      </CurrencyProvider>
+    </ModuleProvider>
   );
 }
 

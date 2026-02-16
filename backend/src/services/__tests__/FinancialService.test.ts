@@ -181,17 +181,14 @@ describe("FinancialService", () => {
 
       mockRepo.createTransaction.mockReturnValue({
         id: 6,
-        drawer: "Wish_App_Money",
+        drawer: "Whish_App",
       });
 
       const result = service.addTransaction(wishData);
 
       expect(result).toEqual({ success: true, id: 6 });
       expect(mockRepo.createTransaction).toHaveBeenCalledWith(wishData);
-      expect(mockRepo.logActivity).toHaveBeenCalledWith(
-        wishData,
-        "Wish_App_Money",
-      );
+      expect(mockRepo.logActivity).toHaveBeenCalledWith(wishData, "Whish_App");
     });
 
     it("should return error when createTransaction fails", () => {
@@ -352,8 +349,8 @@ describe("FinancialService", () => {
       const result = service.getAnalytics();
 
       expect(result).toEqual({
-        today: { commissionUSD: 0, commissionLBP: 0, count: 0 },
-        month: { commissionUSD: 0, commissionLBP: 0, count: 0 },
+        today: { commission: 0, byCurrency: [], count: 0 },
+        month: { commission: 0, byCurrency: [], count: 0 },
         byProvider: [],
       });
     });

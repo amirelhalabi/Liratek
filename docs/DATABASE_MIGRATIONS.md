@@ -1,385 +1,183 @@
-# Database Migrations System
+# Database Schema & Migrations
 
-**Implementation Date:** February 14, 2026  
-**Status:** ✅ Completed
-
----
-
-## Overview
-
-LiraTek now has a comprehensive, version-tracked database migration system that supports:
-
-- ✅ Version-based tracking
-- ✅ TypeScript and SQL migrations
-- ✅ Automatic migration running
-- ✅ Rollback capability
-- ✅ Migration status/history
-- ✅ Idempotent operations
+**Last Updated:** February 15, 2026
 
 ---
 
-## Migration Files
+## How the Schema Works
 
-**Location:** `packages/core/src/db/migrations/`
+LiraTek uses a two-part approach to database management:
 
-**Registry:** All migrations are registered in `packages/core/src/db/migrations/index.ts`
+| Phase                    | Tool                 | Purpose                                        |
+| ------------------------ | -------------------- | ---------------------------------------------- |
+| **Pre-production** (now) | `create_db.sql`      | Single source of truth for the full schema     |
+| **Post-production**      | `MIGRATIONS[]` array | Incremental changes to existing user databases |
 
-**Current Migrations:**
+### Pre-production (current state)
 
-| Version | Name                     | Description                                | Type       |
-| ------- | ------------------------ | ------------------------------------------ | ---------- |
-| 1       | add_sessions_table       | Add database sessions for authentication   | TypeScript |
-| 2       | add_binance_transactions | Binance cryptocurrency tracking            | TypeScript |
-| 3       | add_ikw_providers        | IKW financial services (OMT, Whish, WU)    | TypeScript |
-| 4       | add_customer_sessions    | Customer session workflow tracking         | TypeScript |
-| 5       | migrate_drawer_names     | Normalize drawer names to canonical format | TypeScript |
-| 6       | add_performance_indexes  | Strategic indexes for optimization         | TypeScript |
+All tables, indexes, and seed data are defined in **`electron-app/create_db.sql`**. When the app starts for the first time and finds no database, it runs this file to create everything from scratch.
 
----
+The `MIGRATIONS[]` array in `packages/core/src/db/migrations/index.ts` is **empty**. Any schema change right now should go directly into `create_db.sql`.
 
-## CLI Usage
+### Post-production (future)
 
-### Run All Pending Migrations
+Once real users have data, you can't re-run `create_db.sql` without destroying their data. At that point, you add entries to the `MIGRATIONS[]` array. The migration runner will:
 
-```bash
-npm run migrate
-# or
-npm run migrate up
-```
-
-### Check Migration Status
-
-```bash
-npm run migrate status
-```
-
-Output:
-
-```
-📊 Migration Status
-
-Current Version: 6
-Latest Version:  6
-
-Applied Migrations (6):
-  ✅ 1. add_sessions_table (2026-02-13 10:30:00)
-  ✅ 2. add_binance_transactions (2026-02-13 18:45:00)
-  ✅ 3. add_ikw_providers (2026-02-13 19:50:00)
-  ✅ 4. add_customer_sessions (2026-02-14 02:15:00)
-  ✅ 5. migrate_drawer_names (2026-02-14 02:16:00)
-  ✅ 6. add_performance_indexes (2026-02-14 13:05:00)
-
-✅ Database is up to date!
-```
-
-### Rollback to Version
-
-```bash
-npm run migrate rollback 3
-```
-
-This will rollback migrations 6, 5, and 4 (in reverse order).
-
-### Get Current Version
-
-```bash
-npm run migrate version
-```
+1. Check `schema_migrations` to see what version the database is at
+2. Run only the new migrations the user hasn't applied yet
+3. Record each applied migration so it never runs twice
 
 ---
 
-## Programmatic Usage
+## Schema Files
 
-### Run Migrations in Code
-
-```typescript
-import { getDatabase } from "@liratek/core";
-import { runMigrations } from "@liratek/core";
-
-const db = getDatabase();
-runMigrations(db);
-```
-
-### Check Status
-
-```typescript
-import { getMigrationStatus } from "@liratek/core";
-
-const status = getMigrationStatus(db);
-console.log(`Current version: ${status.currentVersion}`);
-console.log(`Pending migrations: ${status.pending.length}`);
-```
-
-### Get Current Version
-
-```typescript
-import { getCurrentVersion } from "@liratek/core";
-
-const version = getCurrentVersion(db);
-console.log(`Database at version ${version}`);
-```
+| File                                       | Purpose                                              |
+| ------------------------------------------ | ---------------------------------------------------- |
+| `electron-app/create_db.sql`               | Full canonical schema (tables, indexes, seeds)       |
+| `packages/core/src/db/migrations/index.ts` | Migration runner + registry (empty until production) |
+| `scripts/migrate.ts`                       | CLI tool for manual migration management             |
 
 ---
 
-## Creating New Migrations
+## The `schema_migrations` Table
 
-### 1. Add to Migration Registry
+Tracks which migrations have been applied to a database:
 
-Edit `packages/core/src/db/migrations/index.ts`:
+```sql
+CREATE TABLE schema_migrations (
+    version     INTEGER PRIMARY KEY,
+    name        TEXT NOT NULL UNIQUE,
+    applied_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+- Created by `create_db.sql` for new databases
+- Also created by the migration runner if missing (for safety)
+- Currently empty — will have rows once production migrations are added
+
+---
+
+## Adding a Migration (Post-Production)
+
+When you need to change the schema after users have real data:
+
+### 1. Add the change to `create_db.sql`
+
+So that new fresh databases still get the full schema:
+
+```sql
+-- In create_db.sql, add the new table/column/index
+CREATE TABLE IF NOT EXISTS product_tags (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER NOT NULL,
+    tag TEXT NOT NULL,
+    FOREIGN KEY (product_id) REFERENCES products(id)
+);
+```
+
+### 2. Add a migration for existing databases
+
+In `packages/core/src/db/migrations/index.ts`:
 
 ```typescript
 export const MIGRATIONS: Migration[] = [
-  // ... existing migrations
   {
-    version: 7,
-    name: "add_new_feature",
-    description: "Add new feature tables and indexes",
+    version: 1,
+    name: "add_product_tags",
+    description: "Add product tagging feature",
     type: "typescript",
-    up: (db) => {
+    up(db) {
       db.exec(`
-        CREATE TABLE IF NOT EXISTS new_feature (
+        CREATE TABLE IF NOT EXISTS product_tags (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          name TEXT NOT NULL,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+          product_id INTEGER NOT NULL,
+          tag TEXT NOT NULL,
+          FOREIGN KEY (product_id) REFERENCES products(id)
         );
       `);
-      db.exec(`
-        CREATE INDEX IF NOT EXISTS idx_new_feature_name 
-        ON new_feature(name);
-      `);
     },
-    down: (db) => {
-      db.exec(`DROP TABLE IF EXISTS new_feature;`);
+    down(db) {
+      db.exec(`DROP TABLE IF EXISTS product_tags;`);
     },
   },
 ];
 ```
 
-### 2. Version Numbers
+### 3. Version rules
 
-- **Must be sequential:** 1, 2, 3, 4...
-- **Never reuse:** Once a version is applied, don't change it
-- **Never skip:** Don't jump from 5 to 7
+- Start from **1** and increment sequentially
+- Never reuse or skip a version number
+- Never modify a migration after it has been applied to any database
 
-### 3. Migration Types
+---
 
-**TypeScript Migration:**
+## Automatic Startup
 
-```typescript
-{
-  version: N,
-  name: 'migration_name',
-  description: 'What it does',
-  type: 'typescript',
-  up: (db) => {
-    // Your migration code
-  },
-  down: (db) => {
-    // Rollback code (optional)
-  },
-}
+In `electron-app/main.ts`, `runMigrations(db)` is called on every app launch. It's a no-op when there are no pending migrations, so it has zero cost today.
+
+```
+App starts → create_db.sql (if fresh) → runMigrations(db) (applies pending) → ready
 ```
 
-**SQL Migration:**
+---
 
-```typescript
-{
-  version: N,
-  name: 'migration_name',
-  description: 'What it does',
-  type: 'sql',
-  up: (db) => {
-    db.exec(`SQL statement here`);
-  },
-}
-```
-
-### 4. Idempotent Migrations
-
-Always use `IF NOT EXISTS` / `IF EXISTS`:
-
-```sql
-CREATE TABLE IF NOT EXISTS my_table (...);
-CREATE INDEX IF NOT EXISTS idx_name ON table(column);
-ALTER TABLE ... -- (Not supported in SQLite)
-```
-
-### 5. Testing Migrations
+## CLI Usage
 
 ```bash
-# Test the migration
+# Run pending migrations
 npm run migrate
 
-# Check status
+# Check current status
 npm run migrate status
 
-# Test rollback (if down() exists)
-npm run migrate rollback N
+# Rollback to a specific version
+npm run migrate rollback 2
 
-# Re-apply
-npm run migrate
+# Show current version number
+npm run migrate version
 ```
 
 ---
 
-## Migration Best Practices
+## Programmatic API
 
-### DO:
-
-✅ Keep migrations small and focused
-✅ Test migrations on a copy of production data
-✅ Use transactions (automatic in this system)
-✅ Make migrations idempotent (IF NOT EXISTS)
-✅ Document what each migration does
-✅ Provide rollback (down) methods when possible
-
-### DON'T:
-
-❌ Modify existing migrations after they're applied
-❌ Skip version numbers
-❌ Depend on application code (migrations should be pure SQL/DB logic)
-❌ Put business logic in migrations
-❌ Forget to add the migration to the registry
-
----
-
-## Schema Tracking Table
-
-The system uses a `schema_migrations` table:
-
-```sql
-CREATE TABLE schema_migrations (
-  version INTEGER PRIMARY KEY,
-  name TEXT NOT NULL UNIQUE,
-  applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-```
-
-**Example data:**
-
-```
-version | name                      | applied_at
---------|---------------------------|------------------
-1       | add_sessions_table        | 2026-02-13 10:30
-2       | add_binance_transactions  | 2026-02-13 18:45
-3       | add_ikw_providers         | 2026-02-13 19:50
-4       | add_customer_sessions     | 2026-02-14 02:15
-5       | migrate_drawer_names      | 2026-02-14 02:16
-6       | add_performance_indexes   | 2026-02-14 13:05
-```
-
----
-
-## Automatic Migration on Startup
-
-In `electron-app/main.ts` or `backend/src/server.ts`:
+All exported from `@liratek/core`:
 
 ```typescript
-import { getDatabase } from "@liratek/core";
-import { runMigrations } from "@liratek/core";
-
-function initializeBackend() {
-  const db = getDatabase();
-
-  // Run migrations automatically
-  runMigrations(db);
-
-  // Continue with app initialization...
-}
+import {
+  runMigrations,
+  getCurrentVersion,
+  getMigrationStatus,
+  getPendingMigrations,
+  getAppliedMigrations,
+  rollbackTo,
+} from "@liratek/core";
 ```
 
-This ensures the database is always up-to-date when the app starts.
+| Function                   | Returns             | Description                                         |
+| -------------------------- | ------------------- | --------------------------------------------------- |
+| `runMigrations(db)`        | `void`              | Apply all pending migrations                        |
+| `getCurrentVersion(db)`    | `number`            | Highest applied version (0 if none)                 |
+| `getMigrationStatus(db)`   | `object`            | Current version, latest, applied list, pending list |
+| `getPendingMigrations(db)` | `Migration[]`       | Migrations not yet applied                          |
+| `getAppliedMigrations(db)` | `MigrationRecord[]` | Already-applied migrations with timestamps          |
+| `rollbackTo(db, version)`  | `void`              | Roll back to target version (requires `down()`)     |
 
 ---
 
-## Rollback Support
+## Best Practices
 
-Not all migrations can be rolled back:
+**DO:**
 
-- **Table creation:** Easy to rollback (DROP TABLE)
-- **Data migration:** Harder (need to reverse logic)
-- **Data deletion:** Cannot rollback (data is gone)
+- Keep migrations small and focused (one concern per migration)
+- Use `IF NOT EXISTS` / `IF EXISTS` for idempotency
+- Always update `create_db.sql` AND add a migration (both must stay in sync)
+- Provide `down()` rollback methods when possible
+- Test the migration on a copy of data before deploying
 
-**Example with rollback:**
+**DON'T:**
 
-```typescript
-{
-  version: 7,
-  name: 'add_tags_table',
-  description: 'Add product tags feature',
-  type: 'typescript',
-  up: (db) => {
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS product_tags (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        product_id INTEGER NOT NULL,
-        tag TEXT NOT NULL,
-        FOREIGN KEY (product_id) REFERENCES products(id)
-      );
-    `);
-  },
-  down: (db) => {
-    db.exec(`DROP TABLE IF EXISTS product_tags;`);
-  },
-}
-```
-
----
-
-## Troubleshooting
-
-### "Migration already applied"
-
-This is normal if you run `npm run migrate` multiple times. The system is idempotent.
-
-### "Failed to apply migration"
-
-Check:
-
-1. Database file exists and is writable
-2. Migration SQL is valid
-3. Migration doesn't conflict with existing schema
-4. Check logs for specific error
-
-### "Cannot rollback"
-
-Some migrations don't have `down()` methods. You'll need to manually fix the database or write a new forward migration.
-
-### Version mismatch
-
-If your `schema_migrations` table shows different versions than expected:
-
-```bash
-# Check what's actually in the database
-npm run migrate status
-
-# Manually query
-sqlite3 path/to/database.db "SELECT * FROM schema_migrations;"
-```
-
----
-
-## Migration History
-
-| Version | Date       | Migration                 | Impact                       |
-| ------- | ---------- | ------------------------- | ---------------------------- |
-| 1       | 2026-02-13 | Sessions table            | Authentication system        |
-| 2       | 2026-02-13 | Binance transactions      | Crypto tracking              |
-| 3       | 2026-02-13 | IKW providers             | Financial services           |
-| 4       | 2026-02-14 | Customer sessions         | Multi-transaction workflows  |
-| 5       | 2026-02-14 | Drawer name normalization | Data consistency             |
-| 6       | 2026-02-14 | Performance indexes       | 2-5x query speed improvement |
-
----
-
-## Summary
-
-✅ **Version-tracked migrations** (sequential numbering)  
-✅ **Automatic migration runner** (on app startup)  
-✅ **CLI tools** (status, rollback, version)  
-✅ **Idempotent by design** (safe to run multiple times)  
-✅ **Transaction-safe** (all-or-nothing)  
-✅ **TypeScript + SQL support** (flexible)  
-✅ **Rollback capability** (where applicable)
-
-The migration system is production-ready and actively managing 6 migrations!
+- Modify a migration after it has been applied
+- Put business logic in migrations — keep them pure schema/data operations
+- Depend on application code from within a migration
+- Skip version numbers

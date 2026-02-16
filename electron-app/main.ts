@@ -11,6 +11,7 @@ import {
   applySqlCipherKey,
   initDatabase as initCoreDatabase,
   getSessionRepository,
+  runMigrations,
   logger,
 } from "@liratek/core";
 import * as path from "path";
@@ -73,10 +74,17 @@ function createWindow() {
     },
   });
 
+  // Suppress noisy Chromium DevTools protocol errors (Autofill.enable, etc.)
+  mainWindow.webContents.on("console-message", (_event, _level, message) => {
+    if (message.includes("Autofill.")) {
+      _event.preventDefault();
+    }
+  });
+
   // Development: Load from Vite dev server
   if (ELECTRON_RENDERER_URL) {
     mainWindow.loadURL(ELECTRON_RENDERER_URL);
-    mainWindow.webContents.openDevTools();
+    mainWindow.webContents.openDevTools({ mode: "bottom", activate: false });
   }
   // Production: Load from built files
   else {
@@ -236,6 +244,17 @@ function initializeBackend() {
   // Initialize database
   initializeDatabase();
 
+  // Run migrations (idempotent — skips already-applied versions)
+  try {
+    runMigrations(db);
+    logger.info("Database migrations applied");
+  } catch (err) {
+    logger.error(
+      { error: err instanceof Error ? err.message : String(err) },
+      "Migration error (non-fatal)",
+    );
+  }
+
   // Services are initialized on-demand by handlers
   // Each service gets the db instance when needed
 
@@ -281,6 +300,9 @@ async function registerHandlers() {
     const updaterHandlers = await import("./handlers/updaterHandlers.js");
     const sessionHandlers = await import("./handlers/sessionHandlers.js");
     const binanceHandlers = await import("./handlers/binanceHandlers.js");
+    const moduleHandlers = await import("./handlers/moduleHandlers.js");
+    const paymentMethodHandlers =
+      await import("./handlers/paymentMethodHandlers.js");
 
     // Register all handlers (they auto-register with ipcMain)
     authHandlers.registerAuthHandlers();
@@ -301,6 +323,8 @@ async function registerHandlers() {
     updaterHandlers.registerUpdaterHandlers();
     sessionHandlers.registerSessionHandlers();
     binanceHandlers.registerBinanceHandlers();
+    moduleHandlers.registerModuleHandlers();
+    paymentMethodHandlers.registerPaymentMethodHandlers();
 
     logger.info("All IPC handlers registered");
 

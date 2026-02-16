@@ -105,10 +105,10 @@ export const DRAWER_CONFIGS: Record<DrawerType, DrawerConfig> = {
       accent: "orange-500",
     },
   },
-  Wish_App_Money: {
-    type: "Wish_App_Money",
-    label: "Wish App",
-    description: "Wish App money services",
+  Whish_System: {
+    type: "Whish_System",
+    label: "Whish System",
+    description: "Whish system services",
     icon: "zap",
     color: {
       border: "border-fuchsia-500/30",
@@ -128,5 +128,5 @@ export const DRAWER_ORDER: DrawerType[] = [
   "Alfa",
   "IPEC",
   "Katch",
-  "Wish_App_Money",
+  "Whish_System",
 ];

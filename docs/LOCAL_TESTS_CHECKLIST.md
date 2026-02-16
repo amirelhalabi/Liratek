@@ -1,7 +1,7 @@
 # Local Tests Checklist - Desktop & Web Mode
 
-**Last Updated:** Feb 1, 2026  
-**Purpose:** Comprehensive testing checklist for both Desktop (Electron) and Web modes after T-20 Phase 1 migration completion.
+**Last Updated:** Feb 15, 2026  
+**Purpose:** Comprehensive testing checklist for both Desktop (Electron) and Web modes.
 
 ---
 
@@ -440,6 +440,39 @@ These should NOT work in web mode:
 - [ ] Large lists paginate or virtualize
 - [ ] No memory leaks (check Task Manager after 30 min use)
 - [ ] Smooth animations (Select dropdowns, modals)
+
+---
+
+## 💱 19. Dynamic Currencies & Modules
+
+### Both Modes:
+
+- [ ] New currencies can be added via Settings > Currency Manager without code changes
+- [ ] All currency dropdowns load from the database
+- [ ] Currency symbols and formatting come from DB data
+- [ ] Financial services accept any active currency
+- [ ] Exchange module works with any currency pair
+- [ ] Modules can be toggled on/off from Settings > Modules tab
+- [ ] System modules (Dashboard, Settings, Closing) cannot be toggled
+- [ ] Sidebar reflects module enablement dynamically
+- [ ] Closing system works with dynamic currency list
+- [ ] Dashboard shows data for all active currencies
+- [ ] Reports format all currencies correctly
+- [ ] `useExchangeRate()` hook loads rate from DB, falls back to constant
+- [ ] Drawer currency config filters Dashboard, Closing, and Opening correctly
+- [ ] Drawer currency assignments editable in Settings > Currencies & Rates
+- [ ] Regression: existing USD/LBP workflows unaffected
+
+---
+
+## 🔌 20. API Validation
+
+### Web Mode (Postman/Thunder Client):
+
+- [ ] Test each endpoint with valid payloads — 200/201 responses
+- [ ] Verify error messages are helpful and field-specific on invalid input
+- [ ] Test edge cases (empty strings, negative numbers, invalid enums)
+- [ ] Verify existing functionality still works after validation changes
 
 ---
 

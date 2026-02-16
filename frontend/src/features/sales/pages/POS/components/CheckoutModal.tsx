@@ -1,7 +1,10 @@
 import { useState, useEffect } from "react";
 import logger from "../../../../../utils/logger";
 import { X, User, Printer, Inbox } from "lucide-react";
-import { EXCHANGE_RATE, DRAWER_B, roundLBPUp } from "@liratek/ui";
+import { DRAWER_B, roundLBPUp } from "@liratek/ui";
+import { useExchangeRate } from "../../../../../hooks/useExchangeRate";
+import { usePaymentMethods } from "../../../../../hooks/usePaymentMethods";
+import { useShopName } from "../../../../../hooks/useShopName";
 import {
   formatReceipt58mm,
   type ReceiptData,
@@ -58,19 +61,21 @@ export default function CheckoutModal({
   // Payment State
   const [discount, setDiscount] = useState(0);
 
-  type PaymentMethod = "CASH" | "OMT" | "WHISH" | "BINANCE";
   type PaymentCurrencyCode = "USD" | "LBP";
   type PaymentLine = {
-    method: PaymentMethod;
+    method: string;
     currency_code: PaymentCurrencyCode;
     amount: number;
   };
+
+  const { allMethods: paymentMethodOptions } = usePaymentMethods();
+  const shopName = useShopName();
 
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([
     { method: "CASH", currency_code: "USD", amount: 0 },
   ]);
 
-  const [exchangeRate] = useState(EXCHANGE_RATE);
+  const { rate: exchangeRate } = useExchangeRate("USD", "LBP");
 
   const paidUSD = paymentLines
     .filter((p) => p.currency_code === "USD")
@@ -268,7 +273,7 @@ export default function CheckoutModal({
       setReceiptNumber(generateReceiptNumber());
     }
     const receipt: ReceiptData = {
-      shop_name: "Corner Tech",
+      shop_name: shopName,
       receipt_number: receiptNumber || generateReceiptNumber(),
       client_name:
         selectedClient?.full_name || clientSearch || "Walk-in Customer",
@@ -531,7 +536,7 @@ export default function CheckoutModal({
                                 i === idx
                                   ? {
                                       ...p,
-                                      method: e.target.value as PaymentMethod,
+                                      method: e.target.value,
                                     }
                                   : p,
                               ),
@@ -539,10 +544,11 @@ export default function CheckoutModal({
                           }
                           className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"
                         >
-                          <option value="CASH">Cash</option>
-                          <option value="OMT">OMT</option>
-                          <option value="WHISH">Whish</option>
-                          <option value="BINANCE">Binance</option>
+                          {paymentMethodOptions.map((pm) => (
+                            <option key={pm.code} value={pm.code}>
+                              {pm.label}
+                            </option>
+                          ))}
                         </select>
                       </div>
                       <div className="col-span-3">

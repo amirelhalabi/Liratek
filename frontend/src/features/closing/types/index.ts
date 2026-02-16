@@ -19,7 +19,7 @@ export type DrawerType =
   | "Alfa"
   | "IPEC"
   | "Katch"
-  | "Wish_App_Money";
+  | "Whish_System";
 
 export interface DrawerAmount {
   drawer_name: DrawerType;
@@ -39,18 +39,13 @@ export interface DrawerBalances {
   [currencyCode: string]: number;
 }
 
-export interface SystemExpectedBalances {
-  generalDrawer: { [currencyCode: string]: number };
-  omtDrawer: { [currencyCode: string]: number };
-  omtAppDrawer: { [currencyCode: string]: number };
-  whishDrawer: { [currencyCode: string]: number };
-  binanceDrawer: { [currencyCode: string]: number };
-  mtcDrawer: { [currencyCode: string]: number };
-  alfaDrawer: { [currencyCode: string]: number };
-  ipecDrawer: { [currencyCode: string]: number };
-  katchDrawer: { [currencyCode: string]: number };
-  wishAppDrawer: { [currencyCode: string]: number };
-}
+/**
+ * Dynamic system expected balances: Record<drawerName, Record<currencyCode, balance>>
+ */
+export type DynamicSystemExpectedBalances = Record<
+  string,
+  Record<string, number>
+>;
 
 export interface DrawerConfig {
   type: DrawerType;

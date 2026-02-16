@@ -10,8 +10,10 @@ import {
   Eye,
   X as CloseIcon,
 } from "lucide-react";
-import { PageHeader, EXCHANGE_RATE, roundLBPUp, Select } from "@liratek/ui";
+import { PageHeader, roundLBPUp, Select } from "@liratek/ui";
 import { useAuth } from "@/features/auth/context/AuthContext";
+import { useExchangeRate } from "../../../../hooks/useExchangeRate";
+import { usePaymentMethods } from "../../../../hooks/usePaymentMethods";
 import * as api from "../../../../api/backendApi";
 
 type DebtFilter = "ongoing" | "closed" | "all";
@@ -19,6 +21,8 @@ type SortOrder = "desc" | "asc";
 
 export default function Debts() {
   const { user } = useAuth();
+  const { rate: EXCHANGE_RATE } = useExchangeRate("USD", "LBP");
+  const { drawerAffectingMethods } = usePaymentMethods();
   type Debtor = {
     id: number;
     full_name: string;
@@ -35,6 +39,8 @@ export default function Debts() {
     note?: string;
     sale_id?: number | null;
     is_paid: boolean;
+    transaction_type: string; // Add transaction_type from database
+    itemNames?: string[]; // Add this to store item names from sale
   };
 
   type SaleDetail = {
@@ -65,6 +71,7 @@ export default function Debts() {
   // Repayment State
   const [repayAmountUSD, setRepayAmountUSD] = useState<string>("");
   const [repayAmountLBP, setRepayAmountLBP] = useState<string>("");
+  const [repayPaidBy, setRepayPaidBy] = useState("CASH");
   const [repayNote, setRepayNote] = useState("");
 
   useEffect(() => {
@@ -83,7 +90,7 @@ export default function Debts() {
     try {
       // Now getDebtors returns all clients with debt history
       const data = window.api
-        ? await window.api.getDebtors()
+        ? await window.api.debt.getDebtors()
         : await api.getDebtors();
       setDebtors(data);
     } catch (error) {
@@ -94,9 +101,32 @@ export default function Debts() {
   const loadHistory = async (clientId: number) => {
     try {
       const data = window.api
-        ? await window.api.getClientDebtHistory(clientId)
+        ? await window.api.debt.getClientHistory(clientId)
         : await api.getClientDebtHistory(clientId);
-      setHistory(data);
+
+      // Fetch item names for each debt entry with a sale_id
+      const enrichedData = await Promise.all(
+        data.map(async (item: DebtHistoryItem) => {
+          if (item.sale_id && (item.amount_usd > 0 || item.amount_lbp > 0)) {
+            try {
+              const items = await api.getSaleItems(item.sale_id);
+              const itemNames = items
+                .slice(0, 3)
+                .map((saleItem: any) => saleItem.name || "Unknown Product");
+              return { ...item, itemNames };
+            } catch (error) {
+              logger.error(
+                `Failed to load items for sale ${item.sale_id}:`,
+                error,
+              );
+              return item;
+            }
+          }
+          return item;
+        }),
+      );
+
+      setHistory(enrichedData);
       // Reset sort to default (desc) when loading new client
       setDateSortOrder("desc");
     } catch (error) {
@@ -105,9 +135,10 @@ export default function Debts() {
   };
 
   // Split history into debts (purchases) and payments (repayments)
+  // Use transaction_type to properly categorize entries (handles edge cases with inconsistent amounts)
   const debtEntries = useMemo(() => {
     return [...history]
-      .filter((item) => item.amount_usd > 0 || item.amount_lbp > 0)
+      .filter((item) => item.transaction_type !== "Repayment")
       .sort((a, b) => {
         const dateA = new Date(a.created_at).getTime();
         const dateB = new Date(b.created_at).getTime();
@@ -117,7 +148,7 @@ export default function Debts() {
 
   const paymentEntries = useMemo(() => {
     return [...history]
-      .filter((item) => item.amount_usd < 0 || item.amount_lbp < 0)
+      .filter((item) => item.transaction_type === "Repayment")
       .sort((a, b) => {
         const dateA = new Date(a.created_at).getTime();
         const dateB = new Date(b.created_at).getTime();
@@ -152,7 +183,7 @@ export default function Debts() {
   const loadClientTotal = async (clientId: number) => {
     try {
       const total = window.api
-        ? await window.api.getClientDebtTotal(clientId)
+        ? await window.api.debt.getClientTotal(clientId)
         : await api.getClientDebtTotal(clientId);
       setTotalDebt(total || 0);
     } catch (error) {
@@ -185,6 +216,7 @@ export default function Debts() {
 
     const paidUSD = parseFloat(repayAmountUSD) || 0;
     const paidLBP = parseFloat(repayAmountLBP) || 0;
+    const paidByMethod = repayPaidBy || "CASH";
 
     if (paidUSD === 0 && paidLBP === 0) {
       alert("Please enter an amount.");
@@ -219,13 +251,14 @@ export default function Debts() {
 
     try {
       const result = window.api
-        ? await window.api.addRepayment({
+        ? await window.api.debt.addRepayment({
             clientId: selectedClient.id,
             amountUSD: totalDebtReductionUSD,
             amountLBP: debtReductionLBP,
             paidAmountUSD: paidUSD,
             paidAmountLBP: paidLBP,
             drawerName: "General",
+            paidByMethod: paidByMethod,
             note: repayNote,
             ...(user?.id != null ? { userId: user.id } : {}),
           } as any)
@@ -236,6 +269,7 @@ export default function Debts() {
             paid_amount_usd: paidUSD,
             paid_amount_lbp: paidLBP,
             drawer_name: "General",
+            paidByMethod: paidByMethod,
             note: repayNote,
             ...(user?.id != null ? { user_id: user.id } : {}),
           });
@@ -246,13 +280,14 @@ export default function Debts() {
         setRepayAmountUSD("");
         setRepayAmountLBP("");
         setRepayNote("");
+        setRepayPaidBy("CASH");
 
         // Reload debtors list
         await loadDebtors();
 
         // Check if client still has debt after repayment
         const updatedTotal = window.api
-          ? await window.api.getClientDebtTotal(selectedClient.id)
+          ? await window.api.debt.getClientTotal(selectedClient.id)
           : await api.getClientDebtTotal(selectedClient.id);
 
         if (updatedTotal > 0.01) {
@@ -479,9 +514,19 @@ export default function Debts() {
                             </td>
                             <td className="px-3 py-2.5 text-slate-400 text-sm">
                               <div className="flex items-center gap-1.5">
-                                <span className="truncate max-w-[120px]">
-                                  {item.note || "-"}
-                                </span>
+                                {item.itemNames && item.itemNames.length > 0 ? (
+                                  <div className="flex flex-col gap-0.5 text-xs leading-tight max-w-[140px]">
+                                    {item.itemNames.map((name, idx) => (
+                                      <div key={idx} className="truncate">
+                                        • {name}
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <span className="truncate max-w-[120px]">
+                                    {item.note || "-"}
+                                  </span>
+                                )}
                                 {item.sale_id && (
                                   <button
                                     onClick={() =>
@@ -709,6 +754,20 @@ export default function Debts() {
                       </span>
                     </div>
                   </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1 uppercase">
+                    Paid By
+                  </label>
+                  <Select
+                    value={repayPaidBy}
+                    onChange={setRepayPaidBy}
+                    options={drawerAffectingMethods.map((m) => ({
+                      value: m.code,
+                      label: m.label,
+                    }))}
+                  />
                 </div>
 
                 <div>

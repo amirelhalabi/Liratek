@@ -17,19 +17,23 @@ import { logger } from "../server.js";
 const router = Router();
 const closingService = getClosingService();
 
-// GET /api/closing/system-expected-balances
-router.get("/system-expected-balances", requireAuth, async (_req, res) => {
-  try {
-    const balances = closingService.getSystemExpectedBalances();
-    res.json({ success: true, balances });
-  } catch (error) {
-    logger.error({ error }, "Get system expected balances error");
-    res.status(500).json({
-      success: false,
-      error: "Failed to get system expected balances",
-    });
-  }
-});
+// GET /api/closing/system-expected-balances-dynamic
+router.get(
+  "/system-expected-balances-dynamic",
+  requireAuth,
+  async (_req, res) => {
+    try {
+      const balances = closingService.getSystemExpectedBalancesDynamic();
+      res.json({ success: true, balances });
+    } catch (error) {
+      logger.error({ error }, "Get dynamic system expected balances error");
+      res.status(500).json({
+        success: false,
+        error: "Failed to get system expected balances",
+      });
+    }
+  },
+);
 
 // GET /api/closing/has-opening-balance-today
 router.get("/has-opening-balance-today", requireAuth, async (_req, res) => {

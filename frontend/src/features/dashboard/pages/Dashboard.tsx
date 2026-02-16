@@ -4,10 +4,12 @@ import {
   DollarSign,
   Users,
   Clock,
-  Inbox,
   BarChart2,
   Package,
+  Wallet,
+  TrendingUp,
 } from "lucide-react";
+import { useCurrencyContext } from "../../../contexts/CurrencyContext";
 import {
   LineChart,
   Line,
@@ -21,7 +23,26 @@ import {
 import * as api from "../../../api/backendApi";
 type ChartType = "Sales" | "Profit";
 
+/** Format drawer_name from DB into a display label */
+function formatDrawerLabel(name: string): string {
+  return name
+    .replace(/_/g, " ")
+    .replace(/Drawer B$/i, "Drawer")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+const DRAWER_COLORS = [
+  { color: "text-sky-400", bg: "bg-sky-400/10" },
+  { color: "text-rose-400", bg: "bg-rose-400/10" },
+  { color: "text-purple-400", bg: "bg-purple-400/10" },
+  { color: "text-pink-400", bg: "bg-pink-400/10" },
+  { color: "text-teal-400", bg: "bg-teal-400/10" },
+  { color: "text-amber-400", bg: "bg-amber-400/10" },
+];
+
 export default function Dashboard() {
+  const { formatAmount, getSymbol } = useCurrencyContext();
+
   const [stats, setStats] = useState({
     totalSalesUSD: 0,
     totalSalesLBP: 0,
@@ -31,14 +52,16 @@ export default function Dashboard() {
     activeClients: 0,
     stockBudgetUSD: 0,
     stockCount: 0,
-    mtcCredits: 0,
-    alfaCredits: 0,
     monthlyNetProfit: 0,
   });
-  const [drawerBalances, setDrawerBalances] = useState({
-    generalDrawer: { usd: 0, lbp: 0 },
-    omtDrawer: { usd: 0, lbp: 0 },
-  });
+  /** Dynamic drawer balances: drawer_name → currency_code → amount */
+  const [drawerBalances, setDrawerBalances] = useState<
+    Record<string, Record<string, number>>
+  >({});
+  /** Configured currencies per drawer: drawer_name → currency_code[] */
+  const [drawerCurrencyConfig, setDrawerCurrencyConfig] = useState<
+    Record<string, string[]>
+  >({});
   type ChartPoint = {
     date: string;
     usd?: number;
@@ -86,36 +109,36 @@ export default function Dashboard() {
         drawerData,
         debtData,
         stockStats,
-        rechargeStock,
         monthlyPL,
+        drawerCurrConfig,
       ] = window.api
         ? await Promise.all([
-            window.api.getDashboardStats(),
-            window.api.getProfitSalesChart(chartType),
-            window.api.getTodaysSales(),
-            window.api.getDrawerBalances(),
-            window.api.getDebtSummary(),
-            window.api.getInventoryStockStats(),
-            window.api.getRechargeStock(),
-            window.api.getMonthlyPL(new Date().toISOString().slice(0, 7)),
+            window.api.dashboard.getStats(),
+            window.api.dashboard.getProfitSalesChart(chartType),
+            window.api.sales.getTodaysSales(),
+            window.api.closing.getSystemExpectedBalancesDynamic(),
+            window.api.debt.getSummary(),
+            window.api.inventory.getStockStats(),
+            window.api.financial.getMonthlyPL(
+              new Date().toISOString().slice(0, 7),
+            ),
+            window.api.currencies.allDrawerCurrencies(),
           ])
         : await Promise.all([
             api.getDashboardStats(),
             api.getProfitSalesChart(chartType),
             api.getTodaysSales(),
-            api.getDrawerBalances(),
+            api.getSystemExpectedBalancesDynamic(),
             api.getDebtSummary(),
             api.getInventoryStockStats(),
-            api.getRechargeStock(),
             api.getMonthlyPL(new Date().toISOString().slice(0, 7)),
+            api.getAllDrawerCurrencies(),
           ]);
 
       setStats({
         ...statsData,
         stockBudgetUSD: stockStats?.stock_budget_usd || 0,
         stockCount: stockStats?.stock_count || 0,
-        mtcCredits: rechargeStock?.mtc || 0,
-        alfaCredits: rechargeStock?.alfa || 0,
         monthlyNetProfit: monthlyPL?.netProfitUSD || 0,
       });
       const formattedChartData = profitChartData.map((d: any) => ({
@@ -129,6 +152,9 @@ export default function Dashboard() {
       setTodaysSales(salesTodayData);
       if (drawerData) {
         setDrawerBalances(drawerData);
+      }
+      if (drawerCurrConfig) {
+        setDrawerCurrencyConfig(drawerCurrConfig);
       }
       if (debtData) {
         setDebtSummary(debtData);
@@ -208,45 +234,31 @@ export default function Dashboard() {
     },
   ];
 
-  // Drawer Balances (Row 2)
-  const drawerCards = [
-    {
-      label: "General Drawer",
-      usdValue: drawerBalances.generalDrawer.usd,
-      lbpValue: drawerBalances.generalDrawer.lbp,
-      icon: Inbox,
-      color: "text-sky-400",
-      bg: "bg-sky-400/10",
-    },
-    {
-      label: "OMT Drawer",
-      usdValue: drawerBalances.omtDrawer.usd,
-      lbpValue: drawerBalances.omtDrawer.lbp,
-      icon: Inbox,
-      color: "text-rose-400",
-      bg: "bg-rose-400/10",
-    },
-    {
-      label: "MTC Credits",
-      singleValue: `$${stats.mtcCredits?.toLocaleString(undefined, { maximumFractionDigits: 0 }) || "0"}`,
-      icon: Inbox,
-      color: "text-purple-400",
-      bg: "bg-purple-400/10",
-    },
-    {
-      label: "Alfa Credits",
-      singleValue: `$${stats.alfaCredits?.toLocaleString(undefined, { maximumFractionDigits: 0 }) || "0"}`,
-      icon: Inbox,
-      color: "text-pink-400",
-      bg: "bg-pink-400/10",
-    },
-  ];
+  // Drawer Balances (Row 2) — dynamic from drawer_balances table
+  // Filter each drawer's currencies to only show those configured in currency_drawers
+  const drawerEntries = Object.entries(drawerBalances);
+  const drawerCards = drawerEntries.map(([name, currencies], i) => {
+    const allowedCodes = drawerCurrencyConfig[name];
+    const filteredCurrencies = allowedCodes
+      ? Object.fromEntries(
+          Object.entries(currencies).filter(([code]) =>
+            allowedCodes.includes(code),
+          ),
+        )
+      : currencies; // no config yet → show all (graceful fallback)
+    return {
+      label: formatDrawerLabel(name),
+      currencies: filteredCurrencies,
+      icon: Wallet,
+      ...DRAWER_COLORS[i % DRAWER_COLORS.length],
+    };
+  });
 
-  // Stock Overview
-  const stockCards = [
+  // Credits & Stock (Row 3)
+  const creditsAndStockCards = [
     {
       label: "Stock Budget",
-      singleValue: `$${stats.stockBudgetUSD.toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
+      singleValue: formatAmount(stats.stockBudgetUSD, "USD"),
       icon: BarChart2,
       color: "text-amber-400",
       bg: "bg-amber-400/10",
@@ -257,6 +269,13 @@ export default function Dashboard() {
       icon: Package,
       color: "text-teal-400",
       bg: "bg-teal-400/10",
+    },
+    {
+      label: "Monthly Net Profit",
+      singleValue: formatAmount(stats.monthlyNetProfit ?? 0, "USD"),
+      icon: TrendingUp,
+      color: "text-emerald-400",
+      bg: "bg-emerald-400/10",
     },
   ];
 
@@ -291,15 +310,12 @@ export default function Dashboard() {
                 <div className="flex items-center gap-2">
                   <div className="flex-1">
                     <p className="text-base font-bold text-emerald-400">
-                      $
-                      {stat.usdValue.toLocaleString(undefined, {
-                        maximumFractionDigits: 2,
-                      })}
+                      {formatAmount(stat.usdValue, "USD")}
                     </p>
                   </div>
                   <div className="flex-1">
                     <p className="text-base font-bold text-violet-400 text-right">
-                      {stat.lbpValue.toLocaleString()} LBP
+                      {formatAmount(stat.lbpValue, "LBP")}
                     </p>
                   </div>
                 </div>
@@ -308,47 +324,72 @@ export default function Dashboard() {
           ))}
         </div>
 
-        {/* Drawer Balances */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {drawerCards.map((stat) => (
-            <div
-              key={stat.label}
-              className="bg-slate-800 p-4 rounded-xl border border-slate-700/50 shadow-lg hover:border-slate-600 transition-colors"
-            >
-              <div className="flex items-center justify-between mb-2">
-                <div className={`p-2 rounded-lg ${stat.bg}`}>
-                  <stat.icon className={`w-4 h-4 ${stat.color}`} />
+        {/* Drawer Balances — separate section */}
+        {drawerCards.length > 0 && (
+          <div>
+            <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+              <Wallet className="text-sky-400" />
+              Drawer Balances
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {drawerCards.map((stat) => (
+                <div
+                  key={stat.label}
+                  className="bg-slate-800 p-4 rounded-xl border border-slate-700/50 shadow-lg hover:border-slate-600 transition-colors"
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <div className={`p-2 rounded-lg ${stat.bg}`}>
+                      <stat.icon className={`w-4 h-4 ${stat.color}`} />
+                    </div>
+                  </div>
+                  <h3 className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">
+                    {stat.label}
+                  </h3>
+                  <div className="space-y-1">
+                    {Object.entries(stat.currencies).map(([code, amount]) => (
+                      <p
+                        key={code}
+                        className="text-base font-bold text-emerald-400"
+                      >
+                        {formatAmount(amount, code)}
+                      </p>
+                    ))}
+                    {Object.keys(stat.currencies).length === 0 && (
+                      <p className="text-sm text-slate-500">No balance</p>
+                    )}
+                  </div>
                 </div>
-              </div>
-              <h3 className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">
-                {stat.label}
-              </h3>
+              ))}
+            </div>
+          </div>
+        )}
 
-              {stat.singleValue && (
+        {/* Credits, Stock & Profit */}
+        <div>
+          <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+            <Package className="text-amber-400" />
+            Credits & Stock
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {creditsAndStockCards.map((stat) => (
+              <div
+                key={stat.label}
+                className="bg-slate-800 p-4 rounded-xl border border-slate-700/50 shadow-lg hover:border-slate-600 transition-colors"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className={`p-2 rounded-lg ${stat.bg}`}>
+                    <stat.icon className={`w-4 h-4 ${stat.color}`} />
+                  </div>
+                </div>
+                <h3 className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">
+                  {stat.label}
+                </h3>
                 <p className="text-xl font-bold text-white">
                   {stat.singleValue}
                 </p>
-              )}
-
-              {stat.usdValue !== undefined && stat.lbpValue !== undefined && (
-                <div className="flex items-center gap-2">
-                  <div className="flex-1">
-                    <p className="text-base font-bold text-emerald-400">
-                      $
-                      {stat.usdValue.toLocaleString(undefined, {
-                        maximumFractionDigits: 2,
-                      })}
-                    </p>
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-base font-bold text-violet-400 text-right">
-                      {stat.lbpValue.toLocaleString()} LBP
-                    </p>
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
+              </div>
+            ))}
+          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -408,7 +449,7 @@ export default function Dashboard() {
                     <YAxis
                       tick={{ fill: "#94a3b8" }}
                       fontSize={12}
-                      tickFormatter={(value) => `$${value}`}
+                      tickFormatter={(value) => `${getSymbol("USD")}${value}`}
                     />
                   )}
                   <Tooltip
@@ -426,13 +467,10 @@ export default function Dashboard() {
                         typeof value === "number" ? value : Number(value ?? 0);
                       const label = name ?? "";
                       if (label === "LBP Sales") {
-                        return [`${valNum.toLocaleString()} LBP`, label];
+                        return [formatAmount(valNum, "LBP"), label];
                       }
                       if (label === "Profit") {
-                        return [
-                          `$${valNum.toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
-                          label,
-                        ];
+                        return [formatAmount(valNum, "USD"), label];
                       }
                       return [
                         `${valNum.toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
@@ -492,11 +530,11 @@ export default function Dashboard() {
                       </span>
                       <div className="text-right shrink-0">
                         <span className="text-sm font-bold text-red-400">
-                          ${debtor.total_debt_usd.toFixed(2)}
+                          {formatAmount(debtor.total_debt_usd, "USD")}
                         </span>
                         {debtor.total_debt_lbp !== 0 && (
                           <span className="text-xs text-red-400/70 ml-2">
-                            {debtor.total_debt_lbp.toLocaleString()} LBP
+                            {formatAmount(debtor.total_debt_lbp, "LBP")}
                           </span>
                         )}
                       </div>
@@ -536,12 +574,12 @@ export default function Dashboard() {
                       <div className="text-right">
                         {sale.paid_usd > 0 && (
                           <p className="text-emerald-400 font-bold text-sm">
-                            +${sale.paid_usd.toFixed(2)}
+                            +{formatAmount(sale.paid_usd, "USD")}
                           </p>
                         )}
                         {sale.paid_lbp > 0 && (
                           <p className="text-sky-400 font-semibold text-xs">
-                            +{sale.paid_lbp.toLocaleString()} LBP
+                            +{formatAmount(sale.paid_lbp, "LBP")}
                           </p>
                         )}
                       </div>
@@ -554,36 +592,6 @@ export default function Dashboard() {
                 )}
               </div>
             </div>
-          </div>
-        </div>
-
-        {/* Stock Overview */}
-        <div>
-          <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-            <Package className="text-amber-400" />
-            Stock Overview
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {stockCards.map((stat) => (
-              <div
-                key={stat.label}
-                className="bg-slate-800 p-4 rounded-xl border border-slate-700/50 shadow-lg hover:border-slate-600 transition-colors"
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <div className={`p-2 rounded-lg ${stat.bg}`}>
-                    <stat.icon className={`w-4 h-4 ${stat.color}`} />
-                  </div>
-                </div>
-                <h3 className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">
-                  {stat.label}
-                </h3>
-                {stat.singleValue && (
-                  <p className="text-xl font-bold text-white">
-                    {stat.singleValue}
-                  </p>
-                )}
-              </div>
-            ))}
           </div>
         </div>
       </div>

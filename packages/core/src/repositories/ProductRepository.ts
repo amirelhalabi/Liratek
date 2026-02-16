@@ -403,6 +403,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
 
   /**
    * Get products that are at or below minimum stock level
+   * Excludes virtual products (MTC/Alfa credits are tracked via drawer_balances)
    */
   findLowStock(): LowStockProduct[] {
     try {
@@ -410,28 +411,13 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
         SELECT id, name, stock_quantity, min_stock_level
         FROM ${this.tableName}
         WHERE stock_quantity <= min_stock_level AND is_active = 1
+          AND item_type NOT IN ('Virtual_MTC', 'Virtual_Alfa')
         ORDER BY name ASC
       `);
     } catch (error) {
       throw new DatabaseError("Failed to get low stock products", {
         cause: error,
       });
-    }
-  }
-
-  /**
-   * Get virtual stock (MTC + Alfa recharge inventory)
-   */
-  getVirtualStock(): number {
-    try {
-      const result = this.queryOne<{ total: number }>(`
-        SELECT COALESCE(SUM(stock_quantity), 0) as total 
-        FROM ${this.tableName} 
-        WHERE item_type IN ('Virtual_MTC', 'Virtual_Alfa') AND is_active = 1
-      `);
-      return result?.total ?? 0;
-    } catch (error) {
-      throw new DatabaseError("Failed to get virtual stock", { cause: error });
     }
   }
 

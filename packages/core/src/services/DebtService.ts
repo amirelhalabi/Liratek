@@ -35,6 +35,7 @@ export interface RepaymentData {
   amountLBP: number;
   note?: string;
   userId?: number;
+  paidByMethod?: string;
 }
 
 // =============================================================================
@@ -87,7 +88,7 @@ export class DebtService {
    * Process a debt repayment
    */
   addRepayment(data: RepaymentData): RepaymentResult {
-    const { clientId, amountUSD, amountLBP, note, userId } = data;
+    const { clientId, amountUSD, amountLBP, note, userId, paidByMethod } = data;
 
     // Validate
     if (!clientId) {
@@ -107,6 +108,7 @@ export class DebtService {
         amount_lbp: amountLBP,
         note: note || null,
         created_by: userId || null,
+        paid_by_method: paidByMethod,
       });
 
       debtLogger.info(

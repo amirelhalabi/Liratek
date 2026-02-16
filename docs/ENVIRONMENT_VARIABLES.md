@@ -453,5 +453,46 @@ docker run -d \
 
 ---
 
-**Last Updated:** 2026-02-14  
-**Maintained By:** LiraTek Development Team
+## 🔐 JWT Secret Security
+
+JWT tokens are used for authentication in both Backend and Electron. The system enforces security:
+
+- **No fallback secrets** — if `JWT_SECRET` is missing in production, the server refuses to start
+- **Minimum 32 characters** — enforced by Zod validation
+- **Auth middleware returns 500** — if JWT_SECRET is somehow unset at runtime
+
+### Generate a Secure Secret
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+# or
+openssl rand -base64 32
+```
+
+---
+
+## 🔧 Centralized Config (Zod)
+
+All environment variables are validated at startup via `packages/core/src/config/env.ts`:
+
+- **Type-safe** — TypeScript autocomplete for all variables
+- **Fail-fast** — invalid/missing required vars crash immediately with clear error
+- **Defaults documented** — sensible defaults for development
+- **Transform/coerce** — e.g., `PORT` string is coerced to number
+
+### Convenience Exports
+
+```typescript
+import {
+  env,
+  isDevelopment,
+  isProduction,
+  isTest,
+  PORT,
+  JWT_SECRET,
+} from "@liratek/core";
+```
+
+---
+
+**Last Updated:** 2026-02-15

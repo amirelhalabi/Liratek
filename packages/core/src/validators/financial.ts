@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { positiveDecimalSchema } from "./common.js";
+import { positiveDecimalSchema, currencyCodeSchema } from "./common.js";
 
 /**
  * Financial services validation schemas (OMT, WHISH, Western Union)
@@ -7,20 +7,39 @@ import { positiveDecimalSchema } from "./common.js";
 
 // OMT/WHISH Money Transfer
 export const createFinancialServiceSchema = z.object({
-  provider: z.enum(["OMT", "WHISH", "WESTERNUNION"]),
-  serviceType: z.enum(["SEND", "RECEIVE"]),
-  referenceNumber: z.string().min(1).max(100),
-  senderName: z.string().min(1).max(255),
-  receiverName: z.string().min(1).max(255),
-  amountUSD: positiveDecimalSchema,
-  commissionUSD: positiveDecimalSchema,
-  drawer: z.enum(["OMT_Drawer", "General_Drawer_B"]).optional(),
+  provider: z.enum([
+    "OMT",
+    "WHISH",
+    "IPEC",
+    "KATCH",
+    "WISH_APP",
+    "OMT_APP",
+    "BOB",
+    "OTHER",
+  ]),
+  serviceType: z.enum(["SEND", "RECEIVE", "BILL_PAYMENT"]),
+  amount: positiveDecimalSchema,
+  currency: currencyCodeSchema.default("USD"),
+  commission: positiveDecimalSchema.default(0),
+  clientName: z.string().max(255).optional(),
+  referenceNumber: z.string().max(100).optional(),
   note: z.string().max(500).optional(),
 });
 
 // Query financial services history
 export const getFinancialServicesSchema = z.object({
-  provider: z.enum(["OMT", "WHISH", "WESTERNUNION"]).optional(),
+  provider: z
+    .enum([
+      "OMT",
+      "WHISH",
+      "IPEC",
+      "KATCH",
+      "WISH_APP",
+      "OMT_APP",
+      "BOB",
+      "OTHER",
+    ])
+    .optional(),
   limit: z.coerce.number().int().positive().max(1000).default(50),
 });
 

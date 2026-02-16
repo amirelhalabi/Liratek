@@ -22,7 +22,8 @@ export function useCurrencies() {
       setLoading(true);
       setError(null);
       const list = await api.getCurrencies();
-      const active = list
+      const items = Array.isArray(list) ? list : [];
+      const active = items
         .filter((c: Currency) => c.is_active === 1)
         .map((c: Currency) => ({
           code: c.code,

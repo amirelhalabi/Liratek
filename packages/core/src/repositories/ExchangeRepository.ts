@@ -62,8 +62,10 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
     const createdBy = 1;
     const note = data.note || null;
 
-    // Derive type: BUY = customer buys toCurrency (gives LBP), SELL = customer sells fromCurrency (gives USD/EUR)
-    const type = data.fromCurrency === "LBP" ? "BUY" : "SELL";
+    // Derive type: BUY = customer buys toCurrency (gives away fromCurrency), SELL = customer sells fromCurrency
+    // Base currency determines perspective: if customer receives the base currency, it's a SELL
+    const BASE_CURRENCY = "USD";
+    const type = data.toCurrency === BASE_CURRENCY ? "SELL" : "BUY";
 
     return this.db.transaction(() => {
       const stmt = this.db.prepare(`

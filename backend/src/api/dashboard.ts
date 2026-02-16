@@ -42,6 +42,13 @@ router.get("/drawer-balances", (_req, res) => {
   res.json({ success: true, balances });
 });
 
+// GET /api/dashboard/drawer-names
+router.get("/drawer-names", (_req, res) => {
+  const repo = getFinancialRepository();
+  const drawerNames = repo.getDrawerNames();
+  res.json({ success: true, drawerNames });
+});
+
 // GET /api/dashboard/debt-summary
 router.get("/debt-summary", (_req, res) => {
   const service = getDebtService();

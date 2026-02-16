@@ -4,12 +4,12 @@ import { Settings as SettingsIcon, Save, X, Lock } from "lucide-react";
 import UsersManager from "./UsersManager";
 import Diagnostics from "./Diagnostics";
 import CurrencyManager from "./CurrencyManager";
-import RatesManager from "./RatesManager";
 import ShopConfig from "./ShopConfig";
 import DrawerConfig from "./DrawerConfig";
 import SupplierLedger from "./SupplierLedger";
 import NotificationsConfig from "./NotificationsConfig";
 import ActivityLogViewer from "./ActivityLogViewer";
+import ModulesManager from "./ModulesManager";
 import * as api from "../../../../api/backendApi";
 
 type TabKey =
@@ -18,8 +18,8 @@ type TabKey =
   | "suppliers"
   | "notifications"
   | "activity"
+  | "modules"
   | "currencies"
-  | "rates"
   | "users"
   | "diagnostics";
 
@@ -28,8 +28,7 @@ export default function Settings() {
   const [shopName, setShopName] = useState("");
   const [receiptHeaderText, setReceiptHeaderText] = useState("");
   const [exchangeRate, setExchangeRate] = useState("");
-  const [drawerLimitGeneral, setDrawerLimitGeneral] = useState("");
-  const [drawerLimitOMT, setDrawerLimitOMT] = useState("");
+
   const [whatsAppApiKey, setWhatsAppApiKey] = useState(""); // Placeholder for future feature
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -55,10 +54,7 @@ export default function Settings() {
       setExchangeRate(
         (settingsMap.get("exchange_rate_usd_lbp") as string) || "",
       );
-      setDrawerLimitGeneral(
-        (settingsMap.get("drawer_limit_general") as string) || "",
-      );
-      setDrawerLimitOMT((settingsMap.get("drawer_limit_omt") as string) || "");
+
       setWhatsAppApiKey((settingsMap.get("whatsapp_api_key") as string) || "");
     } catch (error) {
       logger.error("Failed to load settings:", error);
@@ -75,8 +71,7 @@ export default function Settings() {
         api.updateSetting("shop_name", shopName),
         api.updateSetting("receipt_header_text", receiptHeaderText),
         api.updateSetting("exchange_rate_usd_lbp", exchangeRate),
-        api.updateSetting("drawer_limit_general", drawerLimitGeneral),
-        api.updateSetting("drawer_limit_omt", drawerLimitOMT),
+
         api.updateSetting("whatsapp_api_key", whatsAppApiKey),
       ]);
       alert("Settings saved successfully!");
@@ -113,8 +108,8 @@ export default function Settings() {
               { key: "suppliers", label: "Suppliers" },
               { key: "notifications", label: "Notifications" },
               { key: "activity", label: "Activity Logs" },
-              { key: "currencies", label: "Currencies" },
-              { key: "rates", label: "Rates" },
+              { key: "modules", label: "Modules & Drawers" },
+              { key: "currencies", label: "Currencies & Rates" },
               { key: "users", label: "Users" },
               { key: "diagnostics", label: "Diagnostics" },
             ] as { key: TabKey; label: string }[]
@@ -134,8 +129,8 @@ export default function Settings() {
           {active === "suppliers" && <SupplierLedger />}
           {active === "notifications" && <NotificationsConfig />}
           {active === "activity" && <ActivityLogViewer />}
+          {active === "modules" && <ModulesManager />}
           {active === "currencies" && <CurrencyManager />}
-          {active === "rates" && <RatesManager />}
           {active === "users" && <UsersManager />}
           {active === "diagnostics" && <Diagnostics />}
         </div>
@@ -187,43 +182,6 @@ export default function Settings() {
             value={exchangeRate}
             onChange={(e) => setExchangeRate(e.target.value)}
           />
-        </div>
-      </div>
-
-      {/* Drawer Limits Section */}
-      <div className="bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-lg">
-        <h2 className="text-xl font-semibold text-white mb-4">Drawer Limits</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div>
-            <label
-              htmlFor="drawerLimitGeneral"
-              className="block text-sm font-medium text-slate-400 mb-2"
-            >
-              General Drawer Limit (USD)
-            </label>
-            <input
-              type="number"
-              id="drawerLimitGeneral"
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-1 focus:ring-violet-500"
-              value={drawerLimitGeneral}
-              onChange={(e) => setDrawerLimitGeneral(e.target.value)}
-            />
-          </div>
-          <div>
-            <label
-              htmlFor="drawerLimitOMT"
-              className="block text-sm font-medium text-slate-400 mb-2"
-            >
-              OMT Drawer Limit (USD)
-            </label>
-            <input
-              type="number"
-              id="drawerLimitOMT"
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-1 focus:ring-violet-500"
-              value={drawerLimitOMT}
-              onChange={(e) => setDrawerLimitOMT(e.target.value)}
-            />
-          </div>
         </div>
       </div>
 

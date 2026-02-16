@@ -31,10 +31,42 @@ export default function Opening({ isOpen, onClose }: OpeningProps) {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  // Initialize amounts when currencies are loaded
+  /** Configured currencies per drawer from currency_drawers table */
+  const [drawerCurrencyConfig, setDrawerCurrencyConfig] = useState<
+    Record<string, string[]>
+  >({});
+
+  // Load drawer-currency config when modal opens
+  // Load drawer-currency config and auto-fill from current DB balances when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      api
+        .getAllDrawerCurrencies()
+        .then(setDrawerCurrencyConfig)
+        .catch(() => {});
+    }
+  }, [isOpen]);
+
+  // Auto-fill amounts from current drawer balances in the database
   useEffect(() => {
     if (currencies.length > 0 && isOpen) {
       drawerAmounts.initializeAmounts();
+
+      // Load current balances and populate the form
+      api
+        .getSystemExpectedBalancesDynamic()
+        .then((balances) => {
+          for (const [drawer, currencyMap] of Object.entries(balances)) {
+            for (const [code, value] of Object.entries(currencyMap)) {
+              if (typeof value === "number" && value !== 0) {
+                drawerAmounts.updateAmount(drawer as DrawerType, code, value);
+              }
+            }
+          }
+        })
+        .catch((err) => {
+          logger.error("[Opening] Failed to load current balances:", err);
+        });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currencies, isOpen]);
@@ -192,13 +224,10 @@ export default function Opening({ isOpen, onClose }: OpeningProps) {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {DRAWER_ORDER.map((drawer) => {
-                  // MTC and Alfa only use USD (credits stored in shop's phone)
-                  const drawerCurrencies =
-                    drawer === "MTC" ||
-                    drawer === "Alfa" ||
-                    drawer === "Binance"
-                      ? currencies.filter((c) => c.code === "USD")
-                      : currencies;
+                  const allowed = drawerCurrencyConfig[drawer];
+                  const drawerCurrencies = allowed
+                    ? currencies.filter((c) => allowed.includes(c.code))
+                    : currencies;
 
                   return (
                     <DrawerCard

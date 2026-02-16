@@ -13,6 +13,7 @@ export const addRepaymentSchema = z
     amountLBP: positiveDecimalSchema.default(0),
     note: z.string().max(500).optional(),
     userId: idSchema.optional(),
+    paidByMethod: z.string().min(1).optional(),
   })
   .refine((data) => data.amountUSD > 0 || data.amountLBP > 0, {
     message: "At least one amount (USD or LBP) must be greater than 0",

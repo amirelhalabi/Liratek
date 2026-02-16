@@ -17,6 +17,8 @@ describe("generateClosingReport", () => {
     const closingData = {
       closing_date: "2023-12-16",
       drawer_name: "General Drawer",
+      physical: {} as Record<string, number>,
+      systemExpected: {} as Record<string, number>,
       physical_usd: 1000,
       physical_lbp: 1500000,
       physical_eur: 50,
@@ -64,6 +66,8 @@ describe("generateClosingReport", () => {
     const closingData = {
       closing_date: "2023-12-16",
       drawer_name: "OMT Drawer",
+      physical: {} as Record<string, number>,
+      systemExpected: {} as Record<string, number>,
       physical_usd: 900,
       physical_lbp: 1400000,
       physical_eur: 45,
@@ -85,6 +89,8 @@ describe("generateClosingReport", () => {
     const closingData = {
       closing_date: "2023-12-16",
       drawer_name: "General Drawer",
+      physical: {} as Record<string, number>,
+      systemExpected: {} as Record<string, number>,
       physical_usd: 1100,
       physical_lbp: 1600000,
       physical_eur: 55,
@@ -106,6 +112,8 @@ describe("generateClosingReport", () => {
     const closingData = {
       closing_date: "2023-12-16",
       drawer_name: "General Drawer",
+      physical: {} as Record<string, number>,
+      systemExpected: {} as Record<string, number>,
       physical_usd: 100,
       physical_lbp: 100,
       physical_eur: 100,

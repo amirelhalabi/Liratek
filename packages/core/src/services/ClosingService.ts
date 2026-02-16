@@ -2,7 +2,7 @@ import {
   ClosingRepository,
   OpeningBalanceAmount,
   ClosingAmount,
-  SystemExpectedBalances,
+  DynamicSystemExpectedBalances,
   DailyStatsSnapshot,
   getClosingRepository,
 } from "../repositories/ClosingRepository.js";
@@ -98,6 +98,24 @@ export class ClosingService {
   }
 
   /**
+   * Recalculate drawer_balances from the payments journal
+   */
+  recalculateDrawerBalances(): { success: boolean; error?: string } {
+    try {
+      return this.repo.recalculateDrawerBalances();
+    } catch (error) {
+      closingLogger.error(
+        { error },
+        "ClosingService.recalculateDrawerBalances error",
+      );
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
    * Check if opening balance has been set for today
    */
   hasOpeningBalanceToday(): boolean {
@@ -106,28 +124,17 @@ export class ClosingService {
   }
 
   /**
-   * Get system expected balances for today
+   * Get system expected balances (dynamic — keyed by drawer name)
    */
-  getSystemExpectedBalances(): SystemExpectedBalances {
+  getSystemExpectedBalancesDynamic(): DynamicSystemExpectedBalances {
     try {
-      return this.repo.getSystemExpectedBalances();
+      return this.repo.getSystemExpectedBalancesDynamic();
     } catch (error) {
       closingLogger.error(
         { error },
-        "ClosingService.getSystemExpectedBalances error",
+        "ClosingService.getSystemExpectedBalancesDynamic error",
       );
-      return {
-        generalDrawer: { usd: 0, lbp: 0, eur: 0 },
-        omtDrawer: { usd: 0, lbp: 0, eur: 0 },
-        omtAppDrawer: { usd: 0, lbp: 0, eur: 0 },
-        whishDrawer: { usd: 0, lbp: 0, eur: 0 },
-        binanceDrawer: { usd: 0, lbp: 0, eur: 0 },
-        mtcDrawer: { usd: 0, lbp: 0, eur: 0 },
-        alfaDrawer: { usd: 0, lbp: 0, eur: 0 },
-        ipecDrawer: { usd: 0, lbp: 0, eur: 0 },
-        katchDrawer: { usd: 0, lbp: 0, eur: 0 },
-        wishAppDrawer: { usd: 0, lbp: 0, eur: 0 },
-      };
+      return {};
     }
   }
 

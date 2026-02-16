@@ -65,11 +65,11 @@ import {
 // Backward compatible payment method type (DB values)
 // NOTE: exported for API typing.
 export type { PaymentMethod };
-export type PaymentCurrencyCode = "USD" | "LBP";
+export type PaymentCurrencyCode = string;
 
 export interface PaymentLine {
   method: PaymentMethod;
-  currency_code: PaymentCurrencyCode;
+  currency_code: string;
   amount: number;
 }
 
@@ -210,20 +210,23 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         }
 
         const sumPayments = (lines: PaymentLine[] | undefined) => {
-          const totals = { usd: 0, lbp: 0 };
+          const totals: Record<string, number> = {};
           for (const p of lines || []) {
             // DEBT lines represent unpaid amounts and must not count as paid.
             if (!isDrawerAffectingMethod(p.method)) continue;
-            if (p.currency_code === "USD") totals.usd += p.amount;
-            if (p.currency_code === "LBP") totals.lbp += p.amount;
+            totals[p.currency_code] = (totals[p.currency_code] || 0) + p.amount;
           }
           return totals;
         };
 
         // If new payments[] provided, derive legacy totals from it
         const derived = sumPayments(sale.payments);
-        const paymentUsd = sale.payments ? derived.usd : sale.payment_usd;
-        const paymentLbp = sale.payments ? derived.lbp : sale.payment_lbp;
+        const paymentUsd = sale.payments
+          ? derived["USD"] || 0
+          : sale.payment_usd;
+        const paymentLbp = sale.payments
+          ? derived["LBP"] || 0
+          : sale.payment_lbp;
 
         let saleId = sale.id;
 
@@ -291,7 +294,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
                 ? [
                     {
                       method: "CASH" as const,
-                      currency_code: "USD" as const,
+                      currency_code: "USD",
                       amount: paymentUsd,
                     },
                   ]
@@ -300,7 +303,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
                 ? [
                     {
                       method: "CASH" as const,
-                      currency_code: "LBP" as const,
+                      currency_code: "LBP",
                       amount: paymentLbp,
                     },
                   ]
@@ -764,8 +767,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       }>(
         `
         SELECT 
-          SUM(amount_usd) as total_usd, 
-          SUM(amount_lbp) as total_lbp 
+          COALESCE(SUM(CASE WHEN currency = 'USD' THEN amount ELSE 0 END), 0) as total_usd, 
+          COALESCE(SUM(CASE WHEN currency = 'LBP' THEN amount ELSE 0 END), 0) as total_lbp 
         FROM financial_services 
         WHERE DATE(created_at) = ? AND provider = 'OMT' AND service_type = 'RECEIVE'
       `,
@@ -779,8 +782,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       }>(
         `
         SELECT 
-          SUM(amount_usd) as total_usd, 
-          SUM(amount_lbp) as total_lbp 
+          COALESCE(SUM(CASE WHEN currency = 'USD' THEN amount ELSE 0 END), 0) as total_usd, 
+          COALESCE(SUM(CASE WHEN currency = 'LBP' THEN amount ELSE 0 END), 0) as total_lbp 
         FROM financial_services 
         WHERE DATE(created_at) = ? AND provider = 'OMT' AND service_type = 'SEND'
       `,

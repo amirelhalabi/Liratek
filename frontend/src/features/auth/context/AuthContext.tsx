@@ -43,7 +43,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // Try to get stored session token from localStorage
           const storedToken = localStorage.getItem("sessionToken");
 
-          const result = await window.api.restoreSession(
+          const result = await window.api.auth.restoreSession(
             storedToken || undefined,
           );
 

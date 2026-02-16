@@ -66,7 +66,7 @@ export function registerDatabaseHandlers(): void {
         description: string;
         category: string;
         expense_type: string;
-        paid_by_method?: "CASH" | "OMT" | "WHISH" | "BINANCE";
+        paid_by_method?: string;
         amount_usd: number;
         amount_lbp: number;
         expense_date: string;
@@ -140,9 +140,9 @@ export function registerDatabaseHandlers(): void {
     },
   );
 
-  // Get system expected balances
-  ipcMain.handle("closing:get-system-expected-balances", async () => {
-    return closingService.getSystemExpectedBalances();
+  // Get system expected balances (dynamic format: Record<drawerName, Record<currencyCode, balance>>)
+  ipcMain.handle("closing:get-system-expected-balances-dynamic", async () => {
+    return closingService.getSystemExpectedBalancesDynamic();
   });
 
   // Check if opening balance has been set for today
@@ -262,6 +262,18 @@ export function registerDatabaseHandlers(): void {
       if (!auth.ok) return { error: "Forbidden" };
     } catch {}
     return activityService.getSyncErrors();
+  });
+
+  // Recalculate drawer balances from payments journal
+  ipcMain.handle("closing:recalculate-drawer-balances", (e) => {
+    try {
+      const { requireRole } = require("../session");
+      const auth = requireRole(e.sender.id, ["admin"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+    } catch {}
+
+    closingLogger.info("Recalculating drawer balances from payments journal");
+    return closingService.recalculateDrawerBalances();
   });
 
   // Diagnostics: run PRAGMA foreign_key_check

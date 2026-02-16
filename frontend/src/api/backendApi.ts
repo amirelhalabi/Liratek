@@ -32,7 +32,7 @@ export async function login(
   rememberMe: boolean = false,
 ) {
   if (isElectron()) {
-    return (window as any).api.login(username, password, rememberMe);
+    return (window as any).api.auth.login(username, password, rememberMe);
   }
 
   const res = await requestJson<{
@@ -54,7 +54,7 @@ export async function logout(): Promise<void> {
   if (isElectron()) {
     const sessionToken = localStorage.getItem("sessionToken") || "";
     // Some Electron implementations require the sessionToken, but older ones may ignore the arg.
-    return getElectronApi().logout(sessionToken);
+    return getElectronApi().auth.logout(sessionToken);
   }
 
   try {
@@ -70,7 +70,7 @@ export async function me() {
   return ipcOrHttp<MeResult>(
     async () => {
       const token = localStorage.getItem("sessionToken") || undefined;
-      const res = await getElectronApi().restoreSession(token);
+      const res = await getElectronApi().auth.restoreSession(token);
       const out: MeResult = { success: !!res?.success };
       if (res?.user) out.user = res.user;
       if (res?.error) out.error = res.error;
@@ -83,7 +83,7 @@ export async function me() {
 // Clients
 export async function getClients(search: string) {
   return ipcOrHttp(
-    async () => getElectronApi().getClients(search),
+    async () => getElectronApi().clients.getAll(search),
     async () => {
       const qs = new URLSearchParams();
       if (search) qs.set("search", search);
@@ -97,7 +97,7 @@ export async function getClients(search: string) {
 
 export async function deleteClient(id: number) {
   return ipcOrHttp(
-    async () => getElectronApi().deleteClient(id),
+    async () => getElectronApi().clients.delete(id),
     async () =>
       requestJson<{ success: boolean; error?: string }>(`/api/clients/${id}`, {
         method: "DELETE",
@@ -108,7 +108,7 @@ export async function deleteClient(id: number) {
 // Inventory
 export async function getProducts(search: string = "") {
   return ipcOrHttp(
-    async () => getElectronApi().getProducts(search),
+    async () => getElectronApi().inventory.getProducts(search),
     async () => {
       const qs = new URLSearchParams();
       if (search) qs.set("search", search);
@@ -130,7 +130,7 @@ export type ProductWriteResult = {
 
 export async function createProduct(payload: any): Promise<ProductWriteResult> {
   if (isElectron()) {
-    return (window as any).api.createProduct(payload);
+    return (window as any).api.inventory.createProduct(payload);
   }
   return requestJson<ProductWriteResult>(`/api/inventory/products`, {
     method: "POST",
@@ -143,7 +143,7 @@ export async function updateProduct(
   payload: any,
 ): Promise<ProductWriteResult> {
   return ipcOrHttp(
-    async () => getElectronApi().updateProduct({ id, ...payload }),
+    async () => getElectronApi().inventory.updateProduct({ id, ...payload }),
     async () =>
       requestJson<ProductWriteResult>(`/api/inventory/products/${id}`, {
         method: "PUT",
@@ -154,7 +154,7 @@ export async function updateProduct(
 
 export async function deleteProduct(id: number): Promise<ProductWriteResult> {
   if (isElectron()) {
-    return (window as any).api.deleteProduct(id);
+    return (window as any).api.inventory.deleteProduct(id);
   }
   return requestJson<ProductWriteResult>(`/api/inventory/products/${id}`, {
     method: "DELETE",
@@ -163,7 +163,7 @@ export async function deleteProduct(id: number): Promise<ProductWriteResult> {
 
 export async function getLowStockProducts() {
   return ipcOrHttp(
-    async () => getElectronApi().getLowStockProducts(),
+    async () => getElectronApi().inventory.getLowStockProducts(),
     async () => {
       // Web fallback: derive from products list (if min_stock/quantity fields exist).
       const products = await getProducts("");
@@ -182,7 +182,7 @@ export async function getLowStockProducts() {
 // Sales
 export async function getDrafts() {
   if (isElectron()) {
-    return (window as any).api.getDrafts();
+    return (window as any).api.sales.getDrafts();
   }
   const res = await requestJson<{ success: boolean; drafts: any[] }>(
     `/api/sales/drafts`,
@@ -198,7 +198,7 @@ export type ProcessSaleResult = {
 
 export async function processSale(payload: any): Promise<ProcessSaleResult> {
   if (isElectron()) {
-    return (window as any).api.processSale(payload);
+    return (window as any).api.sales.process(payload);
   }
   return requestJson<ProcessSaleResult>(`/api/sales/process`, {
     method: "POST",
@@ -208,7 +208,7 @@ export async function processSale(payload: any): Promise<ProcessSaleResult> {
 
 export async function getSale(saleId: number) {
   if (isElectron()) {
-    return (window as any).api.getSale(saleId);
+    return (window as any).api.sales.get(saleId);
   }
   const res = await requestJson<{ success: boolean; sale: any }>(
     `/api/sales/${saleId}`,
@@ -218,7 +218,7 @@ export async function getSale(saleId: number) {
 
 export async function getSaleItems(saleId: number) {
   if (isElectron()) {
-    return (window as any).api.getSaleItems(saleId);
+    return (window as any).api.sales.getItems(saleId);
   }
   const res = await requestJson<{ success: boolean; items: any[] }>(
     `/api/sales/${saleId}/items`,
@@ -229,7 +229,7 @@ export async function getSaleItems(saleId: number) {
 // Debts
 export async function getDebtors() {
   if (isElectron()) {
-    return (window as any).api.getDebtors();
+    return (window as any).api.debt.getDebtors();
   }
   const res = await requestJson<{ success: boolean; debtors: any[] }>(
     `/api/debts/debtors`,
@@ -239,7 +239,7 @@ export async function getDebtors() {
 
 export async function getClientDebtHistory(clientId: number) {
   if (isElectron()) {
-    return (window as any).api.getClientDebtHistory(clientId);
+    return (window as any).api.debt.getClientHistory(clientId);
   }
   const res = await requestJson<{ success: boolean; history: any[] }>(
     `/api/debts/clients/${clientId}/history`,
@@ -249,7 +249,7 @@ export async function getClientDebtHistory(clientId: number) {
 
 export async function getClientDebtTotal(clientId: number) {
   return ipcOrHttp(
-    async () => getElectronApi().getClientDebtTotal(clientId),
+    async () => getElectronApi().debt.getClientTotal(clientId),
     async () => {
       const res = await requestJson<{ success: boolean; total: number }>(
         `/api/debts/clients/${clientId}/total`,
@@ -261,7 +261,7 @@ export async function getClientDebtTotal(clientId: number) {
 
 export async function addRepayment(payload: any) {
   if (isElectron()) {
-    return (window as any).api.addRepayment(payload);
+    return (window as any).api.debt.addRepayment(payload);
   }
   return requestJson<{ success: boolean; error?: string }>(
     `/api/debts/repayments`,
@@ -297,7 +297,7 @@ export async function getCurrenciesList() {
 export async function getExchangeHistory(limit?: number) {
   if (isElectron()) {
     // Electron preload exposes getExchangeHistory() without limit
-    return (window as any).api.getExchangeHistory();
+    return (window as any).api.exchange.getHistory();
   }
   const qs = new URLSearchParams();
   if (limit) qs.set("limit", String(limit));
@@ -309,7 +309,7 @@ export async function getExchangeHistory(limit?: number) {
 
 export async function addExchangeTransaction(payload: any) {
   if (isElectron()) {
-    return (window as any).api.addExchangeTransaction(payload);
+    return (window as any).api.exchange.addTransaction(payload);
   }
   return requestJson<{ success: boolean; id?: number; error?: string }>(
     `/api/exchange/transactions`,
@@ -320,7 +320,7 @@ export async function addExchangeTransaction(payload: any) {
 // Binance
 export async function getBinanceHistory(limit?: number) {
   if (isElectron()) {
-    return (window as any).api.getBinanceHistory(limit);
+    return (window as any).api.binance.getHistory(limit);
   }
   const qs = new URLSearchParams();
   if (limit) qs.set("limit", String(limit));
@@ -332,7 +332,7 @@ export async function getBinanceHistory(limit?: number) {
 
 export async function getBinanceTodayStats() {
   if (isElectron()) {
-    return (window as any).api.getBinanceTodayStats();
+    return (window as any).api.binance.getTodayStats();
   }
   const res = await requestJson<{
     success: boolean;
@@ -349,7 +349,7 @@ export async function addBinanceTransaction(payload: {
   clientName?: string;
 }) {
   if (isElectron()) {
-    return (window as any).api.addBinanceTransaction(payload);
+    return (window as any).api.binance.addTransaction(payload);
   }
   return requestJson<{ success: boolean; id?: number; error?: string }>(
     `/api/binance/transactions`,
@@ -360,7 +360,7 @@ export async function addBinanceTransaction(payload: {
 // Expenses
 export async function getTodayExpenses() {
   if (isElectron()) {
-    return (window as any).api.getTodayExpenses();
+    return (window as any).api.expenses.getToday();
   }
   const res = await requestJson<{ success: boolean; expenses: any[] }>(
     `/api/expenses/today`,
@@ -370,7 +370,7 @@ export async function getTodayExpenses() {
 
 export async function addExpense(payload: any) {
   if (isElectron()) {
-    return (window as any).api.addExpense(payload);
+    return (window as any).api.expenses.add(payload);
   }
   return requestJson<{ success: boolean; id?: number; error?: string }>(
     `/api/expenses`,
@@ -380,7 +380,7 @@ export async function addExpense(payload: any) {
 
 export async function deleteExpense(id: number) {
   if (isElectron()) {
-    return (window as any).api.deleteExpense(id);
+    return (window as any).api.expenses.delete(id);
   }
   return requestJson<{ success: boolean; error?: string }>(
     `/api/expenses/${id}`,
@@ -391,7 +391,7 @@ export async function deleteExpense(id: number) {
 // Dashboard
 export async function getDashboardStats() {
   return ipcOrHttp(
-    async () => getElectronApi().getDashboardStats(),
+    async () => getElectronApi().dashboard.getStats(),
     async () => {
       const res = await requestJson<{ success: boolean; stats: any }>(
         `/api/dashboard/stats`,
@@ -403,7 +403,7 @@ export async function getDashboardStats() {
 
 export async function getProfitSalesChart(type: "Sales" | "Profit") {
   return ipcOrHttp(
-    async () => getElectronApi().getProfitSalesChart(type),
+    async () => getElectronApi().dashboard.getProfitSalesChart(type),
     async () => {
       const qs = new URLSearchParams({ type });
       const res = await requestJson<{ success: boolean; chart: any[] }>(
@@ -416,7 +416,7 @@ export async function getProfitSalesChart(type: "Sales" | "Profit") {
 
 export async function getTodaysSales() {
   return ipcOrHttp(
-    async () => getElectronApi().getTodaysSales(),
+    async () => getElectronApi().sales.getTodaysSales(),
     async () => {
       const res = await requestJson<{ success: boolean; sales: any[] }>(
         `/api/dashboard/todays-sales`,
@@ -428,7 +428,7 @@ export async function getTodaysSales() {
 
 export async function getDrawerBalances() {
   return ipcOrHttp(
-    async () => getElectronApi().getDrawerBalances(),
+    async () => getElectronApi().dashboard.getDrawerBalances(),
     async () => {
       const res = await requestJson<{ success: boolean; balances: any }>(
         `/api/dashboard/drawer-balances`,
@@ -440,7 +440,7 @@ export async function getDrawerBalances() {
 
 export async function getDebtSummary() {
   return ipcOrHttp(
-    async () => getElectronApi().getDebtSummary(),
+    async () => getElectronApi().debt.getSummary(),
     async () => {
       const res = await requestJson<{ success: boolean; debt: any }>(
         `/api/dashboard/debt-summary`,
@@ -452,7 +452,7 @@ export async function getDebtSummary() {
 
 export async function getInventoryStockStats() {
   return ipcOrHttp(
-    async () => getElectronApi().getInventoryStockStats(),
+    async () => getElectronApi().inventory.getStockStats(),
     async () => {
       const res = await requestJson<{ success: boolean; stats: any }>(
         `/api/dashboard/inventory-stock-stats`,
@@ -464,13 +464,26 @@ export async function getInventoryStockStats() {
 
 export async function getMonthlyPL(month: string) {
   return ipcOrHttp(
-    async () => getElectronApi().getMonthlyPL(month),
+    async () => getElectronApi().financial.getMonthlyPL(month),
     async () => {
       const qs = new URLSearchParams({ month });
       const res = await requestJson<{ success: boolean; pl: any }>(
         `/api/dashboard/monthly-pl?${qs.toString()}`,
       );
       return res.pl;
+    },
+  );
+}
+
+export async function getDrawerNames(): Promise<string[]> {
+  return ipcOrHttp(
+    async () => getElectronApi().financial.getDrawerNames(),
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        drawerNames: string[];
+      }>(`/api/dashboard/drawer-names`);
+      return res.drawerNames;
     },
   );
 }
@@ -520,7 +533,7 @@ export async function updateSetting(key: string, value: string) {
 // Recharge
 export async function getRechargeStock() {
   if (isElectron()) {
-    return (window as any).api.getRechargeStock();
+    return (window as any).api.recharge.getStock();
   }
   const res = await requestJson<{ success: boolean; stock: any }>(
     `/api/recharge/stock`,
@@ -530,7 +543,7 @@ export async function getRechargeStock() {
 
 export async function processRecharge(payload: any) {
   if (isElectron()) {
-    return (window as any).api.processRecharge(payload);
+    return (window as any).api.recharge.process(payload);
   }
   return requestJson<{ success: boolean; error?: string }>(
     `/api/recharge/process`,
@@ -541,10 +554,27 @@ export async function processRecharge(payload: any) {
   );
 }
 
+export async function topUpRecharge(payload: {
+  provider: "MTC" | "Alfa";
+  amount: number;
+  currency?: string;
+}) {
+  if (isElectron()) {
+    return (window as any).api.recharge.topUp(payload);
+  }
+  return requestJson<{ success: boolean; error?: string }>(
+    `/api/recharge/top-up`,
+    {
+      method: "POST",
+      body: payload,
+    },
+  );
+}
+
 // Services (OMT/Whish/BOB)
 export async function getOMTHistory(provider?: string) {
   if (isElectron()) {
-    return (window as any).api.getOMTHistory(provider);
+    return (window as any).api.omt.getHistory(provider);
   }
   const qs = new URLSearchParams();
   if (provider) qs.set("provider", provider);
@@ -556,7 +586,7 @@ export async function getOMTHistory(provider?: string) {
 
 export async function getOMTAnalytics() {
   if (isElectron()) {
-    return (window as any).api.getOMTAnalytics();
+    return (window as any).api.omt.getAnalytics();
   }
   const res = await requestJson<{ success: boolean; analytics: any }>(
     `/api/services/analytics`,
@@ -566,7 +596,7 @@ export async function getOMTAnalytics() {
 
 export async function addOMTTransaction(payload: any) {
   if (isElectron()) {
-    return (window as any).api.addOMTTransaction(payload);
+    return (window as any).api.omt.addTransaction(payload);
   }
   return requestJson<{ success: boolean; error?: string; id?: number }>(
     `/api/services/transactions`,
@@ -580,7 +610,7 @@ export async function addOMTTransaction(payload: any) {
 // Maintenance
 export async function getMaintenanceJobs(statusFilter?: string) {
   if (isElectron()) {
-    return (window as any).api.getMaintenanceJobs(statusFilter);
+    return (window as any).api.maintenance.getJobs(statusFilter);
   }
   const qs = new URLSearchParams();
   if (statusFilter) qs.set("status", statusFilter);
@@ -592,7 +622,7 @@ export async function getMaintenanceJobs(statusFilter?: string) {
 
 export async function saveMaintenanceJob(payload: any) {
   if (isElectron()) {
-    return (window as any).api.saveMaintenanceJob(payload);
+    return (window as any).api.maintenance.save(payload);
   }
   return requestJson<{ success: boolean; error?: string; id?: number }>(
     `/api/maintenance/jobs`,
@@ -605,7 +635,7 @@ export async function saveMaintenanceJob(payload: any) {
 
 export async function deleteMaintenanceJob(id: number) {
   if (isElectron()) {
-    return (window as any).api.deleteMaintenanceJob(id);
+    return (window as any).api.maintenance.delete(id);
   }
   return requestJson<{ success: boolean; error?: string }>(
     `/api/maintenance/jobs/${id}`,
@@ -628,13 +658,19 @@ export async function getCurrencies() {
 
 // ==================== Closing API ====================
 
-export async function getSystemExpectedBalances() {
+/**
+ * Get system expected balances in dynamic format: Record<drawerName, Record<currencyCode, balance>>
+ */
+export async function getSystemExpectedBalancesDynamic(): Promise<
+  Record<string, Record<string, number>>
+> {
   if (isElectron()) {
-    return (window as any).api.closing.getSystemExpectedBalances();
+    return (window as any).api.closing.getSystemExpectedBalancesDynamic();
   }
-  const res = await requestJson<{ success: boolean; balances: any }>(
-    "/api/closing/system-expected-balances",
-  );
+  const res = await requestJson<{
+    success: boolean;
+    balances: Record<string, Record<string, number>>;
+  }>("/api/closing/system-expected-balances-dynamic");
   return res.balances;
 }
 
@@ -656,6 +692,19 @@ export async function getDailyStatsSnapshot() {
     "/api/closing/daily-stats-snapshot",
   );
   return res.stats;
+}
+
+export async function recalculateDrawerBalances(): Promise<{
+  success: boolean;
+  error?: string;
+}> {
+  if (isElectron()) {
+    return (window as any).api.closing.recalculateDrawerBalances();
+  }
+  return requestJson<{ success: boolean; error?: string }>(
+    "/api/closing/recalculate-drawer-balances",
+    { method: "POST" },
+  );
 }
 
 export async function setOpeningBalances(data: {
@@ -726,7 +775,7 @@ export async function updateDailyClosing(
 
 export async function getSuppliers(search?: string) {
   if (isElectron()) {
-    return (window as any).api.listSuppliers(search);
+    return (window as any).api.suppliers.list(search);
   }
   const qs = new URLSearchParams();
   if (search) qs.set("search", search);
@@ -738,7 +787,7 @@ export async function getSuppliers(search?: string) {
 
 export async function getSupplierBalances() {
   if (isElectron()) {
-    return (window as any).api.getSupplierBalances();
+    return (window as any).api.suppliers.getBalances();
   }
   const res = await requestJson<{ success: boolean; balances: any[] }>(
     "/api/suppliers/balances",
@@ -748,7 +797,7 @@ export async function getSupplierBalances() {
 
 export async function getSupplierLedger(supplierId: number, limit?: number) {
   return ipcOrHttp(
-    async () => getElectronApi().getSupplierLedger(supplierId, limit),
+    async () => getElectronApi().suppliers.getLedger(supplierId, limit),
     async () => {
       const qs = new URLSearchParams();
       if (limit) qs.set("limit", limit.toString());
@@ -765,9 +814,11 @@ export async function createSupplier(data: {
   contact_name?: string;
   phone?: string;
   note?: string;
+  module_key?: string;
+  provider?: string;
 }) {
   return ipcOrHttp(
-    async () => getElectronApi().createSupplier(data),
+    async () => getElectronApi().suppliers.create(data),
     async () =>
       requestJson<{ success: boolean; id?: number; error?: string }>(
         "/api/suppliers",
@@ -791,7 +842,7 @@ export async function addSupplierLedgerEntry(
 ) {
   return ipcOrHttp(
     async () =>
-      getElectronApi().addSupplierLedgerEntry({
+      getElectronApi().suppliers.addLedgerEntry({
         supplier_id: supplierId,
         ...data,
       }),
@@ -837,7 +888,7 @@ export async function setRate(
 
 export async function getNonAdminUsers() {
   if (isElectron()) {
-    return (window as any).api.getNonAdminUsers();
+    return (window as any).api.auth.getNonAdminUsers();
   }
   const res = await requestJson<{ success: boolean; users: any[] }>(
     "/api/users/non-admins",
@@ -852,7 +903,7 @@ export async function createUser(data: {
 }) {
   return ipcOrHttp(
     async () =>
-      getElectronApi().createUser(data.username, data.password, data.role),
+      getElectronApi().auth.createUser(data.username, data.password, data.role),
     async () =>
       requestJson<{ success: boolean; id?: number; error?: string }>(
         "/api/users",
@@ -866,7 +917,7 @@ export async function createUser(data: {
 
 export async function setUserActive(userId: number, is_active: boolean) {
   return ipcOrHttp(
-    async () => getElectronApi().setUserActive(userId, is_active ? 1 : 0),
+    async () => getElectronApi().auth.setUserActive(userId, is_active ? 1 : 0),
     async () =>
       requestJson<{ success: boolean; error?: string }>(
         `/api/users/${userId}/active`,
@@ -880,7 +931,7 @@ export async function setUserActive(userId: number, is_active: boolean) {
 
 export async function setUserRole(userId: number, role: string) {
   return ipcOrHttp(
-    async () => getElectronApi().setUserRole(userId, role),
+    async () => getElectronApi().auth.setUserRole(userId, role),
     async () =>
       requestJson<{ success: boolean; error?: string }>(
         `/api/users/${userId}/role`,
@@ -894,7 +945,7 @@ export async function setUserRole(userId: number, role: string) {
 
 export async function setUserPassword(userId: number, password: string) {
   return ipcOrHttp(
-    async () => getElectronApi().setUserPassword(userId, password),
+    async () => getElectronApi().auth.setUserPassword(userId, password),
     async () =>
       requestJson<{ success: boolean; error?: string }>(
         `/api/users/${userId}/password`,
@@ -986,15 +1037,21 @@ export async function restoreDatabase(path: string) {
   );
 }
 
-export async function createCurrency(code: string, name: string) {
+export async function createCurrency(
+  code: string,
+  name: string,
+  symbol?: string,
+  decimalPlaces?: number,
+) {
   return ipcOrHttp(
-    async () => getElectronApi().currencies.create(code, name),
+    async () =>
+      getElectronApi().currencies.create(code, name, symbol, decimalPlaces),
     async () =>
       requestJson<{ success: boolean; error?: string; id?: number }>(
         `/api/currencies`,
         {
           method: "POST",
-          body: { code, name },
+          body: { code, name, symbol, decimal_places: decimalPlaces },
         },
       ),
   );
@@ -1027,7 +1084,285 @@ export async function deleteCurrency(id: number) {
   );
 }
 
+// ==================== Module API ====================
+
+export async function getModules() {
+  return ipcOrHttp(
+    async () => getElectronApi().modules.list(),
+    async () => {
+      const res = await requestJson<{ success: boolean; modules: any[] }>(
+        `/api/modules`,
+      );
+      return res.modules;
+    },
+  );
+}
+
+export async function getEnabledModules() {
+  return ipcOrHttp(
+    async () => getElectronApi().modules.enabled(),
+    async () => {
+      const res = await requestJson<{ success: boolean; modules: any[] }>(
+        `/api/modules/enabled`,
+      );
+      return res.modules;
+    },
+  );
+}
+
+export async function getToggleableModules() {
+  return ipcOrHttp(
+    async () => getElectronApi().modules.toggleable(),
+    async () => {
+      const res = await requestJson<{ success: boolean; modules: any[] }>(
+        `/api/modules/toggleable`,
+      );
+      return res.modules;
+    },
+  );
+}
+
+export async function setModuleEnabled(key: string, enabled: boolean) {
+  return ipcOrHttp(
+    async () => getElectronApi().modules.setEnabled(key, enabled),
+    async () =>
+      requestJson<{ success: boolean; error?: string }>(
+        `/api/modules/${key}/enabled`,
+        {
+          method: "PATCH",
+          body: { enabled },
+        },
+      ),
+  );
+}
+
+// ==================== Payment Method API ====================
+
+export type PaymentMethodEntity = {
+  id: number;
+  code: string;
+  label: string;
+  drawer_name: string;
+  affects_drawer: number;
+  sort_order: number;
+  is_active: number;
+  is_system: number;
+  created_at: string;
+};
+
+export async function getPaymentMethods(): Promise<PaymentMethodEntity[]> {
+  return ipcOrHttp(
+    async () => getElectronApi().paymentMethods.list(),
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        methods: PaymentMethodEntity[];
+      }>(`/api/payment-methods`);
+      return res.methods;
+    },
+  );
+}
+
+export async function getActivePaymentMethods(): Promise<
+  PaymentMethodEntity[]
+> {
+  return ipcOrHttp(
+    async () => getElectronApi().paymentMethods.listActive(),
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        methods: PaymentMethodEntity[];
+      }>(`/api/payment-methods/active`);
+      return res.methods;
+    },
+  );
+}
+
+export async function createPaymentMethod(data: {
+  code: string;
+  label: string;
+  drawer_name: string;
+  affects_drawer?: number;
+}) {
+  return ipcOrHttp(
+    async () => getElectronApi().paymentMethods.create(data),
+    async () =>
+      requestJson<{ success: boolean; id?: number; error?: string }>(
+        `/api/payment-methods`,
+        {
+          method: "POST",
+          body: data,
+        },
+      ),
+  );
+}
+
+export async function updatePaymentMethod(
+  id: number,
+  data: {
+    label?: string;
+    drawer_name?: string;
+    affects_drawer?: number;
+    is_active?: number;
+    sort_order?: number;
+  },
+) {
+  return ipcOrHttp(
+    async () => getElectronApi().paymentMethods.update(id, data),
+    async () =>
+      requestJson<{ success: boolean; error?: string }>(
+        `/api/payment-methods/${id}`,
+        {
+          method: "PUT",
+          body: data,
+        },
+      ),
+  );
+}
+
+export async function deletePaymentMethod(id: number) {
+  return ipcOrHttp(
+    async () => getElectronApi().paymentMethods.delete(id),
+    async () =>
+      requestJson<{ success: boolean; error?: string }>(
+        `/api/payment-methods/${id}`,
+        {
+          method: "DELETE",
+        },
+      ),
+  );
+}
+
+export async function reorderPaymentMethods(ids: number[]) {
+  return ipcOrHttp(
+    async () => getElectronApi().paymentMethods.reorder(ids),
+    async () =>
+      requestJson<{ success: boolean; error?: string }>(
+        `/api/payment-methods/reorder`,
+        {
+          method: "PUT",
+          body: { ids },
+        },
+      ),
+  );
+}
+
+// ==================== Currency–Module API ====================
+
+export async function getModulesForCurrency(code: string) {
+  return ipcOrHttp(
+    async () => getElectronApi().currencies.getModules(code),
+    async () => {
+      const res = await requestJson<{ success: boolean; modules: string[] }>(
+        `/api/currencies/${code}/modules`,
+      );
+      return res.modules;
+    },
+  );
+}
+
+export async function getCurrenciesByModule(moduleKey: string) {
+  return ipcOrHttp(
+    async () => getElectronApi().currencies.byModule(moduleKey),
+    async () => {
+      const res = await requestJson<{ success: boolean; currencies: any[] }>(
+        `/api/currencies/by-module/${moduleKey}`,
+      );
+      return res.currencies;
+    },
+  );
+}
+
+export async function setModulesForCurrency(code: string, modules: string[]) {
+  return ipcOrHttp(
+    async () => getElectronApi().currencies.setModules(code, modules),
+    async () =>
+      requestJson<{ success: boolean; error?: string }>(
+        `/api/currencies/${code}/modules`,
+        {
+          method: "PUT",
+          body: { modules },
+        },
+      ),
+  );
+}
+
+// ==================== Currency–Drawer API ====================
+
+export async function getAllDrawerCurrencies(): Promise<
+  Record<string, string[]>
+> {
+  return ipcOrHttp(
+    async () => getElectronApi().currencies.allDrawerCurrencies(),
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        drawerCurrencies: Record<string, string[]>;
+      }>(`/api/currencies/drawer-currencies`);
+      return res.drawerCurrencies;
+    },
+  );
+}
+
+export async function getCurrenciesForDrawer(
+  drawerName: string,
+): Promise<string[]> {
+  return ipcOrHttp(
+    async () => getElectronApi().currencies.forDrawer(drawerName),
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        currencies: string[];
+      }>(`/api/currencies/drawers/${drawerName}/currencies`);
+      return res.currencies;
+    },
+  );
+}
+
+export async function getDrawersForCurrency(code: string): Promise<string[]> {
+  return ipcOrHttp(
+    async () => getElectronApi().currencies.getDrawers(code),
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        drawers: string[];
+      }>(`/api/currencies/${code}/drawers`);
+      return res.drawers;
+    },
+  );
+}
+
+export async function setDrawerCurrencies(
+  drawerName: string,
+  currencies: string[],
+) {
+  return ipcOrHttp(
+    async () =>
+      getElectronApi().currencies.setDrawerCurrencies(drawerName, currencies),
+    async () =>
+      requestJson<{ success: boolean; error?: string }>(
+        `/api/currencies/drawers/${drawerName}/currencies`,
+        {
+          method: "PUT",
+          body: { currencies },
+        },
+      ),
+  );
+}
+
 // Customer Sessions
+
+export async function getConfiguredDrawerNames(): Promise<string[]> {
+  return ipcOrHttp(
+    async () => getElectronApi().currencies.configuredDrawers(),
+    async () => {
+      // Fall back to getting drawer names from drawer currencies keys
+      const all = await getAllDrawerCurrencies();
+      return Object.keys(all);
+    },
+  );
+}
+
 export async function startSession(data: {
   customer_name: string;
   customer_phone?: string;

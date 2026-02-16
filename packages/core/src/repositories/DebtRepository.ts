@@ -6,6 +6,8 @@
  */
 
 import { BaseRepository } from "./BaseRepository.js";
+import { DatabaseError } from "../utils/errors.js";
+import { paymentMethodToDrawerName } from "../utils/payments.js";
 
 // =============================================================================
 // Entity Types
@@ -52,6 +54,7 @@ export interface CreateRepaymentData {
   amount_lbp: number;
   note?: string | null;
   created_by?: number | null;
+  paid_by_method?: string;
 }
 
 // =============================================================================
@@ -73,16 +76,29 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
   // ---------------------------------------------------------------------------
 
   /**
+   * Get the current exchange rate for a currency pair.
+   * Defaults to USD→LBP for backward compatibility.
+   */
+  private getExchangeRate(fromCode = "USD", toCode = "LBP"): number {
+    const rateResult = this.db
+      .prepare(
+        `SELECT rate FROM exchange_rates WHERE from_code = ? AND to_code = ? LIMIT 1`,
+      )
+      .get(fromCode, toCode) as { rate: number } | undefined;
+    if (!rateResult) {
+      throw new DatabaseError(
+        `No exchange rate found for ${fromCode}→${toCode}`,
+      );
+    }
+    return rateResult.rate;
+  }
+
+  /**
    * Get all clients with their debt totals (grouped)
    */
   findAllDebtors(): DebtorSummary[] {
     // Use exchange rate to convert LBP portion into USD for consistent totals
-    const rateResult = this.db
-      .prepare(
-        `SELECT rate FROM exchange_rates WHERE from_code = 'USD' AND to_code = 'LBP' LIMIT 1`,
-      )
-      .get() as { rate: number } | undefined;
-    const rate = rateResult?.rate || 89000;
+    const rate = this.getExchangeRate("USD", "LBP");
 
     const stmt = this.db.prepare(`
       SELECT 
@@ -117,12 +133,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
    * Get total debt for a specific client
    */
   getClientDebtTotal(clientId: number): number {
-    const rateResult = this.db
-      .prepare(
-        `SELECT rate FROM exchange_rates WHERE from_code = 'USD' AND to_code = 'LBP' LIMIT 1`,
-      )
-      .get() as { rate: number } | undefined;
-    const rate = rateResult?.rate || 89000;
+    const rate = this.getExchangeRate("USD", "LBP");
 
     const stmt = this.db.prepare(
       `SELECT ROUND(COALESCE(SUM(amount_usd), 0) + (COALESCE(SUM(amount_lbp), 0) / ?), 2) as total 
@@ -176,14 +187,15 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
           updated_at = CURRENT_TIMESTAMP
       `);
 
-      // Default to General drawer for cash repayments
-      const drawerName = "General";
+      // Resolve drawer from payment method (defaults to CASH → General)
+      const paidBy = data.paid_by_method || "CASH";
+      const drawerName = paymentMethodToDrawerName(paidBy);
 
       if (data.amount_usd > 0) {
         insertPayment.run(
           "DEBT_REPAYMENT",
           repaymentId,
-          "CASH",
+          paidBy,
           drawerName,
           "USD",
           data.amount_usd,
@@ -197,7 +209,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         insertPayment.run(
           "DEBT_REPAYMENT",
           repaymentId,
-          "CASH",
+          paidBy,
           drawerName,
           "LBP",
           data.amount_lbp,
@@ -220,12 +232,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
    */
   getDebtSummary(topN: number = 5): DebtSummary {
     // Total debt receivable
-    const rateResult = this.db
-      .prepare(
-        `SELECT rate FROM exchange_rates WHERE from_code = 'USD' AND to_code = 'LBP' LIMIT 1`,
-      )
-      .get() as { rate: number } | undefined;
-    const rate = rateResult?.rate || 89000;
+    const rate = this.getExchangeRate("USD", "LBP");
 
     const totalDebtResult = this.db
       .prepare(

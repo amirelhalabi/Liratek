@@ -77,6 +77,8 @@ import activityRoutes from "./api/activity.js";
 import reportsRoutes from "./api/reports.js";
 import sessionsRoutes from "./api/sessions.js";
 import binanceRoutes from "./api/binance.js";
+import modulesRoutes from "./api/modules.js";
+import paymentMethodsRoutes from "./api/paymentMethods.js";
 import healthRoutes from "./api/health.js";
 
 // Health checks (no /api prefix for easier monitoring)
@@ -105,6 +107,8 @@ app.use("/api/activity", activityRoutes);
 app.use("/api/reports", reportsRoutes);
 app.use("/api/sessions", sessionsRoutes);
 app.use("/api/binance", binanceRoutes);
+app.use("/api/modules", modulesRoutes);
+app.use("/api/payment-methods", paymentMethodsRoutes);
 
 app.get("/api", (_req, res) => {
   res.json({ message: "LiraTek API Server", version: "1.0.0" });

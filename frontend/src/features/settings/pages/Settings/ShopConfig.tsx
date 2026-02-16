@@ -6,7 +6,6 @@ import * as api from "../../../../api/backendApi";
 export default function ShopConfig() {
   const [shopName, setShopName] = useState("");
   const [receiptHeaderText, setReceiptHeaderText] = useState("");
-  const [exchangeRate, setExchangeRate] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -17,7 +16,6 @@ export default function ShopConfig() {
       const map = new Map(settings.map((s: any) => [s.key_name, s.value]));
       setShopName((map.get("shop_name") as string) || "");
       setReceiptHeaderText((map.get("receipt_header_text") as string) || "");
-      setExchangeRate((map.get("exchange_rate_usd_lbp") as string) || "");
     } finally {
       setIsLoading(false);
     }
@@ -28,13 +26,10 @@ export default function ShopConfig() {
     try {
       // basic validation
       if (!shopName.trim()) throw new Error("Shop name is required");
-      const rateNum = Number(exchangeRate);
-      if (!rateNum || rateNum <= 0)
-        throw new Error("Exchange rate must be > 0");
+
       await Promise.all([
         api.updateSetting("shop_name", shopName),
         api.updateSetting("receipt_header_text", receiptHeaderText),
-        api.updateSetting("exchange_rate_usd_lbp", exchangeRate),
       ]);
       appEvents.emit(
         "notification:show",
@@ -76,17 +71,6 @@ export default function ShopConfig() {
         <input
           value={receiptHeaderText}
           onChange={(e) => setReceiptHeaderText(e.target.value)}
-          className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white"
-        />
-      </div>
-      <div>
-        <label className="block text-sm text-slate-400 mb-2">
-          USD → LBP Exchange Rate
-        </label>
-        <input
-          type="number"
-          value={exchangeRate}
-          onChange={(e) => setExchangeRate(e.target.value)}
           className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white"
         />
       </div>

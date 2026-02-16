@@ -305,13 +305,6 @@ export class InventoryService {
   getLowStockProducts(): LowStockProduct[] {
     return this.productRepo.findLowStock();
   }
-
-  /**
-   * Get virtual stock (MTC + Alfa recharge inventory)
-   */
-  getVirtualStock(): number {
-    return this.productRepo.getVirtualStock();
-  }
 }
 
 // =============================================================================

@@ -105,9 +105,9 @@ export default function TopBar() {
           );
         const genLimit = Number(map.get("drawer_limit_general") || 0);
         const omtLimit = Number(map.get("drawer_limit_omt") || 0);
-        const balances = await api.getSystemExpectedBalances();
-        const genUsd = balances?.generalDrawer?.usd || 0;
-        const omtUsd = balances?.omtDrawer?.usd || 0;
+        const balances = await api.getSystemExpectedBalancesDynamic();
+        const genUsd = balances?.["General"]?.["USD"] || 0;
+        const omtUsd = balances?.["OMT_System"]?.["USD"] || 0;
         const warnDrawer =
           Number(map.get("notifications_warn_drawer_limits") ?? 1) === 1;
         if (warnDrawer && genLimit > 0 && genUsd > genLimit)

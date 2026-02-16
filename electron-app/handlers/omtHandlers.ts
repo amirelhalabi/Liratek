@@ -19,7 +19,8 @@ export function registerOMTHandlers(): void {
         {
           provider: data.provider,
           serviceType: data.serviceType,
-          amountUSD: data.amountUSD,
+          amount: data.amount,
+          currency: data.currency || "USD",
         },
         "Processing financial service transaction",
       );

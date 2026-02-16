@@ -5,7 +5,6 @@ import * as api from "../../../../api/backendApi";
 export default function NotificationsConfig() {
   const [pollMs, setPollMs] = useState("60000");
   const [warnLow, setWarnLow] = useState(true);
-  const [warnDrawer, setWarnDrawer] = useState(true);
 
   const [autoBackupEnabled, setAutoBackupEnabled] = useState(true);
   const [autoBackupIntervalHours, setAutoBackupIntervalHours] = useState("24");
@@ -19,9 +18,6 @@ export default function NotificationsConfig() {
     const map = new Map(settings.map((s: any) => [s.key_name, s.value]));
     setPollMs(String(map.get("notifications_poll_interval_ms") || "60000"));
     setWarnLow(Number(map.get("notifications_warn_low_stock") ?? 1) === 1);
-    setWarnDrawer(
-      Number(map.get("notifications_warn_drawer_limits") ?? 1) === 1,
-    );
 
     setAutoBackupEnabled(Number(map.get("auto_backup_enabled") ?? 1) === 1);
     setAutoBackupIntervalHours(
@@ -52,10 +48,6 @@ export default function NotificationsConfig() {
       await Promise.all([
         api.updateSetting("notifications_poll_interval_ms", String(v)),
         api.updateSetting("notifications_warn_low_stock", warnLow ? "1" : "0"),
-        api.updateSetting(
-          "notifications_warn_drawer_limits",
-          warnDrawer ? "1" : "0",
-        ),
         api.updateSetting("auto_backup_enabled", autoBackupEnabled ? "1" : "0"),
         api.updateSetting(
           "auto_backup_interval_hours",
@@ -100,14 +92,6 @@ export default function NotificationsConfig() {
           onChange={(e) => setWarnLow(e.target.checked)}
         />{" "}
         Low-stock warnings
-      </label>
-      <label className="flex items-center gap-2 text-slate-300 text-sm">
-        <input
-          type="checkbox"
-          checked={warnDrawer}
-          onChange={(e) => setWarnDrawer(e.target.checked)}
-        />{" "}
-        Drawer-limit warnings
       </label>
 
       <div className="border-t border-slate-800 pt-4" />

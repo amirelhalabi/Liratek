@@ -89,6 +89,14 @@ export {
 } from "./CurrencyService.js";
 export type { CurrencyResult } from "./CurrencyService.js";
 
+// Module Service
+export {
+  ModuleService,
+  getModuleService,
+  resetModuleService,
+} from "./ModuleService.js";
+export type { ModuleResult } from "./ModuleService.js";
+
 // Recharge Service
 export {
   RechargeService,
@@ -122,6 +130,14 @@ export {
   resetSettingsService,
 } from "./SettingsService.js";
 export type { SettingResult } from "./SettingsService.js";
+
+// Payment Method Service
+export {
+  PaymentMethodService,
+  getPaymentMethodService,
+  resetPaymentMethodService,
+} from "./PaymentMethodService.js";
+export type { PaymentMethodResult } from "./PaymentMethodService.js";
 
 // Expense Service
 export {

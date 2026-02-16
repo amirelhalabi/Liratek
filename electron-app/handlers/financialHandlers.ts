@@ -12,4 +12,9 @@ export function registerFinancialHandlers(): void {
   ipcMain.handle("financial:get-monthly-pl", (_event, month: string) => {
     return repo.getMonthlyPL(month);
   });
+
+  // Get Drawer Names
+  ipcMain.handle("financial:get-drawer-names", () => {
+    return repo.getDrawerNames();
+  });
 }

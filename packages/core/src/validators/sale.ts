@@ -22,7 +22,7 @@ export const createSaleSchema = z.object({
   total_lbp: positiveDecimalSchema.optional(),
   amount_paid_usd: positiveDecimalSchema.default(0),
   amount_paid_lbp: positiveDecimalSchema.default(0),
-  payment_method: z.enum(["CASH", "CARD", "TRANSFER", "DEBT"]).default("CASH"),
+  payment_method: z.string().min(1).default("CASH"),
   drawer_name: z.string().max(100).optional(),
   status: z.enum(["draft", "completed", "refunded"]).default("completed"),
   notes: z.string().max(500).optional(),

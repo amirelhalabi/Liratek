@@ -51,6 +51,17 @@ export class RechargeService {
   processRecharge(data: RechargeData): RechargeResult {
     return this.rechargeRepo.processRecharge(data);
   }
+
+  /**
+   * Top up the MTC or Alfa drawer balance
+   */
+  topUp(data: {
+    provider: "MTC" | "Alfa";
+    amount: number;
+    currency?: string;
+  }): { success: boolean; error?: string } {
+    return this.rechargeRepo.topUp(data);
+  }
 }
 
 // =============================================================================

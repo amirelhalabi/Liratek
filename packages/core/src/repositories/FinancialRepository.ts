@@ -12,6 +12,8 @@ export interface MonthlyPL {
   salesProfitUSD: number;
   serviceCommissionsUSD: number;
   serviceCommissionsLBP: number;
+  /** Per-currency commission breakdown (dynamic) */
+  serviceCommissionsByCurrency: Record<string, number>;
   expensesUSD: number;
   expensesLBP: number;
   netProfitUSD: number;
@@ -25,6 +27,22 @@ export class FinancialRepository extends BaseRepository<{ id: number }> {
   // Override getColumns() - This repository uses aggregations, not direct selects
   protected getColumns(): string {
     return "id"; // Minimal since this repo only does aggregations
+  }
+
+  /**
+   * Get list of all drawer names from drawer_balances
+   */
+  getDrawerNames(): string[] {
+    try {
+      const rows = this.db
+        .prepare(
+          `SELECT DISTINCT drawer_name FROM drawer_balances ORDER BY drawer_name`,
+        )
+        .all() as { drawer_name: string }[];
+      return rows.map((r) => r.drawer_name);
+    } catch (error) {
+      throw new DatabaseError("Failed to get drawer names", { cause: error });
+    }
   }
 
   /**
@@ -47,18 +65,27 @@ export class FinancialRepository extends BaseRepository<{ id: number }> {
         )
         .get(month) as { profit: number };
 
-      // 2. Service Commissions (OMT, Whish, etc.)
-      const servicesResult = this.db
+      // 2. Service Commissions (OMT, Whish, etc.) — grouped by currency
+      const commissionRows = this.db
         .prepare(
           `
         SELECT 
-          COALESCE(SUM(commission_usd), 0) as commission_usd,
-          COALESCE(SUM(commission_lbp), 0) as commission_lbp
+          currency,
+          COALESCE(SUM(commission), 0) as commission
         FROM financial_services
         WHERE strftime('%Y-%m', created_at) = ?
+        GROUP BY currency
       `,
         )
-        .get(month) as { commission_usd: number; commission_lbp: number };
+        .all(month) as { currency: string; commission: number }[];
+
+      const serviceCommissionsByCurrency: Record<string, number> = {};
+      for (const row of commissionRows) {
+        serviceCommissionsByCurrency[row.currency] = row.commission;
+      }
+      // Keep legacy USD/LBP fields for backward compat
+      const commissionUsd = serviceCommissionsByCurrency["USD"] || 0;
+      const commissionLbp = serviceCommissionsByCurrency["LBP"] || 0;
 
       // 3. Expenses
       const expensesResult = this.db
@@ -73,28 +100,39 @@ export class FinancialRepository extends BaseRepository<{ id: number }> {
         )
         .get(month) as { expenses_usd: number; expenses_lbp: number };
 
-      // Get exchange rate for net calculation (using last snapshot or default)
+      // Get exchange rate for net calculation (parameterized lookup)
       const rateResult = this.db
         .prepare(
           `
-        SELECT rate FROM exchange_rates WHERE from_code = 'USD' AND to_code = 'LBP'
+        SELECT rate FROM exchange_rates WHERE from_code = ? AND to_code = ?
       `,
         )
-        .get() as { rate: number } | undefined;
-      const rate = rateResult?.rate || 89000;
+        .get("USD", "LBP") as { rate: number } | undefined;
+      if (!rateResult) {
+        throw new DatabaseError("No exchange rate found for USD→LBP");
+      }
+      const rate = rateResult.rate;
 
-      const totalIncomeUSD =
-        salesResult.profit +
-        servicesResult.commission_usd +
-        servicesResult.commission_lbp / rate;
+      // Include all non-USD commissions converted to USD
+      let totalCommissionsUSD = commissionUsd;
+      for (const [cur, amt] of Object.entries(serviceCommissionsByCurrency)) {
+        if (cur === "USD") continue;
+        if (cur === "LBP") {
+          totalCommissionsUSD += amt / rate;
+        }
+        // Other currencies: would need their own rate lookup; skip for now
+      }
+
+      const totalIncomeUSD = salesResult.profit + totalCommissionsUSD;
       const totalExpensesUSD =
         expensesResult.expenses_usd + expensesResult.expenses_lbp / rate;
 
       return {
         month,
         salesProfitUSD: salesResult.profit,
-        serviceCommissionsUSD: servicesResult.commission_usd,
-        serviceCommissionsLBP: servicesResult.commission_lbp,
+        serviceCommissionsUSD: commissionUsd,
+        serviceCommissionsLBP: commissionLbp,
+        serviceCommissionsByCurrency,
         expensesUSD: expensesResult.expenses_usd,
         expensesLBP: expensesResult.expenses_lbp,
         netProfitUSD: totalIncomeUSD - totalExpensesUSD,
