@@ -15,25 +15,14 @@ permissions:
   contents: write
 
 jobs:
-  # Optimized: Run tests once on fastest runner before building
   test:
     name: Run Tests
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
         with:
-          node-version: "20"
-          cache: "yarn"
-
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Install dependencies
-        run: yarn install --immutable
+          install: "true"
 
       - name: Run tests
         run: yarn test
@@ -43,25 +32,12 @@ jobs:
     needs: test
     runs-on: windows-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
         with:
-          node-version: "20"
-          cache: "yarn"
+          install: "true"
 
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Install dependencies
-        run: yarn install --immutable
-
-      - name: Build core package
-        run: yarn build:core
-
-      - name: Build frontend
+      - name: Build application
         run: yarn build
 
       - name: Build Windows Installer
@@ -82,29 +58,16 @@ jobs:
     needs: test
     runs-on: macos-13
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
         with:
-          node-version: "20"
-          cache: "yarn"
+          install: "true"
 
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Install dependencies
-        run: yarn install --immutable
-
-      - name: Build core package
-        run: yarn build:core
-
-      - name: Build frontend
+      - name: Build application
         run: yarn build
 
       - name: Build macOS Intel DMG
-        run: yarn dlx electron-builder@^25.1.8 --mac dmg zip --x64
+        run: yarn ci:build:mac:intel
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -122,29 +85,16 @@ jobs:
     needs: test
     runs-on: macos-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
         with:
-          node-version: "20"
-          cache: "yarn"
+          install: "true"
 
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Install dependencies
-        run: yarn install --immutable
-
-      - name: Build core package
-        run: yarn build:core
-
-      - name: Build frontend
+      - name: Build application
         run: yarn build
 
       - name: Build macOS ARM DMG
-        run: yarn ci:build:mac
+        run: yarn ci:build:mac:arm
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
