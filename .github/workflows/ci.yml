@@ -8,7 +8,7 @@ on:
 
 # Shared cache paths for yarn install
 env:
-  YARN_CACHE_PATHS: |
+  CI_CACHE_PATHS: |
     .yarn/cache
     node_modules
     packages/*/node_modules
@@ -28,7 +28,7 @@ jobs:
         uses: actions/cache@v4
         id: yarn-cache
         with:
-          path: ${{ env.YARN_CACHE_PATHS }}
+          path: ${{ env.CI_CACHE_PATHS }}
           key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
           restore-keys: |
             yarn-${{ runner.os }}-
@@ -48,7 +48,7 @@ jobs:
       - name: Restore dependencies
         uses: actions/cache/restore@v4
         with:
-          path: ${{ env.YARN_CACHE_PATHS }}
+          path: ${{ env.CI_CACHE_PATHS }}
           key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
 
       - name: Run ESLint
@@ -65,7 +65,7 @@ jobs:
       - name: Restore dependencies
         uses: actions/cache/restore@v4
         with:
-          path: ${{ env.YARN_CACHE_PATHS }}
+          path: ${{ env.CI_CACHE_PATHS }}
           key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
 
       - name: TypeScript check
@@ -82,7 +82,7 @@ jobs:
       - name: Restore dependencies
         uses: actions/cache/restore@v4
         with:
-          path: ${{ env.YARN_CACHE_PATHS }}
+          path: ${{ env.CI_CACHE_PATHS }}
           key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
 
       - name: Backend typecheck
@@ -109,7 +109,7 @@ jobs:
       - name: Restore dependencies
         uses: actions/cache/restore@v4
         with:
-          path: ${{ env.YARN_CACHE_PATHS }}
+          path: ${{ env.CI_CACHE_PATHS }}
           key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
 
       - name: Frontend typecheck
@@ -139,7 +139,7 @@ jobs:
       - name: Restore dependencies
         uses: actions/cache/restore@v4
         with:
-          path: ${{ env.YARN_CACHE_PATHS }}
+          path: ${{ env.CI_CACHE_PATHS }}
           key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
 
       - name: Cache Playwright browsers
@@ -187,7 +187,7 @@ jobs:
       - name: Restore dependencies
         uses: actions/cache/restore@v4
         with:
-          path: ${{ env.YARN_CACHE_PATHS }}
+          path: ${{ env.CI_CACHE_PATHS }}
           key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
 
       - name: Build
