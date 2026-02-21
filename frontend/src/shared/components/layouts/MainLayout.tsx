@@ -1,11 +1,10 @@
 import { useState, useEffect, type ReactNode } from "react";
-import Sidebar from "./Sidebar";
-import TopBar from "./TopBar";
-import NotificationCenter from "../ui/NotificationCenter";
+import LeftPanelLayout from "./LeftPanelLayout";
+import HomeViewLayout from "./HomeViewLayout";
+import { NotificationCenter, appEvents } from "@liratek/ui";
 import { SessionFloatingWindow } from "../../../features/sessions/components/SessionFloatingWindow";
 import { MessengerStyleSessionButton } from "../../../features/sessions/components/MessengerStyleSessionButton";
 
-import { appEvents } from "../../utils/appEvents";
 import Closing from "../../../features/closing/pages/Closing";
 import Opening from "../../../features/closing/pages/Opening";
 import { useAuth } from "../../../features/auth/context/AuthContext";
@@ -15,6 +14,10 @@ interface MainLayoutProps {
 }
 
 export default function MainLayout({ children }: MainLayoutProps) {
+  const [layoutMode, setLayoutMode] = useState(
+    () => localStorage.getItem("layout_mode") || "left-panel",
+  );
+
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
     return localStorage.getItem("sidebar_collapsed") === "true";
   });
@@ -53,6 +56,14 @@ export default function MainLayout({ children }: MainLayoutProps) {
     };
   }, []);
 
+  // Listen for layout mode changes from ShopConfig
+  useEffect(() => {
+    const handler = () =>
+      setLayoutMode(localStorage.getItem("layout_mode") || "left-panel");
+    window.addEventListener("layout-mode-changed", handler);
+    return () => window.removeEventListener("layout-mode-changed", handler);
+  }, []);
+
   // Auto-open Opening after login if required
   useEffect(() => {
     if (isAdmin && needsOpening) {
@@ -60,16 +71,22 @@ export default function MainLayout({ children }: MainLayoutProps) {
     }
   }, [isAdmin, needsOpening]);
 
+  const layoutContent =
+    layoutMode === "page-view" ? (
+      <HomeViewLayout>{children}</HomeViewLayout>
+    ) : (
+      <LeftPanelLayout
+        isSidebarCollapsed={isSidebarCollapsed}
+        toggleSidebar={toggleSidebar}
+      >
+        {children}
+      </LeftPanelLayout>
+    );
+
   return (
-    <div className="flex h-screen bg-slate-900 text-white overflow-hidden">
-      <Sidebar isCollapsed={isSidebarCollapsed} toggleSidebar={toggleSidebar} />
-      <div className="flex-1 flex flex-col overflow-hidden transition-all duration-300">
-        <TopBar />
-        <main className="flex-1 overflow-auto p-6 bg-slate-950">
-          {children}
-        </main>
-      </div>
-      <NotificationCenter /> {/* Render NotificationCenter here */}
+    <>
+      {layoutContent}
+      <NotificationCenter />
       {/* Session Components */}
       <MessengerStyleSessionButton />
       <SessionFloatingWindow />
@@ -88,6 +105,6 @@ export default function MainLayout({ children }: MainLayoutProps) {
           onClose={() => setIsClosingModalOpen(false)}
         />
       )}
-    </div>
+    </>
   );
 }

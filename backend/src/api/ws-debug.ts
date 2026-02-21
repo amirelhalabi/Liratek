@@ -5,6 +5,7 @@ import {
   type AuthRequest,
 } from "../middleware/auth.js";
 import { emitEvent } from "../websocket/io.js";
+import { isProduction } from "@liratek/core";
 
 const router = express.Router();
 
@@ -15,7 +16,7 @@ router.post(
   authenticateJWT,
   requireRole(["admin"]),
   (req: AuthRequest, res) => {
-    if (process.env.NODE_ENV === "production") {
+    if (isProduction) {
       res.status(404).json({ error: "Not found" });
       return;
     }

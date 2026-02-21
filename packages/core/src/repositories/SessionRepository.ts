@@ -54,6 +54,11 @@ export class SessionRepository extends BaseRepository<SessionEntity> {
     super("sessions");
   }
 
+  // Override getColumns() to use explicit columns instead of SELECT *
+  protected getColumns(): string {
+    return "id, user_id, token, device_type, device_info, ip_address, remember_me, created_at, last_activity_at, expires_at";
+  }
+
   // ---------------------------------------------------------------------------
   // Token Generation
   // ---------------------------------------------------------------------------
@@ -121,7 +126,7 @@ export class SessionRepository extends BaseRepository<SessionEntity> {
    */
   findByToken(token: string): SessionEntity | null {
     try {
-      const query = `SELECT * FROM ${this.tableName} WHERE token = ?`;
+      const query = `SELECT ${this.getColumns()} FROM ${this.tableName} WHERE token = ?`;
       return this.queryOne<SessionEntity>(query, token);
     } catch (error) {
       throw new DatabaseError("Failed to find session by token", {
@@ -230,7 +235,7 @@ export class SessionRepository extends BaseRepository<SessionEntity> {
   findByUserId(userId: number): SessionEntity[] {
     try {
       const query = `
-        SELECT * FROM ${this.tableName}
+        SELECT ${this.getColumns()} FROM ${this.tableName}
         WHERE user_id = ?
         ORDER BY last_activity_at DESC
       `;
@@ -249,7 +254,7 @@ export class SessionRepository extends BaseRepository<SessionEntity> {
     try {
       const now = new Date().toISOString();
       const query = `
-        SELECT * FROM ${this.tableName}
+        SELECT ${this.getColumns()} FROM ${this.tableName}
         WHERE user_id = ? AND expires_at > ?
         ORDER BY last_activity_at DESC
       `;

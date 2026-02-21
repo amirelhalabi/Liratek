@@ -1,19 +1,22 @@
 import { useState, useEffect, useCallback } from "react";
+import logger from "../../../../utils/logger";
 import { FileText, X, ShoppingCart } from "lucide-react";
-import PageHeader from "../../../../shared/components/layouts/PageHeader";
+import { PageHeader } from "@liratek/ui";
 import ProductSearch from "./components/ProductSearch";
 import Cart from "./components/Cart";
 import CheckoutModal, {
   type PaymentData,
   type CheckoutDraftData,
 } from "./components/CheckoutModal";
-import { appEvents } from "../../../../shared/utils/appEvents";
-import type { Product, CartItem, SaleRequest } from "../../../../types";
-import * as api from "../../../../api/backendApi";
+import { appEvents, useApi } from "@liratek/ui";
+import type { Product, CartItem, SaleRequest } from "@liratek/ui";
+import { useExchangeRate } from "../../../../hooks/useExchangeRate";
 import { useSession } from "../../../sessions/context/SessionContext";
 
 export default function POS() {
+  const api = useApi();
   const { activeSession, linkTransaction } = useSession();
+  const { rate: defaultExchangeRate } = useExchangeRate("USD", "LBP");
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
 
@@ -55,7 +58,7 @@ export default function POS() {
   const fetchDrafts = useCallback(async () => {
     const data = await api.getDrafts();
     setDrafts(data as unknown as Draft[]);
-  }, []);
+  }, [api]);
 
   // Fetch drafts on mount and whenever modal/checkout state changes
   useEffect(() => {
@@ -132,7 +135,7 @@ export default function POS() {
         alert("Failed to save draft: " + result.error);
       }
     } catch (error) {
-      console.error("Save draft error:", error);
+      logger.error("Save draft error:", error);
       alert("An unexpected error occurred saving the draft.");
     }
   };
@@ -173,7 +176,7 @@ export default function POS() {
       paidLBP: draft.paid_lbp || 0,
       changeGivenUSD: draft.change_given_usd || 0,
       changeGivenLBP: draft.change_given_lbp || 0,
-      exchangeRate: draft.exchange_rate_snapshot || 89000,
+      exchangeRate: draft.exchange_rate_snapshot || defaultExchangeRate,
     });
 
     setIsDraftsOpen(false);
@@ -198,16 +201,16 @@ export default function POS() {
 
       if (result.success) {
         // Link to active session if exists
-        if (activeSession && result.saleId) {
+        if (activeSession && result.id) {
           try {
             await linkTransaction({
               transactionType: "sale",
-              transactionId: result.saleId,
+              transactionId: result.id,
               amountUsd: saleRequest.final_amount || 0,
               amountLbp: 0, // Sales are tracked in USD
             });
           } catch (err) {
-            console.error("Failed to link sale to session:", err);
+            logger.error("Failed to link sale to session:", err);
             // Don't block the sale completion
           }
         }
@@ -222,7 +225,7 @@ export default function POS() {
         alert("Sale failed: " + result.error);
       }
     } catch (error) {
-      console.error("Checkout error:", error);
+      logger.error("Checkout error:", error);
       alert("An unexpected error occurred processing the sale.");
     }
   };
@@ -279,6 +282,7 @@ export default function POS() {
       {isDraftsOpen && (
         <div
           className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-in fade-in duration-200"
+          role="presentation"
           onMouseDown={(e) => {
             if (e.target === e.currentTarget) {
               setIsDraftsOpen(false);
@@ -287,6 +291,7 @@ export default function POS() {
         >
           <div
             className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh]"
+            role="presentation"
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="p-6 border-b border-slate-700 flex justify-between items-center bg-slate-800/50">

@@ -5,23 +5,20 @@
  */
 
 import { AuthService, resetAuthService } from "../AuthService";
-import { UserRepository } from "../../database/repositories";
+import { UserRepository, getUserRepository } from "@liratek/core";
 import {
   AuthenticationError,
   AuthorizationError,
   ValidationError,
   ConflictError,
   BusinessRuleError,
-} from "../../utils/errors";
+} from "@liratek/core";
 
-// Mock the repository module
-jest.mock("../../database/repositories", () => ({
+// Mock the repository module and crypto utils
+jest.mock("@liratek/core", () => ({
+  ...jest.requireActual("@liratek/core"),
   getUserRepository: jest.fn(),
   UserRepository: jest.fn(),
-}));
-
-// Mock crypto utils
-jest.mock("../../utils/crypto", () => ({
   hashPassword: jest.fn().mockResolvedValue("hashed_password"),
   verifyPassword: jest.fn().mockResolvedValue(true),
   needsMigration: jest.fn().mockReturnValue(false),
@@ -35,7 +32,7 @@ import {
   verifyPassword,
   needsMigration,
   validatePasswordComplexity,
-} from "../../utils/crypto";
+} from "@liratek/core";
 
 describe("AuthService", () => {
   let service: AuthService;

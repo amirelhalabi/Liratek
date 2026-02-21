@@ -1,4 +1,7 @@
 import { BaseRepository } from "./BaseRepository.js";
+import { closingLogger } from "../utils/logger.js";
+import { getTransactionRepository } from "./TransactionRepository.js";
+import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 
 export interface DailyClosingEntity {
   id: number;
@@ -28,21 +31,14 @@ export interface ClosingAmountEntity {
   physical_amount: number;
 }
 
-export interface DrawerBalances {
-  usd: number;
-  lbp: number;
-  eur: number;
-}
-
-export interface SystemExpectedBalances {
-  generalDrawer: DrawerBalances;
-  omtDrawer: DrawerBalances;
-  omtAppDrawer: DrawerBalances;
-  whishDrawer: DrawerBalances;
-  binanceDrawer: DrawerBalances;
-  mtcDrawer: DrawerBalances;
-  alfaDrawer: DrawerBalances;
-}
+/**
+ * Dynamic system expected balances: Record<drawerName, Record<currencyCode, balance>>
+ * Example: { "General": { "USD": 123, "LBP": 456 }, "MTC": { "USD": 789 } }
+ */
+export type DynamicSystemExpectedBalances = Record<
+  string,
+  Record<string, number>
+>;
 
 export interface DailyStatsSnapshot {
   salesCount: number;
@@ -71,6 +67,11 @@ export interface ClosingAmount {
 export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
   constructor() {
     super("daily_closings");
+  }
+
+  // Override getColumns() to use explicit columns instead of SELECT *
+  protected getColumns(): string {
+    return "id, closing_date, drawer_name, opening_balance_usd, opening_balance_lbp, physical_usd, physical_lbp, physical_eur, system_expected_usd, system_expected_lbp, variance_usd, notes";
   }
 
   /**
@@ -102,14 +103,6 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
       `);
 
       if (exists && exists.id) {
-        const upsertBalance = this.db.prepare(`
-          INSERT INTO drawer_balances (drawer_name, currency_code, balance)
-          VALUES (?, ?, ?)
-          ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
-            balance=excluded.balance,
-            updated_at=CURRENT_TIMESTAMP
-        `);
-
         const tx = this.db.transaction((rows: OpeningBalanceAmount[]) => {
           for (const r of rows) {
             upsertAmounts.run(
@@ -118,13 +111,21 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
               r.currency_code,
               r.opening_amount,
             );
-            // Opening sets the running expected balance baseline
-            upsertBalance.run(r.drawer_name, r.currency_code, r.opening_amount);
           }
         });
         tx(amounts);
 
-        this.logActivity(userId, "OPENING", { opening: amounts });
+        // Create unified transaction row for opening balances
+        getTransactionRepository().createTransaction({
+          type: TRANSACTION_TYPES.OPENING,
+          source_table: "daily_closings",
+          source_id: exists.id as number,
+          user_id: userId,
+          amount_usd: 0,
+          amount_lbp: 0,
+          summary: `Opening balances set for ${closingDate}`,
+          metadata_json: { opening: amounts },
+        });
         return { success: true, id: exists.id };
       } else {
         const stmt = this.db.prepare(`
@@ -134,14 +135,6 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
         `);
         const res = stmt.run(closingDate);
 
-        const upsertBalance = this.db.prepare(`
-          INSERT INTO drawer_balances (drawer_name, currency_code, balance)
-          VALUES (?, ?, ?)
-          ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
-            balance=excluded.balance,
-            updated_at=CURRENT_TIMESTAMP
-        `);
-
         const tx = this.db.transaction((rows: OpeningBalanceAmount[]) => {
           for (const r of rows) {
             upsertAmounts.run(
@@ -150,17 +143,29 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
               r.currency_code,
               r.opening_amount,
             );
-            // Opening sets the running expected balance baseline
-            upsertBalance.run(r.drawer_name, r.currency_code, r.opening_amount);
           }
         });
         tx(amounts);
 
-        this.logActivity(userId, "OPENING", { opening: amounts });
+        // Create unified transaction row for opening balances
+        getTransactionRepository().createTransaction({
+          type: TRANSACTION_TYPES.OPENING,
+          source_table: "daily_closings",
+          source_id: Number(res.lastInsertRowid),
+          user_id: userId,
+          amount_usd: 0,
+          amount_lbp: 0,
+          summary: `Opening balances set for ${closingDate}`,
+          metadata_json: { opening: amounts },
+        });
+
         return { success: true, id: res.lastInsertRowid };
       }
     } catch (error) {
-      console.error("Failed to set opening balances:", error);
+      closingLogger.error(
+        { error, closingDate, amounts },
+        "Failed to set opening balances",
+      );
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error),
@@ -216,18 +221,28 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
       });
       tx(amounts);
 
-      // Log activity
-      this.db
-        .prepare(
-          `INSERT INTO activity_logs (user_id, action, table_name, record_id, details_json, created_at)
-           VALUES (1, 'CREATE_DAILY_CLOSING', 'daily_closings', ?, ?, CURRENT_TIMESTAMP)`,
-        )
-        .run(result.lastInsertRowid, JSON.stringify({ amounts }));
+      // Create unified transaction row for daily closing
+      getTransactionRepository().createTransaction({
+        type: TRANSACTION_TYPES.CLOSING,
+        source_table: "daily_closings",
+        source_id: Number(result.lastInsertRowid),
+        user_id: 1,
+        amount_usd: systemExpectedUsd || 0,
+        amount_lbp: systemExpectedLbp || 0,
+        summary: `Daily closing for ${closingDate}`,
+        metadata_json: { amounts },
+      });
 
-      console.log(`[CLOSING] Daily closing created for ${closingDate}`);
+      closingLogger.info(
+        { closingDate, id: result.lastInsertRowid },
+        `Daily closing created for ${closingDate}`,
+      );
       return { success: true, id: result.lastInsertRowid };
     } catch (error) {
-      console.error("Failed to create daily closing:", error);
+      closingLogger.error(
+        { error, closingDate, amounts },
+        "Failed to create daily closing",
+      );
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error),
@@ -244,7 +259,7 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
   ): { success: boolean; error?: string } {
     try {
       const current = this.db
-        .prepare("SELECT * FROM daily_closings WHERE id = ?")
+        .prepare(`SELECT ${this.getColumns()} FROM daily_closings WHERE id = ?`)
         .get(id);
       if (!current) return { success: false, error: "Not found" };
 
@@ -276,7 +291,10 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
       );
       return { success: true };
     } catch (error) {
-      console.error("Failed to update daily closing:", error);
+      closingLogger.error(
+        { error, id, data },
+        "Failed to update daily closing",
+      );
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error),
@@ -285,47 +303,56 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
   }
 
   /**
-   * Get system expected balances for today
+   * Get system expected balances for all drawers and currencies (fully dynamic).
+   * Returns Record<drawerName, Record<currencyCode, balance>>
    */
-  getSystemExpectedBalances(): SystemExpectedBalances {
-    const getBalance = (drawer_name: string, currency_code: string): number => {
-      const row = this.db
-        .prepare(
-          `SELECT balance FROM drawer_balances WHERE drawer_name = ? AND currency_code = ?`,
-        )
-        .get(drawer_name, currency_code) as { balance: number } | undefined;
-      return row?.balance ?? 0;
-    };
+  getSystemExpectedBalancesDynamic(): DynamicSystemExpectedBalances {
+    const rows = this.db
+      .prepare(
+        `SELECT drawer_name, currency_code, balance FROM drawer_balances`,
+      )
+      .all() as {
+      drawer_name: string;
+      currency_code: string;
+      balance: number;
+    }[];
 
-    return {
-      generalDrawer: {
-        usd: getBalance("General", "USD"),
-        lbp: getBalance("General", "LBP"),
-        eur: 0,
-      },
-      omtDrawer: {
-        usd: getBalance("OMT_System", "USD"),
-        lbp: getBalance("OMT_System", "LBP"),
-        eur: 0,
-      },
-      omtAppDrawer: {
-        usd: getBalance("OMT_App", "USD"),
-        lbp: getBalance("OMT_App", "LBP"),
-        eur: 0,
-      },
-      whishDrawer: {
-        usd: getBalance("Whish_App", "USD"),
-        lbp: getBalance("Whish_App", "LBP"),
-        eur: 0,
-      },
-      binanceDrawer: {
-        usd: getBalance("Binance", "USD"),
-        lbp: getBalance("Binance", "LBP"),
-        eur: 0,
-      },
-      mtcDrawer: { usd: getBalance("MTC", "USD"), lbp: 0, eur: 0 },
-      alfaDrawer: { usd: getBalance("Alfa", "USD"), lbp: 0, eur: 0 },
-    };
+    const result: DynamicSystemExpectedBalances = {};
+    for (const row of rows) {
+      if (!result[row.drawer_name]) result[row.drawer_name] = {};
+      result[row.drawer_name][row.currency_code] = row.balance;
+    }
+    return result;
+  }
+
+  /**
+   * Recalculate drawer_balances from the payments journal.
+   * The payments table is an append-only log of every signed amount that
+   * flowed through each drawer, so SUM(amount) per (drawer, currency) gives
+   * the correct running total.
+   */
+  recalculateDrawerBalances(): { success: boolean; error?: string } {
+    try {
+      this.db.exec(`
+        UPDATE drawer_balances SET balance = 0, updated_at = CURRENT_TIMESTAMP;
+
+        INSERT INTO drawer_balances (drawer_name, currency_code, balance)
+        SELECT drawer_name, currency_code, SUM(amount)
+        FROM payments
+        GROUP BY drawer_name, currency_code
+        ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+          balance = excluded.balance,
+          updated_at = CURRENT_TIMESTAMP;
+      `);
+      closingLogger.info("Drawer balances recalculated from payments journal");
+      return { success: true };
+    } catch (error) {
+      closingLogger.error({ error }, "Failed to recalculate drawer balances");
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   /**
@@ -334,8 +361,9 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
   hasOpeningBalanceForDate(date: string): boolean {
     const sql = `
       SELECT COUNT(*) as count 
-      FROM closing_amounts 
-      WHERE closing_date = ? AND opening_amount IS NOT NULL
+      FROM daily_closing_amounts ca
+      JOIN daily_closings dc ON dc.id = ca.closing_id
+      WHERE dc.closing_date = ? AND ca.opening_amount IS NOT NULL
     `;
     const result = this.db.prepare(sql).get(date) as { count: number };
     return result.count > 0;
@@ -413,22 +441,6 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
       totalExpensesLBP: expensesStats?.total_expenses_lbp || 0,
       totalProfitUSD: profitStats?.total_profit_usd || 0,
     };
-  }
-
-  /**
-   * Log activity
-   */
-  private logActivity(
-    userId: number,
-    action: string,
-    details: Record<string, unknown>,
-  ): void {
-    this.db
-      .prepare(
-        `INSERT INTO activity_logs (user_id, action, details_json, created_at)
-         VALUES (?, ?, ?, CURRENT_TIMESTAMP)`,
-      )
-      .run(userId, action, JSON.stringify(details));
   }
 }
 

@@ -2,10 +2,11 @@ import {
   ClosingRepository,
   OpeningBalanceAmount,
   ClosingAmount,
-  SystemExpectedBalances,
+  DynamicSystemExpectedBalances,
   DailyStatsSnapshot,
   getClosingRepository,
 } from "../repositories/ClosingRepository.js";
+import { closingLogger } from "../utils/logger.js";
 export interface ClosingResult {
   success: boolean;
   id?: number | bigint;
@@ -44,8 +45,8 @@ export interface UpdateClosingData {
 export class ClosingService {
   private repo: ClosingRepository;
 
-  constructor() {
-    this.repo = getClosingRepository();
+  constructor(repo?: ClosingRepository) {
+    this.repo = repo ?? getClosingRepository();
   }
 
   /**
@@ -97,6 +98,24 @@ export class ClosingService {
   }
 
   /**
+   * Recalculate drawer_balances from the payments journal
+   */
+  recalculateDrawerBalances(): { success: boolean; error?: string } {
+    try {
+      return this.repo.recalculateDrawerBalances();
+    } catch (error) {
+      closingLogger.error(
+        { error },
+        "ClosingService.recalculateDrawerBalances error",
+      );
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
    * Check if opening balance has been set for today
    */
   hasOpeningBalanceToday(): boolean {
@@ -105,22 +124,17 @@ export class ClosingService {
   }
 
   /**
-   * Get system expected balances for today
+   * Get system expected balances (dynamic — keyed by drawer name)
    */
-  getSystemExpectedBalances(): SystemExpectedBalances {
+  getSystemExpectedBalancesDynamic(): DynamicSystemExpectedBalances {
     try {
-      return this.repo.getSystemExpectedBalances();
+      return this.repo.getSystemExpectedBalancesDynamic();
     } catch (error) {
-      console.error("ClosingService.getSystemExpectedBalances error:", error);
-      return {
-        generalDrawer: { usd: 0, lbp: 0, eur: 0 },
-        omtDrawer: { usd: 0, lbp: 0, eur: 0 },
-        omtAppDrawer: { usd: 0, lbp: 0, eur: 0 },
-        whishDrawer: { usd: 0, lbp: 0, eur: 0 },
-        binanceDrawer: { usd: 0, lbp: 0, eur: 0 },
-        mtcDrawer: { usd: 0, lbp: 0, eur: 0 },
-        alfaDrawer: { usd: 0, lbp: 0, eur: 0 },
-      };
+      closingLogger.error(
+        { error },
+        "ClosingService.getSystemExpectedBalancesDynamic error",
+      );
+      return {};
     }
   }
 
@@ -131,7 +145,10 @@ export class ClosingService {
     try {
       return this.repo.getDailyStatsSnapshot();
     } catch (error) {
-      console.error("ClosingService.getDailyStatsSnapshot error:", error);
+      closingLogger.error(
+        { error },
+        "ClosingService.getDailyStatsSnapshot error",
+      );
       return {
         salesCount: 0,
         totalSalesUSD: 0,

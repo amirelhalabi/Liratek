@@ -1,15 +1,20 @@
 /**
  * useSystemExpected Hook
- * Fetches system expected balances for closing
+ * Fetches system expected balances for closing (dynamic format)
  */
 
 import { useState, useCallback } from "react";
-import type { SystemExpectedBalances } from "../types";
-import * as api from "../../../api/backendApi";
+import logger from "../../../utils/logger";
+import { useApi } from "@liratek/ui";
+
+/** Dynamic balances: Record<drawerName, Record<currencyCode, balance>> */
+export type DynamicBalances = Record<string, Record<string, number>>;
 
 export function useSystemExpected() {
-  const [systemExpected, setSystemExpected] =
-    useState<SystemExpectedBalances | null>(null);
+  const api = useApi();
+  const [systemExpected, setSystemExpected] = useState<DynamicBalances | null>(
+    null,
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -17,7 +22,7 @@ export function useSystemExpected() {
     try {
       setLoading(true);
       setError(null);
-      const balances = await api.getSystemExpectedBalances();
+      const balances = await api.getSystemExpectedBalancesDynamic();
       setSystemExpected(balances);
     } catch (err) {
       const message =
@@ -25,7 +30,7 @@ export function useSystemExpected() {
           ? err.message
           : "Failed to fetch expected balances";
       setError(message);
-      console.error("[useSystemExpected] Error:", err);
+      logger.error("[useSystemExpected] Error:", err);
     } finally {
       setLoading(false);
     }
@@ -34,19 +39,7 @@ export function useSystemExpected() {
   const getExpectedAmount = useCallback(
     (drawer: string, currencyCode: string): number => {
       if (!systemExpected) return 0;
-      const drawerKeyMap: Record<string, keyof SystemExpectedBalances> = {
-        General: "generalDrawer",
-        OMT_System: "omtDrawer",
-        OMT_App: "omtAppDrawer",
-        Whish_App: "whishDrawer",
-        Binance: "binanceDrawer",
-        MTC: "mtcDrawer",
-        Alfa: "alfaDrawer",
-      };
-
-      const drawerKey = drawerKeyMap[drawer] ?? ("generalDrawer" as const);
-      const drawerBalances = systemExpected[drawerKey];
-      return drawerBalances?.[currencyCode.toLowerCase()] || 0;
+      return systemExpected[drawer]?.[currencyCode] ?? 0;
     },
     [systemExpected],
   );

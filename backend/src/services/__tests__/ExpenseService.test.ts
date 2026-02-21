@@ -3,21 +3,24 @@
  */
 
 import { jest } from "@jest/globals";
+
+jest.mock("@liratek/core", () => {
+  const actual =
+    jest.requireActual<typeof import("@liratek/core")>("@liratek/core");
+  return {
+    ...actual,
+    getExpenseRepository: jest.fn(),
+  };
+});
+
 import {
   ExpenseService,
   getExpenseService,
   resetExpenseService,
-} from "../ExpenseService";
-import { ExpenseEntity, CreateExpenseData } from "@liratek/core";
-
-jest.mock(
-  "../../../../packages/core/src/repositories/ExpenseRepository",
-  () => ({
-    getExpenseRepository: jest.fn(),
-  }),
-);
-
-import { getExpenseRepository } from "../../../../packages/core/src/repositories/ExpenseRepository";
+  ExpenseEntity,
+  CreateExpenseData,
+  getExpenseRepository,
+} from "@liratek/core";
 
 describe("ExpenseService", () => {
   let service: ExpenseService;
@@ -33,12 +36,11 @@ describe("ExpenseService", () => {
       getTodayExpenses: jest.fn(),
       getExpenseById: jest.fn(),
       deleteExpense: jest.fn(),
-      logActivity: jest.fn(),
     };
 
     (getExpenseRepository as jest.Mock).mockReturnValue(mockRepo);
 
-    service = new ExpenseService();
+    service = new ExpenseService(mockRepo);
   });
 
   // ===========================================================================
@@ -52,7 +54,6 @@ describe("ExpenseService", () => {
         amount_usd: 50,
         amount_lbp: 0,
         description: "Electricity bill",
-        expense_type: "Operating",
         expense_date: "2025-01-15",
       };
       mockRepo.createExpense.mockReturnValue(1);
@@ -61,13 +62,6 @@ describe("ExpenseService", () => {
 
       expect(result).toEqual({ success: true, id: 1 });
       expect(mockRepo.createExpense).toHaveBeenCalledWith(expenseData);
-      expect(mockRepo.logActivity).toHaveBeenCalledWith(1, "Add Expense", {
-        category: "Utilities",
-        paid_by_method: "CASH",
-        expense_type: "Operating",
-        amount_usd: 50,
-        amount_lbp: 0,
-      });
     });
 
     it("should add expense with LBP amount", () => {
@@ -76,7 +70,6 @@ describe("ExpenseService", () => {
         amount_usd: 0,
         amount_lbp: 900000,
         description: "Office supplies",
-        expense_type: "Operating",
         expense_date: "2025-01-15",
       };
       mockRepo.createExpense.mockReturnValue(2);
@@ -92,7 +85,6 @@ describe("ExpenseService", () => {
         amount_usd: 30,
         amount_lbp: 450000,
         description: "Building repair",
-        expense_type: "Operating",
         expense_date: "2025-01-15",
       };
       mockRepo.createExpense.mockReturnValue(3);
@@ -108,7 +100,6 @@ describe("ExpenseService", () => {
         amount_usd: 100,
         amount_lbp: 0,
         description: "Test",
-        expense_type: "Operating",
         expense_date: "2025-01-15",
       };
       mockRepo.createExpense.mockImplementation(() => {
@@ -129,7 +120,6 @@ describe("ExpenseService", () => {
         amount_usd: 500,
         amount_lbp: 0,
         description: "Monthly rent",
-        expense_type: "Fixed",
         expense_date: "2025-01-15",
       };
       mockRepo.createExpense.mockReturnValue(4);
@@ -139,26 +129,19 @@ describe("ExpenseService", () => {
       expect(result).toEqual({ success: true, id: 4 });
     });
 
-    it("should log activity even if expense has zero USD", () => {
+    it("should handle expense with zero USD", () => {
       const expenseData: CreateExpenseData = {
         category: "Food",
         amount_usd: 0,
         amount_lbp: 100000,
         description: "Lunch",
-        expense_type: "Operating",
         expense_date: "2025-01-15",
       };
       mockRepo.createExpense.mockReturnValue(5);
 
-      service.addExpense(expenseData);
+      const result = service.addExpense(expenseData);
 
-      expect(mockRepo.logActivity).toHaveBeenCalledWith(1, "Add Expense", {
-        category: "Food",
-        paid_by_method: "CASH",
-        expense_type: "Operating",
-        amount_usd: 0,
-        amount_lbp: 100000,
-      });
+      expect(result).toEqual({ success: true, id: 5 });
     });
   });
 
@@ -175,7 +158,6 @@ describe("ExpenseService", () => {
           amount_usd: 50,
           amount_lbp: 0,
           description: "Internet",
-          expense_type: "Operating",
           expense_date: "2025-01-15",
           created_at: "2025-01-15 10:00:00",
         },
@@ -185,7 +167,6 @@ describe("ExpenseService", () => {
           amount_usd: 20,
           amount_lbp: 0,
           description: "Snacks",
-          expense_type: "Operating",
           expense_date: "2025-01-15",
           created_at: "2025-01-15 12:00:00",
         },
@@ -229,7 +210,6 @@ describe("ExpenseService", () => {
         amount_usd: 50,
         amount_lbp: 0,
         description: "Old bill",
-        expense_type: "Operating",
         expense_date: "2025-01-15",
         created_at: "2025-01-15",
       };
@@ -240,10 +220,6 @@ describe("ExpenseService", () => {
 
       expect(result).toEqual({ success: true });
       expect(mockRepo.deleteExpense).toHaveBeenCalledWith(1);
-      expect(mockRepo.logActivity).toHaveBeenCalledWith(1, "Delete Expense", {
-        category: "Utilities",
-        amount_usd: 50,
-      });
     });
 
     it("should delete without logging if expense not found", () => {
@@ -253,7 +229,6 @@ describe("ExpenseService", () => {
       const result = service.deleteExpense(999);
 
       expect(result).toEqual({ success: true });
-      expect(mockRepo.logActivity).not.toHaveBeenCalled();
     });
 
     it("should return error on delete failure", () => {
@@ -263,7 +238,6 @@ describe("ExpenseService", () => {
         amount_usd: 10,
         amount_lbp: 0,
         description: "",
-        expense_type: "Operating",
         expense_date: "2025-01-15",
         created_at: "2025-01-15",
       });
@@ -279,26 +253,23 @@ describe("ExpenseService", () => {
       });
     });
 
-    it("should handle expense with LBP in log", () => {
+    it("should handle expense with LBP delete", () => {
       const mockExpense: ExpenseEntity = {
         id: 2,
         category: "Transport",
         amount_usd: 0,
         amount_lbp: 500000,
         description: "Taxi",
-        expense_type: "Operating",
         expense_date: "2025-01-15",
         created_at: "2025-01-15",
       };
       mockRepo.getExpenseById.mockReturnValue(mockExpense);
       mockRepo.deleteExpense.mockReturnValue(undefined);
 
-      service.deleteExpense(2);
+      const result = service.deleteExpense(2);
 
-      expect(mockRepo.logActivity).toHaveBeenCalledWith(1, "Delete Expense", {
-        category: "Transport",
-        amount_usd: 0,
-      });
+      expect(result).toEqual({ success: true });
+      expect(mockRepo.deleteExpense).toHaveBeenCalledWith(2);
     });
   });
 

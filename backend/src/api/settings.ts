@@ -1,5 +1,5 @@
 import express from "express";
-import { getSettingsService } from "../services/index.js";
+import { getSettingsService } from "@liratek/core";
 import { logger } from "../server.js";
 
 const router = express.Router();

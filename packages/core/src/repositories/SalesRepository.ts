@@ -7,6 +7,9 @@
 
 import { BaseRepository } from "./BaseRepository.js";
 import { DatabaseError } from "../utils/errors.js";
+import { salesLogger } from "../utils/logger.js";
+import { getTransactionRepository } from "./TransactionRepository.js";
+import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 
 // =============================================================================
 // Types
@@ -64,11 +67,11 @@ import {
 // Backward compatible payment method type (DB values)
 // NOTE: exported for API typing.
 export type { PaymentMethod };
-export type PaymentCurrencyCode = "USD" | "LBP";
+export type PaymentCurrencyCode = string;
 
 export interface PaymentLine {
   method: PaymentMethod;
-  currency_code: PaymentCurrencyCode;
+  currency_code: string;
   amount: number;
 }
 
@@ -162,6 +165,11 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
     super("sales", { softDelete: false });
   }
 
+  // Override getColumns() to use explicit columns instead of SELECT *
+  protected getColumns(): string {
+    return "id, client_id, total_amount_usd, discount_usd, final_amount_usd, paid_usd, paid_lbp, change_given_usd, change_given_lbp, exchange_rate_snapshot, status, note, created_at, drawer_name";
+  }
+
   // ---------------------------------------------------------------------------
   // Full Transaction Processing
   // ---------------------------------------------------------------------------
@@ -172,7 +180,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
    */
   processSale(sale: SaleRequest): {
     success: boolean;
-    saleId?: number;
+    id?: number;
     error?: string;
   } {
     const db = this.db;
@@ -196,25 +204,31 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             );
             finalClientId = clientResult.lastInsertRowid as number;
           } catch (e) {
-            console.error("Auto-create client failed", e);
+            salesLogger.error(
+              { error: e, clientName: sale.client_name },
+              "Auto-create client failed",
+            );
           }
         }
 
         const sumPayments = (lines: PaymentLine[] | undefined) => {
-          const totals = { usd: 0, lbp: 0 };
+          const totals: Record<string, number> = {};
           for (const p of lines || []) {
             // DEBT lines represent unpaid amounts and must not count as paid.
             if (!isDrawerAffectingMethod(p.method)) continue;
-            if (p.currency_code === "USD") totals.usd += p.amount;
-            if (p.currency_code === "LBP") totals.lbp += p.amount;
+            totals[p.currency_code] = (totals[p.currency_code] || 0) + p.amount;
           }
           return totals;
         };
 
         // If new payments[] provided, derive legacy totals from it
         const derived = sumPayments(sale.payments);
-        const paymentUsd = sale.payments ? derived.usd : sale.payment_usd;
-        const paymentLbp = sale.payments ? derived.lbp : sale.payment_lbp;
+        const paymentUsd = sale.payments
+          ? derived["USD"] || 0
+          : sale.payment_usd;
+        const paymentLbp = sale.payments
+          ? derived["LBP"] || 0
+          : sale.payment_lbp;
 
         let saleId = sale.id;
 
@@ -272,6 +286,26 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           saleId = saleResult.lastInsertRowid as number;
         }
 
+        // Create unified transaction row
+        const txnId = getTransactionRepository().createTransaction({
+          type: TRANSACTION_TYPES.SALE,
+          source_table: "sales",
+          source_id: saleId,
+          user_id: 1,
+          amount_usd: sale.final_amount,
+          amount_lbp: sale.payment_lbp || 0,
+          exchange_rate: sale.exchange_rate,
+          client_id: finalClientId ?? null,
+          summary: `Sale #${saleId}: $${sale.final_amount}`,
+          metadata_json: {
+            total_amount: sale.total_amount,
+            discount: sale.discount,
+            final_amount: sale.final_amount,
+            status,
+            item_count: sale.items.length,
+          },
+        });
+
         // Persist payment lines + update running balances (drawer_balances)
         // - If sale.payments is not provided, we store inferred CASH lines from legacy totals.
         // - Change is treated as CASH (General drawer) outflow.
@@ -282,7 +316,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
                 ? [
                     {
                       method: "CASH" as const,
-                      currency_code: "USD" as const,
+                      currency_code: "USD",
                       amount: paymentUsd,
                     },
                   ]
@@ -291,7 +325,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
                 ? [
                     {
                       method: "CASH" as const,
-                      currency_code: "LBP" as const,
+                      currency_code: "LBP",
                       amount: paymentLbp,
                     },
                   ]
@@ -299,14 +333,14 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             ];
 
         db.prepare(
-          `DELETE FROM payments WHERE source_type = 'SALE' AND source_id = ?`,
+          `DELETE FROM payments WHERE transaction_id IN (SELECT id FROM transactions WHERE source_table = 'sales' AND source_id = ?)`,
         ).run(saleId);
 
         const insertPayment = db.prepare(`
           INSERT INTO payments (
-            source_type, source_id, method, drawer_name, currency_code, amount, note, created_by
+            transaction_id, method, drawer_name, currency_code, amount, note, created_by
           ) VALUES (
-            'SALE', ?, ?, ?, ?, ?, ?, ?
+            ?, ?, ?, ?, ?, ?, ?
           )
         `);
 
@@ -326,7 +360,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           if (!isDrawerAffectingMethod(p.method)) continue;
           const drawerName = paymentMethodToDrawerName(p.method);
           insertPayment.run(
-            saleId,
+            txnId,
             p.method,
             drawerName,
             p.currency_code,
@@ -341,7 +375,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         const changeLbp = Math.abs(sale.change_given_lbp || 0);
         if (changeUsd) {
           insertPayment.run(
-            saleId,
+            txnId,
             "CASH",
             "General",
             "USD",
@@ -353,7 +387,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         }
         if (changeLbp) {
           insertPayment.run(
-            saleId,
+            txnId,
             "CASH",
             "General",
             "LBP",
@@ -405,42 +439,25 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
 
             const debtStmt = db.prepare(`
               INSERT INTO debt_ledger (
-                client_id, transaction_type, amount_usd, sale_id, note
-              ) VALUES (?, ?, ?, ?, ?)
+                client_id, transaction_type, amount_usd, transaction_id, note, due_date
+              ) VALUES (?, ?, ?, ?, ?, datetime('now', '+30 days'))
             `);
             debtStmt.run(
               finalClientId,
               "Sale Debt",
               debtAmount,
-              saleId,
+              txnId,
               "Balance from Sale",
             );
           }
         }
 
-        // Log the activity
-        const logStmt = db.prepare(`
-          INSERT INTO activity_logs (user_id, action, table_name, record_id, details_json)
-          VALUES (?, ?, 'sales', ?, ?)
-        `);
-        logStmt.run(
-          1, // Default user ID
-          "SALE",
-          saleId,
-          JSON.stringify({
-            drawer: sale.drawer_name || "General_Drawer_B",
-            amount_usd: sale.payment_usd,
-            amount_lbp: sale.payment_lbp,
-            status,
-          }),
-        );
-
-        return { success: true, saleId };
+        return { success: true, id: saleId };
       });
 
       return processTransaction();
     } catch (error) {
-      console.error("Sale transaction failed:", error);
+      salesLogger.error({ error, sale }, "Sale transaction failed");
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error),
@@ -755,8 +772,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       }>(
         `
         SELECT 
-          SUM(amount_usd) as total_usd, 
-          SUM(amount_lbp) as total_lbp 
+          COALESCE(SUM(CASE WHEN currency = 'USD' THEN amount ELSE 0 END), 0) as total_usd, 
+          COALESCE(SUM(CASE WHEN currency = 'LBP' THEN amount ELSE 0 END), 0) as total_lbp 
         FROM financial_services 
         WHERE DATE(created_at) = ? AND provider = 'OMT' AND service_type = 'RECEIVE'
       `,
@@ -770,8 +787,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       }>(
         `
         SELECT 
-          SUM(amount_usd) as total_usd, 
-          SUM(amount_lbp) as total_lbp 
+          COALESCE(SUM(CASE WHEN currency = 'USD' THEN amount ELSE 0 END), 0) as total_usd, 
+          COALESCE(SUM(CASE WHEN currency = 'LBP' THEN amount ELSE 0 END), 0) as total_lbp 
         FROM financial_services 
         WHERE DATE(created_at) = ? AND provider = 'OMT' AND service_type = 'SEND'
       `,

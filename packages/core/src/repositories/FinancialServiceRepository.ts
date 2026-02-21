@@ -6,6 +6,13 @@
  */
 
 import { BaseRepository } from "./BaseRepository.js";
+import {
+  paymentMethodToDrawerName,
+  isDrawerAffectingMethod,
+} from "../utils/payments.js";
+import { getSupplierRepository } from "./SupplierRepository.js";
+import { getTransactionRepository } from "./TransactionRepository.js";
+import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 
 // =============================================================================
 // Entity Types
@@ -13,48 +20,79 @@ import { BaseRepository } from "./BaseRepository.js";
 
 export interface FinancialServiceEntity {
   id: number;
-  provider: "OMT" | "WHISH" | "BOB" | "OTHER";
+  provider:
+    | "OMT"
+    | "WHISH"
+    | "BOB"
+    | "OTHER"
+    | "IPEC"
+    | "KATCH"
+    | "WISH_APP"
+    | "OMT_APP";
   service_type: "SEND" | "RECEIVE" | "BILL_PAYMENT";
-  amount_usd: number;
-  amount_lbp: number;
-  commission_usd: number;
-  commission_lbp: number;
+  amount: number;
+  currency: string;
+  commission: number;
+  cost: number;
+  price: number;
+  paid_by: string | null;
+  client_id: number | null;
   client_name: string | null;
   reference_number: string | null;
+  item_key: string | null;
   note: string | null;
   created_at: string;
   created_by: number | null;
 }
 
 export interface CreateFinancialServiceData {
-  provider: "OMT" | "WHISH" | "BOB" | "OTHER";
+  provider:
+    | "OMT"
+    | "WHISH"
+    | "BOB"
+    | "OTHER"
+    | "IPEC"
+    | "KATCH"
+    | "WISH_APP"
+    | "OMT_APP";
   serviceType: "SEND" | "RECEIVE" | "BILL_PAYMENT";
-  amountUSD: number;
-  amountLBP: number;
-  commissionUSD: number;
-  commissionLBP: number;
+  amount: number;
+  currency?: string;
+  commission: number;
+  cost?: number;
+  price?: number;
+  paidByMethod?: string;
+  clientId?: number;
   clientName?: string;
   referenceNumber?: string;
+  itemKey?: string;
+  itemCategory?: string;
   note?: string;
 }
 
 export interface ProviderStats {
   provider: string;
-  commission_usd: number;
-  commission_lbp: number;
+  commission: number;
+  currency: string;
+  count: number;
+}
+
+export interface CurrencyStats {
+  currency: string;
+  commission: number;
   count: number;
 }
 
 export interface FinancialServiceAnalytics {
   today: {
-    commissionUSD: number;
-    commissionLBP: number;
+    commission: number;
     count: number;
+    byCurrency: CurrencyStats[];
   };
   month: {
-    commissionUSD: number;
-    commissionLBP: number;
+    commission: number;
     count: number;
+    byCurrency: CurrencyStats[];
   };
   byProvider: ProviderStats[];
 }
@@ -68,70 +106,134 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
     super("financial_services", { softDelete: false });
   }
 
+  // Override getColumns() to use explicit columns instead of SELECT *
+  protected getColumns(): string {
+    return "id, provider, service_type, amount, currency, commission, cost, price, paid_by, client_id, client_name, reference_number, item_key, note, created_at, created_by";
+  }
+
   // ---------------------------------------------------------------------------
   // Transaction Operations
   // ---------------------------------------------------------------------------
 
   /**
-   * Create a new financial service transaction
+   * Map provider to its system drawer name
+   */
+  private mapDrawerName(
+    provider: CreateFinancialServiceData["provider"],
+  ): string {
+    switch (provider) {
+      case "OMT":
+        return "OMT_System";
+      case "WHISH":
+        return "Whish_System";
+      case "IPEC":
+        return "IPEC";
+      case "KATCH":
+        return "Katch";
+      case "WISH_APP":
+        return "Whish_App";
+      case "OMT_APP":
+        return "OMT_App";
+      case "BOB":
+      case "OTHER":
+      default:
+        return "General";
+    }
+  }
+
+  /**
+   * Create a new financial service transaction.
+   *
+   * Two modes:
+   * - **Cost/Price mode** (cost > 0): IPEC/Katch/WishApp/OMT_App with cost outflow,
+   *   price inflow, optional DEBT, and real profit tracking.
+   * - **Legacy mode** (no cost): OMT/WHISH/BOB/OTHER with signed amount + commission.
    */
   createTransaction(data: CreateFinancialServiceData): {
     id: number;
     drawer: string;
   } {
-    const mapDrawerName = (
-      provider: CreateFinancialServiceData["provider"],
-    ): string => {
-      switch (provider) {
-        case "OMT":
-          return "OMT_System";
-        case "WHISH":
-          return "Whish_App";
-        case "BOB":
-        case "OTHER":
-        default:
-          return "General";
-      }
-    };
-
-    // Keep returning the legacy drawer labels for UI/log compatibility
     const legacyDrawerLabel =
       data.provider === "OMT" ? "OMT_Drawer_A" : "General_Drawer_B";
 
+    const useCostPriceFlow = data.cost !== undefined && data.cost > 0;
+
     return this.db.transaction(() => {
+      const currency = data.currency ?? "USD";
+      const cost = data.cost ?? 0;
+      const price = data.price ?? 0;
+      const paidBy = data.paidByMethod || "CASH";
+      const commission = useCostPriceFlow ? price - cost : data.commission || 0;
+
+      // 1. Insert the financial_services row
       const stmt = this.db.prepare(`
         INSERT INTO financial_services (
-          provider, service_type, amount_usd, amount_lbp,
-          commission_usd, commission_lbp, client_name, reference_number, note
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          provider, service_type, amount, currency,
+          commission, cost, price, paid_by, client_id,
+          client_name, reference_number, item_key, note
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       const result = stmt.run(
         data.provider,
         data.serviceType,
-        data.amountUSD || 0,
-        data.amountLBP || 0,
-        data.commissionUSD || 0,
-        data.commissionLBP || 0,
+        data.amount,
+        currency,
+        commission,
+        cost,
+        price,
+        useCostPriceFlow ? paidBy : null,
+        data.clientId || null,
         data.clientName || null,
         data.referenceNumber || null,
+        data.itemKey || null,
         data.note || null,
       );
 
       const id = Number(result.lastInsertRowid);
-
-      const drawerName = mapDrawerName(data.provider);
       const createdBy = 1;
       const note = data.note || null;
 
-      // Signed delta: RECEIVE adds to drawer, SEND subtracts
-      const sign = data.serviceType === "SEND" ? -1 : 1;
+      // Create unified transaction row
+      const txnId = getTransactionRepository().createTransaction({
+        type: TRANSACTION_TYPES.FINANCIAL_SERVICE,
+        source_table: "financial_services",
+        source_id: id,
+        user_id: createdBy,
+        amount_usd: useCostPriceFlow
+          ? currency === "USD"
+            ? price
+            : 0
+          : currency === "USD"
+            ? data.amount
+            : 0,
+        amount_lbp: useCostPriceFlow
+          ? currency === "LBP"
+            ? price
+            : 0
+          : currency === "LBP"
+            ? data.amount
+            : 0,
+        client_id: data.clientId ?? null,
+        summary: `${data.provider} ${data.serviceType}: ${data.amount} ${currency}`,
+        metadata_json: {
+          provider: data.provider,
+          service_type: data.serviceType,
+          amount: data.amount,
+          currency,
+          commission,
+          cost,
+          price,
+          paid_by: paidBy,
+          item_key: data.itemKey,
+        },
+      });
 
       const insertPayment = this.db.prepare(`
         INSERT INTO payments (
-          source_type, source_id, method, drawer_name, currency_code, amount, note, created_by
+          transaction_id, method, drawer_name, currency_code, amount, note, created_by
         ) VALUES (
-          'FINANCIAL_SERVICE', ?, ?, ?, ?, ?, ?, ?
+          ?, ?, ?, ?, ?, ?, ?
         )
       `);
 
@@ -143,87 +245,121 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           updated_at = CURRENT_TIMESTAMP
       `);
 
-      // Amount movement affects drawer balances
-      if (data.amountUSD && data.amountUSD !== 0) {
-        const delta = sign * Math.abs(data.amountUSD);
-        // method: align with provider for now (OMT/WHISH), otherwise OTHER
-        insertPayment.run(
-          id,
-          data.provider,
-          drawerName,
-          "USD",
-          delta,
-          note,
-          createdBy,
-        );
-        upsertBalanceDelta.run(drawerName, "USD", delta);
+      if (useCostPriceFlow) {
+        // ─── COST/PRICE FLOW (IPEC, KATCH, WISH_APP, OMT_APP) ───
+        const providerDrawer = this.mapDrawerName(data.provider);
+
+        // Cost outflow: shop pays the provider
+        if (cost > 0) {
+          insertPayment.run(
+            txnId,
+            data.provider,
+            providerDrawer,
+            currency,
+            -Math.abs(cost),
+            `Cost: ${data.provider}`,
+            createdBy,
+          );
+          upsertBalanceDelta.run(providerDrawer, currency, -Math.abs(cost));
+        }
+
+        // Price inflow: customer pays the shop (skip for DEBT)
+        if (price > 0 && isDrawerAffectingMethod(paidBy)) {
+          const paidByDrawer = paymentMethodToDrawerName(paidBy);
+          insertPayment.run(
+            txnId,
+            paidBy,
+            paidByDrawer,
+            currency,
+            Math.abs(price),
+            note,
+            createdBy,
+          );
+          upsertBalanceDelta.run(paidByDrawer, currency, Math.abs(price));
+        }
+
+        // DEBT: create debt_ledger entry
+        if (paidBy === "DEBT") {
+          if (!data.clientId) {
+            throw new Error("Cannot create debt without a client");
+          }
+          this.db
+            .prepare(
+              `INSERT INTO debt_ledger (
+                client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, due_date
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
+            )
+            .run(
+              data.clientId,
+              "Service Debt",
+              currency === "USD" ? price : 0,
+              currency === "LBP" ? price : 0,
+              txnId,
+              `${data.provider} service${data.itemKey ? ` [${data.itemKey}]` : ""}`,
+              createdBy,
+            );
+        }
+      } else {
+        // ─── LEGACY FLOW (OMT, WHISH, BOB, OTHER) ───
+        const drawerName = data.paidByMethod
+          ? paymentMethodToDrawerName(data.paidByMethod)
+          : this.mapDrawerName(data.provider);
+        const paymentMethod = data.paidByMethod || data.provider;
+        const sign = data.serviceType === "SEND" ? -1 : 1;
+
+        // Amount movement
+        if (data.amount && data.amount !== 0) {
+          const delta = sign * Math.abs(data.amount);
+          insertPayment.run(
+            txnId,
+            paymentMethod,
+            drawerName,
+            currency,
+            delta,
+            note,
+            createdBy,
+          );
+          upsertBalanceDelta.run(drawerName, currency, delta);
+        }
+
+        // Commission inflow (always positive)
+        if (data.commission && data.commission !== 0) {
+          const delta = Math.abs(data.commission);
+          insertPayment.run(
+            txnId,
+            paymentMethod,
+            drawerName,
+            currency,
+            delta,
+            "Commission",
+            createdBy,
+          );
+          upsertBalanceDelta.run(drawerName, currency, delta);
+        }
       }
 
-      if (data.amountLBP && data.amountLBP !== 0) {
-        const delta = sign * Math.abs(data.amountLBP);
-        insertPayment.run(
-          id,
-          data.provider,
-          drawerName,
-          "LBP",
-          delta,
-          note,
-          createdBy,
-        );
-        upsertBalanceDelta.run(drawerName, "LBP", delta);
-      }
-
-      // Commission is assumed to be retained in the same drawer as an inflow (always +)
-      // If in your business model commission is paid out separately, we can revise.
-      if (data.commissionUSD && data.commissionUSD !== 0) {
-        const delta = Math.abs(data.commissionUSD);
-        insertPayment.run(
-          id,
-          data.provider,
-          drawerName,
-          "USD",
-          delta,
-          "Commission",
-          createdBy,
-        );
-        upsertBalanceDelta.run(drawerName, "USD", delta);
-      }
-
-      if (data.commissionLBP && data.commissionLBP !== 0) {
-        const delta = Math.abs(data.commissionLBP);
-        insertPayment.run(
-          id,
-          data.provider,
-          drawerName,
-          "LBP",
-          delta,
-          "Commission",
-          createdBy,
-        );
-        upsertBalanceDelta.run(drawerName, "LBP", delta);
+      // Auto-record supplier debt (both flows)
+      try {
+        const supplierRepo = getSupplierRepository();
+        const supplier = supplierRepo.getByProvider(data.provider);
+        if (supplier) {
+          const ledgerAmount =
+            useCostPriceFlow && cost > 0 ? cost : Math.abs(data.amount);
+          supplierRepo.addLedgerEntry({
+            supplier_id: supplier.id,
+            entry_type: "TOP_UP",
+            amount_usd: currency === "USD" ? ledgerAmount : 0,
+            amount_lbp: currency === "LBP" ? ledgerAmount : 0,
+            note: `Auto: ${data.serviceType} via ${data.provider}${data.itemKey ? ` [${data.itemKey}]` : ""}`,
+            created_by: createdBy,
+          });
+        }
+      } catch {
+        // Supplier auto-record is non-critical; don't fail the transaction
       }
 
       return { id, drawer: legacyDrawerLabel };
     })();
-  }
-
-  /**
-   * Log the financial service activity
-   */
-  logActivity(data: CreateFinancialServiceData, drawer: string): void {
-    const logStmt = this.db.prepare(`
-      INSERT INTO activity_logs (user_id, action, details_json, created_at)
-      VALUES (1, 'Financial Service Transaction', ?, CURRENT_TIMESTAMP)
-    `);
-    logStmt.run(
-      JSON.stringify({
-        drawer,
-        provider: data.provider,
-        serviceType: data.serviceType,
-        commission_usd: data.commissionUSD,
-        commission_lbp: data.commissionLBP,
-      }),
-    );
   }
 
   // ---------------------------------------------------------------------------
@@ -234,7 +370,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
    * Get transaction history, optionally filtered by provider
    */
   getHistory(provider?: string, limit: number = 50): FinancialServiceEntity[] {
-    let query = "SELECT * FROM financial_services";
+    let query = `SELECT ${this.getColumns()} FROM financial_services`;
     const params: (string | number)[] = [];
 
     if (provider) {
@@ -253,71 +389,97 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
   // ---------------------------------------------------------------------------
 
   /**
-   * Get comprehensive analytics for financial services
+   * Get comprehensive analytics for financial services (all currencies)
    */
   getAnalytics(): FinancialServiceAnalytics {
-    // Today's commission
+    // Today's totals
     const todayStats = this.db
       .prepare(
         `
       SELECT 
-        COALESCE(SUM(commission_usd), 0) as today_commission_usd,
-        COALESCE(SUM(commission_lbp), 0) as today_commission_lbp,
+        COALESCE(SUM(commission), 0) as today_commission,
         COUNT(*) as today_count
       FROM financial_services 
       WHERE DATE(created_at) = DATE('now', 'localtime')
     `,
       )
       .get() as {
-      today_commission_usd: number;
-      today_commission_lbp: number;
+      today_commission: number;
       today_count: number;
     };
 
-    // This month's commission
+    // Today's breakdown by currency
+    const todayByCurrency = this.db
+      .prepare(
+        `
+      SELECT 
+        currency,
+        COALESCE(SUM(commission), 0) as commission,
+        COUNT(*) as count
+      FROM financial_services 
+      WHERE DATE(created_at) = DATE('now', 'localtime')
+      GROUP BY currency
+    `,
+      )
+      .all() as CurrencyStats[];
+
+    // This month's totals
     const monthStats = this.db
       .prepare(
         `
       SELECT 
-        COALESCE(SUM(commission_usd), 0) as month_commission_usd,
-        COALESCE(SUM(commission_lbp), 0) as month_commission_lbp,
+        COALESCE(SUM(commission), 0) as month_commission,
         COUNT(*) as month_count
       FROM financial_services 
       WHERE strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')
     `,
       )
       .get() as {
-      month_commission_usd: number;
-      month_commission_lbp: number;
+      month_commission: number;
       month_count: number;
     };
 
-    // By Provider Today
+    // This month's breakdown by currency
+    const monthByCurrency = this.db
+      .prepare(
+        `
+      SELECT 
+        currency,
+        COALESCE(SUM(commission), 0) as commission,
+        COUNT(*) as count
+      FROM financial_services 
+      WHERE strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')
+      GROUP BY currency
+    `,
+      )
+      .all() as CurrencyStats[];
+
+    // By Provider Today (all currencies)
     const byProvider = this.db
       .prepare(
         `
       SELECT 
         provider,
-        COALESCE(SUM(commission_usd), 0) as commission_usd,
-        COALESCE(SUM(commission_lbp), 0) as commission_lbp,
+        COALESCE(SUM(commission), 0) as commission,
+        currency,
         COUNT(*) as count
       FROM financial_services 
       WHERE DATE(created_at) = DATE('now', 'localtime')
-      GROUP BY provider
+      GROUP BY provider, currency
     `,
       )
       .all() as ProviderStats[];
 
     return {
       today: {
-        commissionUSD: todayStats.today_commission_usd,
-        commissionLBP: todayStats.today_commission_lbp,
+        commission: todayStats.today_commission,
         count: todayStats.today_count,
+        byCurrency: todayByCurrency,
       },
       month: {
-        commissionUSD: monthStats.month_commission_usd,
-        commissionLBP: monthStats.month_commission_lbp,
+        commission: monthStats.month_commission,
         count: monthStats.month_count,
+        byCurrency: monthByCurrency,
       },
       byProvider,
     };

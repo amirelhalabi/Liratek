@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import logger from "../../../utils/logger";
 import { useSession } from "../context/SessionContext";
 
 export function SessionFloatingWindow() {
@@ -209,7 +210,7 @@ export function SessionFloatingWindow() {
     setIsBadgeDragging(false);
   };
 
-  const handleBadgeClick = (_e: React.MouseEvent) => {
+  const handleBadgeClick = (_e?: React.MouseEvent) => {
     // Only expand if badge wasn't dragged - this was a real click
     if (!badgeWasDragged) {
       expandFloatingWindow();
@@ -235,8 +236,16 @@ export function SessionFloatingWindow() {
 
     return (
       <div
+        role="button"
+        tabIndex={0}
         onMouseDown={handleBadgeMouseDown}
         onClick={handleBadgeClick}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            handleBadgeClick();
+          }
+        }}
         className="fixed w-16 h-16 bg-gradient-to-br from-violet-600 to-violet-700 rounded-full flex items-center justify-center text-white font-bold cursor-move shadow-2xl hover:scale-110 z-50 border-2 border-slate-700"
         style={{
           left: `${badgePosition.x}px`,
@@ -303,6 +312,7 @@ export function SessionFloatingWindow() {
       {/* Title Bar (Draggable) - Compact one-line layout */}
       <div
         className="bg-gradient-to-r from-violet-600 to-violet-700 text-white px-3 py-2 rounded-t-2xl flex items-center justify-between cursor-move select-none gap-2"
+        role="presentation"
         onMouseDown={handleMouseDown}
       >
         <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -364,7 +374,7 @@ export function SessionFloatingWindow() {
                 try {
                   await closeCurrentSession();
                 } catch (err) {
-                  console.error("Failed to close session:", err);
+                  logger.error("Failed to close session:", err);
                   alert("Failed to close session");
                 }
               }

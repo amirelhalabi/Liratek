@@ -5,15 +5,8 @@ import React, {
   useCallback,
   useEffect,
 } from "react";
-import {
-  startSession as apiStartSession,
-  getActiveSession as _apiGetActiveSession,
-  getSessionDetails,
-  updateSession as apiUpdateSession,
-  closeSession as apiCloseSession,
-  listSessions,
-  linkTransactionToSession,
-} from "../../../api/backendApi";
+import logger from "../../../utils/logger";
+import { useApi } from "@liratek/ui";
 
 interface CustomerSession {
   id: number;
@@ -86,6 +79,7 @@ export function useSession() {
 }
 
 export function SessionProvider({ children }: { children: React.ReactNode }) {
+  const api = useApi();
   const [activeSession, setActiveSession] = useState<CustomerSession | null>(
     null,
   );
@@ -106,7 +100,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
   const refreshActiveSessions = useCallback(async () => {
     try {
-      const data = await listSessions(50, 0);
+      const data = await api.listSessions(50, 0);
 
       if (data.success && data.sessions) {
         const active = data.sessions.filter(
@@ -121,7 +115,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         }
       }
     } catch (err) {
-      console.error("Failed to load sessions:", err);
+      logger.error("Failed to load sessions:", err);
     }
   }, [activeSession]);
 
@@ -132,13 +126,13 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
-      const data = await getSessionDetails(activeSession.id);
+      const data = await api.getSessionDetails(activeSession.id);
 
       if (data.success && data.transactions) {
         setSessionTransactions(data.transactions);
       }
     } catch (err) {
-      console.error("Failed to load session transactions:", err);
+      logger.error("Failed to load session transactions:", err);
     }
   }, [activeSession]);
 
@@ -155,13 +149,13 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       customer_notes?: string;
     }) => {
       try {
-        const result = await apiStartSession(data);
+        const result = await api.startSession(data);
         if (result.success && result.sessionId) {
           // Refresh the list to get the new session
           await refreshActiveSessions();
 
           // Fetch the updated list to find the new session
-          const updatedData = await listSessions(50, 0);
+          const updatedData = await api.listSessions(50, 0);
           if (updatedData.success && updatedData.sessions) {
             const active = updatedData.sessions.filter(
               (s: CustomerSession) => s.is_active === 1,
@@ -182,7 +176,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
           throw new Error(result.error);
         }
       } catch (err) {
-        console.error("Failed to start session:", err);
+        logger.error("Failed to start session:", err);
         throw err;
       }
     },
@@ -205,7 +199,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     if (!activeSession) return;
 
     try {
-      const result = await apiCloseSession(activeSession.id);
+      const result = await api.closeSession(activeSession.id);
       if (result.success) {
         setActiveSession(null);
         setSessionTransactions([]);
@@ -215,7 +209,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         throw new Error(result.error);
       }
     } catch (err) {
-      console.error("Failed to close session:", err);
+      logger.error("Failed to close session:", err);
       throw err;
     }
   }, [activeSession, refreshActiveSessions]);
@@ -229,7 +223,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       if (!activeSession) return;
 
       try {
-        const result = await apiUpdateSession(activeSession.id, data);
+        const result = await api.updateSession(activeSession.id, data);
         if (result.success) {
           // Update local state
           setActiveSession((prev) => (prev ? { ...prev, ...data } : null));
@@ -238,7 +232,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
           throw new Error(result.error);
         }
       } catch (err) {
-        console.error("Failed to update session:", err);
+        logger.error("Failed to update session:", err);
         throw err;
       }
     },
@@ -257,11 +251,14 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       }
 
       try {
-        await linkTransactionToSession(data);
+        await api.linkTransactionToSession({
+          ...data,
+          sessionId: activeSession.id,
+        });
         // Refresh transactions list
         await refreshSessionTransactions();
       } catch (err) {
-        console.error("Failed to link transaction:", err);
+        logger.error("Failed to link transaction:", err);
       }
     },
     [activeSession, refreshSessionTransactions],

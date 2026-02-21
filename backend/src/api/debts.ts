@@ -1,6 +1,7 @@
 import express from "express";
 import { authenticateJWT, requireRole } from "../middleware/auth.js";
-import { getDebtService } from "../services/index.js";
+import { validateRequest } from "../middleware/validation.js";
+import { getDebtService, addRepaymentSchema } from "@liratek/core";
 
 const router = express.Router();
 
@@ -41,24 +42,15 @@ router.get("/clients/:clientId/total", (req, res) => {
 });
 
 // POST /api/debts/repayments (admin)
-router.post("/repayments", requireRole(["admin"]), (req, res) => {
-  const service = getDebtService();
-
-  // Support both payload shapes:
-  // - Electron/IPC style: { clientId, amountUSD, amountLBP, userId }
-  // - REST/web style:     { client_id, amount_usd, amount_lbp, user_id }
-  const body = (req.body ?? {}) as Record<string, unknown>;
-
-  const normalized = {
-    clientId: (body["clientId"] ?? body["client_id"]) as number,
-    amountUSD: Number(body["amountUSD"] ?? body["amount_usd"] ?? 0),
-    amountLBP: Number(body["amountLBP"] ?? body["amount_lbp"] ?? 0),
-    note: body["note"] as string | undefined,
-    userId: (body["userId"] ?? body["user_id"]) as number | undefined,
-  };
-
-  const result = service.addRepayment(normalized);
-  res.status(result.success ? 200 : 400).json(result);
-});
+router.post(
+  "/repayments",
+  requireRole(["admin"]),
+  validateRequest(addRepaymentSchema),
+  (req, res) => {
+    const service = getDebtService();
+    const result = service.addRepayment(req.body);
+    res.status(result.success ? 200 : 400).json(result);
+  },
+);
 
 export default router;

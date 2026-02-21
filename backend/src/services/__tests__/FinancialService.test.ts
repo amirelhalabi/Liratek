@@ -3,24 +3,27 @@
  */
 
 import { jest } from "@jest/globals";
+
+jest.mock("@liratek/core", () => {
+  const actual =
+    jest.requireActual<typeof import("@liratek/core")>("@liratek/core");
+  return {
+    ...actual,
+    getFinancialServiceRepository: jest.fn(),
+    FinancialServiceRepository: jest.fn(),
+  };
+});
+
 import {
   FinancialService,
   getFinancialService,
   resetFinancialService,
-} from "../FinancialService";
-import {
   FinancialServiceRepository,
   getFinancialServiceRepository,
   type CreateFinancialServiceData,
   type FinancialServiceEntity,
   type FinancialServiceAnalytics,
-} from "../../database/repositories";
-
-// Mock the repository module
-jest.mock("../../database/repositories", () => ({
-  getFinancialServiceRepository: jest.fn(),
-  FinancialServiceRepository: jest.fn(),
-}));
+} from "@liratek/core";
 
 describe("FinancialService", () => {
   let service: FinancialService;
@@ -35,7 +38,6 @@ describe("FinancialService", () => {
       createTransaction: jest.fn(),
       getHistory: jest.fn(),
       getAnalytics: jest.fn(),
-      logActivity: jest.fn(),
     } as unknown as jest.Mocked<FinancialServiceRepository>;
 
     (getFinancialServiceRepository as jest.Mock).mockReturnValue(mockRepo);
@@ -69,10 +71,6 @@ describe("FinancialService", () => {
       expect(result).toEqual({ success: true, id: 1 });
       expect(mockRepo.createTransaction).toHaveBeenCalledWith(
         mockTransactionData,
-      );
-      expect(mockRepo.logActivity).toHaveBeenCalledWith(
-        mockTransactionData,
-        "OMT_Drawer",
       );
     });
 
@@ -119,6 +117,72 @@ describe("FinancialService", () => {
       expect(result).toEqual({ success: true, id: 3 });
     });
 
+    it("should handle IPEC transactions", () => {
+      const ipecData: CreateFinancialServiceData = {
+        provider: "IPEC",
+        serviceType: "SEND",
+        amountUSD: 150,
+        amountLBP: 0,
+        commissionUSD: 7,
+        commissionLBP: 0,
+        note: "IPEC transfer",
+      };
+
+      mockRepo.createTransaction.mockReturnValue({
+        id: 4,
+        drawer: "IPEC",
+      });
+
+      const result = service.addTransaction(ipecData);
+
+      expect(result).toEqual({ success: true, id: 4 });
+      expect(mockRepo.createTransaction).toHaveBeenCalledWith(ipecData);
+    });
+
+    it("should handle KATCH transactions", () => {
+      const katchData: CreateFinancialServiceData = {
+        provider: "KATCH",
+        serviceType: "RECEIVE",
+        amountUSD: 80,
+        amountLBP: 500000,
+        commissionUSD: 4,
+        commissionLBP: 200000,
+        note: "Katch receive",
+      };
+
+      mockRepo.createTransaction.mockReturnValue({
+        id: 5,
+        drawer: "Katch",
+      });
+
+      const result = service.addTransaction(katchData);
+
+      expect(result).toEqual({ success: true, id: 5 });
+      expect(mockRepo.createTransaction).toHaveBeenCalledWith(katchData);
+    });
+
+    it("should handle WISH_APP transactions", () => {
+      const wishData: CreateFinancialServiceData = {
+        provider: "WISH_APP",
+        serviceType: "BILL_PAYMENT",
+        amountUSD: 0,
+        amountLBP: 2000000,
+        commissionUSD: 0,
+        commissionLBP: 100000,
+        note: "Wish App bill",
+      };
+
+      mockRepo.createTransaction.mockReturnValue({
+        id: 6,
+        drawer: "Whish_App",
+      });
+
+      const result = service.addTransaction(wishData);
+
+      expect(result).toEqual({ success: true, id: 6 });
+      expect(mockRepo.createTransaction).toHaveBeenCalledWith(wishData);
+    });
+
     it("should return error when createTransaction fails", () => {
       mockRepo.createTransaction.mockImplementation(() => {
         throw new Error("Database error");
@@ -129,24 +193,6 @@ describe("FinancialService", () => {
       expect(result).toEqual({
         success: false,
         error: "Database error",
-      });
-    });
-
-    it("should return error when logActivity fails", () => {
-      mockRepo.createTransaction.mockReturnValue({
-        id: 1,
-        drawer: "OMT_Drawer",
-      });
-      mockRepo.logActivity.mockImplementation(() => {
-        throw new Error("Activity log failed");
-      });
-
-      const result = service.addTransaction(mockTransactionData);
-
-      // Should catch and return error
-      expect(result).toEqual({
-        success: false,
-        error: "Activity log failed",
       });
     });
   });
@@ -277,8 +323,8 @@ describe("FinancialService", () => {
       const result = service.getAnalytics();
 
       expect(result).toEqual({
-        today: { commissionUSD: 0, commissionLBP: 0, count: 0 },
-        month: { commissionUSD: 0, commissionLBP: 0, count: 0 },
+        today: { commission: 0, byCurrency: [], count: 0 },
+        month: { commission: 0, byCurrency: [], count: 0 },
         byProvider: [],
       });
     });

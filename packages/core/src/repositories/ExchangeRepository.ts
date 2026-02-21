@@ -6,6 +6,8 @@
  */
 
 import { BaseRepository } from "./BaseRepository.js";
+import { getTransactionRepository } from "./TransactionRepository.js";
+import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 
 // =============================================================================
 // Entity Types
@@ -44,6 +46,11 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
     super("exchange_transactions", { softDelete: false });
   }
 
+  // Override getColumns() to use explicit columns instead of SELECT *
+  protected getColumns(): string {
+    return "id, type, from_currency, to_currency, amount_in, amount_out, rate, client_name, note, created_at, created_by";
+  }
+
   // ---------------------------------------------------------------------------
   // Transaction Operations
   // ---------------------------------------------------------------------------
@@ -57,14 +64,20 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
     const createdBy = 1;
     const note = data.note || null;
 
+    // Derive type: BUY = customer buys toCurrency (gives away fromCurrency), SELL = customer sells fromCurrency
+    // Base currency determines perspective: if customer receives the base currency, it's a SELL
+    const BASE_CURRENCY = "USD";
+    const type = data.toCurrency === BASE_CURRENCY ? "SELL" : "BUY";
+
     return this.db.transaction(() => {
       const stmt = this.db.prepare(`
         INSERT INTO exchange_transactions (
           type, from_currency, to_currency, amount_in, amount_out, rate, client_name, note
-        ) VALUES ('EXCHANGE', ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       const result = stmt.run(
+        type,
         data.fromCurrency,
         data.toCurrency,
         data.amountIn,
@@ -76,11 +89,37 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
 
       const id = Number(result.lastInsertRowid);
 
+      // Create unified transaction row
+      const txnId = getTransactionRepository().createTransaction({
+        type: TRANSACTION_TYPES.EXCHANGE,
+        source_table: "exchange_transactions",
+        source_id: id,
+        user_id: createdBy,
+        amount_usd:
+          data.fromCurrency === "USD" ? -data.amountIn : data.amountOut,
+        amount_lbp:
+          data.fromCurrency === "LBP"
+            ? -data.amountIn
+            : data.toCurrency === "LBP"
+              ? data.amountOut
+              : 0,
+        exchange_rate: data.rate,
+        summary: `Exchange: ${data.amountIn} ${data.fromCurrency} → ${data.amountOut} ${data.toCurrency}`,
+        metadata_json: {
+          type,
+          from_currency: data.fromCurrency,
+          to_currency: data.toCurrency,
+          amount_in: data.amountIn,
+          amount_out: data.amountOut,
+          rate: data.rate,
+        },
+      });
+
       const insertPayment = this.db.prepare(`
         INSERT INTO payments (
-          source_type, source_id, method, drawer_name, currency_code, amount, note, created_by
+          transaction_id, method, drawer_name, currency_code, amount, note, created_by
         ) VALUES (
-          'EXCHANGE', ?, 'CASH', ?, ?, ?, ?, ?
+          ?, 'CASH', ?, ?, ?, ?, ?
         )
       `);
 
@@ -95,7 +134,7 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
       // Outflow in fromCurrency
       const fromDelta = -Math.abs(data.amountIn);
       insertPayment.run(
-        id,
+        txnId,
         drawerName,
         data.fromCurrency,
         fromDelta,
@@ -107,7 +146,7 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
       // Inflow in toCurrency
       const toDelta = Math.abs(data.amountOut);
       insertPayment.run(
-        id,
+        txnId,
         drawerName,
         data.toCurrency,
         toDelta,
@@ -120,26 +159,6 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
     })();
   }
 
-  /**
-   * Log the exchange activity
-   */
-  logActivity(data: CreateExchangeData): void {
-    const logStmt = this.db.prepare(`
-      INSERT INTO activity_logs (user_id, action, details_json, created_at)
-      VALUES (1, 'Exchange Transaction', ?, CURRENT_TIMESTAMP)
-    `);
-    logStmt.run(
-      JSON.stringify({
-        drawer: "General_Drawer_B",
-        from: data.fromCurrency,
-        to: data.toCurrency,
-        amountIn: data.amountIn,
-        amountOut: data.amountOut,
-        rate: data.rate,
-      }),
-    );
-  }
-
   // ---------------------------------------------------------------------------
   // Query Operations
   // ---------------------------------------------------------------------------
@@ -149,7 +168,7 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
    */
   getHistory(limit: number = 50): ExchangeTransactionEntity[] {
     const stmt = this.db.prepare(`
-      SELECT * FROM exchange_transactions 
+      SELECT ${this.getColumns()} FROM exchange_transactions 
       ORDER BY created_at DESC 
       LIMIT ?
     `);
@@ -161,7 +180,7 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
    */
   getTodayTransactions(): ExchangeTransactionEntity[] {
     const stmt = this.db.prepare(`
-      SELECT * FROM exchange_transactions 
+      SELECT ${this.getColumns()} FROM exchange_transactions 
       WHERE DATE(created_at, 'localtime') = DATE('now', 'localtime')
       ORDER BY created_at DESC
     `);

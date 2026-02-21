@@ -12,10 +12,11 @@ import {
   ExpenseEntity,
   CreateExpenseData,
   getExpenseRepository,
-} from "../../database/repositories/ExpenseRepository";
+} from "@liratek/core";
 
 // Mock the repository module
-jest.mock("../../database/repositories/ExpenseRepository", () => ({
+jest.mock("@liratek/core", () => ({
+  ...jest.requireActual("@liratek/core"),
   getExpenseRepository: jest.fn(),
   ExpenseRepository: jest.fn(),
 }));
@@ -53,7 +54,6 @@ describe("ExpenseService", () => {
         amount_usd: 50,
         amount_lbp: 0,
         description: "Electricity bill",
-        expense_type: "Operating",
         expense_date: "2025-01-15",
       };
       mockRepo.createExpense.mockReturnValue(1);
@@ -65,7 +65,6 @@ describe("ExpenseService", () => {
       expect(mockRepo.logActivity).toHaveBeenCalledWith(1, "Add Expense", {
         category: "Utilities",
         paid_by_method: "CASH",
-        expense_type: "Operating",
         amount_usd: 50,
         amount_lbp: 0,
       });
@@ -77,7 +76,6 @@ describe("ExpenseService", () => {
         amount_usd: 0,
         amount_lbp: 900000,
         description: "Office supplies",
-        expense_type: "Operating",
         expense_date: "2025-01-15",
       };
       mockRepo.createExpense.mockReturnValue(2);
@@ -93,7 +91,6 @@ describe("ExpenseService", () => {
         amount_usd: 30,
         amount_lbp: 450000,
         description: "Building repair",
-        expense_type: "Operating",
         expense_date: "2025-01-15",
       };
       mockRepo.createExpense.mockReturnValue(3);
@@ -109,7 +106,6 @@ describe("ExpenseService", () => {
         amount_usd: 100,
         amount_lbp: 0,
         description: "Test",
-        expense_type: "Operating",
         expense_date: "2025-01-15",
       };
       mockRepo.createExpense.mockImplementation(() => {
@@ -130,7 +126,6 @@ describe("ExpenseService", () => {
         amount_usd: 500,
         amount_lbp: 0,
         description: "Monthly rent",
-        expense_type: "Fixed",
         expense_date: "2025-01-15",
       };
       mockRepo.createExpense.mockReturnValue(4);
@@ -146,7 +141,6 @@ describe("ExpenseService", () => {
         amount_usd: 0,
         amount_lbp: 100000,
         description: "Lunch",
-        expense_type: "Operating",
         expense_date: "2025-01-15",
       };
       mockRepo.createExpense.mockReturnValue(5);
@@ -156,7 +150,6 @@ describe("ExpenseService", () => {
       expect(mockRepo.logActivity).toHaveBeenCalledWith(1, "Add Expense", {
         category: "Food",
         paid_by_method: "CASH",
-        expense_type: "Operating",
         amount_usd: 0,
         amount_lbp: 100000,
       });
@@ -176,7 +169,6 @@ describe("ExpenseService", () => {
           amount_usd: 50,
           amount_lbp: 0,
           description: "Internet",
-          expense_type: "Operating",
           expense_date: "2025-01-15",
           created_at: "2025-01-15 10:00:00",
         },
@@ -186,7 +178,6 @@ describe("ExpenseService", () => {
           amount_usd: 20,
           amount_lbp: 0,
           description: "Snacks",
-          expense_type: "Operating",
           expense_date: "2025-01-15",
           created_at: "2025-01-15 12:00:00",
         },
@@ -230,7 +221,6 @@ describe("ExpenseService", () => {
         amount_usd: 50,
         amount_lbp: 0,
         description: "Old bill",
-        expense_type: "Operating",
         expense_date: "2025-01-15",
         created_at: "2025-01-15",
       };
@@ -264,7 +254,6 @@ describe("ExpenseService", () => {
         amount_usd: 10,
         amount_lbp: 0,
         description: "",
-        expense_type: "Operating",
         expense_date: "2025-01-15",
         created_at: "2025-01-15",
       });
@@ -287,7 +276,6 @@ describe("ExpenseService", () => {
         amount_usd: 0,
         amount_lbp: 500000,
         description: "Taxi",
-        expense_type: "Operating",
         expense_date: "2025-01-15",
         created_at: "2025-01-15",
       };

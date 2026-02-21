@@ -1,5 +1,7 @@
 import { BaseRepository } from "./BaseRepository.js";
 import { DatabaseError } from "../utils/errors.js";
+import { getTransactionRepository } from "./TransactionRepository.js";
+import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 
 export interface SupplierEntity {
   id: number;
@@ -8,6 +10,9 @@ export interface SupplierEntity {
   phone: string | null;
   note: string | null;
   is_active: number;
+  module_key: string | null;
+  provider: string | null;
+  is_system: number;
   created_at: string;
 }
 
@@ -21,6 +26,7 @@ export interface SupplierLedgerEntryEntity {
   amount_lbp: number;
   note: string | null;
   created_by: number | null;
+  transaction_id: number | null;
   created_at: string;
 }
 
@@ -29,6 +35,8 @@ export interface CreateSupplierData {
   contact_name?: string;
   phone?: string;
   note?: string;
+  module_key?: string;
+  provider?: string;
 }
 
 export interface CreateSupplierLedgerEntryData {
@@ -52,9 +60,14 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     super("suppliers", { softDelete: false });
   }
 
+  // Override getColumns() to use explicit columns instead of SELECT *
+  protected getColumns(): string {
+    return "id, name, contact_name, phone, note, is_active, module_key, provider, is_system, created_at";
+  }
+
   listSuppliers(search?: string): SupplierEntity[] {
     try {
-      let sql = `SELECT * FROM suppliers WHERE is_active = 1`;
+      let sql = `SELECT ${this.getColumns()} FROM suppliers WHERE is_active = 1`;
       const params: string[] = [];
       if (search?.trim()) {
         sql += ` AND name LIKE ?`;
@@ -70,14 +83,16 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
   createSupplier(data: CreateSupplierData): { id: number } {
     try {
       const stmt = this.db.prepare(`
-        INSERT INTO suppliers (name, contact_name, phone, note, is_active, created_at)
-        VALUES (?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+        INSERT INTO suppliers (name, contact_name, phone, note, module_key, provider, is_active, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
       `);
       const res = stmt.run(
         data.name.trim(),
         data.contact_name ?? null,
         data.phone ?? null,
         data.note ?? null,
+        data.module_key ?? null,
+        data.provider ?? null,
       );
       return { id: Number(res.lastInsertRowid) };
     } catch (e) {
@@ -85,18 +100,54 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     }
   }
 
+  getByProvider(provider: string): SupplierEntity | undefined {
+    try {
+      const rows = this.query<SupplierEntity>(
+        `SELECT ${this.getColumns()} FROM suppliers WHERE provider = ? AND is_active = 1 LIMIT 1`,
+        provider,
+      );
+      return rows[0];
+    } catch (e) {
+      throw new DatabaseError("Failed to get supplier by provider", {
+        cause: e,
+      });
+    }
+  }
+
+  getByModuleKey(moduleKey: string): SupplierEntity[] {
+    try {
+      return this.query<SupplierEntity>(
+        `SELECT ${this.getColumns()} FROM suppliers WHERE module_key = ? AND is_active = 1 ORDER BY name ASC`,
+        moduleKey,
+      );
+    } catch (e) {
+      throw new DatabaseError("Failed to get suppliers by module", {
+        cause: e,
+      });
+    }
+  }
+
   addLedgerEntry(data: CreateSupplierLedgerEntryData): { id: number } {
     try {
+      // Enforce sign convention: PAYMENT amounts stored as negative
+      let amountUsd = data.amount_usd || 0;
+      let amountLbp = data.amount_lbp || 0;
+      if (data.entry_type === "PAYMENT") {
+        amountUsd = -Math.abs(amountUsd);
+        amountLbp = -Math.abs(amountLbp);
+      }
+
       const stmt = this.db.prepare(`
         INSERT INTO supplier_ledger (
-          supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, created_at
+          supplier_id, entry_type, amount_usd, amount_lbp, note, created_by,
+          created_at
         ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       `);
       const res = stmt.run(
         data.supplier_id,
         data.entry_type,
-        data.amount_usd || 0,
-        data.amount_lbp || 0,
+        amountUsd,
+        amountLbp,
         data.note ?? null,
         data.created_by ?? null,
       );
@@ -117,24 +168,46 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         // TOP_UP increases liability and (theoretically) increases asset if we got stock?
         // Usually, payments are the ones affecting cash.
         if (data.entry_type === "PAYMENT") {
-          if (data.amount_usd)
-            upsertBalanceDelta.run(data.drawer_name, "USD", -data.amount_usd);
-          if (data.amount_lbp)
-            upsertBalanceDelta.run(data.drawer_name, "LBP", -data.amount_lbp);
+          // Create unified transaction row for supplier payment
+          const txnId = getTransactionRepository().createTransaction({
+            type: TRANSACTION_TYPES.SUPPLIER_PAYMENT,
+            source_table: "supplier_ledger",
+            source_id: entryId,
+            user_id: data.created_by || 1,
+            amount_usd: Math.abs(amountUsd),
+            amount_lbp: Math.abs(amountLbp),
+            summary: `Supplier Payment: $${Math.abs(amountUsd)} + ${Math.abs(amountLbp)} LBP`,
+            metadata_json: {
+              supplier_id: data.supplier_id,
+              drawer_name: data.drawer_name,
+            },
+          });
+
+          // Link supplier_ledger row to unified transaction
+          this.db
+            .prepare(
+              `UPDATE supplier_ledger SET transaction_id = ? WHERE id = ?`,
+            )
+            .run(txnId, entryId);
+
+          if (amountUsd)
+            upsertBalanceDelta.run(data.drawer_name, "USD", amountUsd);
+          if (amountLbp)
+            upsertBalanceDelta.run(data.drawer_name, "LBP", amountLbp);
 
           // Log to payments table
           this.db
             .prepare(
               `
-            INSERT INTO payments (source_type, source_id, method, drawer_name, currency_code, amount, note, created_by)
-            VALUES ('SUPPLIER_PAYMENT', ?, 'CASH', ?, ?, ?, ?, ?)
+            INSERT INTO payments (transaction_id, method, drawer_name, currency_code, amount, note, created_by)
+            VALUES (?, 'CASH', ?, ?, ?, ?, ?)
           `,
             )
             .run(
-              entryId,
+              txnId,
               data.drawer_name,
-              data.amount_usd ? "USD" : "LBP",
-              -(data.amount_usd || data.amount_lbp),
+              amountUsd ? "USD" : "LBP",
+              amountUsd || amountLbp,
               data.note || `Supplier Payment: ${data.supplier_id}`,
               data.created_by || 1,
             );
@@ -155,7 +228,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
   ): SupplierLedgerEntryEntity[] {
     try {
       return this.query<SupplierLedgerEntryEntity>(
-        `SELECT * FROM supplier_ledger WHERE supplier_id = ? ORDER BY created_at DESC LIMIT ?`,
+        `SELECT id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, created_at FROM supplier_ledger WHERE supplier_id = ? ORDER BY created_at DESC LIMIT ?`,
         supplierId,
         limit,
       );

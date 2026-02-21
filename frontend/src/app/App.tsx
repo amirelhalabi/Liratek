@@ -1,6 +1,8 @@
 import { HashRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "../features/auth/context/AuthContext";
 import { SessionProvider } from "../features/sessions/context/SessionContext";
+import { ModuleProvider } from "../contexts/ModuleContext";
+import { CurrencyProvider } from "../contexts/CurrencyContext";
 import Login from "../features/auth/pages/Login";
 import Dashboard from "../features/dashboard/pages/Dashboard";
 import CommissionsDashboard from "../features/dashboard/pages/CommissionsDashboard";
@@ -13,9 +15,15 @@ import Services from "../features/services/pages/Services";
 import Recharge from "../features/recharge/pages/Recharge";
 import Expenses from "../features/expenses/pages/Expenses";
 import Maintenance from "../features/maintenance/pages/Maintenance";
+import CustomServices from "../features/custom-services/pages/CustomServices";
 import Settings from "../features/settings/pages/Settings";
+import Reports from "../features/reports/pages/Reports";
+import Profits from "../features/profits/pages/Profits";
 import MainLayout from "../shared/components/layouts/MainLayout";
+import HomeGrid from "../shared/components/layouts/HomeGrid";
 import "../index.css";
+import { ApiProvider } from "@liratek/ui";
+import { backendApiAdapter } from "../api/adapter";
 
 // Wrapper for protected routes
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -36,12 +44,26 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <MainLayout>{children}</MainLayout>;
 }
 
+/** Renders HomeGrid or Dashboard based on layout mode */
+function HomeRoute() {
+  const mode = localStorage.getItem("layout_mode") || "left-panel";
+  return mode === "page-view" ? <HomeGrid /> : <Dashboard />;
+}
+
 function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route
         path="/"
+        element={
+          <ProtectedRoute>
+            <HomeRoute />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/dashboard"
         element={
           <ProtectedRoute>
             <Dashboard />
@@ -121,6 +143,19 @@ function AppRoutes() {
         }
       />
       <Route
+        path="/custom-services"
+        element={
+          <ProtectedRoute>
+            <CustomServices />
+          </ProtectedRoute>
+        }
+      />
+      <Route path="/binance" element={<Navigate to="/recharge" replace />} />
+      <Route
+        path="/ikw-services"
+        element={<Navigate to="/recharge" replace />}
+      />
+      <Route
         path="/expenses"
         element={
           <ProtectedRoute>
@@ -136,6 +171,22 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
+      <Route
+        path="/reports"
+        element={
+          <ProtectedRoute>
+            <Reports />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/profits"
+        element={
+          <ProtectedRoute>
+            <Profits />
+          </ProtectedRoute>
+        }
+      />
       {/* 404 Redirect */}
       <Route path="*" element={<Navigate to="/" />} />
     </Routes>
@@ -145,13 +196,19 @@ function AppRoutes() {
 function App() {
   return (
     // HashRouter is recommended for Electron to avoid path issues in production
-    <HashRouter>
-      <AuthProvider>
-        <SessionProvider>
-          <AppRoutes />
-        </SessionProvider>
-      </AuthProvider>
-    </HashRouter>
+    <ApiProvider adapter={backendApiAdapter}>
+      <ModuleProvider>
+        <CurrencyProvider>
+          <HashRouter>
+            <AuthProvider>
+              <SessionProvider>
+                <AppRoutes />
+              </SessionProvider>
+            </AuthProvider>
+          </HashRouter>
+        </CurrencyProvider>
+      </ModuleProvider>
+    </ApiProvider>
   );
 }
 

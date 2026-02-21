@@ -5,14 +5,18 @@
  */
 
 import { jest } from "@jest/globals";
-import { DebtService, resetDebtService } from "../DebtService";
-import { DebtRepository } from "../../database/repositories";
 
-// Mock the repository module
-jest.mock("../../database/repositories", () => ({
-  getDebtRepository: jest.fn(),
-  DebtRepository: jest.fn(),
-}));
+jest.mock("@liratek/core", () => {
+  const actual =
+    jest.requireActual<typeof import("@liratek/core")>("@liratek/core");
+  return {
+    ...actual,
+    getDebtRepository: jest.fn(),
+    DebtRepository: jest.fn(),
+  };
+});
+
+import { DebtService, resetDebtService, DebtRepository } from "@liratek/core";
 
 describe("DebtService", () => {
   let service: DebtService;
@@ -118,22 +122,16 @@ describe("DebtService", () => {
       expect(result).toEqual({ success: true, id: 123 });
     });
 
-    it("logs repayment on success", () => {
-      const consoleSpy = jest.spyOn(console, "log").mockImplementation();
+    it("returns success with repayment ID", () => {
       mockRepo.addRepayment.mockReturnValue({ id: 456 });
 
-      service.addRepayment({
+      const result = service.addRepayment({
         clientId: 1,
         amountUSD: 100,
         amountLBP: 500000,
       });
 
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining(
-          "[DEBT] Repayment of $100 and 500000 LBP for client 1",
-        ),
-      );
-      consoleSpy.mockRestore();
+      expect(result).toEqual({ success: true, id: 456 });
     });
 
     it("returns error for missing client ID", () => {

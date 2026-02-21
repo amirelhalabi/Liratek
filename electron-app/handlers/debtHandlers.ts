@@ -6,8 +6,7 @@
  */
 
 import { ipcMain } from "electron";
-import { getDebtService } from "../services/index.js";
-import { debtLogger } from "../utils/logger.js";
+import { getDebtService, debtLogger } from "@liratek/core";
 
 interface RepaymentData {
   clientId: number;
@@ -18,6 +17,7 @@ interface RepaymentData {
   drawerName?: string | undefined;
   note?: string;
   userId?: number;
+  paidByMethod?: string;
 }
 
 export function registerDebtHandlers(): void {

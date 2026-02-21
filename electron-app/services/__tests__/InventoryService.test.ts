@@ -5,11 +5,16 @@
  */
 
 import { InventoryService, resetInventoryService } from "../InventoryService";
-import { ProductRepository } from "../../database/repositories";
-import { ValidationError, NotFoundError } from "../../utils/errors";
+import {
+  ProductRepository,
+  getProductRepository,
+  ValidationError,
+  NotFoundError,
+} from "@liratek/core";
 
 // Mock the repository module
-jest.mock("../../database/repositories", () => ({
+jest.mock("@liratek/core", () => ({
+  ...jest.requireActual("@liratek/core"),
   getProductRepository: jest.fn(),
   ProductRepository: jest.fn(),
 }));

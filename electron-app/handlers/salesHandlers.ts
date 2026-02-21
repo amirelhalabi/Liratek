@@ -6,19 +6,15 @@
  */
 
 import { ipcMain } from "electron";
-import { getSalesService } from "../services/index.js";
-import { salesLogger } from "../utils/logger.js";
-import type { SaleRequest } from "../database/repositories/index.js";
+import { getSalesService, salesLogger } from "@liratek/core";
+import type { SaleRequest } from "@liratek/core";
 
 export function registerSalesHandlers(): void {
   const salesService = getSalesService();
 
   // Process a sale (create or update)
   ipcMain.handle("sales:process", (_event, sale: SaleRequest) => {
-    salesLogger.debug(
-      { saleId: sale.id, status: sale.status },
-      "Processing sale",
-    );
+    salesLogger.debug({ id: sale.id, status: sale.status }, "Processing sale");
     return salesService.processSale(sale);
   });
 

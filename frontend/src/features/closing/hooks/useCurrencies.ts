@@ -4,10 +4,12 @@
  */
 
 import { useState, useEffect } from "react";
+import logger from "../../../utils/logger";
 import type { Currency } from "../types";
-import * as api from "../../../api/backendApi";
+import { useApi } from "@liratek/ui";
 
 export function useCurrencies() {
+  const api = useApi();
   const [currencies, setCurrencies] = useState<Currency[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -21,7 +23,8 @@ export function useCurrencies() {
       setLoading(true);
       setError(null);
       const list = await api.getCurrencies();
-      const active = list
+      const items = Array.isArray(list) ? list : [];
+      const active = items
         .filter((c: Currency) => c.is_active === 1)
         .map((c: Currency) => ({
           code: c.code,
@@ -33,7 +36,7 @@ export function useCurrencies() {
       const message =
         err instanceof Error ? err.message : "Failed to load currencies";
       setError(message);
-      console.error("[useCurrencies] Error:", err);
+      logger.error("[useCurrencies] Error:", err);
     } finally {
       setLoading(false);
     }

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
+import logger from "../../../../utils/logger";
 import { X, Save, MessageCircle } from "lucide-react";
-import type { Client } from "../../../../types";
+import type { Client } from "@liratek/ui";
 
 interface ClientFormProps {
   onClose: () => void;
@@ -66,7 +67,7 @@ export default function ClientForm({
           ...(formData.notes ? { notes: formData.notes } : {}),
           whatsapp_opt_in: formData.whatsapp_opt_in ? 1 : 0,
         };
-        result = await window.api.updateClient(updatePayload);
+        result = await window.api.clients.update(updatePayload);
       } else {
         const createPayload = {
           full_name: formData.full_name,
@@ -74,7 +75,7 @@ export default function ClientForm({
           notes: formData.notes || "",
           whatsapp_opt_in: formData.whatsapp_opt_in ? 1 : 0,
         };
-        result = await window.api.createClient(createPayload);
+        result = await window.api.clients.create(createPayload);
       }
 
       if (result.success) {
@@ -83,7 +84,7 @@ export default function ClientForm({
         setError(result.error || "Failed to save client");
       }
     } catch (err) {
-      console.error(err);
+      logger.error("Failed to save client", { error: err });
       setError("An unexpected error occurred");
     } finally {
       setIsLoading(false);
@@ -93,6 +94,7 @@ export default function ClientForm({
   return (
     <div
       className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+      role="presentation"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) {
           onClose();
@@ -101,6 +103,7 @@ export default function ClientForm({
     >
       <div
         className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-lg overflow-hidden shadow-2xl"
+        role="presentation"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex justify-between items-center p-6 border-b border-slate-700 bg-slate-800">
@@ -120,10 +123,14 @@ export default function ClientForm({
           )}
 
           <div>
-            <label className="block text-sm font-medium text-slate-400 mb-1">
+            <label
+              htmlFor="client-full-name"
+              className="block text-sm font-medium text-slate-400 mb-1"
+            >
               Full Name
             </label>
             <input
+              id="client-full-name"
               name="full_name"
               type="text"
               value={formData.full_name}
@@ -135,10 +142,14 @@ export default function ClientForm({
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-400 mb-1">
+            <label
+              htmlFor="client-phone"
+              className="block text-sm font-medium text-slate-400 mb-1"
+            >
               Phone Number
             </label>
             <input
+              id="client-phone"
               name="phone_number"
               type="text"
               value={formData.phone_number}
@@ -150,7 +161,10 @@ export default function ClientForm({
           </div>
 
           <div className="flex items-center gap-3 py-2">
-            <div
+            <button
+              type="button"
+              role="switch"
+              aria-checked={formData.whatsapp_opt_in}
               className={`w-10 h-6 rounded-full p-1 cursor-pointer transition-colors ${formData.whatsapp_opt_in ? "bg-green-500" : "bg-slate-600"}`}
               onClick={() =>
                 setFormData((prev) => ({
@@ -162,7 +176,7 @@ export default function ClientForm({
               <div
                 className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${formData.whatsapp_opt_in ? "translate-x-4" : ""}`}
               ></div>
-            </div>
+            </button>
             <span className="text-slate-300 text-sm flex items-center gap-2">
               <MessageCircle
                 size={16}
@@ -183,10 +197,14 @@ export default function ClientForm({
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-400 mb-1">
+            <label
+              htmlFor="client-notes"
+              className="block text-sm font-medium text-slate-400 mb-1"
+            >
               Notes (Optional)
             </label>
             <textarea
+              id="client-notes"
               name="notes"
               value={formData.notes}
               onChange={handleChange}

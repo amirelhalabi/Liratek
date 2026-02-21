@@ -17,6 +17,7 @@ import {
   type DebtorSummary,
   type DebtSummary,
 } from "../repositories/index.js";
+import { debtLogger } from "../utils/logger.js";
 
 // =============================================================================
 // Types
@@ -34,6 +35,7 @@ export interface RepaymentData {
   amountLBP: number;
   note?: string;
   userId?: number;
+  paidByMethod?: string;
 }
 
 // =============================================================================
@@ -86,7 +88,7 @@ export class DebtService {
    * Process a debt repayment
    */
   addRepayment(data: RepaymentData): RepaymentResult {
-    const { clientId, amountUSD, amountLBP, note, userId } = data;
+    const { clientId, amountUSD, amountLBP, note, userId, paidByMethod } = data;
 
     // Validate
     if (!clientId) {
@@ -106,15 +108,25 @@ export class DebtService {
         amount_lbp: amountLBP,
         note: note || null,
         created_by: userId || null,
+        paid_by_method: paidByMethod,
       });
 
-      console.log(
-        `[DEBT] Repayment of $${amountUSD} and ${amountLBP} LBP for client ${clientId}`,
+      debtLogger.info(
+        {
+          clientId,
+          amountUSD,
+          amountLBP,
+          repaymentId: result.id,
+        },
+        `Repayment of $${amountUSD} and ${amountLBP} LBP for client ${clientId}`,
       );
 
       return { success: true, id: result.id };
     } catch (error) {
-      console.error("Failed to add repayment:", error);
+      debtLogger.error(
+        { error, clientId, amountUSD, amountLBP },
+        "Failed to add repayment",
+      );
       return { success: false, error: (error as Error).message };
     }
   }

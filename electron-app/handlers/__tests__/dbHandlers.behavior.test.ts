@@ -30,11 +30,10 @@ jest.mock("../../db", () => ({
               id: (rowstore.at(-1)?.id || 0) + 1,
               description: a[0],
               category: a[1],
-              expense_type: a[2],
-              paid_by_method: a[3],
-              amount_usd: a[4],
-              amount_lbp: a[5],
-              expense_date: a[6],
+              paid_by_method: a[2],
+              amount_usd: a[3],
+              amount_lbp: a[4],
+              expense_date: a[5],
             });
             return { lastInsertRowid: rowstore.at(-1).id };
           }),
@@ -72,7 +71,6 @@ describe("dbHandlers expenses behavior", () => {
       {
         description: "Paper",
         category: "Office",
-        expense_type: "OneTime",
         amount_usd: 10,
         amount_lbp: 0,
         expense_date: "2024-01-01",

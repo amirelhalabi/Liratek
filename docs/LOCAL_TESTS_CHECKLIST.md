@@ -1,7 +1,7 @@
 # Local Tests Checklist - Desktop & Web Mode
 
-**Last Updated:** Feb 1, 2026  
-**Purpose:** Comprehensive testing checklist for both Desktop (Electron) and Web modes after T-20 Phase 1 migration completion.
+**Last Updated:** Feb 15, 2026  
+**Purpose:** Comprehensive testing checklist for both Desktop (Electron) and Web modes.
 
 ---
 
@@ -193,9 +193,12 @@
 - [ ] Provider selection (MTC/Alfa)
 - [ ] Recharge type selection
 - [ ] Stock levels display
-- [ ] Paid By selector works (Select component)
+- [ ] Paid By selector works (Select component — includes CASH, OMT, WHISH, BINANCE, DEBT)
 - [ ] Process recharge transaction
 - [ ] Stock updates after transaction
+- [ ] Voucher image displays on item (if image uploaded)
+- [ ] Cost auto-fills from saved `item_costs` data
+- [ ] DEBT payment creates debt entry for selected client
 
 ### Web Mode:
 
@@ -203,10 +206,120 @@
 - [ ] Paid By Select component works
 - [ ] Process recharge (via POST `/api/recharge/process`)
 - [ ] Verify transaction saved
+- [ ] Item costs load (via GET `/api/item-costs`)
+- [ ] Save item cost (via POST `/api/item-costs`)
+- [ ] Voucher images load (via GET `/api/voucher-images`)
+- [ ] Upload voucher image (via POST `/api/voucher-images`)
+- [ ] Delete voucher image (via DELETE `/api/voucher-images/:id`)
+
+### Financial Services (IPEC/Katch/WishApp):
+
+- [ ] IPEC/Katch/WishApp: select item from mobileServices.json → cost auto-fills if saved
+- [ ] IPEC/Katch/WishApp: enter cost + price → profit displays correctly
+- [ ] IPEC/Katch/WishApp: submit with CASH → provider drawer decreases by cost, General drawer increases by price
+- [ ] IPEC/Katch/WishApp: submit with DEBT → provider drawer decreases by cost, debt_ledger shows price, client appears on Debts page
+- [ ] IPEC/Katch/WishApp: "Custom" item → free-form amount works, no item_key saved
+- [ ] Voucher image: upload image for an item → displays on next sale of that item
+- [ ] Cost auto-save: first sale of new item with cost → item_costs record created
+- [ ] Cost auto-save: second sale of same item → cost auto-fills from saved value
+- [ ] Supplier owed amounts reflect actual cost, not price
+- [ ] OMT/WHISH: existing SEND/RECEIVE flow unchanged (no regression)
 
 ---
 
-## 💳 9. Debts Management
+## �️ 8b. Custom Services
+
+### Desktop Mode:
+
+- [ ] Custom services page loads
+- [ ] Add a new service (description, cost, price, payment method)
+- [ ] Profit calculates automatically (price − cost)
+- [ ] Client selection works (optional)
+- [ ] DEBT payment requires client selection
+- [ ] Delete a service
+- [ ] Today's summary stats display
+- [ ] Filter by date works
+
+### Web Mode:
+
+- [ ] Services load (via GET `/api/custom-services`)
+- [ ] Create service (via POST `/api/custom-services`) with Zod validation
+- [ ] Get single service (via GET `/api/custom-services/:id`)
+- [ ] Delete service (via DELETE `/api/custom-services/:id`)
+- [ ] Summary loads (via GET `/api/custom-services/summary`)
+- [ ] Date filtering works (via `?date=YYYY-MM-DD` query)
+- [ ] Validation errors display for missing/invalid fields
+
+---
+
+## 📊 8c. Profits Module (Admin Only)
+
+### Desktop Mode:
+
+- [ ] Profits page loads (admin only — non-admin cannot access)
+- [ ] Date range picker works (from/to)
+- [ ] Tab 1 — Overview: total profit summary displays
+- [ ] Tab 2 — By Module: breakdown per module (POS, Recharge, etc.)
+- [ ] Tab 3 — By Date: daily profit trend chart/table
+- [ ] Tab 4 — By Payment Method: breakdown by CASH, OMT, etc.
+- [ ] Tab 5 — By Cashier: per-user profit breakdown
+- [ ] Tab 6 — By Client: top clients by profit (limit configurable)
+
+### Web Mode:
+
+- [ ] Summary loads (via GET `/api/profits/summary?from=...&to=...`)
+- [ ] By module loads (via GET `/api/profits/by-module?from=...&to=...`)
+- [ ] By date loads (via GET `/api/profits/by-date?from=...&to=...`)
+- [ ] By payment method loads (via GET `/api/profits/by-payment-method?from=...&to=...`)
+- [ ] By user loads (via GET `/api/profits/by-user?from=...&to=...`)
+- [ ] By client loads (via GET `/api/profits/by-client?from=...&to=...&limit=20`)
+- [ ] Non-admin users get 403 Forbidden
+
+---
+
+## 📋 8d. Transactions & Reports
+
+### Desktop Mode:
+
+- [ ] Activity Log Viewer (Settings) loads recent transactions
+- [ ] Transaction list filters by type, status, date range
+- [ ] Reports page loads
+- [ ] Reports: daily summaries display for date range
+- [ ] Reports: client history shows transaction trail
+- [ ] Reports: revenue by module breakdown
+- [ ] Reports: overdue debts list
+
+### Web Mode:
+
+- [ ] Recent transactions load (via GET `/api/transactions/recent`)
+- [ ] Single transaction loads (via GET `/api/transactions/:id`)
+- [ ] Client transactions load (via GET `/api/transactions/client/:clientId`)
+- [ ] Void transaction works (via POST `/api/transactions/:id/void`)
+- [ ] Refund transaction works (via POST `/api/transactions/:id/refund`)
+- [ ] Daily summary loads (via GET `/api/transactions/analytics/daily-summary?date=...`)
+- [ ] Debt aging loads (via GET `/api/transactions/analytics/debt-aging/:clientId`)
+- [ ] Overdue debts load (via GET `/api/transactions/analytics/overdue-debts`)
+- [ ] Revenue by type loads (via GET `/api/transactions/analytics/revenue-by-type?from=...&to=...`)
+- [ ] Revenue by user loads (via GET `/api/transactions/analytics/revenue-by-user?from=...&to=...`)
+- [ ] Report: daily summaries (via GET `/api/transactions/reports/daily-summaries?from=...&to=...`)
+- [ ] Report: client history (via GET `/api/transactions/reports/client-history/:clientId`)
+- [ ] Report: revenue by module (via GET `/api/transactions/reports/revenue-by-module?from=...&to=...`)
+
+---
+
+## 📤 8e. Table Export (All Pages)
+
+### Both Modes:
+
+- [ ] ExportBar component appears on data tables
+- [ ] Excel export downloads `.xlsx` file with correct data
+- [ ] PDF export downloads `.pdf` file with correct data
+- [ ] Export respects current date filters / search
+- [ ] Export works on all 24 table instances across the app
+
+---
+
+## �💳 9. Debts Management
 
 ### Desktop Mode:
 
@@ -221,6 +334,8 @@
   - [ ] USD shows "-" when 0
 - [ ] Add repayment
 - [ ] Mark debt as closed
+- [ ] "Service Debt" entries appear correctly on Debts page
+- [ ] Repaying a Service Debt updates drawer + clears debt
 
 ### Web Mode:
 
@@ -294,8 +409,13 @@
   - [ ] Rates list loads
   - [ ] Set/update exchange rate
 - [ ] **Activity Log Viewer**
-  - [ ] Recent activity loads with limit
-  - [ ] Activity displays correctly
+  - [ ] Recent transactions load (unified `transactions` table)
+  - [ ] Filter by type, status, date range
+  - [ ] Void/refund actions work
+  - [ ] Activity displays with correct amounts and summaries
+- [ ] **Integrations Config**
+  - [ ] WhatsApp integration settings load
+  - [ ] Test WhatsApp message button works
 
 ### Web Mode:
 
@@ -443,6 +563,39 @@ These should NOT work in web mode:
 
 ---
 
+## 💱 19. Dynamic Currencies & Modules
+
+### Both Modes:
+
+- [ ] New currencies can be added via Settings > Currency Manager without code changes
+- [ ] All currency dropdowns load from the database
+- [ ] Currency symbols and formatting come from DB data
+- [ ] Financial services accept any active currency
+- [ ] Exchange module works with any currency pair
+- [ ] Modules can be toggled on/off from Settings > Modules tab
+- [ ] System modules (Dashboard, Settings, Closing) cannot be toggled
+- [ ] Sidebar reflects module enablement dynamically
+- [ ] Closing system works with dynamic currency list
+- [ ] Dashboard shows data for all active currencies
+- [ ] Reports format all currencies correctly
+- [ ] `useExchangeRate()` hook loads rate from DB, falls back to constant
+- [ ] Drawer currency config filters Dashboard, Closing, and Opening correctly
+- [ ] Drawer currency assignments editable in Settings > Currencies & Rates
+- [ ] Regression: existing USD/LBP workflows unaffected
+
+---
+
+## 🔌 20. API Validation
+
+### Web Mode (Postman/Thunder Client):
+
+- [ ] Test each endpoint with valid payloads — 200/201 responses
+- [ ] Verify error messages are helpful and field-specific on invalid input
+- [ ] Test edge cases (empty strings, negative numbers, invalid enums)
+- [ ] Verify existing functionality still works after validation changes
+
+---
+
 ## ✅ 18. Final Verification
 
 ### Desktop Mode Checklist:
@@ -479,13 +632,18 @@ These should NOT work in web mode:
 5. **✅ WebSocket Updates** - Real-time dashboard refresh
 6. **✅ Authentication** - Both modes handle sessions correctly
 7. **✅ Settings Pages** - All CRUD operations work
+8. **✅ Custom Services** - Full CRUD + debt support
+9. **✅ Profits Module** - All 6 tabs load (admin only)
+10. **✅ Transactions/Reports** - Unified ledger queries work
+11. **✅ Table Export** - Excel/PDF on all data tables
+12. **✅ Voucher Images** - Upload/display per recharge item
 
 ---
 
 ## 📝 Test Results Log
 
-**Tester:** ********\_********  
-**Date:** ********\_********  
+**Tester:** **\*\*\*\***\_**\*\*\*\***  
+**Date:** **\*\*\*\***\_**\*\*\*\***  
 **Mode Tested:** Desktop / Web (circle one)
 
 ### Issues Found:

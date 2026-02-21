@@ -1,6 +1,7 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
+import env from "../config/env.js";
 
 export type DbPathResolutionSource =
   | "env:DATABASE_PATH"
@@ -24,9 +25,9 @@ export interface ResolvedDbPath {
  * 4) Cross-platform fallback: ~/Documents/LiraTek/liratek.db
  */
 export function resolveDatabasePath(): ResolvedDbPath {
-  const env = process.env.DATABASE_PATH?.trim();
-  if (env) {
-    return { path: env, source: "env:DATABASE_PATH" };
+  const dbPath = env.DATABASE_PATH;
+  if (dbPath) {
+    return { path: dbPath, source: "env:DATABASE_PATH" };
   }
 
   const configFile = path.join(

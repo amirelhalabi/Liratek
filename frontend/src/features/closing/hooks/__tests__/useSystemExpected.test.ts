@@ -7,21 +7,18 @@
 import { renderHook, act, waitFor } from "@testing-library/react";
 import { useSystemExpected } from "../useSystemExpected";
 
-// Mock window.api
-const mockGetSystemExpectedBalances = jest.fn();
+// Mock the API adapter returned by useApi
+const mockGetSystemExpectedBalancesDynamic = jest.fn();
+
+jest.mock("@liratek/ui", () => ({
+  useApi: () => ({
+    getSystemExpectedBalancesDynamic: mockGetSystemExpectedBalancesDynamic,
+  }),
+}));
 
 describe("useSystemExpected", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    (window as any).api = {
-      closing: {
-        getSystemExpectedBalances: mockGetSystemExpectedBalances,
-      },
-    };
-  });
-
-  afterEach(() => {
-    delete (window as any).api;
   });
 
   it("should initialize with null system expected", () => {
@@ -42,7 +39,7 @@ describe("useSystemExpected", () => {
       alfaDrawer: { usd: 30, lbp: 0, eur: 0 },
     };
 
-    mockGetSystemExpectedBalances.mockResolvedValue(mockBalances);
+    mockGetSystemExpectedBalancesDynamic.mockResolvedValue(mockBalances);
 
     const { result } = renderHook(() => useSystemExpected());
 
@@ -59,7 +56,7 @@ describe("useSystemExpected", () => {
   });
 
   it("should set loading state during fetch", async () => {
-    mockGetSystemExpectedBalances.mockImplementation(
+    mockGetSystemExpectedBalancesDynamic.mockImplementation(
       () => new Promise((resolve) => setTimeout(resolve, 100)),
     );
 
@@ -80,7 +77,7 @@ describe("useSystemExpected", () => {
 
   it("should handle fetch errors gracefully", async () => {
     const mockError = new Error("Failed to fetch balances");
-    mockGetSystemExpectedBalances.mockRejectedValue(mockError);
+    mockGetSystemExpectedBalancesDynamic.mockRejectedValue(mockError);
 
     const { result } = renderHook(() => useSystemExpected());
 
@@ -97,7 +94,7 @@ describe("useSystemExpected", () => {
   });
 
   it("should handle non-Error objects in catch", async () => {
-    mockGetSystemExpectedBalances.mockRejectedValue("String error");
+    mockGetSystemExpectedBalancesDynamic.mockRejectedValue("String error");
 
     const { result } = renderHook(() => useSystemExpected());
 
@@ -114,15 +111,15 @@ describe("useSystemExpected", () => {
 
   it("should get expected amount for drawer and currency", async () => {
     const mockBalances = {
-      generalDrawer: { usd: 100, lbp: 150000 },
-      omtDrawer: { usd: 50, lbp: 75000 },
-      whishDrawer: { usd: 0, lbp: 0 },
-      binanceDrawer: { usd: 0, lbp: 0 },
-      mtcDrawer: { usd: 25, lbp: 0 },
-      alfaDrawer: { usd: 30, lbp: 0 },
+      General: { USD: 100, LBP: 150000 },
+      OMT_System: { USD: 50, LBP: 75000 },
+      Whish: { USD: 0, LBP: 0 },
+      Binance: { USD: 0, LBP: 0 },
+      MTC: { USD: 25, LBP: 0 },
+      Alfa: { USD: 30, LBP: 0 },
     };
 
-    mockGetSystemExpectedBalances.mockResolvedValue(mockBalances);
+    mockGetSystemExpectedBalancesDynamic.mockResolvedValue(mockBalances);
 
     const { result } = renderHook(() => useSystemExpected());
 
@@ -143,15 +140,15 @@ describe("useSystemExpected", () => {
 
   it("should return 0 for missing currency in drawer", async () => {
     const mockBalances = {
-      generalDrawer: { usd: 100 },
-      omtDrawer: { usd: 50 },
-      whishDrawer: { usd: 0 },
-      binanceDrawer: { usd: 0 },
-      mtcDrawer: { usd: 25 },
-      alfaDrawer: { usd: 30 },
+      General: { USD: 100 },
+      OMT_System: { USD: 50 },
+      Whish: { USD: 0 },
+      Binance: { USD: 0 },
+      MTC: { USD: 25 },
+      Alfa: { USD: 30 },
     };
 
-    mockGetSystemExpectedBalances.mockResolvedValue(mockBalances);
+    mockGetSystemExpectedBalancesDynamic.mockResolvedValue(mockBalances);
 
     const { result } = renderHook(() => useSystemExpected());
 
@@ -162,17 +159,17 @@ describe("useSystemExpected", () => {
     expect(result.current.getExpectedAmount("General", "EUR")).toBe(0);
   });
 
-  it("should handle case-insensitive drawer and currency names", async () => {
+  it("should perform case-sensitive drawer and currency lookup", async () => {
     const mockBalances = {
-      generalDrawer: { usd: 100, lbp: 150000 },
-      omtDrawer: { usd: 50, lbp: 75000 },
-      whishDrawer: { usd: 0, lbp: 0 },
-      binanceDrawer: { usd: 0, lbp: 0 },
-      mtcDrawer: { usd: 25, lbp: 0 },
-      alfaDrawer: { usd: 30, lbp: 0 },
+      General: { USD: 100, LBP: 150000 },
+      OMT_System: { USD: 50, LBP: 75000 },
+      Whish: { USD: 0, LBP: 0 },
+      Binance: { USD: 0, LBP: 0 },
+      MTC: { USD: 25, LBP: 0 },
+      Alfa: { USD: 30, LBP: 0 },
     };
 
-    mockGetSystemExpectedBalances.mockResolvedValue(mockBalances);
+    mockGetSystemExpectedBalancesDynamic.mockResolvedValue(mockBalances);
 
     const { result } = renderHook(() => useSystemExpected());
 
@@ -181,6 +178,7 @@ describe("useSystemExpected", () => {
     });
 
     expect(result.current.getExpectedAmount("General", "USD")).toBe(100);
-    expect(result.current.getExpectedAmount("general", "usd")).toBe(100);
+    // Case-sensitive: mismatched case returns 0
+    expect(result.current.getExpectedAmount("general", "usd")).toBe(0);
   });
 });

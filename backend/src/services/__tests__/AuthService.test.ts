@@ -5,53 +5,64 @@
  */
 
 import { jest } from "@jest/globals";
-import { AuthService, resetAuthService } from "../AuthService";
 
-// Import core error classes (these are thrown by @liratek/core AuthService)
-import {
-  AuthenticationError,
-  AuthorizationError,
-  ValidationError,
-  ConflictError,
-  BusinessRuleError,
-} from "@liratek/core";
-
-// Mock @liratek/core dependencies used internally by AuthService
-jest.mock("../../../../packages/core/src/repositories/index", () => ({
-  getUserRepository: jest.fn(),
-  getSessionRepository: jest.fn(() => ({
-    createSession: jest.fn(() => ({ token: "test-token" })),
-    findValidSession: jest.fn(() => null),
-    deleteSession: jest.fn(() => ({ success: true })),
-  })),
-}));
-
-jest.mock("../../../../packages/core/src/utils/crypto", () => ({
-  hashPassword: jest.fn().mockResolvedValue("hashed_password"),
-  verifyPassword: jest.fn().mockResolvedValue(true),
+// Mock crypto utilities at their source file location (where AuthService imports from)
+jest.mock("../../../../packages/core/src/utils/crypto.ts", () => ({
+  hashPassword: jest.fn<() => string>().mockReturnValue("hashed_password"),
+  verifyPassword: jest.fn().mockReturnValue(true),
   needsMigration: jest.fn().mockReturnValue(false),
   validatePasswordComplexity: jest
     .fn()
     .mockReturnValue({ valid: true, errors: [] }),
 }));
 
-import { getUserRepository } from "../../../../packages/core/src/repositories/index";
-import { getSessionRepository } from "../../../../packages/core/src/repositories/index";
+// Mock @liratek/core dependencies used internally by AuthService
+jest.mock("@liratek/core", () => {
+  const actual =
+    jest.requireActual<typeof import("@liratek/core")>("@liratek/core");
+
+  return {
+    ...actual,
+    getUserRepository: jest.fn(),
+    getSessionRepository: jest.fn(() => ({
+      createSession: jest.fn(() => ({ token: "test-token" })),
+      findValidSession: jest.fn(() => null),
+      deleteSession: jest.fn(() => ({ success: true })),
+      updateActivity: jest.fn(),
+      delete: jest.fn(),
+    })),
+  };
+});
 
 import {
+  AuthService,
+  resetAuthService,
+  AuthenticationError,
+  AuthorizationError,
+  ValidationError,
+  ConflictError,
+  BusinessRuleError,
+  getUserRepository,
+  getSessionRepository,
+  type UserRepository,
+} from "@liratek/core";
+import {
+  hashPassword,
   verifyPassword,
+  needsMigration,
   validatePasswordComplexity,
 } from "../../../../packages/core/src/utils/crypto";
 
 describe("AuthService", () => {
   let service: AuthService;
   let mockRepo: any;
+  let mockSessionRepo: any;
 
   beforeEach(() => {
     resetAuthService();
     jest.clearAllMocks();
 
-    // Create mock repository
+    // Create mock user repository
     mockRepo = {
       findByUsername: jest.fn(),
       findById: jest.fn(),
@@ -66,7 +77,17 @@ describe("AuthService", () => {
       findAllIncludingInactive: jest.fn(),
     } as unknown as jest.Mocked<UserRepository>;
 
-    service = new AuthService(mockRepo);
+    // Create mock session repository
+    mockSessionRepo = {
+      createSession: jest.fn(() => ({ token: "test-token" })),
+      findValidSession: jest.fn(() => null),
+      validateSession: jest.fn(() => null),
+      deleteSession: jest.fn(() => ({ success: true })),
+      updateActivity: jest.fn(),
+      delete: jest.fn(),
+    };
+
+    service = new AuthService(mockRepo, mockSessionRepo);
   });
 
   // ===========================================================================
@@ -92,7 +113,7 @@ describe("AuthService", () => {
     it("successfully logs in a user", async () => {
       mockRepo.findByUsername.mockReturnValue(mockUser as any);
       mockRepo.findByIdSafe.mockReturnValue(mockSafeUser as any);
-      (verifyPassword as jest.Mock).mockResolvedValue(true);
+      (verifyPassword as jest.Mock).mockReturnValue(true);
 
       const result = await service.login("testuser", "password123");
 
@@ -242,7 +263,7 @@ describe("AuthService", () => {
     it("changes password successfully", async () => {
       mockRepo.findById.mockReturnValue(mockUser as any);
       mockRepo.updatePassword.mockReturnValue(true);
-      (verifyPassword as jest.Mock).mockResolvedValue(true);
+      (verifyPassword as jest.Mock).mockReturnValue(true);
 
       const result = await service.changePassword(
         1,
@@ -264,7 +285,7 @@ describe("AuthService", () => {
 
     it("throws AuthenticationError for incorrect current password", async () => {
       mockRepo.findById.mockReturnValue(mockUser as any);
-      (verifyPassword as jest.Mock).mockResolvedValue(false);
+      (verifyPassword as jest.Mock).mockReturnValue(false);
 
       await expect(
         service.changePassword(1, "wrongPassword", "NewPassword123!"),
@@ -273,7 +294,7 @@ describe("AuthService", () => {
 
     it("throws ValidationError for invalid new password", async () => {
       mockRepo.findById.mockReturnValue(mockUser as any);
-      (verifyPassword as jest.Mock).mockResolvedValue(true);
+      (verifyPassword as jest.Mock).mockReturnValue(true);
       (validatePasswordComplexity as jest.Mock).mockReturnValue({
         valid: false,
         errors: ["Password too weak"],

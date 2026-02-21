@@ -6,7 +6,8 @@
 
 import { Router } from "express";
 import { requireAuth } from "../middleware/auth.js";
-import { getRateService } from "../services/index.js";
+import { validateRequest } from "../middleware/validation.js";
+import { getRateService, setRateSchema } from "@liratek/core";
 import { logger } from "../server.js";
 
 const router = Router();
@@ -24,29 +25,32 @@ router.get("/", requireAuth, async (_req, res) => {
 });
 
 // POST /api/rates
-router.post("/", requireAuth, async (req, res) => {
-  try {
-    const { from_code, to_code, rate } = req.body;
+router.post(
+  "/",
+  requireAuth,
+  validateRequest(setRateSchema),
+  async (req, res) => {
+    try {
+      const result = rateService.setRate(req.body);
 
-    if (!from_code || !to_code || rate === undefined) {
-      res.status(400).json({
-        success: false,
-        error: "Missing required fields: from_code, to_code, rate",
-      });
+      if (result.success) {
+        logger.info(
+          {
+            fromCurrency: req.body.fromCurrency,
+            toCurrency: req.body.toCurrency,
+            rate: req.body.rate,
+          },
+          "Exchange rate set",
+        );
+        res.json(result);
+      } else {
+        res.status(400).json(result);
+      }
+    } catch (error) {
+      logger.error({ error }, "Set rate error");
+      res.status(500).json({ success: false, error: "Failed to set rate" });
     }
-
-    const result = rateService.setRate({ from_code, to_code, rate });
-
-    if (result.success) {
-      logger.info({ from_code, to_code, rate }, "Exchange rate set");
-      res.json(result);
-    } else {
-      res.status(400).json(result);
-    }
-  } catch (error) {
-    logger.error({ error }, "Set rate error");
-    res.status(500).json({ success: false, error: "Failed to set rate" });
-  }
-});
+  },
+);
 
 export default router;

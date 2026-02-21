@@ -6,7 +6,7 @@ import {
   getInventoryService,
   getRechargeService,
   getFinancialRepository,
-} from "../services/index.js";
+} from "@liratek/core";
 
 const router = express.Router();
 
@@ -40,6 +40,13 @@ router.get("/drawer-balances", (_req, res) => {
   const service = getSalesService();
   const balances = service.getDrawerBalances();
   res.json({ success: true, balances });
+});
+
+// GET /api/dashboard/drawer-names
+router.get("/drawer-names", (_req, res) => {
+  const repo = getFinancialRepository();
+  const drawerNames = repo.getDrawerNames();
+  res.json({ success: true, drawerNames });
 });
 
 // GET /api/dashboard/debt-summary

@@ -1,24 +1,16 @@
 import { ipcMain } from "electron";
-import { MaintenanceService } from "../services/MaintenanceService.js";
-import { maintenanceLogger } from "../utils/logger.js";
+import {
+  getMaintenanceService,
+  maintenanceLogger,
+  type SaveJobParams,
+} from "@liratek/core";
 /* eslint-disable @typescript-eslint/no-require-imports */
 
 export function registerMaintenanceHandlers(): void {
-  const service = new MaintenanceService();
+  const service = getMaintenanceService();
 
   // Add / Update Maintenance Job (Drawer B - General Drawer)
-  type MaintenanceJobInput = {
-    id?: number;
-    device_name: string;
-    issue_description: string;
-    estimated_cost_usd?: number;
-    repair_price_usd?: number;
-    status?: string;
-    client_name?: string;
-    client_phone?: string;
-  };
-
-  ipcMain.handle("maintenance:save", (e, job: MaintenanceJobInput) => {
+  ipcMain.handle("maintenance:save", (e, job: SaveJobParams) => {
     try {
       const { requireRole } = require("../session");
       const auth = requireRole(e.sender.id, ["admin"]);

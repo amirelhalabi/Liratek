@@ -23,6 +23,18 @@ jest.mock("../../../hooks/useDrawerAmounts", () => ({
   useDrawerAmounts: () => mockUseDrawerAmounts(),
 }));
 
+const mockSetOpeningBalances = jest.fn();
+const mockGetAllDrawerCurrencies = jest.fn().mockResolvedValue({});
+const mockGetSystemExpectedBalancesDynamic = jest.fn().mockResolvedValue({});
+
+jest.mock("@liratek/ui", () => ({
+  useApi: () => ({
+    setOpeningBalances: mockSetOpeningBalances,
+    getAllDrawerCurrencies: mockGetAllDrawerCurrencies,
+    getSystemExpectedBalancesDynamic: mockGetSystemExpectedBalancesDynamic,
+  }),
+}));
+
 function setupDrawerAmounts(
   overrides: Partial<ReturnType<typeof mockUseDrawerAmounts>> = {},
 ) {
@@ -49,18 +61,7 @@ describe("Opening modal", () => {
   beforeEach(() => {
     jest.clearAllMocks();
 
-    // window.api mock
-    (window as any).api = {
-      closing: {
-        setOpeningBalances: jest.fn(),
-      },
-    };
-
     mockGetDisplayValue.mockReturnValue("");
-  });
-
-  afterEach(() => {
-    delete (window as any).api;
   });
 
   it("renders nothing when closed", () => {
@@ -138,9 +139,7 @@ describe("Opening modal", () => {
 
     fireEvent.click(screen.getByText("Save & Start Day"));
     expect(screen.getByText(/Bad amount/)).toBeInTheDocument();
-    expect(
-      (window as any).api.closing.setOpeningBalances,
-    ).not.toHaveBeenCalled();
+    expect(mockSetOpeningBalances).not.toHaveBeenCalled();
   });
 
   it("saves successfully and closes", async () => {
@@ -162,7 +161,7 @@ describe("Opening modal", () => {
       },
     });
 
-    (window as any).api.closing.setOpeningBalances.mockResolvedValue({
+    mockSetOpeningBalances.mockResolvedValue({
       success: true,
     });
 
@@ -171,7 +170,7 @@ describe("Opening modal", () => {
     fireEvent.click(screen.getByText("Save & Start Day"));
 
     await waitFor(() => {
-      expect((window as any).api.closing.setOpeningBalances).toHaveBeenCalled();
+      expect(mockSetOpeningBalances).toHaveBeenCalled();
     });
 
     expect(onClose).toHaveBeenCalledTimes(1);

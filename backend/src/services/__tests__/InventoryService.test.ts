@@ -5,15 +5,24 @@
  */
 
 import { jest } from "@jest/globals";
-import { InventoryService, resetInventoryService } from "../InventoryService";
-import { ProductRepository } from "../../database/repositories";
-import { ValidationError, NotFoundError } from "../../utils/errors";
 
-// Mock the repository module
-jest.mock("../../database/repositories", () => ({
-  getProductRepository: jest.fn(),
-  ProductRepository: jest.fn(),
-}));
+jest.mock("@liratek/core", () => {
+  const actual =
+    jest.requireActual<typeof import("@liratek/core")>("@liratek/core");
+  return {
+    ...actual,
+    getProductRepository: jest.fn(),
+    ProductRepository: jest.fn(),
+  };
+});
+
+import {
+  InventoryService,
+  resetInventoryService,
+  ProductRepository,
+  ValidationError,
+  NotFoundError,
+} from "@liratek/core";
 
 describe("InventoryService", () => {
   let service: InventoryService;
@@ -39,7 +48,6 @@ describe("InventoryService", () => {
       deductStockForSale: jest.fn(),
       getStockStats: jest.fn(),
       findLowStock: jest.fn(),
-      getVirtualStock: jest.fn(),
     } as unknown as jest.Mocked<ProductRepository>;
 
     service = new InventoryService(mockRepo);
@@ -466,17 +474,6 @@ describe("InventoryService", () => {
 
       expect(mockRepo.findLowStock).toHaveBeenCalled();
       expect(result).toEqual(mockProducts);
-    });
-  });
-
-  describe("getVirtualStock", () => {
-    it("returns virtual stock from repository", () => {
-      mockRepo.getVirtualStock.mockReturnValue(2500);
-
-      const result = service.getVirtualStock();
-
-      expect(mockRepo.getVirtualStock).toHaveBeenCalled();
-      expect(result).toBe(2500);
     });
   });
 });

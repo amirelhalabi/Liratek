@@ -83,6 +83,39 @@ export const DRAWER_CONFIGS: Record<DrawerType, DrawerConfig> = {
       accent: "red-500",
     },
   },
+  IPEC: {
+    type: "IPEC",
+    label: "IPEC",
+    description: "IPEC services",
+    icon: "zap",
+    color: {
+      border: "border-sky-500/30",
+      background: "bg-sky-500/5",
+      accent: "sky-500",
+    },
+  },
+  Katch: {
+    type: "Katch",
+    label: "Katch",
+    description: "Katch services",
+    icon: "zap",
+    color: {
+      border: "border-orange-500/30",
+      background: "bg-orange-500/5",
+      accent: "orange-500",
+    },
+  },
+  Whish_System: {
+    type: "Whish_System",
+    label: "Whish System",
+    description: "Whish system services",
+    icon: "zap",
+    color: {
+      border: "border-fuchsia-500/30",
+      background: "bg-fuchsia-500/5",
+      accent: "fuchsia-500",
+    },
+  },
 };
 
 export const DRAWER_ORDER: DrawerType[] = [
@@ -93,4 +126,7 @@ export const DRAWER_ORDER: DrawerType[] = [
   "Binance",
   "MTC",
   "Alfa",
+  "IPEC",
+  "Katch",
+  "Whish_System",
 ];

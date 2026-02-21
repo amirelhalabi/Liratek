@@ -33,6 +33,11 @@ export class RateRepository extends BaseRepository<ExchangeRateEntity> {
     super("exchange_rates", { softDelete: false });
   }
 
+  // Override getColumns() to use explicit columns instead of SELECT *
+  protected getColumns(): string {
+    return "id, from_code, to_code, rate, updated_at";
+  }
+
   /**
    * Get all exchange rates
    */

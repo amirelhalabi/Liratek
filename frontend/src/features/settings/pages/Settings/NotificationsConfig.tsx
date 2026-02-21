@@ -1,11 +1,10 @@
 import { useEffect, useState } from "react";
-import { appEvents } from "../../../../shared/utils/appEvents";
-import * as api from "../../../../api/backendApi";
+import { appEvents, useApi } from "@liratek/ui";
 
 export default function NotificationsConfig() {
+  const api = useApi();
   const [pollMs, setPollMs] = useState("60000");
   const [warnLow, setWarnLow] = useState(true);
-  const [warnDrawer, setWarnDrawer] = useState(true);
 
   const [autoBackupEnabled, setAutoBackupEnabled] = useState(true);
   const [autoBackupIntervalHours, setAutoBackupIntervalHours] = useState("24");
@@ -19,9 +18,6 @@ export default function NotificationsConfig() {
     const map = new Map(settings.map((s: any) => [s.key_name, s.value]));
     setPollMs(String(map.get("notifications_poll_interval_ms") || "60000"));
     setWarnLow(Number(map.get("notifications_warn_low_stock") ?? 1) === 1);
-    setWarnDrawer(
-      Number(map.get("notifications_warn_drawer_limits") ?? 1) === 1,
-    );
 
     setAutoBackupEnabled(Number(map.get("auto_backup_enabled") ?? 1) === 1);
     setAutoBackupIntervalHours(
@@ -52,10 +48,6 @@ export default function NotificationsConfig() {
       await Promise.all([
         api.updateSetting("notifications_poll_interval_ms", String(v)),
         api.updateSetting("notifications_warn_low_stock", warnLow ? "1" : "0"),
-        api.updateSetting(
-          "notifications_warn_drawer_limits",
-          warnDrawer ? "1" : "0",
-        ),
         api.updateSetting("auto_backup_enabled", autoBackupEnabled ? "1" : "0"),
         api.updateSetting(
           "auto_backup_interval_hours",
@@ -86,8 +78,14 @@ export default function NotificationsConfig() {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
-        <label className="text-slate-300 text-sm">Polling Interval (ms)</label>
+        <label
+          htmlFor="notifications-poll-interval"
+          className="text-slate-300 text-sm"
+        >
+          Polling Interval (ms)
+        </label>
         <input
+          id="notifications-poll-interval"
           value={pollMs}
           onChange={(e) => setPollMs(e.target.value)}
           className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white w-40"
@@ -100,14 +98,6 @@ export default function NotificationsConfig() {
           onChange={(e) => setWarnLow(e.target.checked)}
         />{" "}
         Low-stock warnings
-      </label>
-      <label className="flex items-center gap-2 text-slate-300 text-sm">
-        <input
-          type="checkbox"
-          checked={warnDrawer}
-          onChange={(e) => setWarnDrawer(e.target.checked)}
-        />{" "}
-        Drawer-limit warnings
       </label>
 
       <div className="border-t border-slate-800 pt-4" />
@@ -134,18 +124,28 @@ export default function NotificationsConfig() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
-          <label className="block text-slate-300 text-sm">
+          <label
+            htmlFor="notifications-backup-interval"
+            className="block text-slate-300 text-sm"
+          >
             Interval (hours)
           </label>
           <input
+            id="notifications-backup-interval"
             value={autoBackupIntervalHours}
             onChange={(e) => setAutoBackupIntervalHours(e.target.value)}
             className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white w-full"
           />
         </div>
         <div>
-          <label className="block text-slate-300 text-sm">Keep (count)</label>
+          <label
+            htmlFor="notifications-backup-keep"
+            className="block text-slate-300 text-sm"
+          >
+            Keep (count)
+          </label>
           <input
+            id="notifications-backup-keep"
             value={autoBackupKeepCount}
             onChange={(e) => setAutoBackupKeepCount(e.target.value)}
             className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white w-full"

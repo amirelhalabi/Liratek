@@ -4,21 +4,22 @@
  */
 
 import { app, BrowserWindow, ipcMain } from "electron";
+import {
+  ELECTRON_RENDERER_URL,
+  resolveDatabasePath,
+  resolveDatabaseKey,
+  applySqlCipherKey,
+  initDatabase as initCoreDatabase,
+  getSessionRepository,
+  runMigrations,
+  logger,
+} from "@liratek/core";
 import * as path from "path";
 import { fileURLToPath } from "url";
 import * as fs from "fs";
 import os from "os";
 import crypto from "crypto";
 import Database from "better-sqlite3";
-import {
-  resolveDatabasePath,
-  resolveDatabaseKey,
-  applySqlCipherKey,
-  initDatabase as initCoreDatabase,
-  migrateDrawerNames,
-  migrateCustomerSessions,
-  getSessionRepository,
-} from "@liratek/core";
 
 function loadDotEnvFile(envFilePath: string) {
   if (!fs.existsSync(envFilePath)) return;
@@ -73,10 +74,17 @@ function createWindow() {
     },
   });
 
+  // Suppress noisy Chromium DevTools protocol errors (Autofill.enable, etc.)
+  mainWindow.webContents.on("console-message", (_event, _level, message) => {
+    if (message.includes("Autofill.")) {
+      _event.preventDefault();
+    }
+  });
+
   // Development: Load from Vite dev server
-  if (process.env.ELECTRON_RENDERER_URL) {
-    mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
-    mainWindow.webContents.openDevTools();
+  if (ELECTRON_RENDERER_URL) {
+    mainWindow.loadURL(ELECTRON_RENDERER_URL);
+    mainWindow.webContents.openDevTools({ mode: "bottom", activate: false });
   }
   // Production: Load from built files
   else {
@@ -93,7 +101,7 @@ function createWindow() {
 loadDotEnvFile(path.join(__dirname, "../.env"));
 
 app.whenReady().then(async () => {
-  console.log("[ELECTRON] App ready, creating window...");
+  logger.info("App ready, creating window...");
 
   // Initialize database and services
   initializeBackend();
@@ -124,15 +132,7 @@ function initializeDatabase() {
   const dbPath = resolved.path;
   const resolvedKey = resolveDatabaseKey();
 
-  console.log(
-    `[ELECTRON] DB path resolved: ${dbPath} (source: ${resolved.source})`,
-  );
-
-  console.log(
-    "[ELECTRON] Database path:",
-    dbPath,
-    `(source: ${resolved.source})`,
-  );
+  logger.info({ dbPath, source: resolved.source }, "DB path resolved");
 
   try {
     db = new Database(dbPath);
@@ -143,9 +143,14 @@ function initializeDatabase() {
     db.pragma("journal_mode = WAL");
     db.pragma("foreign_keys = ON");
 
-    console.log(
-      `🔐 SQLCipher: keySource=${resolvedKey.source}, applied=${keyResult.applied}, supported=${keyResult.supported}` +
-        (keyResult.error ? `, error=${keyResult.error}` : ""),
+    logger.info(
+      {
+        keySource: resolvedKey.source,
+        applied: keyResult.applied,
+        supported: keyResult.supported,
+        error: keyResult.error,
+      },
+      "SQLCipher configuration",
     );
 
     if (resolvedKey.source !== "none" && !keyResult.applied) {
@@ -164,9 +169,7 @@ function initializeDatabase() {
       .get();
 
     if (!tableCheck) {
-      console.log(
-        "[ELECTRON] Database has no schema, initializing from create_db.sql...",
-      );
+      logger.info("Database has no schema, initializing from create_db.sql...");
 
       const schemaPath = path.join(__dirname, "../create_db.sql");
       if (!fs.existsSync(schemaPath)) {
@@ -188,9 +191,9 @@ function initializeDatabase() {
         );
       }
 
-      console.log("[ELECTRON] Database schema initialized");
+      logger.info("Database schema initialized");
     } else {
-      console.log("[ELECTRON] Database schema OK");
+      logger.info("Database schema OK");
     }
 
     // Ensure default admin user exists for first-run
@@ -202,7 +205,7 @@ function initializeDatabase() {
         .get() as { id?: number; password_hash?: string } | undefined;
 
       if (!adminRow) {
-        console.log("[ELECTRON] Seeding default admin user...");
+        logger.info("Seeding default admin user...");
         const salt = crypto.randomBytes(16).toString("hex");
         const hash = crypto
           .scryptSync("admin123", Buffer.from(salt, "hex"), 64)
@@ -213,23 +216,20 @@ function initializeDatabase() {
           "INSERT INTO users (username, password_hash, role, is_active) VALUES (?, ?, 'admin', 1)",
         ).run("admin", passwordHash);
 
-        console.log("[ELECTRON] Default admin user created (admin/admin123)");
+        logger.info("Default admin user created (admin/admin123)");
       }
     } catch (e) {
       // Don't block app startup on seeding issues
-      console.warn("[ELECTRON] Admin seed warning", e);
+      logger.warn({ error: e }, "Admin seed warning");
     }
 
     // Initialize @liratek/core database singleton
     initCoreDatabase(db);
-    // Apply idempotent migrations
-    migrateDrawerNames(db);
-    migrateCustomerSessions(db);
 
-    console.log("[ELECTRON] Database connected successfully");
+    logger.info("Database connected successfully");
     return db;
   } catch (error) {
-    console.error("[ELECTRON] Database connection failed:", error);
+    logger.error({ error }, "Database connection failed");
     throw error;
   }
 }
@@ -239,15 +239,26 @@ function initializeDatabase() {
  * Services are imported from copied electron/services folder
  */
 function initializeBackend() {
-  console.log("[ELECTRON] Initializing backend services...");
+  logger.info("Initializing backend services...");
 
   // Initialize database
   initializeDatabase();
 
+  // Run migrations (idempotent — skips already-applied versions)
+  try {
+    runMigrations(db);
+    logger.info("Database migrations applied");
+  } catch (err) {
+    logger.error(
+      { error: err instanceof Error ? err.message : String(err) },
+      "Migration error (non-fatal)",
+    );
+  }
+
   // Services are initialized on-demand by handlers
   // Each service gets the db instance when needed
 
-  console.log("[ELECTRON] Backend services initialized");
+  logger.info("Backend services initialized");
 }
 
 /**
@@ -266,7 +277,7 @@ export function getDb(): Database.Database {
  * These connect the frontend (renderer) to backend services
  */
 async function registerHandlers() {
-  console.log("[ELECTRON] Registering IPC handlers...");
+  logger.info("Registering IPC handlers...");
 
   try {
     // Import and register all handlers
@@ -288,6 +299,19 @@ async function registerHandlers() {
     const supplierHandlers = await import("./handlers/supplierHandlers.js");
     const updaterHandlers = await import("./handlers/updaterHandlers.js");
     const sessionHandlers = await import("./handlers/sessionHandlers.js");
+    const binanceHandlers = await import("./handlers/binanceHandlers.js");
+    const moduleHandlers = await import("./handlers/moduleHandlers.js");
+    const paymentMethodHandlers =
+      await import("./handlers/paymentMethodHandlers.js");
+    const whatsappHandlers = await import("./handlers/whatsappHandlers.js");
+    const itemCostHandlers = await import("./handlers/itemCostHandlers.js");
+    const voucherImageHandlers =
+      await import("./handlers/voucherImageHandlers.js");
+    const customServiceHandlers =
+      await import("./handlers/customServiceHandlers.js");
+    const transactionHandlers =
+      await import("./handlers/transactionHandlers.js");
+    const profitHandlers = await import("./handlers/profitHandlers.js");
 
     // Register all handlers (they auto-register with ipcMain)
     authHandlers.registerAuthHandlers();
@@ -307,13 +331,22 @@ async function registerHandlers() {
     supplierHandlers.registerSupplierHandlers();
     updaterHandlers.registerUpdaterHandlers();
     sessionHandlers.registerSessionHandlers();
+    binanceHandlers.registerBinanceHandlers();
+    moduleHandlers.registerModuleHandlers();
+    paymentMethodHandlers.registerPaymentMethodHandlers();
+    whatsappHandlers.registerWhatsAppHandlers();
+    itemCostHandlers.registerItemCostHandlers();
+    voucherImageHandlers.registerVoucherImageHandlers();
+    customServiceHandlers.registerCustomServiceHandlers();
+    transactionHandlers.registerTransactionHandlers();
+    profitHandlers.registerProfitHandlers();
 
-    console.log("[ELECTRON] All IPC handlers registered");
+    logger.info("All IPC handlers registered");
 
     // Start periodic session cleanup
     startSessionCleanup();
   } catch (error) {
-    console.error("[ELECTRON] Failed to register handlers:", error);
+    logger.error({ error }, "Failed to register handlers");
     throw error;
   }
 }
@@ -338,12 +371,17 @@ function startSessionCleanup() {
       const totalCleaned = expiredCount + inactiveCount;
 
       if (totalCleaned > 0) {
-        console.log(
-          `[SESSION-CLEANUP] Cleaned up ${totalCleaned} sessions (${expiredCount} expired, ${inactiveCount} inactive)`,
+        logger.info(
+          {
+            totalCleaned,
+            expiredCount,
+            inactiveCount,
+          },
+          "Session cleanup completed",
         );
       }
     } catch (error) {
-      console.error("[SESSION-CLEANUP] Error during session cleanup:", error);
+      logger.error({ error }, "Error during session cleanup");
     }
   };
 
@@ -353,7 +391,5 @@ function startSessionCleanup() {
   // Then run every 5 minutes
   setInterval(cleanupSessions, CLEANUP_INTERVAL);
 
-  console.log(
-    "[SESSION-CLEANUP] Periodic session cleanup started (every 5 minutes)",
-  );
+  logger.info("Periodic session cleanup started (every 5 minutes)");
 }

@@ -37,6 +37,12 @@ export class CustomerSessionRepository {
   private tableName = "customer_sessions";
   private transactionsTableName = "customer_session_transactions";
 
+  // Define explicit columns instead of SELECT *
+  private readonly columns =
+    "id, customer_name, customer_phone, customer_notes, started_at, closed_at, started_by, closed_by, is_active";
+  private readonly transactionColumns =
+    "id, session_id, transaction_type, transaction_id, amount_usd, amount_lbp, created_at";
+
   constructor(db?: Database.Database) {
     this.db = db ?? getDatabase();
   }
@@ -65,7 +71,7 @@ export class CustomerSessionRepository {
    */
   getSessionById(sessionId: number): CustomerSession | null {
     const query = this.db.prepare(`
-      SELECT * FROM ${this.tableName} WHERE id = ?
+      SELECT ${this.columns} FROM ${this.tableName} WHERE id = ?
     `);
     return (query.get(sessionId) as CustomerSession | undefined) ?? null;
   }
@@ -75,7 +81,7 @@ export class CustomerSessionRepository {
    */
   getActiveSession(): CustomerSession | null {
     const query = this.db.prepare(`
-      SELECT * FROM ${this.tableName}
+      SELECT ${this.columns} FROM ${this.tableName}
       WHERE is_active = 1
       ORDER BY started_at DESC
       LIMIT 1
@@ -88,7 +94,7 @@ export class CustomerSessionRepository {
    */
   getActiveSessionByCustomerName(customerName: string): CustomerSession | null {
     const query = this.db.prepare(`
-      SELECT * FROM ${this.tableName}
+      SELECT ${this.columns} FROM ${this.tableName}
       WHERE is_active = 1 
         AND customer_name = ?
       ORDER BY started_at DESC
@@ -131,7 +137,7 @@ export class CustomerSessionRepository {
    */
   getSessionTransactions(sessionId: number): SessionTransaction[] {
     const query = this.db.prepare(`
-      SELECT * FROM ${this.transactionsTableName}
+      SELECT ${this.transactionColumns} FROM ${this.transactionsTableName}
       WHERE session_id = ?
       ORDER BY created_at ASC
     `);
@@ -178,7 +184,7 @@ export class CustomerSessionRepository {
    */
   listSessions(limit = 50, offset = 0): CustomerSession[] {
     const query = this.db.prepare(`
-      SELECT * FROM ${this.tableName}
+      SELECT ${this.columns} FROM ${this.tableName}
       ORDER BY started_at DESC
       LIMIT ? OFFSET ?
     `);

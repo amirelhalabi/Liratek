@@ -1,14 +1,13 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { logger } from "../server.js";
-import { getAuthService } from "../services/index.js";
-
-const JWT_SECRET =
-  process.env.JWT_SECRET || "your-secret-key-change-in-production";
+import { getAuthService, JWT_SECRET } from "@liratek/core";
+import type { SafeUser } from "@liratek/core";
 
 export interface AuthRequest extends Request {
   user?: {
     userId: number;
+    username?: string;
     role: string;
     sessionToken?: string;
   };
@@ -29,6 +28,12 @@ export function authenticateJWT(
   const token = authHeader.substring(7);
 
   try {
+    if (!JWT_SECRET) {
+      logger.error("JWT_SECRET not configured");
+      res.status(500).json({ error: "Server configuration error" });
+      return;
+    }
+
     const decoded = jwt.verify(token, JWT_SECRET) as {
       userId: number;
       role: string;
@@ -40,7 +45,7 @@ export function authenticateJWT(
       const authService = getAuthService();
       authService
         .validateSession(decoded.sessionToken)
-        .then((user) => {
+        .then((user: SafeUser | null) => {
           if (!user) {
             logger.warn(
               { userId: decoded.userId },
@@ -50,11 +55,14 @@ export function authenticateJWT(
             return;
           }
 
-          // Session is valid, proceed
-          req.user = decoded;
+          // Session is valid, attach user info with username
+          req.user = {
+            ...decoded,
+            username: user.username,
+          };
           next();
         })
-        .catch((error) => {
+        .catch((error: unknown) => {
           logger.error({ error }, "Session validation error");
           res.status(401).json({ error: "Session validation failed" });
         });

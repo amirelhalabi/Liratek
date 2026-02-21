@@ -1,14 +1,17 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import logger from "../../../../utils/logger";
 import { RefreshCw, ArrowRightLeft, History, ArrowRight } from "lucide-react";
-import * as api from "../../../../api/backendApi";
+import { useApi } from "@liratek/ui";
 import { useSession } from "../../../sessions/context/SessionContext";
-
-type Currency = { id: number; code: string; name: string; is_active: number };
+import { useCurrencyContext } from "../../../../contexts/CurrencyContext";
+import { ExportBar } from "@/shared/components/ExportBar";
 
 type RateRow = { from_code: string; to_code: string; rate: number };
 
 export default function Exchange() {
+  const api = useApi();
   const { activeSession, linkTransaction } = useSession();
+  const tableRef = useRef<HTMLTableElement>(null);
   type ExchangeTx = {
     id: number;
     created_at: string;
@@ -20,21 +23,34 @@ export default function Exchange() {
   };
   const [transactions, setTransactions] = useState<ExchangeTx[]>([]);
 
+  // Currency context
+  const {
+    activeCurrencies: currencies,
+    getSymbol,
+    getDecimals,
+  } = useCurrencyContext();
+
   // Exchange State
-  const [currencies, setCurrencies] = useState<Currency[]>([]);
-  const [fromCurrency, setFromCurrency] = useState<string>("USD");
-  const [toCurrency, setToCurrency] = useState<string>("LBP");
+  const [fromCurrency, setFromCurrency] = useState<string>("");
+  const [toCurrency, setToCurrency] = useState<string>("");
 
   const [amountIn, setAmountIn] = useState<string>("");
   const [amountOut, setAmountOut] = useState<string>("");
-  const [rate, setRate] = useState<string>("89500");
+  const [rate, setRate] = useState<string>("");
   const [rates, setRates] = useState<RateRow[]>([]);
 
   const [clientName, setClientName] = useState("");
 
+  // Set initial currencies once loaded from context
+  useEffect(() => {
+    if (currencies.length >= 2 && !fromCurrency && !toCurrency) {
+      setFromCurrency(currencies[0].code);
+      setToCurrency(currencies[1].code);
+    }
+  }, [currencies, fromCurrency, toCurrency]);
+
   useEffect(() => {
     loadHistory();
-    loadCurrencies();
 
     // Auto-fill customer from active session
     if (activeSession && activeSession.customer_name) {
@@ -48,7 +64,7 @@ export default function Exchange() {
         const list = await api.getRates();
         setRates(list);
       } catch (e) {
-        console.error("Failed to load rates", e);
+        logger.error("Failed to load rates", e);
       }
     };
     loadRates();
@@ -57,22 +73,31 @@ export default function Exchange() {
   const findRate = useCallback(
     (from: string, to: string): number | undefined => {
       if (from === to) return 1;
+      // Direct lookup
       const direct = rates.find(
         (r) => r.from_code === from && r.to_code === to,
       )?.rate;
       if (direct !== undefined) return direct;
-      const viaToUsd = rates.find(
-        (r) => r.from_code === from && r.to_code === "USD",
+      // Inverse lookup
+      const inverse = rates.find(
+        (r) => r.from_code === to && r.to_code === from,
       )?.rate;
-      const viaFromUsd = rates.find(
-        (r) => r.from_code === "USD" && r.to_code === to,
-      )?.rate;
-      if (viaToUsd !== undefined && viaFromUsd !== undefined)
-        return viaToUsd * viaFromUsd;
+      if (inverse !== undefined && inverse !== 0) return 1 / inverse;
       return undefined;
     },
     [rates],
   );
+
+  // Auto-populate rate from DB when currency pair changes
+  useEffect(() => {
+    if (!fromCurrency || !toCurrency || fromCurrency === toCurrency) return;
+    const dbRate = findRate(fromCurrency, toCurrency);
+    if (dbRate !== undefined) {
+      setRate(String(dbRate));
+    } else {
+      setRate("");
+    }
+  }, [fromCurrency, toCurrency, findRate]);
 
   const calculateOutput = useCallback(() => {
     const val = parseFloat(amountIn);
@@ -83,63 +108,33 @@ export default function Exchange() {
       return;
     }
 
-    let result = 0;
-    const mr = findRate(fromCurrency, toCurrency);
-    if (mr !== undefined) {
-      result = val * mr;
-    } else if (fromCurrency === "USD" && toCurrency === "LBP") {
-      result = val * rParsed;
-    } else if (fromCurrency === "LBP" && toCurrency === "USD") {
-      result = val / rParsed;
-    } else if (fromCurrency === "EUR" && toCurrency === "USD") {
-      result = val * rParsed;
-    } else if (fromCurrency === "USD" && toCurrency === "EUR") {
-      result = val / rParsed;
-    } else {
-      result = val * rParsed;
-    }
-
-    if (toCurrency === "LBP") {
-      setAmountOut(result.toFixed(0));
-    } else {
-      setAmountOut(result.toFixed(2));
-    }
-  }, [amountIn, rate, fromCurrency, toCurrency, findRate]);
+    const result = val * rParsed;
+    const decimals = getDecimals(toCurrency);
+    setAmountOut(result.toFixed(decimals));
+  }, [amountIn, rate, toCurrency, getDecimals]);
 
   useEffect(() => {
     calculateOutput();
   }, [calculateOutput]);
-
-  const loadCurrencies = async () => {
-    try {
-      const list = await api.getCurrencies();
-      const active = (list as Currency[]).filter((c: any) => c.is_active === 1);
-      setCurrencies(active);
-      if (active.length >= 2) {
-        setFromCurrency(active[0].code);
-        setToCurrency(active[1].code);
-      }
-    } catch (e) {
-      console.error("Failed to load currencies", e);
-    }
-  };
 
   const loadHistory = async () => {
     try {
       const history = await api.getExchangeHistory();
       setTransactions(history);
     } catch (error) {
-      console.error("Failed to load history:", error);
+      logger.error("Failed to load history:", error);
     }
   };
 
   /* calculateOutput defined via useCallback above */
 
   const handleSwap = () => {
-    setFromCurrency(toCurrency);
-    setToCurrency(fromCurrency);
+    const prevFrom = fromCurrency;
+    const prevTo = toCurrency;
+    setFromCurrency(prevTo);
+    setToCurrency(prevFrom);
     setAmountIn(amountOut);
-    // Rate might need inversion logic, but for now let user adjust
+    // Rate will auto-update via the useEffect that watches fromCurrency/toCurrency
   };
 
   const handleProcess = async () => {
@@ -165,18 +160,18 @@ export default function Exchange() {
 
       if (result.success) {
         // Link to active session if exists
-        if (activeSession && result.exchange?.id) {
+        if (activeSession && result.id) {
           try {
             await linkTransaction({
               transactionType: "exchange",
-              transactionId: result.exchange.id,
+              transactionId: result.id,
               amountUsd:
                 fromCurrency === "USD" ? inp : toCurrency === "USD" ? out : 0,
               amountLbp:
                 fromCurrency === "LBP" ? inp : toCurrency === "LBP" ? out : 0,
             });
           } catch (err) {
-            console.error("Failed to link exchange to session:", err);
+            logger.error("Failed to link exchange to session:", err);
             // Don't block the exchange completion
           }
         }
@@ -189,19 +184,8 @@ export default function Exchange() {
         alert("Error: " + result.error);
       }
     } catch (error) {
-      console.error(error);
+      logger.error("Operation failed", { error });
       alert("Transaction failed");
-    }
-  };
-
-  const getCurrencyIcon = (curr: string) => {
-    switch (curr) {
-      case "USD":
-        return "$";
-      case "EUR":
-        return "€";
-      case "LBP":
-        return "LBP";
     }
   };
 
@@ -218,10 +202,17 @@ export default function Exchange() {
           {/* Currency Selectors */}
           <div className="flex items-center gap-2 mb-8">
             <div className="flex-1">
-              <label className="block text-xs font-medium text-slate-400 mb-1 uppercase">
+              <span
+                id="exchange-from-label"
+                className="block text-xs font-medium text-slate-400 mb-1 uppercase"
+              >
                 From
-              </label>
-              <div className="grid grid-cols-3 gap-1 bg-slate-900 p-1 rounded-lg">
+              </span>
+              <div
+                className="grid grid-cols-3 gap-1 bg-slate-900 p-1 rounded-lg"
+                role="group"
+                aria-labelledby="exchange-from-label"
+              >
                 {currencies.map((c) => (
                   <button
                     key={c.id}
@@ -246,10 +237,17 @@ export default function Exchange() {
             </button>
 
             <div className="flex-1">
-              <label className="block text-xs font-medium text-slate-400 mb-1 uppercase">
+              <span
+                id="exchange-to-label"
+                className="block text-xs font-medium text-slate-400 mb-1 uppercase"
+              >
                 To
-              </label>
-              <div className="grid grid-cols-3 gap-1 bg-slate-900 p-1 rounded-lg">
+              </span>
+              <div
+                className="grid grid-cols-3 gap-1 bg-slate-900 p-1 rounded-lg"
+                role="group"
+                aria-labelledby="exchange-to-label"
+              >
                 {currencies.map((c) => (
                   <button
                     key={c.id}
@@ -270,7 +268,10 @@ export default function Exchange() {
           <div className="space-y-6 flex-1">
             {/* Rate Input */}
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1 uppercase">
+              <label
+                htmlFor="exchange-rate"
+                className="block text-xs font-medium text-slate-400 mb-1 uppercase"
+              >
                 Exchange Rate
               </label>
               <div className="relative">
@@ -278,6 +279,7 @@ export default function Exchange() {
                   {toCurrency} / {fromCurrency}
                 </span>
                 <input
+                  id="exchange-rate"
                   type="number"
                   value={rate}
                   onChange={(e) => setRate(e.target.value)}
@@ -287,23 +289,20 @@ export default function Exchange() {
             </div>
 
             {/* Amount Inputs */}
-            <div className="p-4 rounded-xl bg-slate-900/50 border border-slate-700/50 space-y-4 relative">
-              {/* Arrow Indicator */}
-              <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-10">
-                <div className="bg-slate-700 rounded-full p-1.5 border-4 border-slate-800">
-                  <ArrowRight size={16} className="text-slate-400" />
-                </div>
-              </div>
-
+            <div className="p-4 rounded-xl bg-slate-900/50 border border-slate-700/50 space-y-4">
               <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1 uppercase">
+                <label
+                  htmlFor="exchange-amount-in"
+                  className="block text-xs font-medium text-slate-400 mb-1 uppercase"
+                >
                   You Receive ({fromCurrency})
                 </label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-500 font-bold">
-                    {getCurrencyIcon(fromCurrency)}
+                    {getSymbol(fromCurrency)}
                   </span>
                   <input
+                    id="exchange-amount-in"
                     type="number"
                     value={amountIn}
                     onChange={(e) => setAmountIn(e.target.value)}
@@ -313,15 +312,26 @@ export default function Exchange() {
                 </div>
               </div>
 
+              {/* Arrow Indicator */}
+              <div className="flex items-center justify-center -my-1">
+                <div className="bg-slate-700 rounded-full p-1.5 border-4 border-slate-800">
+                  <ArrowRight size={16} className="text-slate-400" />
+                </div>
+              </div>
+
               <div className="pt-2">
-                <label className="block text-xs font-medium text-slate-400 mb-1 uppercase">
+                <label
+                  htmlFor="exchange-amount-out"
+                  className="block text-xs font-medium text-slate-400 mb-1 uppercase"
+                >
                   You Pay ({toCurrency})
                 </label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-red-400 font-bold">
-                    {getCurrencyIcon(toCurrency)}
+                    {getSymbol(toCurrency)}
                   </span>
                   <input
+                    id="exchange-amount-out"
                     type="number"
                     value={amountOut}
                     readOnly
@@ -333,10 +343,14 @@ export default function Exchange() {
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1 uppercase">
+              <label
+                htmlFor="exchange-client-name"
+                className="block text-xs font-medium text-slate-400 mb-1 uppercase"
+              >
                 Client Name (Optional)
               </label>
               <input
+                id="exchange-client-name"
                 type="text"
                 value={clientName}
                 onChange={(e) => setClientName(e.target.value)}
@@ -370,7 +384,14 @@ export default function Exchange() {
           </div>
 
           <div className="flex-1 overflow-auto">
-            <table className="w-full">
+            <ExportBar
+              exportExcel
+              exportPdf
+              exportFilename="exchange-history"
+              tableRef={tableRef}
+              rowCount={transactions.length}
+            />
+            <table ref={tableRef} className="w-full">
               <thead className="bg-slate-900/50 text-left text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0">
                 <tr>
                   <th className="px-6 py-3">Time</th>

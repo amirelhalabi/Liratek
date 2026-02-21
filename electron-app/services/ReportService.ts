@@ -1,8 +1,7 @@
 import { BrowserWindow, app } from "electron";
 import path from "path";
 import fs from "fs";
-import { resolveDatabasePath } from "@liratek/core";
-import { toErrorString } from "../utils/errors.js";
+import { resolveDatabasePath, toErrorString } from "@liratek/core";
 
 export interface GeneratePdfResult {
   success: boolean;

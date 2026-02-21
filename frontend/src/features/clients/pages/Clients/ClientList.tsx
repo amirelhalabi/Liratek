@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import logger from "../../../../utils/logger";
 import {
   Plus,
   Search,
@@ -7,13 +8,16 @@ import {
   Trash2,
   MessageCircle,
 } from "lucide-react";
-import PageHeader from "../../../../shared/components/layouts/PageHeader";
+import { PageHeader, useApi } from "@liratek/ui";
 import ClientForm from "./ClientForm";
-import type { Client } from "../../../../types";
+import type { Client } from "@liratek/ui";
+import { ExportBar } from "@/shared/components/ExportBar";
 
 export default function ClientList() {
+  const api = useApi();
   const [clients, setClients] = useState<Client[]>([]);
   const [search, setSearch] = useState("");
+  const tableRef = useRef<HTMLTableElement>(null);
   const [loading, setLoading] = useState(true);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
@@ -22,15 +26,14 @@ export default function ClientList() {
     setLoading(true);
     try {
       if (window.api) {
-        const data = await window.api.getClients(search);
+        const data = await window.api.clients.getAll(search);
         setClients(data);
       } else {
-        const { getClients } = await import("../../../../api/backendApi");
-        const data = await getClients(search);
+        const data = await api.getClients(search);
         setClients(data as any);
       }
     } catch (error) {
-      console.error("Failed to load clients:", error);
+      logger.error("Failed to load clients", { error });
     } finally {
       setLoading(false);
     }
@@ -57,16 +60,15 @@ export default function ClientList() {
       return;
     try {
       if (window.api) {
-        const result = await window.api.deleteClient(id);
+        const result = await window.api.clients.delete(id);
         if (result.success) {
           loadClients();
         } else {
           alert(result.error);
         }
       } else {
-        const { deleteClient } = await import("../../../../api/backendApi");
         try {
-          const result = await deleteClient(id);
+          const result = await api.deleteClient(id);
           if (result.success) loadClients();
           else alert(result.error || "Delete failed");
         } catch (e: any) {
@@ -74,7 +76,7 @@ export default function ClientList() {
         }
       }
     } catch (error) {
-      console.error("Failed to delete:", error);
+      logger.error("Failed to delete client", { error });
     }
   };
 
@@ -121,7 +123,14 @@ export default function ClientList() {
 
       {/* Table */}
       <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden shadow-xl">
-        <table className="w-full text-left border-collapse">
+        <ExportBar
+          exportExcel
+          exportPdf
+          exportFilename="clients"
+          tableRef={tableRef}
+          rowCount={clients.length}
+        />
+        <table ref={tableRef} className="w-full text-left border-collapse">
           <thead className="bg-slate-800/50 text-slate-400 text-xs uppercase font-semibold">
             <tr>
               <th className="p-4 border-b border-slate-700">Client Info</th>

@@ -94,6 +94,11 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
     super("products", { softDelete: true });
   }
 
+  // Override getColumns() from BaseRepository
+  protected getColumns(): string {
+    return "id, barcode, name, item_type, category, description, cost_price_usd, selling_price_usd, min_stock_level, stock_quantity, imei, color, image_url, warranty_expiry, status, is_active, created_at, is_deleted, updated_at";
+  }
+
   // ---------------------------------------------------------------------------
   // Product-Specific Queries
   // ---------------------------------------------------------------------------
@@ -111,6 +116,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
           selling_price_usd as retail_price
         FROM ${this.tableName} 
         WHERE is_active = 1
+          AND item_type NOT IN ('Virtual_MTC', 'Virtual_Alfa')
       `;
       const params: (string | number)[] = [];
 
@@ -155,7 +161,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
    */
   findByBarcode(barcode: string): ProductEntity | null {
     try {
-      const query = `SELECT * FROM ${this.tableName} WHERE barcode = ? AND is_active = 1`;
+      const query = `SELECT ${this.getColumns()} FROM ${this.tableName} WHERE barcode = ? AND is_active = 1`;
       return this.queryOne<ProductEntity>(query, barcode);
     } catch (error) {
       throw new DatabaseError("Failed to find product by barcode", {
@@ -397,6 +403,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
 
   /**
    * Get products that are at or below minimum stock level
+   * Excludes virtual products (MTC/Alfa credits are tracked via drawer_balances)
    */
   findLowStock(): LowStockProduct[] {
     try {
@@ -404,28 +411,13 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
         SELECT id, name, stock_quantity, min_stock_level
         FROM ${this.tableName}
         WHERE stock_quantity <= min_stock_level AND is_active = 1
+          AND item_type NOT IN ('Virtual_MTC', 'Virtual_Alfa')
         ORDER BY name ASC
       `);
     } catch (error) {
       throw new DatabaseError("Failed to get low stock products", {
         cause: error,
       });
-    }
-  }
-
-  /**
-   * Get virtual stock (MTC + Alfa recharge inventory)
-   */
-  getVirtualStock(): number {
-    try {
-      const result = this.queryOne<{ total: number }>(`
-        SELECT COALESCE(SUM(stock_quantity), 0) as total 
-        FROM ${this.tableName} 
-        WHERE item_type IN ('Virtual_MTC', 'Virtual_Alfa') AND is_active = 1
-      `);
-      return result?.total ?? 0;
-    } catch (error) {
-      throw new DatabaseError("Failed to get virtual stock", { cause: error });
     }
   }
 

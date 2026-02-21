@@ -4,17 +4,29 @@ import { Server as SocketIOServer } from "socket.io";
 import cors from "cors";
 import helmet from "helmet";
 import dotenv from "dotenv";
-import pino from "pino";
 import { getDatabase } from "./database/connection.js";
+import {
+  CORS_ORIGIN,
+  PORT,
+  HOST,
+  logger,
+  validateProductionEnv,
+} from "@liratek/core";
 
 // Load environment variables
 dotenv.config();
+
+// Validate production environment (will throw if required vars are missing)
+validateProductionEnv();
+
+// Export logger for use in other modules
+export { logger };
 
 const app = express();
 const httpServer = createServer(app);
 const io = new SocketIOServer(httpServer, {
   cors: {
-    origin: process.env.CORS_ORIGIN || "http://localhost:5173",
+    origin: CORS_ORIGIN,
     credentials: true,
   },
 });
@@ -23,29 +35,24 @@ const io = new SocketIOServer(httpServer, {
 import { setIO } from "./websocket/io.js";
 setIO(io);
 
-// Logger
-export const logger = pino({
-  level: process.env.LOG_LEVEL || "info",
-  transport: {
-    target: "pino-pretty",
-    options: {
-      colorize: true,
-    },
-  },
-});
-
 // Middleware
 app.use(helmet());
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN || "http://localhost:5173",
+    origin: CORS_ORIGIN,
     credentials: true,
   }),
 );
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-// Disable HTTP request logging (too verbose)
-// app.use(pinoHttp({ logger }));
+
+// Request logging with correlation IDs
+import { requestLogger } from "./middleware/requestLogger.js";
+app.use(requestLogger);
+
+// Rate limiting
+import { apiLimiter, authLimiter } from "./middleware/rateLimit.js";
+app.use("/api/", apiLimiter); // General API rate limiting
 
 // Import routes
 import authRoutes from "./api/auth.js";
@@ -67,16 +74,23 @@ import suppliersRoutes from "./api/suppliers.js";
 import ratesRoutes from "./api/rates.js";
 import usersRoutes from "./api/users.js";
 import activityRoutes from "./api/activity.js";
+import transactionsRoutes from "./api/transactions.js";
 import reportsRoutes from "./api/reports.js";
 import sessionsRoutes from "./api/sessions.js";
+import binanceRoutes from "./api/binance.js";
+import modulesRoutes from "./api/modules.js";
+import paymentMethodsRoutes from "./api/paymentMethods.js";
+import healthRoutes from "./api/health.js";
+import itemCostsRoutes from "./api/item-costs.js";
+import voucherImagesRoutes from "./api/voucher-images.js";
+import customServicesRoutes from "./api/customServices.js";
+import profitsRoutes from "./api/profits.js";
 
-// Health check
-app.get("/health", (_req, res) => {
-  res.json({ status: "ok", timestamp: new Date().toISOString() });
-});
+// Health checks (no /api prefix for easier monitoring)
+app.use("/health", healthRoutes);
 
 // API Routes
-app.use("/api/auth", authRoutes);
+app.use("/api/auth", authLimiter, authRoutes); // Strict rate limiting for auth
 app.use("/api/clients", clientsRoutes);
 app.use("/api/sales", salesRoutes);
 app.use("/api/inventory", inventoryRoutes);
@@ -95,8 +109,16 @@ app.use("/api/suppliers", suppliersRoutes);
 app.use("/api/rates", ratesRoutes);
 app.use("/api/users", usersRoutes);
 app.use("/api/activity", activityRoutes);
+app.use("/api/transactions", transactionsRoutes);
 app.use("/api/reports", reportsRoutes);
 app.use("/api/sessions", sessionsRoutes);
+app.use("/api/binance", binanceRoutes);
+app.use("/api/modules", modulesRoutes);
+app.use("/api/payment-methods", paymentMethodsRoutes);
+app.use("/api/item-costs", itemCostsRoutes);
+app.use("/api/voucher-images", voucherImagesRoutes);
+app.use("/api/custom-services", customServicesRoutes);
+app.use("/api/profits", profitsRoutes);
 
 app.get("/api", (_req, res) => {
   res.json({ message: "LiraTek API Server", version: "1.0.0" });
@@ -128,11 +150,11 @@ app.use(
 getDatabase();
 
 // Start server
-const PORT = parseInt(process.env.PORT || "3000", 10);
-const HOST = process.env.HOST || "0.0.0.0";
-
 httpServer.listen(PORT, HOST, () => {
-  logger.info(`🚀 Server running on http://${HOST}:${PORT}`);
+  logger.info(
+    { port: PORT, host: HOST },
+    `🚀 Server running on http://${HOST}:${PORT}`,
+  );
   logger.info(`📡 WebSocket server ready`);
 });
 

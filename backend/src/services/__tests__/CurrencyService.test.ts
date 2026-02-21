@@ -3,24 +3,27 @@
  */
 
 import { jest } from "@jest/globals";
+
+jest.mock("@liratek/core", () => {
+  const actual =
+    jest.requireActual<typeof import("@liratek/core")>("@liratek/core");
+  return {
+    ...actual,
+    getCurrencyRepository: jest.fn(),
+    CurrencyRepository: jest.fn(),
+  };
+});
+
 import {
   CurrencyService,
   getCurrencyService,
   resetCurrencyService,
-} from "../CurrencyService";
-import {
   CurrencyRepository,
   getCurrencyRepository,
   type CurrencyEntity,
   type CreateCurrencyData,
   type UpdateCurrencyData,
-} from "../../database/repositories";
-
-// Mock the repository module
-jest.mock("../../database/repositories", () => ({
-  getCurrencyRepository: jest.fn(),
-  CurrencyRepository: jest.fn(),
-}));
+} from "@liratek/core";
 
 describe("CurrencyService", () => {
   let service: CurrencyService;

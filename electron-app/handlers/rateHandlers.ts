@@ -5,10 +5,9 @@
  */
 
 import { ipcMain, IpcMainInvokeEvent } from "electron";
-import { getRateService } from "../services/index.js";
+import { getRateService, settingsLogger } from "@liratek/core";
 import { requireRole } from "../session.js";
-import { settingsLogger } from "../utils/logger.js";
-import type { SetRateData } from "../database/repositories/index.js";
+import type { SetRateData } from "@liratek/core";
 
 export function registerRateHandlers(): void {
   const rateService = getRateService();

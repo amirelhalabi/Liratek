@@ -6,7 +6,7 @@
 
 import { Router } from "express";
 import { requireAuth, AuthRequest } from "../middleware/auth.js";
-import { getSupplierService } from "../services/index.js";
+import { getSupplierService } from "@liratek/core";
 import { logger } from "../server.js";
 
 const router = Router();
@@ -61,7 +61,7 @@ router.get("/:id/ledger", requireAuth, async (req, res) => {
 // POST /api/suppliers
 router.post("/", requireAuth, async (req, res) => {
   try {
-    const { name, contact_name, phone, note } = req.body;
+    const { name, contact_name, phone, note, module_key, provider } = req.body;
 
     if (!name) {
       res
@@ -74,6 +74,8 @@ router.post("/", requireAuth, async (req, res) => {
       contact_name,
       phone,
       note,
+      module_key,
+      provider,
     });
 
     if (result.success) {

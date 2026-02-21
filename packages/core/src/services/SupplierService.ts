@@ -32,6 +32,14 @@ export class SupplierService {
     return this.repo.getSupplierLedger(supplierId, limit);
   }
 
+  getByProvider(provider: string): SupplierEntity | undefined {
+    return this.repo.getByProvider(provider);
+  }
+
+  getByModuleKey(moduleKey: string): SupplierEntity[] {
+    return this.repo.getByModuleKey(moduleKey);
+  }
+
   createSupplier(data: CreateSupplierData): SupplierResult {
     try {
       if (!data.name?.trim())

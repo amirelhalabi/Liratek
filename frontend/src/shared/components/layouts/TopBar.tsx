@@ -7,11 +7,17 @@ type UINotification = {
   duration?: number;
 };
 
-import { appEvents } from "../../utils/appEvents";
-import { LogOut, Bell, X, Search } from "lucide-react";
+import { appEvents, useApi } from "@liratek/ui";
+import { LogOut, Bell, X, Search, Home } from "lucide-react";
 import { useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../../features/auth/context/AuthContext";
-import * as api from "../../../api/backendApi";
+import { useShopName } from "../../../hooks/useShopName";
+
+interface TopBarProps {
+  showHomeButton?: boolean;
+  showShopName?: boolean;
+}
 
 function NotificationHistory() {
   const [items, setItems] = useState<UINotification[]>(
@@ -71,8 +77,14 @@ function NotificationHistory() {
   );
 }
 
-export default function TopBar() {
+export default function TopBar({
+  showHomeButton = false,
+  showShopName = false,
+}: TopBarProps) {
+  const api = useApi();
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
+  const shopName = useShopName();
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [awaitingLogout, setAwaitingLogout] = useState(false);
 
@@ -105,9 +117,9 @@ export default function TopBar() {
           );
         const genLimit = Number(map.get("drawer_limit_general") || 0);
         const omtLimit = Number(map.get("drawer_limit_omt") || 0);
-        const balances = await api.getSystemExpectedBalances();
-        const genUsd = balances?.generalDrawer?.usd || 0;
-        const omtUsd = balances?.omtDrawer?.usd || 0;
+        const balances = await api.getSystemExpectedBalancesDynamic();
+        const genUsd = balances?.["General"]?.["USD"] || 0;
+        const omtUsd = balances?.["OMT_System"]?.["USD"] || 0;
         const warnDrawer =
           Number(map.get("notifications_warn_drawer_limits") ?? 1) === 1;
         if (warnDrawer && genLimit > 0 && genUsd > genLimit)
@@ -143,17 +155,37 @@ export default function TopBar() {
   }, []);
   return (
     <header className="h-16 bg-slate-800 border-b border-slate-700 flex items-center justify-between px-6 relative z-50">
-      {/* Search Bar (Global) */}
-      <div className="relative w-96">
-        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-          <Search className="h-4 w-4 text-slate-500" />
+      <div className="flex items-center gap-3 flex-1">
+        {/* Home Button (Page View mode) */}
+        {showHomeButton && (
+          <button
+            onClick={() => navigate("/")}
+            className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
+            title="Home"
+          >
+            <Home size={20} />
+          </button>
+        )}
+
+        {/* Shop Name (Page View mode) */}
+        {showShopName && shopName && (
+          <span className="text-lg font-bold bg-gradient-to-r from-violet-400 to-indigo-400 bg-clip-text text-transparent whitespace-nowrap mr-2">
+            {shopName}
+          </span>
+        )}
+
+        {/* Search Bar (Global) */}
+        <div className="relative w-96">
+          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+            <Search className="h-4 w-4 text-slate-500" />
+          </div>
+          <input
+            type="text"
+            className="w-full pl-10 pr-4 py-2 bg-slate-900 border border-slate-700 rounded-lg focus:ring-2 focus:ring-violet-500 focus:border-transparent text-white placeholder-slate-500 text-sm"
+            placeholder="Global Search (Coming Soon)..."
+            disabled
+          />
         </div>
-        <input
-          type="text"
-          className="w-full pl-10 pr-4 py-2 bg-slate-900 border border-slate-700 rounded-lg focus:ring-2 focus:ring-violet-500 focus:border-transparent text-white placeholder-slate-500 text-sm"
-          placeholder="Global Search (Coming Soon)..."
-          disabled
-        />
       </div>
 
       {/* Right Actions */}

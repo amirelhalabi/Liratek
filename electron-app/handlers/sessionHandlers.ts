@@ -68,12 +68,22 @@ export function registerSessionHandlers() {
     async (
       _event,
       data: {
+        sessionId?: number;
         transactionType: string;
         transactionId: number;
         amountUsd: number;
         amountLbp: number;
       },
     ) => {
+      if (data.sessionId) {
+        return sessionService.linkTransactionToSession(
+          data.sessionId,
+          data.transactionType,
+          data.transactionId,
+          data.amountUsd,
+          data.amountLbp,
+        );
+      }
       return sessionService.linkTransactionToActiveSession(
         data.transactionType,
         data.transactionId,

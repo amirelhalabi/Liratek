@@ -1,5 +1,5 @@
 import { ipcMain } from "electron";
-import { getSupplierService } from "../services/index.js";
+import { getSupplierService } from "@liratek/core";
 /* eslint-disable @typescript-eslint/no-require-imports */
 
 export function registerSupplierHandlers(): void {
@@ -29,6 +29,8 @@ export function registerSupplierHandlers(): void {
         contact_name?: string;
         phone?: string;
         note?: string;
+        module_key?: string;
+        provider?: string;
       },
     ) => {
       try {

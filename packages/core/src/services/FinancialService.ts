@@ -12,6 +12,8 @@ import {
   type CreateFinancialServiceData,
   type FinancialServiceAnalytics,
 } from "../repositories/index.js";
+import { getItemCostService } from "./ItemCostService.js";
+import { financialLogger } from "../utils/logger.js";
 
 // =============================================================================
 // Types
@@ -45,16 +47,44 @@ export class FinancialService {
     try {
       const result = this.fsRepo.createTransaction(data);
 
-      // Log the activity
-      this.fsRepo.logActivity(data, result.drawer);
+      // Auto-save item cost for future reference
+      if (data.itemKey && data.cost !== undefined && data.cost > 0) {
+        try {
+          const itemCostService = getItemCostService();
+          itemCostService.autoSaveCost(
+            data.provider,
+            data.itemCategory ?? data.serviceType,
+            data.itemKey,
+            data.cost,
+            data.currency ?? "USD",
+          );
+        } catch (costError) {
+          financialLogger.warn(
+            { error: costError, itemKey: data.itemKey },
+            "Failed to auto-save item cost (non-critical)",
+          );
+        }
+      }
 
-      console.log(
-        `[OMT/WHISH] ${data.provider} - ${data.serviceType}: Commission $${data.commissionUSD} [${result.drawer}]`,
+      financialLogger.info(
+        {
+          provider: data.provider,
+          serviceType: data.serviceType,
+          amount: data.amount,
+          currency: data.currency ?? "USD",
+          commission: data.commission,
+          drawer: result.drawer,
+          id: result.id,
+        },
+        `${data.provider} - ${data.serviceType}: Amount ${data.amount} ${data.currency ?? "USD"}, Commission ${data.commission}`,
       );
 
       return { success: true, id: result.id };
     } catch (error) {
-      console.error("Failed to add financial service transaction:", error);
+      financialLogger.error(
+        { error, data },
+        "Failed to add financial service transaction",
+      );
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error),
@@ -73,7 +103,10 @@ export class FinancialService {
     try {
       return this.fsRepo.getHistory(provider);
     } catch (error) {
-      console.error("Failed to get financial services history:", error);
+      financialLogger.error(
+        { error, provider },
+        "Failed to get financial services history",
+      );
       return [];
     }
   }
@@ -89,10 +122,10 @@ export class FinancialService {
     try {
       return this.fsRepo.getAnalytics();
     } catch (error) {
-      console.error("Failed to get analytics:", error);
+      financialLogger.error({ error }, "Failed to get analytics");
       return {
-        today: { commissionUSD: 0, commissionLBP: 0, count: 0 },
-        month: { commissionUSD: 0, commissionLBP: 0, count: 0 },
+        today: { commission: 0, count: 0, byCurrency: [] },
+        month: { commission: 0, count: 0, byCurrency: [] },
         byProvider: [],
       };
     }

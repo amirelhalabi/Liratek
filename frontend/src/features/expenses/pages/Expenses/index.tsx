@@ -1,16 +1,15 @@
-import { useState, useEffect } from "react";
-import { Plus, Trash2, Calendar, DollarSign } from "lucide-react";
-import Select from "../../../../shared/components/ui/Select";
-import * as api from "../../../../api/backendApi";
-
-type PaidByMethod = "CASH" | "OMT" | "WHISH" | "BINANCE";
+import { useState, useEffect, useRef } from "react";
+import logger from "../../../../utils/logger";
+import { Plus, Ban, Calendar, DollarSign } from "lucide-react";
+import { Select, useApi } from "@liratek/ui";
+import { usePaymentMethods } from "../../../../hooks/usePaymentMethods";
+import { ExportBar } from "@/shared/components/ExportBar";
 
 interface Expense {
   id?: number;
   description: string;
   category: string;
-  expense_type: "Cash_Out" | "Non_Cash";
-  paid_by_method?: PaidByMethod;
+  paid_by_method?: string;
   amount_usd: number;
   amount_lbp: number;
   expense_date: string;
@@ -23,19 +22,15 @@ const EXPENSE_CATEGORIES = [
   "Refund_Damaged",
   "Other",
 ];
-const PAID_BY_METHODS: Array<{ value: PaidByMethod; label: string }> = [
-  { value: "CASH", label: "Cash (General Drawer)" },
-  { value: "OMT", label: "OMT Drawer" },
-  { value: "WHISH", label: "Whish Drawer" },
-  { value: "BINANCE", label: "Binance Drawer" },
-];
 
 export default function Expenses() {
+  const api = useApi();
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const { drawerAffectingMethods } = usePaymentMethods();
+  const tableRef = useRef<HTMLTableElement>(null);
   const [formData, setFormData] = useState<Expense>({
     description: "",
     category: "Shop_Supply",
-    expense_type: "Cash_Out",
     paid_by_method: "CASH",
     amount_usd: 0,
     amount_lbp: 0,
@@ -51,7 +46,7 @@ export default function Expenses() {
       const data = await api.getTodayExpenses();
       setExpenses(data);
     } catch (error) {
-      console.error("Failed to load expenses:", error);
+      logger.error("Failed to load expenses:", error);
     }
   };
 
@@ -74,7 +69,7 @@ export default function Expenses() {
         setFormData({
           description: "",
           category: "Shop_Supply",
-          expense_type: "Cash_Out",
+          paid_by_method: "CASH",
           amount_usd: 0,
           amount_lbp: 0,
           expense_date: new Date().toISOString().split("T")[0],
@@ -84,29 +79,26 @@ export default function Expenses() {
         alert("Error: " + result.error);
       }
     } catch (error) {
-      console.error(error);
+      logger.error("Operation failed", { error });
       alert("Failed to add expense");
     }
   };
 
-  const handleDelete = async (id: number) => {
-    if (!confirm("Delete this expense?")) return;
+  const handleVoid = async (id: number) => {
+    if (!confirm("Void this expense? Drawer balance will be restored.")) return;
     try {
       const result = await api.deleteExpense(id);
       if (result.success) {
         loadTodayExpenses();
       }
     } catch (error) {
-      console.error(error);
-      alert("Failed to delete expense");
+      logger.error("Operation failed", { error });
+      alert("Failed to void expense");
     }
   };
 
   const totalUSD = expenses.reduce((sum, e) => sum + (e.amount_usd || 0), 0);
   const totalLBP = expenses.reduce((sum, e) => sum + (e.amount_lbp || 0), 0);
-  const cashOutUSD = expenses
-    .filter((e) => e.expense_type === "Cash_Out")
-    .reduce((sum, e) => sum + (e.amount_usd || 0), 0);
 
   return (
     <div className="h-full min-h-0 flex flex-col gap-6 animate-in fade-in duration-500">
@@ -119,7 +111,7 @@ export default function Expenses() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-slate-800 border border-slate-700/50 rounded-xl p-5 shadow-lg hover:border-slate-600 transition-colors">
           <p className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">
             Total USD
@@ -136,14 +128,6 @@ export default function Expenses() {
             {totalLBP.toLocaleString()}
           </p>
         </div>
-        <div className="bg-slate-800 border border-slate-700/50 rounded-xl p-5 shadow-lg hover:border-slate-600 transition-colors">
-          <p className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">
-            Cash Out (Drawer)
-          </p>
-          <p className="text-2xl font-bold text-red-400">
-            ${cashOutUSD.toFixed(2)}
-          </p>
-        </div>
       </div>
 
       <div className="flex-1 min-h-0 grid grid-cols-3 gap-4">
@@ -157,10 +141,14 @@ export default function Expenses() {
           <div className="space-y-4 flex-1 overflow-auto pr-2 custom-scrollbar">
             {/* Description */}
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
+              <label
+                htmlFor="expense-description"
+                className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
+              >
                 Description *
               </label>
               <input
+                id="expense-description"
                 type="text"
                 value={formData.description}
                 onChange={(e) =>
@@ -171,61 +159,48 @@ export default function Expenses() {
               />
             </div>
 
-            {/* Category & Type in a grid */}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
-                  Category
-                </label>
-                <Select
-                  value={formData.category}
-                  onChange={(value) =>
-                    setFormData({ ...formData, category: value })
-                  }
-                  options={EXPENSE_CATEGORIES.map((cat) => ({
-                    value: cat,
-                    label: cat.replace(/_/g, " "),
-                  }))}
-                  ringColor="ring-orange-500"
-                  buttonClassName="text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
-                  Type
-                </label>
-                <Select
-                  value={formData.expense_type}
-                  onChange={(value) =>
-                    setFormData({
-                      ...formData,
-                      expense_type: value as "Cash_Out" | "Non_Cash",
-                    })
-                  }
-                  options={[
-                    { value: "Cash_Out", label: "Cash Out" },
-                    { value: "Non_Cash", label: "Non-Cash" },
-                  ]}
-                  ringColor="ring-orange-500"
-                  buttonClassName="text-sm"
-                />
-              </div>
+            {/* Category */}
+            <div>
+              <label
+                htmlFor="expense-category"
+                className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
+              >
+                Category
+              </label>
+              <Select
+                value={formData.category}
+                onChange={(value) =>
+                  setFormData({ ...formData, category: value })
+                }
+                options={EXPENSE_CATEGORIES.map((cat) => ({
+                  value: cat,
+                  label: cat.replace(/_/g, " "),
+                }))}
+                ringColor="ring-orange-500"
+                buttonClassName="text-sm"
+              />
             </div>
 
-            {/* Paid By (drawer method) */}
+            {/* Paid By (payment method) */}
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
+              <label
+                htmlFor="expense-paid-by"
+                className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
+              >
                 Paid By
               </label>
               <Select
                 value={formData.paid_by_method || "CASH"}
-                onChange={(value) =>
+                onChange={(value) => {
                   setFormData({
                     ...formData,
-                    paid_by_method: value as PaidByMethod,
-                  })
-                }
-                options={PAID_BY_METHODS}
+                    paid_by_method: value,
+                  });
+                }}
+                options={drawerAffectingMethods.map((m) => ({
+                  value: m.code,
+                  label: m.label,
+                }))}
                 ringColor="ring-orange-500"
                 buttonClassName="text-sm"
               />
@@ -234,7 +209,10 @@ export default function Expenses() {
             {/* Amounts */}
             <div className="grid grid-cols-2 gap-3 p-3 bg-slate-900/50 rounded-lg border border-slate-700/50">
               <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
+                <label
+                  htmlFor="expense-amount-usd"
+                  className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
+                >
                   Amount (USD)
                 </label>
                 <div className="relative">
@@ -242,6 +220,7 @@ export default function Expenses() {
                     $
                   </span>
                   <input
+                    id="expense-amount-usd"
                     type="number"
                     value={formData.amount_usd || ""}
                     onChange={(e) =>
@@ -256,10 +235,14 @@ export default function Expenses() {
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
+                <label
+                  htmlFor="expense-amount-lbp"
+                  className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
+                >
                   Amount (LBP)
                 </label>
                 <input
+                  id="expense-amount-lbp"
                   type="number"
                   value={formData.amount_lbp || ""}
                   onChange={(e) =>
@@ -276,10 +259,14 @@ export default function Expenses() {
 
             {/* Date */}
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
+              <label
+                htmlFor="expense-date"
+                className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
+              >
                 Date
               </label>
               <input
+                id="expense-date"
                 type="date"
                 value={formData.expense_date}
                 onChange={(e) =>
@@ -314,7 +301,14 @@ export default function Expenses() {
           </div>
 
           <div className="flex-1 min-h-0 overflow-auto">
-            <table className="w-full">
+            <ExportBar
+              exportExcel
+              exportPdf
+              exportFilename="expenses"
+              tableRef={tableRef}
+              rowCount={expenses.length}
+            />
+            <table ref={tableRef} className="w-full">
               <thead className="bg-slate-900/50 text-left text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0">
                 <tr>
                   <th className="px-6 py-3">Description</th>
@@ -335,11 +329,6 @@ export default function Expenses() {
                       <div className="text-sm text-white font-medium">
                         {expense.description}
                       </div>
-                      <div className="text-xs text-slate-500">
-                        {expense.expense_type === "Cash_Out"
-                          ? "Cash Out"
-                          : "Non-Cash"}
-                      </div>
                     </td>
                     <td className="px-6 py-4">
                       <span className="px-2.5 py-0.5 bg-slate-700 text-slate-300 rounded-full text-xs font-medium">
@@ -347,7 +336,11 @@ export default function Expenses() {
                       </span>
                     </td>
                     <td className="px-6 py-4 text-sm text-slate-400">
-                      {expense.paid_by_method || "CASH"}
+                      {drawerAffectingMethods.find(
+                        (m) => m.code === expense.paid_by_method,
+                      )?.label ||
+                        expense.paid_by_method ||
+                        "Cash"}
                     </td>
                     <td className="px-6 py-4 text-right text-sm font-bold text-orange-400 font-mono">
                       ${expense.amount_usd.toFixed(2)}
@@ -357,10 +350,11 @@ export default function Expenses() {
                     </td>
                     <td className="px-6 py-4 text-center">
                       <button
-                        onClick={() => handleDelete(expense.id!)}
+                        onClick={() => handleVoid(expense.id!)}
                         className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-colors"
+                        title="Void expense"
                       >
-                        <Trash2 size={16} />
+                        <Ban size={16} />
                       </button>
                     </td>
                   </tr>

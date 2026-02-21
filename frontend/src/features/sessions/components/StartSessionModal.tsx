@@ -2,8 +2,8 @@ import { useState, useEffect } from "react";
 import type { FormEvent } from "react";
 import { useSession } from "../context/SessionContext";
 import { User, X } from "lucide-react";
-import * as api from "../../../api/backendApi";
-import type { Client } from "../../../types";
+import { useApi } from "@liratek/ui";
+import type { Client } from "@liratek/ui";
 
 interface StartSessionModalProps {
   isOpen: boolean;
@@ -12,6 +12,7 @@ interface StartSessionModalProps {
 
 export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
   const { startSession } = useSession();
+  const api = useApi();
   const [clients, setClients] = useState<Client[]>([]);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [customerName, setCustomerName] = useState("");
@@ -82,7 +83,7 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
       {/* Backdrop */}
-      <div className="absolute inset-0" onClick={onClose} />
+      <div className="absolute inset-0" role="presentation" onClick={onClose} />
 
       {/* Modal */}
       <div className="relative bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-md mx-4">
@@ -148,7 +149,9 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
                 }}
                 className="bg-transparent border-none text-white w-full px-2 focus:outline-none"
                 placeholder="Search or enter customer name..."
-                autoFocus
+                ref={(el) => {
+                  el?.focus();
+                }}
                 disabled={loading}
                 required
               />

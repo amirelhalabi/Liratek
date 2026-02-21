@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect } from "react";
+import logger from "../../../utils/logger";
 import type { ReactNode } from "react";
-import { appEvents } from "../../../shared/utils/appEvents";
-import * as api from "../../../api/backendApi";
+import { appEvents, useApi } from "@liratek/ui";
 
 interface User {
   id: number;
@@ -26,6 +26,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const api = useApi();
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [needsOpening, setNeedsOpening] = useState(false);
@@ -37,31 +38,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     async function loadUser() {
       try {
-        console.log("🔍 [AUTH-CONTEXT] Starting session restoration on mount");
-
         // Try to restore from encrypted session first
         if (window.api) {
           // Try to get stored session token from localStorage
           const storedToken = localStorage.getItem("sessionToken");
-          console.log(
-            "🔍 [AUTH-CONTEXT] Stored token in localStorage:",
-            storedToken ? `${storedToken.substring(0, 10)}...` : "none",
-          );
 
-          const result = await window.api.restoreSession(
+          const result = await window.api.auth.restoreSession(
             storedToken || undefined,
           );
-          console.log("🔍 [AUTH-CONTEXT] Restore session result:", {
-            success: result.success,
-            hasUser: !!result.user,
-            hasToken: !!result.sessionToken,
-          });
 
           // Only update state if component is still mounted (prevents React.StrictMode double-call issues)
           if (!isMounted) {
-            console.log(
-              "⚠️ [AUTH-CONTEXT] Component unmounted, skipping state update",
-            );
             return;
           }
 
@@ -70,30 +57,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             if (result.sessionToken) {
               setSessionToken(result.sessionToken);
               localStorage.setItem("sessionToken", result.sessionToken);
-              console.log(
-                "✅ [AUTH-CONTEXT] Session restored from database, token saved",
-              );
-            } else {
-              console.warn(
-                "⚠️ [AUTH-CONTEXT] Session restored but no token returned",
-              );
             }
-            console.log(
-              "✅ [AUTH-CONTEXT] User logged in:",
-              result.user.username,
-            );
-          } else {
-            console.log(
-              "❌ [AUTH-CONTEXT] Session restoration failed:",
-              result.error || "unknown",
-            );
           }
         } else {
           // Web mode: try backend session
-          console.warn("Running in web mode - using backend API");
           try {
-            const { me } = await import("../../../api/backendApi");
-            const result = await me();
+            const result = await api.me();
             if (result.success && result.user) {
               setUser(result.user);
             }
@@ -102,7 +71,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
         }
       } catch (error) {
-        console.error("Failed to restore session:", error);
+        logger.error("Failed to restore session:", error);
       } finally {
         if (isMounted) {
           setIsLoading(false);
@@ -125,12 +94,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   ) => {
     try {
       const result = await api.login(username, password, rememberMe);
-      console.log("🔍 [AUTH-CONTEXT] Login result:", {
-        success: result.success,
-        hasUser: !!result.user,
-        hasToken: !!result.sessionToken,
-        rememberMe,
-      });
 
       if (result.success && result.user) {
         setUser(result.user);
@@ -138,14 +101,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (result.sessionToken) {
           setSessionToken(result.sessionToken);
           localStorage.setItem("sessionToken", result.sessionToken);
-          console.log(
-            "✅ [AUTH-CONTEXT] Login successful, session token saved to localStorage:",
-            result.sessionToken.substring(0, 10) + "...",
-          );
-        } else {
-          console.warn(
-            "⚠️ [AUTH-CONTEXT] Login successful but no session token returned",
-          );
         }
 
         // Check if opening balance needs to be set for today
@@ -153,7 +108,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const hasOpening = await api.hasOpeningBalanceToday();
           setNeedsOpening(!hasOpening);
         } catch (error) {
-          console.error("Failed to check opening balance:", error);
+          logger.error("Failed to check opening balance:", error);
           // Don't block login on this error
         }
 
@@ -162,7 +117,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       return { success: false, error: result.error || "Login failed" };
     } catch (error) {
-      console.error("Login error:", error);
+      logger.error("Login error:", error);
       return { success: false, error: "An unexpected error occurred" };
     }
   };

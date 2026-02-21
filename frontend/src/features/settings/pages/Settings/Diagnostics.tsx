@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import UpdatesPanel from "./UpdatesPanel";
-import Select from "../../../../shared/components/ui/Select";
+import { Select } from "@liratek/ui";
 
 export default function Diagnostics() {
   const [errors, setErrors] = useState<
@@ -229,8 +229,11 @@ export default function Diagnostics() {
                       </tr>
                     </thead>
                     <tbody>
-                      {fkRows.map((r, idx) => (
-                        <tr key={idx} className="border-t border-slate-800">
+                      {fkRows.map((r) => (
+                        <tr
+                          key={`${r.table}-${r.rowid}-${r.fkid}`}
+                          className="border-t border-slate-800"
+                        >
                           <td className="p-2 font-mono">
                             {String(r.table ?? "")}
                           </td>

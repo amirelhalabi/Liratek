@@ -26,6 +26,7 @@ import {
   generateUniqueNumericBarcode,
   suggestDuplicateBarcode,
 } from "../utils/barcode.js";
+import { inventoryLogger } from "../utils/logger.js";
 
 // =============================================================================
 // Types
@@ -163,7 +164,7 @@ export class InventoryService {
       if (repoCode === "DUPLICATE_BARCODE") {
         return { success: false, error: "Barcode already exists" };
       }
-      console.error("Create product error:", error);
+      inventoryLogger.error({ error, data }, "Create product error");
       return { success: false, error: toErrorString(error) };
     }
   }
@@ -303,13 +304,6 @@ export class InventoryService {
    */
   getLowStockProducts(): LowStockProduct[] {
     return this.productRepo.findLowStock();
-  }
-
-  /**
-   * Get virtual stock (MTC + Alfa recharge inventory)
-   */
-  getVirtualStock(): number {
-    return this.productRepo.getVirtualStock();
   }
 }
 

@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import logger from "../../../../utils/logger";
 import {
   Send,
   ArrowDownToLine,
@@ -9,20 +10,28 @@ import {
   User,
   Hash,
   RefreshCw,
+  AlertTriangle,
 } from "lucide-react";
-import * as api from "../../../../api/backendApi";
 import { useSession } from "../../../sessions/context/SessionContext";
+import { usePaymentMethods } from "../../../../hooks/usePaymentMethods";
+import { Select, useApi } from "@liratek/ui";
+import { ExportBar } from "@/shared/components/ExportBar";
 
 type Provider = "OMT" | "WHISH";
 type ServiceType = "SEND" | "RECEIVE" | "BILL_PAYMENT";
 
+const PROVIDER_DEFAULT_METHOD: Record<Provider, string> = {
+  OMT: "OMT",
+  WHISH: "WHISH",
+};
+
 interface Analytics {
-  today: { commissionUSD: number; commissionLBP: number; count: number };
-  month: { commissionUSD: number; commissionLBP: number; count: number };
+  today: { commission: number; count: number };
+  month: { commission: number; count: number };
   byProvider: {
     provider: string;
-    commission_usd: number;
-    commission_lbp: number;
+    commission: number;
+    currency: string;
     count: number;
   }[];
 }
@@ -31,34 +40,45 @@ interface Transaction {
   id: number;
   provider: Provider;
   service_type: ServiceType;
-  amount_usd: number;
-  amount_lbp: number;
-  commission_usd: number;
-  commission_lbp: number;
+  amount: number;
+  currency: string;
+  commission: number;
   client_name?: string;
   reference_number?: string;
   note?: string;
   created_at: string;
 }
 
+interface SupplierOwed {
+  usd: number;
+  lbp: number;
+}
+
 export default function Services() {
+  const api = useApi();
   const { activeSession, linkTransaction } = useSession();
+  const { drawerAffectingMethods } = usePaymentMethods();
+  const tableRef = useRef<HTMLTableElement>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [analytics, setAnalytics] = useState<Analytics>({
-    today: { commissionUSD: 0, commissionLBP: 0, count: 0 },
-    month: { commissionUSD: 0, commissionLBP: 0, count: 0 },
+    today: { commission: 0, count: 0 },
+    month: { commission: 0, count: 0 },
     byProvider: [],
   });
+  const [owedByProvider, setOwedByProvider] = useState<
+    Record<string, SupplierOwed>
+  >({});
 
   // Form State
   const [provider, setProvider] = useState<Provider>("OMT");
+  const [paidByMethod, setPaidByMethod] = useState("OMT");
   const [serviceType, setServiceType] = useState<ServiceType>("SEND");
-  const [amountUSD, setAmountUSD] = useState<string>("");
-  const [amountLBP, setAmountLBP] = useState<string>("");
-  const [commissionUSD, setCommissionUSD] = useState<string>("");
-  const [commissionLBP, setCommissionLBP] = useState<string>("");
+  const [amount, setAmount] = useState<string>("");
+  const currency = "USD"; // Fixed to USD only for now
+  const [commission, setCommission] = useState<string>("");
   const [clientName, setClientName] = useState("");
   const [referenceNumber, setReferenceNumber] = useState("");
+  const [note, setNote] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
@@ -72,9 +92,11 @@ export default function Services() {
 
   const loadData = async () => {
     try {
-      const [history, stats] = await Promise.all([
+      const [history, stats, suppliers, balances] = await Promise.all([
         api.getOMTHistory(),
         api.getOMTAnalytics(),
+        api.getSuppliers(),
+        api.getSupplierBalances(),
       ]);
       setTransactions(
         history.map((h: any) => ({
@@ -84,13 +106,26 @@ export default function Services() {
         })),
       );
       setAnalytics(stats);
+
+      // Build owed map by provider
+      const owed: Record<string, SupplierOwed> = {};
+      for (const s of suppliers) {
+        if (s.provider && (s.provider === "OMT" || s.provider === "WHISH")) {
+          const bal = balances.find((b: any) => b.supplier_id === s.id);
+          owed[s.provider] = {
+            usd: Number(bal?.total_usd || 0),
+            lbp: Number(bal?.total_lbp || 0),
+          };
+        }
+      }
+      setOwedByProvider(owed);
     } catch (error) {
-      console.error("Failed to load data:", error);
+      logger.error("Failed to load data:", error);
     }
   };
 
   const handleSubmit = async () => {
-    if (!amountUSD && !amountLBP) {
+    if (!amount) {
       alert("Please enter an amount.");
       return;
     }
@@ -100,44 +135,43 @@ export default function Services() {
       const result = await api.addOMTTransaction({
         provider,
         serviceType,
-        amountUSD: parseFloat(amountUSD) || 0,
-        amountLBP: parseFloat(amountLBP) || 0,
-        commissionUSD: parseFloat(commissionUSD) || 0,
-        commissionLBP: parseFloat(commissionLBP) || 0,
+        amount: parseFloat(amount),
+        currency,
+        commission: parseFloat(commission) || 0,
         ...(clientName ? { clientName } : {}),
         ...(referenceNumber ? { referenceNumber } : {}),
-        note: `${provider} - ${serviceType}`,
+        note: note || `${provider} - ${serviceType}`,
+        paidByMethod,
       });
 
       if (result.success) {
         // Link to active session if exists
-        if (activeSession && result.transaction?.id) {
+        if (activeSession && result.id) {
           try {
             await linkTransaction({
               transactionType: "financial_service",
-              transactionId: result.transaction.id,
-              amountUsd: parseFloat(amountUSD) || 0,
-              amountLbp: parseFloat(amountLBP) || 0,
+              transactionId: result.id,
+              amountUsd: parseFloat(amount),
+              amountLbp: 0,
             });
           } catch (err) {
-            console.error("Failed to link service to session:", err);
+            logger.error("Failed to link service to session:", err);
             // Don't block the transaction completion
           }
         }
 
         // Reset form
-        setAmountUSD("");
-        setAmountLBP("");
-        setCommissionUSD("");
-        setCommissionLBP("");
+        setAmount("");
+        setCommission("");
         setClientName("");
         setReferenceNumber("");
+        setNote("");
         loadData();
       } else {
         alert("Error: " + result.error);
       }
     } catch (error) {
-      console.error(error);
+      logger.error("Operation failed", { error });
       alert("Transaction failed");
     } finally {
       setIsSubmitting(false);
@@ -171,11 +205,15 @@ export default function Services() {
     BILL_PAYMENT: Receipt,
   };
 
-  const formatCurrency = (usd: number, lbp: number) => {
-    const parts = [];
-    if (usd > 0) parts.push(`$${usd.toFixed(2)}`);
-    if (lbp > 0) parts.push(`${lbp.toLocaleString()} LBP`);
-    return parts.join(" + ") || "$0.00";
+  const formatAmount = (amount: number, currency: string) => {
+    if (currency === "USD") {
+      return `$${amount.toFixed(2)}`;
+    } else if (currency === "LBP") {
+      return `${amount.toLocaleString()} LBP`;
+    } else if (currency === "EUR") {
+      return `€${amount.toFixed(2)}`;
+    }
+    return `${amount} ${currency}`;
   };
 
   return (
@@ -197,13 +235,8 @@ export default function Services() {
             Today's Earnings
           </h3>
           <p className="text-2xl font-bold text-white mt-1">
-            ${analytics.today.commissionUSD.toFixed(2)}
+            ${analytics.today.commission.toFixed(2)}
           </p>
-          {analytics.today.commissionLBP > 0 && (
-            <p className="text-xs text-slate-400 mt-1">
-              + {analytics.today.commissionLBP.toLocaleString()} LBP
-            </p>
-          )}
           <p className="text-xs text-slate-500 mt-1">
             {analytics.today.count} transactions
           </p>
@@ -219,13 +252,8 @@ export default function Services() {
             Monthly Earnings
           </h3>
           <p className="text-2xl font-bold text-white mt-1">
-            ${analytics.month.commissionUSD.toFixed(2)}
+            ${analytics.month.commission.toFixed(2)}
           </p>
-          {analytics.month.commissionLBP > 0 && (
-            <p className="text-xs text-slate-400 mt-1">
-              + {analytics.month.commissionLBP.toLocaleString()} LBP
-            </p>
-          )}
           <p className="text-xs text-slate-500 mt-1">
             {analytics.month.count} transactions
           </p>
@@ -250,13 +278,50 @@ export default function Services() {
               {p.provider} Today
             </h3>
             <p className="text-2xl font-bold text-white mt-1">
-              ${p.commission_usd.toFixed(2)}
+              ${p.commission.toFixed(2)}
             </p>
             <p className="text-xs text-slate-500 mt-1">
               {p.count} transactions
             </p>
           </div>
         ))}
+      </div>
+
+      {/* Owed to Suppliers */}
+      <div className="grid grid-cols-2 gap-4">
+        {(["OMT", "WHISH"] as Provider[]).map((p) => {
+          const owed = owedByProvider[p];
+          const hasDebt = owed && (owed.usd !== 0 || owed.lbp !== 0);
+          return (
+            <div
+              key={p}
+              className="bg-slate-800 border border-slate-700/50 rounded-xl p-4 flex items-center gap-4"
+            >
+              <div className={`p-2 rounded-lg ${providerColors[p].bg}`}>
+                <AlertTriangle
+                  className={`w-5 h-5 ${hasDebt ? "text-red-400" : "text-slate-500"}`}
+                />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-xs text-slate-400 font-medium uppercase tracking-wider">
+                  Owed to {p}
+                </div>
+                <div className="flex items-baseline gap-3 mt-1">
+                  <span
+                    className={`text-lg font-bold font-mono ${hasDebt ? "text-red-400" : "text-slate-500"}`}
+                  >
+                    ${(owed?.usd ?? 0).toFixed(2)}
+                  </span>
+                  <span
+                    className={`text-sm font-mono ${hasDebt ? "text-red-400/70" : "text-slate-600"}`}
+                  >
+                    {(owed?.lbp ?? 0).toLocaleString()} LBP
+                  </span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       <div className="flex-1 min-h-0 flex gap-6">
@@ -267,7 +332,10 @@ export default function Services() {
             {(["OMT", "WHISH"] as Provider[]).map((p) => (
               <button
                 key={p}
-                onClick={() => setProvider(p)}
+                onClick={() => {
+                  setProvider(p);
+                  setPaidByMethod(PROVIDER_DEFAULT_METHOD[p] || "CASH");
+                }}
                 className={`flex-1 py-2.5 rounded-lg font-bold text-sm transition-all ${
                   provider === p
                     ? `${providerColors[p].activeBg} ${p === "OMT" ? "text-black" : "text-white"} shadow-lg`
@@ -305,74 +373,91 @@ export default function Services() {
           </div>
 
           <div className="space-y-4 flex-1">
-            {/* Amount Fields */}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
-                  Amount USD
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#ffde00] font-bold">
-                    $
-                  </span>
-                  <input
-                    type="number"
-                    value={amountUSD}
-                    onChange={(e) => setAmountUSD(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-600 rounded-lg pl-8 pr-4 py-3 text-white focus:outline-none focus:border-violet-500 transition-colors"
-                    placeholder="0.00"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
-                  Amount LBP
+            {/* Amount Field (USD Only) */}
+            <div className="grid grid-cols-3 gap-3">
+              <div className="col-span-2">
+                <label
+                  htmlFor="service-amount"
+                  className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
+                >
+                  Amount
                 </label>
                 <input
+                  id="service-amount"
                   type="number"
-                  value={amountLBP}
-                  onChange={(e) => setAmountLBP(e.target.value)}
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
                   className="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-violet-500 transition-colors"
-                  placeholder="0"
+                  placeholder="0.00"
+                  step="0.01"
+                />
+              </div>
+              <div>
+                <span className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
+                  Currency
+                </span>
+                <div
+                  className="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-slate-400 flex items-center justify-center font-medium"
+                  aria-label="Currency: USD"
+                >
+                  USD
+                </div>
+              </div>
+            </div>
+
+            {/* Commission Field (USD only) */}
+            <div className="p-4 rounded-xl bg-[#ffde00]/5 border border-[#ffde00]/20">
+              <label
+                htmlFor="service-commission"
+                className="block text-xs font-medium text-[#ffde00] mb-3 uppercase tracking-wider"
+              >
+                Commission / Profit (USD)
+              </label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#ffde00] font-bold">
+                  $
+                </span>
+                <input
+                  id="service-commission"
+                  type="number"
+                  value={commission}
+                  onChange={(e) => setCommission(e.target.value)}
+                  className="w-full bg-slate-900 border border-[#ffde00]/30 rounded-lg pl-8 pr-4 py-3 text-[#ffde00] font-bold focus:outline-none focus:border-[#ffde00] transition-colors"
+                  placeholder="0.00"
+                  step="0.01"
                 />
               </div>
             </div>
 
-            {/* Commission Fields */}
-            <div className="p-4 rounded-xl bg-[#ffde00]/5 border border-[#ffde00]/20">
-              <label className="block text-xs font-medium text-[#ffde00] mb-3 uppercase tracking-wider">
-                Commission / Profit
+            {/* Paid By */}
+            <div>
+              <label
+                htmlFor="service-paid-by"
+                className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
+              >
+                Paid By
               </label>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#ffde00] font-bold">
-                    $
-                  </span>
-                  <input
-                    type="number"
-                    value={commissionUSD}
-                    onChange={(e) => setCommissionUSD(e.target.value)}
-                    className="w-full bg-slate-900 border border-[#ffde00]/30 rounded-lg pl-8 pr-4 py-3 text-[#ffde00] font-bold focus:outline-none focus:border-[#ffde00] transition-colors"
-                    placeholder="0.00"
-                  />
-                </div>
-                <input
-                  type="number"
-                  value={commissionLBP}
-                  onChange={(e) => setCommissionLBP(e.target.value)}
-                  className="w-full bg-slate-900 border border-[#ffde00]/30 rounded-lg px-4 py-3 text-[#ffde00] font-bold focus:outline-none focus:border-[#ffde00] transition-colors"
-                  placeholder="LBP"
-                />
-              </div>
+              <Select
+                value={paidByMethod}
+                onChange={setPaidByMethod}
+                options={drawerAffectingMethods.map((m) => ({
+                  value: m.code,
+                  label: m.label,
+                }))}
+              />
             </div>
 
             {/* Client Info */}
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1">
+                <label
+                  htmlFor="service-client-name"
+                  className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+                >
                   <User size={12} /> Client Name
                 </label>
                 <input
+                  id="service-client-name"
                   type="text"
                   value={clientName}
                   onChange={(e) => setClientName(e.target.value)}
@@ -381,10 +466,14 @@ export default function Services() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1">
+                <label
+                  htmlFor="service-reference"
+                  className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+                >
                   <Hash size={12} /> Reference #
                 </label>
                 <input
+                  id="service-reference"
                   type="text"
                   value={referenceNumber}
                   onChange={(e) => setReferenceNumber(e.target.value)}
@@ -434,7 +523,14 @@ export default function Services() {
           </div>
 
           <div className="flex-1 min-h-0 overflow-auto">
-            <table className="w-full">
+            <ExportBar
+              exportExcel
+              exportPdf
+              exportFilename="services-history"
+              tableRef={tableRef}
+              rowCount={transactions.length}
+            />
+            <table ref={tableRef} className="w-full">
               <thead className="bg-slate-900/50 text-left text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0">
                 <tr>
                   <th className="px-6 py-3">Provider</th>
@@ -472,10 +568,10 @@ export default function Services() {
                         </div>
                       </td>
                       <td className="px-6 py-4 text-sm font-medium text-white">
-                        {formatCurrency(tx.amount_usd, tx.amount_lbp)}
+                        {formatAmount(tx.amount, tx.currency)}
                       </td>
                       <td className="px-6 py-4 text-sm font-bold text-emerald-400">
-                        {formatCurrency(tx.commission_usd, tx.commission_lbp)}
+                        ${tx.commission.toFixed(2)}
                       </td>
                       <td className="px-6 py-4 text-sm text-slate-300">
                         {tx.client_name || "-"}

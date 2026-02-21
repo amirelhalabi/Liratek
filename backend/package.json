@@ -11,7 +11,10 @@
     "typecheck": "yarn workspace @liratek/core build && tsc --noEmit -p tsconfig.typecheck.json",
     "lint": "eslint src --max-warnings=9999",
     "test": "node ../node_modules/jest/bin/jest.js --config jest.config.cjs",
-    "test:coverage": "node ../node_modules/jest/bin/jest.js --config jest.config.cjs --coverage --coverageDirectory ../coverage/backend --coverageReporters=lcov"
+    "test:coverage": "node ../node_modules/jest/bin/jest.js --config jest.config.cjs --coverage --coverageDirectory ../coverage/backend --coverageReporters=lcov",
+    "env:setup": "[ -f .env ] || cp .env.dev .env",
+    "env:dev": "cp .env.dev .env",
+    "env:prod": "cp .env.prod .env"
   },
   "dependencies": {
     "@liratek/core": "workspace:*",
@@ -20,6 +23,7 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.1",
     "express": "^4.18.2",
+    "express-rate-limit": "^8.2.1",
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
     "pino": "^8.19.0",

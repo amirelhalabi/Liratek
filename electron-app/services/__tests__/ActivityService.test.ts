@@ -12,10 +12,11 @@ import {
   ActivityLogEntity,
   SyncErrorEntity,
   getActivityRepository,
-} from "../../database/repositories/ActivityRepository";
+} from "@liratek/core";
 
 // Mock the repository module
-jest.mock("../../database/repositories/ActivityRepository", () => ({
+jest.mock("@liratek/core", () => ({
+  ...jest.requireActual("@liratek/core"),
   getActivityRepository: jest.fn(),
   ActivityRepository: jest.fn(),
 }));

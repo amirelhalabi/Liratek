@@ -21,6 +21,7 @@ import {
   type RecentSale,
   type ChartDataPoint,
 } from "../repositories/index.js";
+import { salesLogger } from "../utils/logger.js";
 
 // =============================================================================
 // Types
@@ -28,7 +29,7 @@ import {
 
 export interface SaleResult {
   success: boolean;
-  saleId?: number;
+  id?: number;
   error?: string;
 }
 
@@ -54,17 +55,23 @@ export class SalesService {
     try {
       const result = this.salesRepo.processSale(sale);
 
-      if (result.success && result.saleId) {
+      if (result.success && result.id) {
         const drawerName = sale.drawer_name || "General_Drawer_B";
         const finalAmount = sale.final_amount || 0;
-        console.log(
-          `[SALES] ${drawerName} - Sale #${result.saleId}: $${finalAmount.toFixed(2)} [${sale.status || "completed"}]`,
+        salesLogger.info(
+          {
+            id: result.id,
+            drawer: drawerName,
+            amount: finalAmount,
+            status: sale.status || "completed",
+          },
+          `${drawerName} - Sale #${result.id}: $${finalAmount.toFixed(2)}`,
         );
       }
 
       return result;
     } catch (error) {
-      console.error("Sale transaction failed:", error);
+      salesLogger.error({ error, sale }, "Sale transaction failed");
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error),
@@ -79,7 +86,7 @@ export class SalesService {
     try {
       return this.salesRepo.findDrafts();
     } catch (error) {
-      console.error("Failed to get drafts", error);
+      salesLogger.error({ error }, "Failed to get drafts");
       return [];
     }
   }
@@ -91,7 +98,7 @@ export class SalesService {
     try {
       return this.salesRepo.findById(saleId);
     } catch (error) {
-      console.error("Failed to get sale:", error);
+      salesLogger.error({ error, saleId }, "Failed to get sale");
       throw error;
     }
   }
@@ -103,7 +110,7 @@ export class SalesService {
     try {
       return this.salesRepo.getSaleItems(saleId);
     } catch (error) {
-      console.error("Failed to get sale items:", error);
+      salesLogger.error({ error, saleId }, "Failed to get sale items");
       return [];
     }
   }
@@ -119,14 +126,18 @@ export class SalesService {
     try {
       const stats = this.salesRepo.getDashboardStats();
 
-      const todayDate = new Date().toLocaleDateString();
-      console.log(
-        `[SALES] Dashboard stats - Today: ${todayDate}, Sales: $${stats.totalSalesUSD} USD / ${stats.totalSalesLBP.toLocaleString()} LBP`,
+      salesLogger.debug(
+        {
+          totalSalesUSD: stats.totalSalesUSD,
+          totalSalesLBP: stats.totalSalesLBP,
+          ordersCount: stats.ordersCount,
+        },
+        `Dashboard stats - Sales: $${stats.totalSalesUSD} USD / ${stats.totalSalesLBP.toLocaleString()} LBP`,
       );
 
       return stats;
     } catch (error) {
-      console.error("Failed to get dashboard stats:", error);
+      salesLogger.error({ error }, "Failed to get dashboard stats");
       return {
         totalSalesUSD: 0,
         totalSalesLBP: 0,

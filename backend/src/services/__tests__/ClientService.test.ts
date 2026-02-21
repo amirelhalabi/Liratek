@@ -5,19 +5,24 @@
  */
 
 import { jest } from "@jest/globals";
+
+jest.mock("@liratek/core", () => {
+  const actual =
+    jest.requireActual<typeof import("@liratek/core")>("@liratek/core");
+  return {
+    ...actual,
+    getClientRepository: jest.fn(),
+    ClientRepository: jest.fn(),
+  };
+});
+
 import {
   ClientService,
   resetClientService,
   getClientService,
-} from "../ClientService";
-import { ClientRepository } from "../../database/repositories";
-import { NotFoundError } from "../../utils/errors";
-
-// Mock the repository module
-jest.mock("../../database/repositories", () => ({
-  getClientRepository: jest.fn(),
-  ClientRepository: jest.fn(),
-}));
+  ClientRepository,
+  NotFoundError,
+} from "@liratek/core";
 
 describe("ClientService", () => {
   let service: ClientService;

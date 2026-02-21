@@ -7,10 +7,17 @@
 
 -- System Settings
 CREATE TABLE IF NOT EXISTS system_settings (
-    key_name TEXT PRIMARY KEY,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key_name TEXT UNIQUE NOT NULL,
     value TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Seed default settings
+INSERT OR IGNORE INTO system_settings (key_name, value) VALUES
+  ('shop_name', 'Corner Tech'),
+  ('default_debt_term_days', '30');
 
 -- Users
 CREATE TABLE IF NOT EXISTS users (
@@ -44,29 +51,56 @@ CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token);
 CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
 CREATE INDEX IF NOT EXISTS idx_sessions_last_activity ON sessions(last_activity_at);
 
--- Activity Logs
-CREATE TABLE IF NOT EXISTS activity_logs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER,
-    action TEXT NOT NULL,
-    table_name TEXT,
-    record_id INTEGER,
-    details_json TEXT, -- Added via migration consolidation
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id)
+-- Unified Transaction Table (accounting journal)
+CREATE TABLE IF NOT EXISTS transactions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    type            TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'ACTIVE',
+    source_table    TEXT NOT NULL,
+    source_id       INTEGER NOT NULL,
+    user_id         INTEGER NOT NULL,
+    amount_usd      REAL NOT NULL DEFAULT 0,
+    amount_lbp      REAL NOT NULL DEFAULT 0,
+    exchange_rate   REAL,
+    client_id       INTEGER,
+    reverses_id     INTEGER,
+    summary         TEXT,
+    metadata_json   TEXT,
+    device_id       TEXT,
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id)      REFERENCES users(id),
+    FOREIGN KEY (client_id)    REFERENCES clients(id),
+    FOREIGN KEY (reverses_id)  REFERENCES transactions(id)
 );
+
+CREATE INDEX IF NOT EXISTS idx_transactions_type_created
+  ON transactions(type, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_transactions_created_at
+  ON transactions(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_transactions_user_id
+  ON transactions(user_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_client_id
+  ON transactions(client_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_source
+  ON transactions(source_table, source_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_reverses
+  ON transactions(reverses_id);
 
 -- Currencies
 CREATE TABLE IF NOT EXISTS currencies (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     code TEXT UNIQUE NOT NULL, -- e.g., USD, LBP, EUR
     name TEXT NOT NULL,
+    symbol TEXT NOT NULL DEFAULT '',        -- e.g., $, €, LBP
+    decimal_places INTEGER NOT NULL DEFAULT 2,  -- 2 for USD/EUR, 0 for LBP
     is_active BOOLEAN DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
-INSERT OR IGNORE INTO currencies (code, name, is_active) VALUES ('USD', 'US Dollar', 1);
-INSERT OR IGNORE INTO currencies (code, name, is_active) VALUES ('LBP', 'Lebanese Pound', 1);
+INSERT OR IGNORE INTO currencies (code, name, symbol, decimal_places, is_active) VALUES ('USD', 'US Dollar', '$', 2, 1);
+INSERT OR IGNORE INTO currencies (code, name, symbol, decimal_places, is_active) VALUES ('LBP', 'Lebanese Pound', 'LBP', 0, 1);
+INSERT OR IGNORE INTO currencies (code, name, symbol, decimal_places, is_active) VALUES ('EUR', 'Euro', '€', 2, 1);
+INSERT OR IGNORE INTO currencies (code, name, symbol, decimal_places, is_active) VALUES ('USDT', 'Tether USD', 'USDT', 2, 0);
 
 -- Exchange Rates
 CREATE TABLE IF NOT EXISTS exchange_rates (
@@ -77,6 +111,9 @@ CREATE TABLE IF NOT EXISTS exchange_rates (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(from_code, to_code)
 );
+
+-- Seed default exchange rate (update to current market rate after first login)
+INSERT OR IGNORE INTO exchange_rates (from_code, to_code, rate) VALUES ('USD', 'LBP', 89500);
 
 -- =============================================================================
 -- 2. Business Entity Tables
@@ -100,6 +137,9 @@ CREATE TABLE IF NOT EXISTS suppliers (
   phone TEXT,
   note TEXT,
   is_active INTEGER NOT NULL DEFAULT 1,
+  module_key TEXT DEFAULT NULL REFERENCES modules(key) ON DELETE SET NULL,
+  provider TEXT DEFAULT NULL,
+  is_system INTEGER NOT NULL DEFAULT 0,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -168,13 +208,14 @@ CREATE TABLE IF NOT EXISTS debt_ledger (
     transaction_type TEXT NOT NULL,
     amount_usd DECIMAL(10, 2),
     amount_lbp DECIMAL(15, 2),
-    sale_id INTEGER,
+    transaction_id INTEGER,
+    due_date TEXT,
     note TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER, -- Added via migration consolidation
+    created_by INTEGER,
     FOREIGN KEY (client_id) REFERENCES clients(id),
-    FOREIGN KEY (sale_id) REFERENCES sales(id),
-    FOREIGN KEY (created_by) REFERENCES users(id)
+    FOREIGN KEY (created_by) REFERENCES users(id),
+    FOREIGN KEY (transaction_id) REFERENCES transactions(id)
 );
 
 -- Customer Visit Sessions
@@ -196,10 +237,12 @@ CREATE TABLE IF NOT EXISTS customer_session_transactions (
   session_id INTEGER NOT NULL,
   transaction_type TEXT NOT NULL, -- 'sale', 'recharge', 'expense', 'omt', 'whish', 'exchange', 'maintenance'
   transaction_id INTEGER NOT NULL,
+  unified_transaction_id INTEGER,
   amount_usd REAL NOT NULL DEFAULT 0,
   amount_lbp REAL NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  FOREIGN KEY (session_id) REFERENCES customer_sessions(id) ON DELETE CASCADE
+  FOREIGN KEY (session_id) REFERENCES customer_sessions(id) ON DELETE CASCADE,
+  FOREIGN KEY (unified_transaction_id) REFERENCES transactions(id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_customer_sessions_active ON customer_sessions(is_active, started_at DESC);
@@ -214,8 +257,10 @@ CREATE TABLE IF NOT EXISTS supplier_ledger (
   amount_lbp REAL NOT NULL DEFAULT 0,
   note TEXT,
   created_by INTEGER,
+  transaction_id INTEGER,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE,
+  FOREIGN KEY (transaction_id) REFERENCES transactions(id),
   FOREIGN KEY (created_by) REFERENCES users(id)
 );
 
@@ -234,6 +279,7 @@ CREATE TABLE IF NOT EXISTS maintenance (
     paid_lbp DECIMAL(15, 2) DEFAULT 0,
     exchange_rate DECIMAL(15, 2),
     status TEXT DEFAULT 'Received',
+    paid_by TEXT DEFAULT 'CASH',
     note TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -248,6 +294,8 @@ CREATE TABLE IF NOT EXISTS expenses (
     expense_type TEXT,
     amount_usd DECIMAL(10, 2),
     amount_lbp DECIMAL(15, 2),
+    paid_by_method TEXT DEFAULT 'CASH',
+    status TEXT NOT NULL DEFAULT 'active',
     expense_date DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -273,22 +321,86 @@ CREATE TABLE IF NOT EXISTS exchange_transactions (
     rate DECIMAL(15, 2) NOT NULL,
     client_name TEXT,
     note TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_by INTEGER
 );
 
--- Financial Services (OMT, Whish, etc.)
+-- Binance Transactions (Send/Receive)
+CREATE TABLE IF NOT EXISTS binance_transactions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    type TEXT CHECK(type IN ('SEND', 'RECEIVE')) NOT NULL,
+    amount DECIMAL(15, 2) NOT NULL,
+    currency_code TEXT NOT NULL DEFAULT 'USDT',
+    description TEXT,
+    client_name TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_by INTEGER,
+    FOREIGN KEY (created_by) REFERENCES users(id)
+);
+
+-- Financial Services (OMT, Whish, IPEC, Katch, Wish App, etc.)
 CREATE TABLE IF NOT EXISTS financial_services (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    provider TEXT CHECK(provider IN ('OMT', 'WHISH', 'BOB', 'OTHER')) NOT NULL,
+    provider TEXT CHECK(provider IN ('OMT', 'WHISH', 'BOB', 'OTHER', 'IPEC', 'KATCH', 'WISH_APP', 'OMT_APP')) NOT NULL,
     service_type TEXT CHECK(service_type IN ('SEND', 'RECEIVE', 'BILL_PAYMENT')) NOT NULL,
-    amount_usd DECIMAL(10, 2) DEFAULT 0,
-    amount_lbp DECIMAL(15, 2) DEFAULT 0,
-    commission_usd DECIMAL(10, 2) DEFAULT 0,
-    commission_lbp DECIMAL(15, 2) DEFAULT 0,
+    amount DECIMAL(10, 2) NOT NULL,
+    currency TEXT DEFAULT 'USD' NOT NULL,
+    commission DECIMAL(10, 2) DEFAULT 0,
+    cost DECIMAL(10, 2) DEFAULT 0,
+    price DECIMAL(10, 2) DEFAULT 0,
+    paid_by TEXT DEFAULT 'CASH',
+    client_id INTEGER REFERENCES clients(id),
     client_name TEXT,
     reference_number TEXT,
+    item_key TEXT,
     note TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_by INTEGER
+);
+
+-- Custom Services (standalone ad-hoc services with cost/price/profit tracking)
+CREATE TABLE IF NOT EXISTS custom_services (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    description TEXT NOT NULL,
+    cost_usd DECIMAL(10,2) NOT NULL DEFAULT 0,
+    cost_lbp DECIMAL(15,2) NOT NULL DEFAULT 0,
+    price_usd DECIMAL(10,2) NOT NULL DEFAULT 0,
+    price_lbp DECIMAL(15,2) NOT NULL DEFAULT 0,
+    profit_usd DECIMAL(10,2) GENERATED ALWAYS AS (price_usd - cost_usd) STORED,
+    profit_lbp DECIMAL(15,2) GENERATED ALWAYS AS (price_lbp - cost_lbp) STORED,
+    paid_by TEXT NOT NULL DEFAULT 'CASH',
+    status TEXT NOT NULL DEFAULT 'completed' CHECK(status IN ('pending','completed','voided')),
+    client_id INTEGER,
+    client_name TEXT,
+    phone_number TEXT,
+    note TEXT,
+    created_by INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (client_id) REFERENCES clients(id),
+    FOREIGN KEY (created_by) REFERENCES users(id)
+);
+
+-- Item Costs (saved default costs for frequently-sold items)
+CREATE TABLE IF NOT EXISTS item_costs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider TEXT NOT NULL,
+    category TEXT NOT NULL,
+    item_key TEXT NOT NULL,
+    cost DECIMAL(10, 2) NOT NULL,
+    currency TEXT DEFAULT 'USD' NOT NULL,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(provider, category, item_key, currency)
+);
+
+-- Voucher Images (per-item image associations for mobileServices.json items)
+CREATE TABLE IF NOT EXISTS voucher_images (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider TEXT NOT NULL,
+    category TEXT NOT NULL,
+    item_key TEXT NOT NULL,
+    image_path TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(provider, category, item_key)
 );
 
 -- =============================================================================
@@ -298,8 +410,7 @@ CREATE TABLE IF NOT EXISTS financial_services (
 -- Payments (Multi-method tracking)
 CREATE TABLE IF NOT EXISTS payments (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  source_type TEXT NOT NULL,
-  source_id INTEGER NOT NULL,
+  transaction_id INTEGER,
   method TEXT NOT NULL,
   drawer_name TEXT NOT NULL,
   currency_code TEXT NOT NULL,
@@ -307,7 +418,8 @@ CREATE TABLE IF NOT EXISTS payments (
   note TEXT,
   created_by INTEGER,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (created_by) REFERENCES users(id)
+  FOREIGN KEY (created_by) REFERENCES users(id),
+  FOREIGN KEY (transaction_id) REFERENCES transactions(id)
 );
 
 -- Drawer Balances (Running totals)
@@ -329,9 +441,14 @@ INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALU
 INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Whish_App', 'USD', 0);
 INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Whish_App', 'LBP', 0);
 INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Binance', 'USD', 0);
-INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Binance', 'LBP', 0);
 INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('MTC', 'USD', 0);
 INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Alfa', 'USD', 0);
+INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('IPEC', 'USD', 0);
+INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('IPEC', 'LBP', 0);
+INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Katch', 'USD', 0);
+INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Katch', 'LBP', 0);
+INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Whish_System', 'USD', 0);
+INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Whish_System', 'LBP', 0);
 
 -- Daily Closings
 CREATE TABLE IF NOT EXISTS daily_closings (
@@ -404,16 +521,194 @@ CREATE INDEX IF NOT EXISTS idx_products_is_active ON products(is_active);
 CREATE INDEX IF NOT EXISTS idx_debt_ledger_client_id_created_at ON debt_ledger(client_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_debt_ledger_transaction_type_created_at ON debt_ledger(transaction_type, created_at);
 CREATE INDEX IF NOT EXISTS idx_expenses_expense_date ON expenses(expense_date);
-CREATE INDEX IF NOT EXISTS idx_activity_logs_created_at ON activity_logs(created_at);
-CREATE INDEX IF NOT EXISTS idx_activity_logs_user_id_created_at ON activity_logs(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_maintenance_status_created_at ON maintenance(status, created_at);
 CREATE INDEX IF NOT EXISTS idx_exchange_transactions_created_at ON exchange_transactions(created_at);
+CREATE INDEX IF NOT EXISTS idx_binance_transactions_created_at ON binance_transactions(created_at);
+CREATE INDEX IF NOT EXISTS idx_binance_transactions_type_created_at ON binance_transactions(type, created_at);
 CREATE INDEX IF NOT EXISTS idx_financial_services_provider_type_created_at ON financial_services(provider, service_type, created_at);
 CREATE INDEX IF NOT EXISTS idx_financial_services_created_at ON financial_services(created_at);
+CREATE INDEX IF NOT EXISTS idx_financial_services_paid_by ON financial_services(paid_by);
+CREATE INDEX IF NOT EXISTS idx_financial_services_client_id ON financial_services(client_id);
+CREATE INDEX IF NOT EXISTS idx_custom_services_created_at ON custom_services(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_custom_services_client_id ON custom_services(client_id);
 CREATE INDEX IF NOT EXISTS idx_daily_closings_date ON daily_closings(closing_date);
 CREATE INDEX IF NOT EXISTS idx_recharges_carrier_date ON recharges(carrier, created_at);
 CREATE INDEX IF NOT EXISTS idx_recharges_date ON recharges(created_at);
-CREATE INDEX IF NOT EXISTS idx_payments_source ON payments(source_type, source_id);
 CREATE INDEX IF NOT EXISTS idx_payments_drawer_currency ON payments(drawer_name, currency_code, created_at);
 CREATE INDEX IF NOT EXISTS idx_drawer_balances_drawer ON drawer_balances(drawer_name);
 CREATE INDEX IF NOT EXISTS idx_supplier_ledger_supplier_id_created_at ON supplier_ledger(supplier_id, created_at);
+
+-- ============================================================================
+-- ADDITIONAL INDEXES (Added 2026-02-14)
+-- ============================================================================
+
+-- Client indexes
+CREATE INDEX IF NOT EXISTS idx_clients_full_name ON clients(full_name COLLATE NOCASE);
+
+-- Product indexes
+CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);
+CREATE INDEX IF NOT EXISTS idx_products_status ON products(status);
+CREATE INDEX IF NOT EXISTS idx_products_active_category ON products(is_active, category);
+CREATE INDEX IF NOT EXISTS idx_products_active_status ON products(is_active, status);
+
+-- Expense indexes
+CREATE INDEX IF NOT EXISTS idx_expenses_category ON expenses(category);
+CREATE INDEX IF NOT EXISTS idx_expenses_type ON expenses(expense_type);
+CREATE INDEX IF NOT EXISTS idx_expenses_date_category ON expenses(expense_date, category);
+CREATE INDEX IF NOT EXISTS idx_expenses_type_date ON expenses(expense_type, expense_date DESC);
+
+-- Maintenance indexes
+CREATE INDEX IF NOT EXISTS idx_maintenance_client_id ON maintenance(client_id);
+
+-- Sales indexes
+CREATE INDEX IF NOT EXISTS idx_sales_drawer_name ON sales(drawer_name);
+CREATE INDEX IF NOT EXISTS idx_sales_status_drawer ON sales(status, drawer_name);
+
+-- =============================================================================
+-- 8. Modules System
+-- =============================================================================
+
+-- Modules (sidebar navigation items, toggleable features)
+CREATE TABLE IF NOT EXISTS modules (
+    key         TEXT PRIMARY KEY,                -- e.g. 'pos', 'omt_whish'
+    label       TEXT NOT NULL,                   -- Display name: 'Point of Sale'
+    icon        TEXT NOT NULL DEFAULT '',         -- Lucide icon name: 'ShoppingCart'
+    route       TEXT NOT NULL,                   -- React Router path: '/pos'
+    sort_order  INTEGER NOT NULL DEFAULT 0,      -- Sidebar display order
+    is_enabled  INTEGER NOT NULL DEFAULT 1,      -- 1 = visible in sidebar, 0 = hidden
+    admin_only  INTEGER NOT NULL DEFAULT 0,      -- 1 = only admins see this module
+    is_system   INTEGER NOT NULL DEFAULT 0       -- 1 = cannot be disabled
+);
+
+-- System modules (always visible, not toggleable)
+INSERT OR IGNORE INTO modules (key, label, icon, route, sort_order, is_enabled, admin_only, is_system) VALUES
+  ('dashboard',  'Dashboard',  'LayoutDashboard', '/',          0,  1, 0, 1),
+  ('closing',    'Closing',    'SquareActivity',  '',          99,  1, 1, 1),
+  ('settings',   'Settings',   'Settings',        '/settings', 100, 1, 1, 1);
+
+-- Toggleable modules (can be enabled/disabled from Settings > Modules)
+INSERT OR IGNORE INTO modules (key, label, icon, route, sort_order, is_enabled, admin_only, is_system) VALUES
+  ('analytics',   'Analytics',    'TrendingUp',    '/commissions',   1,  1, 0, 0),
+  ('pos',         'Point of Sale','ShoppingCart',  '/pos',           2,  1, 0, 0),
+  ('debts',       'Debts',        'BookOpen',      '/debts',         3,  1, 0, 0),
+  ('inventory',   'Inventory',    'Package',       '/products',      4,  1, 0, 0),
+  ('clients',     'Clients',      'Users',         '/clients',       5,  1, 0, 0),
+  ('exchange',    'Exchange',     'RefreshCw',     '/exchange',      6,  1, 0, 0),
+  ('omt_whish',   'OMT/Whish',   'Send',          '/services',      7,  1, 0, 0),
+  ('recharge',    'MTC/Alfa',     'Smartphone',    '/recharge',      8,  1, 0, 0),
+  ('expenses',    'Expenses',     'Banknote',      '/expenses',      9,  1, 0, 0),
+  ('maintenance', 'Maintenance',  'Wrench',        '/maintenance',  10,  1, 0, 0),
+  ('binance',     'Binance',      'Bitcoin',       '/recharge',     11,  1, 0, 0),
+  ('ipec_katch',  'IPEC/Katch',  'Zap',           '/recharge',     12,  1, 0, 0),
+  ('custom_services','Services', 'Briefcase',     '/custom-services',13, 1, 0, 0),
+  ('profits',        'Profits',  'TrendingUp',    '/profits',        14, 1, 1, 0);
+
+-- Currency–Module junction (which currencies are allowed in which modules)
+CREATE TABLE IF NOT EXISTS currency_modules (
+    currency_code TEXT NOT NULL,
+    module_key    TEXT NOT NULL,
+    PRIMARY KEY (currency_code, module_key),
+    FOREIGN KEY (currency_code) REFERENCES currencies(code) ON DELETE CASCADE,
+    FOREIGN KEY (module_key)    REFERENCES modules(key)     ON DELETE CASCADE
+);
+
+-- USD: enabled for all financial modules
+INSERT OR IGNORE INTO currency_modules (currency_code, module_key) VALUES
+  ('USD', 'pos'), ('USD', 'debts'), ('USD', 'exchange'),
+  ('USD', 'omt_whish'), ('USD', 'recharge'), ('USD', 'expenses'),
+  ('USD', 'maintenance'), ('USD', 'binance'), ('USD', 'ipec_katch'),
+  ('USD', 'custom_services'), ('USD', 'closing');
+
+-- LBP: enabled for most modules except OMT/Whish, Binance
+INSERT OR IGNORE INTO currency_modules (currency_code, module_key) VALUES
+  ('LBP', 'pos'), ('LBP', 'debts'), ('LBP', 'exchange'),
+  ('LBP', 'expenses'), ('LBP', 'maintenance'), ('LBP', 'ipec_katch'),
+  ('LBP', 'custom_services'), ('LBP', 'recharge'), ('LBP', 'closing');
+
+-- EUR: exchange only (by default)
+INSERT OR IGNORE INTO currency_modules (currency_code, module_key) VALUES
+  ('EUR', 'exchange');
+
+-- Currency–Drawer junction (which currencies are shown per drawer)
+CREATE TABLE IF NOT EXISTS currency_drawers (
+    currency_code TEXT NOT NULL,
+    drawer_name   TEXT NOT NULL,
+    PRIMARY KEY (currency_code, drawer_name),
+    FOREIGN KEY (currency_code) REFERENCES currencies(code) ON DELETE CASCADE
+);
+
+-- Seed drawer-currency mappings (matches drawer_balances seed data)
+INSERT OR IGNORE INTO currency_drawers (currency_code, drawer_name) VALUES
+  ('USD', 'General'),    ('LBP', 'General'),
+  ('USD', 'OMT_System'), ('LBP', 'OMT_System'),
+  ('USD', 'OMT_App'),    ('LBP', 'OMT_App'),
+  ('USD', 'Whish_App'),  ('LBP', 'Whish_App'),
+  ('USD', 'Binance'),
+  ('USD', 'MTC'),
+  ('USD', 'Alfa'),
+  ('USD', 'IPEC'),       ('LBP', 'IPEC'),
+  ('USD', 'Katch'),      ('LBP', 'Katch'),
+  ('USD', 'Whish_System'), ('LBP', 'Whish_System');
+
+-- Debt ledger indexes
+CREATE INDEX IF NOT EXISTS idx_debt_ledger_client_type ON debt_ledger(client_id, transaction_type);
+CREATE INDEX IF NOT EXISTS idx_debt_ledger_due_date ON debt_ledger(due_date);
+
+-- =============================================================================
+-- 9. Payment Methods
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS payment_methods (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    code           TEXT NOT NULL UNIQUE,           -- e.g. 'CASH', 'OMT', 'WHISH'
+    label          TEXT NOT NULL,                   -- Display name: 'Cash', 'OMT Wallet'
+    drawer_name    TEXT NOT NULL,                   -- Which drawer this method affects
+    affects_drawer INTEGER NOT NULL DEFAULT 1,      -- 0 = DEBT (no drawer impact)
+    sort_order     INTEGER NOT NULL DEFAULT 0,
+    is_active      INTEGER NOT NULL DEFAULT 1,
+    is_system      INTEGER NOT NULL DEFAULT 0,      -- 1 = cannot be deleted (CASH, DEBT)
+    created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Seed default payment methods
+INSERT OR IGNORE INTO payment_methods (code, label, drawer_name, affects_drawer, sort_order, is_system) VALUES
+  ('CASH',    'Cash',          'General',    1, 0, 1),
+  ('OMT',     'OMT Wallet',    'OMT_App',    1, 1, 0),
+  ('WHISH',   'Whish Wallet',  'Whish_App',  1, 2, 0),
+  ('BINANCE', 'Binance',       'Binance',    1, 3, 0),
+  ('DEBT',    'Debt (On Tab)', 'General',    0, 4, 1);
+
+-- Seed system suppliers (linked to modules)
+INSERT OR IGNORE INTO suppliers (name, module_key, provider, is_system) VALUES
+  ('IPEC',         'ipec_katch', 'IPEC',         1),
+  ('Katch',        'ipec_katch', 'KATCH',        1),
+  ('OMT',          'omt_whish',  'OMT',          1),
+  ('Whish',        'omt_whish',  'WHISH',        1),
+  ('OMT App',      'ipec_katch', 'OMT_APP',      1),
+  ('Whish App',    'ipec_katch', 'WHISH_APP',    1);
+
+-- =============================================================================
+-- 10. Migration Tracking
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    version INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Mark all migrations as applied (schema is already at latest state)
+INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
+    (9,  'add_payment_methods_table'),
+    (10, 'add_recharge_credits'),
+    (11, 'add_custom_services'),
+    (12, 'add_suppliers_module_key'),
+    (13, 'add_module_management'),
+    (14, 'add_dynamic_currencies'),
+    (15, 'standardize_activity_logs'),
+    (16, 'add_maintenance_payments'),
+    (17, 'add_transactions_table'),
+    (18, 'add_transaction_fk_columns'),
+    (19, 'drop_activity_logs_rebuild_ledgers'),
+    (20, 'soft_delete_and_constraints'),
+    (21, 'add_profits_module');

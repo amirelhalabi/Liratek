@@ -4,6 +4,7 @@
  */
 
 import { useEffect, useState } from "react";
+import logger from "../../../../utils/logger";
 import type { DrawerType } from "../../types";
 import { DRAWER_ORDER } from "../../config/drawers";
 import { useCurrencies } from "../../hooks/useCurrencies";
@@ -12,8 +13,7 @@ import { useSystemExpected } from "../../hooks/useSystemExpected";
 import { DrawerCard } from "../../components/DrawerCard";
 import { VarianceCard } from "../../components/VarianceCard";
 import { AlertBanner } from "../../components/AlertBanner";
-import { appEvents } from "../../../../shared/utils/appEvents";
-import * as api from "../../../../api/backendApi";
+import { appEvents, useApi } from "@liratek/ui";
 import { useAuth } from "../../../auth/context/AuthContext";
 import { generateClosingReport } from "../../utils/closingReportGenerator";
 import { X, ChevronLeft, ChevronRight } from "lucide-react";
@@ -24,6 +24,7 @@ interface ClosingProps {
 }
 
 export default function Closing({ isOpen, onClose }: ClosingProps) {
+  const api = useApi();
   const { user } = useAuth();
   const {
     currencies,
@@ -44,6 +45,21 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
   const [stepError, setStepError] = useState<string | null>(null);
 
   const [varianceThresholdPct, setVarianceThresholdPct] = useState(5);
+
+  /** Configured currencies per drawer from currency_drawers table */
+  const [drawerCurrencyConfig, setDrawerCurrencyConfig] = useState<
+    Record<string, string[]>
+  >({});
+
+  // Load drawer-currency config when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      api
+        .getAllDrawerCurrencies()
+        .then(setDrawerCurrencyConfig)
+        .catch(() => {});
+    }
+  }, [isOpen]);
 
   // Initialize amounts when currencies are loaded
   useEffect(() => {
@@ -100,7 +116,7 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
         const pct = Number(map.get("closing_variance_threshold_pct") ?? 5);
         if (isFinite(pct) && pct >= 0) setVarianceThresholdPct(pct);
       } catch (e) {
-        console.error("[Closing] Failed to load variance threshold:", e);
+        logger.error("[Closing] Failed to load variance threshold:", e);
       }
     } else if (step === 2) {
       setStep(3);
@@ -109,7 +125,7 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
 
   const handlePreviousStep = () => {
     if (step > 1) {
-      setStep(step - 1);
+      setStep((prev) => prev - 1);
       setStepError(null);
     }
   };
@@ -133,23 +149,18 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
         .filter((a) => a.currency_code === code)
         .reduce((acc, a) => acc + (a.physical_amount ?? 0), 0);
 
-    const expectedUsd =
-      (systemExpected?.generalDrawer.usd ?? 0) +
-      (systemExpected?.omtDrawer.usd ?? 0) +
-      (systemExpected?.mtcDrawer.usd ?? 0) +
-      (systemExpected?.alfaDrawer.usd ?? 0);
+    // Sum expected balances across all drawers per currency (dynamic)
+    const sumExpectedByCurrency = (code: string): number => {
+      if (!systemExpected) return 0;
+      return Object.values(systemExpected).reduce(
+        (acc, drawerBalances) => acc + (drawerBalances[code] ?? 0),
+        0,
+      );
+    };
 
-    const expectedLbp =
-      (systemExpected?.generalDrawer.lbp ?? 0) +
-      (systemExpected?.omtDrawer.lbp ?? 0) +
-      (systemExpected?.mtcDrawer.lbp ?? 0) +
-      (systemExpected?.alfaDrawer.lbp ?? 0);
-
-    const expectedEur =
-      (systemExpected?.generalDrawer.eur ?? 0) +
-      (systemExpected?.omtDrawer.eur ?? 0) +
-      (systemExpected?.mtcDrawer.eur ?? 0) +
-      (systemExpected?.alfaDrawer.eur ?? 0);
+    const expectedUsd = sumExpectedByCurrency("USD");
+    const expectedLbp = sumExpectedByCurrency("LBP");
+    const expectedEur = sumExpectedByCurrency("EUR");
 
     const escapeHtml = (s: string): string =>
       s
@@ -191,6 +202,13 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
           {
             closing_date: closingDate,
             drawer_name: "AGGREGATED",
+            physical: Object.fromEntries(
+              currencies.map((c) => [c.code, sumByCurrency(c.code)]),
+            ),
+            systemExpected: Object.fromEntries(
+              currencies.map((c) => [c.code, sumExpectedByCurrency(c.code)]),
+            ),
+            // Legacy fields for backward compat
             physical_usd: sumByCurrency("USD"),
             system_expected_usd: expectedUsd,
             physical_lbp: sumByCurrency("LBP"),
@@ -216,14 +234,14 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
         }
       } catch (reportError) {
         // Don't block closing if report generation fails.
-        console.error("[Closing] Report generation error:", reportError);
+        logger.error("[Closing] Report generation error:", reportError);
       }
 
       alert("Daily closing saved successfully!");
       appEvents.emit("closing:completed", result);
       onClose();
     } catch (error) {
-      console.error("[Closing] Save error:", error);
+      logger.error("[Closing] Save error:", error);
       setStepError(
         error instanceof Error ? error.message : "An unexpected error occurred",
       );
@@ -251,6 +269,7 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+      role="presentation"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) {
           handleCancel();
@@ -259,6 +278,7 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
     >
       <div
         className="bg-slate-900 border border-slate-700 rounded-xl overflow-hidden w-full max-w-6xl max-h-[90vh] flex flex-col shadow-2xl"
+        role="presentation"
         onMouseDown={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -330,10 +350,10 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {DRAWER_ORDER.map((drawer) => {
-                    const drawerCurrencies =
-                      drawer === "MTC" || drawer === "Alfa"
-                        ? currencies.filter((c) => c.code === "USD")
-                        : currencies;
+                    const allowed = drawerCurrencyConfig[drawer];
+                    const drawerCurrencies = allowed
+                      ? currencies.filter((c) => allowed.includes(c.code))
+                      : currencies;
 
                     return (
                       <DrawerCard
@@ -390,27 +410,15 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
                   }> = [];
 
                   for (const drawer of DRAWER_ORDER) {
-                    const drawerCurrencies =
-                      drawer === "MTC" || drawer === "Alfa"
-                        ? currencies.filter((c) => c.code === "USD")
-                        : currencies;
+                    const allowed = drawerCurrencyConfig[drawer];
+                    const drawerCurrencies = allowed
+                      ? currencies.filter((c) => allowed.includes(c.code))
+                      : currencies;
 
-                    const drawerKey =
-                      drawer === "General"
-                        ? "generalDrawer"
-                        : drawer === "OMT_System"
-                          ? "omtDrawer"
-                          : drawer === "OMT_App"
-                            ? "omtAppDrawer"
-                            : drawer === "MTC"
-                              ? "mtcDrawer"
-                              : "alfaDrawer";
-
-                    const expectedObj = systemExpected[drawerKey];
+                    const expectedObj = systemExpected[drawer];
 
                     for (const currency of drawerCurrencies) {
-                      const expected =
-                        expectedObj?.[currency.code.toLowerCase()] || 0;
+                      const expected = expectedObj?.[currency.code] || 0;
                       const physical =
                         drawerAmounts.amounts[drawer]?.[currency.code] ?? 0;
                       const variance = physical - expected;
@@ -454,10 +462,10 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {DRAWER_ORDER.map((drawer) => {
-                          const drawerCurrencies =
-                            drawer === "MTC" || drawer === "Alfa"
-                              ? currencies.filter((c) => c.code === "USD")
-                              : currencies;
+                          const allowed = drawerCurrencyConfig[drawer];
+                          const drawerCurrencies = allowed
+                            ? currencies.filter((c) => allowed.includes(c.code))
+                            : currencies;
 
                           return (
                             <VarianceCard
@@ -468,23 +476,10 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
                                 drawerAmounts.amounts[drawer] || {}
                               }
                               getExpectedAmount={(currencyCode: string) => {
-                                // Map drawer to systemExpected field
-                                const drawerKey =
-                                  drawer === "General"
-                                    ? "generalDrawer"
-                                    : drawer === "OMT_System"
-                                      ? "omtDrawer"
-                                      : drawer === "OMT_App"
-                                        ? "omtAppDrawer"
-                                        : drawer === "MTC"
-                                          ? "mtcDrawer"
-                                          : "alfaDrawer";
-                                const expected = systemExpected[drawerKey];
+                                // Dynamic: access directly by drawer name and currency code
+                                const expected = systemExpected[drawer];
                                 if (!expected) return 0;
-
-                                // Map currency code to field (usd, lbp, eur)
-                                const currencyKey = currencyCode.toLowerCase();
-                                return expected[currencyKey] || 0;
+                                return expected[currencyCode] || 0;
                               }}
                             />
                           );

@@ -247,20 +247,13 @@ describe("dbHandlers IPC: Closing functionality", () => {
         ],
       };
 
-      // Mock the run methods for daily_closings and activity_logs
-      (mockDbInstance.prepare as jest.Mock)
-        .mockImplementationOnce((sql) => ({
-          run: jest.fn(() => ({ changes: 1, lastInsertRowid: 101 })),
-          all: jest.fn(),
-          get: jest.fn(),
-          _sql: sql,
-        })) // For daily_closings INSERT
-        .mockImplementationOnce((sql) => ({
-          run: jest.fn(),
-          all: jest.fn(),
-          get: jest.fn(),
-          _sql: sql,
-        })); // For activity_logs INSERT
+      // Mock the run methods for daily_closings
+      (mockDbInstance.prepare as jest.Mock).mockImplementationOnce((sql) => ({
+        run: jest.fn(() => ({ changes: 1, lastInsertRowid: 101 })),
+        all: jest.fn(),
+        get: jest.fn(),
+        _sql: sql,
+      })); // For daily_closings INSERT
 
       const handler = ipcMain.handle.mock.calls.find(
         (call) => call[0] === "closing:create-daily-closing",
@@ -270,9 +263,6 @@ describe("dbHandlers IPC: Closing functionality", () => {
       expect(result).toEqual({ success: true, id: 101 });
       expect(mockDbInstance.prepare).toHaveBeenCalledWith(
         expect.stringContaining("INSERT INTO daily_closings"),
-      );
-      expect(mockDbInstance.prepare).toHaveBeenCalledWith(
-        expect.stringContaining("INSERT INTO activity_logs"),
       );
 
       // Verify run calls directly on the prepared statements
@@ -289,22 +279,6 @@ describe("dbHandlers IPC: Closing functionality", () => {
       // Verify per-amount inserts were attempted
       expect(mockDbInstance.prepare).toHaveBeenCalledWith(
         expect.stringContaining("INSERT INTO daily_closing_amounts"),
-      );
-
-      // Find the prepared statement used for activity_logs and assert its run args
-      const activityLogPrepareIndex =
-        mockDbInstance.prepare.mock.calls.findIndex(
-          (args: any[]) =>
-            typeof args[0] === "string" &&
-            args[0].includes("INSERT INTO activity_logs"),
-        );
-      expect(activityLogPrepareIndex).toBeGreaterThanOrEqual(0);
-      const activityRun =
-        mockDbInstance.prepare.mock.results[activityLogPrepareIndex].value.run;
-      // In handler SQL, user_id/action/table are hardcoded and only record_id and details_json are bound as params
-      expect(activityRun).toHaveBeenCalledWith(
-        101, // record_id
-        JSON.stringify({ amounts: mockData.amounts }), // details_json matches handler
       );
     });
 

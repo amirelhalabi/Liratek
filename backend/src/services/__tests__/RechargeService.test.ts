@@ -3,23 +3,26 @@
  */
 
 import { jest } from "@jest/globals";
+
+jest.mock("@liratek/core", () => {
+  const actual =
+    jest.requireActual<typeof import("@liratek/core")>("@liratek/core");
+  return {
+    ...actual,
+    getRechargeRepository: jest.fn(),
+    RechargeRepository: jest.fn(),
+  };
+});
+
 import {
   RechargeService,
   getRechargeService,
   resetRechargeService,
-} from "../RechargeService";
-import {
   RechargeRepository,
   getRechargeRepository,
   type VirtualStock,
   type RechargeData,
-} from "../../database/repositories";
-
-// Mock the repository module
-jest.mock("../../database/repositories", () => ({
-  getRechargeRepository: jest.fn(),
-  RechargeRepository: jest.fn(),
-}));
+} from "@liratek/core";
 
 describe("RechargeService", () => {
   let service: RechargeService;
@@ -107,11 +110,11 @@ describe("RechargeService", () => {
         price: 10,
         phoneNumber: "03123456",
       };
-      mockRepo.processRecharge.mockReturnValue({ success: true, saleId: 1 });
+      mockRepo.processRecharge.mockReturnValue({ success: true, id: 1 });
 
       const result = service.processRecharge(rechargeData);
 
-      expect(result).toEqual({ success: true, saleId: 1 });
+      expect(result).toEqual({ success: true, id: 1 });
       expect(mockRepo.processRecharge).toHaveBeenCalledWith(rechargeData);
     });
 
@@ -124,11 +127,11 @@ describe("RechargeService", () => {
         price: 20,
         phoneNumber: "70123456",
       };
-      mockRepo.processRecharge.mockReturnValue({ success: true, saleId: 2 });
+      mockRepo.processRecharge.mockReturnValue({ success: true, id: 2 });
 
       const result = service.processRecharge(rechargeData);
 
-      expect(result).toEqual({ success: true, saleId: 2 });
+      expect(result).toEqual({ success: true, id: 2 });
     });
 
     it("should handle VOUCHER recharge type", () => {
@@ -140,11 +143,11 @@ describe("RechargeService", () => {
         price: 5,
         phoneNumber: "03654321",
       };
-      mockRepo.processRecharge.mockReturnValue({ success: true, saleId: 3 });
+      mockRepo.processRecharge.mockReturnValue({ success: true, id: 3 });
 
       const result = service.processRecharge(rechargeData);
 
-      expect(result).toEqual({ success: true, saleId: 3 });
+      expect(result).toEqual({ success: true, id: 3 });
     });
 
     it("should handle DAYS recharge type", () => {
@@ -156,11 +159,11 @@ describe("RechargeService", () => {
         price: 15,
         phoneNumber: "71987654",
       };
-      mockRepo.processRecharge.mockReturnValue({ success: true, saleId: 4 });
+      mockRepo.processRecharge.mockReturnValue({ success: true, id: 4 });
 
       const result = service.processRecharge(rechargeData);
 
-      expect(result).toEqual({ success: true, saleId: 4 });
+      expect(result).toEqual({ success: true, id: 4 });
     });
 
     it("should return error when stock insufficient", () => {
@@ -215,11 +218,11 @@ describe("RechargeService", () => {
         cost: 22,
         price: 25,
       };
-      mockRepo.processRecharge.mockReturnValue({ success: true, saleId: 5 });
+      mockRepo.processRecharge.mockReturnValue({ success: true, id: 5 });
 
       const result = service.processRecharge(rechargeData);
 
-      expect(result).toEqual({ success: true, saleId: 5 });
+      expect(result).toEqual({ success: true, id: 5 });
     });
   });
 

@@ -41,7 +41,7 @@ describe("RechargeHandlers", () => {
     // Mock service
     mockService = {
       getStock: jest.fn().mockReturnValue({ mtc: 500, alfa: 300 }),
-      processRecharge: jest.fn().mockReturnValue({ success: true, saleId: 1 }),
+      processRecharge: jest.fn().mockReturnValue({ success: true, id: 1 }),
     };
     (getRechargeService as jest.Mock).mockReturnValue(mockService);
 
@@ -99,7 +99,7 @@ describe("RechargeHandlers", () => {
 
       expect(requireRole).toHaveBeenCalledWith(1, ["admin"]);
       expect(mockService.processRecharge).toHaveBeenCalledWith(rechargeData);
-      expect(result).toEqual({ success: true, saleId: 1 });
+      expect(result).toEqual({ success: true, id: 1 });
     });
 
     it("should process Alfa recharge", async () => {

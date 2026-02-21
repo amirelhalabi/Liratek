@@ -1,6 +1,6 @@
 import { ipcMain } from "electron";
 import { ReportService } from "../services/ReportService.js";
-import { dbLogger } from "../utils/logger.js";
+import { dbLogger } from "@liratek/core";
 /* eslint-disable @typescript-eslint/no-require-imports */
 
 export function registerReportHandlers(): void {

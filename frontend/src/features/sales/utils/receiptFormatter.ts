@@ -28,6 +28,8 @@ export interface ReceiptData {
   timestamp: string;
   operator?: string;
   note?: string;
+  /** Currency symbol for the primary currency (default: "$") */
+  currency_symbol?: string;
 }
 
 /**
@@ -35,6 +37,7 @@ export interface ReceiptData {
  */
 export function formatReceipt58mm(data: ReceiptData): string {
   const width = 40; // 58mm width in characters (approx 40 chars)
+  const sym = data.currency_symbol ?? "$";
 
   const padCenter = (text: string, char = " "): string => {
     const padding = Math.max(0, width - text.length);
@@ -82,8 +85,8 @@ export function formatReceipt58mm(data: ReceiptData): string {
   data.items.forEach((item) => {
     // Item name (wrap if too long)
     const itemName = item.name.substring(0, 20);
-    const priceStr = `$${item.price.toFixed(2)}`;
-    const subtotalStr = `$${item.subtotal.toFixed(2)}`;
+    const priceStr = `${sym}${item.price.toFixed(2)}`;
+    const subtotalStr = `${sym}${item.subtotal.toFixed(2)}`;
 
     receipt += padRight(itemName, 20);
     receipt += padRight(item.quantity.toString(), 6);
@@ -100,8 +103,8 @@ export function formatReceipt58mm(data: ReceiptData): string {
   receipt += "-".repeat(width) + "\n";
 
   // Totals (right-align amounts to width of 40)
-  const subtotalStr = `$${data.subtotal.toFixed(2)}`;
-  const totalStr = `$${data.total.toFixed(2)}`;
+  const subtotalStr = `${sym}${data.subtotal.toFixed(2)}`;
+  const totalStr = `${sym}${data.total.toFixed(2)}`;
   const lbpStr = `≈ ${(data.total * data.exchange_rate).toLocaleString()} LBP`;
 
   receipt +=
@@ -110,7 +113,7 @@ export function formatReceipt58mm(data: ReceiptData): string {
     subtotalStr +
     "\n";
   if (data.discount > 0) {
-    const discountStr = `-$${data.discount.toFixed(2)}`;
+    const discountStr = `-${sym}${data.discount.toFixed(2)}`;
     receipt +=
       "Discount:" +
       " ".repeat(width - 9 - discountStr.length) +
@@ -126,8 +129,8 @@ export function formatReceipt58mm(data: ReceiptData): string {
   receipt += "PAYMENT\n";
   receipt += "-".repeat(width) + "\n";
 
-  const paidUsdStr = `$${data.payment_usd.toFixed(2)}`;
-  const changeUsdStr = `$${data.change_usd.toFixed(2)}`;
+  const paidUsdStr = `${sym}${data.payment_usd.toFixed(2)}`;
+  const changeUsdStr = `${sym}${data.change_usd.toFixed(2)}`;
 
   receipt +=
     "Paid USD:" + " ".repeat(width - 9 - paidUsdStr.length) + paidUsdStr + "\n";
@@ -140,7 +143,7 @@ export function formatReceipt58mm(data: ReceiptData): string {
       paidLbpStr +
       "\n";
 
-    const rateUsdStr = `$${(data.payment_lbp / data.exchange_rate).toFixed(2)}`;
+    const rateUsdStr = `${sym}${(data.payment_lbp / data.exchange_rate).toFixed(2)}`;
     receipt +=
       "(@ Rate):" +
       " ".repeat(width - 9 - rateUsdStr.length) +
@@ -178,6 +181,7 @@ export function formatReceipt58mm(data: ReceiptData): string {
  */
 export function formatReceipt80mm(data: ReceiptData): string {
   const width = 56; // 80mm width in characters
+  const sym = data.currency_symbol ?? "$";
 
   const padCenter = (text: string): string => {
     const padding = Math.max(0, width - text.length);
@@ -227,7 +231,7 @@ export function formatReceipt80mm(data: ReceiptData): string {
     const itemName = item.name.substring(0, 28);
     receipt += padRight(itemName, 28);
     receipt += padRight(item.quantity.toString(), 8);
-    receipt += `$${item.subtotal.toFixed(2)}\n`;
+    receipt += `${sym}${item.subtotal.toFixed(2)}\n`;
     if (item.imei) {
       receipt += `  IMEI: ${item.imei}\n`;
     }
@@ -236,11 +240,12 @@ export function formatReceipt80mm(data: ReceiptData): string {
   receipt += "─".repeat(width) + "\n";
 
   // Totals
-  receipt += padRight("Subtotal:", 46) + `$${data.subtotal.toFixed(2)}\n`;
+  receipt += padRight("Subtotal:", 46) + `${sym}${data.subtotal.toFixed(2)}\n`;
   if (data.discount > 0) {
-    receipt += padRight("Discount:", 46) + `-$${data.discount.toFixed(2)}\n`;
+    receipt +=
+      padRight("Discount:", 46) + `-${sym}${data.discount.toFixed(2)}\n`;
   }
-  receipt += padRight("TOTAL DUE:", 46) + `$${data.total.toFixed(2)}\n`;
+  receipt += padRight("TOTAL DUE:", 46) + `${sym}${data.total.toFixed(2)}\n`;
   receipt +=
     padRight("(LBP Equivalent):", 46) +
     `${(data.total * data.exchange_rate).toLocaleString()}\n`;
@@ -250,15 +255,16 @@ export function formatReceipt80mm(data: ReceiptData): string {
   receipt += "PAYMENT METHOD\n";
   receipt += "─".repeat(width) + "\n";
   receipt +=
-    padRight("USD Received:", 46) + `$${data.payment_usd.toFixed(2)}\n`;
+    padRight("USD Received:", 46) + `${sym}${data.payment_usd.toFixed(2)}\n`;
   if (data.payment_lbp > 0) {
     receipt +=
       padRight("LBP Received:", 46) + `${data.payment_lbp.toLocaleString()}\n`;
     receipt +=
       padRight(`(@ ${data.exchange_rate}/USD)`, 46) +
-      `$${(data.payment_lbp / data.exchange_rate).toFixed(2)}\n`;
+      `${sym}${(data.payment_lbp / data.exchange_rate).toFixed(2)}\n`;
   }
-  receipt += padRight("Change - USD:", 46) + `$${data.change_usd.toFixed(2)}\n`;
+  receipt +=
+    padRight("Change - USD:", 46) + `${sym}${data.change_usd.toFixed(2)}\n`;
   if (data.change_lbp > 0) {
     receipt +=
       padRight("Change - LBP:", 46) + `${data.change_lbp.toLocaleString()}\n`;

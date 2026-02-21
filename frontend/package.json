@@ -14,12 +14,20 @@
     "test:e2e": "playwright test",
     "test:e2e:ci": "playwright test --workers=2",
     "test:e2e:ui": "playwright test --ui",
-    "test:e2e:local": "concurrently -k -s first -n backend,frontend \"yarn --cwd ../backend dev\" \"yarn dev --host 0.0.0.0 --port 5173\" --success first && wait-on http://localhost:3000/health http://localhost:5173 && playwright test"
+    "test:e2e:local": "concurrently -k -s first -n backend,frontend \"yarn --cwd ../backend dev\" \"yarn dev --host 0.0.0.0 --port 5173\" --success first && wait-on http://localhost:3000/health http://localhost:5173 && playwright test",
+    "env:setup": "[ -f .env ] || cp .env.dev .env",
+    "env:dev": "cp .env.dev .env",
+    "env:prod": "cp .env.prod .env"
   },
   "dependencies": {
     "@headlessui/react": "^2.2.9",
+    "@liratek/ui": "workspace:*",
+    "@tanstack/react-table": "^8.21.3",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
+    "file-saver": "^2.0.5",
+    "jspdf": "^4.2.0",
+    "jspdf-autotable": "^5.0.7",
     "lucide-react": "^0.561.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
@@ -29,6 +37,7 @@
     "recharts": "^3.6.0",
     "socket.io-client": "^4.8.3",
     "tailwind-merge": "^3.4.0",
+    "xlsx": "^0.18.5",
     "zod": "^3.23.8"
   },
   "devDependencies": {
@@ -38,6 +47,7 @@
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.1",
+    "@types/file-saver": "^2.0.7",
     "@types/jest": "^30.0.0",
     "@types/node": "^25.0.2",
     "@types/react": "^19.2.5",

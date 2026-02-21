@@ -38,6 +38,9 @@
     "typecheck:frontend": "cd frontend && npm run typecheck",
     "typecheck:backend": "cd backend && npm run typecheck",
     "typecheck:electron": "cd electron-app && npx tsc --noEmit",
+    "ci:build:win": "electron-builder --win",
+    "ci:build:mac:arm": "electron-builder --mac --arm64",
+    "ci:build:mac:intel": "electron-builder --mac --x64",
     "clean": "rimraf dist dist-electron coverage releases release frontend/dist frontend/coverage backend/dist backend/coverage electron-app/dist",
     "install:all": "npm install && cd frontend && npm install && cd ../backend && npm install && cd ../electron-app && npm install",
     "format": "prettier --write ."

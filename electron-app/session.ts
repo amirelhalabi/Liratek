@@ -2,6 +2,7 @@ import { safeStorage, app } from "electron";
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
+import { logger } from "@liratek/core";
 
 export type UserRole = "admin" | "staff";
 
@@ -49,11 +50,11 @@ export function storeEncryptedSession(userId: number): string | null {
 
     if (safeStorage.isEncryptionAvailable()) {
       dataToStore = safeStorage.encryptString(JSON.stringify(sessionData));
-      console.log("[SESSION] Encrypted session stored (safeStorage)");
+      logger.debug("Encrypted session stored (safeStorage)");
     } else {
       // Fallback for development: use base64 encoding
-      console.warn(
-        "[SESSION] safeStorage not available, using base64 fallback (NOT SECURE for production)",
+      logger.warn(
+        "safeStorage not available, using base64 fallback (NOT SECURE for production)",
       );
       dataToStore = Buffer.from(JSON.stringify(sessionData), "utf-8");
     }
@@ -65,7 +66,7 @@ export function storeEncryptedSession(userId: number): string | null {
 
     return token;
   } catch (error) {
-    console.error("[SESSION] Failed to store session:", error);
+    logger.error({ error }, "Failed to store session");
     return null;
   }
 }
@@ -86,13 +87,13 @@ export function storeSessionTokenToFile(token: string, userId: number): void {
 
     if (safeStorage.isEncryptionAvailable()) {
       dataToStore = safeStorage.encryptString(JSON.stringify(sessionData));
-      console.log(
-        "[SESSION] Database session token stored to encrypted file (safeStorage)",
+      logger.debug(
+        "Database session token stored to encrypted file (safeStorage)",
       );
     } else {
       // Fallback for development: use base64 encoding
-      console.warn(
-        "[SESSION] safeStorage not available, using base64 fallback (NOT SECURE for production)",
+      logger.warn(
+        "safeStorage not available, using base64 fallback (NOT SECURE for production)",
       );
       dataToStore = Buffer.from(JSON.stringify(sessionData), "utf-8");
     }
@@ -102,7 +103,7 @@ export function storeSessionTokenToFile(token: string, userId: number): void {
     // Update cache
     storedSessionCache = sessionData;
   } catch (error) {
-    console.error("[SESSION] Failed to store session token to file:", error);
+    logger.error({ error }, "Failed to store session token to file");
     throw error;
   }
 }
@@ -133,8 +134,8 @@ export function getEncryptedSession(): StoredSession | null {
         decrypted = safeStorage.decryptString(fileData);
       } catch (decryptError) {
         // Might be a base64-encoded session from fallback mode
-        console.warn(
-          "[SESSION] Failed to decrypt with safeStorage, trying base64 fallback",
+        logger.warn(
+          "Failed to decrypt with safeStorage, trying base64 fallback",
         );
         decrypted = fileData.toString("utf-8");
       }
@@ -148,17 +149,17 @@ export function getEncryptedSession(): StoredSession | null {
     // Check if session is expired ( days max)
     const MAX_SESSION_AGE = 1 * 24 * 60 * 60 * 1000;
     if (Date.now() - session.createdAt > MAX_SESSION_AGE) {
-      console.log("[SESSION] Stored session expired, clearing");
+      logger.info("Stored session expired, clearing");
       clearEncryptedSession();
       return null;
     }
 
     // Cache the session
     storedSessionCache = session;
-    console.log("[SESSION] Session restored from disk");
+    logger.debug("Session restored from disk");
     return session;
   } catch (error) {
-    console.error("[SESSION] Failed to read session:", error);
+    logger.error({ error }, "Failed to read session");
     clearEncryptedSession();
     return null;
   }
@@ -172,12 +173,12 @@ export function clearEncryptedSession(): void {
     const filePath = getSessionFilePath();
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
-      console.log("[SESSION] Encrypted session cleared");
+      logger.debug("Encrypted session cleared");
     }
     // Clear cache
     storedSessionCache = null;
   } catch (error) {
-    console.error("[SESSION] Failed to clear encrypted session:", error);
+    logger.error({ error }, "Failed to clear encrypted session");
   }
 }
 

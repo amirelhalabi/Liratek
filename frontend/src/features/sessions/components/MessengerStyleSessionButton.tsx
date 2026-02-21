@@ -56,6 +56,7 @@ export function MessengerStyleSessionButton() {
       {isExpanded && (
         <div
           className="fixed inset-0 bg-black/30 backdrop-blur-sm z-40 transition-opacity duration-200"
+          role="presentation"
           onClick={() => setIsExpanded(false)}
         />
       )}

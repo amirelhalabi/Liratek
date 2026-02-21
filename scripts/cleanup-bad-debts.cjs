@@ -61,7 +61,7 @@ try {
   const debts = db
     .prepare(
       `
-    SELECT id, client_id, transaction_type, amount_usd, amount_lbp, sale_id, note, created_at
+    SELECT id, client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_at
     FROM debt_ledger
     WHERE id IN (${badDebtIds.map(() => "?").join(",")})
   `,
@@ -98,13 +98,16 @@ try {
   debts.forEach((debt) => {
     const client = clients.find((c) => c.id === debt.client_id);
     console.log(
-      `  - ID: ${debt.id}, Client: ${client.full_name}, Type: ${debt.transaction_type}, Amount USD: ${debt.amount_usd}, Sale ID: ${debt.sale_id}`,
+      `  - ID: ${debt.id}, Client: ${client.full_name}, Type: ${debt.transaction_type}, Amount USD: ${debt.amount_usd}, Transaction ID: ${debt.transaction_id}`,
     );
   });
   console.log("");
 
   // Find related sales
-  const saleIds = debts.map((d) => d.sale_id).filter((id) => id !== null);
+  const saleIds = debts
+    .filter((d) => d.transaction_type === "Sale Debt")
+    .map((d) => d.transaction_id)
+    .filter((id) => id !== null);
   let sales = [];
 
   if (saleIds.length > 0) {

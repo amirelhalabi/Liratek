@@ -10,6 +10,7 @@ import {
   type VirtualStock,
   type RechargeData,
 } from "../repositories/index.js";
+import { rechargeLogger } from "../utils/logger.js";
 
 // =============================================================================
 // Types
@@ -17,7 +18,7 @@ import {
 
 export interface RechargeResult {
   success: boolean;
-  saleId?: number;
+  id?: number;
   error?: string;
 }
 
@@ -39,7 +40,7 @@ export class RechargeService {
     try {
       return this.rechargeRepo.getVirtualStock();
     } catch (error) {
-      console.error("Failed to get recharge stock:", error);
+      rechargeLogger.error({ error }, "Failed to get recharge stock");
       return { mtc: 0, alfa: 0 };
     }
   }
@@ -49,6 +50,17 @@ export class RechargeService {
    */
   processRecharge(data: RechargeData): RechargeResult {
     return this.rechargeRepo.processRecharge(data);
+  }
+
+  /**
+   * Top up the MTC or Alfa drawer balance
+   */
+  topUp(data: {
+    provider: "MTC" | "Alfa";
+    amount: number;
+    currency?: string;
+  }): { success: boolean; error?: string } {
+    return this.rechargeRepo.topUp(data);
   }
 }
 

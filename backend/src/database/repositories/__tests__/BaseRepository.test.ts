@@ -1,5 +1,5 @@
 import { jest } from "@jest/globals";
-import { BaseRepository } from "../BaseRepository";
+import { BaseRepository } from "@liratek/core";
 import { resetAllMocks } from "../../../__mocks__/better-sqlite3";
 
 jest.mock("better-sqlite3");
@@ -12,6 +12,11 @@ type TestEntity = { id: number; name: string; created_at?: string };
 class TestRepo extends BaseRepository<TestEntity> {
   constructor() {
     super("test_table");
+  }
+
+  // Override getColumns() - required since BaseRepository now enforces this
+  protected getColumns(): string {
+    return "id, name, created_at";
   }
 }
 
@@ -42,7 +47,7 @@ describe("BaseRepository", () => {
 
     expect(res).toEqual({ id: 1, name: "A" });
     expect(testDb.prepare).toHaveBeenCalledWith(
-      "SELECT * FROM test_table WHERE id = ?",
+      "SELECT id, name, created_at FROM test_table WHERE id = ?",
     );
   });
 
@@ -66,7 +71,7 @@ describe("BaseRepository", () => {
 
     expect(res).toEqual([{ id: 1, name: "A" }]);
     expect(testDb.prepare).toHaveBeenCalledWith(
-      "SELECT * FROM test_table ORDER BY id DESC LIMIT ? OFFSET ?",
+      "SELECT id, name, created_at FROM test_table ORDER BY id DESC LIMIT ? OFFSET ?",
     );
   });
 

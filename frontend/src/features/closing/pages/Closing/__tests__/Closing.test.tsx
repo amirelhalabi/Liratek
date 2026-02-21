@@ -31,13 +31,30 @@ jest.mock("../../../hooks/useSystemExpected", () => ({
   useSystemExpected: () => mockUseSystemExpected(),
 }));
 
+const mockCreateDailyClosing = jest.fn();
+const mockGetAllSettings = jest.fn();
+const mockUpdateSetting = jest.fn();
+const mockGetAllDrawerCurrencies = jest.fn().mockResolvedValue({});
+const mockGetDailyStatsSnapshot = jest.fn().mockResolvedValue({});
+const mockGeneratePDF = jest.fn().mockResolvedValue({ success: true });
+const mockUpdateDailyClosing = jest.fn().mockResolvedValue({ success: true });
+
 const emitSpy = jest.fn();
-jest.mock("../../../../../shared/utils/appEvents", () => ({
+jest.mock("@liratek/ui", () => ({
   appEvents: {
     emit: (...args: any[]) => emitSpy(...args),
     on: jest.fn(() => () => {}),
     off: jest.fn(),
   },
+  useApi: () => ({
+    createDailyClosing: mockCreateDailyClosing,
+    getAllSettings: mockGetAllSettings,
+    updateSetting: mockUpdateSetting,
+    getAllDrawerCurrencies: mockGetAllDrawerCurrencies,
+    getDailyStatsSnapshot: mockGetDailyStatsSnapshot,
+    generatePDF: mockGeneratePDF,
+    updateDailyClosing: mockUpdateDailyClosing,
+  }),
 }));
 
 function setupDrawerAmounts(overrides: Partial<any> = {}) {
@@ -64,19 +81,9 @@ describe("Closing modal", () => {
   beforeEach(() => {
     jest.clearAllMocks();
 
-    (window as any).api = {
-      closing: {
-        createDailyClosing: jest.fn(),
-      },
-      settings: {
-        getAll: jest
-          .fn()
-          .mockResolvedValue([
-            { key_name: "closing_variance_threshold_pct", value: "5" },
-          ]),
-        update: jest.fn(),
-      },
-    };
+    mockGetAllSettings.mockResolvedValue([
+      { key_name: "closing_variance_threshold_pct", value: "5" },
+    ]);
 
     mockGetDisplayValue.mockReturnValue("");
     mockValidate.mockReturnValue({ isValid: true, errors: [] });
@@ -96,10 +103,6 @@ describe("Closing modal", () => {
       fetchSystemExpected: mockFetchSystemExpected,
       getExpectedAmount: mockGetExpectedAmount,
     });
-  });
-
-  afterEach(() => {
-    delete (window as any).api;
   });
 
   it("renders nothing when closed", () => {
@@ -146,10 +149,10 @@ describe("Closing modal", () => {
     });
     mockUseSystemExpected.mockReturnValue({
       systemExpected: {
-        generalDrawer: { usd: 5 },
-        omtDrawer: { usd: 0 },
-        mtcDrawer: { usd: 0 },
-        alfaDrawer: { usd: 0 },
+        General: { USD: 5 },
+        OMT: { USD: 0 },
+        MTC: { USD: 0 },
+        Alfa: { USD: 0 },
       },
       loading: false,
       error: null,
@@ -182,10 +185,10 @@ describe("Closing modal", () => {
 
     mockUseSystemExpected.mockReturnValue({
       systemExpected: {
-        generalDrawer: { usd: 100, lbp: 0, eur: 0 },
-        omtDrawer: { usd: 0, lbp: 0, eur: 0 },
-        mtcDrawer: { usd: 0, lbp: 0, eur: 0 },
-        alfaDrawer: { usd: 0, lbp: 0, eur: 0 },
+        General: { USD: 100, LBP: 0, EUR: 0 },
+        OMT: { USD: 0, LBP: 0, EUR: 0 },
+        MTC: { USD: 0, LBP: 0, EUR: 0 },
+        Alfa: { USD: 0, LBP: 0, EUR: 0 },
       },
       loading: false,
       error: null,
@@ -225,6 +228,9 @@ describe("Closing modal", () => {
         omtDrawer: { usd: 0 },
         mtcDrawer: { usd: 0 },
         alfaDrawer: { usd: 0 },
+        ipecDrawer: { usd: 0 },
+        katchDrawer: { usd: 0 },
+        wishAppDrawer: { usd: 0 },
       },
       loading: false,
       error: null,
@@ -232,7 +238,7 @@ describe("Closing modal", () => {
       getExpectedAmount: (_drawer: string, _code: string) => 0,
     });
 
-    (window as any).api.closing.createDailyClosing.mockResolvedValue({
+    mockCreateDailyClosing.mockResolvedValue({
       success: true,
     });
 
@@ -259,7 +265,7 @@ describe("Closing modal", () => {
     fireEvent.click(screen.getByText("Save & Close Day"));
 
     await waitFor(() => {
-      expect((window as any).api.closing.createDailyClosing).toHaveBeenCalled();
+      expect(mockCreateDailyClosing).toHaveBeenCalled();
     });
 
     expect(window.alert).toHaveBeenCalled();

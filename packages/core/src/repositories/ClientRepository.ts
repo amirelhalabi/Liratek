@@ -13,6 +13,8 @@ import {
   type PaginatedResult,
 } from "./BaseRepository.js";
 import { DatabaseError, BusinessRuleError } from "../utils/errors.js";
+import { getTransactionRepository } from "./TransactionRepository.js";
+import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 
 // =============================================================================
 // Types
@@ -51,6 +53,11 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
     super("clients", { softDelete: false });
   }
 
+  // Override getColumns() to use explicit columns instead of SELECT *
+  protected getColumns(): string {
+    return "id, full_name, phone_number, notes, whatsapp_opt_in, created_at";
+  }
+
   // ---------------------------------------------------------------------------
   // Client-Specific Queries
   // ---------------------------------------------------------------------------
@@ -60,7 +67,7 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
    */
   findAllClients(search?: string): ClientEntity[] {
     try {
-      let query = `SELECT * FROM ${this.tableName} WHERE 1=1`;
+      let query = `SELECT ${this.getColumns()} FROM ${this.tableName} WHERE 1=1`;
       const params: string[] = [];
 
       if (search) {
@@ -103,7 +110,7 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
    */
   findByPhone(phoneNumber: string): ClientEntity | null {
     try {
-      const query = `SELECT * FROM ${this.tableName} WHERE phone_number = ?`;
+      const query = `SELECT ${this.getColumns()} FROM ${this.tableName} WHERE phone_number = ?`;
       return this.queryOne<ClientEntity>(query, phoneNumber);
     } catch (error) {
       throw new DatabaseError("Failed to find client by phone", {
@@ -147,7 +154,25 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
         data.whatsapp_opt_in ? 1 : 0,
       );
 
-      return { id: result.lastInsertRowid as number };
+      const clientId = result.lastInsertRowid as number;
+
+      // Create unified transaction row
+      getTransactionRepository().createTransaction({
+        type: TRANSACTION_TYPES.CLIENT_CREATED,
+        source_table: "clients",
+        source_id: clientId,
+        user_id: 1,
+        amount_usd: 0,
+        amount_lbp: 0,
+        client_id: clientId,
+        summary: `Client created: ${data.full_name}`,
+        metadata_json: {
+          fullName: data.full_name,
+          phoneNumber: data.phone_number,
+        },
+      });
+
+      return { id: clientId };
     } catch (error) {
       const code = (error as { code?: string })?.code;
       if (code === "SQLITE_CONSTRAINT_UNIQUE") {
@@ -237,6 +262,24 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
         id,
       );
 
+      if (result.changes > 0) {
+        // Create unified transaction row
+        getTransactionRepository().createTransaction({
+          type: TRANSACTION_TYPES.CLIENT_UPDATED,
+          source_table: "clients",
+          source_id: id,
+          user_id: 1,
+          amount_usd: 0,
+          amount_lbp: 0,
+          client_id: id,
+          summary: `Client updated: ${data.full_name}`,
+          metadata_json: {
+            fullName: data.full_name,
+            phoneNumber: data.phone_number,
+          },
+        });
+      }
+
       return result.changes > 0;
     } catch (error) {
       const code = (error as { code?: string })?.code;
@@ -281,7 +324,30 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
       );
     }
 
-    return this.delete(id);
+    // Get client info for logging before deletion
+    const client = this.findById(id);
+
+    const deleted = this.delete(id);
+
+    if (deleted && client) {
+      // Create unified transaction row
+      getTransactionRepository().createTransaction({
+        type: TRANSACTION_TYPES.CLIENT_DELETED,
+        source_table: "clients",
+        source_id: id,
+        user_id: 1,
+        amount_usd: 0,
+        amount_lbp: 0,
+        client_id: id,
+        summary: `Client deleted: ${client.full_name}`,
+        metadata_json: {
+          fullName: client.full_name,
+          phoneNumber: client.phone_number,
+        },
+      });
+    }
+
+    return deleted;
   }
 
   /**
@@ -293,7 +359,7 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
       const searchTerm = `%${term}%`;
 
       const query = `
-        SELECT * FROM ${this.tableName} 
+        SELECT ${this.getColumns()} FROM ${this.tableName} 
         WHERE full_name LIKE ? OR phone_number LIKE ?
         ORDER BY full_name ASC 
         LIMIT ?
@@ -349,7 +415,7 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
   findWhatsAppOptedIn(): ClientEntity[] {
     try {
       return this.query<ClientEntity>(
-        `SELECT * FROM ${this.tableName} WHERE whatsapp_opt_in = 1 ORDER BY full_name ASC`,
+        `SELECT ${this.getColumns()} FROM ${this.tableName} WHERE whatsapp_opt_in = 1 ORDER BY full_name ASC`,
       );
     } catch (error) {
       throw new DatabaseError("Failed to find WhatsApp opted-in clients", {

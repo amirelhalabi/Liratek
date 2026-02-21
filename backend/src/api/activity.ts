@@ -6,7 +6,7 @@
 
 import { Router } from "express";
 import { requireAuth } from "../middleware/auth.js";
-import { getActivityService } from "../services/index.js";
+import { getActivityService } from "@liratek/core";
 import { logger } from "../server.js";
 
 const router = Router();

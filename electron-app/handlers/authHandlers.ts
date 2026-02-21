@@ -11,10 +11,14 @@
 
 import { ipcMain } from "electron";
 import { getDatabase } from "../db.js";
-import { getAuthService } from "../services/AuthService.js";
-import { hashPassword } from "../utils/crypto.js";
-import { isAppError } from "../utils/errors.js";
-import { authLogger } from "../utils/logger.js";
+import {
+  getAuthService,
+  hashPassword,
+  isAppError,
+  authLogger,
+  getTransactionRepository,
+  TRANSACTION_TYPES,
+} from "@liratek/core";
 import {
   setSession,
   clearSession,
@@ -553,18 +557,19 @@ export function registerAuthHandlers(): void {
  * Log user activity
  */
 function logActivity(
-  db: ReturnType<typeof getDatabase>,
+  _db: ReturnType<typeof getDatabase>,
   userId: number,
   action: string,
 ): void {
   try {
-    db.prepare(
-      `INSERT INTO activity_logs (user_id, action, details_json) VALUES (?, ?, ?)`,
-    ).run(
-      userId,
-      action,
-      JSON.stringify({ timestamp: new Date().toISOString() }),
-    );
+    getTransactionRepository().createTransaction({
+      type: action as (typeof TRANSACTION_TYPES)[keyof typeof TRANSACTION_TYPES],
+      source_table: "users",
+      source_id: userId,
+      user_id: userId,
+      summary: `User ${action}`,
+      metadata_json: { timestamp: new Date().toISOString() },
+    });
   } catch (e) {
     authLogger.warn(
       { error: e instanceof Error ? e.message : String(e), action, userId },

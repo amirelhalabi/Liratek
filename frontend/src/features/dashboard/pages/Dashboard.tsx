@@ -1,29 +1,41 @@
-import { useState, useEffect, useCallback } from "react";
-import { appEvents } from "../../../shared/utils/appEvents";
+import { useState, useEffect, useCallback, lazy, Suspense } from "react";
+import { appEvents, PageHeader, useApi } from "@liratek/ui";
 import {
   DollarSign,
   Users,
   Clock,
-  Inbox,
   BarChart2,
   Package,
+  Wallet,
+  TrendingUp,
 } from "lucide-react";
-import PageHeader from "../../../shared/components/layouts/PageHeader";
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-} from "recharts";
+import { useCurrencyContext } from "../../../contexts/CurrencyContext";
+
+const DashboardChart = lazy(() => import("../components/DashboardChart"));
+
 type ChartType = "Sales" | "Profit";
 
+/** Format drawer_name from DB into a display label */
+function formatDrawerLabel(name: string): string {
+  return name
+    .replace(/_/g, " ")
+    .replace(/Drawer B$/i, "Drawer")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+const DRAWER_COLORS = [
+  { color: "text-sky-400", bg: "bg-sky-400/10" },
+  { color: "text-rose-400", bg: "bg-rose-400/10" },
+  { color: "text-purple-400", bg: "bg-purple-400/10" },
+  { color: "text-pink-400", bg: "bg-pink-400/10" },
+  { color: "text-teal-400", bg: "bg-teal-400/10" },
+  { color: "text-amber-400", bg: "bg-amber-400/10" },
+];
+
 export default function Dashboard() {
+  const api = useApi();
+  const { formatAmount, getSymbol } = useCurrencyContext();
+
   const [stats, setStats] = useState({
     totalSalesUSD: 0,
     totalSalesLBP: 0,
@@ -33,14 +45,17 @@ export default function Dashboard() {
     activeClients: 0,
     stockBudgetUSD: 0,
     stockCount: 0,
-    mtcCredits: 0,
-    alfaCredits: 0,
-    monthlyNetProfit: 0,
+    monthlyNetProfitUSD: 0,
+    monthlyNetProfitLBP: 0,
   });
-  const [drawerBalances, setDrawerBalances] = useState({
-    generalDrawer: { usd: 0, lbp: 0 },
-    omtDrawer: { usd: 0, lbp: 0 },
-  });
+  /** Dynamic drawer balances: drawer_name → currency_code → amount */
+  const [drawerBalances, setDrawerBalances] = useState<
+    Record<string, Record<string, number>>
+  >({});
+  /** Configured currencies per drawer: drawer_name → currency_code[] */
+  const [drawerCurrencyConfig, setDrawerCurrencyConfig] = useState<
+    Record<string, string[]>
+  >({});
   type ChartPoint = {
     date: string;
     usd?: number;
@@ -56,12 +71,21 @@ export default function Dashboard() {
   };
   type DebtSummary = {
     totalDebt: number;
-    topDebtors: { full_name: string; total_debt: number }[];
+    totalDebtUsd: number;
+    totalDebtLbp: number;
+    topDebtors: {
+      full_name: string;
+      total_debt: number;
+      total_debt_usd: number;
+      total_debt_lbp: number;
+    }[];
   };
   const [chartData, setChartData] = useState<ChartPoint[]>([]);
   const [todaysSales, setTodaysSales] = useState<TodaySale[]>([]);
   const [debtSummary, setDebtSummary] = useState<DebtSummary>({
     totalDebt: 0,
+    totalDebtUsd: 0,
+    totalDebtLbp: 0,
     topDebtors: [],
   });
   const [chartType, setChartType] = useState<ChartType>("Sales");
@@ -79,40 +103,38 @@ export default function Dashboard() {
         drawerData,
         debtData,
         stockStats,
-        rechargeStock,
         monthlyPL,
+        drawerCurrConfig,
       ] = window.api
         ? await Promise.all([
-            window.api.getDashboardStats(),
-            window.api.getProfitSalesChart(chartType),
-            window.api.getTodaysSales(),
-            window.api.getDrawerBalances(),
-            window.api.getDebtSummary(),
-            window.api.getInventoryStockStats(),
-            window.api.getRechargeStock(),
-            window.api.getMonthlyPL(new Date().toISOString().slice(0, 7)),
+            window.api.dashboard.getStats(),
+            window.api.dashboard.getProfitSalesChart(chartType),
+            window.api.sales.getTodaysSales(),
+            window.api.closing.getSystemExpectedBalancesDynamic(),
+            window.api.debt.getSummary(),
+            window.api.inventory.getStockStats(),
+            window.api.financial.getMonthlyPL(
+              new Date().toISOString().slice(0, 7),
+            ),
+            window.api.currencies.allDrawerCurrencies(),
           ])
-        : await (async () => {
-            const api = await import("../../../api/backendApi");
-            return Promise.all([
-              api.getDashboardStats(),
-              api.getProfitSalesChart(chartType),
-              api.getTodaysSales(),
-              api.getDrawerBalances(),
-              api.getDebtSummary(),
-              api.getInventoryStockStats(),
-              api.getRechargeStock(),
-              api.getMonthlyPL(new Date().toISOString().slice(0, 7)),
-            ]);
-          })();
+        : await Promise.all([
+            api.getDashboardStats(),
+            api.getProfitSalesChart(chartType),
+            api.getTodaysSales(),
+            api.getSystemExpectedBalancesDynamic(),
+            api.getDebtSummary(),
+            api.getInventoryStockStats(),
+            api.getMonthlyPL(new Date().toISOString().slice(0, 7)),
+            api.getAllDrawerCurrencies(),
+          ]);
 
       setStats({
         ...statsData,
         stockBudgetUSD: stockStats?.stock_budget_usd || 0,
         stockCount: stockStats?.stock_count || 0,
-        mtcCredits: rechargeStock?.mtc || 0,
-        alfaCredits: rechargeStock?.alfa || 0,
-        monthlyNetProfit: monthlyPL?.netProfitUSD || 0,
+        monthlyNetProfitUSD: monthlyPL?.netProfitUSD || 0,
+        monthlyNetProfitLBP: monthlyPL?.netProfitLBP || 0,
       });
       const formattedChartData = profitChartData.map((d: any) => ({
         ...d,
@@ -125,6 +147,9 @@ export default function Dashboard() {
       setTodaysSales(salesTodayData);
       if (drawerData) {
         setDrawerBalances(drawerData);
+      }
+      if (drawerCurrConfig) {
+        setDrawerCurrencyConfig(drawerCurrConfig);
       }
       if (debtData) {
         setDebtSummary(debtData);
@@ -146,9 +171,9 @@ export default function Dashboard() {
         setMaxLbpSales(Math.ceil(currentMaxLbp / 1_000_000) * 1_000_000);
       }
     } catch (_error) {
-      // console.error('Failed to load dashboard data:', error);
+      // logger.error('Failed to load dashboard data:', error);
     }
-  }, [chartType]);
+  }, [api, chartType]);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -158,7 +183,7 @@ export default function Dashboard() {
 
     // Subscribe to refresh events
     const unsubscribe = appEvents.on("sale:completed", () => {
-      console.log("[DASHBOARD] Sale completed, refreshing stats...");
+      // Sale completed, refresh dashboard stats
       loadData();
     });
 
@@ -196,52 +221,39 @@ export default function Dashboard() {
     },
     {
       label: "Total Debt",
-      singleValue: `$${debtSummary.totalDebt.toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
+      usdValue: debtSummary.totalDebtUsd,
+      lbpValue: debtSummary.totalDebtLbp,
       icon: Users,
       color: "text-red-400",
       bg: "bg-red-400/10",
     },
   ];
 
-  // Drawer Balances (Row 2)
-  const drawerCards = [
-    {
-      label: "General Drawer",
-      usdValue: drawerBalances.generalDrawer.usd,
-      lbpValue: drawerBalances.generalDrawer.lbp,
-      icon: Inbox,
-      color: "text-sky-400",
-      bg: "bg-sky-400/10",
-    },
-    {
-      label: "OMT Drawer",
-      usdValue: drawerBalances.omtDrawer.usd,
-      lbpValue: drawerBalances.omtDrawer.lbp,
-      icon: Inbox,
-      color: "text-rose-400",
-      bg: "bg-rose-400/10",
-    },
-    {
-      label: "MTC Credits",
-      singleValue: `$${stats.mtcCredits?.toLocaleString(undefined, { maximumFractionDigits: 0 }) || "0"}`,
-      icon: Inbox,
-      color: "text-purple-400",
-      bg: "bg-purple-400/10",
-    },
-    {
-      label: "Alfa Credits",
-      singleValue: `$${stats.alfaCredits?.toLocaleString(undefined, { maximumFractionDigits: 0 }) || "0"}`,
-      icon: Inbox,
-      color: "text-pink-400",
-      bg: "bg-pink-400/10",
-    },
-  ];
+  // Drawer Balances (Row 2) — dynamic from drawer_balances table
+  // Filter each drawer's currencies to only show those configured in currency_drawers
+  const drawerEntries = Object.entries(drawerBalances);
+  const drawerCards = drawerEntries.map(([name, currencies], i) => {
+    const allowedCodes = drawerCurrencyConfig[name];
+    const filteredCurrencies = allowedCodes
+      ? Object.fromEntries(
+          Object.entries(currencies).filter(([code]) =>
+            allowedCodes.includes(code),
+          ),
+        )
+      : currencies; // no config yet → show all (graceful fallback)
+    return {
+      label: formatDrawerLabel(name),
+      currencies: filteredCurrencies,
+      icon: Wallet,
+      ...DRAWER_COLORS[i % DRAWER_COLORS.length],
+    };
+  });
 
-  // Stock Overview
-  const stockCards = [
+  // Credits & Stock (Row 3)
+  const creditsAndStockCards = [
     {
       label: "Stock Budget",
-      singleValue: `$${stats.stockBudgetUSD.toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
+      singleValue: formatAmount(stats.stockBudgetUSD, "USD"),
       icon: BarChart2,
       color: "text-amber-400",
       bg: "bg-amber-400/10",
@@ -252,6 +264,14 @@ export default function Dashboard() {
       icon: Package,
       color: "text-teal-400",
       bg: "bg-teal-400/10",
+    },
+    {
+      label: "Monthly Net Profit",
+      usdValue: stats.monthlyNetProfitUSD,
+      lbpValue: stats.monthlyNetProfitLBP,
+      icon: TrendingUp,
+      color: "text-emerald-400",
+      bg: "bg-emerald-400/10",
     },
   ];
 
@@ -286,15 +306,12 @@ export default function Dashboard() {
                 <div className="flex items-center gap-2">
                   <div className="flex-1">
                     <p className="text-base font-bold text-emerald-400">
-                      $
-                      {stat.usdValue.toLocaleString(undefined, {
-                        maximumFractionDigits: 0,
-                      })}
+                      {formatAmount(stat.usdValue, "USD")}
                     </p>
                   </div>
                   <div className="flex-1">
                     <p className="text-base font-bold text-violet-400 text-right">
-                      {stat.lbpValue.toLocaleString()} LBP
+                      {formatAmount(stat.lbpValue, "LBP")}
                     </p>
                   </div>
                 </div>
@@ -303,47 +320,72 @@ export default function Dashboard() {
           ))}
         </div>
 
-        {/* Drawer Balances */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {drawerCards.map((stat) => (
-            <div
-              key={stat.label}
-              className="bg-slate-800 p-4 rounded-xl border border-slate-700/50 shadow-lg hover:border-slate-600 transition-colors"
-            >
-              <div className="flex items-center justify-between mb-2">
-                <div className={`p-2 rounded-lg ${stat.bg}`}>
-                  <stat.icon className={`w-4 h-4 ${stat.color}`} />
+        {/* Drawer Balances — separate section */}
+        {drawerCards.length > 0 && (
+          <div>
+            <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+              <Wallet className="text-sky-400" />
+              Drawer Balances
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {drawerCards.map((stat) => (
+                <div
+                  key={stat.label}
+                  className="bg-slate-800 p-4 rounded-xl border border-slate-700/50 shadow-lg hover:border-slate-600 transition-colors"
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <div className={`p-2 rounded-lg ${stat.bg}`}>
+                      <stat.icon className={`w-4 h-4 ${stat.color}`} />
+                    </div>
+                  </div>
+                  <h3 className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">
+                    {stat.label}
+                  </h3>
+                  <div className="space-y-1">
+                    {Object.entries(stat.currencies).map(([code, amount]) => (
+                      <p
+                        key={code}
+                        className="text-base font-bold text-emerald-400"
+                      >
+                        {formatAmount(amount, code)}
+                      </p>
+                    ))}
+                    {Object.keys(stat.currencies).length === 0 && (
+                      <p className="text-sm text-slate-500">No balance</p>
+                    )}
+                  </div>
                 </div>
-              </div>
-              <h3 className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">
-                {stat.label}
-              </h3>
+              ))}
+            </div>
+          </div>
+        )}
 
-              {stat.singleValue && (
+        {/* Credits, Stock & Profit */}
+        <div>
+          <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+            <Package className="text-amber-400" />
+            Credits & Stock
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {creditsAndStockCards.map((stat) => (
+              <div
+                key={stat.label}
+                className="bg-slate-800 p-4 rounded-xl border border-slate-700/50 shadow-lg hover:border-slate-600 transition-colors"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className={`p-2 rounded-lg ${stat.bg}`}>
+                    <stat.icon className={`w-4 h-4 ${stat.color}`} />
+                  </div>
+                </div>
+                <h3 className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">
+                  {stat.label}
+                </h3>
                 <p className="text-xl font-bold text-white">
                   {stat.singleValue}
                 </p>
-              )}
-
-              {stat.usdValue !== undefined && stat.lbpValue !== undefined && (
-                <div className="flex items-center gap-2">
-                  <div className="flex-1">
-                    <p className="text-base font-bold text-emerald-400">
-                      $
-                      {stat.usdValue.toLocaleString(undefined, {
-                        maximumFractionDigits: 0,
-                      })}
-                    </p>
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-base font-bold text-violet-400 text-right">
-                      {stat.lbpValue.toLocaleString()} LBP
-                    </p>
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
+              </div>
+            ))}
+          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -363,109 +405,20 @@ export default function Dashboard() {
               </select>
             </div>
             <div className="flex-1 h-80 w-full min-h-0">
-              <ResponsiveContainer width="100%" height={320}>
-                <LineChart
-                  data={chartData}
-                  margin={{ top: 5, right: 20, left: 20, bottom: 5 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.1} />
-                  <XAxis
-                    dataKey="date"
-                    tick={{ fill: "#94a3b8" }}
-                    fontSize={12}
-                  />
-                  {chartType === "Sales" ? (
-                    <>
-                      <YAxis
-                        yAxisId="left"
-                        orientation="left"
-                        stroke="#34d399"
-                        tick={{ fill: "#34d399" }}
-                        fontSize={12}
-                        tickFormatter={(value) =>
-                          `${(value / 1000).toFixed(0)}k`
-                        }
-                        domain={[0, maxUsdSales > 0 ? maxUsdSales : "auto"]} // Dynamic domain for USD
-                      />
-                      <YAxis
-                        yAxisId="right"
-                        orientation="right"
-                        stroke="#8b5cf6"
-                        tick={{ fill: "#8b5cf6" }}
-                        fontSize={12}
-                        tickFormatter={(value) =>
-                          `${(value / 1_000_000).toFixed(1)}M`
-                        } // Show in millions of LBP
-                        domain={[0, maxLbpSales > 0 ? maxLbpSales : "auto"]} // Dynamic domain for LBP
-                      />
-                    </>
-                  ) : (
-                    <YAxis
-                      tick={{ fill: "#94a3b8" }}
-                      fontSize={12}
-                      tickFormatter={(value) => `$${value}`}
-                    />
-                  )}
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "rgba(30, 41, 59, 0.9)",
-                      borderColor: "#475569",
-                      color: "#cbd5e1",
-                    }}
-                    labelStyle={{ fontWeight: "bold" }}
-                    formatter={(
-                      value: number | string | undefined,
-                      name?: string,
-                    ) => {
-                      const valNum =
-                        typeof value === "number" ? value : Number(value ?? 0);
-                      const label = name ?? "";
-                      if (label === "LBP Sales") {
-                        return [`${valNum.toLocaleString()} LBP`, label];
-                      }
-                      if (label === "Profit") {
-                        return [
-                          `$${valNum.toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
-                          label,
-                        ];
-                      }
-                      return [
-                        `${valNum.toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
-                        label,
-                      ];
-                    }}
-                  />
-                  <Legend />
-                  {chartType === "Sales" ? (
-                    <>
-                      <Line
-                        yAxisId="left"
-                        type="monotone"
-                        dataKey="usd"
-                        name="USD Sales"
-                        stroke="#34d399"
-                        strokeWidth={2}
-                      />
-                      <Line
-                        yAxisId="right"
-                        type="monotone"
-                        dataKey="lbp"
-                        name="LBP Sales"
-                        stroke="#8b5cf6"
-                        strokeWidth={2}
-                      />
-                    </>
-                  ) : (
-                    <Line
-                      type="monotone"
-                      dataKey="profit"
-                      name="Profit"
-                      stroke="#34d399"
-                      strokeWidth={2}
-                    />
-                  )}
-                </LineChart>
-              </ResponsiveContainer>
+              <Suspense
+                fallback={
+                  <div className="h-80 animate-pulse bg-slate-700/30 rounded-xl" />
+                }
+              >
+                <DashboardChart
+                  chartData={chartData}
+                  chartType={chartType}
+                  maxUsdSales={maxUsdSales}
+                  maxLbpSales={maxLbpSales}
+                  getSymbol={getSymbol}
+                  formatAmount={formatAmount}
+                />
+              </Suspense>
             </div>
           </div>
 
@@ -475,47 +428,33 @@ export default function Dashboard() {
                 <BarChart2 size={16} className="text-red-400" />
                 Top Debtors
               </h3>
-              <div className="flex-1">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={debtSummary.topDebtors}
-                    layout="vertical"
-                    margin={{ top: 0, right: 30, left: 0, bottom: 0 }}
-                  >
-                    <XAxis type="number" hide />
-                    <YAxis
-                      dataKey="full_name"
-                      type="category"
-                      axisLine={false}
-                      tickLine={false}
-                      tick={{ fill: "#a1a1aa", fontSize: 12 }}
-                      width={80}
-                      style={{
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    />
-                    <Tooltip
-                      cursor={{ fill: "rgba(156, 163, 175, 0.1)" }}
-                      formatter={(value) =>
-                        typeof value === "number"
-                          ? `${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
-                          : value
-                      }
-                      contentStyle={{
-                        backgroundColor: "rgba(30, 41, 59, 0.9)",
-                        borderColor: "#475569",
-                      }}
-                    />
-                    <Bar
-                      dataKey="total_debt"
-                      name="Debt"
-                      fill="#ef4444"
-                      barSize={10}
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
+              <div className="flex-1 min-h-[150px] overflow-y-auto space-y-2">
+                {debtSummary.topDebtors.length > 0 ? (
+                  debtSummary.topDebtors.map((debtor) => (
+                    <div
+                      key={debtor.full_name}
+                      className="flex items-center justify-between p-2.5 bg-slate-700/20 rounded-lg"
+                    >
+                      <span className="text-sm text-slate-300 truncate mr-3">
+                        {debtor.full_name}
+                      </span>
+                      <div className="text-right shrink-0">
+                        <span className="text-sm font-bold text-red-400">
+                          {formatAmount(debtor.total_debt_usd, "USD")}
+                        </span>
+                        {debtor.total_debt_lbp !== 0 && (
+                          <span className="text-xs text-red-400/70 ml-2">
+                            {formatAmount(debtor.total_debt_lbp, "LBP")}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="flex items-center justify-center h-full text-slate-500 text-sm">
+                    No debtors
+                  </div>
+                )}
               </div>
             </div>
 
@@ -545,12 +484,12 @@ export default function Dashboard() {
                       <div className="text-right">
                         {sale.paid_usd > 0 && (
                           <p className="text-emerald-400 font-bold text-sm">
-                            +${sale.paid_usd.toFixed(2)}
+                            +{formatAmount(sale.paid_usd, "USD")}
                           </p>
                         )}
                         {sale.paid_lbp > 0 && (
                           <p className="text-sky-400 font-semibold text-xs">
-                            +{sale.paid_lbp.toLocaleString()} LBP
+                            +{formatAmount(sale.paid_lbp, "LBP")}
                           </p>
                         )}
                       </div>
@@ -563,36 +502,6 @@ export default function Dashboard() {
                 )}
               </div>
             </div>
-          </div>
-        </div>
-
-        {/* Stock Overview */}
-        <div>
-          <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-            <Package className="text-amber-400" />
-            Stock Overview
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {stockCards.map((stat) => (
-              <div
-                key={stat.label}
-                className="bg-slate-800 p-4 rounded-xl border border-slate-700/50 shadow-lg hover:border-slate-600 transition-colors"
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <div className={`p-2 rounded-lg ${stat.bg}`}>
-                    <stat.icon className={`w-4 h-4 ${stat.color}`} />
-                  </div>
-                </div>
-                <h3 className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">
-                  {stat.label}
-                </h3>
-                {stat.singleValue && (
-                  <p className="text-xl font-bold text-white">
-                    {stat.singleValue}
-                  </p>
-                )}
-              </div>
-            ))}
           </div>
         </div>
       </div>

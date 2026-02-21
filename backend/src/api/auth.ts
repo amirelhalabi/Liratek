@@ -1,69 +1,99 @@
 import express from "express";
-import { getUserRepository, getAuthService } from "../services/index.js";
+import {
+  getUserRepository,
+  getAuthService,
+  loginSchema,
+  createErrorResponse,
+  createSuccessResponse,
+  ErrorCodes,
+  JWT_SECRET,
+  JWT_EXPIRES_IN,
+} from "@liratek/core";
+import { validateRequest } from "../middleware/validation.js";
 import { logger } from "../server.js";
 import jwt from "jsonwebtoken";
 
 const router = express.Router();
-const JWT_SECRET: jwt.Secret =
-  process.env.JWT_SECRET || "your-secret-key-change-in-production";
-const JWT_EXPIRES_IN: jwt.SignOptions["expiresIn"] =
-  (process.env.JWT_EXPIRES_IN as jwt.SignOptions["expiresIn"]) || "7d";
+
+// Validate JWT configuration on startup
+if (!JWT_SECRET) {
+  throw new Error(
+    "JWT_SECRET is required. Please set it in your environment variables (min 32 characters).",
+  );
+}
+
+const jwtSecret: string = JWT_SECRET;
+const jwtExpiresIn: string = JWT_EXPIRES_IN;
 
 // POST /api/auth/login
-router.post("/login", async (req, res): Promise<void> => {
-  try {
-    const { username, password, rememberMe } = req.body;
+router.post(
+  "/login",
+  validateRequest(loginSchema),
+  async (req, res): Promise<void> => {
+    try {
+      const { username, password, rememberMe } = req.body;
 
-    if (!username || password === undefined || password === null) {
-      res.status(400).json({ error: "Username and password required" });
-      return;
+      // Use AuthService with database session support
+      const authService = getAuthService();
+      const result = await authService.login(username, password, {
+        rememberMe: rememberMe || false,
+        deviceType: "web",
+        deviceInfo: req.headers["user-agent"] || "Unknown",
+        ipAddress: req.ip || req.socket.remoteAddress,
+      });
+
+      if (!result.success || !result.user || !result.token) {
+        res
+          .status(401)
+          .json(
+            createErrorResponse(
+              ErrorCodes.INVALID_CREDENTIALS,
+              result.error || "Invalid credentials",
+            ),
+          );
+        return;
+      }
+
+      // Create JWT that includes the session token
+      const jwtToken = jwt.sign(
+        {
+          userId: result.user.id,
+          role: result.user.role,
+          sessionToken: result.token, // Link JWT to database session
+        },
+        jwtSecret,
+        { expiresIn: jwtExpiresIn as jwt.SignOptions["expiresIn"] },
+      );
+
+      logger.info(
+        { userId: result.user.id, username: result.user.username, rememberMe },
+        "User logged in with database session",
+      );
+
+      res.json(
+        createSuccessResponse({
+          user: {
+            id: result.user.id,
+            username: result.user.username,
+            role: result.user.role,
+          },
+          token: jwtToken,
+          sessionToken: result.token,
+        }),
+      );
+    } catch (error) {
+      logger.error({ error }, "Login error");
+      res
+        .status(500)
+        .json(
+          createErrorResponse(
+            ErrorCodes.INTERNAL_ERROR,
+            "Internal server error",
+          ),
+        );
     }
-
-    // Use AuthService with database session support
-    const authService = getAuthService();
-    const result = await authService.login(username, password, {
-      rememberMe: rememberMe || false,
-      deviceType: "web",
-      deviceInfo: req.headers["user-agent"] || "Unknown",
-      ipAddress: req.ip || req.socket.remoteAddress,
-    });
-
-    if (!result.success || !result.user || !result.token) {
-      res.status(401).json({ error: result.error || "Invalid credentials" });
-      return;
-    }
-
-    // Create JWT that includes the session token
-    const jwtToken = jwt.sign(
-      {
-        userId: result.user.id,
-        role: result.user.role,
-        sessionToken: result.token, // Link JWT to database session
-      },
-      JWT_SECRET,
-      { expiresIn: JWT_EXPIRES_IN },
-    );
-
-    logger.info(
-      { userId: result.user.id, username: result.user.username, rememberMe },
-      "User logged in with database session",
-    );
-
-    res.json({
-      success: true,
-      user: {
-        id: result.user.id,
-        username: result.user.username,
-        role: result.user.role,
-      },
-      token: jwtToken,
-      sessionToken: result.token, // Also return session token separately
-    });
-  } catch (error) {
-    logger.error({ error }, "Login error");
-    res.status(500).json({ error: "Internal server error" });
-  }
-});
+  },
+);
 
 // GET /api/auth/me
 router.get("/me", async (req, res): Promise<void> => {
@@ -76,7 +106,7 @@ router.get("/me", async (req, res): Promise<void> => {
     }
 
     const token = authHeader.substring(7);
-    const decoded = jwt.verify(token, JWT_SECRET) as {
+    const decoded = jwt.verify(token, jwtSecret) as {
       userId: number;
       role: string;
     };
@@ -111,7 +141,7 @@ router.post("/logout", async (req, res): Promise<void> => {
     if (authHeader && authHeader.startsWith("Bearer ")) {
       const token = authHeader.substring(7);
       try {
-        const decoded = jwt.verify(token, JWT_SECRET) as {
+        const decoded = jwt.verify(token, jwtSecret) as {
           userId: number;
           role: string;
           sessionToken?: string;
