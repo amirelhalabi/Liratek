@@ -1,0 +1,15 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+coverage/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# But DO commit these template files
+!.env.example
+!.env.dev
+!.env.prod

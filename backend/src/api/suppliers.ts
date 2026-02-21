@@ -1,0 +1,136 @@
+/**
+ * Suppliers API Endpoints
+ *
+ * Handles supplier management and ledger operations
+ */
+
+import { Router } from "express";
+import { requireAuth, AuthRequest } from "../middleware/auth.js";
+import { getSupplierService } from "@liratek/core";
+import { logger } from "../server.js";
+
+const router = Router();
+const supplierService = getSupplierService();
+
+// GET /api/suppliers
+router.get("/", requireAuth, async (req, res) => {
+  try {
+    const search = req.query.search as string | undefined;
+    const suppliers = supplierService.listSuppliers(search);
+    res.json({ success: true, suppliers });
+  } catch (error) {
+    logger.error({ error }, "List suppliers error");
+    res.status(500).json({ success: false, error: "Failed to list suppliers" });
+  }
+});
+
+// GET /api/suppliers/balances
+router.get("/balances", requireAuth, async (_req, res) => {
+  try {
+    const balances = supplierService.getSupplierBalances();
+    res.json({ success: true, balances });
+  } catch (error) {
+    logger.error({ error }, "Get supplier balances error");
+    res
+      .status(500)
+      .json({ success: false, error: "Failed to get supplier balances" });
+  }
+});
+
+// GET /api/suppliers/:id/ledger
+router.get("/:id/ledger", requireAuth, async (req, res) => {
+  try {
+    const supplierId = parseInt(req.params.id);
+    if (isNaN(supplierId)) {
+      res.status(400).json({ success: false, error: "Invalid supplier ID" });
+    }
+
+    const limit = req.query.limit
+      ? parseInt(req.query.limit as string)
+      : undefined;
+    const ledger = supplierService.getSupplierLedger(supplierId, limit);
+    res.json({ success: true, ledger });
+  } catch (error) {
+    logger.error({ error }, "Get supplier ledger error");
+    res
+      .status(500)
+      .json({ success: false, error: "Failed to get supplier ledger" });
+  }
+});
+
+// POST /api/suppliers
+router.post("/", requireAuth, async (req, res) => {
+  try {
+    const { name, contact_name, phone, note, module_key, provider } = req.body;
+
+    if (!name) {
+      res
+        .status(400)
+        .json({ success: false, error: "Supplier name is required" });
+    }
+
+    const result = supplierService.createSupplier({
+      name,
+      contact_name,
+      phone,
+      note,
+      module_key,
+      provider,
+    });
+
+    if (result.success) {
+      logger.info({ name, id: result.id }, "Supplier created");
+      res.json(result);
+    } else {
+      res.status(400).json(result);
+    }
+  } catch (error) {
+    logger.error({ error }, "Create supplier error");
+    res
+      .status(500)
+      .json({ success: false, error: "Failed to create supplier" });
+  }
+});
+
+// POST /api/suppliers/:id/ledger
+router.post("/:id/ledger", requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const supplier_id = parseInt(req.params.id);
+    if (isNaN(supplier_id)) {
+      res.status(400).json({ success: false, error: "Invalid supplier ID" });
+    }
+
+    const { entry_type, amount_usd, amount_lbp, note, drawer_name } = req.body;
+
+    if (!entry_type || (amount_usd === undefined && amount_lbp === undefined)) {
+      res.status(400).json({
+        success: false,
+        error: "Missing required fields: entry_type, amount_usd or amount_lbp",
+      });
+    }
+
+    const result = supplierService.addLedgerEntry({
+      supplier_id,
+      entry_type,
+      amount_usd: amount_usd || 0,
+      amount_lbp: amount_lbp || 0,
+      note,
+      drawer_name,
+      created_by: req.user?.userId || 1,
+    });
+
+    if (result.success) {
+      logger.info({ supplier_id, entry_type }, "Supplier ledger entry added");
+      res.json(result);
+    } else {
+      res.status(400).json(result);
+    }
+  } catch (error) {
+    logger.error({ error }, "Add supplier ledger entry error");
+    res
+      .status(500)
+      .json({ success: false, error: "Failed to add ledger entry" });
+  }
+});
+
+export default router;

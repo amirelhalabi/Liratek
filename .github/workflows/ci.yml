@@ -6,24 +6,50 @@ on:
   pull_request:
     branches: [main, dev, develop]
 
+# Shared cache paths for yarn install
+env:
+  CI_CACHE_PATHS: |
+    .yarn/cache
+    node_modules
+    packages/*/node_modules
+    frontend/node_modules
+    backend/node_modules
+    electron-app/node_modules
+
 jobs:
+  install:
+    name: Install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        id: yarn-cache
+        with:
+          path: ${{ env.CI_CACHE_PATHS }}
+          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          restore-keys: |
+            yarn-${{ runner.os }}-
+
+      - name: Install dependencies
+        if: steps.yarn-cache.outputs.cache-hit != 'true'
+        run: yarn install --immutable
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    needs: install
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Restore dependencies
+        uses: actions/cache/restore@v4
         with:
-          node-version: "20"
-
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Install dependencies
-        run: yarn install --immutable --mode=skip-build
+          path: ${{ env.CI_CACHE_PATHS }}
+          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
 
       - name: Run ESLint
         run: yarn lint
@@ -31,72 +57,138 @@ jobs:
   typecheck:
     name: TypeScript Check
     runs-on: ubuntu-latest
+    needs: install
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Restore dependencies
+        uses: actions/cache/restore@v4
         with:
-          node-version: "20"
-
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Install dependencies
-        run: yarn install --immutable --mode=skip-build
+          path: ${{ env.CI_CACHE_PATHS }}
+          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
 
       - name: TypeScript check
         run: yarn typecheck
 
-  test:
-    name: Tests
+  backend-tests:
+    name: Backend Tests
     runs-on: ubuntu-latest
+    needs: install
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Restore dependencies
+        uses: actions/cache/restore@v4
         with:
-          node-version: "20"
+          path: ${{ env.CI_CACHE_PATHS }}
+          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
 
-      - name: Enable Corepack
-        run: corepack enable
+      - name: Backend typecheck
+        run: yarn workspace @liratek/backend typecheck
 
-      - name: Install dependencies
-        run: yarn install --immutable --mode=skip-build
+      - name: Backend tests with coverage
+        run: yarn workspace @liratek/backend test:coverage
 
-      - name: Run tests
-        run: yarn test
-
-      - name: Run tests with coverage
-        run: yarn test:coverage
-
-      - name: Upload coverage to Codecov
+      - name: Upload backend coverage
         uses: codecov/codecov-action@v4
         with:
-          files: ./coverage/lcov.info
+          files: ./coverage/backend/lcov.info
+          flags: backend
           fail_ci_if_error: false
+
+  frontend-tests:
+    name: Frontend Tests
+    runs-on: ubuntu-latest
+    needs: install
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+
+      - name: Restore dependencies
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.CI_CACHE_PATHS }}
+          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+
+      - name: Frontend typecheck
+        run: yarn workspace @liratek/frontend typecheck
+
+      - name: Frontend tests with coverage
+        run: yarn workspace @liratek/frontend test:coverage
+
+      - name: Upload frontend coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage/frontend/lcov.info
+          flags: frontend
+          fail_ci_if_error: false
+
+  # e2e-tests disabled temporarily (slow + flaky while refactoring)
+  # Re-enable once stable by removing the `if: false`.
+  e2e-tests:
+    if: false
+    name: E2E Tests (disabled)
+    runs-on: ubuntu-latest
+    needs: install
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+
+      - name: Restore dependencies
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.CI_CACHE_PATHS }}
+          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('frontend/package.json') }}
+
+      - name: Install Playwright browsers
+        run: yarn workspace @liratek/frontend exec playwright install --with-deps chromium
+
+      - name: Build backend + frontend
+        run: |
+          yarn workspace @liratek/backend build
+          yarn workspace @liratek/frontend build
+
+      - name: Start backend
+        run: yarn workspace @liratek/backend start &
+
+      - name: Start frontend (preview)
+        run: yarn workspace @liratek/frontend preview --host 0.0.0.0 --port 5173 &
+
+      - name: Wait for services
+        run: npx wait-on http://localhost:3000/health http://localhost:5173 --timeout 60000
+
+      - name: Run E2E tests
+        run: yarn workspace @liratek/frontend test:e2e:ci
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 7
 
   build:
     name: Build
     runs-on: ubuntu-latest
-    needs: [lint, typecheck, test]
+    needs: [lint, typecheck, backend-tests, frontend-tests]
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Restore dependencies
+        uses: actions/cache/restore@v4
         with:
-          node-version: "20"
-
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Install dependencies
-        run: yarn install --immutable --mode=skip-build
+          path: ${{ env.CI_CACHE_PATHS }}
+          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
 
       - name: Build
         run: yarn build

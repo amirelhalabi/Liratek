@@ -1,0 +1,376 @@
+/**
+ * ClosingService Unit Tests
+ */
+
+import { jest } from "@jest/globals";
+
+jest.mock("@liratek/core", () => {
+  const actual =
+    jest.requireActual<typeof import("@liratek/core")>("@liratek/core");
+  return {
+    ...actual,
+    getClosingRepository: jest.fn(),
+  };
+});
+
+import {
+  ClosingService,
+  getClosingService,
+  resetClosingService,
+  SetOpeningBalancesData,
+  CreateClosingData,
+  UpdateClosingData,
+  DailyStatsSnapshot,
+  getClosingRepository,
+} from "@liratek/core";
+
+describe("ClosingService", () => {
+  let service: ClosingService;
+  let mockRepo: any;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    resetClosingService();
+
+    // Create mock repository
+    mockRepo = {
+      setOpeningBalances: jest.fn(),
+      createDailyClosing: jest.fn(),
+      updateDailyClosing: jest.fn(),
+      getSystemExpectedBalancesDynamic: jest.fn(),
+      getDailyStatsSnapshot: jest.fn(),
+    };
+
+    (getClosingRepository as jest.Mock).mockReturnValue(mockRepo);
+
+    service = new ClosingService(mockRepo);
+  });
+
+  // ===========================================================================
+  // setOpeningBalances Tests
+  // ===========================================================================
+
+  describe("setOpeningBalances", () => {
+    it("should set opening balances successfully", () => {
+      const data: SetOpeningBalancesData = {
+        closing_date: "2025-01-15",
+        user_id: 1,
+        amounts: [
+          {
+            drawer_name: "General_Drawer_A",
+            currency_code: "USD",
+            opening_amount: 500,
+          },
+          {
+            drawer_name: "General_Drawer_A",
+            currency_code: "LBP",
+            opening_amount: 45000000,
+          },
+          {
+            drawer_name: "OMT_Drawer",
+            currency_code: "USD",
+            opening_amount: 200,
+          },
+        ],
+      };
+      mockRepo.setOpeningBalances.mockReturnValue({ success: true, id: 1 });
+
+      const result = service.setOpeningBalances(data);
+
+      expect(result).toEqual({ success: true, id: 1 });
+      expect(mockRepo.setOpeningBalances).toHaveBeenCalledWith(
+        "2025-01-15",
+        data.amounts,
+        1,
+      );
+    });
+
+    it("should use default user_id when not provided", () => {
+      const data: SetOpeningBalancesData = {
+        closing_date: "2025-01-15",
+        amounts: [
+          {
+            drawer_name: "General_Drawer_B",
+            currency_code: "USD",
+            opening_amount: 300,
+          },
+        ],
+      };
+      mockRepo.setOpeningBalances.mockReturnValue({ success: true, id: 2 });
+
+      service.setOpeningBalances(data);
+
+      expect(mockRepo.setOpeningBalances).toHaveBeenCalledWith(
+        "2025-01-15",
+        data.amounts,
+        1, // Default user_id
+      );
+    });
+
+    it("should handle error from repository", () => {
+      const data: SetOpeningBalancesData = {
+        closing_date: "2025-01-15",
+        amounts: [],
+      };
+      mockRepo.setOpeningBalances.mockReturnValue({
+        success: false,
+        error: "Invalid amounts",
+      });
+
+      const result = service.setOpeningBalances(data);
+
+      expect(result).toEqual({ success: false, error: "Invalid amounts" });
+    });
+  });
+
+  // ===========================================================================
+  // createDailyClosing Tests
+  // ===========================================================================
+
+  describe("createDailyClosing", () => {
+    it("should create daily closing successfully", () => {
+      const data: CreateClosingData = {
+        closing_date: "2025-01-15",
+        user_id: 1,
+        variance_notes: "All balanced",
+        system_expected_usd: 1000,
+        system_expected_lbp: 90000000,
+        amounts: [
+          {
+            drawer_name: "General_Drawer_A",
+            currency_code: "USD",
+            physical_amount: 1000,
+          },
+          {
+            drawer_name: "General_Drawer_A",
+            currency_code: "LBP",
+            physical_amount: 90000000,
+          },
+        ],
+      };
+      mockRepo.createDailyClosing.mockReturnValue({ success: true, id: 1 });
+
+      const result = service.createDailyClosing(data);
+
+      expect(result).toEqual({ success: true, id: 1 });
+      expect(mockRepo.createDailyClosing).toHaveBeenCalledWith(
+        "2025-01-15",
+        data.amounts,
+        1000,
+        90000000,
+        "All balanced",
+        undefined,
+      );
+    });
+
+    it("should use default values for optional fields", () => {
+      const data: CreateClosingData = {
+        closing_date: "2025-01-15",
+        amounts: [
+          {
+            drawer_name: "General_Drawer_A",
+            currency_code: "USD",
+            physical_amount: 500,
+          },
+        ],
+      };
+      mockRepo.createDailyClosing.mockReturnValue({ success: true, id: 2 });
+
+      service.createDailyClosing(data);
+
+      expect(mockRepo.createDailyClosing).toHaveBeenCalledWith(
+        "2025-01-15",
+        data.amounts,
+        0, // default system_expected_usd
+        0, // default system_expected_lbp
+        undefined, // variance_notes
+        undefined,
+      );
+    });
+
+    it("should handle error from repository", () => {
+      const data: CreateClosingData = {
+        closing_date: "2025-01-15",
+        amounts: [],
+      };
+      mockRepo.createDailyClosing.mockReturnValue({
+        success: false,
+        error: "Closing already exists",
+      });
+
+      const result = service.createDailyClosing(data);
+
+      expect(result).toEqual({
+        success: false,
+        error: "Closing already exists",
+      });
+    });
+  });
+
+  // ===========================================================================
+  // updateDailyClosing Tests
+  // ===========================================================================
+
+  describe("updateDailyClosing", () => {
+    it("should update daily closing successfully", () => {
+      const data: UpdateClosingData = {
+        id: 1,
+        physical_usd: 1050,
+        physical_lbp: 92000000,
+        variance_usd: 50,
+        notes: "Found extra cash",
+        user_id: 1,
+      };
+      mockRepo.updateDailyClosing.mockReturnValue({ success: true });
+
+      const result = service.updateDailyClosing(data);
+
+      expect(result).toEqual({ success: true });
+      expect(mockRepo.updateDailyClosing).toHaveBeenCalledWith(1, {
+        physical_usd: 1050,
+        physical_lbp: 92000000,
+        physical_eur: undefined,
+        system_expected_usd: undefined,
+        system_expected_lbp: undefined,
+        variance_usd: 50,
+        notes: "Found extra cash",
+        report_path: undefined,
+        updated_by: 1,
+      });
+    });
+
+    it("should update only provided fields", () => {
+      const data: UpdateClosingData = {
+        id: 2,
+        notes: "Updated notes",
+      };
+      mockRepo.updateDailyClosing.mockReturnValue({ success: true });
+
+      const result = service.updateDailyClosing(data);
+
+      expect(result).toEqual({ success: true });
+      expect(mockRepo.updateDailyClosing).toHaveBeenCalledWith(2, {
+        physical_usd: undefined,
+        physical_lbp: undefined,
+        physical_eur: undefined,
+        system_expected_usd: undefined,
+        system_expected_lbp: undefined,
+        variance_usd: undefined,
+        notes: "Updated notes",
+        report_path: undefined,
+        updated_by: undefined,
+      });
+    });
+
+    it("should handle update with report path", () => {
+      const data: UpdateClosingData = {
+        id: 3,
+        report_path: "/reports/closing_2025-01-15.pdf",
+      };
+      mockRepo.updateDailyClosing.mockReturnValue({ success: true });
+
+      const result = service.updateDailyClosing(data);
+
+      expect(result).toEqual({ success: true });
+    });
+
+    it("should handle error from repository", () => {
+      const data: UpdateClosingData = {
+        id: 999,
+        notes: "Test",
+      };
+      mockRepo.updateDailyClosing.mockReturnValue({
+        success: false,
+        error: "Not found",
+      });
+
+      const result = service.updateDailyClosing(data);
+
+      expect(result).toEqual({ success: false, error: "Not found" });
+    });
+  });
+
+  // ===========================================================================
+  // getDailyStatsSnapshot Tests
+  // ===========================================================================
+
+  describe("getDailyStatsSnapshot", () => {
+    it("should return daily stats snapshot", () => {
+      const mockStats: DailyStatsSnapshot = {
+        salesCount: 25,
+        totalSalesUSD: 2500,
+        totalSalesLBP: 225000000,
+        debtPaymentsUSD: 300,
+        debtPaymentsLBP: 27000000,
+        totalExpensesUSD: 150,
+        totalExpensesLBP: 13500000,
+        totalProfitUSD: 500,
+      };
+      mockRepo.getDailyStatsSnapshot.mockReturnValue(mockStats);
+
+      const result = service.getDailyStatsSnapshot();
+
+      expect(result).toEqual(mockStats);
+      expect(mockRepo.getDailyStatsSnapshot).toHaveBeenCalled();
+    });
+
+    it("should return default stats on error", () => {
+      mockRepo.getDailyStatsSnapshot.mockImplementation(() => {
+        throw new Error("Query failed");
+      });
+
+      const result = service.getDailyStatsSnapshot();
+
+      expect(result).toEqual({
+        salesCount: 0,
+        totalSalesUSD: 0,
+        totalSalesLBP: 0,
+        debtPaymentsUSD: 0,
+        debtPaymentsLBP: 0,
+        totalExpensesUSD: 0,
+        totalExpensesLBP: 0,
+        totalProfitUSD: 0,
+      });
+    });
+
+    it("should handle zero stats", () => {
+      const mockStats: DailyStatsSnapshot = {
+        salesCount: 0,
+        totalSalesUSD: 0,
+        totalSalesLBP: 0,
+        debtPaymentsUSD: 0,
+        debtPaymentsLBP: 0,
+        totalExpensesUSD: 0,
+        totalExpensesLBP: 0,
+        totalProfitUSD: 0,
+      };
+      mockRepo.getDailyStatsSnapshot.mockReturnValue(mockStats);
+
+      const result = service.getDailyStatsSnapshot();
+
+      expect(result).toEqual(mockStats);
+    });
+  });
+
+  // ===========================================================================
+  // Singleton Tests
+  // ===========================================================================
+
+  describe("singleton pattern", () => {
+    it("should return same instance on multiple calls", () => {
+      resetClosingService();
+      const instance1 = getClosingService();
+      const instance2 = getClosingService();
+
+      expect(instance1).toBe(instance2);
+    });
+
+    it("should create new instance after reset", () => {
+      const instance1 = getClosingService();
+      resetClosingService();
+      const instance2 = getClosingService();
+
+      expect(instance1).not.toBe(instance2);
+    });
+  });
+});

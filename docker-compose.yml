@@ -1,0 +1,38 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3000
+      # Persist DB in a volume mounted at /data
+      DATABASE_PATH: /data/liratek.db
+      JWT_SECRET: change-me
+      JWT_EXPIRES_IN: 7d
+      CORS_ORIGIN: http://localhost:5173
+      LOG_LEVEL: info
+    volumes:
+      - liratek_data:/data
+    ports:
+      - "3000:3000"
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      # Runtime override read by the frontend (globalThis.__LIRATEK_BACKEND_URL)
+      # You can inject it via a small inline script later if needed.
+      # For now, frontend defaults to http://localhost:3000.
+
+      # VITE_BACKEND_URL is not used by our client yet (kept for future)
+      VITE_BACKEND_URL: http://localhost:3000
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+
+volumes:
+  liratek_data:

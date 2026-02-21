@@ -1,0 +1,73 @@
+import { useState } from "react";
+import { Settings as SettingsIcon } from "lucide-react";
+import UsersManager from "./UsersManager";
+import Diagnostics from "./Diagnostics";
+import CurrencyManager from "./CurrencyManager";
+import ShopConfig from "./ShopConfig";
+import SupplierLedger from "./SupplierLedger";
+import NotificationsConfig from "./NotificationsConfig";
+import ActivityLogViewer from "./ActivityLogViewer";
+import ModulesManager from "./ModulesManager";
+import IntegrationsConfig from "./IntegrationsConfig";
+
+type TabKey =
+  | "shop"
+  | "suppliers"
+  | "notifications"
+  | "activity"
+  | "modules"
+  | "currencies"
+  | "users"
+  | "diagnostics"
+  | "integrations";
+
+export default function Settings() {
+  const [active, setActive] = useState<TabKey>("shop");
+
+  return (
+    <div className="space-y-6 animate-in fade-in duration-500">
+      <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+        <SettingsIcon className="text-violet-500" />
+        Application Settings
+      </h1>
+
+      {/* Tab Navigation Section */}
+      <div className="bg-slate-800 p-2 rounded-xl border border-slate-700 shadow-lg">
+        <div className="flex gap-2 p-2 border-b border-slate-700">
+          {(
+            [
+              { key: "shop", label: "Shop Config" },
+              { key: "suppliers", label: "Suppliers" },
+              { key: "notifications", label: "Notifications" },
+              { key: "activity", label: "Activity Logs" },
+              { key: "modules", label: "Modules & Drawers" },
+              { key: "currencies", label: "Currencies & Rates" },
+              { key: "users", label: "Users" },
+              { key: "integrations", label: "Integrations" },
+              { key: "diagnostics", label: "Diagnostics" },
+            ] as { key: TabKey; label: string }[]
+          ).map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setActive(t.key)}
+              className={`px-3 py-1 rounded ${active === t.key ? "bg-violet-600 text-white" : "text-slate-300 hover:bg-slate-800"}`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <div className="p-4">
+          {active === "shop" && <ShopConfig />}
+          {active === "suppliers" && <SupplierLedger />}
+          {active === "notifications" && <NotificationsConfig />}
+          {active === "activity" && <ActivityLogViewer />}
+          {active === "modules" && <ModulesManager />}
+          {active === "currencies" && <CurrencyManager />}
+          {active === "users" && <UsersManager />}
+          {active === "integrations" && <IntegrationsConfig />}
+          {active === "diagnostics" && <Diagnostics />}
+        </div>
+      </div>
+    </div>
+  );
+}
