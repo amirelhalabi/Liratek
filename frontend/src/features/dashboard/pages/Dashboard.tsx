@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
-import { appEvents, PageHeader } from "@liratek/ui";
+import { useState, useEffect, useCallback, lazy, Suspense } from "react";
+import { appEvents, PageHeader, useApi } from "@liratek/ui";
 import {
   DollarSign,
   Users,
@@ -10,17 +10,9 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { useCurrencyContext } from "../../../contexts/CurrencyContext";
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-} from "recharts";
-import * as api from "../../../api/backendApi";
+
+const DashboardChart = lazy(() => import("../components/DashboardChart"));
+
 type ChartType = "Sales" | "Profit";
 
 /** Format drawer_name from DB into a display label */
@@ -41,6 +33,7 @@ const DRAWER_COLORS = [
 ];
 
 export default function Dashboard() {
+  const api = useApi();
   const { formatAmount, getSymbol } = useCurrencyContext();
 
   const [stats, setStats] = useState({
@@ -52,7 +45,8 @@ export default function Dashboard() {
     activeClients: 0,
     stockBudgetUSD: 0,
     stockCount: 0,
-    monthlyNetProfit: 0,
+    monthlyNetProfitUSD: 0,
+    monthlyNetProfitLBP: 0,
   });
   /** Dynamic drawer balances: drawer_name → currency_code → amount */
   const [drawerBalances, setDrawerBalances] = useState<
@@ -139,7 +133,8 @@ export default function Dashboard() {
         ...statsData,
         stockBudgetUSD: stockStats?.stock_budget_usd || 0,
         stockCount: stockStats?.stock_count || 0,
-        monthlyNetProfit: monthlyPL?.netProfitUSD || 0,
+        monthlyNetProfitUSD: monthlyPL?.netProfitUSD || 0,
+        monthlyNetProfitLBP: monthlyPL?.netProfitLBP || 0,
       });
       const formattedChartData = profitChartData.map((d: any) => ({
         ...d,
@@ -178,7 +173,7 @@ export default function Dashboard() {
     } catch (_error) {
       // logger.error('Failed to load dashboard data:', error);
     }
-  }, [chartType]);
+  }, [api, chartType]);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -272,7 +267,8 @@ export default function Dashboard() {
     },
     {
       label: "Monthly Net Profit",
-      singleValue: formatAmount(stats.monthlyNetProfit ?? 0, "USD"),
+      usdValue: stats.monthlyNetProfitUSD,
+      lbpValue: stats.monthlyNetProfitLBP,
       icon: TrendingUp,
       color: "text-emerald-400",
       bg: "bg-emerald-400/10",
@@ -409,106 +405,20 @@ export default function Dashboard() {
               </select>
             </div>
             <div className="flex-1 h-80 w-full min-h-0">
-              <ResponsiveContainer width="100%" height={320}>
-                <LineChart
-                  data={chartData}
-                  margin={{ top: 5, right: 20, left: 20, bottom: 5 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.1} />
-                  <XAxis
-                    dataKey="date"
-                    tick={{ fill: "#94a3b8" }}
-                    fontSize={12}
-                  />
-                  {chartType === "Sales" ? (
-                    <>
-                      <YAxis
-                        yAxisId="left"
-                        orientation="left"
-                        stroke="#34d399"
-                        tick={{ fill: "#34d399" }}
-                        fontSize={12}
-                        tickFormatter={(value) =>
-                          `${(value / 1000).toFixed(0)}k`
-                        }
-                        domain={[0, maxUsdSales > 0 ? maxUsdSales : "auto"]} // Dynamic domain for USD
-                      />
-                      <YAxis
-                        yAxisId="right"
-                        orientation="right"
-                        stroke="#8b5cf6"
-                        tick={{ fill: "#8b5cf6" }}
-                        fontSize={12}
-                        tickFormatter={(value) =>
-                          `${(value / 1_000_000).toFixed(1)}M`
-                        } // Show in millions of LBP
-                        domain={[0, maxLbpSales > 0 ? maxLbpSales : "auto"]} // Dynamic domain for LBP
-                      />
-                    </>
-                  ) : (
-                    <YAxis
-                      tick={{ fill: "#94a3b8" }}
-                      fontSize={12}
-                      tickFormatter={(value) => `${getSymbol("USD")}${value}`}
-                    />
-                  )}
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "rgba(30, 41, 59, 0.9)",
-                      borderColor: "#475569",
-                      color: "#cbd5e1",
-                    }}
-                    labelStyle={{ fontWeight: "bold" }}
-                    formatter={(
-                      value: number | string | undefined,
-                      name?: string,
-                    ) => {
-                      const valNum =
-                        typeof value === "number" ? value : Number(value ?? 0);
-                      const label = name ?? "";
-                      if (label === "LBP Sales") {
-                        return [formatAmount(valNum, "LBP"), label];
-                      }
-                      if (label === "Profit") {
-                        return [formatAmount(valNum, "USD"), label];
-                      }
-                      return [
-                        `${valNum.toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
-                        label,
-                      ];
-                    }}
-                  />
-                  <Legend />
-                  {chartType === "Sales" ? (
-                    <>
-                      <Line
-                        yAxisId="left"
-                        type="monotone"
-                        dataKey="usd"
-                        name="USD Sales"
-                        stroke="#34d399"
-                        strokeWidth={2}
-                      />
-                      <Line
-                        yAxisId="right"
-                        type="monotone"
-                        dataKey="lbp"
-                        name="LBP Sales"
-                        stroke="#8b5cf6"
-                        strokeWidth={2}
-                      />
-                    </>
-                  ) : (
-                    <Line
-                      type="monotone"
-                      dataKey="profit"
-                      name="Profit"
-                      stroke="#34d399"
-                      strokeWidth={2}
-                    />
-                  )}
-                </LineChart>
-              </ResponsiveContainer>
+              <Suspense
+                fallback={
+                  <div className="h-80 animate-pulse bg-slate-700/30 rounded-xl" />
+                }
+              >
+                <DashboardChart
+                  chartData={chartData}
+                  chartType={chartType}
+                  maxUsdSales={maxUsdSales}
+                  maxLbpSales={maxLbpSales}
+                  getSymbol={getSymbol}
+                  formatAmount={formatAmount}
+                />
+              </Suspense>
             </div>
           </div>
 
@@ -520,9 +430,9 @@ export default function Dashboard() {
               </h3>
               <div className="flex-1 min-h-[150px] overflow-y-auto space-y-2">
                 {debtSummary.topDebtors.length > 0 ? (
-                  debtSummary.topDebtors.map((debtor, i) => (
+                  debtSummary.topDebtors.map((debtor) => (
                     <div
-                      key={i}
+                      key={debtor.full_name}
                       className="flex items-center justify-between p-2.5 bg-slate-700/20 rounded-lg"
                     >
                       <span className="text-sm text-slate-300 truncate mr-3">

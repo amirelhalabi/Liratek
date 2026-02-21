@@ -29,7 +29,7 @@ import { salesLogger } from "../utils/logger.js";
 
 export interface SaleResult {
   success: boolean;
-  saleId?: number;
+  id?: number;
   error?: string;
 }
 
@@ -55,17 +55,17 @@ export class SalesService {
     try {
       const result = this.salesRepo.processSale(sale);
 
-      if (result.success && result.saleId) {
+      if (result.success && result.id) {
         const drawerName = sale.drawer_name || "General_Drawer_B";
         const finalAmount = sale.final_amount || 0;
         salesLogger.info(
           {
-            saleId: result.saleId,
+            id: result.id,
             drawer: drawerName,
             amount: finalAmount,
             status: sale.status || "completed",
           },
-          `${drawerName} - Sale #${result.saleId}: $${finalAmount.toFixed(2)}`,
+          `${drawerName} - Sale #${result.id}: $${finalAmount.toFixed(2)}`,
         );
       }
 

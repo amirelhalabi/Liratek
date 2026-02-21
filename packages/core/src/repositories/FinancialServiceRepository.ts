@@ -6,8 +6,13 @@
  */
 
 import { BaseRepository } from "./BaseRepository.js";
-import { paymentMethodToDrawerName } from "../utils/payments.js";
+import {
+  paymentMethodToDrawerName,
+  isDrawerAffectingMethod,
+} from "../utils/payments.js";
 import { getSupplierRepository } from "./SupplierRepository.js";
+import { getTransactionRepository } from "./TransactionRepository.js";
+import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 
 // =============================================================================
 // Entity Types
@@ -28,8 +33,13 @@ export interface FinancialServiceEntity {
   amount: number;
   currency: string;
   commission: number;
+  cost: number;
+  price: number;
+  paid_by: string | null;
+  client_id: number | null;
   client_name: string | null;
   reference_number: string | null;
+  item_key: string | null;
   note: string | null;
   created_at: string;
   created_by: number | null;
@@ -49,10 +59,15 @@ export interface CreateFinancialServiceData {
   amount: number;
   currency?: string;
   commission: number;
+  cost?: number;
+  price?: number;
+  paidByMethod?: string;
+  clientId?: number;
   clientName?: string;
   referenceNumber?: string;
+  itemKey?: string;
+  itemCategory?: string;
   note?: string;
-  paidByMethod?: string;
 }
 
 export interface ProviderStats {
@@ -93,7 +108,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
 
   // Override getColumns() to use explicit columns instead of SELECT *
   protected getColumns(): string {
-    return "id, provider, service_type, amount, currency, commission, client_name, reference_number, note, created_at, created_by";
+    return "id, provider, service_type, amount, currency, commission, cost, price, paid_by, client_id, client_name, reference_number, item_key, note, created_at, created_by";
   }
 
   // ---------------------------------------------------------------------------
@@ -101,46 +116,62 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
   // ---------------------------------------------------------------------------
 
   /**
-   * Create a new financial service transaction
+   * Map provider to its system drawer name
+   */
+  private mapDrawerName(
+    provider: CreateFinancialServiceData["provider"],
+  ): string {
+    switch (provider) {
+      case "OMT":
+        return "OMT_System";
+      case "WHISH":
+        return "Whish_System";
+      case "IPEC":
+        return "IPEC";
+      case "KATCH":
+        return "Katch";
+      case "WISH_APP":
+        return "Whish_App";
+      case "OMT_APP":
+        return "OMT_App";
+      case "BOB":
+      case "OTHER":
+      default:
+        return "General";
+    }
+  }
+
+  /**
+   * Create a new financial service transaction.
+   *
+   * Two modes:
+   * - **Cost/Price mode** (cost > 0): IPEC/Katch/WishApp/OMT_App with cost outflow,
+   *   price inflow, optional DEBT, and real profit tracking.
+   * - **Legacy mode** (no cost): OMT/WHISH/BOB/OTHER with signed amount + commission.
    */
   createTransaction(data: CreateFinancialServiceData): {
     id: number;
     drawer: string;
   } {
-    const mapDrawerName = (
-      provider: CreateFinancialServiceData["provider"],
-    ): string => {
-      switch (provider) {
-        case "OMT":
-          return "OMT_System";
-        case "WHISH":
-          return "Whish_System";
-        case "IPEC":
-          return "IPEC";
-        case "KATCH":
-          return "Katch";
-        case "WISH_APP":
-          return "Whish_App";
-        case "OMT_APP":
-          return "OMT_App";
-        case "BOB":
-        case "OTHER":
-        default:
-          return "General";
-      }
-    };
-
-    // Keep returning the legacy drawer labels for UI/log compatibility
     const legacyDrawerLabel =
       data.provider === "OMT" ? "OMT_Drawer_A" : "General_Drawer_B";
 
+    const useCostPriceFlow = data.cost !== undefined && data.cost > 0;
+
     return this.db.transaction(() => {
       const currency = data.currency ?? "USD";
+      const cost = data.cost ?? 0;
+      const price = data.price ?? 0;
+      const paidBy = data.paidByMethod || "CASH";
+      const commission = useCostPriceFlow ? price - cost : data.commission || 0;
+
+      // 1. Insert the financial_services row
       const stmt = this.db.prepare(`
         INSERT INTO financial_services (
           provider, service_type, amount, currency,
-          commission, client_name, reference_number, note
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          commission, cost, price, paid_by, client_id,
+          client_name, reference_number, item_key, note
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       const result = stmt.run(
@@ -148,29 +179,61 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         data.serviceType,
         data.amount,
         currency,
-        data.commission || 0,
+        commission,
+        cost,
+        price,
+        useCostPriceFlow ? paidBy : null,
+        data.clientId || null,
         data.clientName || null,
         data.referenceNumber || null,
+        data.itemKey || null,
         data.note || null,
       );
 
       const id = Number(result.lastInsertRowid);
-
-      const drawerName = data.paidByMethod
-        ? paymentMethodToDrawerName(data.paidByMethod)
-        : mapDrawerName(data.provider);
-      const paymentMethod = data.paidByMethod || data.provider;
       const createdBy = 1;
       const note = data.note || null;
 
-      // Signed delta: RECEIVE adds to drawer, SEND subtracts
-      const sign = data.serviceType === "SEND" ? -1 : 1;
+      // Create unified transaction row
+      const txnId = getTransactionRepository().createTransaction({
+        type: TRANSACTION_TYPES.FINANCIAL_SERVICE,
+        source_table: "financial_services",
+        source_id: id,
+        user_id: createdBy,
+        amount_usd: useCostPriceFlow
+          ? currency === "USD"
+            ? price
+            : 0
+          : currency === "USD"
+            ? data.amount
+            : 0,
+        amount_lbp: useCostPriceFlow
+          ? currency === "LBP"
+            ? price
+            : 0
+          : currency === "LBP"
+            ? data.amount
+            : 0,
+        client_id: data.clientId ?? null,
+        summary: `${data.provider} ${data.serviceType}: ${data.amount} ${currency}`,
+        metadata_json: {
+          provider: data.provider,
+          service_type: data.serviceType,
+          amount: data.amount,
+          currency,
+          commission,
+          cost,
+          price,
+          paid_by: paidBy,
+          item_key: data.itemKey,
+        },
+      });
 
       const insertPayment = this.db.prepare(`
         INSERT INTO payments (
-          source_type, source_id, method, drawer_name, currency_code, amount, note, created_by
+          transaction_id, method, drawer_name, currency_code, amount, note, created_by
         ) VALUES (
-          'FINANCIAL_SERVICE', ?, ?, ?, ?, ?, ?, ?
+          ?, ?, ?, ?, ?, ?, ?
         )
       `);
 
@@ -182,49 +245,112 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           updated_at = CURRENT_TIMESTAMP
       `);
 
-      // Amount movement affects drawer balances
-      if (data.amount && data.amount !== 0) {
-        const delta = sign * Math.abs(data.amount);
-        insertPayment.run(
-          id,
-          paymentMethod,
-          drawerName,
-          currency,
-          delta,
-          note,
-          createdBy,
-        );
-        upsertBalanceDelta.run(drawerName, currency, delta);
+      if (useCostPriceFlow) {
+        // ─── COST/PRICE FLOW (IPEC, KATCH, WISH_APP, OMT_APP) ───
+        const providerDrawer = this.mapDrawerName(data.provider);
+
+        // Cost outflow: shop pays the provider
+        if (cost > 0) {
+          insertPayment.run(
+            txnId,
+            data.provider,
+            providerDrawer,
+            currency,
+            -Math.abs(cost),
+            `Cost: ${data.provider}`,
+            createdBy,
+          );
+          upsertBalanceDelta.run(providerDrawer, currency, -Math.abs(cost));
+        }
+
+        // Price inflow: customer pays the shop (skip for DEBT)
+        if (price > 0 && isDrawerAffectingMethod(paidBy)) {
+          const paidByDrawer = paymentMethodToDrawerName(paidBy);
+          insertPayment.run(
+            txnId,
+            paidBy,
+            paidByDrawer,
+            currency,
+            Math.abs(price),
+            note,
+            createdBy,
+          );
+          upsertBalanceDelta.run(paidByDrawer, currency, Math.abs(price));
+        }
+
+        // DEBT: create debt_ledger entry
+        if (paidBy === "DEBT") {
+          if (!data.clientId) {
+            throw new Error("Cannot create debt without a client");
+          }
+          this.db
+            .prepare(
+              `INSERT INTO debt_ledger (
+                client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, due_date
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
+            )
+            .run(
+              data.clientId,
+              "Service Debt",
+              currency === "USD" ? price : 0,
+              currency === "LBP" ? price : 0,
+              txnId,
+              `${data.provider} service${data.itemKey ? ` [${data.itemKey}]` : ""}`,
+              createdBy,
+            );
+        }
+      } else {
+        // ─── LEGACY FLOW (OMT, WHISH, BOB, OTHER) ───
+        const drawerName = data.paidByMethod
+          ? paymentMethodToDrawerName(data.paidByMethod)
+          : this.mapDrawerName(data.provider);
+        const paymentMethod = data.paidByMethod || data.provider;
+        const sign = data.serviceType === "SEND" ? -1 : 1;
+
+        // Amount movement
+        if (data.amount && data.amount !== 0) {
+          const delta = sign * Math.abs(data.amount);
+          insertPayment.run(
+            txnId,
+            paymentMethod,
+            drawerName,
+            currency,
+            delta,
+            note,
+            createdBy,
+          );
+          upsertBalanceDelta.run(drawerName, currency, delta);
+        }
+
+        // Commission inflow (always positive)
+        if (data.commission && data.commission !== 0) {
+          const delta = Math.abs(data.commission);
+          insertPayment.run(
+            txnId,
+            paymentMethod,
+            drawerName,
+            currency,
+            delta,
+            "Commission",
+            createdBy,
+          );
+          upsertBalanceDelta.run(drawerName, currency, delta);
+        }
       }
 
-      // Commission is assumed to be retained in the same drawer as an inflow (always +)
-      if (data.commission && data.commission !== 0) {
-        const delta = Math.abs(data.commission);
-        insertPayment.run(
-          id,
-          paymentMethod,
-          drawerName,
-          currency,
-          delta,
-          "Commission",
-          createdBy,
-        );
-        upsertBalanceDelta.run(drawerName, currency, delta);
-      }
-
-      // Auto-record supplier debt if a supplier is linked to this provider
+      // Auto-record supplier debt (both flows)
       try {
         const supplierRepo = getSupplierRepository();
         const supplier = supplierRepo.getByProvider(data.provider);
         if (supplier) {
+          const ledgerAmount =
+            useCostPriceFlow && cost > 0 ? cost : Math.abs(data.amount);
           supplierRepo.addLedgerEntry({
             supplier_id: supplier.id,
             entry_type: "TOP_UP",
-            amount_usd: currency === "USD" ? Math.abs(data.amount) : 0,
-            amount_lbp: currency === "LBP" ? Math.abs(data.amount) : 0,
-            note: `Auto: ${data.serviceType} via ${data.provider}`,
-            transaction_id: id,
-            transaction_type: "FINANCIAL_SERVICE",
+            amount_usd: currency === "USD" ? ledgerAmount : 0,
+            amount_lbp: currency === "LBP" ? ledgerAmount : 0,
+            note: `Auto: ${data.serviceType} via ${data.provider}${data.itemKey ? ` [${data.itemKey}]` : ""}`,
             created_by: createdBy,
           });
         }
@@ -234,26 +360,6 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
 
       return { id, drawer: legacyDrawerLabel };
     })();
-  }
-
-  /**
-   * Log the financial service activity
-   */
-  logActivity(data: CreateFinancialServiceData, drawer: string): void {
-    const logStmt = this.db.prepare(`
-      INSERT INTO activity_logs (user_id, action, details_json, created_at)
-      VALUES (1, 'Financial Service Transaction', ?, CURRENT_TIMESTAMP)
-    `);
-    logStmt.run(
-      JSON.stringify({
-        drawer,
-        provider: data.provider,
-        serviceType: data.serviceType,
-        amount: data.amount,
-        currency: data.currency ?? "USD",
-        commission: data.commission,
-      }),
-    );
   }
 
   // ---------------------------------------------------------------------------

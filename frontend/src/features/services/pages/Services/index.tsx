@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import logger from "../../../../utils/logger";
 import {
   Send,
@@ -12,10 +12,10 @@ import {
   RefreshCw,
   AlertTriangle,
 } from "lucide-react";
-import * as api from "../../../../api/backendApi";
 import { useSession } from "../../../sessions/context/SessionContext";
 import { usePaymentMethods } from "../../../../hooks/usePaymentMethods";
-import { Select } from "@liratek/ui";
+import { Select, useApi } from "@liratek/ui";
+import { ExportBar } from "@/shared/components/ExportBar";
 
 type Provider = "OMT" | "WHISH";
 type ServiceType = "SEND" | "RECEIVE" | "BILL_PAYMENT";
@@ -55,8 +55,10 @@ interface SupplierOwed {
 }
 
 export default function Services() {
+  const api = useApi();
   const { activeSession, linkTransaction } = useSession();
   const { drawerAffectingMethods } = usePaymentMethods();
+  const tableRef = useRef<HTMLTableElement>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [analytics, setAnalytics] = useState<Analytics>({
     today: { commission: 0, count: 0 },
@@ -374,10 +376,14 @@ export default function Services() {
             {/* Amount Field (USD Only) */}
             <div className="grid grid-cols-3 gap-3">
               <div className="col-span-2">
-                <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
+                <label
+                  htmlFor="service-amount"
+                  className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
+                >
                   Amount
                 </label>
                 <input
+                  id="service-amount"
                   type="number"
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
@@ -387,10 +393,13 @@ export default function Services() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
+                <span className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
                   Currency
-                </label>
-                <div className="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-slate-400 flex items-center justify-center font-medium">
+                </span>
+                <div
+                  className="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-slate-400 flex items-center justify-center font-medium"
+                  aria-label="Currency: USD"
+                >
                   USD
                 </div>
               </div>
@@ -398,7 +407,10 @@ export default function Services() {
 
             {/* Commission Field (USD only) */}
             <div className="p-4 rounded-xl bg-[#ffde00]/5 border border-[#ffde00]/20">
-              <label className="block text-xs font-medium text-[#ffde00] mb-3 uppercase tracking-wider">
+              <label
+                htmlFor="service-commission"
+                className="block text-xs font-medium text-[#ffde00] mb-3 uppercase tracking-wider"
+              >
                 Commission / Profit (USD)
               </label>
               <div className="relative">
@@ -406,6 +418,7 @@ export default function Services() {
                   $
                 </span>
                 <input
+                  id="service-commission"
                   type="number"
                   value={commission}
                   onChange={(e) => setCommission(e.target.value)}
@@ -418,7 +431,10 @@ export default function Services() {
 
             {/* Paid By */}
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
+              <label
+                htmlFor="service-paid-by"
+                className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
+              >
                 Paid By
               </label>
               <Select
@@ -434,10 +450,14 @@ export default function Services() {
             {/* Client Info */}
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1">
+                <label
+                  htmlFor="service-client-name"
+                  className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+                >
                   <User size={12} /> Client Name
                 </label>
                 <input
+                  id="service-client-name"
                   type="text"
                   value={clientName}
                   onChange={(e) => setClientName(e.target.value)}
@@ -446,10 +466,14 @@ export default function Services() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1">
+                <label
+                  htmlFor="service-reference"
+                  className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+                >
                   <Hash size={12} /> Reference #
                 </label>
                 <input
+                  id="service-reference"
                   type="text"
                   value={referenceNumber}
                   onChange={(e) => setReferenceNumber(e.target.value)}
@@ -499,7 +523,14 @@ export default function Services() {
           </div>
 
           <div className="flex-1 min-h-0 overflow-auto">
-            <table className="w-full">
+            <ExportBar
+              exportExcel
+              exportPdf
+              exportFilename="services-history"
+              tableRef={tableRef}
+              rowCount={transactions.length}
+            />
+            <table ref={tableRef} className="w-full">
               <thead className="bg-slate-900/50 text-left text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0">
                 <tr>
                   <th className="px-6 py-3">Provider</th>

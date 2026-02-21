@@ -7,8 +7,8 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
-import * as api from "../../../../api/backendApi";
-import type { PaymentMethodEntity } from "../../../../api/backendApi";
+import { useApi } from "@liratek/ui";
+import type { PaymentMethodEntity } from "@liratek/ui";
 
 interface FormData {
   code: string;
@@ -25,6 +25,7 @@ const EMPTY_FORM: FormData = {
 };
 
 export default function PaymentMethodsManager() {
+  const api = useApi();
   const [methods, setMethods] = useState<PaymentMethodEntity[]>([]);
   const [drawers, setDrawers] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -238,10 +239,14 @@ export default function PaymentMethodsManager() {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-slate-400 text-xs block mb-1">
+              <label
+                htmlFor="payment-method-code"
+                className="text-slate-400 text-xs block mb-1"
+              >
                 Code (uppercase, unique)
               </label>
               <input
+                id="payment-method-code"
                 type="text"
                 disabled={!!editingId}
                 value={form.code}
@@ -256,10 +261,14 @@ export default function PaymentMethodsManager() {
               />
             </div>
             <div>
-              <label className="text-slate-400 text-xs block mb-1">
+              <label
+                htmlFor="payment-method-label"
+                className="text-slate-400 text-xs block mb-1"
+              >
                 Display Label
               </label>
               <input
+                id="payment-method-label"
                 type="text"
                 value={form.label}
                 onChange={(e) => setForm({ ...form, label: e.target.value })}
@@ -268,10 +277,14 @@ export default function PaymentMethodsManager() {
               />
             </div>
             <div>
-              <label className="text-slate-400 text-xs block mb-1">
+              <label
+                htmlFor="payment-method-drawer"
+                className="text-slate-400 text-xs block mb-1"
+              >
                 Drawer
               </label>
               <select
+                id="payment-method-drawer"
                 value={form.drawer_name}
                 onChange={(e) =>
                   setForm({ ...form, drawer_name: e.target.value })

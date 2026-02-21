@@ -17,6 +17,7 @@ export interface MonthlyPL {
   expensesUSD: number;
   expensesLBP: number;
   netProfitUSD: number;
+  netProfitLBP: number;
 }
 
 export class FinancialRepository extends BaseRepository<{ id: number }> {
@@ -100,32 +101,10 @@ export class FinancialRepository extends BaseRepository<{ id: number }> {
         )
         .get(month) as { expenses_usd: number; expenses_lbp: number };
 
-      // Get exchange rate for net calculation (parameterized lookup)
-      const rateResult = this.db
-        .prepare(
-          `
-        SELECT rate FROM exchange_rates WHERE from_code = ? AND to_code = ?
-      `,
-        )
-        .get("USD", "LBP") as { rate: number } | undefined;
-      if (!rateResult) {
-        throw new DatabaseError("No exchange rate found for USD→LBP");
-      }
-      const rate = rateResult.rate;
-
-      // Include all non-USD commissions converted to USD
-      let totalCommissionsUSD = commissionUsd;
-      for (const [cur, amt] of Object.entries(serviceCommissionsByCurrency)) {
-        if (cur === "USD") continue;
-        if (cur === "LBP") {
-          totalCommissionsUSD += amt / rate;
-        }
-        // Other currencies: would need their own rate lookup; skip for now
-      }
-
-      const totalIncomeUSD = salesResult.profit + totalCommissionsUSD;
-      const totalExpensesUSD =
-        expensesResult.expenses_usd + expensesResult.expenses_lbp / rate;
+      // Per-currency net profit: income - expenses, independently
+      const netProfitUSD =
+        salesResult.profit + commissionUsd - expensesResult.expenses_usd;
+      const netProfitLBP = commissionLbp - expensesResult.expenses_lbp;
 
       return {
         month,
@@ -135,7 +114,8 @@ export class FinancialRepository extends BaseRepository<{ id: number }> {
         serviceCommissionsByCurrency,
         expensesUSD: expensesResult.expenses_usd,
         expensesLBP: expensesResult.expenses_lbp,
-        netProfitUSD: totalIncomeUSD - totalExpensesUSD,
+        netProfitUSD,
+        netProfitLBP,
       };
     } catch (error) {
       throw new DatabaseError("Failed to aggregate monthly P&L", {

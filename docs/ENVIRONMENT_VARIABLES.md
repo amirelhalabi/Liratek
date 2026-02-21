@@ -278,6 +278,21 @@ The database path is resolved in this order:
    - Windows: `%APPDATA%/liratek/phone_shop.db`
    - Linux: `~/.local/share/liratek/phone_shop.db`
 
+> **Migration script**: `scripts/migrate.ts` uses a separate env var `LIRATEK_DB_PATH` (falls back to `db-path.txt` then platform default). Set this when running migrations from the CLI:
+>
+> ```bash
+> LIRATEK_DB_PATH=/path/to/phone_shop.db yarn migrate up
+> ```
+
+### WhatsApp Cloud API
+
+WhatsApp credentials are stored in the **database** (`system_settings` table), not in environment variables. Configure them via Settings > Integrations in the app UI:
+
+| Setting Key                  | Description                             |
+| ---------------------------- | --------------------------------------- |
+| `whatsapp_api_key`           | Meta Cloud API access token             |
+| `whatsapp_phone_number_id`   | Sender Phone Number ID from Meta dashboard |
+
 **Example:**
 
 ```bash
@@ -394,8 +409,8 @@ VITE_API_URL=http://localhost:3000
 
 ## 📚 Related Documentation
 
-- [Logging Guide](./LOGGING_GUIDE.md) - Structured logging configuration
-- [Technical Recommendations](./TECHNICAL_RECOMMENDATIONS.md) - Architecture decisions
+- [Logging Guide](./LOGGING.md) - Structured logging configuration
+- [Module Management](./MODULE_MANAGEMENT.md) - Adding/removing modules
 - [README.md](../README.md) - Project overview and setup
 
 ---

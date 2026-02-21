@@ -303,6 +303,15 @@ async function registerHandlers() {
     const moduleHandlers = await import("./handlers/moduleHandlers.js");
     const paymentMethodHandlers =
       await import("./handlers/paymentMethodHandlers.js");
+    const whatsappHandlers = await import("./handlers/whatsappHandlers.js");
+    const itemCostHandlers = await import("./handlers/itemCostHandlers.js");
+    const voucherImageHandlers =
+      await import("./handlers/voucherImageHandlers.js");
+    const customServiceHandlers =
+      await import("./handlers/customServiceHandlers.js");
+    const transactionHandlers =
+      await import("./handlers/transactionHandlers.js");
+    const profitHandlers = await import("./handlers/profitHandlers.js");
 
     // Register all handlers (they auto-register with ipcMain)
     authHandlers.registerAuthHandlers();
@@ -325,6 +334,12 @@ async function registerHandlers() {
     binanceHandlers.registerBinanceHandlers();
     moduleHandlers.registerModuleHandlers();
     paymentMethodHandlers.registerPaymentMethodHandlers();
+    whatsappHandlers.registerWhatsAppHandlers();
+    itemCostHandlers.registerItemCostHandlers();
+    voucherImageHandlers.registerVoucherImageHandlers();
+    customServiceHandlers.registerCustomServiceHandlers();
+    transactionHandlers.registerTransactionHandlers();
+    profitHandlers.registerProfitHandlers();
 
     logger.info("All IPC handlers registered");
 

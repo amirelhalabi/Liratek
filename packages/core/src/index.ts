@@ -6,6 +6,9 @@ export * from "./db/connection.js";
 // Migration system (runner infrastructure; migrations added post-production)
 export * from "./db/migrations/index.js";
 
+// Constants
+export * from "./constants/index.js";
+
 // Utilities
 export * from "./utils/crypto.js";
 export * from "./utils/logger.js";

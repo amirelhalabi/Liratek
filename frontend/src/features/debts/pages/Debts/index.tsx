@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import logger from "../../../../utils/logger";
 import {
   Search,
@@ -8,39 +8,47 @@ import {
   ChevronUp,
   Receipt,
   Eye,
+  Briefcase,
+  Clock,
   X as CloseIcon,
 } from "lucide-react";
-import { PageHeader, roundLBPUp, Select } from "@liratek/ui";
+import {
+  PageHeader,
+  roundLBPUp,
+  Select,
+  useApi,
+  type DebtorSummary,
+  type DebtLedgerEntity,
+} from "@liratek/ui";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { useExchangeRate } from "../../../../hooks/useExchangeRate";
 import { usePaymentMethods } from "../../../../hooks/usePaymentMethods";
-import * as api from "../../../../api/backendApi";
+import { ExportBar } from "@/shared/components/ExportBar";
+import { getDebtAging } from "../../../../api/backendApi";
+
+type DebtAgingBuckets = {
+  client_id: number;
+  current: { usd: number; lbp: number };
+  days_31_60: { usd: number; lbp: number };
+  days_61_90: { usd: number; lbp: number };
+  over_90: { usd: number; lbp: number };
+};
 
 type DebtFilter = "ongoing" | "closed" | "all";
 type SortOrder = "desc" | "asc";
 
 export default function Debts() {
+  const api = useApi();
   const { user } = useAuth();
   const { rate: EXCHANGE_RATE } = useExchangeRate("USD", "LBP");
   const { drawerAffectingMethods } = usePaymentMethods();
-  type Debtor = {
-    id: number;
-    full_name: string;
-    phone_number?: string;
-    total_debt: number;
-    total_debt_usd: number;
-    total_debt_lbp: number;
-  };
-  type DebtHistoryItem = {
-    id: number;
-    created_at: string;
-    amount_usd: number;
-    amount_lbp: number;
-    note?: string;
-    sale_id?: number | null;
-    is_paid: boolean;
-    transaction_type: string; // Add transaction_type from database
-    itemNames?: string[]; // Add this to store item names from sale
+
+  // Table refs for export
+  const debtTableRef = useRef<HTMLTableElement>(null);
+  const paymentTableRef = useRef<HTMLTableElement>(null);
+  const saleItemsTableRef = useRef<HTMLTableElement>(null);
+  type DebtHistoryItem = DebtLedgerEntity & {
+    itemNames?: string[];
   };
 
   type SaleDetail = {
@@ -57,8 +65,10 @@ export default function Debts() {
       subtotal: number;
     }>;
   };
-  const [debtors, setDebtors] = useState<Debtor[]>([]);
-  const [selectedClient, setSelectedClient] = useState<Debtor | null>(null);
+  const [debtors, setDebtors] = useState<DebtorSummary[]>([]);
+  const [selectedClient, setSelectedClient] = useState<DebtorSummary | null>(
+    null,
+  );
   const [history, setHistory] = useState<DebtHistoryItem[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [showRepaymentModal, setShowRepaymentModal] = useState(false);
@@ -67,6 +77,7 @@ export default function Debts() {
   const [selectedSale, setSelectedSale] = useState<SaleDetail | null>(null);
   const [showSaleDetails, setShowSaleDetails] = useState(false); // New state for filter
   const [dateSortOrder, setDateSortOrder] = useState<SortOrder>("desc"); // Default: most recent first
+  const [aging, setAging] = useState<DebtAgingBuckets | null>(null);
 
   // Repayment State
   const [repayAmountUSD, setRepayAmountUSD] = useState<string>("");
@@ -83,6 +94,11 @@ export default function Debts() {
     if (selectedClient) {
       loadHistory(selectedClient.id);
       loadClientTotal(selectedClient.id);
+      getDebtAging(selectedClient.id)
+        .then(setAging)
+        .catch(() => setAging(null));
+    } else {
+      setAging(null);
     }
   }, [selectedClient]);
 
@@ -104,22 +120,46 @@ export default function Debts() {
         ? await window.api.debt.getClientHistory(clientId)
         : await api.getClientDebtHistory(clientId);
 
-      // Fetch item names for each debt entry with a sale_id
+      // Fetch item names for each debt entry with a transaction_id
       const enrichedData = await Promise.all(
         data.map(async (item: DebtHistoryItem) => {
-          if (item.sale_id && (item.amount_usd > 0 || item.amount_lbp > 0)) {
+          if (
+            item.transaction_id &&
+            item.transaction_type === "Sale Debt" &&
+            (item.amount_usd > 0 || item.amount_lbp > 0)
+          ) {
             try {
-              const items = await api.getSaleItems(item.sale_id);
+              const items = await api.getSaleItems(item.transaction_id);
               const itemNames = items
                 .slice(0, 3)
                 .map((saleItem: any) => saleItem.name || "Unknown Product");
               return { ...item, itemNames };
             } catch (error) {
               logger.error(
-                `Failed to load items for sale ${item.sale_id}:`,
+                `Failed to load items for sale ${item.transaction_id}:`,
                 error,
               );
               return item;
+            }
+          }
+          // Fetch custom service description for Custom Service Debt entries
+          if (
+            item.transaction_id &&
+            item.transaction_type === "Custom Service Debt" &&
+            (item.amount_usd > 0 || item.amount_lbp > 0)
+          ) {
+            try {
+              const service = await api.getCustomServiceById(
+                item.transaction_id,
+              );
+              if (service?.description) {
+                return { ...item, itemNames: [service.description] };
+              }
+            } catch (error) {
+              logger.error(
+                `Failed to load custom service ${item.transaction_id}:`,
+                error,
+              );
             }
           }
           return item;
@@ -356,7 +396,10 @@ export default function Debts() {
             </div>
             {/* New filter dropdown */}
             <div className="mt-4">
-              <label className="block text-sm font-medium text-slate-400 mb-2">
+              <label
+                htmlFor="debts-filter"
+                className="block text-sm font-medium text-slate-400 mb-2"
+              >
                 Show Debts:
               </label>
               <Select
@@ -457,6 +500,76 @@ export default function Debts() {
                 </button>
               </div>
 
+              {/* Debt Aging Buckets */}
+              {aging &&
+                (aging.current.usd > 0 ||
+                  aging.days_31_60.usd > 0 ||
+                  aging.days_61_90.usd > 0 ||
+                  aging.over_90.usd > 0) && (
+                  <div className="px-5 py-2 border-b border-slate-700 bg-slate-800/30">
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <Clock size={12} className="text-slate-500" />
+                      <span className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">
+                        Aging
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-4 gap-2">
+                      <div className="bg-slate-900/50 rounded-lg px-3 py-1.5 border border-green-900/30">
+                        <div className="text-[10px] text-green-400 font-medium mb-0.5">
+                          Current
+                        </div>
+                        <div className="text-xs font-bold text-white">
+                          ${aging.current.usd.toFixed(2)}
+                        </div>
+                        {aging.current.lbp > 0 && (
+                          <div className="text-[10px] text-slate-400">
+                            {aging.current.lbp.toLocaleString()} LBP
+                          </div>
+                        )}
+                      </div>
+                      <div className="bg-slate-900/50 rounded-lg px-3 py-1.5 border border-yellow-900/30">
+                        <div className="text-[10px] text-yellow-400 font-medium mb-0.5">
+                          31–60 days
+                        </div>
+                        <div className="text-xs font-bold text-white">
+                          ${aging.days_31_60.usd.toFixed(2)}
+                        </div>
+                        {aging.days_31_60.lbp > 0 && (
+                          <div className="text-[10px] text-slate-400">
+                            {aging.days_31_60.lbp.toLocaleString()} LBP
+                          </div>
+                        )}
+                      </div>
+                      <div className="bg-slate-900/50 rounded-lg px-3 py-1.5 border border-orange-900/30">
+                        <div className="text-[10px] text-orange-400 font-medium mb-0.5">
+                          61–90 days
+                        </div>
+                        <div className="text-xs font-bold text-white">
+                          ${aging.days_61_90.usd.toFixed(2)}
+                        </div>
+                        {aging.days_61_90.lbp > 0 && (
+                          <div className="text-[10px] text-slate-400">
+                            {aging.days_61_90.lbp.toLocaleString()} LBP
+                          </div>
+                        )}
+                      </div>
+                      <div className="bg-slate-900/50 rounded-lg px-3 py-1.5 border border-red-900/30">
+                        <div className="text-[10px] text-red-400 font-medium mb-0.5">
+                          Over 90 days
+                        </div>
+                        <div className="text-xs font-bold text-white">
+                          ${aging.over_90.usd.toFixed(2)}
+                        </div>
+                        {aging.over_90.lbp > 0 && (
+                          <div className="text-[10px] text-slate-400">
+                            {aging.over_90.lbp.toLocaleString()} LBP
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
               {/* Two Tables Side by Side */}
               <div className="flex-1 flex gap-4 p-4 overflow-hidden">
                 {/* Left: Purchases (Debts) */}
@@ -470,7 +583,14 @@ export default function Debts() {
                     </span>
                   </div>
                   <div className="flex-1 overflow-y-auto">
-                    <table className="w-full">
+                    <ExportBar
+                      exportExcel
+                      exportPdf
+                      exportFilename="debt-purchases"
+                      tableRef={debtTableRef}
+                      rowCount={debtEntries.length}
+                    />
+                    <table ref={debtTableRef} className="w-full">
                       <thead className="sticky top-0 bg-slate-900/95 backdrop-blur-sm text-left text-slate-400 border-b border-slate-700/50">
                         <tr>
                           <th className="px-4 py-2 text-xs font-medium">
@@ -513,31 +633,57 @@ export default function Debts() {
                               </div>
                             </td>
                             <td className="px-3 py-2.5 text-slate-400 text-sm">
-                              <div className="flex items-center gap-1.5">
-                                {item.itemNames && item.itemNames.length > 0 ? (
-                                  <div className="flex flex-col gap-0.5 text-xs leading-tight max-w-[140px]">
-                                    {item.itemNames.map((name, idx) => (
-                                      <div key={idx} className="truncate">
-                                        • {name}
-                                      </div>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <span className="truncate max-w-[120px]">
-                                    {item.note || "-"}
-                                  </span>
-                                )}
-                                {item.sale_id && (
-                                  <button
-                                    onClick={() =>
-                                      loadSaleDetails(item.sale_id!)
-                                    }
-                                    className="shrink-0 p-1 rounded bg-violet-500/10 hover:bg-violet-500/20 text-violet-400 transition-all"
-                                    title="View Sale Details"
-                                  >
-                                    <Eye size={13} />
-                                  </button>
-                                )}
+                              <div className="flex flex-col gap-1">
+                                {item.transaction_type &&
+                                  item.transaction_type !== "Sale Debt" && (
+                                    <span
+                                      className={`inline-flex items-center self-start px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                        item.transaction_type === "Service Debt"
+                                          ? "bg-sky-400/10 text-sky-400"
+                                          : item.transaction_type ===
+                                              "Recharge Debt"
+                                            ? "bg-cyan-400/10 text-cyan-400"
+                                            : item.transaction_type ===
+                                                "Custom Service Debt"
+                                              ? "bg-teal-400/10 text-teal-400"
+                                              : "bg-slate-700 text-slate-400"
+                                      }`}
+                                    >
+                                      {item.transaction_type ===
+                                        "Custom Service Debt" && (
+                                        <Briefcase size={10} className="mr-1" />
+                                      )}
+                                      {item.transaction_type}
+                                    </span>
+                                  )}
+                                <div className="flex items-center gap-1.5">
+                                  {item.itemNames &&
+                                  item.itemNames.length > 0 ? (
+                                    <div className="flex flex-col gap-0.5 text-xs leading-tight max-w-[140px]">
+                                      {item.itemNames.map((name) => (
+                                        <div key={name} className="truncate">
+                                          • {name}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <span className="truncate max-w-[120px]">
+                                      {item.note || "-"}
+                                    </span>
+                                  )}
+                                  {item.transaction_id &&
+                                    item.transaction_type === "Sale Debt" && (
+                                      <button
+                                        onClick={() =>
+                                          loadSaleDetails(item.transaction_id!)
+                                        }
+                                        className="shrink-0 p-1 rounded bg-violet-500/10 hover:bg-violet-500/20 text-violet-400 transition-all"
+                                        title="View Sale Details"
+                                      >
+                                        <Eye size={13} />
+                                      </button>
+                                    )}
+                                </div>
                               </div>
                             </td>
                             <td className="px-3 py-2.5 text-right font-mono text-sm font-bold text-red-400">
@@ -598,7 +744,14 @@ export default function Debts() {
                     </span>
                   </div>
                   <div className="flex-1 overflow-y-auto">
-                    <table className="w-full">
+                    <ExportBar
+                      exportExcel
+                      exportPdf
+                      exportFilename="debt-payments"
+                      tableRef={paymentTableRef}
+                      rowCount={paymentEntries.length}
+                    />
+                    <table ref={paymentTableRef} className="w-full">
                       <thead className="sticky top-0 bg-slate-900/95 backdrop-blur-sm text-left text-slate-400 border-b border-slate-700/50">
                         <tr>
                           <th className="px-4 py-2 text-xs font-medium">
@@ -705,6 +858,7 @@ export default function Debts() {
         {showRepaymentModal && (
           <div
             className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            role="presentation"
             onMouseDown={(e) => {
               if (e.target === e.currentTarget) {
                 setShowRepaymentModal(false);
@@ -713,6 +867,7 @@ export default function Debts() {
           >
             <div
               className="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-md shadow-2xl overflow-hidden"
+              role="presentation"
               onMouseDown={(e) => e.stopPropagation()}
             >
               <h3 className="text-xl font-bold text-white mb-4">
@@ -722,10 +877,17 @@ export default function Debts() {
               <div className="space-y-4">
                 {/* Merged Amount Header with Two Columns */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2 text-center uppercase">
+                  <span
+                    id="repay-amount-label"
+                    className="block text-sm font-medium text-slate-300 mb-2 text-center uppercase"
+                  >
                     Amount
-                  </label>
-                  <div className="grid grid-cols-2 gap-3">
+                  </span>
+                  <div
+                    className="grid grid-cols-2 gap-3"
+                    role="group"
+                    aria-labelledby="repay-amount-label"
+                  >
                     {/* USD Column */}
                     <div className="relative">
                       <input
@@ -757,7 +919,10 @@ export default function Debts() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1 uppercase">
+                  <label
+                    htmlFor="repay-paid-by"
+                    className="block text-xs font-medium text-slate-400 mb-1 uppercase"
+                  >
                     Paid By
                   </label>
                   <Select
@@ -771,10 +936,14 @@ export default function Debts() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1 uppercase">
+                  <label
+                    htmlFor="repay-note"
+                    className="block text-xs font-medium text-slate-400 mb-1 uppercase"
+                  >
                     Note
                   </label>
                   <input
+                    id="repay-note"
                     type="text"
                     value={repayNote}
                     onChange={(e) => setRepayNote(e.target.value)}
@@ -853,7 +1022,14 @@ export default function Debts() {
               <div>
                 <h3 className="text-lg font-semibold text-white mb-3">Items</h3>
                 <div className="overflow-x-auto">
-                  <table className="w-full">
+                  <ExportBar
+                    exportExcel
+                    exportPdf
+                    exportFilename="sale-items"
+                    tableRef={saleItemsTableRef}
+                    rowCount={selectedSale?.items?.length ?? 0}
+                  />
+                  <table ref={saleItemsTableRef} className="w-full">
                     <thead className="border-b border-slate-700">
                       <tr className="text-left text-slate-400">
                         <th className="pb-3 text-sm font-medium">Product</th>
@@ -869,8 +1045,8 @@ export default function Debts() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-700">
-                      {selectedSale.items.map((item, index) => (
-                        <tr key={index}>
+                      {selectedSale.items.map((item) => (
+                        <tr key={`${item.product_name}-${item.price_per_unit}`}>
                           <td className="py-3 text-white">
                             {item.product_name}
                           </td>

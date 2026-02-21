@@ -9,8 +9,7 @@
  */
 
 import { useState, useEffect } from "react";
-import * as api from "../api/backendApi";
-import { EXCHANGE_RATE } from "@liratek/ui";
+import { EXCHANGE_RATE, useApi } from "@liratek/ui";
 
 interface ExchangeRateResult {
   /** Current exchange rate */
@@ -27,6 +26,7 @@ export function useExchangeRate(
   fromCode = "USD",
   toCode = "LBP",
 ): ExchangeRateResult {
+  const api = useApi();
   const [rate, setRate] = useState<number>(
     fromCode === "USD" && toCode === "LBP" ? EXCHANGE_RATE : 1,
   );

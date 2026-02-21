@@ -1,7 +1,10 @@
-import { useEffect, useState } from "react";
-import * as api from "../../../../api/backendApi";
+import { useEffect, useState, useRef } from "react";
+import { useApi } from "@liratek/ui";
+import { ExportBar } from "@/shared/components/ExportBar";
 
 export default function RatesManager() {
+  const api = useApi();
+  const tableRef = useRef<HTMLTableElement>(null);
   const [list, setList] = useState<
     Array<{
       id: number;
@@ -70,7 +73,14 @@ export default function RatesManager() {
       </div>
 
       <div className="border border-slate-700 rounded overflow-hidden">
-        <table className="w-full text-left">
+        <ExportBar
+          exportExcel
+          exportPdf
+          exportFilename="exchange-rates"
+          tableRef={tableRef}
+          rowCount={list.length}
+        />
+        <table ref={tableRef} className="w-full text-left">
           <thead className="bg-slate-900 text-slate-400 text-xs uppercase">
             <tr>
               <th className="p-2">Pair</th>

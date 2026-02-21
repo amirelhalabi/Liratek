@@ -6,6 +6,8 @@
  */
 
 import { BaseRepository } from "./BaseRepository.js";
+import { getTransactionRepository } from "./TransactionRepository.js";
+import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 
 // =============================================================================
 // Entity Types
@@ -82,12 +84,34 @@ export class BinanceRepository extends BaseRepository<BinanceTransactionEntity> 
 
       const id = Number(result.lastInsertRowid);
 
+      // Create unified transaction row
+      const delta =
+        data.type === "RECEIVE"
+          ? Math.abs(data.amount)
+          : -Math.abs(data.amount);
+
+      const txnId = getTransactionRepository().createTransaction({
+        type: TRANSACTION_TYPES.BINANCE,
+        source_table: "binance_transactions",
+        source_id: id,
+        user_id: createdBy,
+        amount_usd: delta,
+        summary: `Binance ${data.type}: ${data.amount} ${currencyCode}`,
+        metadata_json: {
+          type: data.type,
+          amount: data.amount,
+          currency_code: currencyCode,
+          description: data.description,
+          client_name: data.clientName,
+        },
+      });
+
       // Record payment and update drawer balance
       const insertPayment = this.db.prepare(`
         INSERT INTO payments (
-          source_type, source_id, method, drawer_name, currency_code, amount, note, created_by
+          transaction_id, method, drawer_name, currency_code, amount, note, created_by
         ) VALUES (
-          'BINANCE', ?, 'BINANCE', ?, ?, ?, ?, ?
+          ?, 'BINANCE', ?, ?, ?, ?, ?
         )
       `);
 
@@ -100,13 +124,8 @@ export class BinanceRepository extends BaseRepository<BinanceTransactionEntity> 
       `);
 
       // RECEIVE = inflow (+), SEND = outflow (-)
-      const delta =
-        data.type === "RECEIVE"
-          ? Math.abs(data.amount)
-          : -Math.abs(data.amount);
-
       insertPayment.run(
-        id,
+        txnId,
         drawerName,
         currencyCode,
         delta,
@@ -117,26 +136,6 @@ export class BinanceRepository extends BaseRepository<BinanceTransactionEntity> 
 
       return { id };
     })();
-  }
-
-  /**
-   * Log binance activity
-   */
-  logActivity(data: CreateBinanceTransactionData): void {
-    const logStmt = this.db.prepare(`
-      INSERT INTO activity_logs (user_id, action, details_json, created_at)
-      VALUES (?, 'Binance Transaction', ?, CURRENT_TIMESTAMP)
-    `);
-    logStmt.run(
-      data.createdBy || 1,
-      JSON.stringify({
-        type: data.type,
-        amount: data.amount,
-        currencyCode: data.currencyCode || "USDT",
-        description: data.description,
-        clientName: data.clientName,
-      }),
-    );
   }
 
   // ---------------------------------------------------------------------------

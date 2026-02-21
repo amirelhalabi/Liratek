@@ -34,7 +34,6 @@ describe("MaintenanceService", () => {
       updateJob: jest.fn(),
       getJobs: jest.fn(),
       deleteJob: jest.fn(),
-      logActivity: jest.fn(),
     };
 
     // Make the constructor return our mock
@@ -68,15 +67,6 @@ describe("MaintenanceService", () => {
             issue_description: "Cracked screen",
             price_usd: 150,
             status: "In Progress",
-          }),
-        );
-        expect(mockRepo.logActivity).toHaveBeenCalledWith(
-          1,
-          "Maintenance Job Created",
-          expect.objectContaining({
-            drawer: "General_Drawer_B",
-            device: "iPhone 14",
-            price_usd: 150,
           }),
         );
       });
@@ -175,62 +165,6 @@ describe("MaintenanceService", () => {
         );
         expect(mockRepo.createJob).not.toHaveBeenCalled();
       });
-
-      it("should log activity when job is delivered and paid", () => {
-        const params: SaveJobParams = {
-          id: 1,
-          device_name: "iPhone 14 Pro",
-          final_amount_usd: 200,
-          status: "Delivered_Paid",
-        };
-
-        const result = service.saveJob(params);
-
-        expect(result).toEqual({ success: true, id: 1 });
-        expect(mockRepo.logActivity).toHaveBeenCalledWith(
-          1,
-          "Maintenance Job Completed",
-          expect.objectContaining({
-            drawer: "General_Drawer_B",
-            device: "iPhone 14 Pro",
-            amount_usd: 200,
-            status: "Delivered_Paid",
-          }),
-        );
-      });
-
-      it("should log activity when job is delivered", () => {
-        const params: SaveJobParams = {
-          id: 2,
-          device_name: "Samsung Tab",
-          final_amount_usd: 50,
-          status: "Delivered",
-        };
-
-        const result = service.saveJob(params);
-
-        expect(result).toEqual({ success: true, id: 2 });
-        expect(mockRepo.logActivity).toHaveBeenCalledWith(
-          1,
-          "Maintenance Job Completed",
-          expect.objectContaining({
-            status: "Delivered",
-          }),
-        );
-      });
-
-      it("should not log completion for in-progress status", () => {
-        const params: SaveJobParams = {
-          id: 3,
-          device_name: "MacBook Pro",
-          status: "In Progress",
-        };
-
-        service.saveJob(params);
-
-        // Should not log activity for updates that aren't completion
-        expect(mockRepo.logActivity).not.toHaveBeenCalled();
-      });
     });
 
     describe("default values", () => {
@@ -256,6 +190,7 @@ describe("MaintenanceService", () => {
           paid_lbp: 0,
           exchange_rate: 0,
           status: "In Progress",
+          paid_by: "CASH",
           note: null,
         });
       });

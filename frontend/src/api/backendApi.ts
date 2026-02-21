@@ -192,7 +192,7 @@ export async function getDrafts() {
 
 export type ProcessSaleResult = {
   success: boolean;
-  saleId?: number;
+  id?: number;
   error?: string;
 };
 
@@ -970,6 +970,258 @@ export async function getRecentActivity(limit: number = 100) {
   return res.activities || [];
 }
 
+// ==================== Transactions API ====================
+
+export interface TransactionFiltersParam {
+  type?: string;
+  status?: string;
+  user_id?: number;
+  client_id?: number;
+  source_table?: string;
+  from?: string;
+  to?: string;
+}
+
+export async function getRecentTransactions(
+  limit: number = 50,
+  filters?: TransactionFiltersParam,
+) {
+  if (isElectron()) {
+    return (window as any).api.transactions.getRecent(limit, filters);
+  }
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (filters) {
+    Object.entries(filters).forEach(([k, v]) => {
+      if (v !== undefined) params.set(k, String(v));
+    });
+  }
+  const res = await requestJson<{ success: boolean; transactions: any[] }>(
+    `/api/transactions/recent?${params}`,
+  );
+  return res.transactions || [];
+}
+
+export async function getTransactionById(id: number) {
+  if (isElectron()) {
+    return (window as any).api.transactions.getById(id);
+  }
+  const res = await requestJson<{ success: boolean; transaction: any }>(
+    `/api/transactions/${id}`,
+  );
+  return res.transaction || null;
+}
+
+export async function getClientTransactions(
+  clientId: number,
+  limit: number = 100,
+) {
+  if (isElectron()) {
+    return (window as any).api.transactions.getByClient(clientId, limit);
+  }
+  const res = await requestJson<{ success: boolean; transactions: any[] }>(
+    `/api/transactions/client/${clientId}?limit=${limit}`,
+  );
+  return res.transactions || [];
+}
+
+export async function voidTransaction(id: number) {
+  if (isElectron()) {
+    return (window as any).api.transactions.void(id);
+  }
+  return requestJson<{ success: boolean; reversalId?: number; error?: string }>(
+    `/api/transactions/${id}/void`,
+    { method: "POST" },
+  );
+}
+
+export async function refundTransaction(id: number) {
+  if (isElectron()) {
+    return (window as any).api.transactions.refund(id);
+  }
+  return requestJson<{ success: boolean; refundId?: number; error?: string }>(
+    `/api/transactions/${id}/refund`,
+    { method: "POST" },
+  );
+}
+
+export async function getTransactionDailySummary(date: string) {
+  if (isElectron()) {
+    return (window as any).api.transactions.dailySummary(date);
+  }
+  const res = await requestJson<{ success: boolean; summary: any }>(
+    `/api/transactions/analytics/daily-summary?date=${date}`,
+  );
+  return res.summary || null;
+}
+
+export async function getDebtAging(clientId: number) {
+  if (isElectron()) {
+    return (window as any).api.transactions.debtAging(clientId);
+  }
+  const res = await requestJson<{ success: boolean; aging: any }>(
+    `/api/transactions/analytics/debt-aging/${clientId}`,
+  );
+  return res.aging || null;
+}
+
+export async function getOverdueDebts() {
+  if (isElectron()) {
+    return (window as any).api.transactions.overdueDebts();
+  }
+  const res = await requestJson<{ success: boolean; overdueDebts: any[] }>(
+    `/api/transactions/analytics/overdue-debts`,
+  );
+  return res.overdueDebts || [];
+}
+
+export async function getRevenueByType(from: string, to: string) {
+  if (isElectron()) {
+    return (window as any).api.transactions.revenueByType(from, to);
+  }
+  const res = await requestJson<{ success: boolean; revenue: any[] }>(
+    `/api/transactions/analytics/revenue-by-type?from=${from}&to=${to}`,
+  );
+  return res.revenue || [];
+}
+
+export async function getRevenueByUser(from: string, to: string) {
+  if (isElectron()) {
+    return (window as any).api.transactions.revenueByUser(from, to);
+  }
+  const res = await requestJson<{ success: boolean; revenue: any[] }>(
+    `/api/transactions/analytics/revenue-by-user?from=${from}&to=${to}`,
+  );
+  return res.revenue || [];
+}
+
+// ==================== Reporting API ====================
+
+export async function getDailySummaries(from: string, to: string) {
+  if (isElectron()) {
+    return (window as any).api.reporting.dailySummaries(from, to);
+  }
+  const res = await requestJson<{ success: boolean; summaries: any[] }>(
+    `/api/transactions/reports/daily-summaries?from=${from}&to=${to}`,
+  );
+  return res.summaries || [];
+}
+
+export async function getClientHistory(clientId: number, limit?: number) {
+  if (isElectron()) {
+    return (window as any).api.reporting.clientHistory(clientId, limit);
+  }
+  const limitParam = limit ? `?limit=${limit}` : "";
+  const res = await requestJson<{ success: boolean; history: any }>(
+    `/api/transactions/reports/client-history/${clientId}${limitParam}`,
+  );
+  return res.history || null;
+}
+
+export async function getRevenueByModule(from: string, to: string) {
+  if (isElectron()) {
+    return (window as any).api.reporting.revenueByModule(from, to);
+  }
+  const res = await requestJson<{ success: boolean; revenue: any[] }>(
+    `/api/transactions/reports/revenue-by-module?from=${from}&to=${to}`,
+  );
+  return res.revenue || [];
+}
+
+export async function getReportOverdueDebts() {
+  if (isElectron()) {
+    return (window as any).api.reporting.overdueDebts();
+  }
+  const res = await requestJson<{ success: boolean; overdueDebts: any[] }>(
+    `/api/transactions/reports/overdue-debts`,
+  );
+  return res.overdueDebts || [];
+}
+
+// ==================== Profits API ====================
+
+export async function getProfitSummary(from: string, to: string) {
+  return ipcOrHttp(
+    async () => getElectronApi().profits.summary(from, to),
+    async () => {
+      const qs = new URLSearchParams({ from, to });
+      const res = await requestJson<{ success: boolean; data: any }>(
+        `/api/profits/summary?${qs}`,
+      );
+      return res.data;
+    },
+  );
+}
+
+export async function getProfitByModule(from: string, to: string) {
+  return ipcOrHttp(
+    async () => getElectronApi().profits.byModule(from, to),
+    async () => {
+      const qs = new URLSearchParams({ from, to });
+      const res = await requestJson<{ success: boolean; data: any[] }>(
+        `/api/profits/by-module?${qs}`,
+      );
+      return res.data || [];
+    },
+  );
+}
+
+export async function getProfitByDate(from: string, to: string) {
+  return ipcOrHttp(
+    async () => getElectronApi().profits.byDate(from, to),
+    async () => {
+      const qs = new URLSearchParams({ from, to });
+      const res = await requestJson<{ success: boolean; data: any[] }>(
+        `/api/profits/by-date?${qs}`,
+      );
+      return res.data || [];
+    },
+  );
+}
+
+export async function getProfitByPaymentMethod(from: string, to: string) {
+  return ipcOrHttp(
+    async () => getElectronApi().profits.byPaymentMethod(from, to),
+    async () => {
+      const qs = new URLSearchParams({ from, to });
+      const res = await requestJson<{ success: boolean; data: any[] }>(
+        `/api/profits/by-payment-method?${qs}`,
+      );
+      return res.data || [];
+    },
+  );
+}
+
+export async function getProfitByUser(from: string, to: string) {
+  return ipcOrHttp(
+    async () => getElectronApi().profits.byUser(from, to),
+    async () => {
+      const qs = new URLSearchParams({ from, to });
+      const res = await requestJson<{ success: boolean; data: any[] }>(
+        `/api/profits/by-user?${qs}`,
+      );
+      return res.data || [];
+    },
+  );
+}
+
+export async function getProfitByClient(
+  from: string,
+  to: string,
+  limit?: number,
+) {
+  return ipcOrHttp(
+    async () => getElectronApi().profits.byClient(from, to, limit),
+    async () => {
+      const qs = new URLSearchParams({ from, to });
+      if (limit) qs.set("limit", String(limit));
+      const res = await requestJson<{ success: boolean; data: any[] }>(
+        `/api/profits/by-client?${qs}`,
+      );
+      return res.data || [];
+    },
+  );
+}
+
 // ==================== Reports API ====================
 
 export async function generatePDF(html: string, filename?: string) {
@@ -1273,6 +1525,18 @@ export async function getCurrenciesByModule(moduleKey: string) {
   );
 }
 
+export async function getFullCurrenciesByDrawer(drawerName: string) {
+  return ipcOrHttp(
+    async () => getElectronApi().currencies.fullForDrawer(drawerName),
+    async () => {
+      const res = await requestJson<{ success: boolean; currencies: any[] }>(
+        `/api/currencies/by-drawer/${drawerName}`,
+      );
+      return res.currencies;
+    },
+  );
+}
+
 export async function setModulesForCurrency(code: string, modules: string[]) {
   return ipcOrHttp(
     async () => getElectronApi().currencies.setModules(code, modules),
@@ -1526,6 +1790,214 @@ export async function linkTransactionToSession(data: {
         {
           method: "POST",
           body: data,
+        },
+      ),
+  );
+}
+
+// WhatsApp
+export async function sendWhatsAppTestMessage(
+  recipientPhone: string,
+  shopName: string,
+): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().whatsapp.sendTest(recipientPhone, shopName),
+    async () =>
+      requestJson<{ success: boolean; messageId?: string; error?: string }>(
+        "/api/whatsapp/send-test",
+        {
+          method: "POST",
+          body: { recipientPhone, shopName },
+        },
+      ),
+  );
+}
+
+export async function sendWhatsAppMessage(
+  recipientPhone: string,
+  message: string,
+): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().whatsapp.sendMessage(recipientPhone, message),
+    async () =>
+      requestJson<{ success: boolean; messageId?: string; error?: string }>(
+        "/api/whatsapp/send-message",
+        {
+          method: "POST",
+          body: { recipientPhone, message },
+        },
+      ),
+  );
+}
+
+// =============================================================================
+// Item Costs
+// =============================================================================
+
+export async function getItemCosts(): Promise<any[]> {
+  return ipcOrHttp(
+    async () => getElectronApi().itemCosts.getAll(),
+    async () => {
+      const res = await requestJson<{ success: boolean; costs: any[] }>(
+        "/api/item-costs",
+      );
+      return res.costs ?? [];
+    },
+  );
+}
+
+export async function setItemCost(data: {
+  provider: string;
+  category: string;
+  itemKey: string;
+  cost: number;
+  currency: string;
+}): Promise<{ success: boolean; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().itemCosts.set(data),
+    async () =>
+      requestJson<{ success: boolean; error?: string }>("/api/item-costs", {
+        method: "POST",
+        body: data,
+      }),
+  );
+}
+
+// =============================================================================
+// Voucher Images
+// =============================================================================
+
+export async function getVoucherImages(): Promise<any[]> {
+  return ipcOrHttp(
+    async () => getElectronApi().voucherImages.getAll(),
+    async () => {
+      const res = await requestJson<{ success: boolean; images: any[] }>(
+        "/api/voucher-images",
+      );
+      return res.images ?? [];
+    },
+  );
+}
+
+export async function setVoucherImage(data: {
+  provider: string;
+  category: string;
+  itemKey: string;
+  imageData: string;
+}): Promise<{ success: boolean; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().voucherImages.set(data),
+    async () =>
+      requestJson<{ success: boolean; error?: string }>("/api/voucher-images", {
+        method: "POST",
+        body: data,
+      }),
+  );
+}
+
+export async function deleteVoucherImage(
+  id: number,
+): Promise<{ success: boolean; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().voucherImages.delete(id),
+    async () =>
+      requestJson<{ success: boolean; error?: string }>(
+        `/api/voucher-images/${id}`,
+        {
+          method: "DELETE",
+        },
+      ),
+  );
+}
+
+// =============================================================================
+// Custom Services
+// =============================================================================
+
+export async function getCustomServices(filter?: {
+  date?: string;
+}): Promise<any[]> {
+  return ipcOrHttp(
+    async () => getElectronApi().customServices.list(filter),
+    async () => {
+      const qs = new URLSearchParams();
+      if (filter?.date) qs.set("date", filter.date);
+      const res = await requestJson<{ success: boolean; services: any[] }>(
+        `/api/custom-services?${qs.toString()}`,
+      );
+      return res.services ?? [];
+    },
+  );
+}
+
+export async function getCustomServicesSummary(): Promise<{
+  count: number;
+  totalCostUsd: number;
+  totalCostLbp: number;
+  totalPriceUsd: number;
+  totalPriceLbp: number;
+  totalProfitUsd: number;
+  totalProfitLbp: number;
+}> {
+  return ipcOrHttp(
+    async () => getElectronApi().customServices.summary(),
+    async () => {
+      const res = await requestJson<{ success: boolean; summary: any }>(
+        `/api/custom-services/summary`,
+      );
+      return res.summary;
+    },
+  );
+}
+
+export async function getCustomServiceById(id: number): Promise<any> {
+  return ipcOrHttp(
+    async () => getElectronApi().customServices.get(id),
+    async () => {
+      const res = await requestJson<{ success: boolean; service: any }>(
+        `/api/custom-services/${id}`,
+      );
+      return res.service ?? null;
+    },
+  );
+}
+
+export async function addCustomService(data: {
+  description: string;
+  cost_usd?: number;
+  cost_lbp?: number;
+  price_usd?: number;
+  price_lbp?: number;
+  paid_by?: string;
+  status?: string;
+  client_id?: number;
+  client_name?: string;
+  phone_number?: string;
+  note?: string;
+}): Promise<{ success: boolean; id?: number; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().customServices.add(data),
+    async () =>
+      requestJson<{ success: boolean; id?: number; error?: string }>(
+        `/api/custom-services`,
+        {
+          method: "POST",
+          body: data,
+        },
+      ),
+  );
+}
+
+export async function deleteCustomService(
+  id: number,
+): Promise<{ success: boolean; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().customServices.delete(id),
+    async () =>
+      requestJson<{ success: boolean; error?: string }>(
+        `/api/custom-services/${id}`,
+        {
+          method: "DELETE",
         },
       ),
   );

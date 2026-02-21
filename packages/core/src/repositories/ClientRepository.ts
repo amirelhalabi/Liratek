@@ -13,6 +13,8 @@ import {
   type PaginatedResult,
 } from "./BaseRepository.js";
 import { DatabaseError, BusinessRuleError } from "../utils/errors.js";
+import { getTransactionRepository } from "./TransactionRepository.js";
+import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 
 // =============================================================================
 // Types
@@ -152,7 +154,25 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
         data.whatsapp_opt_in ? 1 : 0,
       );
 
-      return { id: result.lastInsertRowid as number };
+      const clientId = result.lastInsertRowid as number;
+
+      // Create unified transaction row
+      getTransactionRepository().createTransaction({
+        type: TRANSACTION_TYPES.CLIENT_CREATED,
+        source_table: "clients",
+        source_id: clientId,
+        user_id: 1,
+        amount_usd: 0,
+        amount_lbp: 0,
+        client_id: clientId,
+        summary: `Client created: ${data.full_name}`,
+        metadata_json: {
+          fullName: data.full_name,
+          phoneNumber: data.phone_number,
+        },
+      });
+
+      return { id: clientId };
     } catch (error) {
       const code = (error as { code?: string })?.code;
       if (code === "SQLITE_CONSTRAINT_UNIQUE") {
@@ -242,6 +262,24 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
         id,
       );
 
+      if (result.changes > 0) {
+        // Create unified transaction row
+        getTransactionRepository().createTransaction({
+          type: TRANSACTION_TYPES.CLIENT_UPDATED,
+          source_table: "clients",
+          source_id: id,
+          user_id: 1,
+          amount_usd: 0,
+          amount_lbp: 0,
+          client_id: id,
+          summary: `Client updated: ${data.full_name}`,
+          metadata_json: {
+            fullName: data.full_name,
+            phoneNumber: data.phone_number,
+          },
+        });
+      }
+
       return result.changes > 0;
     } catch (error) {
       const code = (error as { code?: string })?.code;
@@ -286,7 +324,30 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
       );
     }
 
-    return this.delete(id);
+    // Get client info for logging before deletion
+    const client = this.findById(id);
+
+    const deleted = this.delete(id);
+
+    if (deleted && client) {
+      // Create unified transaction row
+      getTransactionRepository().createTransaction({
+        type: TRANSACTION_TYPES.CLIENT_DELETED,
+        source_table: "clients",
+        source_id: id,
+        user_id: 1,
+        amount_usd: 0,
+        amount_lbp: 0,
+        client_id: id,
+        summary: `Client deleted: ${client.full_name}`,
+        metadata_json: {
+          fullName: client.full_name,
+          phoneNumber: client.phone_number,
+        },
+      });
+    }
+
+    return deleted;
   }
 
   /**

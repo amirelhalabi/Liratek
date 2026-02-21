@@ -45,7 +45,6 @@ export class BinanceService {
   addTransaction(data: CreateBinanceTransactionData): BinanceResult {
     try {
       const result = this.binanceRepo.createTransaction(data);
-      this.binanceRepo.logActivity(data);
 
       binanceLogger.info(
         {

@@ -12,7 +12,7 @@ import React, {
   useEffect,
   useCallback,
 } from "react";
-import * as api from "../api/backendApi";
+import { useApi } from "@liratek/ui";
 
 export interface ModuleInfo {
   key: string;
@@ -35,6 +35,7 @@ interface ModuleContextValue {
 const ModuleContext = createContext<ModuleContextValue | null>(null);
 
 export function ModuleProvider({ children }: { children: React.ReactNode }) {
+  const api = useApi();
   const [allModules, setAllModules] = useState<ModuleInfo[]>([]);
 
   const loadModules = useCallback(async () => {
@@ -44,7 +45,7 @@ export function ModuleProvider({ children }: { children: React.ReactNode }) {
     } catch {
       // Fallback: keep existing modules if API fails
     }
-  }, []);
+  }, [api]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: initial data fetch

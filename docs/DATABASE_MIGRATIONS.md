@@ -1,6 +1,6 @@
 # Database Schema & Migrations
 
-**Last Updated:** February 15, 2026
+**Last Updated:** February 21, 2026
 
 ---
 
@@ -17,7 +17,7 @@ LiraTek uses a two-part approach to database management:
 
 All tables, indexes, and seed data are defined in **`electron-app/create_db.sql`**. When the app starts for the first time and finds no database, it runs this file to create everything from scratch.
 
-The `MIGRATIONS[]` array in `packages/core/src/db/migrations/index.ts` is **empty**. Any schema change right now should go directly into `create_db.sql`.
+The `MIGRATIONS[]` array in `packages/core/src/db/migrations/index.ts` contains migrations v9–v20. These run automatically on app startup for existing databases. Any new schema change should be added both to `create_db.sql` (for fresh installs) and as a new migration entry (for existing databases).
 
 ### Post-production (future)
 
@@ -31,11 +31,11 @@ Once real users have data, you can't re-run `create_db.sql` without destroying t
 
 ## Schema Files
 
-| File                                       | Purpose                                              |
-| ------------------------------------------ | ---------------------------------------------------- |
-| `electron-app/create_db.sql`               | Full canonical schema (tables, indexes, seeds)       |
-| `packages/core/src/db/migrations/index.ts` | Migration runner + registry (empty until production) |
-| `scripts/migrate.ts`                       | CLI tool for manual migration management             |
+| File                                       | Purpose                                        |
+| ------------------------------------------ | ---------------------------------------------- |
+| `electron-app/create_db.sql`               | Full canonical schema (tables, indexes, seeds) |
+| `packages/core/src/db/migrations/index.ts` | Migration runner + registry (v9–v20)           |
+| `scripts/migrate.ts`                       | CLI tool for manual migration management       |
 
 ---
 
@@ -53,7 +53,7 @@ CREATE TABLE schema_migrations (
 
 - Created by `create_db.sql` for new databases
 - Also created by the migration runner if missing (for safety)
-- Currently empty — will have rows once production migrations are added
+- Currently has entries for v9–v20
 
 ---
 

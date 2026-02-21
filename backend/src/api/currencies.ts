@@ -110,6 +110,36 @@ router.get("/by-module/:moduleKey", (_req, res): void => {
   }
 });
 
+// GET /api/currencies/drawer-currencies - Get all drawer→currency[] mappings
+router.get("/drawer-currencies", (_req, res): void => {
+  try {
+    const currencyService = getCurrencyService();
+    const drawerCurrencies = currencyService.getAllDrawerCurrencies();
+    res.json({ success: true, drawerCurrencies });
+  } catch (error) {
+    logger.error({ error }, "Get all drawer currencies error");
+    res
+      .status(500)
+      .json({ success: false, error: "Failed to fetch drawer currencies" });
+  }
+});
+
+// GET /api/currencies/by-drawer/:drawerName - Get full currencies for a drawer
+router.get("/by-drawer/:drawerName", (_req, res): void => {
+  try {
+    const currencyService = getCurrencyService();
+    const currencies = currencyService.getFullCurrenciesForDrawer(
+      _req.params.drawerName,
+    );
+    res.json({ success: true, currencies });
+  } catch (error) {
+    logger.error({ error }, "Get currencies by drawer error");
+    res
+      .status(500)
+      .json({ success: false, error: "Failed to fetch currencies by drawer" });
+  }
+});
+
 // GET /api/currencies/:code/modules - Get modules for a currency
 router.get("/:code/modules", (_req, res): void => {
   try {

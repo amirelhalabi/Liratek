@@ -8,6 +8,8 @@
 import { BaseRepository } from "./BaseRepository.js";
 import { DatabaseError } from "../utils/errors.js";
 import { salesLogger } from "../utils/logger.js";
+import { getTransactionRepository } from "./TransactionRepository.js";
+import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 
 // =============================================================================
 // Types
@@ -178,7 +180,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
    */
   processSale(sale: SaleRequest): {
     success: boolean;
-    saleId?: number;
+    id?: number;
     error?: string;
   } {
     const db = this.db;
@@ -284,6 +286,26 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           saleId = saleResult.lastInsertRowid as number;
         }
 
+        // Create unified transaction row
+        const txnId = getTransactionRepository().createTransaction({
+          type: TRANSACTION_TYPES.SALE,
+          source_table: "sales",
+          source_id: saleId,
+          user_id: 1,
+          amount_usd: sale.final_amount,
+          amount_lbp: sale.payment_lbp || 0,
+          exchange_rate: sale.exchange_rate,
+          client_id: finalClientId ?? null,
+          summary: `Sale #${saleId}: $${sale.final_amount}`,
+          metadata_json: {
+            total_amount: sale.total_amount,
+            discount: sale.discount,
+            final_amount: sale.final_amount,
+            status,
+            item_count: sale.items.length,
+          },
+        });
+
         // Persist payment lines + update running balances (drawer_balances)
         // - If sale.payments is not provided, we store inferred CASH lines from legacy totals.
         // - Change is treated as CASH (General drawer) outflow.
@@ -311,14 +333,14 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             ];
 
         db.prepare(
-          `DELETE FROM payments WHERE source_type = 'SALE' AND source_id = ?`,
+          `DELETE FROM payments WHERE transaction_id IN (SELECT id FROM transactions WHERE source_table = 'sales' AND source_id = ?)`,
         ).run(saleId);
 
         const insertPayment = db.prepare(`
           INSERT INTO payments (
-            source_type, source_id, method, drawer_name, currency_code, amount, note, created_by
+            transaction_id, method, drawer_name, currency_code, amount, note, created_by
           ) VALUES (
-            'SALE', ?, ?, ?, ?, ?, ?, ?
+            ?, ?, ?, ?, ?, ?, ?
           )
         `);
 
@@ -338,7 +360,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           if (!isDrawerAffectingMethod(p.method)) continue;
           const drawerName = paymentMethodToDrawerName(p.method);
           insertPayment.run(
-            saleId,
+            txnId,
             p.method,
             drawerName,
             p.currency_code,
@@ -353,7 +375,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         const changeLbp = Math.abs(sale.change_given_lbp || 0);
         if (changeUsd) {
           insertPayment.run(
-            saleId,
+            txnId,
             "CASH",
             "General",
             "USD",
@@ -365,7 +387,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         }
         if (changeLbp) {
           insertPayment.run(
-            saleId,
+            txnId,
             "CASH",
             "General",
             "LBP",
@@ -417,37 +439,20 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
 
             const debtStmt = db.prepare(`
               INSERT INTO debt_ledger (
-                client_id, transaction_type, amount_usd, sale_id, note
-              ) VALUES (?, ?, ?, ?, ?)
+                client_id, transaction_type, amount_usd, transaction_id, note, due_date
+              ) VALUES (?, ?, ?, ?, ?, datetime('now', '+30 days'))
             `);
             debtStmt.run(
               finalClientId,
               "Sale Debt",
               debtAmount,
-              saleId,
+              txnId,
               "Balance from Sale",
             );
           }
         }
 
-        // Log the activity
-        const logStmt = db.prepare(`
-          INSERT INTO activity_logs (user_id, action, table_name, record_id, details_json)
-          VALUES (?, ?, 'sales', ?, ?)
-        `);
-        logStmt.run(
-          1, // Default user ID
-          "SALE",
-          saleId,
-          JSON.stringify({
-            drawer: sale.drawer_name || "General_Drawer_B",
-            amount_usd: sale.payment_usd,
-            amount_lbp: sale.payment_lbp,
-            status,
-          }),
-        );
-
-        return { success: true, saleId };
+        return { success: true, id: saleId };
       });
 
       return processTransaction();

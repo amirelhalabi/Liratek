@@ -5,12 +5,13 @@
 
 import { useState, useCallback } from "react";
 import logger from "../../../utils/logger";
-import * as api from "../../../api/backendApi";
+import { useApi } from "@liratek/ui";
 
 /** Dynamic balances: Record<drawerName, Record<currencyCode, balance>> */
 export type DynamicBalances = Record<string, Record<string, number>>;
 
 export function useSystemExpected() {
+  const api = useApi();
   const [systemExpected, setSystemExpected] = useState<DynamicBalances | null>(
     null,
   );

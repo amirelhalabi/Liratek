@@ -1,44 +1,28 @@
 /**
  * ActivityService Unit Tests
+ * (Legacy adapter — delegates to TransactionService)
  */
 
 import { jest } from "@jest/globals";
-
-jest.mock("@liratek/core", () => {
-  const actual =
-    jest.requireActual<typeof import("@liratek/core")>("@liratek/core");
-  return {
-    ...actual,
-    getActivityRepository: jest.fn(),
-  };
-});
 
 import {
   ActivityService,
   getActivityService,
   resetActivityService,
-  ActivityLogEntity,
-  SyncErrorEntity,
-  getActivityRepository,
 } from "@liratek/core";
 
 describe("ActivityService", () => {
   let service: ActivityService;
-  let mockRepo: any;
+  const mockGetRecent = jest.fn();
+  const mockPrepareAll = jest.fn();
+  const mockPrepare = jest.fn(() => ({ all: mockPrepareAll }));
+  const mockTxnService = { getRecent: mockGetRecent } as any;
+  const mockDbGetter = () => ({ prepare: mockPrepare }) as any;
 
   beforeEach(() => {
     jest.clearAllMocks();
     resetActivityService();
-
-    // Create mock repository
-    mockRepo = {
-      getRecentLogs: jest.fn(),
-      logActivity: jest.fn(),
-      getSyncErrors: jest.fn(),
-    };
-
-    (getActivityRepository as jest.Mock).mockReturnValue(mockRepo);
-    service = new ActivityService(mockRepo);
+    service = new ActivityService(mockTxnService, mockDbGetter);
   });
 
   // ===========================================================================
@@ -46,164 +30,61 @@ describe("ActivityService", () => {
   // ===========================================================================
 
   describe("getRecentLogs", () => {
-    it("should return recent logs with default limit", () => {
-      const mockLogs: ActivityLogEntity[] = [
+    it("should map transaction rows to legacy ActivityLogEntity format", () => {
+      mockGetRecent.mockReturnValue([
         {
           id: 1,
+          type: "SALE",
+          source_table: "sales",
+          source_id: 42,
           user_id: 1,
-          action: "Sale Completed",
-          details_json: JSON.stringify({ amount: 100 }),
+          username: "admin",
+          client_name: "John",
+          metadata_json: '{"amount":100}',
           created_at: "2025-01-15 10:00:00",
+          amount_usd: 100,
+          amount_lbp: 0,
+          client_id: 5,
+          exchange_rate: 90000,
+          summary: "Sale #42",
+          status: "ACTIVE",
         },
-        {
-          id: 2,
-          user_id: 1,
-          action: "Client Created",
-          details_json: JSON.stringify({ name: "John Doe" }),
-          created_at: "2025-01-15 09:00:00",
-        },
-      ];
-      mockRepo.getRecentLogs.mockReturnValue(mockLogs);
+      ]);
 
       const result = service.getRecentLogs();
 
-      expect(result).toEqual(mockLogs);
-      expect(mockRepo.getRecentLogs).toHaveBeenCalledWith(undefined);
-    });
-
-    it("should return recent logs with custom limit", () => {
-      const mockLogs: ActivityLogEntity[] = [
+      expect(result).toEqual([
         {
           id: 1,
           user_id: 1,
-          action: "Exchange Transaction",
-          details_json: JSON.stringify({ from: "USD", to: "LBP" }),
+          username: "admin",
+          action: "SALE",
+          table_name: "sales",
+          record_id: 42,
+          details_json: '{"amount":100}',
+          customer_name: "John",
           created_at: "2025-01-15 10:00:00",
         },
-      ];
-      mockRepo.getRecentLogs.mockReturnValue(mockLogs);
+      ]);
+      expect(mockGetRecent).toHaveBeenCalledWith(undefined);
+    });
 
-      const result = service.getRecentLogs(5);
-
-      expect(result).toEqual(mockLogs);
-      expect(mockRepo.getRecentLogs).toHaveBeenCalledWith(5);
+    it("should pass limit to TransactionService", () => {
+      mockGetRecent.mockReturnValue([]);
+      service.getRecentLogs(5);
+      expect(mockGetRecent).toHaveBeenCalledWith(5);
     });
 
     it("should return empty array on error", () => {
-      mockRepo.getRecentLogs.mockImplementation(() => {
+      mockGetRecent.mockImplementation(() => {
         throw new Error("Database error");
       });
-
-      const result = service.getRecentLogs();
-
-      expect(result).toEqual([]);
+      expect(service.getRecentLogs()).toEqual([]);
     });
 
     it("should return empty array when no logs", () => {
-      mockRepo.getRecentLogs.mockReturnValue([]);
-
-      const result = service.getRecentLogs();
-
-      expect(result).toEqual([]);
-    });
-  });
-
-  // ===========================================================================
-  // logActivity Tests
-  // ===========================================================================
-
-  describe("logActivity", () => {
-    it("should log activity successfully with basic params", () => {
-      mockRepo.logActivity.mockReturnValue(1);
-
-      const result = service.logActivity(1, "Login");
-
-      expect(result).toBe(1);
-      expect(mockRepo.logActivity).toHaveBeenCalledWith(
-        1,
-        "Login",
-        undefined,
-        undefined,
-        undefined,
-      );
-    });
-
-    it("should log activity with details", () => {
-      mockRepo.logActivity.mockReturnValue(2);
-
-      const details = { ip_address: "192.168.1.1", browser: "Chrome" };
-      const result = service.logActivity(1, "Login", details);
-
-      expect(result).toBe(2);
-      expect(mockRepo.logActivity).toHaveBeenCalledWith(
-        1,
-        "Login",
-        details,
-        undefined,
-        undefined,
-      );
-    });
-
-    it("should log activity with table reference", () => {
-      mockRepo.logActivity.mockReturnValue(3);
-
-      const result = service.logActivity(
-        1,
-        "Client Updated",
-        { old_name: "John", new_name: "Johnny" },
-        "clients",
-        42,
-      );
-
-      expect(result).toBe(3);
-      expect(mockRepo.logActivity).toHaveBeenCalledWith(
-        1,
-        "Client Updated",
-        { old_name: "John", new_name: "Johnny" },
-        "clients",
-        42,
-      );
-    });
-
-    it("should return 0 on error", () => {
-      mockRepo.logActivity.mockImplementation(() => {
-        throw new Error("Insert failed");
-      });
-
-      const result = service.logActivity(1, "Failed Action");
-
-      expect(result).toBe(0);
-    });
-
-    it("should handle complex details object", () => {
-      mockRepo.logActivity.mockReturnValue(4);
-
-      const details = {
-        sale_id: 100,
-        items: [
-          { product_id: 1, qty: 2 },
-          { product_id: 2, qty: 1 },
-        ],
-        total: 250,
-        currency: "USD",
-      };
-
-      const result = service.logActivity(
-        1,
-        "Sale Completed",
-        details,
-        "sales",
-        100,
-      );
-
-      expect(result).toBe(4);
-      expect(mockRepo.logActivity).toHaveBeenCalledWith(
-        1,
-        "Sale Completed",
-        details,
-        "sales",
-        100,
-      );
+      mockGetRecent.mockReturnValue([]);
+      expect(service.getRecentLogs()).toEqual([]);
     });
   });
 
@@ -212,62 +93,39 @@ describe("ActivityService", () => {
   // ===========================================================================
 
   describe("getSyncErrors", () => {
-    it("should return sync errors with default limit", () => {
-      const mockErrors: SyncErrorEntity[] = [
+    it("should return sync errors", () => {
+      const mockErrors = [
         {
           id: 1,
           endpoint: "api/sync",
           error: "Connection timeout",
           created_at: "2025-01-15 10:00:00",
         },
-        {
-          id: 2,
-          endpoint: "api/upload",
-          error: "Authentication failed",
-          created_at: "2025-01-15 09:00:00",
-        },
       ];
-      mockRepo.getSyncErrors.mockReturnValue(mockErrors);
+      mockPrepareAll.mockReturnValue(mockErrors);
 
       const result = service.getSyncErrors();
 
       expect(result).toEqual(mockErrors);
-      expect(mockRepo.getSyncErrors).toHaveBeenCalledWith(undefined);
-    });
-
-    it("should return sync errors with custom limit", () => {
-      const mockErrors: SyncErrorEntity[] = [
-        {
-          id: 1,
-          endpoint: "api/data",
-          error: "Network error",
-          created_at: "2025-01-15",
-        },
-      ];
-      mockRepo.getSyncErrors.mockReturnValue(mockErrors);
-
-      const result = service.getSyncErrors(10);
-
-      expect(result).toEqual(mockErrors);
-      expect(mockRepo.getSyncErrors).toHaveBeenCalledWith(10);
     });
 
     it("should return error object on exception", () => {
-      mockRepo.getSyncErrors.mockImplementation(() => {
-        throw new Error("Query failed");
-      });
-
-      const result = service.getSyncErrors();
-
+      const throwingService = new ActivityService(
+        mockTxnService,
+        () =>
+          ({
+            prepare: () => {
+              throw new Error("Query failed");
+            },
+          }) as any,
+      );
+      const result = throwingService.getSyncErrors();
       expect(result).toEqual({ error: "Query failed" });
     });
 
     it("should return empty array when no errors", () => {
-      mockRepo.getSyncErrors.mockReturnValue([]);
-
-      const result = service.getSyncErrors();
-
-      expect(result).toEqual([]);
+      mockPrepareAll.mockReturnValue([]);
+      expect(service.getSyncErrors()).toEqual([]);
     });
   });
 
@@ -280,7 +138,6 @@ describe("ActivityService", () => {
       resetActivityService();
       const instance1 = getActivityService();
       const instance2 = getActivityService();
-
       expect(instance1).toBe(instance2);
     });
 
@@ -288,7 +145,6 @@ describe("ActivityService", () => {
       const instance1 = getActivityService();
       resetActivityService();
       const instance2 = getActivityService();
-
       expect(instance1).not.toBe(instance2);
     });
   });

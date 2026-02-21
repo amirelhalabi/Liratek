@@ -8,7 +8,13 @@
  *   npm run migrate rollback N   - Rollback to version N
  */
 
-import { getDatabase } from "../packages/core/src/db/connection.js";
+import Database from "better-sqlite3";
+import { readFileSync, existsSync } from "fs";
+import { join } from "path";
+import {
+  initDatabase,
+  getDatabase,
+} from "../packages/core/src/db/connection.js";
 import {
   runMigrations,
   getMigrationStatus,
@@ -19,7 +25,29 @@ import {
 const command = process.argv[2] || "up";
 const arg = process.argv[3];
 
+function resolveDbPath(): string {
+  // Check for explicit env var first
+  if (process.env.LIRATEK_DB_PATH) return process.env.LIRATEK_DB_PATH;
+  // Read from db-path.txt
+  const dbPathFile = join(
+    import.meta.dirname || __dirname,
+    "..",
+    "db-path.txt",
+  );
+  if (existsSync(dbPathFile)) {
+    const p = readFileSync(dbPathFile, "utf-8").trim();
+    if (p && existsSync(p)) return p;
+  }
+  throw new Error(
+    "Cannot find database. Set LIRATEK_DB_PATH or ensure db-path.txt points to a valid file.",
+  );
+}
+
 async function main() {
+  const dbPath = resolveDbPath();
+  console.log(`📂 Using database: ${dbPath}\n`);
+  const rawDb = new Database(dbPath);
+  initDatabase(rawDb);
   const db = getDatabase();
 
   try {

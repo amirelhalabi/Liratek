@@ -2,13 +2,14 @@ import { useState, useEffect, useCallback } from "react";
 import logger from "../../../../../utils/logger";
 import { Search, ShoppingCart } from "lucide-react";
 import type { Product } from "@liratek/ui";
-import * as api from "../../../../../api/backendApi";
+import { useApi } from "@liratek/ui";
 
 interface ProductSearchProps {
   onAddToCart: (product: Product) => void;
 }
 
 export default function ProductSearch({ onAddToCart }: ProductSearchProps) {
+  const api = useApi();
   const [search, setSearch] = useState("");
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(false);
@@ -50,7 +51,6 @@ export default function ProductSearch({ onAddToCart }: ProductSearchProps) {
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search products by name or barcode..."
             className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-12 pr-4 py-3 text-white focus:ring-2 focus:ring-violet-600 shadow-inner"
-            autoFocus
           />
         </div>
       </div>

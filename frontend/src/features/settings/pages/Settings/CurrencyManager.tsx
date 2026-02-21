@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, Plus, Save, Trash2, X } from "lucide-react";
-import * as api from "../../../../api/backendApi";
+import { useApi } from "@liratek/ui";
 
 interface CurrencyRow {
   id: number;
@@ -157,6 +157,7 @@ function ModuleMultiSelect({
 
 // ─── Exchange Rates Section ────────────────────────────────────────────────
 function ExchangeRatesSection() {
+  const api = useApi();
   const [rates, setRates] = useState<
     Array<{
       id: number;
@@ -285,6 +286,7 @@ function ExchangeRatesSection() {
 
 // ─── Drawer–Currency configuration section ─────────────────────────────────
 function DrawerCurrencySection() {
+  const api = useApi();
   const [drawerConfig, setDrawerConfig] = useState<Record<string, string[]>>(
     {},
   );
@@ -474,6 +476,7 @@ function DrawerCurrencySection() {
 
 // ─── Currency Manager ──────────────────────────────────────────────────────
 export default function CurrencyManager() {
+  const api = useApi();
   const [list, setList] = useState<CurrencyRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -581,12 +584,30 @@ export default function CurrencyManager() {
   const handleSaveModules = async () => {
     setSaving(true);
     try {
-      await Promise.all(
-        Object.entries(pendingModules).map(([currencyCode, modules]) =>
-          api.setModulesForCurrency(currencyCode, modules),
-        ),
+      const results = await Promise.all(
+        Object.entries(pendingModules).map(async ([currencyCode, modules]) => {
+          const res = await api.setModulesForCurrency(currencyCode, modules);
+          return { currencyCode, res };
+        }),
       );
+      const failed = results.filter(
+        (r) =>
+          r.res &&
+          typeof r.res === "object" &&
+          "success" in r.res &&
+          !r.res.success,
+      );
+      if (failed.length > 0) {
+        const msgs = failed
+          .map(
+            (f) =>
+              `${f.currencyCode}: ${(f.res as any)?.error ?? "Unknown error"}`,
+          )
+          .join("\n");
+        alert(`Failed to save modules:\n${msgs}`);
+      }
       await load();
+      window.dispatchEvent(new Event("currencies-changed"));
     } finally {
       setSaving(false);
     }
@@ -626,8 +647,14 @@ export default function CurrencyManager() {
         <div className="rounded-lg border border-slate-600 bg-slate-800/40 p-4 space-y-3">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div>
-              <label className="block text-xs text-slate-400 mb-1">Code</label>
+              <label
+                htmlFor="currency-code"
+                className="block text-xs text-slate-400 mb-1"
+              >
+                Code
+              </label>
               <input
+                id="currency-code"
                 value={code}
                 onChange={(e) => setCode(e.target.value.toUpperCase())}
                 placeholder="USD"
@@ -635,8 +662,14 @@ export default function CurrencyManager() {
               />
             </div>
             <div>
-              <label className="block text-xs text-slate-400 mb-1">Name</label>
+              <label
+                htmlFor="currency-name"
+                className="block text-xs text-slate-400 mb-1"
+              >
+                Name
+              </label>
               <input
+                id="currency-name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="US Dollar"
@@ -644,10 +677,14 @@ export default function CurrencyManager() {
               />
             </div>
             <div>
-              <label className="block text-xs text-slate-400 mb-1">
+              <label
+                htmlFor="currency-symbol"
+                className="block text-xs text-slate-400 mb-1"
+              >
                 Symbol
               </label>
               <input
+                id="currency-symbol"
                 value={symbol}
                 onChange={(e) => setSymbol(e.target.value)}
                 placeholder="$"
@@ -655,10 +692,14 @@ export default function CurrencyManager() {
               />
             </div>
             <div>
-              <label className="block text-xs text-slate-400 mb-1">
+              <label
+                htmlFor="currency-decimals"
+                className="block text-xs text-slate-400 mb-1"
+              >
                 Decimals
               </label>
               <input
+                id="currency-decimals"
                 value={decimalPlaces}
                 onChange={(e) => setDecimalPlaces(e.target.value)}
                 type="number"
@@ -757,9 +798,9 @@ export default function CurrencyManager() {
 
                 {/* Enabled modules */}
                 <div className="mt-3 pt-3 border-t border-slate-700/50">
-                  <label className="block text-[11px] text-slate-500 uppercase tracking-wider mb-1.5 font-medium">
+                  <span className="block text-[11px] text-slate-500 uppercase tracking-wider mb-1.5 font-medium">
                     Enabled Modules
-                  </label>
+                  </span>
                   <ModuleMultiSelect
                     allModules={allModules}
                     selected={getEffectiveModules(c)}

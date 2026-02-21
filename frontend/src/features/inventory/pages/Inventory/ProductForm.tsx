@@ -1,8 +1,7 @@
 import { useState, useEffect } from "react";
 import logger from "../../../../utils/logger";
 import { X, Save } from "lucide-react";
-import { Select } from "@liratek/ui";
-import * as api from "../../../../api/backendApi";
+import { Select, useApi } from "@liratek/ui";
 import type { Product } from "@liratek/ui";
 
 interface ProductFormProps {
@@ -16,6 +15,7 @@ export default function ProductForm({
   onSave,
   product,
 }: ProductFormProps) {
+  const api = useApi();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [duplicateInfo, setDuplicateInfo] = useState<null | {
@@ -95,6 +95,7 @@ export default function ProductForm({
   return (
     <div
       className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+      role="presentation"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) {
           onClose();
@@ -103,6 +104,7 @@ export default function ProductForm({
     >
       <div
         className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-2xl overflow-hidden shadow-2xl"
+        role="presentation"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex justify-between items-center p-6 border-b border-slate-700 bg-slate-800">
@@ -161,10 +163,14 @@ export default function ProductForm({
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-slate-400 mb-1">
+              <label
+                htmlFor="product-barcode"
+                className="block text-sm font-medium text-slate-400 mb-1"
+              >
                 Barcode
               </label>
               <input
+                id="product-barcode"
                 name="barcode"
                 type="text"
                 value={formData.barcode}
@@ -174,10 +180,14 @@ export default function ProductForm({
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-400 mb-1">
+              <label
+                htmlFor="product-name"
+                className="block text-sm font-medium text-slate-400 mb-1"
+              >
                 Product Name
               </label>
               <input
+                id="product-name"
                 name="name"
                 type="text"
                 value={formData.name}
@@ -188,7 +198,10 @@ export default function ProductForm({
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-400 mb-1">
+              <label
+                htmlFor="product-category"
+                className="block text-sm font-medium text-slate-400 mb-1"
+              >
                 Category
               </label>
               <Select
@@ -209,10 +222,14 @@ export default function ProductForm({
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-400 mb-1">
+              <label
+                htmlFor="product-stock"
+                className="block text-sm font-medium text-slate-400 mb-1"
+              >
                 Initial Stock
               </label>
               <input
+                id="product-stock"
                 name="stock_quantity"
                 type="number"
                 value={formData.stock_quantity}
@@ -222,10 +239,14 @@ export default function ProductForm({
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-400 mb-1">
+              <label
+                htmlFor="product-cost-price"
+                className="block text-sm font-medium text-slate-400 mb-1"
+              >
                 Cost Price ($)
               </label>
               <input
+                id="product-cost-price"
                 name="cost_price"
                 type="number"
                 step="0.01"
@@ -236,10 +257,14 @@ export default function ProductForm({
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-400 mb-1">
+              <label
+                htmlFor="product-retail-price"
+                className="block text-sm font-medium text-slate-400 mb-1"
+              >
                 Retail Price ($)
               </label>
               <input
+                id="product-retail-price"
                 name="retail_price"
                 type="number"
                 step="0.01"
@@ -250,10 +275,14 @@ export default function ProductForm({
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-400 mb-1">
+              <label
+                htmlFor="product-min-stock"
+                className="block text-sm font-medium text-slate-400 mb-1"
+              >
                 Min. Stock Alert
               </label>
               <input
+                id="product-min-stock"
                 name="min_stock_level"
                 type="number"
                 value={formData.min_stock_level}

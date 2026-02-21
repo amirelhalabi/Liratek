@@ -29,6 +29,12 @@ A comprehensive, enterprise-grade Point of Sale (POS) and inventory management s
 - **Advanced POS**: Multi-item cart, multi-currency checkout, and sales draft support.
 - **Client & Debt Management**: Track customer history and manage dual-currency (USD/LBP) debts with smart rounding logic.
 - **Financial Services**: Built-in support for OMT, Whish, IPEC, Katch, Wish App, and Mobile Recharges (MTC/Alfa).
+- **Custom Services**: Ad-hoc services (screen protectors, software installs) with cost/price/profit tracking.
+- **Profits Dashboard**: Admin-only analytics with 6 views — by module, date, payment method, cashier, and client.
+- **Unified Transactions**: Full accounting journal with void/refund, debt aging, and advanced reporting.
+- **Table Export**: Export any data table to Excel (.xlsx) or PDF with one click.
+- **WhatsApp Integration**: Send messages via Meta Cloud API directly from the app.
+- **Voucher Images**: Per-item voucher image storage for recharge services.
 - **Daily Auditing**: 3-step opening and closing workflow with variance detection and PDF audit trails.
 - **Security First**: Role-based access control, scrypt password hashing, and session encryption.
 
@@ -1131,15 +1137,19 @@ npm run build
 
 ### Core Documentation
 
-- **[CURRENT_SPRINT.md](docs/CURRENT_SPRINT.md)**: Active sprint tasks, roadmap, and recent completions
+- **[SPRINT_FEB_19_28_2026.md](docs/SPRINT_FEB_19_28_2026.md)**: Active sprint tasks, roadmap, and recent completions
 - **[ENVIRONMENT_VARIABLES.md](docs/ENVIRONMENT_VARIABLES.md)**: Complete environment variable guide
 - **[HEALTH_CHECKS.md](docs/HEALTH_CHECKS.md)**: Health check endpoints and monitoring
-- **[LOGGING_GUIDE.md](docs/LOGGING_GUIDE.md)**: Structured logging best practices
+- **[LOGGING.md](docs/LOGGING.md)**: Structured logging best practices
 - **[API_VALIDATION.md](docs/API_VALIDATION.md)**: Request validation schemas and usage
 - **[RATE_LIMITING.md](docs/RATE_LIMITING.md)**: API rate limiting and abuse prevention
-- **[DATABASE_OPTIMIZATION.md](docs/DATABASE_OPTIMIZATION.md)**: Database indexing and performance
-- **[DATABASE_MIGRATIONS.md](docs/DATABASE_MIGRATIONS.md)**: Migration system and version control
-- **[SELECT_STAR_REFACTORING.md](docs/SELECT_STAR_REFACTORING.md)**: SELECT \* removal progress (21% complete)
+- **[DATABASE_OPTIMIZATION.md](docs/DATABASE_OPTIMIZATION.md)**: Database indexing and performance (51 indexes)
+- **[DATABASE_MIGRATIONS.md](docs/DATABASE_MIGRATIONS.md)**: Migration system and version control (v9–v20)
+- **[MODULE_MANAGEMENT.md](docs/MODULE_MANAGEMENT.md)**: How to add/remove modules (14 toggleable + 3 system)
+- **[PLAN_IMPL.md](docs/PLAN_IMPL.md)**: Unified transactions table implementation record
+- **[RECHARGE_CREDITS.md](docs/RECHARGE_CREDITS.md)**: MTC/Alfa recharge credits, voucher images, cost tracking
+- **[DYNAMIC_CURRENCIES.md](docs/DYNAMIC_CURRENCIES.md)**: Dynamic currency system and module mappings
+- **[LOCAL_TESTS_CHECKLIST.md](docs/LOCAL_TESTS_CHECKLIST.md)**: Manual QA testing checklist (Desktop & Web)
 - **Marketing Materials**: `docs/marketing/` - Product marketing and promotion guides
 - **Document Templates**: `docs/templates/` - Business document templates (quotations, etc.)
 - **Archive**: `docs/archive/` - Historical documentation for reference
@@ -1153,9 +1163,9 @@ LiraTek aims to provide Lebanese phone shop owners with a robust, offline-capabl
 ### Key Differentiators
 
 - **Dual-Currency Native**: Built-in USD/LBP support with smart rounding
-- **Telecom Services**: Integrated OMT, Whish, MTC, Alfa support
+- **Telecom Services**: Integrated OMT, Whish, MTC, Alfa support with voucher images and cost tracking
 - **Offline-First**: Full functionality without internet
-- **Audit Trail**: Comprehensive activity logging
+- **Audit Trail**: Unified transaction ledger with void/refund and reporting
 - **Lebanese Market Focus**: Designed for local business needs
 
 ---

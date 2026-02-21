@@ -1,14 +1,17 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import logger from "../../../../utils/logger";
 import { RefreshCw, ArrowRightLeft, History, ArrowRight } from "lucide-react";
-import * as api from "../../../../api/backendApi";
+import { useApi } from "@liratek/ui";
 import { useSession } from "../../../sessions/context/SessionContext";
 import { useCurrencyContext } from "../../../../contexts/CurrencyContext";
+import { ExportBar } from "@/shared/components/ExportBar";
 
 type RateRow = { from_code: string; to_code: string; rate: number };
 
 export default function Exchange() {
+  const api = useApi();
   const { activeSession, linkTransaction } = useSession();
+  const tableRef = useRef<HTMLTableElement>(null);
   type ExchangeTx = {
     id: number;
     created_at: string;
@@ -199,10 +202,17 @@ export default function Exchange() {
           {/* Currency Selectors */}
           <div className="flex items-center gap-2 mb-8">
             <div className="flex-1">
-              <label className="block text-xs font-medium text-slate-400 mb-1 uppercase">
+              <span
+                id="exchange-from-label"
+                className="block text-xs font-medium text-slate-400 mb-1 uppercase"
+              >
                 From
-              </label>
-              <div className="grid grid-cols-3 gap-1 bg-slate-900 p-1 rounded-lg">
+              </span>
+              <div
+                className="grid grid-cols-3 gap-1 bg-slate-900 p-1 rounded-lg"
+                role="group"
+                aria-labelledby="exchange-from-label"
+              >
                 {currencies.map((c) => (
                   <button
                     key={c.id}
@@ -227,10 +237,17 @@ export default function Exchange() {
             </button>
 
             <div className="flex-1">
-              <label className="block text-xs font-medium text-slate-400 mb-1 uppercase">
+              <span
+                id="exchange-to-label"
+                className="block text-xs font-medium text-slate-400 mb-1 uppercase"
+              >
                 To
-              </label>
-              <div className="grid grid-cols-3 gap-1 bg-slate-900 p-1 rounded-lg">
+              </span>
+              <div
+                className="grid grid-cols-3 gap-1 bg-slate-900 p-1 rounded-lg"
+                role="group"
+                aria-labelledby="exchange-to-label"
+              >
                 {currencies.map((c) => (
                   <button
                     key={c.id}
@@ -251,7 +268,10 @@ export default function Exchange() {
           <div className="space-y-6 flex-1">
             {/* Rate Input */}
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1 uppercase">
+              <label
+                htmlFor="exchange-rate"
+                className="block text-xs font-medium text-slate-400 mb-1 uppercase"
+              >
                 Exchange Rate
               </label>
               <div className="relative">
@@ -259,6 +279,7 @@ export default function Exchange() {
                   {toCurrency} / {fromCurrency}
                 </span>
                 <input
+                  id="exchange-rate"
                   type="number"
                   value={rate}
                   onChange={(e) => setRate(e.target.value)}
@@ -268,16 +289,12 @@ export default function Exchange() {
             </div>
 
             {/* Amount Inputs */}
-            <div className="p-4 rounded-xl bg-slate-900/50 border border-slate-700/50 space-y-4 relative">
-              {/* Arrow Indicator */}
-              <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-10">
-                <div className="bg-slate-700 rounded-full p-1.5 border-4 border-slate-800">
-                  <ArrowRight size={16} className="text-slate-400" />
-                </div>
-              </div>
-
+            <div className="p-4 rounded-xl bg-slate-900/50 border border-slate-700/50 space-y-4">
               <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1 uppercase">
+                <label
+                  htmlFor="exchange-amount-in"
+                  className="block text-xs font-medium text-slate-400 mb-1 uppercase"
+                >
                   You Receive ({fromCurrency})
                 </label>
                 <div className="relative">
@@ -285,6 +302,7 @@ export default function Exchange() {
                     {getSymbol(fromCurrency)}
                   </span>
                   <input
+                    id="exchange-amount-in"
                     type="number"
                     value={amountIn}
                     onChange={(e) => setAmountIn(e.target.value)}
@@ -294,8 +312,18 @@ export default function Exchange() {
                 </div>
               </div>
 
+              {/* Arrow Indicator */}
+              <div className="flex items-center justify-center -my-1">
+                <div className="bg-slate-700 rounded-full p-1.5 border-4 border-slate-800">
+                  <ArrowRight size={16} className="text-slate-400" />
+                </div>
+              </div>
+
               <div className="pt-2">
-                <label className="block text-xs font-medium text-slate-400 mb-1 uppercase">
+                <label
+                  htmlFor="exchange-amount-out"
+                  className="block text-xs font-medium text-slate-400 mb-1 uppercase"
+                >
                   You Pay ({toCurrency})
                 </label>
                 <div className="relative">
@@ -303,6 +331,7 @@ export default function Exchange() {
                     {getSymbol(toCurrency)}
                   </span>
                   <input
+                    id="exchange-amount-out"
                     type="number"
                     value={amountOut}
                     readOnly
@@ -314,10 +343,14 @@ export default function Exchange() {
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1 uppercase">
+              <label
+                htmlFor="exchange-client-name"
+                className="block text-xs font-medium text-slate-400 mb-1 uppercase"
+              >
                 Client Name (Optional)
               </label>
               <input
+                id="exchange-client-name"
                 type="text"
                 value={clientName}
                 onChange={(e) => setClientName(e.target.value)}
@@ -351,7 +384,14 @@ export default function Exchange() {
           </div>
 
           <div className="flex-1 overflow-auto">
-            <table className="w-full">
+            <ExportBar
+              exportExcel
+              exportPdf
+              exportFilename="exchange-history"
+              tableRef={tableRef}
+              rowCount={transactions.length}
+            />
+            <table ref={tableRef} className="w-full">
               <thead className="bg-slate-900/50 text-left text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0">
                 <tr>
                   <th className="px-6 py-3">Time</th>

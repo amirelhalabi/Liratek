@@ -1,16 +1,18 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import logger from "../../../../utils/logger";
 import { Plus, Search, Package, Edit2, Trash2 } from "lucide-react";
 import { useAuth } from "../../../auth/context/AuthContext";
-import { PageHeader } from "@liratek/ui";
+import { PageHeader, useApi } from "@liratek/ui";
 import ProductForm from "./ProductForm";
 import type { Product } from "@liratek/ui";
-import * as api from "../../../../api/backendApi";
+import { ExportBar } from "@/shared/components/ExportBar";
 
 export default function ProductList() {
+  const api = useApi();
   const [products, setProducts] = useState<Product[]>([]);
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
+  const tableRef = useRef<HTMLTableElement>(null);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -95,7 +97,14 @@ export default function ProductList() {
 
       {/* Table */}
       <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden shadow-xl">
-        <table className="w-full text-left border-collapse">
+        <ExportBar
+          exportExcel
+          exportPdf
+          exportFilename="products"
+          tableRef={tableRef}
+          rowCount={products.length}
+        />
+        <table ref={tableRef} className="w-full text-left border-collapse">
           <thead className="bg-slate-800/50 text-slate-400 text-xs uppercase font-semibold">
             <tr>
               <th className="p-4 border-b border-slate-700">Info</th>

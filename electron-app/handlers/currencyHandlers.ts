@@ -98,6 +98,11 @@ export function registerCurrencyHandlers(): void {
     return currencyService.getCurrenciesForDrawer(drawerName);
   });
 
+  // Get full currency entities for a drawer (mirrors byModule)
+  ipcMain.handle("currencies:fullForDrawer", (_event, drawerName: string) => {
+    return currencyService.getFullCurrenciesForDrawer(drawerName);
+  });
+
   // Get drawers enabled for a currency
   ipcMain.handle("currencies:getDrawers", (_event, code: string) => {
     return currencyService.getDrawersForCurrency(code);

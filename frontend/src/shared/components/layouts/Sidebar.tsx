@@ -19,7 +19,9 @@ import {
   TrendingUp,
   Bitcoin,
   Zap,
+  Briefcase,
   Circle,
+  BarChart2,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import clsx from "clsx";
@@ -43,8 +45,10 @@ const iconMap: Record<string, LucideIcon> = {
   Wrench,
   Bitcoin,
   Zap,
+  Briefcase,
   Settings,
   SquareActivity,
+  BarChart2,
 };
 
 interface SidebarProps {

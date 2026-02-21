@@ -1,5 +1,7 @@
 import { BaseRepository } from "./BaseRepository.js";
 import { closingLogger } from "../utils/logger.js";
+import { getTransactionRepository } from "./TransactionRepository.js";
+import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 
 export interface DailyClosingEntity {
   id: number;
@@ -113,7 +115,17 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
         });
         tx(amounts);
 
-        this.logActivity(userId, "OPENING", { opening: amounts });
+        // Create unified transaction row for opening balances
+        getTransactionRepository().createTransaction({
+          type: TRANSACTION_TYPES.OPENING,
+          source_table: "daily_closings",
+          source_id: exists.id as number,
+          user_id: userId,
+          amount_usd: 0,
+          amount_lbp: 0,
+          summary: `Opening balances set for ${closingDate}`,
+          metadata_json: { opening: amounts },
+        });
         return { success: true, id: exists.id };
       } else {
         const stmt = this.db.prepare(`
@@ -135,7 +147,18 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
         });
         tx(amounts);
 
-        this.logActivity(userId, "OPENING", { opening: amounts });
+        // Create unified transaction row for opening balances
+        getTransactionRepository().createTransaction({
+          type: TRANSACTION_TYPES.OPENING,
+          source_table: "daily_closings",
+          source_id: Number(res.lastInsertRowid),
+          user_id: userId,
+          amount_usd: 0,
+          amount_lbp: 0,
+          summary: `Opening balances set for ${closingDate}`,
+          metadata_json: { opening: amounts },
+        });
+
         return { success: true, id: res.lastInsertRowid };
       }
     } catch (error) {
@@ -198,13 +221,17 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
       });
       tx(amounts);
 
-      // Log activity
-      this.db
-        .prepare(
-          `INSERT INTO activity_logs (user_id, action, table_name, record_id, details_json, created_at)
-           VALUES (1, 'CREATE_DAILY_CLOSING', 'daily_closings', ?, ?, CURRENT_TIMESTAMP)`,
-        )
-        .run(result.lastInsertRowid, JSON.stringify({ amounts }));
+      // Create unified transaction row for daily closing
+      getTransactionRepository().createTransaction({
+        type: TRANSACTION_TYPES.CLOSING,
+        source_table: "daily_closings",
+        source_id: Number(result.lastInsertRowid),
+        user_id: 1,
+        amount_usd: systemExpectedUsd || 0,
+        amount_lbp: systemExpectedLbp || 0,
+        summary: `Daily closing for ${closingDate}`,
+        metadata_json: { amounts },
+      });
 
       closingLogger.info(
         { closingDate, id: result.lastInsertRowid },
@@ -414,22 +441,6 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
       totalExpensesLBP: expensesStats?.total_expenses_lbp || 0,
       totalProfitUSD: profitStats?.total_profit_usd || 0,
     };
-  }
-
-  /**
-   * Log activity
-   */
-  private logActivity(
-    userId: number,
-    action: string,
-    details: Record<string, unknown>,
-  ): void {
-    this.db
-      .prepare(
-        `INSERT INTO activity_logs (user_id, action, details_json, created_at)
-         VALUES (?, ?, ?, CURRENT_TIMESTAMP)`,
-      )
-      .run(userId, action, JSON.stringify(details));
   }
 }
 

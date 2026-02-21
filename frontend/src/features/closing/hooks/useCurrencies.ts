@@ -6,9 +6,10 @@
 import { useState, useEffect } from "react";
 import logger from "../../../utils/logger";
 import type { Currency } from "../types";
-import * as api from "../../../api/backendApi";
+import { useApi } from "@liratek/ui";
 
 export function useCurrencies() {
+  const api = useApi();
   const [currencies, setCurrencies] = useState<Currency[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

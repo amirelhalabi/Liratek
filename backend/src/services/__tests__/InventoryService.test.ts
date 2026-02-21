@@ -48,7 +48,6 @@ describe("InventoryService", () => {
       deductStockForSale: jest.fn(),
       getStockStats: jest.fn(),
       findLowStock: jest.fn(),
-      getVirtualStock: jest.fn(),
     } as unknown as jest.Mocked<ProductRepository>;
 
     service = new InventoryService(mockRepo);
@@ -475,17 +474,6 @@ describe("InventoryService", () => {
 
       expect(mockRepo.findLowStock).toHaveBeenCalled();
       expect(result).toEqual(mockProducts);
-    });
-  });
-
-  describe("getVirtualStock", () => {
-    it("returns virtual stock from repository", () => {
-      mockRepo.getVirtualStock.mockReturnValue(2500);
-
-      const result = service.getVirtualStock();
-
-      expect(mockRepo.getVirtualStock).toHaveBeenCalled();
-      expect(result).toBe(2500);
     });
   });
 });

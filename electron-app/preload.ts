@@ -266,6 +266,14 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("settings:update", key, value),
   },
 
+  // WhatsApp
+  whatsapp: {
+    sendTest: (recipientPhone: string, shopName: string) =>
+      ipcRenderer.invoke("whatsapp:send-test", { recipientPhone, shopName }),
+    sendMessage: (recipientPhone: string, message: string) =>
+      ipcRenderer.invoke("whatsapp:send-message", { recipientPhone, message }),
+  },
+
   // Diagnostics
   diagnostics: {
     getSyncErrors: () => ipcRenderer.invoke("diagnostics:get-sync-errors"),
@@ -296,6 +304,55 @@ contextBridge.exposeInMainWorld("api", {
   activity: {
     getRecent: (limit?: number) =>
       ipcRenderer.invoke("activity:get-recent", limit),
+  },
+
+  // Transactions (unified)
+  transactions: {
+    getRecent: (limit?: number, filters?: Record<string, unknown>) =>
+      ipcRenderer.invoke("transactions:get-recent", limit, filters),
+    getById: (id: number) => ipcRenderer.invoke("transactions:get-by-id", id),
+    getByClient: (clientId: number, limit?: number) =>
+      ipcRenderer.invoke("transactions:get-by-client", clientId, limit),
+    getByDateRange: (from: string, to: string, type?: string) =>
+      ipcRenderer.invoke("transactions:get-by-date-range", from, to, type),
+    void: (id: number) => ipcRenderer.invoke("transactions:void", id),
+    refund: (id: number) => ipcRenderer.invoke("transactions:refund", id),
+    dailySummary: (date: string) =>
+      ipcRenderer.invoke("transactions:daily-summary", date),
+    debtAging: (clientId: number) =>
+      ipcRenderer.invoke("transactions:debt-aging", clientId),
+    overdueDebts: () => ipcRenderer.invoke("transactions:overdue-debts"),
+    revenueByType: (from: string, to: string) =>
+      ipcRenderer.invoke("transactions:revenue-by-type", from, to),
+    revenueByUser: (from: string, to: string) =>
+      ipcRenderer.invoke("transactions:revenue-by-user", from, to),
+  },
+
+  // Reporting (aggregated analytics)
+  reporting: {
+    dailySummaries: (from: string, to: string) =>
+      ipcRenderer.invoke("reports:daily-summaries", from, to),
+    clientHistory: (clientId: number, limit?: number) =>
+      ipcRenderer.invoke("reports:client-history", clientId, limit),
+    revenueByModule: (from: string, to: string) =>
+      ipcRenderer.invoke("reports:revenue-by-module", from, to),
+    overdueDebts: () => ipcRenderer.invoke("reports:overdue-debts"),
+  },
+
+  // Profits (admin analytics)
+  profits: {
+    summary: (from: string, to: string) =>
+      ipcRenderer.invoke("profits:summary", from, to),
+    byModule: (from: string, to: string) =>
+      ipcRenderer.invoke("profits:by-module", from, to),
+    byDate: (from: string, to: string) =>
+      ipcRenderer.invoke("profits:by-date", from, to),
+    byPaymentMethod: (from: string, to: string) =>
+      ipcRenderer.invoke("profits:by-payment-method", from, to),
+    byUser: (from: string, to: string) =>
+      ipcRenderer.invoke("profits:by-user", from, to),
+    byClient: (from: string, to: string, limit?: number) =>
+      ipcRenderer.invoke("profits:by-client", from, to, limit),
   },
 
   // Rates
@@ -339,6 +396,8 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("currencies:allDrawerCurrencies"),
     forDrawer: (drawerName: string) =>
       ipcRenderer.invoke("currencies:forDrawer", drawerName),
+    fullForDrawer: (drawerName: string) =>
+      ipcRenderer.invoke("currencies:fullForDrawer", drawerName),
     getDrawers: (code: string) =>
       ipcRenderer.invoke("currencies:getDrawers", code),
     setDrawerCurrencies: (drawerName: string, currencies: string[]) =>
@@ -415,6 +474,52 @@ contextBridge.exposeInMainWorld("api", {
       amountUsd: number;
       amountLbp: number;
     }) => ipcRenderer.invoke("session:linkTransaction", data),
+  },
+
+  // Item Costs
+  itemCosts: {
+    getAll: () => ipcRenderer.invoke("item-costs:get-all"),
+    set: (data: {
+      provider: string;
+      category: string;
+      itemKey: string;
+      cost: number;
+      currency: string;
+    }) => ipcRenderer.invoke("item-costs:set", data),
+  },
+
+  // Voucher Images
+  voucherImages: {
+    getAll: () => ipcRenderer.invoke("voucher-images:get-all"),
+    set: (data: {
+      provider: string;
+      category: string;
+      itemKey: string;
+      imageData: string;
+    }) => ipcRenderer.invoke("voucher-images:set", data),
+    delete: (id: number) => ipcRenderer.invoke("voucher-images:delete", id),
+  },
+
+  // Custom Services
+  customServices: {
+    list: (filter?: { date?: string }) =>
+      ipcRenderer.invoke("custom-services:list", filter),
+    get: (id: number) => ipcRenderer.invoke("custom-services:get", id),
+    summary: () => ipcRenderer.invoke("custom-services:summary"),
+    add: (data: {
+      description: string;
+      cost_usd?: number;
+      cost_lbp?: number;
+      price_usd?: number;
+      price_lbp?: number;
+      paid_by?: string;
+      status?: string;
+      client_id?: number;
+      client_name?: string;
+      phone_number?: string;
+      note?: string;
+    }) => ipcRenderer.invoke("custom-services:add", data),
+    delete: (id: number) => ipcRenderer.invoke("custom-services:delete", id),
   },
 });
 

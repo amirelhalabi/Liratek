@@ -229,8 +229,11 @@ export default function Diagnostics() {
                       </tr>
                     </thead>
                     <tbody>
-                      {fkRows.map((r, idx) => (
-                        <tr key={idx} className="border-t border-slate-800">
+                      {fkRows.map((r) => (
+                        <tr
+                          key={`${r.table}-${r.rowid}-${r.fkid}`}
+                          className="border-t border-slate-800"
+                        >
                           <td className="p-2 font-mono">
                             {String(r.table ?? "")}
                           </td>

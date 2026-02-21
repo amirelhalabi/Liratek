@@ -1,24 +1,9 @@
-import type { ApiAdapter } from "@liratek/ui";
-import * as backendApi from "./backendApi";
+import { ElectronApiAdapter } from "./ElectronApiAdapter";
 
-export const backendApiAdapter: ApiAdapter = {
-  login: backendApi.login,
-  logout: backendApi.logout,
-  me: backendApi.me,
-
-  getClients: (search?: string) => backendApi.getClients(search ?? ""),
-  deleteClient: backendApi.deleteClient,
-
-  getDebtors: backendApi.getDebtors,
-  getClientDebtHistory: backendApi.getClientDebtHistory,
-  getClientDebtTotal: backendApi.getClientDebtTotal,
-  addRepayment: backendApi.addRepayment,
-
-  getDashboardStats: backendApi.getDashboardStats,
-  getProfitSalesChart: backendApi.getProfitSalesChart,
-  getTodaysSales: backendApi.getTodaysSales,
-  getDrawerBalances: backendApi.getDrawerBalances,
-  getInventoryStockStats: backendApi.getInventoryStockStats,
-  getRechargeStock: backendApi.getRechargeStock,
-  getMonthlyPL: backendApi.getMonthlyPL,
-};
+/**
+ * Singleton adapter instance used by ApiProvider at the app root.
+ *
+ * Implements the full @liratek/ui ApiAdapter interface by delegating
+ * to backendApi.ts functions (which handle ipcOrHttp branching).
+ */
+export const backendApiAdapter = new ElectronApiAdapter();

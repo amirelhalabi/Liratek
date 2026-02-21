@@ -6,6 +6,8 @@
  */
 
 import { BaseRepository } from "./BaseRepository.js";
+import { getTransactionRepository } from "./TransactionRepository.js";
+import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 
 // =============================================================================
 // Entity Types
@@ -87,11 +89,37 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
 
       const id = Number(result.lastInsertRowid);
 
+      // Create unified transaction row
+      const txnId = getTransactionRepository().createTransaction({
+        type: TRANSACTION_TYPES.EXCHANGE,
+        source_table: "exchange_transactions",
+        source_id: id,
+        user_id: createdBy,
+        amount_usd:
+          data.fromCurrency === "USD" ? -data.amountIn : data.amountOut,
+        amount_lbp:
+          data.fromCurrency === "LBP"
+            ? -data.amountIn
+            : data.toCurrency === "LBP"
+              ? data.amountOut
+              : 0,
+        exchange_rate: data.rate,
+        summary: `Exchange: ${data.amountIn} ${data.fromCurrency} → ${data.amountOut} ${data.toCurrency}`,
+        metadata_json: {
+          type,
+          from_currency: data.fromCurrency,
+          to_currency: data.toCurrency,
+          amount_in: data.amountIn,
+          amount_out: data.amountOut,
+          rate: data.rate,
+        },
+      });
+
       const insertPayment = this.db.prepare(`
         INSERT INTO payments (
-          source_type, source_id, method, drawer_name, currency_code, amount, note, created_by
+          transaction_id, method, drawer_name, currency_code, amount, note, created_by
         ) VALUES (
-          'EXCHANGE', ?, 'CASH', ?, ?, ?, ?, ?
+          ?, 'CASH', ?, ?, ?, ?, ?
         )
       `);
 
@@ -106,7 +134,7 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
       // Outflow in fromCurrency
       const fromDelta = -Math.abs(data.amountIn);
       insertPayment.run(
-        id,
+        txnId,
         drawerName,
         data.fromCurrency,
         fromDelta,
@@ -118,7 +146,7 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
       // Inflow in toCurrency
       const toDelta = Math.abs(data.amountOut);
       insertPayment.run(
-        id,
+        txnId,
         drawerName,
         data.toCurrency,
         toDelta,
@@ -129,26 +157,6 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
 
       return { id };
     })();
-  }
-
-  /**
-   * Log the exchange activity
-   */
-  logActivity(data: CreateExchangeData): void {
-    const logStmt = this.db.prepare(`
-      INSERT INTO activity_logs (user_id, action, details_json, created_at)
-      VALUES (1, 'Exchange Transaction', ?, CURRENT_TIMESTAMP)
-    `);
-    logStmt.run(
-      JSON.stringify({
-        drawer: "General_Drawer_B",
-        from: data.fromCurrency,
-        to: data.toCurrency,
-        amountIn: data.amountIn,
-        amountOut: data.amountOut,
-        rate: data.rate,
-      }),
-    );
   }
 
   // ---------------------------------------------------------------------------

@@ -204,6 +204,21 @@ export class CurrencyRepository extends BaseRepository<CurrencyEntity> {
     return rows.map((r) => r.currency_code);
   }
 
+  /** Get full active currency entities for a drawer (mirrors getCurrenciesForModule) */
+  getFullCurrenciesForDrawer(drawerName: string): CurrencyEntity[] {
+    return this.db
+      .prepare(
+        `
+      SELECT c.id, c.code, c.name, c.symbol, c.decimal_places, c.is_active
+      FROM currencies c
+      JOIN currency_drawers cd ON c.code = cd.currency_code
+      WHERE cd.drawer_name = ? AND c.is_active = 1
+      ORDER BY c.code
+    `,
+      )
+      .all(drawerName) as CurrencyEntity[];
+  }
+
   /** Get drawer names enabled for a specific currency */
   getDrawersForCurrency(code: string): string[] {
     const rows = this.db

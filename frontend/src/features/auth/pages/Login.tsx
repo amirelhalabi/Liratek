@@ -60,7 +60,10 @@ export default function Login() {
             )}
 
             <div>
-              <label className="block text-slate-400 text-sm font-medium mb-2">
+              <label
+                htmlFor="login-username"
+                className="block text-slate-400 text-sm font-medium mb-2"
+              >
                 Username
               </label>
               <div className="relative">
@@ -68,6 +71,7 @@ export default function Login() {
                   <User className="h-5 w-5 text-slate-500" />
                 </div>
                 <input
+                  id="login-username"
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
@@ -79,7 +83,10 @@ export default function Login() {
             </div>
 
             <div>
-              <label className="block text-slate-400 text-sm font-medium mb-2">
+              <label
+                htmlFor="login-password"
+                className="block text-slate-400 text-sm font-medium mb-2"
+              >
                 Password
               </label>
               <div className="relative">
@@ -87,6 +94,7 @@ export default function Login() {
                   <Lock className="h-5 w-5 text-slate-500" />
                 </div>
                 <input
+                  id="login-password"
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}

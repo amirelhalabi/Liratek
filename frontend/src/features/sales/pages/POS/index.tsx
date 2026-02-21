@@ -8,13 +8,13 @@ import CheckoutModal, {
   type PaymentData,
   type CheckoutDraftData,
 } from "./components/CheckoutModal";
-import { appEvents } from "@liratek/ui";
+import { appEvents, useApi } from "@liratek/ui";
 import type { Product, CartItem, SaleRequest } from "@liratek/ui";
-import * as api from "../../../../api/backendApi";
 import { useExchangeRate } from "../../../../hooks/useExchangeRate";
 import { useSession } from "../../../sessions/context/SessionContext";
 
 export default function POS() {
+  const api = useApi();
   const { activeSession, linkTransaction } = useSession();
   const { rate: defaultExchangeRate } = useExchangeRate("USD", "LBP");
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
@@ -58,7 +58,7 @@ export default function POS() {
   const fetchDrafts = useCallback(async () => {
     const data = await api.getDrafts();
     setDrafts(data as unknown as Draft[]);
-  }, []);
+  }, [api]);
 
   // Fetch drafts on mount and whenever modal/checkout state changes
   useEffect(() => {
@@ -201,11 +201,11 @@ export default function POS() {
 
       if (result.success) {
         // Link to active session if exists
-        if (activeSession && result.saleId) {
+        if (activeSession && result.id) {
           try {
             await linkTransaction({
               transactionType: "sale",
-              transactionId: result.saleId,
+              transactionId: result.id,
               amountUsd: saleRequest.final_amount || 0,
               amountLbp: 0, // Sales are tracked in USD
             });
@@ -282,6 +282,7 @@ export default function POS() {
       {isDraftsOpen && (
         <div
           className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-in fade-in duration-200"
+          role="presentation"
           onMouseDown={(e) => {
             if (e.target === e.currentTarget) {
               setIsDraftsOpen(false);
@@ -290,6 +291,7 @@ export default function POS() {
         >
           <div
             className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh]"
+            role="presentation"
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="p-6 border-b border-slate-700 flex justify-between items-center bg-slate-800/50">

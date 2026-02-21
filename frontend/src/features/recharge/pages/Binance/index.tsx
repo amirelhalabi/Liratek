@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import logger from "../../../../utils/logger";
 import {
   ArrowUpRight,
@@ -9,8 +9,9 @@ import {
   TrendingDown,
   Hash,
 } from "lucide-react";
-import * as api from "../../../../api/backendApi";
+import { useApi } from "@liratek/ui";
 import { useSession } from "../../../sessions/context/SessionContext";
+import { ExportBar } from "@/shared/components/ExportBar";
 
 type BinanceTx = {
   id: number;
@@ -29,7 +30,9 @@ type TodayStats = {
 };
 
 export default function Binance() {
+  const api = useApi();
   const { activeSession, linkTransaction } = useSession();
+  const tableRef = useRef<HTMLTableElement>(null);
 
   const [transactions, setTransactions] = useState<BinanceTx[]>([]);
   const [stats, setStats] = useState<TodayStats>({
@@ -181,10 +184,14 @@ export default function Binance() {
 
           {/* Amount */}
           <div>
-            <label className="block text-xs text-slate-400 mb-1">
+            <label
+              htmlFor="binance-amount"
+              className="block text-xs text-slate-400 mb-1"
+            >
               Amount (USDT)
             </label>
             <input
+              id="binance-amount"
               type="number"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
@@ -197,10 +204,14 @@ export default function Binance() {
 
           {/* Client Name */}
           <div>
-            <label className="block text-xs text-slate-400 mb-1">
+            <label
+              htmlFor="binance-client-name"
+              className="block text-xs text-slate-400 mb-1"
+            >
               Client Name (optional)
             </label>
             <input
+              id="binance-client-name"
               type="text"
               value={clientName}
               onChange={(e) => setClientName(e.target.value)}
@@ -211,10 +222,14 @@ export default function Binance() {
 
           {/* Description */}
           <div>
-            <label className="block text-xs text-slate-400 mb-1">
+            <label
+              htmlFor="binance-description"
+              className="block text-xs text-slate-400 mb-1"
+            >
               Description (optional)
             </label>
             <textarea
+              id="binance-description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Notes, reference, reason..."
@@ -258,65 +273,74 @@ export default function Binance() {
               No transactions yet
             </div>
           ) : (
-            <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-slate-800/95 backdrop-blur">
-                <tr className="text-slate-400 text-xs border-b border-slate-700/50">
-                  <th className="text-left px-5 py-3 font-medium">Time</th>
-                  <th className="text-left px-3 py-3 font-medium">Type</th>
-                  <th className="text-right px-3 py-3 font-medium">Amount</th>
-                  <th className="text-left px-3 py-3 font-medium">Client</th>
-                  <th className="text-left px-5 py-3 font-medium">
-                    Description
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {transactions.map((tx) => (
-                  <tr
-                    key={tx.id}
-                    className="border-b border-slate-700/30 hover:bg-slate-700/20 transition-colors"
-                  >
-                    <td className="px-5 py-3 text-slate-300 whitespace-nowrap">
-                      {new Date(tx.created_at).toLocaleString("en-US", {
-                        month: "short",
-                        day: "numeric",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </td>
-                    <td className="px-3 py-3">
-                      <span
-                        className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-full ${
-                          tx.type === "SEND"
-                            ? "bg-red-500/20 text-red-400"
-                            : "bg-emerald-500/20 text-emerald-400"
-                        }`}
-                      >
-                        {tx.type === "SEND" ? (
-                          <ArrowUpRight size={12} />
-                        ) : (
-                          <ArrowDownLeft size={12} />
-                        )}
-                        {tx.type}
-                      </span>
-                    </td>
-                    <td className="px-3 py-3 text-right font-mono font-semibold text-white">
-                      $
-                      {Number(tx.amount).toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
-                    </td>
-                    <td className="px-3 py-3 text-slate-300">
-                      {tx.client_name || "—"}
-                    </td>
-                    <td className="px-5 py-3 text-slate-400 max-w-[250px] truncate">
-                      {tx.description || "—"}
-                    </td>
+            <>
+              <ExportBar
+                exportExcel
+                exportPdf
+                exportFilename="binance-transactions"
+                tableRef={tableRef}
+                rowCount={transactions.length}
+              />
+              <table ref={tableRef} className="w-full text-sm">
+                <thead className="sticky top-0 bg-slate-800/95 backdrop-blur">
+                  <tr className="text-slate-400 text-xs border-b border-slate-700/50">
+                    <th className="text-left px-5 py-3 font-medium">Time</th>
+                    <th className="text-left px-3 py-3 font-medium">Type</th>
+                    <th className="text-right px-3 py-3 font-medium">Amount</th>
+                    <th className="text-left px-3 py-3 font-medium">Client</th>
+                    <th className="text-left px-5 py-3 font-medium">
+                      Description
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {transactions.map((tx) => (
+                    <tr
+                      key={tx.id}
+                      className="border-b border-slate-700/30 hover:bg-slate-700/20 transition-colors"
+                    >
+                      <td className="px-5 py-3 text-slate-300 whitespace-nowrap">
+                        {new Date(tx.created_at).toLocaleString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </td>
+                      <td className="px-3 py-3">
+                        <span
+                          className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-full ${
+                            tx.type === "SEND"
+                              ? "bg-red-500/20 text-red-400"
+                              : "bg-emerald-500/20 text-emerald-400"
+                          }`}
+                        >
+                          {tx.type === "SEND" ? (
+                            <ArrowUpRight size={12} />
+                          ) : (
+                            <ArrowDownLeft size={12} />
+                          )}
+                          {tx.type}
+                        </span>
+                      </td>
+                      <td className="px-3 py-3 text-right font-mono font-semibold text-white">
+                        $
+                        {Number(tx.amount).toLocaleString(undefined, {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
+                      </td>
+                      <td className="px-3 py-3 text-slate-300">
+                        {tx.client_name || "—"}
+                      </td>
+                      <td className="px-5 py-3 text-slate-400 max-w-[250px] truncate">
+                        {tx.description || "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
           )}
         </div>
       </div>

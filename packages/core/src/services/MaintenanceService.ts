@@ -1,6 +1,7 @@
 import {
   MaintenanceRepository,
   MaintenanceJob,
+  MaintenancePaymentLine,
 } from "../repositories/MaintenanceRepository.js";
 import { toErrorString } from "../utils/errors.js";
 import { maintenanceLogger } from "../utils/logger.js";
@@ -20,7 +21,12 @@ export interface SaveJobParams {
   paid_lbp?: number;
   exchange_rate?: number;
   status?: string;
+  paid_by?: string;
   note?: string | null;
+  /** Split-method payment lines (from CheckoutModal) */
+  payments?: MaintenancePaymentLine[];
+  change_given_usd?: number;
+  change_given_lbp?: number;
 }
 
 export class MaintenanceService {
@@ -69,24 +75,44 @@ export class MaintenanceService {
           paid_lbp: params.paid_lbp ?? 0,
           exchange_rate: params.exchange_rate ?? 0,
           status: params.status ?? "In Progress",
+          paid_by: params.paid_by ?? "CASH",
           note: params.note ?? null,
         };
+
+        // Determine primary payment method from payment lines
+        if (params.payments?.length) {
+          // Use the first non-DEBT method as primary paid_by
+          const primaryMethod = params.payments.find(
+            (p) => p.method !== "DEBT",
+          );
+          if (primaryMethod) {
+            jobData.paid_by = primaryMethod.method;
+          }
+        }
+
+        const isPaidStatus =
+          params.status === "Delivered_Paid" || params.status === "Delivered";
 
         if (params.id) {
           // Update existing
           this.repo.updateJob(params.id, jobData);
 
+          // Process payments only on first transition to paid status
+          if (isPaidStatus && params.payments?.length) {
+            if (!this.repo.hasPayments(params.id)) {
+              this.repo.processPayments(params.id, params.payments, {
+                finalAmount: params.final_amount_usd ?? 0,
+                exchangeRate: params.exchange_rate ?? 1,
+                clientId: clientId,
+                changeUsd: params.change_given_usd,
+                changeLbp: params.change_given_lbp,
+                note: params.note,
+              });
+            }
+          }
+
           // Log status change for completion
-          if (
-            params.status === "Delivered_Paid" ||
-            params.status === "Delivered"
-          ) {
-            this.repo.logActivity(1, "Maintenance Job Completed", {
-              drawer: "General_Drawer_B",
-              device: params.device_name,
-              amount_usd: params.final_amount_usd,
-              status: params.status,
-            });
+          if (isPaidStatus) {
             maintenanceLogger.info(
               {
                 jobId: params.id,
@@ -101,11 +127,19 @@ export class MaintenanceService {
         } else {
           // Create new
           const newId = this.repo.createJob(jobData);
-          this.repo.logActivity(1, "Maintenance Job Created", {
-            drawer: "General_Drawer_B",
-            device: params.device_name,
-            price_usd: params.price_usd,
-          });
+
+          // If creating with payment data (checkout from new job form)
+          if (isPaidStatus && params.payments?.length) {
+            this.repo.processPayments(newId, params.payments, {
+              finalAmount: params.final_amount_usd ?? 0,
+              exchangeRate: params.exchange_rate ?? 1,
+              clientId: clientId,
+              changeUsd: params.change_given_usd,
+              changeLbp: params.change_given_lbp,
+              note: params.note,
+            });
+          }
+
           maintenanceLogger.info(
             {
               jobId: newId,

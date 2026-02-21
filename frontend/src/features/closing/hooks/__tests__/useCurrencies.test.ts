@@ -7,22 +7,18 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { useCurrencies } from "../useCurrencies";
 
-// Mock window.api
+// Mock the API adapter returned by useApi
 const mockCurrenciesList = jest.fn();
+
+jest.mock("@liratek/ui", () => ({
+  useApi: () => ({
+    getCurrencies: mockCurrenciesList,
+  }),
+}));
 
 describe("useCurrencies", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    (window as any).api = {
-      currencies: {
-        list: mockCurrenciesList,
-      },
-    };
-  });
-
-  afterEach(() => {
-    // avoid leaking mocks across suites
-    delete (window as any).api;
   });
 
   it("should initialize with loading state", () => {

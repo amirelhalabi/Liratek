@@ -12,6 +12,7 @@ import {
   type CreateFinancialServiceData,
   type FinancialServiceAnalytics,
 } from "../repositories/index.js";
+import { getItemCostService } from "./ItemCostService.js";
 import { financialLogger } from "../utils/logger.js";
 
 // =============================================================================
@@ -46,8 +47,24 @@ export class FinancialService {
     try {
       const result = this.fsRepo.createTransaction(data);
 
-      // Log the activity
-      this.fsRepo.logActivity(data, result.drawer);
+      // Auto-save item cost for future reference
+      if (data.itemKey && data.cost !== undefined && data.cost > 0) {
+        try {
+          const itemCostService = getItemCostService();
+          itemCostService.autoSaveCost(
+            data.provider,
+            data.itemCategory ?? data.serviceType,
+            data.itemKey,
+            data.cost,
+            data.currency ?? "USD",
+          );
+        } catch (costError) {
+          financialLogger.warn(
+            { error: costError, itemKey: data.itemKey },
+            "Failed to auto-save item cost (non-critical)",
+          );
+        }
+      }
 
       financialLogger.info(
         {

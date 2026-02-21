@@ -249,7 +249,7 @@ describe("Validation Schemas", () => {
         id: 1,
         device_name: "iPhone 14 Pro",
         price_usd: 200,
-        status: "COMPLETED",
+        status: "Delivered_Paid",
       };
 
       expect(() => saveMaintenanceJobSchema.parse(validUpdate)).not.toThrow();
@@ -262,7 +262,22 @@ describe("Validation Schemas", () => {
       };
 
       const parsed = saveMaintenanceJobSchema.parse(job);
-      expect(parsed.status).toBe("PENDING");
+      expect(parsed.status).toBe("Received");
+    });
+
+    it("validates job with payment lines", () => {
+      const job = {
+        device_name: "MacBook Pro",
+        price_usd: 300,
+        payments: [
+          { method: "CASH", currency_code: "USD", amount: 200 },
+          { method: "OMT", currency_code: "USD", amount: 100 },
+        ],
+        change_given_usd: 0,
+        status: "Delivered_Paid",
+      };
+
+      expect(() => saveMaintenanceJobSchema.parse(job)).not.toThrow();
     });
   });
 

@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import logger from "../../../../utils/logger";
-import { Wrench, Plus, DollarSign, Trash2 } from "lucide-react";
+import { Wrench, Plus, DollarSign, Ban } from "lucide-react";
 import CheckoutModal from "../../../sales/pages/POS/components/CheckoutModal";
-import * as api from "../../../../api/backendApi";
+import { useApi } from "@liratek/ui";
 import { useSession } from "../../../sessions/context/SessionContext";
+import { ExportBar } from "@/shared/components/ExportBar";
 
 type MaintenanceJob = {
   id: number;
@@ -22,7 +23,9 @@ type MaintenanceJob = {
 };
 
 export default function Maintenance() {
+  const api = useApi();
   const { activeSession, linkTransaction } = useSession();
+  const tableRef = useRef<HTMLTableElement>(null);
   const [jobs, setJobs] = useState<MaintenanceJob[]>([]);
   const [filter, setFilter] = useState("All");
 
@@ -84,8 +87,8 @@ export default function Maintenance() {
     setIsFormOpen(true);
   };
 
-  const handleDelete = async (id: number) => {
-    if (confirm("Are you sure you want to delete this job?")) {
+  const handleVoid = async (id: number) => {
+    if (confirm("Are you sure you want to void this job?")) {
       await api.deleteMaintenanceJob(id);
       const data = await api.getMaintenanceJobs(filter);
       setJobs(data);
@@ -123,7 +126,7 @@ export default function Maintenance() {
   };
 
   const handleCheckoutComplete = async (paymentData: any) => {
-    // Save with payment details
+    // Save with payment details — forward the full payments array
     const jobData = {
       ...(editingJob?.id != null ? { id: editingJob.id } : {}),
       device_name: deviceName,
@@ -145,7 +148,12 @@ export default function Maintenance() {
       paid_lbp: paymentData.payment_lbp,
       exchange_rate: paymentData.exchange_rate,
 
-      status: "Received" as Status, // Or 'Delivered' if fully paid? Let's keep it Received for now as repair needs to happen.
+      // Split-method payment lines + change
+      payments: paymentData.payments || [],
+      change_given_usd: paymentData.change_given_usd || 0,
+      change_given_lbp: paymentData.change_given_lbp || 0,
+
+      status: "Delivered_Paid" as Status,
     };
 
     const result = await api.saveMaintenanceJob(jobData);
@@ -229,7 +237,14 @@ export default function Maintenance() {
       {/* List */}
       <div className="flex-1 bg-slate-800 rounded-xl border border-slate-700/50 shadow-lg overflow-hidden flex flex-col">
         <div className="overflow-auto flex-1">
-          <table className="w-full">
+          <ExportBar
+            exportExcel
+            exportPdf
+            exportFilename="maintenance-jobs"
+            tableRef={tableRef}
+            rowCount={jobs.length}
+          />
+          <table ref={tableRef} className="w-full">
             <thead className="bg-slate-900/50 text-left text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0 z-10">
               <tr>
                 <th className="px-6 py-3">Date</th>
@@ -292,10 +307,11 @@ export default function Maintenance() {
                         <Wrench size={16} />
                       </button>
                       <button
-                        onClick={() => handleDelete(job.id)}
+                        onClick={() => handleVoid(job.id)}
                         className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-700 rounded"
+                        title="Void job"
                       >
-                        <Trash2 size={16} />
+                        <Ban size={16} />
                       </button>
                     </div>
                   </td>
@@ -321,6 +337,7 @@ export default function Maintenance() {
       {isFormOpen && (
         <div
           className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+          role="presentation"
           onMouseDown={(e) => {
             if (e.target === e.currentTarget) {
               setIsFormOpen(false);
@@ -329,6 +346,7 @@ export default function Maintenance() {
         >
           <div
             className="bg-slate-800 rounded-xl border border-slate-700 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]"
+            role="presentation"
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="p-4 border-b border-slate-700 flex items-center justify-between bg-slate-900/50">
@@ -348,23 +366,33 @@ export default function Maintenance() {
               {/* Device Info */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="col-span-2">
-                  <label className="block text-xs font-medium text-slate-400 mb-1 uppercase">
+                  <label
+                    htmlFor="maintenance-device-name"
+                    className="block text-xs font-medium text-slate-400 mb-1 uppercase"
+                  >
                     Device Name / Model
                   </label>
                   <input
+                    id="maintenance-device-name"
                     type="text"
                     value={deviceName}
                     onChange={(e) => setDeviceName(e.target.value)}
                     className="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-violet-500"
                     placeholder="e.g. iPhone 13 Pro Max"
-                    autoFocus
+                    ref={(el) => {
+                      el?.focus();
+                    }}
                   />
                 </div>
                 <div className="col-span-2">
-                  <label className="block text-xs font-medium text-slate-400 mb-1 uppercase">
+                  <label
+                    htmlFor="maintenance-issue"
+                    className="block text-xs font-medium text-slate-400 mb-1 uppercase"
+                  >
                     Issue Description
                   </label>
                   <textarea
+                    id="maintenance-issue"
                     value={issue}
                     onChange={(e) => setIssue(e.target.value)}
                     className="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-violet-500 h-24 resize-none"
@@ -376,7 +404,10 @@ export default function Maintenance() {
               {/* Financials */}
               <div className="grid grid-cols-2 gap-4 p-4 bg-slate-900/50 rounded-xl border border-slate-700/50">
                 <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1 uppercase">
+                  <label
+                    htmlFor="maintenance-cost"
+                    className="block text-xs font-medium text-slate-400 mb-1 uppercase"
+                  >
                     Repair Cost (Internal)
                   </label>
                   <div className="relative">
@@ -384,6 +415,7 @@ export default function Maintenance() {
                       $
                     </span>
                     <input
+                      id="maintenance-cost"
                       type="number"
                       value={cost}
                       onChange={(e) => setCost(e.target.value)}
@@ -393,7 +425,10 @@ export default function Maintenance() {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-emerald-400 mb-1 uppercase">
+                  <label
+                    htmlFor="maintenance-price"
+                    className="block text-xs font-medium text-emerald-400 mb-1 uppercase"
+                  >
                     Price to Client
                   </label>
                   <div className="relative">
@@ -401,6 +436,7 @@ export default function Maintenance() {
                       $
                     </span>
                     <input
+                      id="maintenance-price"
                       type="number"
                       value={price}
                       onChange={(e) => setPrice(e.target.value)}
@@ -414,10 +450,14 @@ export default function Maintenance() {
               {/* Client Info (Optional if using Checkout) */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1 uppercase">
+                  <label
+                    htmlFor="maintenance-client-name"
+                    className="block text-xs font-medium text-slate-400 mb-1 uppercase"
+                  >
                     Client Name
                   </label>
                   <input
+                    id="maintenance-client-name"
                     type="text"
                     value={clientName}
                     onChange={(e) => setClientName(e.target.value)}
@@ -426,10 +466,14 @@ export default function Maintenance() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1 uppercase">
+                  <label
+                    htmlFor="maintenance-client-phone"
+                    className="block text-xs font-medium text-slate-400 mb-1 uppercase"
+                  >
                     Phone Number
                   </label>
                   <input
+                    id="maintenance-client-phone"
                     type="text"
                     value={clientPhone}
                     onChange={(e) => setClientPhone(e.target.value)}

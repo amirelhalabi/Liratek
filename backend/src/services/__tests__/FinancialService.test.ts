@@ -38,7 +38,6 @@ describe("FinancialService", () => {
       createTransaction: jest.fn(),
       getHistory: jest.fn(),
       getAnalytics: jest.fn(),
-      logActivity: jest.fn(),
     } as unknown as jest.Mocked<FinancialServiceRepository>;
 
     (getFinancialServiceRepository as jest.Mock).mockReturnValue(mockRepo);
@@ -72,10 +71,6 @@ describe("FinancialService", () => {
       expect(result).toEqual({ success: true, id: 1 });
       expect(mockRepo.createTransaction).toHaveBeenCalledWith(
         mockTransactionData,
-      );
-      expect(mockRepo.logActivity).toHaveBeenCalledWith(
-        mockTransactionData,
-        "OMT_Drawer",
       );
     });
 
@@ -142,7 +137,6 @@ describe("FinancialService", () => {
 
       expect(result).toEqual({ success: true, id: 4 });
       expect(mockRepo.createTransaction).toHaveBeenCalledWith(ipecData);
-      expect(mockRepo.logActivity).toHaveBeenCalledWith(ipecData, "IPEC");
     });
 
     it("should handle KATCH transactions", () => {
@@ -165,7 +159,6 @@ describe("FinancialService", () => {
 
       expect(result).toEqual({ success: true, id: 5 });
       expect(mockRepo.createTransaction).toHaveBeenCalledWith(katchData);
-      expect(mockRepo.logActivity).toHaveBeenCalledWith(katchData, "Katch");
     });
 
     it("should handle WISH_APP transactions", () => {
@@ -188,7 +181,6 @@ describe("FinancialService", () => {
 
       expect(result).toEqual({ success: true, id: 6 });
       expect(mockRepo.createTransaction).toHaveBeenCalledWith(wishData);
-      expect(mockRepo.logActivity).toHaveBeenCalledWith(wishData, "Whish_App");
     });
 
     it("should return error when createTransaction fails", () => {
@@ -201,24 +193,6 @@ describe("FinancialService", () => {
       expect(result).toEqual({
         success: false,
         error: "Database error",
-      });
-    });
-
-    it("should return error when logActivity fails", () => {
-      mockRepo.createTransaction.mockReturnValue({
-        id: 1,
-        drawer: "OMT_Drawer",
-      });
-      mockRepo.logActivity.mockImplementation(() => {
-        throw new Error("Activity log failed");
-      });
-
-      const result = service.addTransaction(mockTransactionData);
-
-      // Should catch and return error
-      expect(result).toEqual({
-        success: false,
-        error: "Activity log failed",
       });
     });
   });

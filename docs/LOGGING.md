@@ -82,7 +82,7 @@ closingLogger, syncLogger
 ```
 
 ```typescript
-salesLogger.info({ saleId, amount }, "Sale completed");
+salesLogger.info({ id, amount }, "Sale completed");
 salesLogger.error({ error, data }, "Failed to create sale");
 ```
 

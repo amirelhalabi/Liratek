@@ -11,10 +11,11 @@ LiraTek database has been optimized with strategic indexes to improve query perf
 
 ## Results
 
-- **Before:** 30 indexes
-- **After:** 44 indexes (+14 new indexes)
+- **Before:** 30 indexes (base schema)
+- **Phase 1 (Feb 14):** 44 indexes (+14 performance indexes)
+- **Current (Feb 21):** 51 indexes (+7 for new tables & features)
 - **Impact:** 2-5x performance improvement on common queries
-- **Size overhead:** ~100-200 KB (negligible)
+- **Size overhead:** ~200-400 KB (negligible)
 
 ---
 
@@ -184,6 +185,124 @@ CREATE INDEX idx_debt_ledger_client_type ON debt_ledger(client_id, transaction_t
 - **Query:** `SELECT * FROM debt_ledger WHERE client_id = ? AND transaction_type = ?`
 - **Impact:** 2-3x faster
 - **Use case:** Debt repayment history
+
+---
+
+### Unified Transactions Table
+
+Added in migration v17-v20 (replacing `activity_logs`):
+
+#### 14. `idx_transactions_type_created`
+
+```sql
+CREATE INDEX idx_transactions_type_created ON transactions(type, created_at DESC);
+```
+
+- **Purpose:** Filter transactions by type with chronological ordering
+- **Impact:** Core index for Reports page, analytics queries
+- **Use case:** Transaction list, daily summaries
+
+#### 15. `idx_transactions_created_at`
+
+```sql
+CREATE INDEX idx_transactions_created_at ON transactions(created_at DESC);
+```
+
+- **Purpose:** Recent transactions listing
+- **Use case:** Activity log viewer, recent transactions API
+
+#### 16. `idx_transactions_user_id`
+
+```sql
+CREATE INDEX idx_transactions_user_id ON transactions(user_id);
+```
+
+- **Purpose:** FK optimization — transactions per user/cashier
+- **Use case:** Revenue-by-user analytics, audit trail
+
+#### 17. `idx_transactions_client_id`
+
+```sql
+CREATE INDEX idx_transactions_client_id ON transactions(client_id);
+```
+
+- **Purpose:** FK optimization — client transaction history
+- **Use case:** Client history reports, debt aging
+
+#### 18. `idx_transactions_source`
+
+```sql
+CREATE INDEX idx_transactions_source ON transactions(source_table, source_id);
+```
+
+- **Purpose:** Locate the original record (sale, exchange, etc.) behind a transaction
+- **Use case:** Drill-down from transaction to source, void/refund operations
+
+#### 19. `idx_transactions_reverses`
+
+```sql
+CREATE INDEX idx_transactions_reverses ON transactions(reverses_id);
+```
+
+- **Purpose:** Link void/refund transactions to their originals
+- **Use case:** Void/refund chains
+
+---
+
+### Financial Services Extensions
+
+#### 20. `idx_financial_services_paid_by`
+
+```sql
+CREATE INDEX idx_financial_services_paid_by ON financial_services(paid_by);
+```
+
+- **Purpose:** Filter financial services by payment method
+- **Use case:** Settlement reports, payment method analytics
+
+#### 21. `idx_financial_services_client_id`
+
+```sql
+CREATE INDEX idx_financial_services_client_id ON financial_services(client_id);
+```
+
+- **Purpose:** FK optimization — client financial service history
+- **Use case:** Client debt tracking for service transactions
+
+---
+
+### Custom Services Table
+
+#### 22. `idx_custom_services_created_at`
+
+```sql
+CREATE INDEX idx_custom_services_created_at ON custom_services(created_at DESC);
+```
+
+- **Purpose:** Chronological listing of custom services
+- **Use case:** Custom services page, daily view
+
+#### 23. `idx_custom_services_client_id`
+
+```sql
+CREATE INDEX idx_custom_services_client_id ON custom_services(client_id);
+```
+
+- **Purpose:** FK optimization — client custom service history
+- **Use case:** Debt tracking for custom service transactions
+
+---
+
+### Debt Ledger Extension
+
+#### 24. `idx_debt_ledger_due_date`
+
+```sql
+CREATE INDEX idx_debt_ledger_due_date ON debt_ledger(due_date);
+```
+
+- **Purpose:** Overdue debt queries and debt aging analysis
+- **Use case:** Overdue debts report, debt aging buckets
 
 ---
 
@@ -358,16 +477,19 @@ VACUUM; -- Reclaim space and defragment
 | ----------------------- | ---------- | ------------- | ------------------------ |
 | Initial Schema          | 2024       | 30            | Base indexes             |
 | 004_add_missing_indexes | 2026-02-14 | 14            | Performance optimization |
-| **Total**               | -          | **44**        | -                        |
+| v17-v20 (transactions)  | 2026-02-21 | 6             | Unified transactions table |
+| v17-v20 (new tables)    | 2026-02-21 | 5             | Custom services, financial services, debt ledger |
+| **Total**               | -          | **51** (+4 on `item_costs` implied) | -                        |
 
 ---
 
 ## Summary
 
-✅ **14 new indexes** added  
+✅ **51 total indexes** (up from 30 base)  
 ✅ **2-5x performance improvement** on common queries  
-✅ **Minimal overhead** (~100-200 KB)  
-✅ **All migrations applied** to production database  
-✅ **Schema file updated** for new installations
+✅ **Minimal overhead** (~200-400 KB)  
+✅ **All migrations applied** through v20  
+✅ **Schema file updated** for new installations  
+✅ **New tables indexed** — transactions, custom_services, financial_services extensions, debt_ledger due_date
 
 Database is now optimized for production workloads!

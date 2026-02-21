@@ -12,6 +12,8 @@ import {
   paymentMethodToDrawerName,
   isDrawerAffectingMethod,
 } from "../utils/payments.js";
+import { getTransactionRepository } from "./TransactionRepository.js";
+import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 
 // =============================================================================
 // Entity Types
@@ -33,6 +35,7 @@ export interface RechargeData {
   currency?: string; // Defaults to "USD"
   paid_by_method?: RechargePaidByMethod;
   phoneNumber?: string;
+  clientId?: number;
 }
 
 // =============================================================================
@@ -96,21 +99,6 @@ export class RechargeRepository extends BaseRepository<{ id: number }> {
                updated_at = CURRENT_TIMESTAMP`,
           )
           .run(drawerName, currency, Math.abs(data.amount));
-
-        // Log to activity logs
-        this.db
-          .prepare(
-            `INSERT INTO activity_logs (user_id, action, details_json, created_at)
-             VALUES (1, 'Recharge Top Up', ?, CURRENT_TIMESTAMP)`,
-          )
-          .run(
-            JSON.stringify({
-              provider: data.provider,
-              drawer: drawerName,
-              amount: data.amount,
-              currency,
-            }),
-          );
       })();
 
       rechargeLogger.info(
@@ -133,7 +121,7 @@ export class RechargeRepository extends BaseRepository<{ id: number }> {
    */
   processRecharge(data: RechargeData): {
     success: boolean;
-    saleId?: number;
+    id?: number;
     error?: string;
   } {
     try {
@@ -142,16 +130,37 @@ export class RechargeRepository extends BaseRepository<{ id: number }> {
         const note = `${data.provider} ${data.type} - ${data.phoneNumber || "No Number"}`;
         const insertSale = this.db.prepare(`
           INSERT INTO sales (
-            total_amount_usd, final_amount_usd, paid_usd, status, note
-          ) VALUES (?, ?, ?, 'completed', ?)
+            client_id, total_amount_usd, final_amount_usd, paid_usd, status, note
+          ) VALUES (?, ?, ?, ?, 'completed', ?)
         `);
         const saleResult = insertSale.run(
+          data.clientId || null,
           data.price,
           data.price,
-          data.price,
+          data.paid_by_method === "DEBT" ? 0 : data.price,
           note,
         );
         const saleId = Number(saleResult.lastInsertRowid);
+
+        // Create unified transaction row
+        const txnId = getTransactionRepository().createTransaction({
+          type: TRANSACTION_TYPES.RECHARGE,
+          source_table: "sales",
+          source_id: saleId,
+          user_id: 1,
+          amount_usd: data.price,
+          client_id: data.clientId ?? null,
+          summary: `Recharge: ${data.provider} ${data.type} $${data.price}`,
+          metadata_json: {
+            provider: data.provider,
+            type: data.type,
+            amount: data.amount,
+            cost: data.cost,
+            price: data.price,
+            paid_by: data.paid_by_method ?? "CASH",
+            phone: data.phoneNumber,
+          },
+        });
 
         // 2. Update running balances
         // - Customer payment increases the selected method drawer by the FULL price.
@@ -166,9 +175,9 @@ export class RechargeRepository extends BaseRepository<{ id: number }> {
 
         const insertPayment = this.db.prepare(`
           INSERT INTO payments (
-            source_type, source_id, method, drawer_name, currency_code, amount, note, created_by
+            transaction_id, method, drawer_name, currency_code, amount, note, created_by
           ) VALUES (
-            'RECHARGE', ?, ?, ?, ?, ?, ?, ?
+            ?, ?, ?, ?, ?, ?, ?
           )
         `);
 
@@ -184,7 +193,7 @@ export class RechargeRepository extends BaseRepository<{ id: number }> {
         // Non-drawer-affecting methods (DEBT) skip drawer movement.
         if (isDrawerAffectingMethod(paidBy)) {
           insertPayment.run(
-            saleId,
+            txnId,
             paidBy,
             methodDrawerName,
             currency,
@@ -202,7 +211,7 @@ export class RechargeRepository extends BaseRepository<{ id: number }> {
         // Telecom balance consumed (shop number stock)
         const stockDelta = -Math.abs(data.amount);
         insertPayment.run(
-          saleId,
+          txnId,
           data.provider === "MTC" ? "MTC" : "Alfa",
           providerDrawerName,
           currency,
@@ -212,32 +221,33 @@ export class RechargeRepository extends BaseRepository<{ id: number }> {
         );
         upsertBalanceDelta.run(providerDrawerName, currency, stockDelta);
 
-        // 4. Log to activity logs
-        this.db
-          .prepare(
-            `
-          INSERT INTO activity_logs (user_id, action, details_json, created_at)
-          VALUES (1, 'Recharge Transaction', ?, CURRENT_TIMESTAMP)
-        `,
-          )
-          .run(
-            JSON.stringify({
-              drawer: `${providerDrawerName}_Drawer`,
-              provider: data.provider,
-              paid_by_method: paidBy,
-              type: data.type,
-              amount: data.amount,
-              price: data.price,
-              cost: data.cost,
-            }),
-          );
+        // Debt: create ledger entry when paid by DEBT
+        if (paidBy === "DEBT") {
+          if (!data.clientId) {
+            throw new Error("Cannot create debt without a client");
+          }
+          this.db
+            .prepare(
+              `INSERT INTO debt_ledger (
+                client_id, transaction_type, amount_usd, transaction_id, note, created_by, due_date
+              ) VALUES (?, ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
+            )
+            .run(
+              data.clientId,
+              "Recharge Debt",
+              data.price,
+              txnId,
+              note,
+              createdBy,
+            );
+        }
 
         return saleId;
       })();
 
       rechargeLogger.info(
         {
-          saleId: result,
+          id: result,
           provider: data.provider,
           type: data.type,
           amount: data.amount,
@@ -247,7 +257,7 @@ export class RechargeRepository extends BaseRepository<{ id: number }> {
         `${data.provider} ${data.type}: ${data.amount} @ $${data.price}`,
       );
 
-      return { success: true, saleId: result };
+      return { success: true, id: result };
     } catch (error) {
       rechargeLogger.error({ error, data }, "Recharge failed");
       return {

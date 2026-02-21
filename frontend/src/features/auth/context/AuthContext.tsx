@@ -1,8 +1,7 @@
 import { createContext, useContext, useState, useEffect } from "react";
 import logger from "../../../utils/logger";
 import type { ReactNode } from "react";
-import { appEvents } from "@liratek/ui";
-import * as api from "../../../api/backendApi";
+import { appEvents, useApi } from "@liratek/ui";
 
 interface User {
   id: number;
@@ -27,6 +26,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const api = useApi();
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [needsOpening, setNeedsOpening] = useState(false);

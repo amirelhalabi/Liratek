@@ -45,9 +45,6 @@ export class ExchangeService {
     try {
       const result = this.exchangeRepo.createTransaction(data);
 
-      // Log the activity
-      this.exchangeRepo.logActivity(data);
-
       exchangeLogger.info(
         {
           id: result.id,

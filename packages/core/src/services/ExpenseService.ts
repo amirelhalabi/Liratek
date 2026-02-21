@@ -27,14 +27,6 @@ export class ExpenseService {
     try {
       const id = this.repo.createExpense(data);
 
-      // Log activity
-      this.repo.logActivity(1, "Add Expense", {
-        category: data.category,
-        paid_by_method: data.paid_by_method || "CASH",
-        amount_usd: data.amount_usd,
-        amount_lbp: data.amount_lbp,
-      });
-
       expenseLogger.info(
         {
           id,
@@ -74,12 +66,7 @@ export class ExpenseService {
 
       this.repo.deleteExpense(id);
 
-      // Log activity
       if (expense) {
-        this.repo.logActivity(1, "Delete Expense", {
-          category: expense.category,
-          amount_usd: expense.amount_usd,
-        });
         expenseLogger.info(
           { id, category: expense.category, amountUSD: expense.amount_usd },
           `Deleted: ${expense.category}`,

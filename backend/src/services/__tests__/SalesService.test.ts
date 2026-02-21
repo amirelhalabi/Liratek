@@ -63,14 +63,14 @@ describe("SalesService", () => {
 
   describe("processSale", () => {
     it("processes sale successfully", () => {
-      mockRepo.processSale.mockReturnValue({ success: true, saleId: 123 });
+      mockRepo.processSale.mockReturnValue({ success: true, id: 123 });
 
       const saleRequest = createSaleRequest();
 
       const result = service.processSale(saleRequest);
 
       expect(mockRepo.processSale).toHaveBeenCalledWith(saleRequest);
-      expect(result).toEqual({ success: true, saleId: 123 });
+      expect(result).toEqual({ success: true, id: 123 });
     });
 
     it("handles repository error", () => {
@@ -86,7 +86,7 @@ describe("SalesService", () => {
     });
 
     it("returns success with sale ID", () => {
-      mockRepo.processSale.mockReturnValue({ success: true, saleId: 456 });
+      mockRepo.processSale.mockReturnValue({ success: true, id: 456 });
 
       const saleRequest = createSaleRequest({
         final_amount: 50,
@@ -96,11 +96,11 @@ describe("SalesService", () => {
 
       const result = service.processSale(saleRequest);
 
-      expect(result).toEqual({ success: true, saleId: 456 });
+      expect(result).toEqual({ success: true, id: 456 });
     });
 
     it("uses default drawer name when not specified", () => {
-      mockRepo.processSale.mockReturnValue({ success: true, saleId: 789 });
+      mockRepo.processSale.mockReturnValue({ success: true, id: 789 });
 
       const saleRequest = createSaleRequest({
         final_amount: 30,
@@ -109,7 +109,7 @@ describe("SalesService", () => {
 
       const result = service.processSale(saleRequest);
 
-      expect(result).toEqual({ success: true, saleId: 789 });
+      expect(result).toEqual({ success: true, id: 789 });
     });
   });
 

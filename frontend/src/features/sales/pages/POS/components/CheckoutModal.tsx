@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import logger from "../../../../../utils/logger";
 import { X, User, Printer, Inbox } from "lucide-react";
-import { DRAWER_B, roundLBPUp } from "@liratek/ui";
+import { DRAWER_B, roundLBPUp, useApi } from "@liratek/ui";
 import { useExchangeRate } from "../../../../../hooks/useExchangeRate";
 import { usePaymentMethods } from "../../../../../hooks/usePaymentMethods";
 import { useShopName } from "../../../../../hooks/useShopName";
@@ -10,7 +10,6 @@ import {
   type ReceiptData,
 } from "../../../utils/receiptFormatter";
 import type { Client, CartItem, SaleRequest } from "@liratek/ui";
-import * as api from "../../../../../api/backendApi";
 import { useSession } from "../../../../sessions/context/SessionContext";
 
 export type PaymentData = Omit<SaleRequest, "items" | "status" | "id"> & {
@@ -50,6 +49,7 @@ export default function CheckoutModal({
   draftData,
   onRestoreDraftComplete,
 }: CheckoutModalProps) {
+  const api = useApi();
   const { activeSession } = useSession();
   const [isLoading, setIsLoading] = useState(false);
   const [clients, setClients] = useState<Client[]>([]);
@@ -63,6 +63,7 @@ export default function CheckoutModal({
 
   type PaymentCurrencyCode = "USD" | "LBP";
   type PaymentLine = {
+    id: string;
     method: string;
     currency_code: PaymentCurrencyCode;
     amount: number;
@@ -72,7 +73,12 @@ export default function CheckoutModal({
   const shopName = useShopName();
 
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([
-    { method: "CASH", currency_code: "USD", amount: 0 },
+    {
+      id: crypto.randomUUID(),
+      method: "CASH",
+      currency_code: "USD",
+      amount: 0,
+    },
   ]);
 
   const { rate: exchangeRate } = useExchangeRate("USD", "LBP");
@@ -120,6 +126,7 @@ export default function CheckoutModal({
         ...(restoredUSD
           ? [
               {
+                id: crypto.randomUUID(),
                 method: "CASH" as const,
                 currency_code: "USD" as const,
                 amount: restoredUSD,
@@ -129,6 +136,7 @@ export default function CheckoutModal({
         ...(restoredLBP
           ? [
               {
+                id: crypto.randomUUID(),
                 method: "CASH" as const,
                 currency_code: "LBP" as const,
                 amount: restoredLBP,
@@ -138,6 +146,7 @@ export default function CheckoutModal({
         ...(!restoredUSD && !restoredLBP
           ? [
               {
+                id: crypto.randomUUID(),
                 method: "CASH" as const,
                 currency_code: "USD" as const,
                 amount: 0,
@@ -221,7 +230,11 @@ export default function CheckoutModal({
       final_amount: finalAmount,
       payment_usd: paidUSD,
       payment_lbp: paidLBP,
-      payments: paymentLines,
+      payments: paymentLines.map(({ method, currency_code, amount }) => ({
+        method,
+        currency_code,
+        amount,
+      })),
       change_given_usd: changeGivenUSD,
       change_given_lbp: changeGivenLBP,
       exchange_rate: exchangeRate,
@@ -326,6 +339,7 @@ export default function CheckoutModal({
     <>
       <div
         className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-in fade-in duration-200"
+        role="presentation"
         onMouseDown={(e) => {
           if (e.target === e.currentTarget) {
             onClose();
@@ -334,6 +348,7 @@ export default function CheckoutModal({
       >
         <div
           className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-7xl shadow-2xl flex overflow-hidden h-[85vh]"
+          role="presentation"
           onMouseDown={(e) => e.stopPropagation()}
         >
           {/* Left: Summary & Client */}
@@ -342,7 +357,10 @@ export default function CheckoutModal({
 
             {/* Client Selector */}
             <div className="mb-8">
-              <label className="block text-sm font-medium text-slate-400 mb-2">
+              <label
+                htmlFor="checkout-customer"
+                className="block text-sm font-medium text-slate-400 mb-2"
+              >
                 Customer
               </label>
 
@@ -512,7 +530,12 @@ export default function CheckoutModal({
                     onClick={() =>
                       setPaymentLines((prev) => [
                         ...prev,
-                        { method: "CASH", currency_code: "USD", amount: 0 },
+                        {
+                          id: crypto.randomUUID(),
+                          method: "CASH",
+                          currency_code: "USD",
+                          amount: 0,
+                        },
                       ])
                     }
                     className="text-xs px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200"
@@ -524,7 +547,7 @@ export default function CheckoutModal({
                 <div className="space-y-2">
                   {paymentLines.map((line, idx) => (
                     <div
-                      key={idx}
+                      key={line.id}
                       className="grid grid-cols-12 gap-2 items-center"
                     >
                       <div className="col-span-4">
@@ -595,7 +618,13 @@ export default function CheckoutModal({
                             }
                             className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-10 pr-3 py-2 text-white text-sm font-mono"
                             placeholder="0"
-                            autoFocus={idx === 0}
+                            ref={
+                              idx === 0
+                                ? (el: HTMLInputElement | null) => {
+                                    el?.focus();
+                                  }
+                                : undefined
+                            }
                           />
                         </div>
                       </div>
@@ -668,10 +697,17 @@ export default function CheckoutModal({
                     {/* Change Given Inputs */}
                     {change > 0 && (
                       <div className="mt-4 pt-4 border-t border-slate-700/50 animate-in fade-in slide-in-from-top-2">
-                        <label className="block text-xs font-medium text-slate-500 mb-2 uppercase tracking-wider">
+                        <span
+                          id="checkout-change-given-label"
+                          className="block text-xs font-medium text-slate-500 mb-2 uppercase tracking-wider"
+                        >
                           Change Given
-                        </label>
-                        <div className="flex gap-4 mb-2">
+                        </span>
+                        <div
+                          className="flex gap-4 mb-2"
+                          role="group"
+                          aria-labelledby="checkout-change-given-label"
+                        >
                           <div className="flex-1">
                             <div className="relative">
                               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">
@@ -823,6 +859,7 @@ export default function CheckoutModal({
       {showReceiptPreview && (
         <div
           className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 p-4"
+          role="presentation"
           onMouseDown={(e) => {
             if (e.target === e.currentTarget) {
               setShowReceiptPreview(false);
@@ -831,6 +868,7 @@ export default function CheckoutModal({
         >
           <div
             className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+            role="presentation"
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="p-6 border-b border-slate-700 flex justify-between items-center">

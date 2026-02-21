@@ -8,6 +8,8 @@
 import { BaseRepository } from "./BaseRepository.js";
 import { DatabaseError } from "../utils/errors.js";
 import { paymentMethodToDrawerName } from "../utils/payments.js";
+import { getTransactionRepository } from "./TransactionRepository.js";
+import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 
 // =============================================================================
 // Entity Types
@@ -16,7 +18,7 @@ import { paymentMethodToDrawerName } from "../utils/payments.js";
 export interface DebtLedgerEntity {
   id: number;
   client_id: number;
-  sale_id: number | null;
+  transaction_id: number | null;
   transaction_type: string;
   amount_usd: number;
   amount_lbp: number;
@@ -68,7 +70,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
 
   // Override getColumns() to use explicit columns instead of SELECT *
   protected getColumns(): string {
-    return "id, client_id, transaction_type, amount_usd, amount_lbp, sale_id, note, created_at, created_by";
+    return "id, client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_at, created_by";
   }
 
   // ---------------------------------------------------------------------------
@@ -171,11 +173,31 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
 
       const repaymentId = Number(result.lastInsertRowid);
 
+      // Create unified transaction row
+      const txnId = getTransactionRepository().createTransaction({
+        type: TRANSACTION_TYPES.DEBT_REPAYMENT,
+        source_table: "debt_ledger",
+        source_id: repaymentId,
+        user_id: data.created_by || 1,
+        amount_usd: data.amount_usd,
+        amount_lbp: data.amount_lbp,
+        client_id: data.client_id,
+        summary: `Debt Repayment: $${data.amount_usd} + ${data.amount_lbp} LBP`,
+        metadata_json: {
+          paid_by: data.paid_by_method || "CASH",
+        },
+      });
+
+      // Link debt_ledger row to unified transaction
+      this.db
+        .prepare(`UPDATE debt_ledger SET transaction_id = ? WHERE id = ?`)
+        .run(txnId, repaymentId);
+
       // 2. Record payment entries for drawer tracking
       const insertPayment = this.db.prepare(`
         INSERT INTO payments (
-          source_type, source_id, method, drawer_name, currency_code, amount, note, created_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          transaction_id, method, drawer_name, currency_code, amount, note, created_by
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
       `);
 
       // 3. Update drawer balances
@@ -193,8 +215,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
 
       if (data.amount_usd > 0) {
         insertPayment.run(
-          "DEBT_REPAYMENT",
-          repaymentId,
+          txnId,
           paidBy,
           drawerName,
           "USD",
@@ -207,8 +228,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
 
       if (data.amount_lbp > 0) {
         insertPayment.run(
-          "DEBT_REPAYMENT",
-          repaymentId,
+          txnId,
           paidBy,
           drawerName,
           "LBP",

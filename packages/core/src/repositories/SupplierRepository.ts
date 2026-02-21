@@ -1,5 +1,7 @@
 import { BaseRepository } from "./BaseRepository.js";
 import { DatabaseError } from "../utils/errors.js";
+import { getTransactionRepository } from "./TransactionRepository.js";
+import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 
 export interface SupplierEntity {
   id: number;
@@ -25,7 +27,6 @@ export interface SupplierLedgerEntryEntity {
   note: string | null;
   created_by: number | null;
   transaction_id: number | null;
-  transaction_type: string | null;
   created_at: string;
 }
 
@@ -46,8 +47,6 @@ export interface CreateSupplierLedgerEntryData {
   note?: string;
   created_by?: number;
   drawer_name?: string;
-  transaction_id?: number;
-  transaction_type?: string;
 }
 
 export interface SupplierBalance {
@@ -141,8 +140,8 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       const stmt = this.db.prepare(`
         INSERT INTO supplier_ledger (
           supplier_id, entry_type, amount_usd, amount_lbp, note, created_by,
-          transaction_id, transaction_type, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       `);
       const res = stmt.run(
         data.supplier_id,
@@ -151,8 +150,6 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         amountLbp,
         data.note ?? null,
         data.created_by ?? null,
-        data.transaction_id ?? null,
-        data.transaction_type ?? null,
       );
       const entryId = Number(res.lastInsertRowid);
 
@@ -171,6 +168,28 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         // TOP_UP increases liability and (theoretically) increases asset if we got stock?
         // Usually, payments are the ones affecting cash.
         if (data.entry_type === "PAYMENT") {
+          // Create unified transaction row for supplier payment
+          const txnId = getTransactionRepository().createTransaction({
+            type: TRANSACTION_TYPES.SUPPLIER_PAYMENT,
+            source_table: "supplier_ledger",
+            source_id: entryId,
+            user_id: data.created_by || 1,
+            amount_usd: Math.abs(amountUsd),
+            amount_lbp: Math.abs(amountLbp),
+            summary: `Supplier Payment: $${Math.abs(amountUsd)} + ${Math.abs(amountLbp)} LBP`,
+            metadata_json: {
+              supplier_id: data.supplier_id,
+              drawer_name: data.drawer_name,
+            },
+          });
+
+          // Link supplier_ledger row to unified transaction
+          this.db
+            .prepare(
+              `UPDATE supplier_ledger SET transaction_id = ? WHERE id = ?`,
+            )
+            .run(txnId, entryId);
+
           if (amountUsd)
             upsertBalanceDelta.run(data.drawer_name, "USD", amountUsd);
           if (amountLbp)
@@ -180,12 +199,12 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           this.db
             .prepare(
               `
-            INSERT INTO payments (source_type, source_id, method, drawer_name, currency_code, amount, note, created_by)
-            VALUES ('SUPPLIER_PAYMENT', ?, 'CASH', ?, ?, ?, ?, ?)
+            INSERT INTO payments (transaction_id, method, drawer_name, currency_code, amount, note, created_by)
+            VALUES (?, 'CASH', ?, ?, ?, ?, ?)
           `,
             )
             .run(
-              entryId,
+              txnId,
               data.drawer_name,
               amountUsd ? "USD" : "LBP",
               amountUsd || amountLbp,
@@ -209,7 +228,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
   ): SupplierLedgerEntryEntity[] {
     try {
       return this.query<SupplierLedgerEntryEntity>(
-        `SELECT id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, transaction_type, created_at FROM supplier_ledger WHERE supplier_id = ? ORDER BY created_at DESC LIMIT ?`,
+        `SELECT id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, created_at FROM supplier_ledger WHERE supplier_id = ? ORDER BY created_at DESC LIMIT ?`,
         supplierId,
         limit,
       );

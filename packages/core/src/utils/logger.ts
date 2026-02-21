@@ -133,6 +133,7 @@ export const binanceLogger = logger.child({ module: "binance" });
 export const financialLogger = logger.child({ module: "financial" });
 export const maintenanceLogger = logger.child({ module: "maintenance" });
 export const rechargeLogger = logger.child({ module: "recharge" });
+export const customServiceLogger = logger.child({ module: "custom-service" });
 export const settingsLogger = logger.child({ module: "settings" });
 export const expenseLogger = logger.child({ module: "expense" });
 export const closingLogger = logger.child({ module: "closing" });

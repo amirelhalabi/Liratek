@@ -74,12 +74,17 @@ import suppliersRoutes from "./api/suppliers.js";
 import ratesRoutes from "./api/rates.js";
 import usersRoutes from "./api/users.js";
 import activityRoutes from "./api/activity.js";
+import transactionsRoutes from "./api/transactions.js";
 import reportsRoutes from "./api/reports.js";
 import sessionsRoutes from "./api/sessions.js";
 import binanceRoutes from "./api/binance.js";
 import modulesRoutes from "./api/modules.js";
 import paymentMethodsRoutes from "./api/paymentMethods.js";
 import healthRoutes from "./api/health.js";
+import itemCostsRoutes from "./api/item-costs.js";
+import voucherImagesRoutes from "./api/voucher-images.js";
+import customServicesRoutes from "./api/customServices.js";
+import profitsRoutes from "./api/profits.js";
 
 // Health checks (no /api prefix for easier monitoring)
 app.use("/health", healthRoutes);
@@ -104,11 +109,16 @@ app.use("/api/suppliers", suppliersRoutes);
 app.use("/api/rates", ratesRoutes);
 app.use("/api/users", usersRoutes);
 app.use("/api/activity", activityRoutes);
+app.use("/api/transactions", transactionsRoutes);
 app.use("/api/reports", reportsRoutes);
 app.use("/api/sessions", sessionsRoutes);
 app.use("/api/binance", binanceRoutes);
 app.use("/api/modules", modulesRoutes);
 app.use("/api/payment-methods", paymentMethodsRoutes);
+app.use("/api/item-costs", itemCostsRoutes);
+app.use("/api/voucher-images", voucherImagesRoutes);
+app.use("/api/custom-services", customServicesRoutes);
+app.use("/api/profits", profitsRoutes);
 
 app.get("/api", (_req, res) => {
   res.json({ message: "LiraTek API Server", version: "1.0.0" });

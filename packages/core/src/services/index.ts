@@ -160,12 +160,13 @@ export type {
   UpdateClosingData,
 } from "./ClosingService.js";
 
-// Activity Service
+// Activity Service (legacy adapter — delegates to TransactionService)
 export {
   ActivityService,
   getActivityService,
   resetActivityService,
 } from "./ActivityService.js";
+export type { ActivityLogEntity, SyncErrorEntity } from "./ActivityService.js";
 
 // Supplier Service
 export {
@@ -177,3 +178,63 @@ export type { SupplierResult } from "./SupplierService.js";
 
 // Customer Session Service
 export { CustomerSessionService } from "./CustomerSessionService.js";
+
+// WhatsApp Service
+export {
+  WhatsAppService,
+  getWhatsAppService,
+  resetWhatsAppService,
+} from "./WhatsAppService.js";
+export type { WhatsAppResult } from "./WhatsAppService.js";
+
+// Item Cost Service
+export {
+  ItemCostService,
+  getItemCostService,
+  resetItemCostService,
+} from "./ItemCostService.js";
+
+// Voucher Image Service
+export {
+  VoucherImageService,
+  getVoucherImageService,
+  resetVoucherImageService,
+} from "./VoucherImageService.js";
+
+// Custom Service
+export {
+  CustomServiceService,
+  getCustomServiceService,
+  resetCustomServiceService,
+} from "./CustomServiceService.js";
+export type { CustomServiceResult } from "./CustomServiceService.js";
+
+// Transaction Service
+export {
+  TransactionService,
+  getTransactionService,
+  resetTransactionService,
+} from "./TransactionService.js";
+
+// Reporting Service
+export {
+  ReportingService,
+  getReportingService,
+  resetReportingService,
+} from "./ReportingService.js";
+export type { PeriodSummary, ClientHistory } from "./ReportingService.js";
+
+// Profit Service
+export {
+  ProfitService,
+  getProfitService,
+  resetProfitService,
+} from "./ProfitService.js";
+export type {
+  ProfitSummary,
+  ProfitByModule,
+  ProfitByDate,
+  ProfitByPaymentMethod,
+  ProfitByUser,
+  ProfitByClient,
+} from "./ProfitService.js";

@@ -38,7 +38,6 @@ describe("ExchangeService", () => {
       getHistory: jest.fn(),
       getTodayTransactions: jest.fn(),
       getTodayStats: jest.fn(),
-      logActivity: jest.fn(),
     } as unknown as jest.Mocked<ExchangeRepository>;
 
     (getExchangeRepository as jest.Mock).mockReturnValue(mockRepo);
@@ -66,7 +65,6 @@ describe("ExchangeService", () => {
 
       expect(result).toEqual({ success: true, id: 1 });
       expect(mockRepo.createTransaction).toHaveBeenCalledWith(mockExchangeData);
-      expect(mockRepo.logActivity).toHaveBeenCalledWith(mockExchangeData);
     });
 
     it("should handle USD to LBP exchange", () => {
@@ -127,20 +125,6 @@ describe("ExchangeService", () => {
       expect(result).toEqual({
         success: false,
         error: "Database error",
-      });
-    });
-
-    it("should return error when logActivity fails", () => {
-      mockRepo.createTransaction.mockReturnValue({ id: 1 });
-      mockRepo.logActivity.mockImplementation(() => {
-        throw new Error("Activity log failed");
-      });
-
-      const result = service.addTransaction(mockExchangeData);
-
-      expect(result).toEqual({
-        success: false,
-        error: "Activity log failed",
       });
     });
   });

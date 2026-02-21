@@ -36,7 +36,6 @@ describe("ExpenseService", () => {
       getTodayExpenses: jest.fn(),
       getExpenseById: jest.fn(),
       deleteExpense: jest.fn(),
-      logActivity: jest.fn(),
     };
 
     (getExpenseRepository as jest.Mock).mockReturnValue(mockRepo);
@@ -63,12 +62,6 @@ describe("ExpenseService", () => {
 
       expect(result).toEqual({ success: true, id: 1 });
       expect(mockRepo.createExpense).toHaveBeenCalledWith(expenseData);
-      expect(mockRepo.logActivity).toHaveBeenCalledWith(1, "Add Expense", {
-        category: "Utilities",
-        paid_by_method: "CASH",
-        amount_usd: 50,
-        amount_lbp: 0,
-      });
     });
 
     it("should add expense with LBP amount", () => {
@@ -136,7 +129,7 @@ describe("ExpenseService", () => {
       expect(result).toEqual({ success: true, id: 4 });
     });
 
-    it("should log activity even if expense has zero USD", () => {
+    it("should handle expense with zero USD", () => {
       const expenseData: CreateExpenseData = {
         category: "Food",
         amount_usd: 0,
@@ -146,14 +139,9 @@ describe("ExpenseService", () => {
       };
       mockRepo.createExpense.mockReturnValue(5);
 
-      service.addExpense(expenseData);
+      const result = service.addExpense(expenseData);
 
-      expect(mockRepo.logActivity).toHaveBeenCalledWith(1, "Add Expense", {
-        category: "Food",
-        paid_by_method: "CASH",
-        amount_usd: 0,
-        amount_lbp: 100000,
-      });
+      expect(result).toEqual({ success: true, id: 5 });
     });
   });
 
@@ -232,10 +220,6 @@ describe("ExpenseService", () => {
 
       expect(result).toEqual({ success: true });
       expect(mockRepo.deleteExpense).toHaveBeenCalledWith(1);
-      expect(mockRepo.logActivity).toHaveBeenCalledWith(1, "Delete Expense", {
-        category: "Utilities",
-        amount_usd: 50,
-      });
     });
 
     it("should delete without logging if expense not found", () => {
@@ -245,7 +229,6 @@ describe("ExpenseService", () => {
       const result = service.deleteExpense(999);
 
       expect(result).toEqual({ success: true });
-      expect(mockRepo.logActivity).not.toHaveBeenCalled();
     });
 
     it("should return error on delete failure", () => {
@@ -270,7 +253,7 @@ describe("ExpenseService", () => {
       });
     });
 
-    it("should handle expense with LBP in log", () => {
+    it("should handle expense with LBP delete", () => {
       const mockExpense: ExpenseEntity = {
         id: 2,
         category: "Transport",
@@ -283,12 +266,10 @@ describe("ExpenseService", () => {
       mockRepo.getExpenseById.mockReturnValue(mockExpense);
       mockRepo.deleteExpense.mockReturnValue(undefined);
 
-      service.deleteExpense(2);
+      const result = service.deleteExpense(2);
 
-      expect(mockRepo.logActivity).toHaveBeenCalledWith(1, "Delete Expense", {
-        category: "Transport",
-        amount_usd: 0,
-      });
+      expect(result).toEqual({ success: true });
+      expect(mockRepo.deleteExpense).toHaveBeenCalledWith(2);
     });
   });
 

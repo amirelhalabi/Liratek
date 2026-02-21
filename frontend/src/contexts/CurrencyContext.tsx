@@ -12,7 +12,7 @@ import React, {
   useEffect,
   useCallback,
 } from "react";
-import * as api from "../api/backendApi";
+import { useApi } from "@liratek/ui";
 
 export interface CurrencyInfo {
   id: number;
@@ -33,6 +33,7 @@ interface CurrencyContextType {
   getDecimals: (code: string) => number;
   formatAmount: (amount: number, currencyCode: string) => string;
   getCurrenciesForModule: (moduleKey: string) => Promise<CurrencyInfo[]>;
+  getCurrenciesForDrawer: (drawerName: string) => Promise<CurrencyInfo[]>;
 }
 
 const CurrencyContext = createContext<CurrencyContextType | null>(null);
@@ -40,6 +41,7 @@ const CurrencyContext = createContext<CurrencyContextType | null>(null);
 export const CurrencyProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
+  const api = useApi();
   const [currencies, setCurrencies] = useState<CurrencyInfo[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -97,12 +99,24 @@ export const CurrencyProvider: React.FC<{ children: React.ReactNode }> = ({
     async (moduleKey: string): Promise<CurrencyInfo[]> => {
       try {
         const result = await api.getCurrenciesByModule(moduleKey);
-        return result as CurrencyInfo[];
+        return (result ?? []) as CurrencyInfo[];
       } catch {
         return [];
       }
     },
-    [],
+    [api],
+  );
+
+  const getCurrenciesForDrawer = useCallback(
+    async (drawerName: string): Promise<CurrencyInfo[]> => {
+      try {
+        const result = await api.getFullCurrenciesByDrawer(drawerName);
+        return (result ?? []) as CurrencyInfo[];
+      } catch {
+        return [];
+      }
+    },
+    [api],
   );
 
   return (
@@ -117,6 +131,7 @@ export const CurrencyProvider: React.FC<{ children: React.ReactNode }> = ({
         getDecimals,
         formatAmount,
         getCurrenciesForModule,
+        getCurrenciesForDrawer,
       }}
     >
       {children}

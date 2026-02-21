@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import * as api from "../api/backendApi";
+import { useApi } from "@liratek/ui";
 
 const DEFAULT_SHOP_NAME = "Corner Tech";
 
@@ -13,6 +13,7 @@ function notify(name: string) {
 
 /** Load shop name once and share across all consumers */
 export function useShopName(): string {
+  const api = useApi();
   const [name, setName] = useState(cachedName ?? DEFAULT_SHOP_NAME);
 
   useEffect(() => {

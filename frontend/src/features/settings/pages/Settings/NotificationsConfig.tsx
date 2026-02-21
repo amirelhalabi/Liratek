@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { appEvents } from "@liratek/ui";
-import * as api from "../../../../api/backendApi";
+import { appEvents, useApi } from "@liratek/ui";
 
 export default function NotificationsConfig() {
+  const api = useApi();
   const [pollMs, setPollMs] = useState("60000");
   const [warnLow, setWarnLow] = useState(true);
 
@@ -78,8 +78,14 @@ export default function NotificationsConfig() {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
-        <label className="text-slate-300 text-sm">Polling Interval (ms)</label>
+        <label
+          htmlFor="notifications-poll-interval"
+          className="text-slate-300 text-sm"
+        >
+          Polling Interval (ms)
+        </label>
         <input
+          id="notifications-poll-interval"
           value={pollMs}
           onChange={(e) => setPollMs(e.target.value)}
           className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white w-40"
@@ -118,18 +124,28 @@ export default function NotificationsConfig() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
-          <label className="block text-slate-300 text-sm">
+          <label
+            htmlFor="notifications-backup-interval"
+            className="block text-slate-300 text-sm"
+          >
             Interval (hours)
           </label>
           <input
+            id="notifications-backup-interval"
             value={autoBackupIntervalHours}
             onChange={(e) => setAutoBackupIntervalHours(e.target.value)}
             className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white w-full"
           />
         </div>
         <div>
-          <label className="block text-slate-300 text-sm">Keep (count)</label>
+          <label
+            htmlFor="notifications-backup-keep"
+            className="block text-slate-300 text-sm"
+          >
+            Keep (count)
+          </label>
           <input
+            id="notifications-backup-keep"
             value={autoBackupKeepCount}
             onChange={(e) => setAutoBackupKeepCount(e.target.value)}
             className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white w-full"

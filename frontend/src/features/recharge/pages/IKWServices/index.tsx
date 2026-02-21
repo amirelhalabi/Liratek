@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import logger from "../../../../utils/logger";
 import {
   Send,
@@ -13,8 +13,9 @@ import {
   Zap,
   AlertTriangle,
 } from "lucide-react";
-import * as api from "../../../../api/backendApi";
+import { useApi } from "@liratek/ui";
 import { useSession } from "../../../sessions/context/SessionContext";
+import { ExportBar } from "@/shared/components/ExportBar";
 
 type Provider = "IPEC" | "KATCH" | "WISH_APP";
 type ServiceType = "SEND" | "RECEIVE" | "BILL_PAYMENT";
@@ -96,7 +97,9 @@ interface SupplierOwed {
 const SUPPLIER_PROVIDERS: Provider[] = ["IPEC", "KATCH"];
 
 export default function IKWServices() {
+  const api = useApi();
   const { activeSession, linkTransaction } = useSession();
+  const tableRef = useRef<HTMLTableElement>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [analytics, setAnalytics] = useState<Analytics>({
     today: { commission: 0, count: 0 },
@@ -417,7 +420,10 @@ export default function IKWServices() {
             {/* Amount Fields */}
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
+                <label
+                  htmlFor="ikw-amount-usd"
+                  className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
+                >
                   Amount USD
                 </label>
                 <div className="relative">
@@ -425,6 +431,7 @@ export default function IKWServices() {
                     $
                   </span>
                   <input
+                    id="ikw-amount-usd"
                     type="number"
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
@@ -434,10 +441,14 @@ export default function IKWServices() {
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
+                <label
+                  htmlFor="ikw-amount-lbp"
+                  className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
+                >
                   Amount LBP
                 </label>
                 <input
+                  id="ikw-amount-lbp"
                   type="number"
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
@@ -449,7 +460,10 @@ export default function IKWServices() {
 
             {/* Commission Fields */}
             <div className="p-4 rounded-xl bg-sky-400/5 border border-sky-400/20">
-              <label className="block text-xs font-medium text-sky-400 mb-3 uppercase tracking-wider">
+              <label
+                htmlFor="ikw-commission"
+                className="block text-xs font-medium text-sky-400 mb-3 uppercase tracking-wider"
+              >
                 Commission / Profit
               </label>
               <div className="grid grid-cols-2 gap-3">
@@ -478,10 +492,14 @@ export default function IKWServices() {
             {/* Client Info */}
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1">
+                <label
+                  htmlFor="ikw-client-name"
+                  className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+                >
                   <User size={12} /> Client Name
                 </label>
                 <input
+                  id="ikw-client-name"
                   type="text"
                   value={clientName}
                   onChange={(e) => setClientName(e.target.value)}
@@ -490,10 +508,14 @@ export default function IKWServices() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1">
+                <label
+                  htmlFor="ikw-reference"
+                  className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+                >
                   <Hash size={12} /> Reference #
                 </label>
                 <input
+                  id="ikw-reference"
                   type="text"
                   value={referenceNumber}
                   onChange={(e) => setReferenceNumber(e.target.value)}
@@ -543,7 +565,14 @@ export default function IKWServices() {
           </div>
 
           <div className="flex-1 min-h-0 overflow-auto">
-            <table className="w-full">
+            <ExportBar
+              exportExcel
+              exportPdf
+              exportFilename="ikw-services"
+              tableRef={tableRef}
+              rowCount={transactions.length}
+            />
+            <table ref={tableRef} className="w-full">
               <thead className="bg-slate-900/50 text-left text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0">
                 <tr>
                   <th className="px-6 py-3">Provider</th>

@@ -73,7 +73,7 @@ describe("backendApi dual-mode routing", () => {
       // Sales
       sales: {
         getDrafts: jest.fn(async () => []),
-        process: jest.fn(async () => ({ success: true, saleId: 1 })),
+        process: jest.fn(async () => ({ success: true, id: 1 })),
         get: jest.fn(async () => ({ id: 1 })),
         getItems: jest.fn(async () => []),
         getTodaysSales: jest.fn(async () => []),
@@ -151,7 +151,7 @@ describe("backendApi dual-mode routing", () => {
       // Recharge
       recharge: {
         getStock: jest.fn(async () => ({ mtc: 0, alfa: 0 })),
-        process: jest.fn(async () => ({ success: true, saleId: 1 })),
+        process: jest.fn(async () => ({ success: true, id: 1 })),
       },
 
       // OMT Services

@@ -9,7 +9,7 @@ import { useAuth } from "../../../auth/context/AuthContext";
 import type { DrawerType } from "../../types";
 import { DRAWER_ORDER } from "../../config/drawers";
 import { useCurrencies } from "../../hooks/useCurrencies";
-import * as api from "../../../../api/backendApi";
+import { useApi } from "@liratek/ui";
 import { useDrawerAmounts } from "../../hooks/useDrawerAmounts";
 import { DrawerCard } from "../../components/DrawerCard";
 import { X } from "lucide-react";
@@ -20,6 +20,7 @@ interface OpeningProps {
 }
 
 export default function Opening({ isOpen, onClose }: OpeningProps) {
+  const api = useApi();
   const { user } = useAuth();
   const {
     currencies,
@@ -156,6 +157,7 @@ export default function Opening({ isOpen, onClose }: OpeningProps) {
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+      role="presentation"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) {
           handleCancel();
@@ -164,6 +166,7 @@ export default function Opening({ isOpen, onClose }: OpeningProps) {
     >
       <div
         className="bg-slate-900 border border-slate-700 rounded-xl overflow-hidden w-full max-w-6xl max-h-[90vh] flex flex-col shadow-2xl"
+        role="presentation"
         onMouseDown={(e) => e.stopPropagation()}
       >
         {/* Header */}

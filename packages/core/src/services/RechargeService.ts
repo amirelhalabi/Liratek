@@ -18,7 +18,7 @@ import { rechargeLogger } from "../utils/logger.js";
 
 export interface RechargeResult {
   success: boolean;
-  saleId?: number;
+  id?: number;
   error?: string;
 }
 

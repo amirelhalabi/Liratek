@@ -9,8 +9,8 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
-import * as api from "../api/backendApi";
-import type { PaymentMethodEntity } from "../api/backendApi";
+import { useApi } from "@liratek/ui";
+import type { PaymentMethodEntity } from "@liratek/ui";
 
 export type { PaymentMethodEntity };
 
@@ -32,6 +32,7 @@ interface UsePaymentMethodsResult {
  * Filters are computed from the loaded data.
  */
 export function usePaymentMethods(): UsePaymentMethodsResult {
+  const api = useApi();
   const [methods, setMethods] = useState<PaymentMethodEntity[]>([]);
   const [loading, setLoading] = useState(true);
 

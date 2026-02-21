@@ -1,9 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import logger from "../../../../utils/logger";
-import { Plus, Trash2, Calendar, DollarSign } from "lucide-react";
-import { Select } from "@liratek/ui";
-import * as api from "../../../../api/backendApi";
+import { Plus, Ban, Calendar, DollarSign } from "lucide-react";
+import { Select, useApi } from "@liratek/ui";
 import { usePaymentMethods } from "../../../../hooks/usePaymentMethods";
+import { ExportBar } from "@/shared/components/ExportBar";
 
 interface Expense {
   id?: number;
@@ -24,8 +24,10 @@ const EXPENSE_CATEGORIES = [
 ];
 
 export default function Expenses() {
+  const api = useApi();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const { drawerAffectingMethods } = usePaymentMethods();
+  const tableRef = useRef<HTMLTableElement>(null);
   const [formData, setFormData] = useState<Expense>({
     description: "",
     category: "Shop_Supply",
@@ -82,8 +84,8 @@ export default function Expenses() {
     }
   };
 
-  const handleDelete = async (id: number) => {
-    if (!confirm("Delete this expense?")) return;
+  const handleVoid = async (id: number) => {
+    if (!confirm("Void this expense? Drawer balance will be restored.")) return;
     try {
       const result = await api.deleteExpense(id);
       if (result.success) {
@@ -91,7 +93,7 @@ export default function Expenses() {
       }
     } catch (error) {
       logger.error("Operation failed", { error });
-      alert("Failed to delete expense");
+      alert("Failed to void expense");
     }
   };
 
@@ -139,10 +141,14 @@ export default function Expenses() {
           <div className="space-y-4 flex-1 overflow-auto pr-2 custom-scrollbar">
             {/* Description */}
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
+              <label
+                htmlFor="expense-description"
+                className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
+              >
                 Description *
               </label>
               <input
+                id="expense-description"
                 type="text"
                 value={formData.description}
                 onChange={(e) =>
@@ -155,7 +161,10 @@ export default function Expenses() {
 
             {/* Category */}
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
+              <label
+                htmlFor="expense-category"
+                className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
+              >
                 Category
               </label>
               <Select
@@ -174,7 +183,10 @@ export default function Expenses() {
 
             {/* Paid By (payment method) */}
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
+              <label
+                htmlFor="expense-paid-by"
+                className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
+              >
                 Paid By
               </label>
               <Select
@@ -197,7 +209,10 @@ export default function Expenses() {
             {/* Amounts */}
             <div className="grid grid-cols-2 gap-3 p-3 bg-slate-900/50 rounded-lg border border-slate-700/50">
               <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
+                <label
+                  htmlFor="expense-amount-usd"
+                  className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
+                >
                   Amount (USD)
                 </label>
                 <div className="relative">
@@ -205,6 +220,7 @@ export default function Expenses() {
                     $
                   </span>
                   <input
+                    id="expense-amount-usd"
                     type="number"
                     value={formData.amount_usd || ""}
                     onChange={(e) =>
@@ -219,10 +235,14 @@ export default function Expenses() {
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
+                <label
+                  htmlFor="expense-amount-lbp"
+                  className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
+                >
                   Amount (LBP)
                 </label>
                 <input
+                  id="expense-amount-lbp"
                   type="number"
                   value={formData.amount_lbp || ""}
                   onChange={(e) =>
@@ -239,10 +259,14 @@ export default function Expenses() {
 
             {/* Date */}
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
+              <label
+                htmlFor="expense-date"
+                className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
+              >
                 Date
               </label>
               <input
+                id="expense-date"
                 type="date"
                 value={formData.expense_date}
                 onChange={(e) =>
@@ -277,7 +301,14 @@ export default function Expenses() {
           </div>
 
           <div className="flex-1 min-h-0 overflow-auto">
-            <table className="w-full">
+            <ExportBar
+              exportExcel
+              exportPdf
+              exportFilename="expenses"
+              tableRef={tableRef}
+              rowCount={expenses.length}
+            />
+            <table ref={tableRef} className="w-full">
               <thead className="bg-slate-900/50 text-left text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0">
                 <tr>
                   <th className="px-6 py-3">Description</th>
@@ -319,10 +350,11 @@ export default function Expenses() {
                     </td>
                     <td className="px-6 py-4 text-center">
                       <button
-                        onClick={() => handleDelete(expense.id!)}
+                        onClick={() => handleVoid(expense.id!)}
                         className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-colors"
+                        title="Void expense"
                       >
-                        <Trash2 size={16} />
+                        <Ban size={16} />
                       </button>
                     </td>
                   </tr>

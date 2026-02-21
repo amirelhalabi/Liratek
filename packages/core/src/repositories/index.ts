@@ -241,17 +241,6 @@ export type {
   ClosingAmount,
 } from "./ClosingRepository.js";
 
-// Activity Repository
-export {
-  ActivityRepository,
-  getActivityRepository,
-  resetActivityRepository,
-} from "./ActivityRepository.js";
-export type {
-  ActivityLogEntity,
-  SyncErrorEntity,
-} from "./ActivityRepository.js";
-
 // Customer Session Repository
 export {
   CustomerSessionRepository,
@@ -263,3 +252,46 @@ export type {
   CreateCustomerSessionData,
   SessionTransaction,
 } from "./CustomerSessionRepository.js";
+
+// Item Cost Repository
+export {
+  ItemCostRepository,
+  getItemCostRepository,
+  resetItemCostRepository,
+} from "./ItemCostRepository.js";
+export type { ItemCostEntity } from "./ItemCostRepository.js";
+
+// Voucher Image Repository
+export {
+  VoucherImageRepository,
+  getVoucherImageRepository,
+  resetVoucherImageRepository,
+} from "./VoucherImageRepository.js";
+export type { VoucherImageEntity } from "./VoucherImageRepository.js";
+
+// Custom Service Repository
+export {
+  CustomServiceRepository,
+  getCustomServiceRepository,
+  resetCustomServiceRepository,
+} from "./CustomServiceRepository.js";
+export type {
+  CustomServiceEntity,
+  CustomServiceSummary,
+} from "./CustomServiceRepository.js";
+
+// Transaction Repository
+export {
+  TransactionRepository,
+  getTransactionRepository,
+  resetTransactionRepository,
+} from "./TransactionRepository.js";
+export type {
+  TransactionEntity,
+  CreateTransactionInput,
+  TransactionFilters,
+  TransactionWithUser,
+  DailySummary,
+  DebtAgingBuckets,
+  OverdueDebtEntry,
+} from "./TransactionRepository.js";

@@ -14,10 +14,7 @@ export function registerSalesHandlers(): void {
 
   // Process a sale (create or update)
   ipcMain.handle("sales:process", (_event, sale: SaleRequest) => {
-    salesLogger.debug(
-      { saleId: sale.id, status: sale.status },
-      "Processing sale",
-    );
+    salesLogger.debug({ id: sale.id, status: sale.status }, "Processing sale");
     return salesService.processSale(sale);
   });
 

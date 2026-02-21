@@ -129,7 +129,7 @@ export interface ElectronAPI {
   sales: {
     process: (
       saleData: import("@liratek/core").SaleRequest,
-    ) => Promise<{ success: boolean; saleId?: number; error?: string }>;
+    ) => Promise<{ success: boolean; id?: number; error?: string }>;
     get: (saleId: number) => Promise<any>;
     getItems: (saleId: number) => Promise<any[]>;
     getDrafts: () => Promise<
@@ -185,16 +185,21 @@ export interface ElectronAPI {
         full_name: string;
         phone_number: string;
         total_debt: number;
+        total_debt_usd: number;
+        total_debt_lbp: number;
       }[]
     >;
     getClientHistory: (clientId: number) => Promise<
       Array<{
         id: number;
-        created_at: string;
+        client_id: number;
+        transaction_id: number | null;
+        transaction_type: string;
         amount_usd: number;
         amount_lbp: number;
-        note?: string;
-        is_paid: boolean;
+        note: string | null;
+        created_at: string;
+        created_by: number | null;
       }>
     >;
     addRepayment: (data: {
@@ -218,6 +223,7 @@ export interface ElectronAPI {
       expensesUSD: number;
       expensesLBP: number;
       netProfitUSD: number;
+      netProfitLBP: number;
     }>;
     getDrawerNames: () => Promise<string[]>;
   };
@@ -329,7 +335,7 @@ export interface ElectronAPI {
       price: number;
       paid_by_method?: string;
       phoneNumber?: string;
-    }) => Promise<{ success: boolean; saleId?: number; error?: string }>;
+    }) => Promise<{ success: boolean; id?: number; error?: string }>;
     topUp: (data: {
       provider: "MTC" | "Alfa";
       amount: number;
@@ -552,6 +558,234 @@ export interface ElectronAPI {
     >;
   };
 
+  // Transactions (unified)
+  transactions: {
+    getRecent: (
+      limit?: number,
+      filters?: {
+        type?: string;
+        status?: string;
+        user_id?: number;
+        client_id?: number;
+        source_table?: string;
+        from?: string;
+        to?: string;
+      },
+    ) => Promise<
+      Array<{
+        id: number;
+        type: string;
+        status: string;
+        source_table: string;
+        source_id: number;
+        user_id: number;
+        amount_usd: number;
+        amount_lbp: number;
+        exchange_rate: number | null;
+        client_id: number | null;
+        reverses_id: number | null;
+        summary: string | null;
+        metadata_json: string | null;
+        device_id: string | null;
+        created_at: string;
+        username: string;
+        client_name: string | null;
+      }>
+    >;
+    getById: (id: number) => Promise<{
+      id: number;
+      type: string;
+      status: string;
+      source_table: string;
+      source_id: number;
+      user_id: number;
+      amount_usd: number;
+      amount_lbp: number;
+      exchange_rate: number | null;
+      client_id: number | null;
+      reverses_id: number | null;
+      summary: string | null;
+      metadata_json: string | null;
+      device_id: string | null;
+      created_at: string;
+    } | null>;
+    getByClient: (
+      clientId: number,
+      limit?: number,
+    ) => Promise<
+      Array<{
+        id: number;
+        type: string;
+        status: string;
+        amount_usd: number;
+        amount_lbp: number;
+        summary: string | null;
+        created_at: string;
+      }>
+    >;
+    getByDateRange: (
+      from: string,
+      to: string,
+      type?: string,
+    ) => Promise<
+      Array<{
+        id: number;
+        type: string;
+        status: string;
+        amount_usd: number;
+        amount_lbp: number;
+        summary: string | null;
+        created_at: string;
+      }>
+    >;
+    void: (id: number) => Promise<{
+      success: boolean;
+      reversalId?: number;
+      error?: string;
+    }>;
+    refund: (id: number) => Promise<{
+      success: boolean;
+      refundId?: number;
+      error?: string;
+    }>;
+    dailySummary: (date: string) => Promise<{
+      date: string;
+      total_usd: number;
+      total_lbp: number;
+      by_type: Array<{
+        type: string;
+        count: number;
+        total_usd: number;
+        total_lbp: number;
+      }>;
+      void_count: number;
+      void_usd: number;
+      void_lbp: number;
+    }>;
+    debtAging: (clientId: number) => Promise<{
+      client_id: number;
+      current: { usd: number; lbp: number };
+      days_31_60: { usd: number; lbp: number };
+      days_61_90: { usd: number; lbp: number };
+      over_90: { usd: number; lbp: number };
+    }>;
+    overdueDebts: () => Promise<
+      Array<{
+        client_id: number;
+        client_name: string;
+        phone_number: string | null;
+        total_usd: number;
+        total_lbp: number;
+        oldest_due_date: string;
+        max_days_overdue: number;
+        entry_count: number;
+      }>
+    >;
+    revenueByType: (
+      from: string,
+      to: string,
+    ) => Promise<
+      Array<{
+        type: string;
+        count: number;
+        total_usd: number;
+        total_lbp: number;
+      }>
+    >;
+    revenueByUser: (
+      from: string,
+      to: string,
+    ) => Promise<
+      Array<{
+        user_id: number;
+        username: string;
+        count: number;
+        total_usd: number;
+        total_lbp: number;
+      }>
+    >;
+  };
+
+  // Reporting (aggregated analytics)
+  reporting: {
+    dailySummaries: (
+      from: string,
+      to: string,
+    ) => Promise<
+      Array<{
+        date: string;
+        total_usd: number;
+        total_lbp: number;
+        by_type: Array<{
+          type: string;
+          count: number;
+          total_usd: number;
+          total_lbp: number;
+        }>;
+        void_count: number;
+        void_usd: number;
+        void_lbp: number;
+      }>
+    >;
+    clientHistory: (
+      clientId: number,
+      limit?: number,
+    ) => Promise<{
+      client_id: number;
+      transactions: Array<{
+        id: number;
+        type: string;
+        status: string;
+        amount_usd: number;
+        amount_lbp: number;
+        summary: string | null;
+        created_at: string;
+      }>;
+      debt_aging: {
+        client_id: number;
+        current: { usd: number; lbp: number };
+        days_31_60: { usd: number; lbp: number };
+        days_61_90: { usd: number; lbp: number };
+        over_90: { usd: number; lbp: number };
+      };
+      running_balance_usd: number;
+      running_balance_lbp: number;
+    }>;
+    revenueByModule: (
+      from: string,
+      to: string,
+    ) => Promise<
+      Array<{
+        type: string;
+        count: number;
+        total_usd: number;
+        total_lbp: number;
+      }>
+    >;
+    overdueDebts: () => Promise<
+      Array<{
+        client_id: number;
+        client_name: string;
+        phone_number: string | null;
+        total_usd: number;
+        total_lbp: number;
+        oldest_due_date: string;
+        max_days_overdue: number;
+        entry_count: number;
+      }>
+    >;
+  };
+
+  // Profits (admin analytics)
+  profits: {
+    summary: (from: string, to: string) => Promise<any>;
+    byModule: (from: string, to: string) => Promise<any[]>;
+    byDate: (from: string, to: string) => Promise<any[]>;
+    byPaymentMethod: (from: string, to: string) => Promise<any[]>;
+    byUser: (from: string, to: string) => Promise<any[]>;
+    byClient: (from: string, to: string, limit?: number) => Promise<any[]>;
+  };
+
   // Rates
   rates: {
     list: () => Promise<
@@ -772,6 +1006,71 @@ export interface ElectronAPI {
       amountUsd: number;
       amountLbp: number;
     }) => Promise<{ success: boolean; linked: boolean; error?: string }>;
+  };
+
+  // Custom Services
+  customServices: {
+    list: (filter?: { date?: string }) => Promise<
+      Array<{
+        id: number;
+        description: string;
+        cost_usd: number;
+        cost_lbp: number;
+        price_usd: number;
+        price_lbp: number;
+        profit_usd: number;
+        profit_lbp: number;
+        paid_by: string;
+        status: string;
+        client_id: number | null;
+        client_name: string | null;
+        phone_number: string | null;
+        note: string | null;
+        created_by: number | null;
+        created_at: string;
+      }>
+    >;
+    get: (id: number) => Promise<{
+      id: number;
+      description: string;
+      cost_usd: number;
+      cost_lbp: number;
+      price_usd: number;
+      price_lbp: number;
+      profit_usd: number;
+      profit_lbp: number;
+      paid_by: string;
+      status: string;
+      client_id: number | null;
+      client_name: string | null;
+      phone_number: string | null;
+      note: string | null;
+      created_by: number | null;
+      created_at: string;
+    } | null>;
+    summary: () => Promise<{
+      count: number;
+      totalCostUsd: number;
+      totalCostLbp: number;
+      totalPriceUsd: number;
+      totalPriceLbp: number;
+      totalProfitUsd: number;
+      totalProfitLbp: number;
+    }>;
+    add: (data: {
+      description: string;
+      cost_usd?: number;
+      cost_lbp?: number;
+      price_usd?: number;
+      price_lbp?: number;
+      paid_by?: string;
+      status?: string;
+      client_id?: number;
+      client_name?: string;
+      phone_number?: string;
+      note?: string;
+    }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    delete: (id: number) => Promise<{ success: boolean; error?: string }>;
   };
 }
 

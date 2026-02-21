@@ -34,7 +34,6 @@ describe("BinanceService", () => {
 
     mockRepo = {
       createTransaction: jest.fn(),
-      logActivity: jest.fn(),
       getHistory: jest.fn(),
       getTodayTransactions: jest.fn(),
       getTodayStats: jest.fn(),
@@ -64,7 +63,6 @@ describe("BinanceService", () => {
 
       expect(result).toEqual({ success: true, id: 1 });
       expect(mockRepo.createTransaction).toHaveBeenCalledWith(data);
-      expect(mockRepo.logActivity).toHaveBeenCalledWith(data);
     });
 
     it("should add a RECEIVE transaction successfully", () => {
@@ -81,7 +79,6 @@ describe("BinanceService", () => {
 
       expect(result).toEqual({ success: true, id: 2 });
       expect(mockRepo.createTransaction).toHaveBeenCalledWith(data);
-      expect(mockRepo.logActivity).toHaveBeenCalledWith(data);
     });
 
     it("should handle transaction without optional fields", () => {

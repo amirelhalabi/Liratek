@@ -133,6 +133,11 @@ export class CurrencyService {
     return this.currencyRepo.getCurrenciesForDrawer(drawerName);
   }
 
+  /** Get full active currency entities for a drawer */
+  getFullCurrenciesForDrawer(drawerName: string): CurrencyEntity[] {
+    return this.currencyRepo.getFullCurrenciesForDrawer(drawerName);
+  }
+
   /** Get drawer names enabled for a currency */
   getDrawersForCurrency(code: string): string[] {
     return this.currencyRepo.getDrawersForCurrency(code);

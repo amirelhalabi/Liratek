@@ -1,20 +1,19 @@
 // =============================================================================
 // Core Types (from @liratek/core repositories)
+//
+// ClientEntity is re-exported from ../types (sourced from @liratek/core).
+// All other entity types used only by the adapter are declared here.
 // =============================================================================
+
+import type { ClientEntity } from "@liratek/core";
+
+// Re-export so api consumers don't need a separate import
+export type { ClientEntity };
 
 export type ApiUser = {
   id: number;
   username: string;
   role: string;
-};
-
-export type ClientEntity = {
-  id: number;
-  full_name: string;
-  phone_number: string;
-  notes: string | null;
-  whatsapp_opt_in: number;
-  created_at: string;
 };
 
 export type DebtorSummary = {
@@ -29,7 +28,7 @@ export type DebtorSummary = {
 export type DebtLedgerEntity = {
   id: number;
   client_id: number;
-  sale_id: number | null;
+  transaction_id: number | null;
   transaction_type: string;
   amount_usd: number;
   amount_lbp: number;
@@ -74,10 +73,8 @@ export type DrawerBalances = {
 };
 
 export type StockStats = {
-  totalProducts: number;
-  totalValue: number;
-  lowStockCount: number;
-  outOfStockCount: number;
+  stock_budget_usd: number;
+  stock_count: number;
 };
 
 export type VirtualStock = {
@@ -87,10 +84,15 @@ export type VirtualStock = {
 };
 
 export type MonthlyPL = {
-  totalRevenue: number;
-  totalCost: number;
-  totalProfit: number;
-  profitMargin: number;
+  month: string;
+  salesProfitUSD: number;
+  serviceCommissionsUSD: number;
+  serviceCommissionsLBP: number;
+  serviceCommissionsByCurrency: Record<string, number>;
+  expensesUSD: number;
+  expensesLBP: number;
+  netProfitUSD: number;
+  netProfitLBP: number;
 };
 
 // =============================================================================
@@ -100,18 +102,50 @@ export type MonthlyPL = {
 export type ApiResult = {
   success: boolean;
   error?: string;
+  id?: number;
 };
 
 export type ApiMeResult = ApiResult & {
   user?: ApiUser;
 };
 
+export type ProductWriteResult = {
+  success: boolean;
+  id?: number;
+  error?: string;
+  code?: string;
+  suggested_barcode?: string;
+};
+
+export type ProcessSaleResult = {
+  success: boolean;
+  id?: number;
+  error?: string;
+};
+
+export type PaymentMethodEntity = {
+  id: number;
+  code: string;
+  label: string;
+  drawer_name: string;
+  affects_drawer: number;
+  sort_order: number;
+  is_active: number;
+  is_system: number;
+  created_at: string;
+};
+
 // =============================================================================
 // API Adapter Interface
+//
+// Mirrors the public surface of frontend/src/api/backendApi.ts so that
+// UI components are decoupled from the transport layer (Electron IPC vs HTTP).
 // =============================================================================
 
 export type ApiAdapter = {
+  // ---------------------------------------------------------------------------
   // Auth
+  // ---------------------------------------------------------------------------
   login: (
     username: string,
     password: string,
@@ -120,11 +154,32 @@ export type ApiAdapter = {
   logout: () => Promise<void>;
   me: () => Promise<ApiMeResult>;
 
+  // ---------------------------------------------------------------------------
   // Clients
+  // ---------------------------------------------------------------------------
   getClients: (search?: string) => Promise<ClientEntity[]>;
   deleteClient: (id: number) => Promise<ApiResult>;
 
+  // ---------------------------------------------------------------------------
+  // Inventory / Products
+  // ---------------------------------------------------------------------------
+  getProducts: (search?: string) => Promise<any[]>;
+  createProduct: (payload: any) => Promise<ProductWriteResult>;
+  updateProduct: (id: number, payload: any) => Promise<ProductWriteResult>;
+  deleteProduct: (id: number) => Promise<ProductWriteResult>;
+  getLowStockProducts: () => Promise<any[]>;
+
+  // ---------------------------------------------------------------------------
+  // Sales
+  // ---------------------------------------------------------------------------
+  getDrafts: () => Promise<any[]>;
+  processSale: (payload: any) => Promise<ProcessSaleResult>;
+  getSale: (saleId: number) => Promise<any>;
+  getSaleItems: (saleId: number) => Promise<any[]>;
+
+  // ---------------------------------------------------------------------------
   // Debts
+  // ---------------------------------------------------------------------------
   getDebtors: () => Promise<DebtorSummary[]>;
   getClientDebtHistory: (clientId: number) => Promise<DebtLedgerEntity[]>;
   getClientDebtTotal: (clientId: number) => Promise<number>;
@@ -135,16 +190,385 @@ export type ApiAdapter = {
     paid_amount_usd: number;
     paid_amount_lbp: number;
     drawer_name: string;
+    paidByMethod?: string;
     note?: string;
     user_id?: number;
   }) => Promise<ApiResult>;
 
+  // ---------------------------------------------------------------------------
+  // Exchange
+  // ---------------------------------------------------------------------------
+  getExchangeRates: () => Promise<any[]>;
+  getCurrenciesList: () => Promise<any[]>;
+  getExchangeHistory: (limit?: number) => Promise<any[]>;
+  addExchangeTransaction: (
+    payload: any,
+  ) => Promise<ApiResult & { id?: number }>;
+
+  // ---------------------------------------------------------------------------
+  // Binance
+  // ---------------------------------------------------------------------------
+  getBinanceHistory: (limit?: number) => Promise<any[]>;
+  getBinanceTodayStats: () => Promise<{
+    totalSent: number;
+    totalReceived: number;
+    count: number;
+  }>;
+  addBinanceTransaction: (payload: {
+    type: "SEND" | "RECEIVE";
+    amount: number;
+    currencyCode?: string;
+    description?: string;
+    clientName?: string;
+  }) => Promise<ApiResult & { id?: number }>;
+
+  // ---------------------------------------------------------------------------
+  // Expenses
+  // ---------------------------------------------------------------------------
+  getTodayExpenses: () => Promise<any[]>;
+  addExpense: (payload: any) => Promise<ApiResult & { id?: number }>;
+  deleteExpense: (id: number) => Promise<ApiResult>;
+
+  // ---------------------------------------------------------------------------
   // Dashboard
+  // ---------------------------------------------------------------------------
   getDashboardStats: () => Promise<DashboardStats>;
   getProfitSalesChart: (type: "Sales" | "Profit") => Promise<ChartDataPoint[]>;
   getTodaysSales: () => Promise<RecentSale[]>;
   getDrawerBalances: () => Promise<DrawerBalances>;
+  getDebtSummary: () => Promise<any>;
   getInventoryStockStats: () => Promise<StockStats>;
-  getRechargeStock: () => Promise<VirtualStock[]>;
   getMonthlyPL: (month: string) => Promise<MonthlyPL>;
+  getDrawerNames: () => Promise<string[]>;
+
+  // ---------------------------------------------------------------------------
+  // Settings
+  // ---------------------------------------------------------------------------
+  getAllSettings: () => Promise<any[]>;
+  getSetting: (key: string) => Promise<any>;
+  updateSetting: (key: string, value: string) => Promise<ApiResult>;
+
+  // ---------------------------------------------------------------------------
+  // Recharge
+  // ---------------------------------------------------------------------------
+  getRechargeStock: () => Promise<VirtualStock[]>;
+  processRecharge: (payload: any) => Promise<ApiResult>;
+  topUpRecharge: (payload: {
+    provider: "MTC" | "Alfa";
+    amount: number;
+    currency?: string;
+  }) => Promise<ApiResult>;
+
+  // ---------------------------------------------------------------------------
+  // Services (OMT / Whish / BOB)
+  // ---------------------------------------------------------------------------
+  getOMTHistory: (provider?: string) => Promise<any[]>;
+  getOMTAnalytics: () => Promise<any>;
+  addOMTTransaction: (payload: any) => Promise<ApiResult & { id?: number }>;
+
+  // ---------------------------------------------------------------------------
+  // Maintenance
+  // ---------------------------------------------------------------------------
+  getMaintenanceJobs: (statusFilter?: string) => Promise<any[]>;
+  saveMaintenanceJob: (payload: any) => Promise<ApiResult & { id?: number }>;
+  deleteMaintenanceJob: (id: number) => Promise<ApiResult>;
+
+  // ---------------------------------------------------------------------------
+  // Currencies (CRUD)
+  // ---------------------------------------------------------------------------
+  getCurrencies: () => Promise<any[]>;
+  createCurrency: (
+    code: string,
+    name: string,
+    symbol?: string,
+    decimalPlaces?: number,
+  ) => Promise<ApiResult & { id?: number }>;
+  updateCurrency: (id: number, data: any) => Promise<ApiResult>;
+  deleteCurrency: (id: number) => Promise<ApiResult>;
+
+  // ---------------------------------------------------------------------------
+  // Closing
+  // ---------------------------------------------------------------------------
+  getSystemExpectedBalancesDynamic: () => Promise<
+    Record<string, Record<string, number>>
+  >;
+  hasOpeningBalanceToday: () => Promise<boolean>;
+  getDailyStatsSnapshot: () => Promise<any>;
+  recalculateDrawerBalances: () => Promise<ApiResult>;
+  setOpeningBalances: (data: {
+    closing_date: string;
+    amounts: any[];
+    user_id?: number;
+  }) => Promise<ApiResult>;
+  createDailyClosing: (data: {
+    closing_date: string;
+    amounts: any[];
+    variance_notes?: string;
+    report_path?: string;
+    system_expected_usd?: number;
+    system_expected_lbp?: number;
+    user_id?: number;
+  }) => Promise<ApiResult & { id?: number }>;
+  updateDailyClosing: (
+    id: number,
+    data: {
+      physical_usd?: number;
+      physical_lbp?: number;
+      physical_eur?: number;
+      system_expected_usd?: number;
+      system_expected_lbp?: number;
+      variance_usd?: number;
+      notes?: string;
+      report_path?: string;
+      user_id?: number;
+    },
+  ) => Promise<ApiResult>;
+
+  // ---------------------------------------------------------------------------
+  // Suppliers
+  // ---------------------------------------------------------------------------
+  getSuppliers: (search?: string) => Promise<any[]>;
+  getSupplierBalances: () => Promise<any[]>;
+  getSupplierLedger: (supplierId: number, limit?: number) => Promise<any[]>;
+  createSupplier: (data: {
+    name: string;
+    contact_name?: string;
+    phone?: string;
+    note?: string;
+    module_key?: string;
+    provider?: string;
+  }) => Promise<ApiResult & { id?: number }>;
+  addSupplierLedgerEntry: (
+    supplierId: number,
+    data: {
+      entry_type: string;
+      amount_usd?: number;
+      amount_lbp?: number;
+      note?: string;
+      drawer_name?: string;
+    },
+  ) => Promise<ApiResult & { id?: number }>;
+
+  // ---------------------------------------------------------------------------
+  // Rates
+  // ---------------------------------------------------------------------------
+  getRates: () => Promise<any[]>;
+  setRate: (
+    from_code: string,
+    to_code: string,
+    rate: number,
+  ) => Promise<ApiResult>;
+
+  // ---------------------------------------------------------------------------
+  // Users
+  // ---------------------------------------------------------------------------
+  getNonAdminUsers: () => Promise<any[]>;
+  createUser: (data: {
+    username: string;
+    password: string;
+    role: string;
+  }) => Promise<ApiResult & { id?: number }>;
+  setUserActive: (userId: number, is_active: boolean) => Promise<ApiResult>;
+  setUserRole: (userId: number, role: string) => Promise<ApiResult>;
+  setUserPassword: (userId: number, password: string) => Promise<ApiResult>;
+
+  // ---------------------------------------------------------------------------
+  // Activity
+  // ---------------------------------------------------------------------------
+  getRecentActivity: (limit?: number) => Promise<any[]>;
+
+  // ---------------------------------------------------------------------------
+  // Reports / Backup
+  // ---------------------------------------------------------------------------
+  generatePDF: (
+    html: string,
+    filename?: string,
+  ) => Promise<ApiResult & { path?: string }>;
+  backupDatabase: () => Promise<ApiResult & { path?: string }>;
+  listBackups: () => Promise<ApiResult & { backups?: any[] }>;
+  verifyBackup: (path: string) => Promise<ApiResult>;
+  restoreDatabase: (path: string) => Promise<ApiResult>;
+
+  // ---------------------------------------------------------------------------
+  // Modules
+  // ---------------------------------------------------------------------------
+  getModules: () => Promise<any[]>;
+  getEnabledModules: () => Promise<any[]>;
+  getToggleableModules: () => Promise<any[]>;
+  setModuleEnabled: (key: string, enabled: boolean) => Promise<ApiResult>;
+
+  // ---------------------------------------------------------------------------
+  // Payment Methods
+  // ---------------------------------------------------------------------------
+  getPaymentMethods: () => Promise<PaymentMethodEntity[]>;
+  getActivePaymentMethods: () => Promise<PaymentMethodEntity[]>;
+  createPaymentMethod: (data: {
+    code: string;
+    label: string;
+    drawer_name: string;
+    affects_drawer?: number;
+  }) => Promise<ApiResult & { id?: number }>;
+  updatePaymentMethod: (
+    id: number,
+    data: {
+      label?: string;
+      drawer_name?: string;
+      affects_drawer?: number;
+      is_active?: number;
+      sort_order?: number;
+    },
+  ) => Promise<ApiResult>;
+  deletePaymentMethod: (id: number) => Promise<ApiResult>;
+  reorderPaymentMethods: (ids: number[]) => Promise<ApiResult>;
+
+  // ---------------------------------------------------------------------------
+  // Currency–Module & Currency–Drawer mapping
+  // ---------------------------------------------------------------------------
+  getModulesForCurrency: (code: string) => Promise<string[]>;
+  getCurrenciesByModule: (moduleKey: string) => Promise<any[]>;
+  getFullCurrenciesByDrawer: (drawerName: string) => Promise<any[]>;
+  setModulesForCurrency: (
+    code: string,
+    modules: string[],
+  ) => Promise<ApiResult>;
+  getAllDrawerCurrencies: () => Promise<Record<string, string[]>>;
+  getCurrenciesForDrawer: (drawerName: string) => Promise<string[]>;
+  getDrawersForCurrency: (code: string) => Promise<string[]>;
+  setDrawerCurrencies: (
+    drawerName: string,
+    currencies: string[],
+  ) => Promise<ApiResult>;
+  getConfiguredDrawerNames: () => Promise<string[]>;
+
+  // ---------------------------------------------------------------------------
+  // Customer Sessions
+  // ---------------------------------------------------------------------------
+  startSession: (data: {
+    customer_name: string;
+    customer_phone?: string;
+    customer_notes?: string;
+  }) => Promise<ApiResult & { sessionId?: number }>;
+  getActiveSession: () => Promise<any>;
+  getSessionDetails: (sessionId: number) => Promise<any>;
+  updateSession: (
+    sessionId: number,
+    data: {
+      customer_name?: string;
+      customer_phone?: string;
+      customer_notes?: string;
+    },
+  ) => Promise<ApiResult>;
+  closeSession: (sessionId: number) => Promise<ApiResult>;
+  listSessions: (limit?: number, offset?: number) => Promise<any>;
+  linkTransactionToSession: (data: {
+    sessionId: number;
+    transactionType: string;
+    transactionId: number;
+    amountUsd: number;
+    amountLbp: number;
+  }) => Promise<ApiResult & { linked: boolean }>;
+
+  // ---------------------------------------------------------------------------
+  // WhatsApp
+  // ---------------------------------------------------------------------------
+  sendWhatsAppTestMessage: (
+    recipientPhone: string,
+    shopName: string,
+  ) => Promise<ApiResult & { messageId?: string }>;
+  sendWhatsAppMessage: (
+    recipientPhone: string,
+    message: string,
+  ) => Promise<ApiResult & { messageId?: string }>;
+
+  // ---------------------------------------------------------------------------
+  // Item Costs
+  // ---------------------------------------------------------------------------
+  getItemCosts: () => Promise<any[]>;
+  setItemCost: (data: {
+    provider: string;
+    category: string;
+    itemKey: string;
+    cost: number;
+    currency: string;
+  }) => Promise<ApiResult>;
+
+  // ---------------------------------------------------------------------------
+  // Voucher Images
+  // ---------------------------------------------------------------------------
+  getVoucherImages: () => Promise<any[]>;
+  setVoucherImage: (data: {
+    provider: string;
+    category: string;
+    itemKey: string;
+    imageData: string;
+  }) => Promise<ApiResult>;
+  deleteVoucherImage: (id: number) => Promise<ApiResult>;
+
+  // ---------------------------------------------------------------------------
+  // Custom Services
+  // ---------------------------------------------------------------------------
+  getCustomServices: (filter?: { date?: string }) => Promise<any[]>;
+  getCustomServicesSummary: () => Promise<{
+    count: number;
+    totalCostUsd: number;
+    totalCostLbp: number;
+    totalPriceUsd: number;
+    totalPriceLbp: number;
+    totalProfitUsd: number;
+    totalProfitLbp: number;
+  }>;
+  getCustomServiceById: (id: number) => Promise<any>;
+  addCustomService: (data: {
+    description: string;
+    cost_usd?: number;
+    cost_lbp?: number;
+    price_usd?: number;
+    price_lbp?: number;
+    paid_by?: string;
+    status?: string;
+    client_id?: number;
+    client_name?: string;
+    phone_number?: string;
+    note?: string;
+  }) => Promise<ApiResult & { id?: number }>;
+  deleteCustomService: (id: number) => Promise<ApiResult>;
+
+  // ---------------------------------------------------------------------------
+  // Unified Transactions
+  // ---------------------------------------------------------------------------
+  getRecentTransactions: (
+    limit?: number,
+    filters?: Record<string, unknown>,
+  ) => Promise<any[]>;
+  getTransactionById: (id: number) => Promise<any>;
+  getClientTransactions: (clientId: number, limit?: number) => Promise<any[]>;
+  voidTransaction: (id: number) => Promise<ApiResult & { reversalId?: number }>;
+  refundTransaction: (id: number) => Promise<ApiResult & { refundId?: number }>;
+  getTransactionDailySummary: (date: string) => Promise<any>;
+  getDebtAging: (clientId: number) => Promise<any>;
+  getOverdueDebts: () => Promise<any[]>;
+  getRevenueByType: (from: string, to: string) => Promise<any[]>;
+  getRevenueByUser: (from: string, to: string) => Promise<any[]>;
+
+  // ---------------------------------------------------------------------------
+  // Reporting (aggregated analytics)
+  // ---------------------------------------------------------------------------
+  getDailySummaries: (from: string, to: string) => Promise<any[]>;
+  getClientHistory: (clientId: number, limit?: number) => Promise<any>;
+  getRevenueByModule: (from: string, to: string) => Promise<any[]>;
+  getReportOverdueDebts: () => Promise<any[]>;
+
+  // ---------------------------------------------------------------------------
+  // Profits (admin analytics)
+  // ---------------------------------------------------------------------------
+  getProfitSummary: (from: string, to: string) => Promise<any>;
+  getProfitByModule: (from: string, to: string) => Promise<any[]>;
+  getProfitByDate: (from: string, to: string) => Promise<any[]>;
+  getProfitByPaymentMethod: (from: string, to: string) => Promise<any[]>;
+  getProfitByUser: (from: string, to: string) => Promise<any[]>;
+  getProfitByClient: (
+    from: string,
+    to: string,
+    limit?: number,
+  ) => Promise<any[]>;
 };

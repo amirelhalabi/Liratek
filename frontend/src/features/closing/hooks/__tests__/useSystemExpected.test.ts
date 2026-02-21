@@ -7,21 +7,18 @@
 import { renderHook, act, waitFor } from "@testing-library/react";
 import { useSystemExpected } from "../useSystemExpected";
 
-// Mock window.api
+// Mock the API adapter returned by useApi
 const mockGetSystemExpectedBalancesDynamic = jest.fn();
+
+jest.mock("@liratek/ui", () => ({
+  useApi: () => ({
+    getSystemExpectedBalancesDynamic: mockGetSystemExpectedBalancesDynamic,
+  }),
+}));
 
 describe("useSystemExpected", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    (window as any).api = {
-      closing: {
-        getSystemExpectedBalancesDynamic: mockGetSystemExpectedBalancesDynamic,
-      },
-    };
-  });
-
-  afterEach(() => {
-    delete (window as any).api;
   });
 
   it("should initialize with null system expected", () => {

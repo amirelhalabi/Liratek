@@ -13,8 +13,7 @@ import { useSystemExpected } from "../../hooks/useSystemExpected";
 import { DrawerCard } from "../../components/DrawerCard";
 import { VarianceCard } from "../../components/VarianceCard";
 import { AlertBanner } from "../../components/AlertBanner";
-import { appEvents } from "@liratek/ui";
-import * as api from "../../../../api/backendApi";
+import { appEvents, useApi } from "@liratek/ui";
 import { useAuth } from "../../../auth/context/AuthContext";
 import { generateClosingReport } from "../../utils/closingReportGenerator";
 import { X, ChevronLeft, ChevronRight } from "lucide-react";
@@ -25,6 +24,7 @@ interface ClosingProps {
 }
 
 export default function Closing({ isOpen, onClose }: ClosingProps) {
+  const api = useApi();
   const { user } = useAuth();
   const {
     currencies,
@@ -125,7 +125,7 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
 
   const handlePreviousStep = () => {
     if (step > 1) {
-      setStep(step - 1);
+      setStep((prev) => prev - 1);
       setStepError(null);
     }
   };
@@ -269,6 +269,7 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+      role="presentation"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) {
           handleCancel();
@@ -277,6 +278,7 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
     >
       <div
         className="bg-slate-900 border border-slate-700 rounded-xl overflow-hidden w-full max-w-6xl max-h-[90vh] flex flex-col shadow-2xl"
+        role="presentation"
         onMouseDown={(e) => e.stopPropagation()}
       >
         {/* Header */}

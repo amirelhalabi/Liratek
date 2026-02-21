@@ -3,6 +3,8 @@ import {
   paymentMethodToDrawerName,
   isDrawerAffectingMethod,
 } from "../utils/payments.js";
+import { getTransactionRepository } from "./TransactionRepository.js";
+import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 
 export interface ExpenseEntity {
   id: number;
@@ -12,6 +14,7 @@ export interface ExpenseEntity {
   amount_usd: number;
   amount_lbp: number;
   expense_date: string;
+  status?: string;
   created_at?: string;
   updated_at?: string;
 }
@@ -32,7 +35,7 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
 
   // Override getColumns() to use explicit columns instead of SELECT *
   protected getColumns(): string {
-    return "id, description, category, amount_usd, amount_lbp, expense_date, paid_by_method";
+    return "id, description, category, amount_usd, amount_lbp, expense_date, paid_by_method, status";
   }
 
   /**
@@ -57,6 +60,22 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
       );
       const expenseId = Number(result.lastInsertRowid);
 
+      // Create unified transaction row
+      const txnId = getTransactionRepository().createTransaction({
+        type: TRANSACTION_TYPES.EXPENSE,
+        source_table: "expenses",
+        source_id: expenseId,
+        user_id: 1,
+        amount_usd: -(data.amount_usd || 0),
+        amount_lbp: -(data.amount_lbp || 0),
+        summary: `Expense: ${data.category} - ${data.description}`,
+        metadata_json: {
+          category: data.category,
+          paid_by: paidBy,
+          expense_date: data.expense_date,
+        },
+      });
+
       // All expenses affect drawer balances (unless paid by non-drawer-affecting method)
       if (isDrawerAffectingMethod(paidBy)) {
         const upsertBalance = this.db.prepare(`
@@ -69,9 +88,9 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
 
         const insertPayment = this.db.prepare(`
           INSERT INTO payments (
-            source_type, source_id, method, drawer_name, currency_code, amount, note, created_by
+            transaction_id, method, drawer_name, currency_code, amount, note, created_by
           ) VALUES (
-            'EXPENSE', ?, ?, ?, ?, ?, ?, ?
+            ?, ?, ?, ?, ?, ?, ?
           )
         `);
 
@@ -82,7 +101,7 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
         if (data.amount_usd && data.amount_usd !== 0) {
           const delta = -Math.abs(data.amount_usd);
           insertPayment.run(
-            expenseId,
+            txnId,
             paidBy,
             drawerName,
             "USD",
@@ -97,7 +116,7 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
         if (data.amount_lbp && data.amount_lbp !== 0) {
           const delta = -Math.abs(data.amount_lbp);
           insertPayment.run(
-            expenseId,
+            txnId,
             paidBy,
             drawerName,
             "LBP",
@@ -120,7 +139,7 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
     return this.db
       .prepare(
         `SELECT ${this.getColumns()} FROM expenses 
-         WHERE DATE(expense_date) = DATE('now')
+         WHERE DATE(expense_date) = DATE('now') AND status != 'voided'
          ORDER BY expense_date DESC`,
       )
       .all() as ExpenseEntity[];
@@ -136,26 +155,21 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
   }
 
   /**
-   * Delete an expense by ID
+   * Delete an expense by ID and void its transaction
    */
   deleteExpense(id: number): void {
-    this.db.prepare("DELETE FROM expenses WHERE id = ?").run(id);
-  }
-
-  /**
-   * Log activity for expense operations
-   */
-  logActivity(
-    userId: number,
-    action: string,
-    details: Record<string, unknown>,
-  ): void {
-    this.db
-      .prepare(
-        `INSERT INTO activity_logs (user_id, action, details_json, created_at)
-         VALUES (?, ?, ?, CURRENT_TIMESTAMP)`,
-      )
-      .run(userId, action, JSON.stringify(details));
+    this.db.transaction(() => {
+      // Void the unified transaction (if exists)
+      const txnRepo = getTransactionRepository();
+      const originalTxn = txnRepo.getBySourceId("expenses", id);
+      if (originalTxn) {
+        txnRepo.voidTransaction(originalTxn.id, 1);
+      }
+      // Soft-delete: mark as voided instead of removing the record
+      this.db
+        .prepare("UPDATE expenses SET status = 'voided' WHERE id = ?")
+        .run(id);
+    })();
   }
 }
 

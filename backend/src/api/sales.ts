@@ -77,7 +77,7 @@ router.post(
 
     if (result.success) {
       emitEvent("sales:processed", {
-        saleId: result.saleId,
+        id: result.id,
         at: new Date().toISOString(),
       });
     }

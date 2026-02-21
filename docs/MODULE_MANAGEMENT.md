@@ -31,20 +31,22 @@ The `modules` table (`create_db.sql` line 488):
 
 **Toggleable:**
 
-| Key           | Label         | Icon         | Route           | sort_order |
-| ------------- | ------------- | ------------ | --------------- | ---------- |
-| `analytics`   | Analytics     | TrendingUp   | `/commissions`  | 1          |
-| `pos`         | Point of Sale | ShoppingCart | `/pos`          | 2          |
-| `debts`       | Debts         | BookOpen     | `/debts`        | 3          |
-| `inventory`   | Inventory     | Package      | `/products`     | 4          |
-| `clients`     | Clients       | Users        | `/clients`      | 5          |
-| `exchange`    | Exchange      | RefreshCw    | `/exchange`     | 6          |
-| `omt_whish`   | OMT/Whish     | Send         | `/services`     | 7          |
-| `recharge`    | Recharge      | Smartphone   | `/recharge`     | 8          |
-| `expenses`    | Expenses      | Banknote     | `/expenses`     | 9          |
-| `maintenance` | Maintenance   | Wrench       | `/maintenance`  | 10         |
-| `binance`     | Binance       | Bitcoin      | `/binance`      | 11         |
-| `ipec_katch`  | IPEC/Katch    | Zap          | `/ikw-services` | 12         |
+| Key           | Label         | Icon         | Route              | sort_order |
+| ------------- | ------------- | ------------ | ------------------ | ---------- |
+| `analytics`   | Analytics     | TrendingUp   | `/commissions`     | 1          |
+| `pos`         | Point of Sale | ShoppingCart | `/pos`             | 2          |
+| `debts`       | Debts         | BookOpen     | `/debts`           | 3          |
+| `inventory`   | Inventory     | Package      | `/products`        | 4          |
+| `clients`     | Clients       | Users        | `/clients`         | 5          |
+| `exchange`    | Exchange      | RefreshCw    | `/exchange`        | 6          |
+| `omt_whish`   | OMT/Whish     | Send         | `/services`        | 7          |
+| `recharge`    | MTC/Alfa      | Smartphone   | `/recharge`        | 8          |
+| `expenses`    | Expenses      | Banknote     | `/expenses`        | 9          |
+| `maintenance` | Maintenance   | Wrench       | `/maintenance`     | 10         |
+| `binance`     | Binance       | Bitcoin      | `/recharge`        | 11         |
+| `ipec_katch`  | IPEC/Katch    | Zap          | `/recharge`        | 12         |
+| `custom_services` | Services  | Briefcase    | `/custom-services` | 13         |
+| `profits`     | Profits       | TrendingUp   | `/profits`         | 14 (admin) |
 
 ---
 
@@ -87,6 +89,8 @@ Each module that handles money typically has its own drawer(s). There is **no fo
 | recharge    | `MTC`, `Alfa`                           |
 | binance     | `Binance`                               |
 | ipec_katch  | `IPEC`, `Katch`, `Whish_App`, `OMT_App` |
+| custom_services | `General` (uses existing drawer)    |
+| profits     | _(no drawer — analytics only)_          |
 
 - **Adding a module**: insert `drawer_balances` rows for each (drawer_name, currency_code) pair.
 - **Removing a module**: drawer rows are **NOT** auto-cleaned. Delete them manually or leave them as orphans.
@@ -104,6 +108,41 @@ If a module introduces a new payment method (e.g. `OMT` → `OMT_App` drawer, `B
 
 - **Adding**: insert a `payment_methods` row with the correct `drawer_name`.
 - **Removing**: no FK cascade, clean up manually.
+
+### 6. `custom_services` (standalone)
+
+Stores ad-hoc service records (screen protector installs, software updates, etc.) with cost/price/profit tracking.
+
+```
+custom_services
+├── client_id → clients(id)  (optional FK)
+└── created_by → users(id)   (optional FK)
+```
+
+- Columns: `description`, `cost_usd/lbp`, `price_usd/lbp`, `profit_usd/lbp` (generated), `paid_by`, `status`, `client_id`, `client_name`, `phone_number`, `note`
+- Linked to module key `custom_services`
+
+### 7. `item_costs` (utility)
+
+Persists per-item cost data for recharge services. Keyed by `(provider, category, item_key, currency)`.
+
+### 8. `voucher_images` (utility)
+
+Stores voucher image paths for recharge items. Keyed by `(provider, category, item_key)`.
+
+### 9. `transactions` (unified ledger)
+
+The unified accounting journal that replaces `activity_logs`. Every financial action (sale, exchange, recharge, expense, debt, etc.) writes a row here.
+
+```
+transactions
+├── user_id    → users(id)
+├── client_id  → clients(id)        (optional)
+└── reverses_id → transactions(id)  (self-FK for void/refund)
+```
+
+- Columns: `type`, `status`, `source_table`, `source_id`, `amount_usd/lbp`, `exchange_rate`, `summary`, `metadata_json`, `device_id`
+- Not module-specific — shared by all modules via `source_table` column
 
 ---
 
@@ -210,10 +249,12 @@ If a module introduces a new payment method (e.g. `OMT` → `OMT_App` drawer, `B
 | Migrations       | `packages/core/src/db/migrations/index.ts`           | Schema changes for existing databases     |
 | Repository       | `packages/core/src/repositories/`                    | Raw SQL queries                           |
 | Service          | `packages/core/src/services/`                        | Business logic + validation               |
+| Validators       | `packages/core/src/validators/`                      | Zod request validation schemas            |
 | IPC Handler      | `electron-app/handlers/`                             | Electron main-process handlers            |
 | Preload          | `electron-app/preload.ts`                            | IPC bridge to renderer                    |
 | Type Definitions | `frontend/src/types/electron.d.ts`                   | TypeScript types for preload API          |
 | API Adapter      | `frontend/src/api/backendApi.ts`                     | Dual-mode (Electron IPC / HTTP) functions |
+| Electron Adapter | `frontend/src/api/ElectronApiAdapter.ts`             | Electron-specific API adapter             |
 | Backend API      | `backend/src/api/`                                   | Express routes (HTTP mode)                |
 | Backend Server   | `backend/src/server.ts`                              | Route registration                        |
 | Page Component   | `frontend/src/features/<module>/pages/`              | React UI                                  |
@@ -222,6 +263,7 @@ If a module introduces a new payment method (e.g. `OMT` → `OMT_App` drawer, `B
 | Module Context   | `frontend/src/contexts/ModuleContext.tsx`            | Provides `enabledModules` to the app      |
 | Currency Context | `frontend/src/contexts/CurrencyContext.tsx`          | `getCurrenciesForModule(key)`             |
 | Settings UI      | `frontend/src/features/settings/pages/Settings/`     | ModulesManager + CurrencyManager          |
+| Shared Layouts   | `frontend/src/shared/components/layouts/`            | HomeGrid, HomeViewLayout, LeftPanelLayout |
 
 ---
 

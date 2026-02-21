@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Select } from "@liratek/ui";
-import * as api from "../../../../api/backendApi";
+import { Select, useApi } from "@liratek/ui";
 
 type Supplier = {
   id: number;
@@ -37,9 +36,11 @@ type LedgerEntry = {
 /** Map supplier provider to its corresponding drawer name */
 const PROVIDER_DRAWER: Record<string, string> = {
   OMT: "OMT_System",
-  WHISH: "Whish_App",
+  WHISH: "Whish_System",
   IPEC: "IPEC",
   KATCH: "Katch",
+  OMT_APP: "OMT_App",
+  WHISH_APP: "Whish_App",
 };
 
 function EntryTypeBadge({ type }: { type: string }) {
@@ -65,6 +66,7 @@ function AutoBadge() {
 }
 
 export default function SupplierLedger() {
+  const api = useApi();
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [balances, setBalances] = useState<SupplierBalance[]>([]);
   const [selectedSupplierId, setSelectedSupplierId] = useState<number | null>(
@@ -80,15 +82,18 @@ export default function SupplierLedger() {
   const [note, setNote] = useState<string>("");
   const [withdrawFromDrawer, setWithdrawFromDrawer] = useState(true);
 
-  // Only show system suppliers (OMT, Whish, IPEC, Katch)
-  const systemSuppliers = useMemo(
-    () => suppliers.filter((s) => s.is_system === 1),
+  // System suppliers first, then user-created
+  const sortedSuppliers = useMemo(
+    () =>
+      [...suppliers].sort(
+        (a, b) => b.is_system - a.is_system || a.name.localeCompare(b.name),
+      ),
     [suppliers],
   );
 
   const selectedSupplier = useMemo(
-    () => systemSuppliers.find((s) => s.id === selectedSupplierId) || null,
-    [systemSuppliers, selectedSupplierId],
+    () => sortedSuppliers.find((s) => s.id === selectedSupplierId) || null,
+    [sortedSuppliers, selectedSupplierId],
   );
 
   const balanceBySupplier = useMemo(() => {
@@ -101,7 +106,7 @@ export default function SupplierLedger() {
   const totalOwed = useMemo(() => {
     let usd = 0;
     let lbp = 0;
-    for (const s of systemSuppliers) {
+    for (const s of sortedSuppliers) {
       const b = balanceBySupplier.get(s.id);
       if (b) {
         usd += Number(b.total_usd || 0);
@@ -109,7 +114,7 @@ export default function SupplierLedger() {
       }
     }
     return { usd, lbp };
-  }, [systemSuppliers, balanceBySupplier]);
+  }, [sortedSuppliers, balanceBySupplier]);
 
   /** The drawer tied to the currently selected supplier */
   const supplierDrawer = useMemo(() => {
@@ -184,8 +189,8 @@ export default function SupplierLedger() {
       <div>
         <h2 className="text-xl font-bold text-white">Supplier Ledger</h2>
         <p className="text-sm text-slate-400">
-          Track amounts owed to OMT, Whish, IPEC &amp; Katch. Debts are
-          auto-recorded from transactions.
+          Track amounts owed to suppliers. System debts are auto-recorded from
+          transactions.
         </p>
       </div>
 
@@ -212,7 +217,7 @@ export default function SupplierLedger() {
             Suppliers
           </div>
           <div className="space-y-1">
-            {systemSuppliers.map((s) => {
+            {sortedSuppliers.map((s) => {
               const b = balanceBySupplier.get(s.id);
               const active = s.id === selectedSupplierId;
               const drawer = s.provider
@@ -228,11 +233,13 @@ export default function SupplierLedger() {
                 >
                   <div className="flex items-center justify-between">
                     <span className="font-semibold text-white">{s.name}</span>
-                    {drawer && (
-                      <span className="text-[10px] text-slate-500 font-mono">
-                        {drawer}
-                      </span>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {drawer && (
+                        <span className="text-[10px] text-slate-500 font-mono">
+                          {drawer}
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <div className="mt-1 text-xs text-slate-400 font-mono">
                     ${Number(b?.total_usd || 0).toFixed(2)} |{" "}
@@ -241,9 +248,9 @@ export default function SupplierLedger() {
                 </button>
               );
             })}
-            {systemSuppliers.length === 0 && (
+            {sortedSuppliers.length === 0 && (
               <div className="text-slate-500 text-sm p-3">
-                No system suppliers found. Run migration v11.
+                No suppliers found.
               </div>
             )}
           </div>
@@ -279,7 +286,10 @@ export default function SupplierLedger() {
               {/* Add entry form */}
               <div className="grid grid-cols-12 gap-3 mb-4">
                 <div className="col-span-3">
-                  <label className="block text-xs text-slate-400 mb-1">
+                  <label
+                    htmlFor="ledger-entry-type"
+                    className="block text-xs text-slate-400 mb-1"
+                  >
                     Entry Type
                   </label>
                   <Select
@@ -297,10 +307,14 @@ export default function SupplierLedger() {
                   />
                 </div>
                 <div className="col-span-3">
-                  <label className="block text-xs text-slate-400 mb-1">
+                  <label
+                    htmlFor="ledger-amount-usd"
+                    className="block text-xs text-slate-400 mb-1"
+                  >
                     Amount USD
                   </label>
                   <input
+                    id="ledger-amount-usd"
                     type="number"
                     value={amountUSD || ""}
                     onChange={(e) =>
@@ -311,10 +325,14 @@ export default function SupplierLedger() {
                   />
                 </div>
                 <div className="col-span-3">
-                  <label className="block text-xs text-slate-400 mb-1">
+                  <label
+                    htmlFor="ledger-amount-lbp"
+                    className="block text-xs text-slate-400 mb-1"
+                  >
                     Amount LBP
                   </label>
                   <input
+                    id="ledger-amount-lbp"
                     type="number"
                     value={amountLBP || ""}
                     onChange={(e) =>
@@ -325,10 +343,14 @@ export default function SupplierLedger() {
                   />
                 </div>
                 <div className="col-span-3">
-                  <label className="block text-xs text-slate-400 mb-1">
+                  <label
+                    htmlFor="ledger-note"
+                    className="block text-xs text-slate-400 mb-1"
+                  >
                     Note
                   </label>
                   <input
+                    id="ledger-note"
                     value={note}
                     onChange={(e) => setNote(e.target.value)}
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white"
