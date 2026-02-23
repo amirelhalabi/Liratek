@@ -299,7 +299,6 @@ async function registerHandlers() {
     const supplierHandlers = await import("./handlers/supplierHandlers.js");
     const updaterHandlers = await import("./handlers/updaterHandlers.js");
     const sessionHandlers = await import("./handlers/sessionHandlers.js");
-    const binanceHandlers = await import("./handlers/binanceHandlers.js");
     const moduleHandlers = await import("./handlers/moduleHandlers.js");
     const paymentMethodHandlers =
       await import("./handlers/paymentMethodHandlers.js");
@@ -331,7 +330,6 @@ async function registerHandlers() {
     supplierHandlers.registerSupplierHandlers();
     updaterHandlers.registerUpdaterHandlers();
     sessionHandlers.registerSessionHandlers();
-    binanceHandlers.registerBinanceHandlers();
     moduleHandlers.registerModuleHandlers();
     paymentMethodHandlers.registerPaymentMethodHandlers();
     whatsappHandlers.registerWhatsAppHandlers();

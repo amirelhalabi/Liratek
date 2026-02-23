@@ -150,11 +150,6 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
-      <Route path="/binance" element={<Navigate to="/recharge" replace />} />
-      <Route
-        path="/ikw-services"
-        element={<Navigate to="/recharge" replace />}
-      />
       <Route
         path="/expenses"
         element={

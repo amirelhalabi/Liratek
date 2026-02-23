@@ -1,10 +1,9 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { useApi } from "@liratek/ui";
-import { ExportBar } from "@/shared/components/ExportBar";
+import { DataTable } from "@/shared/components/DataTable";
 
 export default function RatesManager() {
   const api = useApi();
-  const tableRef = useRef<HTMLTableElement>(null);
   const [list, setList] = useState<
     Array<{
       id: number;
@@ -73,49 +72,24 @@ export default function RatesManager() {
       </div>
 
       <div className="border border-slate-700 rounded overflow-hidden">
-        <ExportBar
+        <DataTable
+          columns={["Pair", "Rate", "Updated"]}
+          data={list}
+          loading={loading}
+          emptyMessage="No rates"
           exportExcel
           exportPdf
           exportFilename="exchange-rates"
-          tableRef={tableRef}
-          rowCount={list.length}
-        />
-        <table ref={tableRef} className="w-full text-left">
-          <thead className="bg-slate-900 text-slate-400 text-xs uppercase">
-            <tr>
-              <th className="p-2">Pair</th>
-              <th className="p-2">Rate</th>
-              <th className="p-2">Updated</th>
+          renderRow={(row) => (
+            <tr key={row.id} className="border-t border-slate-800">
+              <td className="p-2 font-mono">
+                {row.from_code} → {row.to_code}
+              </td>
+              <td className="p-2">{row.rate}</td>
+              <td className="p-2 text-slate-500 text-xs">{row.updated_at}</td>
             </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr>
-                <td colSpan={3} className="p-3 text-slate-500">
-                  Loading...
-                </td>
-              </tr>
-            ) : list.length === 0 ? (
-              <tr>
-                <td colSpan={3} className="p-3 text-slate-500">
-                  No rates
-                </td>
-              </tr>
-            ) : (
-              list.map((row) => (
-                <tr key={row.id} className="border-t border-slate-800">
-                  <td className="p-2 font-mono">
-                    {row.from_code} → {row.to_code}
-                  </td>
-                  <td className="p-2">{row.rate}</td>
-                  <td className="p-2 text-slate-500 text-xs">
-                    {row.updated_at}
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+          )}
+        />
       </div>
     </div>
   );

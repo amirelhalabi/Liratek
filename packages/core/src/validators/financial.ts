@@ -2,10 +2,10 @@ import { z } from "zod";
 import { positiveDecimalSchema, currencyCodeSchema } from "./common.js";
 
 /**
- * Financial services validation schemas (OMT, WHISH, IPEC, Katch, etc.)
+ * Financial services validation schemas (OMT, WHISH, IPEC, Katch, Binance, etc.)
  */
 
-// OMT/WHISH Money Transfer & IPEC/Katch/WishApp services
+// OMT/WHISH Money Transfer & IPEC/Katch/WishApp/Binance services
 export const createFinancialServiceSchema = z
   .object({
     provider: z.enum([
@@ -17,8 +17,9 @@ export const createFinancialServiceSchema = z
       "OMT_APP",
       "BOB",
       "OTHER",
+      "BINANCE",
     ]),
-    serviceType: z.enum(["SEND", "RECEIVE", "BILL_PAYMENT"]),
+    serviceType: z.enum(["SEND", "RECEIVE"]),
     amount: positiveDecimalSchema,
     currency: currencyCodeSchema.default("USD"),
     commission: positiveDecimalSchema.default(0),
@@ -28,6 +29,19 @@ export const createFinancialServiceSchema = z
     clientId: z.number().int().positive().optional(),
     clientName: z.string().max(255).optional(),
     referenceNumber: z.string().max(100).optional(),
+    phoneNumber: z.string().max(30).optional(),
+    omtServiceType: z
+      .enum([
+        "BILL_PAYMENT",
+        "CASH_TO_BUSINESS",
+        "MINISTRY_OF_INTERIOR",
+        "CASH_OUT",
+        "MINISTRY_OF_FINANCE",
+        "INTRA",
+        "ONLINE_BROKERAGE",
+        "WESTERN_UNION",
+      ])
+      .optional(),
     itemKey: z.string().max(255).optional(),
     itemCategory: z.string().max(500).optional(),
     note: z.string().max(500).optional(),
@@ -58,6 +72,7 @@ export const getFinancialServicesSchema = z.object({
       "OMT_APP",
       "BOB",
       "OTHER",
+      "BINANCE",
     ])
     .optional(),
   limit: z.coerce.number().int().positive().max(1000).default(50),

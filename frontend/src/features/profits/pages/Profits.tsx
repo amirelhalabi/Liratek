@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { PageHeader, useApi } from "@liratek/ui";
 import {
   TrendingUp,
@@ -11,9 +11,10 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Minus,
+  Clock,
 } from "lucide-react";
 import { useCurrencyContext } from "../../../contexts/CurrencyContext";
-import { ExportBar } from "@/shared/components/ExportBar";
+import { DataTable } from "@/shared/components/DataTable";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -32,6 +33,15 @@ interface ProfitSummary {
     revenue_lbp: number;
     commission_usd: number;
     commission_lbp: number;
+    count: number;
+  };
+  recharges: {
+    revenue_usd: number;
+    revenue_lbp: number;
+    cost_usd: number;
+    cost_lbp: number;
+    profit_usd: number;
+    profit_lbp: number;
     count: number;
   };
   custom_services: {
@@ -111,7 +121,8 @@ type TabKey =
   | "by-date"
   | "by-payment"
   | "by-user"
-  | "by-client";
+  | "by-client"
+  | "pending";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -190,13 +201,6 @@ export default function Profits() {
   const [to, setTo] = useState(todayISO());
   const [loading, setLoading] = useState(false);
 
-  // Table refs for export
-  const moduleTableRef = useRef<HTMLTableElement>(null);
-  const dateTableRef = useRef<HTMLTableElement>(null);
-  const paymentTableRef = useRef<HTMLTableElement>(null);
-  const cashierTableRef = useRef<HTMLTableElement>(null);
-  const clientTableRef = useRef<HTMLTableElement>(null);
-
   // Data
   const [summary, setSummary] = useState<ProfitSummary | null>(null);
   const [byModule, setByModule] = useState<ModuleRow[]>([]);
@@ -204,6 +208,24 @@ export default function Profits() {
   const [byPayment, setByPayment] = useState<PaymentMethodRow[]>([]);
   const [byUser, setByUser] = useState<UserRow[]>([]);
   const [byClient, setByClient] = useState<ClientRow[]>([]);
+  const [pendingData, setPendingData] = useState<{
+    rows: {
+      sale_id: number;
+      created_at: string;
+      client_name: string;
+      client_phone: string;
+      total_amount_usd: number;
+      paid_usd: number;
+      outstanding_usd: number;
+      potential_profit_usd: number;
+      items_summary: string;
+    }[];
+    totals: {
+      total_outstanding_usd: number;
+      total_pending_profit_usd: number;
+      count: number;
+    };
+  } | null>(null);
 
   // ---------- Fetchers ----------
 
@@ -291,6 +313,20 @@ export default function Profits() {
     }
   }, [api, from, to]);
 
+  const loadPending = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = window.api
+        ? await window.api.profits.pending(from, to)
+        : await api.getPendingProfit(from, to);
+      setPendingData(data || null);
+    } catch {
+      setPendingData(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [api, from, to]);
+
   useEffect(() => {
     if (tab === "overview") loadSummary();
     else if (tab === "by-module") loadByModule();
@@ -298,6 +334,7 @@ export default function Profits() {
     else if (tab === "by-payment") loadByPayment();
     else if (tab === "by-user") loadByUser();
     else if (tab === "by-client") loadByClient();
+    else if (tab === "pending") loadPending();
   }, [
     tab,
     loadSummary,
@@ -306,6 +343,7 @@ export default function Profits() {
     loadByPayment,
     loadByUser,
     loadByClient,
+    loadPending,
   ]);
 
   // ---------- Tabs ----------
@@ -317,6 +355,7 @@ export default function Profits() {
     { key: "by-payment", label: "By Payment", icon: CreditCard },
     { key: "by-user", label: "By Cashier", icon: UserCheck },
     { key: "by-client", label: "By Client", icon: Users },
+    { key: "pending", label: "Pending Profit", icon: Clock },
   ];
 
   // ---------- Render ----------
@@ -540,6 +579,40 @@ export default function Profits() {
               </div>
             </div>
 
+            {/* Recharges */}
+            {summary.recharges && summary.recharges.count > 0 && (
+              <div className="bg-gray-800/50 rounded-xl border border-gray-700 p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-white">
+                    Mobile Recharges
+                  </span>
+                  <span className="text-xs bg-teal-500/20 text-teal-400 px-2 py-0.5 rounded-full">
+                    {summary.recharges.count} txns
+                  </span>
+                </div>
+                <div className="text-xs text-gray-400 space-y-1">
+                  <div className="flex justify-between">
+                    <span>Revenue</span>
+                    <span className="text-white">
+                      {formatAmount(summary.recharges.revenue_usd, "USD")}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Cost</span>
+                    <span className="text-red-400">
+                      -{formatAmount(summary.recharges.cost_usd, "USD")}
+                    </span>
+                  </div>
+                  <div className="flex justify-between border-t border-gray-700 pt-1">
+                    <span className="font-semibold">Profit</span>
+                    <span className="text-emerald-400 font-semibold">
+                      {formatAmount(summary.recharges.profit_usd, "USD")}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Maintenance */}
             <div className="bg-gray-800/50 rounded-xl border border-gray-700 p-4 space-y-2">
               <div className="flex items-center justify-between">
@@ -606,67 +679,56 @@ export default function Profits() {
       {/* ==================== By Module Tab ==================== */}
       {!loading && tab === "by-module" && (
         <div className="bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden">
-          <ExportBar
+          <DataTable<ModuleRow>
+            columns={[
+              { header: "Module", className: "text-left px-4 py-3" },
+              { header: "Revenue (USD)", className: "text-right px-4 py-3" },
+              { header: "Revenue (LBP)", className: "text-right px-4 py-3" },
+              { header: "Profit (USD)", className: "text-right px-4 py-3" },
+              { header: "Profit (LBP)", className: "text-right px-4 py-3" },
+              { header: "Count", className: "text-right px-4 py-3" },
+              { header: "Margin", className: "text-right px-4 py-3" },
+            ]}
+            data={byModule}
             exportExcel
             exportPdf
             exportFilename="profit-by-module"
-            tableRef={moduleTableRef}
-            rowCount={byModule.length}
-          />
-          <table ref={moduleTableRef} className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-700 text-gray-400 text-xs uppercase">
-                <th className="text-left px-4 py-3">Module</th>
-                <th className="text-right px-4 py-3">Revenue (USD)</th>
-                <th className="text-right px-4 py-3">Revenue (LBP)</th>
-                <th className="text-right px-4 py-3">Profit (USD)</th>
-                <th className="text-right px-4 py-3">Profit (LBP)</th>
-                <th className="text-right px-4 py-3">Count</th>
-                <th className="text-right px-4 py-3">Margin</th>
+            className="w-full text-sm"
+            theadClassName="border-b border-gray-700 text-gray-400 text-xs uppercase"
+            emptyMessage="No data for this period"
+            renderRow={(row) => (
+              <tr
+                key={row.module}
+                className="border-b border-gray-700/50 hover:bg-gray-700/30"
+              >
+                <td className="px-4 py-3 font-medium text-white">
+                  {row.label}
+                </td>
+                <td className="px-4 py-3 text-right text-white">
+                  {formatAmount(row.revenue_usd, "USD")}
+                </td>
+                <td className="px-4 py-3 text-right text-white">
+                  {row.revenue_lbp > 0
+                    ? formatAmount(row.revenue_lbp, "LBP")
+                    : "—"}
+                </td>
+                <td className="px-4 py-3 text-right text-emerald-400 font-medium">
+                  {formatAmount(row.profit_usd, "USD")}
+                </td>
+                <td className="px-4 py-3 text-right text-emerald-400">
+                  {row.profit_lbp > 0
+                    ? formatAmount(row.profit_lbp, "LBP")
+                    : "—"}
+                </td>
+                <td className="px-4 py-3 text-right text-gray-300">
+                  {row.count}
+                </td>
+                <td className="px-4 py-3 text-right text-gray-300">
+                  {formatPct(row.profit_usd, row.revenue_usd)}
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {byModule.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="text-center py-8 text-gray-500">
-                    No data for this period
-                  </td>
-                </tr>
-              )}
-              {byModule.map((row) => (
-                <tr
-                  key={row.module}
-                  className="border-b border-gray-700/50 hover:bg-gray-700/30"
-                >
-                  <td className="px-4 py-3 font-medium text-white">
-                    {row.label}
-                  </td>
-                  <td className="px-4 py-3 text-right text-white">
-                    {formatAmount(row.revenue_usd, "USD")}
-                  </td>
-                  <td className="px-4 py-3 text-right text-white">
-                    {row.revenue_lbp > 0
-                      ? formatAmount(row.revenue_lbp, "LBP")
-                      : "—"}
-                  </td>
-                  <td className="px-4 py-3 text-right text-emerald-400 font-medium">
-                    {formatAmount(row.profit_usd, "USD")}
-                  </td>
-                  <td className="px-4 py-3 text-right text-emerald-400">
-                    {row.profit_lbp > 0
-                      ? formatAmount(row.profit_lbp, "LBP")
-                      : "—"}
-                  </td>
-                  <td className="px-4 py-3 text-right text-gray-300">
-                    {row.count}
-                  </td>
-                  <td className="px-4 py-3 text-right text-gray-300">
-                    {formatPct(row.profit_usd, row.revenue_usd)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+            )}
+          />
         </div>
       )}
 
@@ -720,63 +782,23 @@ export default function Profits() {
 
           {/* Table */}
           <div className="bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden">
-            <ExportBar
+            <DataTable<DateRow>
+              columns={[
+                { header: "Date", className: "text-left px-4 py-3" },
+                { header: "Revenue", className: "text-right px-4 py-3" },
+                { header: "Gross Profit", className: "text-right px-4 py-3" },
+                { header: "Expenses", className: "text-right px-4 py-3" },
+                { header: "Net Profit", className: "text-right px-4 py-3" },
+              ]}
+              data={byDate}
               exportExcel
               exportPdf
               exportFilename="profit-by-date"
-              tableRef={dateTableRef}
-              rowCount={byDate.length}
-            />
-            <table ref={dateTableRef} className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-700 text-gray-400 text-xs uppercase">
-                  <th className="text-left px-4 py-3">Date</th>
-                  <th className="text-right px-4 py-3">Revenue</th>
-                  <th className="text-right px-4 py-3">Gross Profit</th>
-                  <th className="text-right px-4 py-3">Expenses</th>
-                  <th className="text-right px-4 py-3">Net Profit</th>
-                </tr>
-              </thead>
-              <tbody>
-                {byDate.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="text-center py-8 text-gray-500">
-                      No data for this period
-                    </td>
-                  </tr>
-                )}
-                {byDate.map((d) => (
-                  <tr
-                    key={d.date}
-                    className="border-b border-gray-700/50 hover:bg-gray-700/30"
-                  >
-                    <td className="px-4 py-3 font-medium text-white">
-                      {d.date}
-                    </td>
-                    <td className="px-4 py-3 text-right text-white">
-                      {formatAmount(d.revenue_usd, "USD")}
-                    </td>
-                    <td className="px-4 py-3 text-right text-emerald-400">
-                      {formatAmount(d.profit_usd, "USD")}
-                    </td>
-                    <td className="px-4 py-3 text-right text-red-400">
-                      {d.expenses_usd > 0
-                        ? `-${formatAmount(d.expenses_usd, "USD")}`
-                        : "—"}
-                    </td>
-                    <td
-                      className={`px-4 py-3 text-right font-semibold ${
-                        d.net_profit_usd >= 0
-                          ? "text-emerald-400"
-                          : "text-red-400"
-                      }`}
-                    >
-                      {formatAmount(d.net_profit_usd, "USD")}
-                    </td>
-                  </tr>
-                ))}
-                {/* Totals row */}
-                {byDate.length > 0 && (
+              className="w-full text-sm"
+              theadClassName="border-b border-gray-700 text-gray-400 text-xs uppercase"
+              emptyMessage="No data for this period"
+              footerContent={
+                byDate.length > 0 ? (
                   <tr className="border-t-2 border-gray-600 bg-gray-800/80 font-bold">
                     <td className="px-4 py-3 text-white">TOTAL</td>
                     <td className="px-4 py-3 text-right text-white">
@@ -811,9 +833,37 @@ export default function Profits() {
                       )}
                     </td>
                   </tr>
-                )}
-              </tbody>
-            </table>
+                ) : undefined
+              }
+              renderRow={(d) => (
+                <tr
+                  key={d.date}
+                  className="border-b border-gray-700/50 hover:bg-gray-700/30"
+                >
+                  <td className="px-4 py-3 font-medium text-white">{d.date}</td>
+                  <td className="px-4 py-3 text-right text-white">
+                    {formatAmount(d.revenue_usd, "USD")}
+                  </td>
+                  <td className="px-4 py-3 text-right text-emerald-400">
+                    {formatAmount(d.profit_usd, "USD")}
+                  </td>
+                  <td className="px-4 py-3 text-right text-red-400">
+                    {d.expenses_usd > 0
+                      ? `-${formatAmount(d.expenses_usd, "USD")}`
+                      : "—"}
+                  </td>
+                  <td
+                    className={`px-4 py-3 text-right font-semibold ${
+                      d.net_profit_usd >= 0
+                        ? "text-emerald-400"
+                        : "text-red-400"
+                    }`}
+                  >
+                    {formatAmount(d.net_profit_usd, "USD")}
+                  </td>
+                </tr>
+              )}
+            />
           </div>
         </div>
       )}
@@ -821,191 +871,257 @@ export default function Profits() {
       {/* ==================== By Payment Method Tab ==================== */}
       {!loading && tab === "by-payment" && (
         <div className="bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden">
-          <ExportBar
+          <DataTable<PaymentMethodRow>
+            columns={[
+              { header: "Payment Method", className: "text-left px-4 py-3" },
+              { header: "Total (USD)", className: "text-right px-4 py-3" },
+              { header: "Total (LBP)", className: "text-right px-4 py-3" },
+              { header: "Count", className: "text-right px-4 py-3" },
+              { header: "Share", className: "text-right px-4 py-3" },
+            ]}
+            data={byPayment}
             exportExcel
             exportPdf
             exportFilename="profit-by-payment"
-            tableRef={paymentTableRef}
-            rowCount={byPayment.length}
-          />
-          <table ref={paymentTableRef} className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-700 text-gray-400 text-xs uppercase">
-                <th className="text-left px-4 py-3">Payment Method</th>
-                <th className="text-right px-4 py-3">Total (USD)</th>
-                <th className="text-right px-4 py-3">Total (LBP)</th>
-                <th className="text-right px-4 py-3">Count</th>
-                <th className="text-right px-4 py-3">Share</th>
-              </tr>
-            </thead>
-            <tbody>
-              {byPayment.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="text-center py-8 text-gray-500">
-                    No payment data for this period
+            className="w-full text-sm"
+            theadClassName="border-b border-gray-700 text-gray-400 text-xs uppercase"
+            emptyMessage="No payment data for this period"
+            renderRow={(row) => {
+              const totalAll = byPayment.reduce((s, r) => s + r.total_usd, 0);
+              return (
+                <tr
+                  key={row.method}
+                  className="border-b border-gray-700/50 hover:bg-gray-700/30"
+                >
+                  <td className="px-4 py-3 font-medium text-white">
+                    <div className="flex items-center gap-2">
+                      <CreditCard className="h-4 w-4 text-gray-400" />
+                      {row.method}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-right text-white">
+                    {formatAmount(row.total_usd, "USD")}
+                  </td>
+                  <td className="px-4 py-3 text-right text-white">
+                    {row.total_lbp > 0
+                      ? formatAmount(row.total_lbp, "LBP")
+                      : "—"}
+                  </td>
+                  <td className="px-4 py-3 text-right text-gray-300">
+                    {row.count}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      <div className="w-16 bg-gray-700 rounded-full h-1.5">
+                        <div
+                          className="bg-blue-500 h-1.5 rounded-full"
+                          style={{
+                            width: `${totalAll > 0 ? (row.total_usd / totalAll) * 100 : 0}%`,
+                          }}
+                        />
+                      </div>
+                      <span className="text-gray-300 text-xs w-10 text-right">
+                        {formatPct(row.total_usd, totalAll)}
+                      </span>
+                    </div>
                   </td>
                 </tr>
-              )}
-              {byPayment.map((row) => {
-                const totalAll = byPayment.reduce((s, r) => s + r.total_usd, 0);
-                return (
-                  <tr
-                    key={row.method}
-                    className="border-b border-gray-700/50 hover:bg-gray-700/30"
-                  >
-                    <td className="px-4 py-3 font-medium text-white">
-                      <div className="flex items-center gap-2">
-                        <CreditCard className="h-4 w-4 text-gray-400" />
-                        {row.method}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-right text-white">
-                      {formatAmount(row.total_usd, "USD")}
-                    </td>
-                    <td className="px-4 py-3 text-right text-white">
-                      {row.total_lbp > 0
-                        ? formatAmount(row.total_lbp, "LBP")
-                        : "—"}
-                    </td>
-                    <td className="px-4 py-3 text-right text-gray-300">
-                      {row.count}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <div className="w-16 bg-gray-700 rounded-full h-1.5">
-                          <div
-                            className="bg-blue-500 h-1.5 rounded-full"
-                            style={{
-                              width: `${totalAll > 0 ? (row.total_usd / totalAll) * 100 : 0}%`,
-                            }}
-                          />
-                        </div>
-                        <span className="text-gray-300 text-xs w-10 text-right">
-                          {formatPct(row.total_usd, totalAll)}
-                        </span>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+              );
+            }}
+          />
         </div>
       )}
 
       {/* ==================== By User/Cashier Tab ==================== */}
       {!loading && tab === "by-user" && (
         <div className="bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden">
-          <ExportBar
+          <DataTable<UserRow>
+            columns={[
+              { header: "Cashier", className: "text-left px-4 py-3" },
+              { header: "Revenue (USD)", className: "text-right px-4 py-3" },
+              { header: "Profit (USD)", className: "text-right px-4 py-3" },
+              { header: "Transactions", className: "text-right px-4 py-3" },
+              { header: "Avg Profit/Txn", className: "text-right px-4 py-3" },
+            ]}
+            data={byUser}
             exportExcel
             exportPdf
             exportFilename="profit-by-cashier"
-            tableRef={cashierTableRef}
-            rowCount={byUser.length}
-          />
-          <table ref={cashierTableRef} className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-700 text-gray-400 text-xs uppercase">
-                <th className="text-left px-4 py-3">Cashier</th>
-                <th className="text-right px-4 py-3">Revenue (USD)</th>
-                <th className="text-right px-4 py-3">Profit (USD)</th>
-                <th className="text-right px-4 py-3">Transactions</th>
-                <th className="text-right px-4 py-3">Avg Profit/Txn</th>
+            className="w-full text-sm"
+            theadClassName="border-b border-gray-700 text-gray-400 text-xs uppercase"
+            emptyMessage="No data for this period"
+            renderRow={(row) => (
+              <tr
+                key={row.user_id}
+                className="border-b border-gray-700/50 hover:bg-gray-700/30"
+              >
+                <td className="px-4 py-3 font-medium text-white">
+                  <div className="flex items-center gap-2">
+                    <UserCheck className="h-4 w-4 text-gray-400" />
+                    {row.username}
+                  </div>
+                </td>
+                <td className="px-4 py-3 text-right text-white">
+                  {formatAmount(row.revenue_usd, "USD")}
+                </td>
+                <td className="px-4 py-3 text-right text-emerald-400 font-medium">
+                  {formatAmount(row.profit_usd, "USD")}
+                </td>
+                <td className="px-4 py-3 text-right text-gray-300">
+                  {row.transaction_count}
+                </td>
+                <td className="px-4 py-3 text-right text-gray-300">
+                  {row.transaction_count > 0
+                    ? formatAmount(
+                        row.profit_usd / row.transaction_count,
+                        "USD",
+                      )
+                    : "—"}
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {byUser.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="text-center py-8 text-gray-500">
-                    No data for this period
-                  </td>
-                </tr>
-              )}
-              {byUser.map((row) => (
-                <tr
-                  key={row.user_id}
-                  className="border-b border-gray-700/50 hover:bg-gray-700/30"
-                >
-                  <td className="px-4 py-3 font-medium text-white">
-                    <div className="flex items-center gap-2">
-                      <UserCheck className="h-4 w-4 text-gray-400" />
-                      {row.username}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-right text-white">
-                    {formatAmount(row.revenue_usd, "USD")}
-                  </td>
-                  <td className="px-4 py-3 text-right text-emerald-400 font-medium">
-                    {formatAmount(row.profit_usd, "USD")}
-                  </td>
-                  <td className="px-4 py-3 text-right text-gray-300">
-                    {row.transaction_count}
-                  </td>
-                  <td className="px-4 py-3 text-right text-gray-300">
-                    {row.transaction_count > 0
-                      ? formatAmount(
-                          row.profit_usd / row.transaction_count,
-                          "USD",
-                        )
-                      : "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+            )}
+          />
         </div>
       )}
 
       {/* ==================== By Client Tab ==================== */}
       {!loading && tab === "by-client" && (
         <div className="bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden">
-          <ExportBar
+          <DataTable<ClientRow>
+            columns={[
+              { header: "#", className: "text-left px-4 py-3" },
+              { header: "Client", className: "text-left px-4 py-3" },
+              { header: "Revenue (USD)", className: "text-right px-4 py-3" },
+              { header: "Profit (USD)", className: "text-right px-4 py-3" },
+              { header: "Transactions", className: "text-right px-4 py-3" },
+            ]}
+            data={byClient}
             exportExcel
             exportPdf
             exportFilename="profit-by-client"
-            tableRef={clientTableRef}
-            rowCount={byClient.length}
-          />
-          <table ref={clientTableRef} className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-700 text-gray-400 text-xs uppercase">
-                <th className="text-left px-4 py-3">#</th>
-                <th className="text-left px-4 py-3">Client</th>
-                <th className="text-right px-4 py-3">Revenue (USD)</th>
-                <th className="text-right px-4 py-3">Profit (USD)</th>
-                <th className="text-right px-4 py-3">Transactions</th>
+            className="w-full text-sm"
+            theadClassName="border-b border-gray-700 text-gray-400 text-xs uppercase"
+            emptyMessage="No data for this period"
+            renderRow={(row, i) => (
+              <tr
+                key={row.client_id ?? `walk-in-${i}`}
+                className="border-b border-gray-700/50 hover:bg-gray-700/30"
+              >
+                <td className="px-4 py-3 text-gray-500 text-xs">{i + 1}</td>
+                <td className="px-4 py-3 font-medium text-white">
+                  {row.client_name}
+                </td>
+                <td className="px-4 py-3 text-right text-white">
+                  {formatAmount(row.revenue_usd, "USD")}
+                </td>
+                <td className="px-4 py-3 text-right text-emerald-400 font-medium">
+                  {formatAmount(row.profit_usd, "USD")}
+                </td>
+                <td className="px-4 py-3 text-right text-gray-300">
+                  {row.transaction_count}
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {byClient.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="text-center py-8 text-gray-500">
-                    No data for this period
+            )}
+          />
+        </div>
+      )}
+
+      {/* ==================== Pending Profit Tab ==================== */}
+      {!loading && tab === "pending" && !pendingData && (
+        <div className="text-center py-12 text-gray-500">
+          No data for this period
+        </div>
+      )}
+      {!loading && tab === "pending" && pendingData && (
+        <div className="space-y-4">
+          {/* Summary cards */}
+          <div className="grid grid-cols-3 gap-4">
+            <SummaryCard
+              label="Unpaid Sales"
+              value={String(pendingData.totals.count)}
+              icon={Clock}
+              color="text-amber-400"
+            />
+            <SummaryCard
+              label="Outstanding Amount"
+              value={formatAmount(
+                pendingData.totals.total_outstanding_usd,
+                "USD",
+              )}
+              icon={DollarSign}
+              color="text-red-400"
+            />
+            <SummaryCard
+              label="Pending Profit"
+              value={formatAmount(
+                pendingData.totals.total_pending_profit_usd,
+                "USD",
+              )}
+              subValue="Recognized once fully paid"
+              icon={TrendingUp}
+              color="text-amber-400"
+            />
+          </div>
+
+          {/* Table */}
+          <div className="bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden">
+            <DataTable<(typeof pendingData.rows)[number]>
+              columns={[
+                { header: "Date", className: "text-left px-4 py-3" },
+                { header: "Client", className: "text-left px-4 py-3" },
+                { header: "Items", className: "text-left px-4 py-3" },
+                { header: "Sale Total", className: "text-right px-4 py-3" },
+                { header: "Paid", className: "text-right px-4 py-3" },
+                { header: "Outstanding", className: "text-right px-4 py-3" },
+                {
+                  header: "Pending Profit",
+                  className: "text-right px-4 py-3",
+                },
+              ]}
+              data={pendingData.rows}
+              exportExcel
+              exportPdf
+              exportFilename="pending-profit"
+              className="w-full text-sm"
+              theadClassName="border-b border-gray-700 text-gray-400 text-xs uppercase"
+              emptyMessage="No unpaid sales in this period"
+              renderRow={(row) => (
+                <tr
+                  key={row.sale_id}
+                  className="border-b border-gray-700/50 hover:bg-gray-700/30"
+                >
+                  <td className="px-4 py-3 text-gray-300 text-xs">
+                    {new Date(row.created_at).toLocaleDateString()}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="font-medium text-white">
+                      {row.client_name}
+                    </div>
+                    {row.client_phone && (
+                      <div className="text-xs text-gray-500">
+                        {row.client_phone}
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-gray-300 text-xs max-w-[200px] truncate">
+                    {row.items_summary}
+                  </td>
+                  <td className="px-4 py-3 text-right text-white">
+                    {formatAmount(row.total_amount_usd, "USD")}
+                  </td>
+                  <td className="px-4 py-3 text-right text-emerald-400">
+                    {formatAmount(row.paid_usd, "USD")}
+                  </td>
+                  <td className="px-4 py-3 text-right text-red-400 font-medium">
+                    {formatAmount(row.outstanding_usd, "USD")}
+                  </td>
+                  <td className="px-4 py-3 text-right text-amber-400 font-medium">
+                    {formatAmount(row.potential_profit_usd, "USD")}
                   </td>
                 </tr>
               )}
-              {byClient.map((row, i) => (
-                <tr
-                  key={row.client_id ?? `walk-in-${i}`}
-                  className="border-b border-gray-700/50 hover:bg-gray-700/30"
-                >
-                  <td className="px-4 py-3 text-gray-500 text-xs">{i + 1}</td>
-                  <td className="px-4 py-3 font-medium text-white">
-                    {row.client_name}
-                  </td>
-                  <td className="px-4 py-3 text-right text-white">
-                    {formatAmount(row.revenue_usd, "USD")}
-                  </td>
-                  <td className="px-4 py-3 text-right text-emerald-400 font-medium">
-                    {formatAmount(row.profit_usd, "USD")}
-                  </td>
-                  <td className="px-4 py-3 text-right text-gray-300">
-                    {row.transaction_count}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+            />
+          </div>
         </div>
       )}
     </div>

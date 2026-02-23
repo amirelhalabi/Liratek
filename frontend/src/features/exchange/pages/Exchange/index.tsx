@@ -1,17 +1,16 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import logger from "../../../../utils/logger";
 import { RefreshCw, ArrowRightLeft, History, ArrowRight } from "lucide-react";
 import { useApi } from "@liratek/ui";
 import { useSession } from "../../../sessions/context/SessionContext";
 import { useCurrencyContext } from "../../../../contexts/CurrencyContext";
-import { ExportBar } from "@/shared/components/ExportBar";
+import { DataTable } from "@/shared/components/DataTable";
 
 type RateRow = { from_code: string; to_code: string; rate: number };
 
 export default function Exchange() {
   const api = useApi();
   const { activeSession, linkTransaction } = useSession();
-  const tableRef = useRef<HTMLTableElement>(null);
   type ExchangeTx = {
     id: number;
     created_at: string;
@@ -384,69 +383,56 @@ export default function Exchange() {
           </div>
 
           <div className="flex-1 overflow-auto">
-            <ExportBar
+            <DataTable
+              columns={[
+                { header: "Time", className: "px-6 py-3" },
+                { header: "From", className: "px-6 py-3" },
+                { header: "To", className: "px-6 py-3" },
+                { header: "Rate", className: "px-6 py-3 text-right" },
+                { header: "Amount In", className: "px-6 py-3 text-right" },
+                { header: "Amount Out", className: "px-6 py-3 text-right" },
+              ]}
+              data={transactions}
               exportExcel
               exportPdf
               exportFilename="exchange-history"
-              tableRef={tableRef}
-              rowCount={transactions.length}
-            />
-            <table ref={tableRef} className="w-full">
-              <thead className="bg-slate-900/50 text-left text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0">
-                <tr>
-                  <th className="px-6 py-3">Time</th>
-                  <th className="px-6 py-3">From</th>
-                  <th className="px-6 py-3">To</th>
-                  <th className="px-6 py-3 text-right">Rate</th>
-                  <th className="px-6 py-3 text-right">Amount In</th>
-                  <th className="px-6 py-3 text-right">Amount Out</th>
+              className="w-full"
+              theadClassName="bg-slate-900/50 text-left text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0"
+              tbodyClassName="divide-y divide-slate-700/50"
+              emptyMessage="No exchanges yet today."
+              renderRow={(tx) => (
+                <tr
+                  key={tx.id}
+                  className="hover:bg-slate-700/20 transition-colors"
+                >
+                  <td className="px-6 py-4 text-sm text-slate-400">
+                    {new Date(tx.created_at).toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </td>
+                  <td className="px-6 py-4">
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400">
+                      {tx.from_currency}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4">
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-500/10 text-red-400">
+                      {tx.to_currency}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 text-sm text-slate-400 text-right font-mono">
+                    {tx.rate.toLocaleString()}
+                  </td>
+                  <td className="px-6 py-4 text-sm font-bold text-emerald-400 text-right">
+                    {Number(tx.amount_in).toLocaleString()} {tx.from_currency}
+                  </td>
+                  <td className="px-6 py-4 text-sm font-bold text-red-400 text-right">
+                    {Number(tx.amount_out).toLocaleString()} {tx.to_currency}
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-700/50">
-                {transactions.map((tx) => (
-                  <tr
-                    key={tx.id}
-                    className="hover:bg-slate-700/20 transition-colors"
-                  >
-                    <td className="px-6 py-4 text-sm text-slate-400">
-                      {new Date(tx.created_at).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400">
-                        {tx.from_currency}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-500/10 text-red-400">
-                        {tx.to_currency}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-slate-400 text-right font-mono">
-                      {tx.rate.toLocaleString()}
-                    </td>
-                    <td className="px-6 py-4 text-sm font-bold text-emerald-400 text-right">
-                      {Number(tx.amount_in).toLocaleString()} {tx.from_currency}
-                    </td>
-                    <td className="px-6 py-4 text-sm font-bold text-red-400 text-right">
-                      {Number(tx.amount_out).toLocaleString()} {tx.to_currency}
-                    </td>
-                  </tr>
-                ))}
-                {transactions.length === 0 && (
-                  <tr>
-                    <td
-                      colSpan={6}
-                      className="px-6 py-8 text-center text-slate-500 text-sm"
-                    >
-                      No exchanges yet today.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+              )}
+            />
           </div>
         </div>
       </div>

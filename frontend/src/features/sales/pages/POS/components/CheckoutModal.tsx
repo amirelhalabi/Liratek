@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import logger from "../../../../../utils/logger";
 import { X, User, Printer, Inbox } from "lucide-react";
 import { DRAWER_B, roundLBPUp, useApi } from "@liratek/ui";
@@ -93,6 +93,9 @@ export default function CheckoutModal({
 
   // Track if customer was auto-filled from session
   const [isAutoFilledFromSession, setIsAutoFilledFromSession] = useState(false);
+
+  // Ref for customer search input — prevents focus loss during re-renders
+  const customerSearchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     // Fetch clients for search
@@ -330,10 +333,7 @@ export default function CheckoutModal({
     }
   };
 
-  const drawerNameDisplay =
-    DRAWER_B === "General_Drawer_B"
-      ? "General Drawer"
-      : String(DRAWER_B).replace(/_/g, " ");
+  const drawerNameDisplay = String(DRAWER_B).replace(/_/g, " ");
 
   return (
     <>
@@ -373,6 +373,7 @@ export default function CheckoutModal({
                       <User size={20} />
                     </div>
                     <input
+                      ref={customerSearchRef}
                       type="text"
                       value={clientSearch}
                       onChange={(e) => {
@@ -384,8 +385,13 @@ export default function CheckoutModal({
                         ) {
                           setSelectedClient(null);
                         }
-                        setSecondaryInput(""); // Clear secondary input on primary search change
-                        setIsAutoFilledFromSession(false); // User is manually typing
+                        if (secondaryInput) setSecondaryInput(""); // Only reset if non-empty
+                        if (isAutoFilledFromSession)
+                          setIsAutoFilledFromSession(false);
+                        // Guard against focus loss during re-render
+                        requestAnimationFrame(() => {
+                          customerSearchRef.current?.focus();
+                        });
                       }}
                       className="bg-transparent border-none text-white w-full px-3 focus:outline-none"
                       placeholder="Search Name or Phone..."
@@ -440,7 +446,11 @@ export default function CheckoutModal({
                     <input
                       type="text"
                       value={secondaryInput}
-                      onChange={(e) => setSecondaryInput(e.target.value)}
+                      onChange={(e) => {
+                        const input = e.target;
+                        setSecondaryInput(e.target.value);
+                        requestAnimationFrame(() => input.focus());
+                      }}
                       className="bg-transparent border-none text-white w-full px-3 focus:outline-none py-3"
                       placeholder={secondaryPlaceholder}
                       disabled={!clientSearch || !!selectedClient}
@@ -618,13 +628,6 @@ export default function CheckoutModal({
                             }
                             className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-10 pr-3 py-2 text-white text-sm font-mono"
                             placeholder="0"
-                            ref={
-                              idx === 0
-                                ? (el: HTMLInputElement | null) => {
-                                    el?.focus();
-                                  }
-                                : undefined
-                            }
                           />
                         </div>
                       </div>

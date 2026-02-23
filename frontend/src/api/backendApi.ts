@@ -317,46 +317,6 @@ export async function addExchangeTransaction(payload: any) {
   );
 }
 
-// Binance
-export async function getBinanceHistory(limit?: number) {
-  if (isElectron()) {
-    return (window as any).api.binance.getHistory(limit);
-  }
-  const qs = new URLSearchParams();
-  if (limit) qs.set("limit", String(limit));
-  const res = await requestJson<{ success: boolean; history: any[] }>(
-    `/api/binance/history?${qs.toString()}`,
-  );
-  return res.history;
-}
-
-export async function getBinanceTodayStats() {
-  if (isElectron()) {
-    return (window as any).api.binance.getTodayStats();
-  }
-  const res = await requestJson<{
-    success: boolean;
-    stats: { totalSent: number; totalReceived: number; count: number };
-  }>(`/api/binance/today-stats`);
-  return res.stats;
-}
-
-export async function addBinanceTransaction(payload: {
-  type: "SEND" | "RECEIVE";
-  amount: number;
-  currencyCode?: string;
-  description?: string;
-  clientName?: string;
-}) {
-  if (isElectron()) {
-    return (window as any).api.binance.addTransaction(payload);
-  }
-  return requestJson<{ success: boolean; id?: number; error?: string }>(
-    `/api/binance/transactions`,
-    { method: "POST", body: payload },
-  );
-}
-
 // Expenses
 export async function getTodayExpenses() {
   if (isElectron()) {
@@ -1218,6 +1178,19 @@ export async function getProfitByClient(
         `/api/profits/by-client?${qs}`,
       );
       return res.data || [];
+    },
+  );
+}
+
+export async function getPendingProfit(from: string, to: string) {
+  return ipcOrHttp(
+    async () => getElectronApi().profits.pending(from, to),
+    async () => {
+      const qs = new URLSearchParams({ from, to });
+      const res = await requestJson<{ success: boolean; data: any }>(
+        `/api/profits/pending?${qs}`,
+      );
+      return res.data;
     },
   );
 }

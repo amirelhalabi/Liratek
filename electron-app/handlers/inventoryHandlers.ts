@@ -7,7 +7,7 @@
 
 import { ipcMain } from "electron";
 import { getInventoryService, inventoryLogger } from "@liratek/core";
-/* eslint-disable @typescript-eslint/no-require-imports */
+import { requireRole } from "../session.js";
 
 // =============================================================================
 // Types
@@ -67,7 +67,6 @@ export function registerInventoryHandlers(): void {
   ipcMain.handle("inventory:create-product", (e, product: ProductInput) => {
     // Auth check
     try {
-      const { requireRole } = require("../session");
       const auth = requireRole(e.sender.id, ["admin"]);
       if (!auth.ok) return { success: false, error: auth.error };
     } catch {}
@@ -96,7 +95,6 @@ export function registerInventoryHandlers(): void {
   ipcMain.handle("inventory:update-product", (e, product: ProductInput) => {
     // Auth check
     try {
-      const { requireRole } = require("../session");
       const auth = requireRole(e.sender.id, ["admin"]);
       if (!auth.ok) return { success: false, error: auth.error };
     } catch {}
@@ -120,7 +118,6 @@ export function registerInventoryHandlers(): void {
   ipcMain.handle("inventory:delete-product", (e, id: number) => {
     // Auth check
     try {
-      const { requireRole } = require("../session");
       const auth = requireRole(e.sender.id, ["admin"]);
       if (!auth.ok) return { success: false, error: auth.error };
     } catch {}
@@ -138,7 +135,6 @@ export function registerInventoryHandlers(): void {
     (e, id: number, newQuantity: number) => {
       // Auth check
       try {
-        const { requireRole } = require("../session");
         const auth = requireRole(e.sender.id, ["admin"]);
         if (!auth.ok) return { success: false, error: auth.error };
       } catch {}

@@ -288,10 +288,10 @@ The database path is resolved in this order:
 
 WhatsApp credentials are stored in the **database** (`system_settings` table), not in environment variables. Configure them via Settings > Integrations in the app UI:
 
-| Setting Key                  | Description                             |
-| ---------------------------- | --------------------------------------- |
-| `whatsapp_api_key`           | Meta Cloud API access token             |
-| `whatsapp_phone_number_id`   | Sender Phone Number ID from Meta dashboard |
+| Setting Key                | Description                                |
+| -------------------------- | ------------------------------------------ |
+| `whatsapp_api_key`         | Meta Cloud API access token                |
+| `whatsapp_phone_number_id` | Sender Phone Number ID from Meta dashboard |
 
 **Example:**
 

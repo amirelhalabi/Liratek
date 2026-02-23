@@ -1,26 +1,17 @@
 import { z } from "zod";
-import {
-  positiveDecimalSchema,
-  positiveIntegerSchema,
-  phoneNumberSchema,
-} from "./common.js";
+import { positiveDecimalSchema, phoneNumberSchema } from "./common.js";
 
 /**
- * Recharge validation schemas (MTC, ALFA)
+ * Recharge validation schemas (MTC, Alfa)
  */
 
 export const createRechargeSchema = z.object({
-  provider: z.enum(["MTC", "ALFA", "Alfa"]),
-  type: z.enum([
-    "CREDIT_TRANSFER",
-    "VOUCHER",
-    "DAYS",
-    "prepaid",
-    "postpaid",
-    "internet",
-  ]),
+  provider: z.enum(["MTC", "Alfa"]),
+  type: z.enum(["CREDIT_TRANSFER", "VOUCHER", "DAYS"]),
   amount: positiveDecimalSchema,
-  price: positiveDecimalSchema, // USD price
+  cost: z.number().min(0).default(0),
+  price: positiveDecimalSchema,
+  currency: z.string().min(1).default("USD"),
   phoneNumber: phoneNumberSchema.optional(),
   paid_by_method: z.string().min(1).default("CASH"),
   clientId: z.number().int().positive().optional(),

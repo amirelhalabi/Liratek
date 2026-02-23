@@ -56,7 +56,7 @@ export class SalesService {
       const result = this.salesRepo.processSale(sale);
 
       if (result.success && result.id) {
-        const drawerName = sale.drawer_name || "General_Drawer_B";
+        const drawerName = sale.drawer_name || "General";
         const finalAmount = sale.final_amount || 0;
         salesLogger.info(
           {

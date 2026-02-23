@@ -97,19 +97,7 @@ export type {
   CreateExchangeData,
 } from "./ExchangeRepository.js";
 
-// Binance Repository
-export {
-  BinanceRepository,
-  getBinanceRepository,
-  resetBinanceRepository,
-} from "./BinanceRepository.js";
-export type {
-  BinanceTransactionEntity,
-  CreateBinanceTransactionData,
-  BinanceTodayStats,
-} from "./BinanceRepository.js";
-
-// Financial Service Repository (OMT, WHISH, BOB)
+// Financial Service Repository (OMT, WHISH, BOB, OTHER, IPEC, KATCH, WISH_APP, OMT_APP, BINANCE)
 export {
   FinancialServiceRepository,
   getFinancialServiceRepository,
@@ -176,7 +164,11 @@ export {
   getRechargeRepository,
   resetRechargeRepository,
 } from "./RechargeRepository.js";
-export type { VirtualStock, RechargeData } from "./RechargeRepository.js";
+export type {
+  VirtualStock,
+  RechargeData,
+  RechargeEntity,
+} from "./RechargeRepository.js";
 
 // Supplier Repository
 export {

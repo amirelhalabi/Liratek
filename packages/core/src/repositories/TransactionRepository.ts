@@ -9,8 +9,10 @@
  * Key concepts:
  * - **Void**: Sets original status to VOIDED, creates reversal row with
  *   negated amounts and `reverses_id` pointing to the original.
+ *   Reverses drawer balances, restores stock, and cancels debt.
  * - **Refund**: Creates a REFUND row with `reverses_id` pointing to the
  *   original. Original stays ACTIVE.
+ *   Reverses drawer balances, restores stock, and cancels debt.
  * - **Exchange rate**: Immutable snapshot captured at creation time.
  */
 
@@ -294,6 +296,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * Void a transaction using the accounting journal pattern:
    * 1. Set original status to VOIDED
    * 2. Create a reversal row with negated amounts and reverses_id = original.id
+   * 3. Reverse drawer balances via negated payment rows
+   * 4. If SALE: mark sale as 'cancelled', restore stock, cancel debt
    *
    * Returns the reversal transaction's ID.
    */
@@ -336,14 +340,32 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         original.device_id,
       );
 
-      return result.lastInsertRowid as number;
+      const reversalId = result.lastInsertRowid as number;
+
+      // 3. Reverse drawer balances — negate every payment from the original
+      this._reversePayments(id, reversalId, userId);
+
+      // 4. If SALE: cancel sale, restore stock, cancel debt
+      if (original.source_table === "sales" && original.source_id) {
+        this.execute(
+          `UPDATE sales SET status = 'cancelled' WHERE id = ?`,
+          original.source_id,
+        );
+        this._restoreStock(original.source_id);
+        this._cancelDebt(id, userId);
+      }
+
+      return reversalId;
     });
   }
 
   /**
    * Create a refund transaction:
-   * 1. Create a REFUND row with reverses_id = original.id and negated amounts.
-   * 2. Original stays ACTIVE (the refund entry handles the financial reversal).
+   * 1. Guard against double-refund.
+   * 2. Create a REFUND row with reverses_id = original.id and negated amounts.
+   * 3. Reverse drawer balances via negated payment rows.
+   * 4. If the original is a SALE, mark sale status = 'refunded',
+   *    set sale_items.is_refunded = 1, restore stock, and cancel debt.
    *
    * Returns the refund transaction's ID.
    */
@@ -358,26 +380,156 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       });
     }
 
-    const result = this.execute(
-      `INSERT INTO transactions
-        (type, status, source_table, source_id, user_id,
-         amount_usd, amount_lbp, exchange_rate,
-         client_id, reverses_id, summary, metadata_json, device_id)
-       VALUES ('REFUND', 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      original.source_table,
-      original.source_id,
-      userId,
-      -original.amount_usd,
-      -original.amount_lbp,
-      original.exchange_rate,
-      original.client_id,
+    // Guard: prevent double-refund
+    const existing = this.queryOne<{ id: number }>(
+      `SELECT id FROM transactions WHERE reverses_id = ? AND type = 'REFUND'`,
       id,
-      `REFUND: ${original.summary ?? original.type}`,
-      original.metadata_json,
-      original.device_id,
+    );
+    if (existing) {
+      throw new DatabaseError("Transaction has already been refunded", {
+        entityId: id,
+      });
+    }
+
+    return this.transaction(() => {
+      // 1. Create refund transaction row
+      const result = this.execute(
+        `INSERT INTO transactions
+          (type, status, source_table, source_id, user_id,
+           amount_usd, amount_lbp, exchange_rate,
+           client_id, reverses_id, summary, metadata_json, device_id)
+         VALUES ('REFUND', 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        original.source_table,
+        original.source_id,
+        userId,
+        -original.amount_usd,
+        -original.amount_lbp,
+        original.exchange_rate,
+        original.client_id,
+        id,
+        `REFUND: ${original.summary ?? original.type}`,
+        original.metadata_json,
+        original.device_id,
+      );
+
+      const refundId = result.lastInsertRowid as number;
+
+      // 2. Reverse drawer balances — negate every payment from the original
+      this._reversePayments(id, refundId, userId);
+
+      // 3. If SALE: mark sale & items as refunded, restore stock, cancel debt
+      if (original.source_table === "sales" && original.source_id) {
+        this.execute(
+          `UPDATE sales SET status = 'refunded' WHERE id = ?`,
+          original.source_id,
+        );
+        this.execute(
+          `UPDATE sale_items SET is_refunded = 1 WHERE sale_id = ?`,
+          original.source_id,
+        );
+        this._restoreStock(original.source_id);
+        this._cancelDebt(id, userId);
+      }
+
+      return refundId;
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Private helpers for void / refund
+  // ---------------------------------------------------------------------------
+
+  /**
+   * For each payment row linked to the original transaction, insert a negated
+   * payment row linked to the reversal transaction and update drawer_balances.
+   */
+  private _reversePayments(
+    originalTxnId: number,
+    reversalTxnId: number,
+    userId: number,
+  ): void {
+    const payments = this.query<{
+      method: string;
+      drawer_name: string;
+      currency_code: string;
+      amount: number;
+    }>(
+      `SELECT method, drawer_name, currency_code, amount
+       FROM payments WHERE transaction_id = ?`,
+      originalTxnId,
     );
 
-    return result.lastInsertRowid as number;
+    const insertPayment = this.db.prepare(`
+      INSERT INTO payments (
+        transaction_id, method, drawer_name, currency_code, amount, note, created_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    const upsertBalance = this.db.prepare(`
+      INSERT INTO drawer_balances (drawer_name, currency_code, balance)
+      VALUES (?, ?, ?)
+      ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+        balance = drawer_balances.balance + excluded.balance,
+        updated_at = CURRENT_TIMESTAMP
+    `);
+
+    for (const p of payments) {
+      const negatedAmount = -p.amount;
+      insertPayment.run(
+        reversalTxnId,
+        p.method,
+        p.drawer_name,
+        p.currency_code,
+        negatedAmount,
+        "Reversal",
+        userId,
+      );
+      upsertBalance.run(p.drawer_name, p.currency_code, negatedAmount);
+    }
+  }
+
+  /**
+   * Restore stock for all items in a sale.
+   */
+  private _restoreStock(saleId: number): void {
+    const items = this.query<{ product_id: number; quantity: number }>(
+      `SELECT product_id, quantity FROM sale_items WHERE sale_id = ?`,
+      saleId,
+    );
+
+    const restoreStmt = this.db.prepare(
+      `UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ?`,
+    );
+
+    for (const item of items) {
+      restoreStmt.run(item.quantity, item.product_id);
+    }
+  }
+
+  /**
+   * Cancel any debt_ledger entries linked to a transaction.
+   * Inserts a reversing "Refund Reversal" entry to zero out the debt.
+   */
+  private _cancelDebt(originalTxnId: number, userId: number): void {
+    const debts = this.query<{
+      id: number;
+      client_id: number;
+      amount_usd: number;
+    }>(
+      `SELECT id, client_id, amount_usd FROM debt_ledger
+       WHERE transaction_id = ? AND transaction_type = 'Sale Debt'`,
+      originalTxnId,
+    );
+
+    const insertReversal = this.db.prepare(`
+      INSERT INTO debt_ledger (
+        client_id, transaction_type, amount_usd, transaction_id, note, created_by
+      ) VALUES (?, 'Refund Reversal', ?, ?, 'Debt cancelled by refund/void', ?)
+    `);
+
+    for (const d of debts) {
+      insertReversal.run(d.client_id, -d.amount_usd, originalTxnId, userId);
+    }
   }
 
   // ---------------------------------------------------------------------------

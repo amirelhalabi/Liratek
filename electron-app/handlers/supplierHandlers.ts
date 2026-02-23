@@ -1,6 +1,6 @@
 import { ipcMain } from "electron";
 import { getSupplierService } from "@liratek/core";
-/* eslint-disable @typescript-eslint/no-require-imports */
+import { requireRole } from "../session.js";
 
 export function registerSupplierHandlers(): void {
   const service = getSupplierService();
@@ -34,7 +34,6 @@ export function registerSupplierHandlers(): void {
       },
     ) => {
       try {
-        const { requireRole } = require("../session");
         const auth = requireRole(e.sender.id, ["admin"]);
         if (!auth.ok) return { success: false, error: auth.error };
       } catch {}
@@ -57,7 +56,6 @@ export function registerSupplierHandlers(): void {
       },
     ) => {
       try {
-        const { requireRole } = require("../session");
         const auth = requireRole(e.sender.id, ["admin"]);
         if (!auth.ok) return { success: false, error: auth.error };
       } catch {}

@@ -60,19 +60,6 @@ export class ElectronApiAdapter implements ApiAdapter {
     api.addExchangeTransaction(payload);
 
   // ---------------------------------------------------------------------------
-  // Binance
-  // ---------------------------------------------------------------------------
-  getBinanceHistory = (limit?: number) => api.getBinanceHistory(limit);
-  getBinanceTodayStats = () => api.getBinanceTodayStats();
-  addBinanceTransaction = (payload: {
-    type: "SEND" | "RECEIVE";
-    amount: number;
-    currencyCode?: string;
-    description?: string;
-    clientName?: string;
-  }) => api.addBinanceTransaction(payload);
-
-  // ---------------------------------------------------------------------------
   // Expenses
   // ---------------------------------------------------------------------------
   getTodayExpenses = () => api.getTodayExpenses();
@@ -250,6 +237,8 @@ export class ElectronApiAdapter implements ApiAdapter {
   getProfitByUser = (from: string, to: string) => api.getProfitByUser(from, to);
   getProfitByClient = (from: string, to: string, limit?: number) =>
     api.getProfitByClient(from, to, limit);
+  getPendingProfit = (from: string, to: string) =>
+    api.getPendingProfit(from, to);
 
   // ---------------------------------------------------------------------------
   // Reports / Backup

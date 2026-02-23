@@ -48,7 +48,7 @@ describe("SalesService", () => {
     payment_usd: 20,
     payment_lbp: 0,
     exchange_rate: 90000,
-    drawer_name: "General_Drawer_B",
+    drawer_name: "General",
     status: "completed" as const,
     ...overrides,
   });
@@ -107,7 +107,7 @@ describe("SalesService", () => {
       service.processSale(saleRequest);
 
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("General_Drawer_B"),
+        expect.stringContaining("General"),
       );
       consoleSpy.mockRestore();
     });

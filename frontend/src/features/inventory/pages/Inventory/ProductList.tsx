@@ -1,18 +1,17 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import logger from "../../../../utils/logger";
 import { Plus, Search, Package, Edit2, Trash2 } from "lucide-react";
 import { useAuth } from "../../../auth/context/AuthContext";
 import { PageHeader, useApi } from "@liratek/ui";
 import ProductForm from "./ProductForm";
 import type { Product } from "@liratek/ui";
-import { ExportBar } from "@/shared/components/ExportBar";
+import { DataTable, type DataTableColumn } from "@/shared/components/DataTable";
 
 export default function ProductList() {
   const api = useApi();
   const [products, setProducts] = useState<Product[]>([]);
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
-  const tableRef = useRef<HTMLTableElement>(null);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -97,106 +96,93 @@ export default function ProductList() {
 
       {/* Table */}
       <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden shadow-xl">
-        <ExportBar
+        <DataTable
+          columns={[
+            { header: "Info", className: "p-4 border-b border-slate-700" },
+            { header: "Category", className: "p-4 border-b border-slate-700" },
+            {
+              header: "Added Date",
+              className: "p-4 border-b border-slate-700",
+            },
+            ...(isAdmin
+              ? [
+                  {
+                    header: "Cost",
+                    className: "p-4 border-b border-slate-700",
+                  } as DataTableColumn,
+                ]
+              : []),
+            { header: "Retail", className: "p-4 border-b border-slate-700" },
+            { header: "Stock", className: "p-4 border-b border-slate-700" },
+            {
+              header: "Actions",
+              className: "p-4 border-b border-slate-700 text-right",
+            },
+          ]}
+          data={products}
+          loading={loading}
+          emptyMessage="No products found."
           exportExcel
           exportPdf
           exportFilename="products"
-          tableRef={tableRef}
-          rowCount={products.length}
-        />
-        <table ref={tableRef} className="w-full text-left border-collapse">
-          <thead className="bg-slate-800/50 text-slate-400 text-xs uppercase font-semibold">
-            <tr>
-              <th className="p-4 border-b border-slate-700">Info</th>
-              <th className="p-4 border-b border-slate-700">Category</th>
-              <th className="p-4 border-b border-slate-700">Added Date</th>
+          className="w-full text-left border-collapse"
+          theadClassName="bg-slate-800/50 text-slate-400 text-xs uppercase font-semibold"
+          tbodyClassName="divide-y divide-slate-700 text-sm"
+          renderRow={(product) => (
+            <tr
+              key={product.id}
+              className="hover:bg-slate-700/50 transition-colors"
+            >
+              <td className="p-4">
+                <div className="font-medium text-white">{product.name}</div>
+                <div className="text-slate-500 text-xs font-mono">
+                  {product.barcode}
+                </div>
+              </td>
+              <td className="p-4 text-slate-300">
+                <span className="px-2 py-1 rounded bg-slate-700 border border-slate-600 text-xs">
+                  {product.category}
+                </span>
+              </td>
+              <td className="p-4 text-slate-400 text-xs">
+                {product.created_at
+                  ? new Date(product.created_at).toLocaleDateString()
+                  : "-"}
+              </td>
               {isAdmin && (
-                <th className="p-4 border-b border-slate-700">Cost</th>
+                <td className="p-4 text-slate-400">
+                  ${product.cost_price.toFixed(2)}
+                </td>
               )}
-              <th className="p-4 border-b border-slate-700">Retail</th>
-              <th className="p-4 border-b border-slate-700">Stock</th>
-              <th className="p-4 border-b border-slate-700 text-right">
-                Actions
-              </th>
+              <td className="p-4 text-green-400 font-medium">
+                ${product.retail_price.toFixed(2)}
+              </td>
+              <td className="p-4">
+                <div
+                  className={`font-medium ${product.stock_quantity <= product.min_stock_level ? "text-red-400" : "text-slate-300"}`}
+                >
+                  {product.stock_quantity} units
+                </div>
+              </td>
+              <td className="p-4 text-right">
+                <div className="flex items-center justify-end gap-2">
+                  <button
+                    onClick={() => handleEdit(product)}
+                    className="p-2 text-slate-400 hover:text-blue-400 hover:bg-blue-400/10 rounded transition-colors"
+                  >
+                    <Edit2 size={16} />
+                  </button>
+                  <button
+                    onClick={() => handleDelete(product.id)}
+                    className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-400/10 rounded transition-colors"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              </td>
             </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-700 text-sm">
-            {loading ? (
-              <tr>
-                <td
-                  colSpan={isAdmin ? 7 : 6}
-                  className="p-8 text-center text-slate-500"
-                >
-                  Loading inventory...
-                </td>
-              </tr>
-            ) : products.length === 0 ? (
-              <tr>
-                <td
-                  colSpan={isAdmin ? 7 : 6}
-                  className="p-8 text-center text-slate-500"
-                >
-                  No products found.
-                </td>
-              </tr>
-            ) : (
-              products.map((product) => (
-                <tr
-                  key={product.id}
-                  className="hover:bg-slate-700/50 transition-colors"
-                >
-                  <td className="p-4">
-                    <div className="font-medium text-white">{product.name}</div>
-                    <div className="text-slate-500 text-xs font-mono">
-                      {product.barcode}
-                    </div>
-                  </td>
-                  <td className="p-4 text-slate-300">
-                    <span className="px-2 py-1 rounded bg-slate-700 border border-slate-600 text-xs">
-                      {product.category}
-                    </span>
-                  </td>
-                  <td className="p-4 text-slate-400 text-xs">
-                    {product.created_at
-                      ? new Date(product.created_at).toLocaleDateString()
-                      : "-"}
-                  </td>
-                  {isAdmin && (
-                    <td className="p-4 text-slate-400">
-                      ${product.cost_price.toFixed(2)}
-                    </td>
-                  )}
-                  <td className="p-4 text-green-400 font-medium">
-                    ${product.retail_price.toFixed(2)}
-                  </td>
-                  <td className="p-4">
-                    <div
-                      className={`font-medium ${product.stock_quantity <= product.min_stock_level ? "text-red-400" : "text-slate-300"}`}
-                    >
-                      {product.stock_quantity} units
-                    </div>
-                  </td>
-                  <td className="p-4 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        onClick={() => handleEdit(product)}
-                        className="p-2 text-slate-400 hover:text-blue-400 hover:bg-blue-400/10 rounded transition-colors"
-                      >
-                        <Edit2 size={16} />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(product.id)}
-                        className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-400/10 rounded transition-colors"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+          )}
+        />
       </div>
 
       {isFormOpen && (

@@ -127,20 +127,6 @@ contextBridge.exposeInMainWorld("api", {
     getHistory: () => ipcRenderer.invoke("exchange:get-history"),
   },
 
-  // Binance
-  binance: {
-    addTransaction: (data: {
-      type: "SEND" | "RECEIVE";
-      amount: number;
-      currencyCode?: string;
-      description?: string;
-      clientName?: string;
-    }) => ipcRenderer.invoke("binance:add-transaction", data),
-    getHistory: (limit?: number) =>
-      ipcRenderer.invoke("binance:get-history", limit),
-    getTodayStats: () => ipcRenderer.invoke("binance:get-today-stats"),
-  },
-
   // OMT/Whish Financial Services
   omt: {
     addTransaction: (data: {
@@ -153,7 +139,7 @@ contextBridge.exposeInMainWorld("api", {
         | "KATCH"
         | "WISH_APP"
         | "OMT_APP";
-      serviceType: "SEND" | "RECEIVE" | "BILL_PAYMENT";
+      serviceType: "SEND" | "RECEIVE";
       amountUSD: number;
       amountLBP: number;
       commissionUSD: number;
@@ -353,6 +339,8 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("profits:by-user", from, to),
     byClient: (from: string, to: string, limit?: number) =>
       ipcRenderer.invoke("profits:by-client", from, to, limit),
+    pending: (from: string, to: string) =>
+      ipcRenderer.invoke("profits:pending", from, to),
   },
 
   // Rates

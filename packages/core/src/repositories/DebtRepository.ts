@@ -239,8 +239,61 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         upsertBalance.run(drawerName, "LBP", data.amount_lbp);
       }
 
+      // 4. Mark originating sales as paid (FIFO — oldest unpaid sale first)
+      //    so that profit is recognized once fully paid.
+      this._markSalesPaidFIFO(data.client_id, data.amount_usd);
+
       return { id: repaymentId };
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Private Helpers
+  // ---------------------------------------------------------------------------
+
+  /**
+   * When a client repays debt, attribute the USD amount to their oldest unpaid
+   * sales (FIFO) by incrementing `sales.paid_usd`. This ensures profit is
+   * recognized once a sale is fully paid.
+   */
+  private _markSalesPaidFIFO(clientId: number, repaymentUsd: number): void {
+    if (repaymentUsd <= 0) return;
+
+    // Find the client's unpaid sales, oldest first
+    const unpaidSales = this.db
+      .prepare(
+        `SELECT s.id, s.final_amount_usd, s.paid_usd,
+                COALESCE(s.paid_lbp, 0) AS paid_lbp,
+                COALESCE(NULLIF(s.exchange_rate_snapshot, 0), 1) AS rate
+         FROM sales s
+         JOIN transactions t ON t.source_table = 'sales' AND t.source_id = s.id
+         WHERE t.client_id = ? AND s.status = 'completed'
+           AND (s.paid_usd + COALESCE(s.paid_lbp, 0) / COALESCE(NULLIF(s.exchange_rate_snapshot, 0), 1)) < s.final_amount_usd - 0.05
+         ORDER BY s.created_at ASC`,
+      )
+      .all(clientId) as {
+      id: number;
+      final_amount_usd: number;
+      paid_usd: number;
+      paid_lbp: number;
+      rate: number;
+    }[];
+
+    let remaining = repaymentUsd;
+    const updateStmt = this.db.prepare(
+      `UPDATE sales SET paid_usd = paid_usd + ? WHERE id = ?`,
+    );
+
+    for (const sale of unpaidSales) {
+      if (remaining <= 0.01) break;
+      const paidInUsd = sale.paid_usd + sale.paid_lbp / sale.rate;
+      const outstanding = sale.final_amount_usd - paidInUsd;
+      const apply = Math.min(remaining, outstanding);
+      if (apply > 0.01) {
+        updateStmt.run(apply, sale.id);
+        remaining -= apply;
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------

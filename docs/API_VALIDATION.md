@@ -40,61 +40,61 @@ When validation fails, the API returns a standardized error response:
 
 ### ✅ Completed Routes (23/23)
 
-| Route                           | Method     | Schema                                        | Status |
-| ------------------------------- | ---------- | --------------------------------------------- | ------ |
-| `/api/clients`                  | POST/PUT   | `createClientSchema`, `updateClientSchema`    | ✅     |
-| `/api/auth/login`               | POST       | `loginSchema`                                 | ✅     |
-| `/api/inventory/products`       | POST/GET   | `createProductSchema`, `searchProductsSchema` | ✅     |
-| `/api/sales/process`            | POST       | `createSaleSchema`                            | ✅     |
-| `/api/sales/:id`                | GET        | `getSaleSchema`                               | ✅     |
-| `/api/debts/repayments`         | POST       | `addRepaymentSchema`                          | ✅     |
-| `/api/exchange/transactions`    | POST       | `createExchangeSchema`                        | ✅     |
-| `/api/exchange/history`         | GET        | `getExchangeHistorySchema`                    | ✅     |
-| `/api/recharge/process`         | POST       | `createRechargeSchema`                        | ✅     |
-| `/api/expenses`                 | POST       | `createExpenseSchema`                         | ✅     |
-| `/api/expenses/:id`             | DELETE     | `deleteExpenseSchema`                         | ✅     |
-| `/api/closing/opening-balances` | POST       | `setOpeningBalancesSchema`                    | ✅     |
-| `/api/closing/daily-closing`    | POST       | `createDailyClosingSchema`                    | ✅     |
-| `/api/rates`                    | POST       | `setRateSchema`                               | ✅     |
-| `/api/maintenance/jobs`         | POST       | `saveMaintenanceJobSchema`                    | ✅     |
-| `/api/maintenance/jobs`         | GET        | `getMaintenanceJobsSchema`                    | ✅     |
-| `/api/services/transactions`    | POST       | `createFinancialServiceSchema`                | ✅     |
-| `/api/services/history`         | GET        | `getFinancialServicesSchema`                  | ✅     |
-| `/api/custom-services`          | POST       | `createCustomServiceSchema`                   | ✅     |
+| Route                           | Method   | Schema                                        | Status |
+| ------------------------------- | -------- | --------------------------------------------- | ------ |
+| `/api/clients`                  | POST/PUT | `createClientSchema`, `updateClientSchema`    | ✅     |
+| `/api/auth/login`               | POST     | `loginSchema`                                 | ✅     |
+| `/api/inventory/products`       | POST/GET | `createProductSchema`, `searchProductsSchema` | ✅     |
+| `/api/sales/process`            | POST     | `createSaleSchema`                            | ✅     |
+| `/api/sales/:id`                | GET      | `getSaleSchema`                               | ✅     |
+| `/api/debts/repayments`         | POST     | `addRepaymentSchema`                          | ✅     |
+| `/api/exchange/transactions`    | POST     | `createExchangeSchema`                        | ✅     |
+| `/api/exchange/history`         | GET      | `getExchangeHistorySchema`                    | ✅     |
+| `/api/recharge/process`         | POST     | `createRechargeSchema`                        | ✅     |
+| `/api/expenses`                 | POST     | `createExpenseSchema`                         | ✅     |
+| `/api/expenses/:id`             | DELETE   | `deleteExpenseSchema`                         | ✅     |
+| `/api/closing/opening-balances` | POST     | `setOpeningBalancesSchema`                    | ✅     |
+| `/api/closing/daily-closing`    | POST     | `createDailyClosingSchema`                    | ✅     |
+| `/api/rates`                    | POST     | `setRateSchema`                               | ✅     |
+| `/api/maintenance/jobs`         | POST     | `saveMaintenanceJobSchema`                    | ✅     |
+| `/api/maintenance/jobs`         | GET      | `getMaintenanceJobsSchema`                    | ✅     |
+| `/api/services/transactions`    | POST     | `createFinancialServiceSchema`                | ✅     |
+| `/api/services/history`         | GET      | `getFinancialServicesSchema`                  | ✅     |
+| `/api/custom-services`          | POST     | `createCustomServiceSchema`                   | ✅     |
 
 ### Read-Only Routes (no body validation needed)
 
-| Route                                          | Method | Auth     | Notes |
-| ---------------------------------------------- | ------ | -------- | ----- |
-| `/api/transactions/recent`                     | GET    | Required | Query params: `limit`, `type`, `status`, `user_id`, `client_id`, `source_table`, `from`, `to` |
-| `/api/transactions/:id`                        | GET    | Required | |
-| `/api/transactions/client/:clientId`           | GET    | Required | Query: `limit` |
-| `/api/transactions/:id/void`                   | POST   | Required | No body |
-| `/api/transactions/:id/refund`                 | POST   | Required | No body |
-| `/api/transactions/analytics/daily-summary`    | GET    | Required | Query: `date` (required) |
-| `/api/transactions/analytics/debt-aging/:clientId` | GET | Required | |
-| `/api/transactions/analytics/overdue-debts`    | GET    | Required | |
-| `/api/transactions/analytics/revenue-by-type`  | GET    | Required | Query: `from`, `to` (required) |
-| `/api/transactions/analytics/revenue-by-user`  | GET    | Required | Query: `from`, `to` (required) |
-| `/api/transactions/reports/daily-summaries`    | GET    | Required | Query: `from`, `to` (required) |
-| `/api/transactions/reports/client-history/:clientId` | GET | Required | Query: `limit` |
-| `/api/transactions/reports/revenue-by-module`  | GET    | Required | Query: `from`, `to` (required) |
-| `/api/transactions/reports/overdue-debts`      | GET    | Required | |
-| `/api/profits/summary`                         | GET    | Admin    | Query: `from`, `to` |
-| `/api/profits/by-module`                       | GET    | Admin    | Query: `from`, `to` |
-| `/api/profits/by-date`                         | GET    | Admin    | Query: `from`, `to` |
-| `/api/profits/by-payment-method`               | GET    | Admin    | Query: `from`, `to` |
-| `/api/profits/by-user`                         | GET    | Admin    | Query: `from`, `to` |
-| `/api/profits/by-client`                       | GET    | Admin    | Query: `from`, `to`, `limit` |
-| `/api/item-costs`                              | GET    | Required | |
-| `/api/item-costs`                              | POST   | Required | Manual validation (provider, category, itemKey, cost, currency) |
-| `/api/voucher-images`                          | GET    | Required | |
-| `/api/voucher-images`                          | POST   | Required | Manual validation (provider, category, itemKey, imageData) |
-| `/api/voucher-images/:id`                      | DELETE | Required | |
-| `/api/custom-services`                         | GET    | Required | Query: `date` |
-| `/api/custom-services/summary`                 | GET    | Required | |
-| `/api/custom-services/:id`                     | GET    | Required | |
-| `/api/custom-services/:id`                     | DELETE | Required | |
+| Route                                                | Method | Auth     | Notes                                                                                         |
+| ---------------------------------------------------- | ------ | -------- | --------------------------------------------------------------------------------------------- |
+| `/api/transactions/recent`                           | GET    | Required | Query params: `limit`, `type`, `status`, `user_id`, `client_id`, `source_table`, `from`, `to` |
+| `/api/transactions/:id`                              | GET    | Required |                                                                                               |
+| `/api/transactions/client/:clientId`                 | GET    | Required | Query: `limit`                                                                                |
+| `/api/transactions/:id/void`                         | POST   | Required | No body                                                                                       |
+| `/api/transactions/:id/refund`                       | POST   | Required | No body                                                                                       |
+| `/api/transactions/analytics/daily-summary`          | GET    | Required | Query: `date` (required)                                                                      |
+| `/api/transactions/analytics/debt-aging/:clientId`   | GET    | Required |                                                                                               |
+| `/api/transactions/analytics/overdue-debts`          | GET    | Required |                                                                                               |
+| `/api/transactions/analytics/revenue-by-type`        | GET    | Required | Query: `from`, `to` (required)                                                                |
+| `/api/transactions/analytics/revenue-by-user`        | GET    | Required | Query: `from`, `to` (required)                                                                |
+| `/api/transactions/reports/daily-summaries`          | GET    | Required | Query: `from`, `to` (required)                                                                |
+| `/api/transactions/reports/client-history/:clientId` | GET    | Required | Query: `limit`                                                                                |
+| `/api/transactions/reports/revenue-by-module`        | GET    | Required | Query: `from`, `to` (required)                                                                |
+| `/api/transactions/reports/overdue-debts`            | GET    | Required |                                                                                               |
+| `/api/profits/summary`                               | GET    | Admin    | Query: `from`, `to`                                                                           |
+| `/api/profits/by-module`                             | GET    | Admin    | Query: `from`, `to`                                                                           |
+| `/api/profits/by-date`                               | GET    | Admin    | Query: `from`, `to`                                                                           |
+| `/api/profits/by-payment-method`                     | GET    | Admin    | Query: `from`, `to`                                                                           |
+| `/api/profits/by-user`                               | GET    | Admin    | Query: `from`, `to`                                                                           |
+| `/api/profits/by-client`                             | GET    | Admin    | Query: `from`, `to`, `limit`                                                                  |
+| `/api/item-costs`                                    | GET    | Required |                                                                                               |
+| `/api/item-costs`                                    | POST   | Required | Manual validation (provider, category, itemKey, cost, currency)                               |
+| `/api/voucher-images`                                | GET    | Required |                                                                                               |
+| `/api/voucher-images`                                | POST   | Required | Manual validation (provider, category, itemKey, imageData)                                    |
+| `/api/voucher-images/:id`                            | DELETE | Required |                                                                                               |
+| `/api/custom-services`                               | GET    | Required | Query: `date`                                                                                 |
+| `/api/custom-services/summary`                       | GET    | Required |                                                                                               |
+| `/api/custom-services/:id`                           | GET    | Required |                                                                                               |
+| `/api/custom-services/:id`                           | DELETE | Required |                                                                                               |
 
 ---
 
@@ -463,6 +463,7 @@ When validation fails, the API returns a standardized error response:
 - `note` - String (max 1000 chars)
 
 **Validation Rules:**
+
 - At least one cost or price must be greater than 0
 - If `paid_by` is `DEBT`, `client_id` is required
 
@@ -471,7 +472,7 @@ When validation fails, the API returns a standardized error response:
 ```json
 {
   "description": "Phone screen protector installation",
-  "price_usd": 5.00,
+  "price_usd": 5.0,
   "paid_by": "CASH",
   "status": "completed"
 }
@@ -486,6 +487,7 @@ The transactions API provides read-only queries, analytics, and void/refund oper
 #### `GET /api/transactions/recent`
 
 **Query Parameters:**
+
 - `limit` - Integer (default: 50)
 - `type` - Transaction type filter
 - `status` - Status filter (`ACTIVE`, `VOIDED`, `REFUNDED`)
@@ -517,14 +519,14 @@ Refunds a transaction and creates a reversal record. No request body needed.
 
 All profit endpoints require admin role. They accept `from`/`to` date query parameters.
 
-| Endpoint | Query Params | Description |
-|----------|-------------|-------------|
-| `GET /api/profits/summary` | `from`, `to` | Overall profit summary |
-| `GET /api/profits/by-module` | `from`, `to` | Breakdown by module |
-| `GET /api/profits/by-date` | `from`, `to` | Daily profit trend |
-| `GET /api/profits/by-payment-method` | `from`, `to` | Breakdown by payment method |
-| `GET /api/profits/by-user` | `from`, `to` | Breakdown by cashier |
-| `GET /api/profits/by-client` | `from`, `to`, `limit` | Top clients by profit |
+| Endpoint                             | Query Params          | Description                 |
+| ------------------------------------ | --------------------- | --------------------------- |
+| `GET /api/profits/summary`           | `from`, `to`          | Overall profit summary      |
+| `GET /api/profits/by-module`         | `from`, `to`          | Breakdown by module         |
+| `GET /api/profits/by-date`           | `from`, `to`          | Daily profit trend          |
+| `GET /api/profits/by-payment-method` | `from`, `to`          | Breakdown by payment method |
+| `GET /api/profits/by-user`           | `from`, `to`          | Breakdown by cashier        |
+| `GET /api/profits/by-client`         | `from`, `to`, `limit` | Top clients by profit       |
 
 ---
 
@@ -535,6 +537,7 @@ All profit endpoints require admin role. They accept `from`/`to` date query para
 **Manual Validation (no Zod schema)**
 
 **Required Fields:**
+
 - `provider` - String
 - `category` - String
 - `itemKey` - String
@@ -550,6 +553,7 @@ All profit endpoints require admin role. They accept `from`/`to` date query para
 **Manual Validation (no Zod schema)**
 
 **Required Fields:**
+
 - `provider` - String
 - `category` - String
 - `itemKey` - String

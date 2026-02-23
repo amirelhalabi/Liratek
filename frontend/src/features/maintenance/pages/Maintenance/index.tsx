@@ -1,10 +1,10 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import logger from "../../../../utils/logger";
 import { Wrench, Plus, DollarSign, Ban } from "lucide-react";
 import CheckoutModal from "../../../sales/pages/POS/components/CheckoutModal";
 import { useApi } from "@liratek/ui";
 import { useSession } from "../../../sessions/context/SessionContext";
-import { ExportBar } from "@/shared/components/ExportBar";
+import { DataTable } from "@/shared/components/DataTable";
 
 type MaintenanceJob = {
   id: number;
@@ -25,7 +25,6 @@ type MaintenanceJob = {
 export default function Maintenance() {
   const api = useApi();
   const { activeSession, linkTransaction } = useSession();
-  const tableRef = useRef<HTMLTableElement>(null);
   const [jobs, setJobs] = useState<MaintenanceJob[]>([]);
   const [filter, setFilter] = useState("All");
 
@@ -237,99 +236,90 @@ export default function Maintenance() {
       {/* List */}
       <div className="flex-1 bg-slate-800 rounded-xl border border-slate-700/50 shadow-lg overflow-hidden flex flex-col">
         <div className="overflow-auto flex-1">
-          <ExportBar
+          <DataTable
+            columns={[
+              { header: "Date", className: "px-6 py-3" },
+              { header: "Client", className: "px-6 py-3" },
+              { header: "Device / Issue", className: "px-6 py-3" },
+              { header: "Status", className: "px-6 py-3" },
+              { header: "Price", className: "px-6 py-3 text-right" },
+              { header: "Paid", className: "px-6 py-3 text-right" },
+              { header: "Actions", className: "px-6 py-3 text-right" },
+            ]}
+            data={jobs}
             exportExcel
             exportPdf
             exportFilename="maintenance-jobs"
-            tableRef={tableRef}
-            rowCount={jobs.length}
-          />
-          <table ref={tableRef} className="w-full">
-            <thead className="bg-slate-900/50 text-left text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0 z-10">
-              <tr>
-                <th className="px-6 py-3">Date</th>
-                <th className="px-6 py-3">Client</th>
-                <th className="px-6 py-3">Device / Issue</th>
-                <th className="px-6 py-3">Status</th>
-                <th className="px-6 py-3 text-right">Price</th>
-                <th className="px-6 py-3 text-right">Paid</th>
-                <th className="px-6 py-3 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-700/50">
-              {jobs.map((job) => (
-                <tr
-                  key={job.id}
-                  className="hover:bg-slate-700/20 transition-colors group"
-                >
-                  <td className="px-6 py-4 text-sm text-slate-400 whitespace-nowrap">
-                    {job.created_at
-                      ? new Date(job.created_at).toLocaleDateString()
-                      : ""}
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="text-sm font-medium text-white">
-                      {job.client_name || "Unknown"}
+            className="w-full"
+            theadClassName="bg-slate-900/50 text-left text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0 z-10"
+            tbodyClassName="divide-y divide-slate-700/50"
+            emptyContent={
+              <>
+                <Wrench className="mx-auto h-12 w-12 text-slate-600 mb-3" />
+                <p>No maintenance jobs found.</p>
+              </>
+            }
+            renderRow={(job) => (
+              <tr
+                key={job.id}
+                className="hover:bg-slate-700/20 transition-colors group"
+              >
+                <td className="px-6 py-4 text-sm text-slate-400 whitespace-nowrap">
+                  {job.created_at
+                    ? new Date(job.created_at).toLocaleDateString()
+                    : ""}
+                </td>
+                <td className="px-6 py-4">
+                  <div className="text-sm font-medium text-white">
+                    {job.client_name || "Unknown"}
+                  </div>
+                  {job.client_phone && (
+                    <div className="text-xs text-slate-500">
+                      {job.client_phone}
                     </div>
-                    {job.client_phone && (
-                      <div className="text-xs text-slate-500">
-                        {job.client_phone}
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="text-sm font-bold text-white">
-                      {job.device_name}
-                    </div>
-                    <div className="text-xs text-slate-400 truncate max-w-[200px]">
-                      {job.issue_description}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(job.status || "")}`}
-                    >
-                      {(job.status || "").replace("_", " ")}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-sm font-bold text-white text-right">
-                    ${job.price_usd?.toFixed(2)}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-emerald-400 text-right">
-                    ${job.paid_usd?.toFixed(2)}
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button
-                        onClick={() => handleEdit(job)}
-                        className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded"
-                      >
-                        <Wrench size={16} />
-                      </button>
-                      <button
-                        onClick={() => handleVoid(job.id)}
-                        className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-700 rounded"
-                        title="Void job"
-                      >
-                        <Ban size={16} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {jobs.length === 0 && (
-                <tr>
-                  <td
-                    colSpan={7}
-                    className="px-6 py-12 text-center text-slate-500"
+                  )}
+                </td>
+                <td className="px-6 py-4">
+                  <div className="text-sm font-bold text-white">
+                    {job.device_name}
+                  </div>
+                  <div className="text-xs text-slate-400 truncate max-w-[200px]">
+                    {job.issue_description}
+                  </div>
+                </td>
+                <td className="px-6 py-4">
+                  <span
+                    className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(job.status || "")}`}
                   >
-                    <Wrench className="mx-auto h-12 w-12 text-slate-600 mb-3" />
-                    <p>No maintenance jobs found.</p>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                    {(job.status || "").replace("_", " ")}
+                  </span>
+                </td>
+                <td className="px-6 py-4 text-sm font-bold text-white text-right">
+                  ${job.price_usd?.toFixed(2)}
+                </td>
+                <td className="px-6 py-4 text-sm text-emerald-400 text-right">
+                  ${job.paid_usd?.toFixed(2)}
+                </td>
+                <td className="px-6 py-4 text-right">
+                  <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      onClick={() => handleEdit(job)}
+                      className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded"
+                    >
+                      <Wrench size={16} />
+                    </button>
+                    <button
+                      onClick={() => handleVoid(job.id)}
+                      className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-700 rounded"
+                      title="Void job"
+                    >
+                      <Ban size={16} />
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            )}
+          />
         </div>
       </div>
 

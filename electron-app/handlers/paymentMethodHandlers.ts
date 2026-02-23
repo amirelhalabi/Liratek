@@ -6,6 +6,7 @@
 
 import { ipcMain } from "electron";
 import { getPaymentMethodService, settingsLogger } from "@liratek/core";
+import { requireRole } from "../session.js";
 
 const log = settingsLogger.child({ sub: "paymentMethodHandlers" });
 
@@ -35,7 +36,6 @@ export function registerPaymentMethodHandlers(): void {
       },
     ) => {
       try {
-        const { requireRole } = require("../session");
         const auth = requireRole(e.sender.id, ["admin"]);
         if (!auth.ok) return { success: false, error: auth.error };
       } catch {}
@@ -59,7 +59,6 @@ export function registerPaymentMethodHandlers(): void {
       },
     ) => {
       try {
-        const { requireRole } = require("../session");
         const auth = requireRole(e.sender.id, ["admin"]);
         if (!auth.ok) return { success: false, error: auth.error };
       } catch {}
@@ -71,7 +70,6 @@ export function registerPaymentMethodHandlers(): void {
   // Delete a payment method (admin only, non-system only)
   ipcMain.handle("payment-methods:delete", (e, id: number) => {
     try {
-      const { requireRole } = require("../session");
       const auth = requireRole(e.sender.id, ["admin"]);
       if (!auth.ok) return { success: false, error: auth.error };
     } catch {}
@@ -82,7 +80,6 @@ export function registerPaymentMethodHandlers(): void {
   // Reorder payment methods (admin only)
   ipcMain.handle("payment-methods:reorder", (e, ids: number[]) => {
     try {
-      const { requireRole } = require("../session");
       const auth = requireRole(e.sender.id, ["admin"]);
       if (!auth.ok) return { success: false, error: auth.error };
     } catch {}

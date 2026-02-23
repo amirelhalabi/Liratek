@@ -1,7 +1,7 @@
 import { ipcMain } from "electron";
 import { getTransactionService, getReportingService } from "@liratek/core";
 import type { TransactionFilters } from "@liratek/core";
-/* eslint-disable @typescript-eslint/no-require-imports */
+import { requireRole } from "../session.js";
 
 export function registerTransactionHandlers(): void {
   const txnService = getTransactionService();
@@ -47,11 +47,11 @@ export function registerTransactionHandlers(): void {
   // ==================== ACCOUNTING ====================
 
   /** Void a transaction (marks as VOIDED + creates reversal) */
-  ipcMain.handle("transactions:void", (_e, id: number) => {
+  ipcMain.handle("transactions:void", (e, id: number) => {
     try {
-      const { requireRole, getSessionUserId } = require("../session");
-      requireRole(["admin"]);
-      const userId = getSessionUserId() ?? 1;
+      const auth = requireRole(e.sender.id, ["admin"]);
+      if (!auth.ok) throw new Error(auth.error ?? "Admin access required");
+      const userId = auth.userId ?? 1;
       const reversalId = txnService.voidTransaction(id, userId);
       return { success: true, reversalId };
     } catch (err) {
@@ -63,11 +63,11 @@ export function registerTransactionHandlers(): void {
   });
 
   /** Refund a transaction (creates refund row, original stays ACTIVE) */
-  ipcMain.handle("transactions:refund", (_e, id: number) => {
+  ipcMain.handle("transactions:refund", (e, id: number) => {
     try {
-      const { requireRole, getSessionUserId } = require("../session");
-      requireRole(["admin"]);
-      const userId = getSessionUserId() ?? 1;
+      const auth = requireRole(e.sender.id, ["admin"]);
+      if (!auth.ok) throw new Error(auth.error ?? "Admin access required");
+      const userId = auth.userId ?? 1;
       const refundId = txnService.refundTransaction(id, userId);
       return { success: true, refundId };
     } catch (err) {

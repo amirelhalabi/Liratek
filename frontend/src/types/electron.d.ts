@@ -291,7 +291,7 @@ export interface ElectronAPI {
         | "KATCH"
         | "WISH_APP"
         | "OMT_APP";
-      serviceType: "SEND" | "RECEIVE" | "BILL_PAYMENT";
+      serviceType: "SEND" | "RECEIVE";
       amountUSD: number;
       amountLBP: number;
       commissionUSD: number;
@@ -784,6 +784,7 @@ export interface ElectronAPI {
     byPaymentMethod: (from: string, to: string) => Promise<any[]>;
     byUser: (from: string, to: string) => Promise<any[]>;
     byClient: (from: string, to: string, limit?: number) => Promise<any[]>;
+    pending: (from: string, to: string) => Promise<any>;
   };
 
   // Rates

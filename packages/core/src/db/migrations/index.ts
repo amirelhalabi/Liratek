@@ -565,6 +565,317 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  // =========================================================================
+  // T-30: Financial Services improvements — phone number + OMT service type
+  // =========================================================================
+  {
+    version: 22,
+    name: "add_financial_service_phone_and_omt_type",
+    description:
+      "Add phone_number and omt_service_type columns to financial_services",
+    type: "typescript",
+    up(db) {
+      // Idempotent — skip if columns already exist (e.g. fresh DB from updated create_db.sql)
+      const cols = db
+        .prepare("PRAGMA table_info(financial_services)")
+        .all() as { name: string }[];
+      const colNames = new Set(cols.map((c) => c.name));
+      if (!colNames.has("phone_number")) {
+        db.exec("ALTER TABLE financial_services ADD COLUMN phone_number TEXT");
+      }
+      if (!colNames.has("omt_service_type")) {
+        db.exec(
+          "ALTER TABLE financial_services ADD COLUMN omt_service_type TEXT",
+        );
+      }
+    },
+  },
+  // =========================================================================
+  {
+    version: 23,
+    name: "rename_legacy_drawer_names",
+    description:
+      "Rename General_Drawer_B → General and OMT_Drawer_A → OMT_System in drawer_balances and sales tables",
+    type: "typescript",
+    up(db) {
+      // Rename drawer references in drawer_balances
+      db.prepare(
+        "UPDATE drawer_balances SET drawer_name = 'General' WHERE drawer_name = 'General_Drawer_B'",
+      ).run();
+      db.prepare(
+        "UPDATE drawer_balances SET drawer_name = 'OMT_System' WHERE drawer_name = 'OMT_Drawer_A'",
+      ).run();
+
+      // Rename drawer references in sales
+      db.prepare(
+        "UPDATE sales SET drawer_name = 'General' WHERE drawer_name = 'General_Drawer_B'",
+      ).run();
+
+      // Rename drawer references in payments
+      db.prepare(
+        "UPDATE payments SET drawer_name = 'General' WHERE drawer_name = 'General_Drawer_B'",
+      ).run();
+      db.prepare(
+        "UPDATE payments SET drawer_name = 'OMT_System' WHERE drawer_name = 'OMT_Drawer_A'",
+      ).run();
+    },
+  },
+  // =========================================================================
+  {
+    version: 24,
+    name: "expand_recharges_table",
+    description:
+      "Expand recharges table schema, update carrier CHECK, add new columns for full workflow, and migrate recharge transactions from sales to recharges",
+    type: "typescript",
+    up(db) {
+      // SQLite can't ALTER CHECK constraints or rename columns, so we
+      // recreate the recharges table with the new schema.
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS recharges_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          carrier TEXT CHECK(carrier IN ('MTC', 'Alfa')) NOT NULL,
+          recharge_type TEXT CHECK(recharge_type IN ('CREDIT_TRANSFER', 'VOUCHER', 'DAYS', 'TOP_UP')) NOT NULL DEFAULT 'CREDIT_TRANSFER',
+          amount DECIMAL(10, 2) NOT NULL,
+          cost DECIMAL(10, 2) NOT NULL DEFAULT 0,
+          price DECIMAL(10, 2) NOT NULL DEFAULT 0,
+          currency_code TEXT NOT NULL DEFAULT 'USD',
+          paid_by TEXT DEFAULT 'CASH',
+          phone_number TEXT,
+          client_id INTEGER,
+          client_name TEXT,
+          note TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          created_by INTEGER DEFAULT 1,
+          FOREIGN KEY (client_id) REFERENCES clients(id),
+          FOREIGN KEY (created_by) REFERENCES users(id)
+        );
+      `);
+
+      // Migrate any existing data from old recharges table (unlikely, since it was unused)
+      // Map old carrier values: Touch → MTC (both are the same provider, just different names)
+      const oldCols = db
+        .prepare("PRAGMA table_info(recharges)")
+        .all() as Array<{ name: string }>;
+      const colNames = oldCols.map((c) => c.name);
+      if (colNames.includes("amount_usd")) {
+        // Old schema - migrate with column mapping
+        db.exec(`
+          INSERT INTO recharges_new (carrier, amount, phone_number, client_name, note, created_at)
+          SELECT
+            CASE WHEN carrier = 'Touch' THEN 'MTC' ELSE carrier END,
+            amount_usd, phone_number, client_name, note, created_at
+          FROM recharges;
+        `);
+      }
+
+      db.exec(`
+        DROP TABLE recharges;
+        ALTER TABLE recharges_new RENAME TO recharges;
+      `);
+
+      // Migrate recharge-type sales into the new recharges table
+      // These are sales rows with note like 'MTC %' or 'Alfa %' and no sale_items
+      db.exec(`
+        INSERT INTO recharges (carrier, recharge_type, amount, price, currency_code, paid_by, client_id, note, created_at, created_by)
+        SELECT
+          CASE
+            WHEN note LIKE 'MTC %' THEN 'MTC'
+            WHEN note LIKE 'Alfa %' THEN 'Alfa'
+            ELSE 'MTC'
+          END,
+          'CREDIT_TRANSFER',
+          total_amount_usd,
+          final_amount_usd,
+          'USD',
+          COALESCE((SELECT p.method FROM payments p INNER JOIN transactions t ON p.transaction_id = t.id WHERE t.source_table = 'sales' AND t.source_id = sales.id LIMIT 1), 'CASH'),
+          client_id,
+          note,
+          created_at,
+          1
+        FROM sales
+        WHERE note LIKE 'MTC %' OR note LIKE 'Alfa %';
+      `);
+
+      // Update transactions source_table for migrated recharges
+      // (point them to the new recharges table instead of sales)
+      db.exec(`
+        UPDATE transactions SET source_table = 'recharges'
+        WHERE type = 'RECHARGE' AND source_table = 'sales';
+      `);
+
+      // Create index for common queries
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_recharges_carrier ON recharges(carrier);
+        CREATE INDEX IF NOT EXISTS idx_recharges_created_at ON recharges(created_at DESC);
+      `);
+    },
+  },
+  // =========================================================================
+  {
+    version: 25,
+    name: "merge_binance_into_financial_services",
+    description:
+      "Migrate binance_transactions data into financial_services as BINANCE provider, update CHECK constraint, and drop binance_transactions",
+    type: "typescript",
+    up(db) {
+      // 1. Recreate financial_services with BINANCE in the CHECK constraint
+      //    SQLite cannot ALTER CHECK constraints, so we recreate the table.
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS financial_services_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          provider TEXT CHECK(provider IN ('OMT', 'WHISH', 'BOB', 'OTHER', 'IPEC', 'KATCH', 'WISH_APP', 'OMT_APP', 'BINANCE')) NOT NULL,
+          service_type TEXT CHECK(service_type IN ('SEND', 'RECEIVE', 'BILL_PAYMENT')) NOT NULL,
+          amount DECIMAL(10, 2) NOT NULL,
+          currency TEXT DEFAULT 'USD' NOT NULL,
+          commission DECIMAL(10, 2) DEFAULT 0,
+          cost DECIMAL(10, 2) DEFAULT 0,
+          price DECIMAL(10, 2) DEFAULT 0,
+          paid_by TEXT DEFAULT 'CASH',
+          client_id INTEGER REFERENCES clients(id),
+          client_name TEXT,
+          reference_number TEXT,
+          phone_number TEXT,
+          omt_service_type TEXT CHECK(omt_service_type IN ('BILL_PAYMENT', 'CASH_TO_BUSINESS', 'MINISTRY_OF_INTERIOR', 'CASH_OUT', 'MINISTRY_OF_FINANCE', 'INTRA', 'ONLINE_BROKERAGE')),
+          item_key TEXT,
+          note TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          created_by INTEGER
+        );
+      `);
+
+      // Copy existing financial_services data
+      db.exec(`
+        INSERT INTO financial_services_new
+        SELECT * FROM financial_services;
+      `);
+
+      // 2. Migrate binance_transactions into the new table
+      const binanceExists = db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name='binance_transactions'",
+        )
+        .get();
+
+      if (binanceExists) {
+        db.exec(`
+          INSERT INTO financial_services_new (
+            provider, service_type, amount, currency, commission, cost, price,
+            paid_by, client_name, note, created_at, created_by
+          )
+          SELECT
+            'BINANCE',
+            type,
+            amount,
+            currency_code,
+            0,
+            0,
+            0,
+            NULL,
+            client_name,
+            description,
+            created_at,
+            created_by
+          FROM binance_transactions;
+        `);
+
+        // Update transactions source_table for migrated Binance rows
+        db.exec(`
+          UPDATE transactions SET source_table = 'financial_services'
+          WHERE type = 'BINANCE' AND source_table = 'binance_transactions';
+        `);
+
+        // Drop old table
+        db.exec("DROP TABLE IF EXISTS binance_transactions;");
+      }
+
+      // Swap tables
+      db.exec(`
+        DROP TABLE financial_services;
+        ALTER TABLE financial_services_new RENAME TO financial_services;
+      `);
+
+      // Recreate indexes
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_financial_services_provider ON financial_services(provider);
+        CREATE INDEX IF NOT EXISTS idx_financial_services_created_at ON financial_services(created_at DESC);
+      `);
+    },
+  },
+  {
+    version: 26,
+    name: "remove_bill_payment_add_western_union",
+    description:
+      "Remove BILL_PAYMENT from service_type CHECK (only SEND/RECEIVE), add WESTERN_UNION to omt_service_type CHECK",
+    type: "typescript",
+    up(db) {
+      // SQLite cannot ALTER CHECK constraints — full table rebuild required.
+      // Pattern established in v14 and v25.
+
+      // 1. Count existing BILL_PAYMENT rows to decide migration strategy
+      const billPaymentCount = db
+        .prepare(
+          "SELECT COUNT(*) as cnt FROM financial_services WHERE service_type = 'BILL_PAYMENT'",
+        )
+        .get() as { cnt: number };
+
+      // 2. Create new table with updated CHECK constraints
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS financial_services_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          provider TEXT CHECK(provider IN ('OMT', 'WHISH', 'BOB', 'OTHER', 'IPEC', 'KATCH', 'WISH_APP', 'OMT_APP', 'BINANCE')) NOT NULL,
+          service_type TEXT CHECK(service_type IN ('SEND', 'RECEIVE')) NOT NULL,
+          amount DECIMAL(10, 2) NOT NULL,
+          currency TEXT DEFAULT 'USD' NOT NULL,
+          commission DECIMAL(10, 2) DEFAULT 0,
+          cost DECIMAL(10, 2) DEFAULT 0,
+          price DECIMAL(10, 2) DEFAULT 0,
+          paid_by TEXT DEFAULT 'CASH',
+          client_id INTEGER REFERENCES clients(id),
+          client_name TEXT,
+          reference_number TEXT,
+          phone_number TEXT,
+          omt_service_type TEXT CHECK(omt_service_type IN ('BILL_PAYMENT', 'CASH_TO_BUSINESS', 'MINISTRY_OF_INTERIOR', 'CASH_OUT', 'MINISTRY_OF_FINANCE', 'INTRA', 'ONLINE_BROKERAGE', 'WESTERN_UNION')),
+          item_key TEXT,
+          note TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          created_by INTEGER
+        );
+      `);
+
+      // 3. Copy data — migrate BILL_PAYMENT rows to SEND
+      if (billPaymentCount.cnt > 0) {
+        db.exec(`
+          INSERT INTO financial_services_new
+          SELECT id, provider,
+            CASE WHEN service_type = 'BILL_PAYMENT' THEN 'SEND' ELSE service_type END,
+            amount, currency, commission, cost, price, paid_by, client_id,
+            client_name, reference_number, phone_number, omt_service_type,
+            item_key, note, created_at, created_by
+          FROM financial_services;
+        `);
+      } else {
+        db.exec(`
+          INSERT INTO financial_services_new
+          SELECT * FROM financial_services;
+        `);
+      }
+
+      // 4. Swap tables
+      db.exec(`
+        DROP TABLE financial_services;
+        ALTER TABLE financial_services_new RENAME TO financial_services;
+      `);
+
+      // 5. Recreate indexes
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_financial_services_provider ON financial_services(provider);
+        CREATE INDEX IF NOT EXISTS idx_financial_services_created_at ON financial_services(created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_financial_services_provider_type_created_at ON financial_services(provider, service_type, created_at);
+        CREATE INDEX IF NOT EXISTS idx_financial_services_paid_by ON financial_services(paid_by);
+        CREATE INDEX IF NOT EXISTS idx_financial_services_client_id ON financial_services(client_id);
+      `);
+    },
+  },
 ];
 
 // =============================================================================

@@ -1,7 +1,7 @@
 import { ipcMain } from "electron";
 import { ReportService } from "../services/ReportService.js";
 import { dbLogger } from "@liratek/core";
-/* eslint-disable @typescript-eslint/no-require-imports */
+import { requireRole } from "../session.js";
 
 export function registerReportHandlers(): void {
   const service = new ReportService();
@@ -10,7 +10,6 @@ export function registerReportHandlers(): void {
     "report:generate-pdf",
     async (event, data: { html: string; filename?: string }) => {
       try {
-        const { requireRole } = require("../session");
         const auth = requireRole(event.sender.id, ["admin"]);
         if (!auth.ok) return { success: false, error: auth.error };
       } catch {}
@@ -23,7 +22,6 @@ export function registerReportHandlers(): void {
   // Backup database to Documents/LiratekBackups
   ipcMain.handle("report:backup-db", async (event) => {
     try {
-      const { requireRole } = require("../session");
       const auth = requireRole(event.sender.id, ["admin"]);
       if (!auth.ok) return { success: false, error: auth.error };
     } catch {}
@@ -55,7 +53,6 @@ export function registerReportHandlers(): void {
 
   ipcMain.handle("report:list-backups", async (event) => {
     try {
-      const { requireRole } = require("../session");
       const auth = requireRole(event.sender.id, ["admin"]);
       if (!auth.ok) return { success: false, error: auth.error };
     } catch {}
@@ -67,7 +64,6 @@ export function registerReportHandlers(): void {
     "report:verify-backup",
     async (event, data: { path: string }) => {
       try {
-        const { requireRole } = require("../session");
         const auth = requireRole(event.sender.id, ["admin"]);
         if (!auth.ok) return { success: false, error: auth.error };
       } catch {}
@@ -78,7 +74,6 @@ export function registerReportHandlers(): void {
 
   ipcMain.handle("report:restore-db", async (event, data: { path: string }) => {
     try {
-      const { requireRole } = require("../session");
       const auth = requireRole(event.sender.id, ["admin"]);
       if (!auth.ok) return { success: false, error: auth.error };
     } catch {}

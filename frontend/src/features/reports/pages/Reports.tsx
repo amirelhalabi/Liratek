@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { PageHeader, useApi } from "@liratek/ui";
 import {
   TrendingUp,
@@ -11,7 +11,7 @@ import {
   ChevronUp,
 } from "lucide-react";
 import { useCurrencyContext } from "../../../contexts/CurrencyContext";
-import { ExportBar } from "@/shared/components/ExportBar";
+import { DataTable } from "@/shared/components/DataTable";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -85,11 +85,6 @@ export default function Reports() {
   const [tab, setTab] = useState<TabKey>("daily");
   const [from, setFrom] = useState(daysAgoISO(30));
   const [to, setTo] = useState(todayISO());
-
-  // Table refs for export
-  const dailyTableRef = useRef<HTMLTableElement>(null);
-  const revenueTableRef = useRef<HTMLTableElement>(null);
-  const overdueTableRef = useRef<HTMLTableElement>(null);
 
   // Data states
   const [dailySummaries, setDailySummaries] = useState<DailySummaryRow[]>([]);
@@ -213,98 +208,86 @@ export default function Reports() {
       {/* ==================== Daily Summaries ==================== */}
       {!loading && tab === "daily" && (
         <div className="bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden">
-          <ExportBar
+          <DataTable<DailySummaryRow>
+            columns={[
+              { header: "Date", className: "text-left px-4 py-3" },
+              { header: "USD", className: "text-right px-4 py-3" },
+              { header: "LBP", className: "text-right px-4 py-3" },
+              { header: "Voids", className: "text-right px-4 py-3" },
+              { header: "", className: "px-4 py-3 w-10" },
+            ]}
+            data={dailySummaries}
             exportExcel
             exportPdf
             exportFilename="daily-summaries"
-            tableRef={dailyTableRef}
-            rowCount={dailySummaries.length}
-          />
-          <table ref={dailyTableRef} className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-700 text-gray-400">
-                <th className="text-left px-4 py-3">Date</th>
-                <th className="text-right px-4 py-3">USD</th>
-                <th className="text-right px-4 py-3">LBP</th>
-                <th className="text-right px-4 py-3">Voids</th>
-                <th className="px-4 py-3 w-10" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-700/60">
-              {dailySummaries.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="text-center text-gray-500 py-8">
-                    No data for this period
+            className="w-full text-sm"
+            theadClassName="border-b border-gray-700 text-gray-400"
+            tbodyClassName="divide-y divide-gray-700/60"
+            emptyMessage="No data for this period"
+            renderRow={(d) => (
+              <>
+                <tr
+                  key={d.date}
+                  className="hover:bg-gray-700/30 cursor-pointer"
+                  onClick={() =>
+                    setExpandedDay(expandedDay === d.date ? null : d.date)
+                  }
+                >
+                  <td className="px-4 py-3 font-medium text-white">{d.date}</td>
+                  <td className="px-4 py-3 text-right text-emerald-400">
+                    {formatAmount(d.total_usd, "USD")}
+                  </td>
+                  <td className="px-4 py-3 text-right text-blue-400">
+                    {formatAmount(d.total_lbp, "LBP")}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    {d.void_count > 0 ? (
+                      <span className="text-red-400">{d.void_count}</span>
+                    ) : (
+                      <span className="text-gray-500">—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-gray-400">
+                    {expandedDay === d.date ? (
+                      <ChevronUp className="h-4 w-4" />
+                    ) : (
+                      <ChevronDown className="h-4 w-4" />
+                    )}
                   </td>
                 </tr>
-              )}
-              {dailySummaries.map((d) => (
-                <>
-                  <tr
-                    key={d.date}
-                    className="hover:bg-gray-700/30 cursor-pointer"
-                    onClick={() =>
-                      setExpandedDay(expandedDay === d.date ? null : d.date)
-                    }
-                  >
-                    <td className="px-4 py-3 font-medium text-white">
-                      {d.date}
-                    </td>
-                    <td className="px-4 py-3 text-right text-emerald-400">
-                      {formatAmount(d.total_usd, "USD")}
-                    </td>
-                    <td className="px-4 py-3 text-right text-blue-400">
-                      {formatAmount(d.total_lbp, "LBP")}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      {d.void_count > 0 ? (
-                        <span className="text-red-400">{d.void_count}</span>
-                      ) : (
-                        <span className="text-gray-500">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-gray-400">
-                      {expandedDay === d.date ? (
-                        <ChevronUp className="h-4 w-4" />
-                      ) : (
-                        <ChevronDown className="h-4 w-4" />
-                      )}
+                {expandedDay === d.date && d.by_type.length > 0 && (
+                  <tr key={`${d.date}-detail`}>
+                    <td colSpan={5} className="bg-gray-900/40 px-8 py-3">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="text-gray-500">
+                            <th className="text-left py-1">Type</th>
+                            <th className="text-right py-1">Count</th>
+                            <th className="text-right py-1">USD</th>
+                            <th className="text-right py-1">LBP</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {d.by_type.map((bt) => (
+                            <tr key={bt.type} className="text-gray-300">
+                              <td className="py-1">{formatType(bt.type)}</td>
+                              <td className="text-right py-1">{bt.count}</td>
+                              <td className="text-right py-1 text-emerald-400">
+                                {formatAmount(bt.total_usd, "USD")}
+                              </td>
+                              <td className="text-right py-1 text-blue-400">
+                                {formatAmount(bt.total_lbp, "LBP")}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </td>
                   </tr>
-                  {expandedDay === d.date && d.by_type.length > 0 && (
-                    <tr key={`${d.date}-detail`}>
-                      <td colSpan={5} className="bg-gray-900/40 px-8 py-3">
-                        <table className="w-full text-xs">
-                          <thead>
-                            <tr className="text-gray-500">
-                              <th className="text-left py-1">Type</th>
-                              <th className="text-right py-1">Count</th>
-                              <th className="text-right py-1">USD</th>
-                              <th className="text-right py-1">LBP</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {d.by_type.map((bt) => (
-                              <tr key={bt.type} className="text-gray-300">
-                                <td className="py-1">{formatType(bt.type)}</td>
-                                <td className="text-right py-1">{bt.count}</td>
-                                <td className="text-right py-1 text-emerald-400">
-                                  {formatAmount(bt.total_usd, "USD")}
-                                </td>
-                                <td className="text-right py-1 text-blue-400">
-                                  {formatAmount(bt.total_lbp, "LBP")}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </td>
-                    </tr>
-                  )}
-                </>
-              ))}
-            </tbody>
-          </table>
+                )}
+              </>
+            )}
+          />
         </div>
       )}
 
@@ -341,48 +324,38 @@ export default function Reports() {
 
           {/* Table */}
           <div className="bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden">
-            <ExportBar
+            <DataTable<RevenueRow>
+              columns={[
+                { header: "Module", className: "text-left px-4 py-3" },
+                { header: "Count", className: "text-right px-4 py-3" },
+                { header: "USD", className: "text-right px-4 py-3" },
+                { header: "LBP", className: "text-right px-4 py-3" },
+              ]}
+              data={revenue}
               exportExcel
               exportPdf
               exportFilename="revenue-by-module"
-              tableRef={revenueTableRef}
-              rowCount={revenue.length}
-            />
-            <table ref={revenueTableRef} className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-700 text-gray-400">
-                  <th className="text-left px-4 py-3">Module</th>
-                  <th className="text-right px-4 py-3">Count</th>
-                  <th className="text-right px-4 py-3">USD</th>
-                  <th className="text-right px-4 py-3">LBP</th>
+              className="w-full text-sm"
+              theadClassName="border-b border-gray-700 text-gray-400"
+              tbodyClassName="divide-y divide-gray-700/60"
+              emptyMessage="No revenue data for this period"
+              renderRow={(r) => (
+                <tr key={r.type} className="hover:bg-gray-700/30">
+                  <td className="px-4 py-3 font-medium text-white">
+                    {formatType(r.type)}
+                  </td>
+                  <td className="px-4 py-3 text-right text-gray-300">
+                    {r.count}
+                  </td>
+                  <td className="px-4 py-3 text-right text-emerald-400">
+                    {formatAmount(r.total_usd, "USD")}
+                  </td>
+                  <td className="px-4 py-3 text-right text-blue-400">
+                    {formatAmount(r.total_lbp, "LBP")}
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-700/60">
-                {revenue.length === 0 && (
-                  <tr>
-                    <td colSpan={4} className="text-center text-gray-500 py-8">
-                      No revenue data for this period
-                    </td>
-                  </tr>
-                )}
-                {revenue.map((r) => (
-                  <tr key={r.type} className="hover:bg-gray-700/30">
-                    <td className="px-4 py-3 font-medium text-white">
-                      {formatType(r.type)}
-                    </td>
-                    <td className="px-4 py-3 text-right text-gray-300">
-                      {r.count}
-                    </td>
-                    <td className="px-4 py-3 text-right text-emerald-400">
-                      {formatAmount(r.total_usd, "USD")}
-                    </td>
-                    <td className="px-4 py-3 text-right text-blue-400">
-                      {formatAmount(r.total_lbp, "LBP")}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+              )}
+            />
           </div>
         </div>
       )}
@@ -390,68 +363,58 @@ export default function Reports() {
       {/* ==================== Overdue Debts ==================== */}
       {!loading && tab === "overdue" && (
         <div className="bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden">
-          <ExportBar
+          <DataTable<OverdueRow>
+            columns={[
+              { header: "Client", className: "text-left px-4 py-3" },
+              { header: "Phone", className: "text-left px-4 py-3" },
+              { header: "USD Owed", className: "text-right px-4 py-3" },
+              { header: "LBP Owed", className: "text-right px-4 py-3" },
+              { header: "Days Overdue", className: "text-right px-4 py-3" },
+              { header: "Entries", className: "text-right px-4 py-3" },
+            ]}
+            data={overdue}
             exportExcel
             exportPdf
             exportFilename="overdue-debts"
-            tableRef={overdueTableRef}
-            rowCount={overdue.length}
-          />
-          <table ref={overdueTableRef} className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-700 text-gray-400">
-                <th className="text-left px-4 py-3">Client</th>
-                <th className="text-left px-4 py-3">Phone</th>
-                <th className="text-right px-4 py-3">USD Owed</th>
-                <th className="text-right px-4 py-3">LBP Owed</th>
-                <th className="text-right px-4 py-3">Days Overdue</th>
-                <th className="text-right px-4 py-3">Entries</th>
+            className="w-full text-sm"
+            theadClassName="border-b border-gray-700 text-gray-400"
+            tbodyClassName="divide-y divide-gray-700/60"
+            emptyMessage="No overdue debts"
+            renderRow={(o) => (
+              <tr key={o.client_id} className="hover:bg-gray-700/30">
+                <td className="px-4 py-3 font-medium text-white">
+                  {o.client_name}
+                </td>
+                <td className="px-4 py-3 text-gray-400">
+                  {o.phone_number || "—"}
+                </td>
+                <td className="px-4 py-3 text-right text-rose-400">
+                  {formatAmount(o.total_usd, "USD")}
+                </td>
+                <td className="px-4 py-3 text-right text-rose-300">
+                  {formatAmount(o.total_lbp, "LBP")}
+                </td>
+                <td className="px-4 py-3 text-right">
+                  <span
+                    className={`font-medium ${
+                      o.max_days_overdue > 90
+                        ? "text-red-400"
+                        : o.max_days_overdue > 60
+                          ? "text-orange-400"
+                          : o.max_days_overdue > 30
+                            ? "text-yellow-400"
+                            : "text-gray-300"
+                    }`}
+                  >
+                    {o.max_days_overdue}
+                  </span>
+                </td>
+                <td className="px-4 py-3 text-right text-gray-300">
+                  {o.entry_count}
+                </td>
               </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-700/60">
-              {overdue.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="text-center text-gray-500 py-8">
-                    No overdue debts
-                  </td>
-                </tr>
-              )}
-              {overdue.map((o) => (
-                <tr key={o.client_id} className="hover:bg-gray-700/30">
-                  <td className="px-4 py-3 font-medium text-white">
-                    {o.client_name}
-                  </td>
-                  <td className="px-4 py-3 text-gray-400">
-                    {o.phone_number || "—"}
-                  </td>
-                  <td className="px-4 py-3 text-right text-rose-400">
-                    {formatAmount(o.total_usd, "USD")}
-                  </td>
-                  <td className="px-4 py-3 text-right text-rose-300">
-                    {formatAmount(o.total_lbp, "LBP")}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <span
-                      className={`font-medium ${
-                        o.max_days_overdue > 90
-                          ? "text-red-400"
-                          : o.max_days_overdue > 60
-                            ? "text-orange-400"
-                            : o.max_days_overdue > 30
-                              ? "text-yellow-400"
-                              : "text-gray-300"
-                      }`}
-                    >
-                      {o.max_days_overdue}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right text-gray-300">
-                    {o.entry_count}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+            )}
+          />
         </div>
       )}
     </div>

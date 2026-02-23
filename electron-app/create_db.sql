@@ -180,7 +180,7 @@ CREATE TABLE IF NOT EXISTS sales (
     change_given_usd DECIMAL(10, 2) DEFAULT 0,
     change_given_lbp DECIMAL(15, 2) DEFAULT 0,
     exchange_rate_snapshot DECIMAL(15, 2),
-    drawer_name TEXT DEFAULT 'General_Drawer_B',
+    drawer_name TEXT DEFAULT 'General',
     status TEXT DEFAULT 'completed',
     note TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -302,12 +302,21 @@ CREATE TABLE IF NOT EXISTS expenses (
 -- Mobile Recharges
 CREATE TABLE IF NOT EXISTS recharges (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    carrier TEXT CHECK(carrier IN ('Touch', 'Alfa')) NOT NULL,
-    amount_usd DECIMAL(10, 2) NOT NULL,
+    carrier TEXT CHECK(carrier IN ('MTC', 'Alfa')) NOT NULL,
+    recharge_type TEXT CHECK(recharge_type IN ('CREDIT_TRANSFER', 'VOUCHER', 'DAYS', 'TOP_UP')) NOT NULL DEFAULT 'CREDIT_TRANSFER',
+    amount DECIMAL(10, 2) NOT NULL,
+    cost DECIMAL(10, 2) NOT NULL DEFAULT 0,
+    price DECIMAL(10, 2) NOT NULL DEFAULT 0,
+    currency_code TEXT NOT NULL DEFAULT 'USD',
+    paid_by TEXT DEFAULT 'CASH',
     phone_number TEXT,
+    client_id INTEGER,
     client_name TEXT,
     note TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_by INTEGER DEFAULT 1,
+    FOREIGN KEY (client_id) REFERENCES clients(id),
+    FOREIGN KEY (created_by) REFERENCES users(id)
 );
 
 -- Exchange Transactions
@@ -325,24 +334,11 @@ CREATE TABLE IF NOT EXISTS exchange_transactions (
     created_by INTEGER
 );
 
--- Binance Transactions (Send/Receive)
-CREATE TABLE IF NOT EXISTS binance_transactions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    type TEXT CHECK(type IN ('SEND', 'RECEIVE')) NOT NULL,
-    amount DECIMAL(15, 2) NOT NULL,
-    currency_code TEXT NOT NULL DEFAULT 'USDT',
-    description TEXT,
-    client_name TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER,
-    FOREIGN KEY (created_by) REFERENCES users(id)
-);
-
--- Financial Services (OMT, Whish, IPEC, Katch, Wish App, etc.)
+-- Financial Services (OMT, Whish, IPEC, Katch, Wish App, Binance, etc.)
 CREATE TABLE IF NOT EXISTS financial_services (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    provider TEXT CHECK(provider IN ('OMT', 'WHISH', 'BOB', 'OTHER', 'IPEC', 'KATCH', 'WISH_APP', 'OMT_APP')) NOT NULL,
-    service_type TEXT CHECK(service_type IN ('SEND', 'RECEIVE', 'BILL_PAYMENT')) NOT NULL,
+    provider TEXT CHECK(provider IN ('OMT', 'WHISH', 'BOB', 'OTHER', 'IPEC', 'KATCH', 'WISH_APP', 'OMT_APP', 'BINANCE')) NOT NULL,
+    service_type TEXT CHECK(service_type IN ('SEND', 'RECEIVE')) NOT NULL,
     amount DECIMAL(10, 2) NOT NULL,
     currency TEXT DEFAULT 'USD' NOT NULL,
     commission DECIMAL(10, 2) DEFAULT 0,
@@ -352,6 +348,8 @@ CREATE TABLE IF NOT EXISTS financial_services (
     client_id INTEGER REFERENCES clients(id),
     client_name TEXT,
     reference_number TEXT,
+    phone_number TEXT,
+    omt_service_type TEXT CHECK(omt_service_type IN ('BILL_PAYMENT', 'CASH_TO_BUSINESS', 'MINISTRY_OF_INTERIOR', 'CASH_OUT', 'MINISTRY_OF_FINANCE', 'INTRA', 'ONLINE_BROKERAGE', 'WESTERN_UNION')),
     item_key TEXT,
     note TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -523,8 +521,6 @@ CREATE INDEX IF NOT EXISTS idx_debt_ledger_transaction_type_created_at ON debt_l
 CREATE INDEX IF NOT EXISTS idx_expenses_expense_date ON expenses(expense_date);
 CREATE INDEX IF NOT EXISTS idx_maintenance_status_created_at ON maintenance(status, created_at);
 CREATE INDEX IF NOT EXISTS idx_exchange_transactions_created_at ON exchange_transactions(created_at);
-CREATE INDEX IF NOT EXISTS idx_binance_transactions_created_at ON binance_transactions(created_at);
-CREATE INDEX IF NOT EXISTS idx_binance_transactions_type_created_at ON binance_transactions(type, created_at);
 CREATE INDEX IF NOT EXISTS idx_financial_services_provider_type_created_at ON financial_services(provider, service_type, created_at);
 CREATE INDEX IF NOT EXISTS idx_financial_services_created_at ON financial_services(created_at);
 CREATE INDEX IF NOT EXISTS idx_financial_services_paid_by ON financial_services(paid_by);

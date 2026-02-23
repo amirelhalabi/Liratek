@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import logger from "../../../../utils/logger";
 import {
   Signal,
@@ -13,7 +13,6 @@ import {
   Wallet,
   Send,
   ArrowDownToLine,
-  Receipt,
   History,
   TrendingUp,
   Calendar,
@@ -34,7 +33,7 @@ import CurrencySelect from "../../../../components/CurrencySelect";
 import { useSession } from "../../../sessions/context/SessionContext";
 import { usePaymentMethods } from "../../../../hooks/usePaymentMethods";
 import { useModules } from "../../../../contexts/ModuleContext";
-import { ExportBar } from "@/shared/components/ExportBar";
+import { DataTable } from "@/shared/components/DataTable";
 import {
   useMobileServiceItems,
   type ServiceItem,
@@ -51,7 +50,7 @@ type CryptoProvider = "BINANCE";
 type AnyProvider = TelecomProvider | FinancialProvider | CryptoProvider;
 
 type RechargeType = "CREDIT_TRANSFER" | "VOUCHER" | "DAYS" | "TOP_UP";
-type ServiceType = "SEND" | "RECEIVE" | "BILL_PAYMENT";
+type ServiceType = "SEND" | "RECEIVE";
 
 type FormMode = "telecom" | "financial" | "crypto";
 
@@ -105,7 +104,7 @@ interface ProviderConfig {
 const PROVIDER_CONFIGS: ProviderConfig[] = [
   {
     key: "MTC",
-    label: "Touch / MTC",
+    label: "MTC",
     module: "recharge",
     drawer: "MTC",
     formMode: "telecom",
@@ -217,7 +216,6 @@ const TELECOM_SERVICE_TYPES: {
 const FINANCIAL_SERVICE_ICONS: Record<ServiceType, typeof Send> = {
   SEND: Send,
   RECEIVE: ArrowDownToLine,
-  BILL_PAYMENT: Receipt,
 };
 
 interface FinancialFormProps {
@@ -318,7 +316,6 @@ function FinancialForm({
   moduleCurrencies,
   getSymbol,
 }: FinancialFormProps) {
-  const tableRef = useRef<HTMLTableElement>(null);
   if (!activeConfig) return null;
   const meta = activeConfig;
 
@@ -391,7 +388,7 @@ function FinancialForm({
         <div className="w-1/3 min-w-[360px] bg-slate-800 rounded-xl border border-slate-700/50 p-4 flex flex-col overflow-auto">
           {/* Service Type */}
           <div className="flex gap-2 mb-5">
-            {(["SEND", "RECEIVE", "BILL_PAYMENT"] as ServiceType[]).map(
+            {(["SEND", "RECEIVE"] as ServiceType[]).map(
               (type) => {
                 const Icon = FINANCIAL_SERVICE_ICONS[type];
                 return (
@@ -405,9 +402,9 @@ function FinancialForm({
                     }`}
                   >
                     <Icon size={18} />
-                    {type === "BILL_PAYMENT"
-                      ? "Bill"
-                      : type.charAt(0) + type.slice(1).toLowerCase()}
+                    {type === "SEND"
+                      ? "Money In"
+                      : "Money Out"}
                   </button>
                 );
               },
@@ -756,7 +753,6 @@ function FinancialForm({
               <>
                 {serviceType === "SEND" && <Send size={20} />}
                 {serviceType === "RECEIVE" && <ArrowDownToLine size={20} />}
-                {serviceType === "BILL_PAYMENT" && <Receipt size={20} />}
                 Record Transaction
               </>
             )}
@@ -778,75 +774,61 @@ function FinancialForm({
             </button>
           </div>
           <div className="flex-1 min-h-0 overflow-auto">
-            <ExportBar
+            <DataTable
+              columns={[
+                { header: "Type", className: "px-5 py-3" },
+                { header: "Amount", className: "px-5 py-3" },
+                { header: "Commission", className: "px-5 py-3" },
+                { header: "Client", className: "px-5 py-3" },
+                { header: "Time", className: "px-5 py-3" },
+              ]}
+              data={providerTx}
               exportExcel
               exportPdf
               exportFilename="recharge-history"
-              tableRef={tableRef}
-              rowCount={providerTx.length}
-            />
-            <table ref={tableRef} className="w-full">
-              <thead className="bg-slate-900/50 text-left text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0">
-                <tr>
-                  <th className="px-5 py-3">Type</th>
-                  <th className="px-5 py-3">Amount</th>
-                  <th className="px-5 py-3">Commission</th>
-                  <th className="px-5 py-3">Client</th>
-                  <th className="px-5 py-3">Time</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-700/50">
-                {providerTx.map((tx) => {
-                  const Icon = FINANCIAL_SERVICE_ICONS[tx.service_type];
-                  return (
-                    <tr
-                      key={tx.id}
-                      className="hover:bg-slate-700/20 transition-colors"
-                    >
-                      <td className="px-5 py-3">
-                        <div className="flex items-center gap-2 text-slate-300">
-                          <Icon size={14} />
-                          <span className="text-sm">
-                            {tx.service_type === "BILL_PAYMENT"
-                              ? "Bill"
-                              : tx.service_type.charAt(0) +
-                                tx.service_type.slice(1).toLowerCase()}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-5 py-3 text-sm font-medium text-white">
-                        {formatAmount(tx.amount, tx.currency)}
-                      </td>
-                      <td className="px-5 py-3 text-sm font-bold text-emerald-400">
-                        {formatAmount(tx.commission, tx.currency)}
-                      </td>
-                      <td className="px-5 py-3 text-sm text-slate-300">
-                        {tx.client_name || "—"}
-                      </td>
-                      <td className="px-5 py-3 text-sm text-slate-400">
-                        {new Date(tx.created_at).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                        <div className="text-xs text-slate-500">
-                          {new Date(tx.created_at).toLocaleDateString()}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-                {providerTx.length === 0 && (
-                  <tr>
-                    <td
-                      colSpan={5}
-                      className="px-5 py-8 text-center text-slate-500 text-sm"
-                    >
-                      No {meta.label} transactions yet.
+              className="w-full"
+              theadClassName="bg-slate-900/50 text-left text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0"
+              tbodyClassName="divide-y divide-slate-700/50"
+              emptyMessage={`No ${meta.label} transactions yet.`}
+              renderRow={(tx) => {
+                const Icon = FINANCIAL_SERVICE_ICONS[tx.service_type];
+                return (
+                  <tr
+                    key={tx.id}
+                    className="hover:bg-slate-700/20 transition-colors"
+                  >
+                    <td className="px-5 py-3">
+                      <div className="flex items-center gap-2 text-slate-300">
+                        <Icon size={14} />
+                        <span className="text-sm">
+                          {tx.service_type === "SEND"
+                            ? "Out"
+                            : "In"}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-5 py-3 text-sm font-medium text-white">
+                      {formatAmount(tx.amount, tx.currency)}
+                    </td>
+                    <td className="px-5 py-3 text-sm font-bold text-emerald-400">
+                      {formatAmount(tx.commission, tx.currency)}
+                    </td>
+                    <td className="px-5 py-3 text-sm text-slate-300">
+                      {tx.client_name || "—"}
+                    </td>
+                    <td className="px-5 py-3 text-sm text-slate-400">
+                      {new Date(tx.created_at).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                      <div className="text-xs text-slate-500">
+                        {new Date(tx.created_at).toLocaleDateString()}
+                      </div>
                     </td>
                   </tr>
-                )}
-              </tbody>
-            </table>
+                );
+              }}
+            />
           </div>
         </div>
       </div>
@@ -1308,7 +1290,6 @@ function CryptoForm({
   binanceTransactions,
   loadCryptoData,
 }: CryptoFormProps) {
-  const cryptoTableRef = useRef<HTMLTableElement>(null);
   if (!activeConfig) return null;
   const meta = activeConfig;
 
@@ -1322,7 +1303,7 @@ function CryptoForm({
               <ArrowUpRight className="w-4 h-4 text-red-400" />
             </div>
             <span className="text-xs text-slate-500 font-medium uppercase tracking-wider">
-              Sent Today
+              Out Today
             </span>
           </div>
           <p className="text-xl font-bold text-white">
@@ -1339,7 +1320,7 @@ function CryptoForm({
               <ArrowDownLeft className="w-4 h-4 text-emerald-400" />
             </div>
             <span className="text-xs text-slate-500 font-medium uppercase tracking-wider">
-              Received Today
+              In Today
             </span>
           </div>
           <p className="text-xl font-bold text-white">
@@ -1378,7 +1359,7 @@ function CryptoForm({
               }`}
             >
               <ArrowUpRight size={18} />
-              Send
+              Out
             </button>
             <button
               onClick={() => setCryptoType("RECEIVE")}
@@ -1389,7 +1370,7 @@ function CryptoForm({
               }`}
             >
               <ArrowDownLeft size={18} />
-              Receive
+              In
             </button>
           </div>
 
@@ -1494,77 +1475,64 @@ function CryptoForm({
             </button>
           </div>
           <div className="flex-1 min-h-0 overflow-auto">
-            <ExportBar
+            <DataTable
+              columns={[
+                { header: "Type", className: "px-5 py-3" },
+                { header: "Amount", className: "px-5 py-3" },
+                { header: "Client", className: "px-5 py-3" },
+                { header: "Description", className: "px-5 py-3" },
+                { header: "Time", className: "px-5 py-3" },
+              ]}
+              data={binanceTransactions}
               exportExcel
               exportPdf
               exportFilename="binance-history"
-              tableRef={cryptoTableRef}
-              rowCount={binanceTransactions.length}
-            />
-            <table ref={cryptoTableRef} className="w-full">
-              <thead className="bg-slate-900/50 text-left text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0">
-                <tr>
-                  <th className="px-5 py-3">Type</th>
-                  <th className="px-5 py-3">Amount</th>
-                  <th className="px-5 py-3">Client</th>
-                  <th className="px-5 py-3">Description</th>
-                  <th className="px-5 py-3">Time</th>
+              className="w-full"
+              theadClassName="bg-slate-900/50 text-left text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0"
+              tbodyClassName="divide-y divide-slate-700/50"
+              emptyMessage="No Binance transactions yet."
+              renderRow={(tx) => (
+                <tr
+                  key={tx.id}
+                  className="hover:bg-slate-700/20 transition-colors"
+                >
+                  <td className="px-5 py-3">
+                    <div className="flex items-center gap-2 text-slate-300">
+                      {tx.type === "SEND" ? (
+                        <ArrowUpRight size={14} />
+                      ) : (
+                        <ArrowDownLeft size={14} />
+                      )}
+                      <span className="text-sm">
+                        {tx.type === "SEND" ? "Money In" : "Money Out"}
+                      </span>
+                    </div>
+                  </td>
+                  <td className="px-5 py-3 text-sm font-medium text-white">
+                    $
+                    {Number(tx.amount).toLocaleString(undefined, {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+                  </td>
+                  <td className="px-5 py-3 text-sm text-slate-300">
+                    {tx.client_name || "—"}
+                  </td>
+                  <td className="px-5 py-3 text-sm text-slate-400 max-w-[250px] truncate">
+                    {tx.description || "—"}
+                  </td>
+                  <td className="px-5 py-3 text-sm text-slate-400">
+                    {new Date(tx.created_at).toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                    <div className="text-xs text-slate-500">
+                      {new Date(tx.created_at).toLocaleDateString()}
+                    </div>
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-700/50">
-                {binanceTransactions.map((tx) => (
-                  <tr
-                    key={tx.id}
-                    className="hover:bg-slate-700/20 transition-colors"
-                  >
-                    <td className="px-5 py-3">
-                      <div className="flex items-center gap-2 text-slate-300">
-                        {tx.type === "SEND" ? (
-                          <ArrowUpRight size={14} />
-                        ) : (
-                          <ArrowDownLeft size={14} />
-                        )}
-                        <span className="text-sm">
-                          {tx.type.charAt(0) + tx.type.slice(1).toLowerCase()}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-5 py-3 text-sm font-medium text-white">
-                      $
-                      {Number(tx.amount).toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
-                    </td>
-                    <td className="px-5 py-3 text-sm text-slate-300">
-                      {tx.client_name || "—"}
-                    </td>
-                    <td className="px-5 py-3 text-sm text-slate-400 max-w-[250px] truncate">
-                      {tx.description || "—"}
-                    </td>
-                    <td className="px-5 py-3 text-sm text-slate-400">
-                      {new Date(tx.created_at).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                      <div className="text-xs text-slate-500">
-                        {new Date(tx.created_at).toLocaleDateString()}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {binanceTransactions.length === 0 && (
-                  <tr>
-                    <td
-                      colSpan={5}
-                      className="px-5 py-8 text-center text-slate-500 text-sm"
-                    >
-                      No Binance transactions yet.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+              )}
+            />
           </div>
         </div>
       </div>
@@ -1892,12 +1860,43 @@ export default function MobileRecharge() {
 
   const loadCryptoData = useCallback(async () => {
     try {
-      const [history, todayStats] = await Promise.all([
-        api.getBinanceHistory(),
-        api.getBinanceTodayStats(),
-      ]);
-      setBinanceTransactions(history);
-      if (todayStats) setBinanceStats(todayStats);
+      const history = await api.getOMTHistory("BINANCE");
+      // Convert financial_services records to old BinanceTransaction shape for the CryptoForm
+      const converted = (history || []).map(
+        (tx: {
+          id: number;
+          service_type: string;
+          amount: number;
+          currency: string;
+          client_name: string | null;
+          note: string | null;
+          created_at: string;
+        }) => ({
+          id: tx.id,
+          type: tx.service_type as "SEND" | "RECEIVE",
+          amount: tx.amount,
+          currency_code: tx.currency || "USDT",
+          client_name: tx.client_name,
+          description: tx.note,
+          created_at: tx.created_at,
+        }),
+      );
+      setBinanceTransactions(converted);
+      // Compute today stats from converted data
+      const today = new Date().toLocaleDateString();
+      const todayTxs = converted.filter(
+        (t: { created_at: string }) =>
+          new Date(t.created_at).toLocaleDateString() === today,
+      );
+      setBinanceStats({
+        totalSent: todayTxs
+          .filter((t: { type: string }) => t.type === "SEND")
+          .reduce((s: number, t: { amount: number }) => s + t.amount, 0),
+        totalReceived: todayTxs
+          .filter((t: { type: string }) => t.type === "RECEIVE")
+          .reduce((s: number, t: { amount: number }) => s + t.amount, 0),
+        count: todayTxs.length,
+      });
     } catch (error) {
       logger.error("Failed to load Binance data:", error);
     }
@@ -2075,22 +2074,22 @@ export default function MobileRecharge() {
       return;
     }
     try {
-      const payload: {
-        type: "SEND" | "RECEIVE";
-        amount: number;
-        currencyCode: string;
-        description?: string;
-        clientName?: string;
-      } = { type: cryptoType, amount: amt, currencyCode: "USDT" };
-      if (cryptoDescription) payload.description = cryptoDescription;
-      if (cryptoClientName) payload.clientName = cryptoClientName;
+      const payload = {
+        provider: "BINANCE" as const,
+        serviceType: cryptoType as "SEND" | "RECEIVE",
+        amount: amt,
+        currency: "USDT",
+        commission: 0,
+        clientName: cryptoClientName || undefined,
+        note: cryptoDescription || undefined,
+      };
 
-      const result = await api.addBinanceTransaction(payload);
+      const result = await api.addOMTTransaction(payload);
       if (result.success) {
         if (activeSession && result.id) {
           try {
             await linkTransaction({
-              transactionType: "binance",
+              transactionType: "financial_service",
               transactionId: result.id,
               amountUsd: amt,
               amountLbp: 0,

@@ -66,7 +66,7 @@ describe("MaintenanceService", () => {
           1,
           "Maintenance Job Created",
           expect.objectContaining({
-            drawer: "General_Drawer_B",
+            drawer: "General",
             device: "iPhone 14",
             price_usd: 150,
           }),
@@ -183,7 +183,7 @@ describe("MaintenanceService", () => {
           1,
           "Maintenance Job Completed",
           expect.objectContaining({
-            drawer: "General_Drawer_B",
+            drawer: "General",
             device: "iPhone 14 Pro",
             amount_usd: 200,
             status: "Delivered_Paid",

@@ -8,7 +8,7 @@
  * payment methods — not just DEBT.
  */
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect } from "react";
 import {
   Briefcase,
   Plus,
@@ -30,7 +30,7 @@ import {
   type CustomServiceEntry,
 } from "../../hooks/useCustomServices";
 import logger from "../../../../utils/logger";
-import { ExportBar } from "@/shared/components/ExportBar";
+import { DataTable } from "@/shared/components/DataTable";
 
 // =============================================================================
 // Helper
@@ -68,7 +68,6 @@ export default function CustomServices() {
   const api = useApi();
   const { methods } = usePaymentMethods();
   const { activeSession, linkTransaction } = useSession();
-  const tableRef = useRef<HTMLTableElement>(null);
   const {
     history,
     summary,
@@ -647,106 +646,94 @@ export default function CustomServices() {
               </div>
             ) : (
               <>
-                <ExportBar
+                <DataTable<CustomServiceEntry>
+                  columns={[
+                    { header: "Time", className: "px-4 py-3" },
+                    { header: "Description", className: "px-4 py-3" },
+                    { header: "Customer", className: "px-4 py-3" },
+                    { header: "Cost", className: "px-4 py-3 text-right" },
+                    { header: "Price", className: "px-4 py-3 text-right" },
+                    { header: "Profit", className: "px-4 py-3 text-right" },
+                    { header: "Paid By", className: "px-4 py-3" },
+                    { header: "", className: "px-4 py-3 w-10" },
+                  ]}
+                  data={history}
                   exportExcel
                   exportPdf
                   exportFilename="custom-services"
-                  tableRef={tableRef}
-                  rowCount={history.length}
-                />
-                <table ref={tableRef} className="w-full">
-                  <thead className="bg-slate-900/50 text-left text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0">
-                    <tr>
-                      <th className="px-4 py-3">Time</th>
-                      <th className="px-4 py-3">Description</th>
-                      <th className="px-4 py-3">Customer</th>
-                      <th className="px-4 py-3 text-right">Cost</th>
-                      <th className="px-4 py-3 text-right">Price</th>
-                      <th className="px-4 py-3 text-right">Profit</th>
-                      <th className="px-4 py-3">Paid By</th>
-                      <th className="px-4 py-3 w-10"></th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-700/50">
-                    {history.map((tx: CustomServiceEntry) => (
-                      <tr
-                        key={tx.id}
-                        className="hover:bg-slate-700/20 transition-colors"
-                      >
-                        <td className="px-4 py-3 text-sm text-slate-400 whitespace-nowrap">
-                          {formatTime(tx.created_at)}
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="text-sm text-white font-medium">
-                            {tx.description}
+                  loading={historyLoading}
+                  className="w-full"
+                  theadClassName="bg-slate-900/50 text-left text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0"
+                  tbodyClassName="divide-y divide-slate-700/50"
+                  emptyMessage="No services recorded yet. Add your first one!"
+                  renderRow={(tx) => (
+                    <tr
+                      key={tx.id}
+                      className="hover:bg-slate-700/20 transition-colors"
+                    >
+                      <td className="px-4 py-3 text-sm text-slate-400 whitespace-nowrap">
+                        {formatTime(tx.created_at)}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="text-sm text-white font-medium">
+                          {tx.description}
+                        </div>
+                        {tx.note && (
+                          <div className="text-xs text-slate-500 mt-0.5 truncate max-w-[200px]">
+                            {tx.note}
                           </div>
-                          {tx.note && (
-                            <div className="text-xs text-slate-500 mt-0.5 truncate max-w-[200px]">
-                              {tx.note}
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          {tx.client_name && (
-                            <div className="text-sm text-white flex items-center gap-1">
-                              <User size={12} className="text-slate-500" />
-                              {tx.client_name}
-                            </div>
-                          )}
-                          {tx.phone_number && (
-                            <div className="text-xs text-slate-500 mt-0.5 flex items-center gap-1">
-                              <Phone size={10} />
-                              {tx.phone_number}
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-right text-sm font-mono text-slate-400">
-                          {formatCurrency(tx.cost_usd, tx.cost_lbp)}
-                        </td>
-                        <td className="px-4 py-3 text-right text-sm font-mono text-white font-medium">
-                          {formatCurrency(tx.price_usd, tx.price_lbp)}
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <span
-                            className={`text-sm font-bold font-mono ${tx.profit_usd >= 0 && tx.profit_lbp >= 0 ? "text-emerald-400" : "text-red-400"}`}
-                          >
-                            {formatCurrency(tx.profit_usd, tx.profit_lbp)}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span
-                            className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                              tx.paid_by === "DEBT"
-                                ? "bg-orange-500/10 text-orange-400"
-                                : "bg-slate-700 text-slate-300"
-                            }`}
-                          >
-                            {tx.paid_by}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <button
-                            onClick={() => handleVoid(tx.id)}
-                            className="text-slate-600 hover:text-red-400 transition-colors p-1"
-                            title="Void service"
-                          >
-                            <Ban size={14} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                    {history.length === 0 && !historyLoading && (
-                      <tr>
-                        <td
-                          colSpan={8}
-                          className="px-6 py-12 text-center text-slate-500 text-sm"
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        {tx.client_name && (
+                          <div className="text-sm text-white flex items-center gap-1">
+                            <User size={12} className="text-slate-500" />
+                            {tx.client_name}
+                          </div>
+                        )}
+                        {tx.phone_number && (
+                          <div className="text-xs text-slate-500 mt-0.5 flex items-center gap-1">
+                            <Phone size={10} />
+                            {tx.phone_number}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm font-mono text-slate-400">
+                        {formatCurrency(tx.cost_usd, tx.cost_lbp)}
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm font-mono text-white font-medium">
+                        {formatCurrency(tx.price_usd, tx.price_lbp)}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <span
+                          className={`text-sm font-bold font-mono ${tx.profit_usd >= 0 && tx.profit_lbp >= 0 ? "text-emerald-400" : "text-red-400"}`}
                         >
-                          No services recorded yet. Add your first one!
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
+                          {formatCurrency(tx.profit_usd, tx.profit_lbp)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                            tx.paid_by === "DEBT"
+                              ? "bg-orange-500/10 text-orange-400"
+                              : "bg-slate-700 text-slate-300"
+                          }`}
+                        >
+                          {tx.paid_by}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <button
+                          onClick={() => handleVoid(tx.id)}
+                          className="text-slate-600 hover:text-red-400 transition-colors p-1"
+                          title="Void service"
+                        >
+                          <Ban size={14} />
+                        </button>
+                      </td>
+                    </tr>
+                  )}
+                />
               </>
             )}
           </div>

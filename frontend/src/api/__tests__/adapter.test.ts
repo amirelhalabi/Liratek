@@ -25,13 +25,6 @@ jest.mock("../backendApi", () => ({
   getCurrenciesList: jest.fn(async () => []),
   getExchangeHistory: jest.fn(async () => []),
   addExchangeTransaction: jest.fn(async () => ({ success: true })),
-  getBinanceHistory: jest.fn(async () => []),
-  getBinanceTodayStats: jest.fn(async () => ({
-    totalSent: 0,
-    totalReceived: 0,
-    count: 0,
-  })),
-  addBinanceTransaction: jest.fn(async () => ({ success: true })),
   getTodayExpenses: jest.fn(async () => []),
   addExpense: jest.fn(async () => ({ success: true })),
   deleteExpense: jest.fn(async () => ({ success: true })),
@@ -135,16 +128,6 @@ describe("ElectronApiAdapter (via backendApiAdapter)", () => {
     expect(backendApi.getProducts).toHaveBeenCalledWith("");
   });
 
-  it("delegates addBinanceTransaction with typed payload", async () => {
-    const payload = {
-      type: "SEND" as const,
-      amount: 100,
-      currencyCode: "USDT",
-    };
-    await backendApiAdapter.addBinanceTransaction(payload);
-    expect(backendApi.addBinanceTransaction).toHaveBeenCalledWith(payload);
-  });
-
   it("delegates setRate with three arguments", async () => {
     await backendApiAdapter.setRate("USD", "LBP", 89500);
     expect(backendApi.setRate).toHaveBeenCalledWith("USD", "LBP", 89500);
@@ -190,9 +173,6 @@ describe("ElectronApiAdapter (via backendApiAdapter)", () => {
       "getCurrenciesList",
       "getExchangeHistory",
       "addExchangeTransaction",
-      "getBinanceHistory",
-      "getBinanceTodayStats",
-      "addBinanceTransaction",
       "getTodayExpenses",
       "addExpense",
       "deleteExpense",

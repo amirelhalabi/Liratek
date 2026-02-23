@@ -28,8 +28,9 @@ export interface FinancialServiceEntity {
     | "IPEC"
     | "KATCH"
     | "WISH_APP"
-    | "OMT_APP";
-  service_type: "SEND" | "RECEIVE" | "BILL_PAYMENT";
+    | "OMT_APP"
+    | "BINANCE";
+  service_type: "SEND" | "RECEIVE";
   amount: number;
   currency: string;
   commission: number;
@@ -39,6 +40,8 @@ export interface FinancialServiceEntity {
   client_id: number | null;
   client_name: string | null;
   reference_number: string | null;
+  phone_number: string | null;
+  omt_service_type: string | null;
   item_key: string | null;
   note: string | null;
   created_at: string;
@@ -54,17 +57,26 @@ export interface CreateFinancialServiceData {
     | "IPEC"
     | "KATCH"
     | "WISH_APP"
-    | "OMT_APP";
-  serviceType: "SEND" | "RECEIVE" | "BILL_PAYMENT";
+    | "OMT_APP"
+    | "BINANCE";
+  serviceType: "SEND" | "RECEIVE";
   amount: number;
   currency?: string;
   commission: number;
   cost?: number;
   price?: number;
   paidByMethod?: string;
+  /** Multi-payment support: when provided, overrides paidByMethod */
+  payments?: Array<{
+    method: string;
+    currencyCode: string;
+    amount: number;
+  }>;
   clientId?: number;
   clientName?: string;
   referenceNumber?: string;
+  phoneNumber?: string;
+  omtServiceType?: string;
   itemKey?: string;
   itemCategory?: string;
   note?: string;
@@ -108,7 +120,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
 
   // Override getColumns() to use explicit columns instead of SELECT *
   protected getColumns(): string {
-    return "id, provider, service_type, amount, currency, commission, cost, price, paid_by, client_id, client_name, reference_number, item_key, note, created_at, created_by";
+    return "id, provider, service_type, amount, currency, commission, cost, price, paid_by, client_id, client_name, reference_number, phone_number, omt_service_type, item_key, note, created_at, created_by";
   }
 
   // ---------------------------------------------------------------------------
@@ -134,6 +146,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         return "Whish_App";
       case "OMT_APP":
         return "OMT_App";
+      case "BINANCE":
+        return "Binance";
       case "BOB":
       case "OTHER":
       default:
@@ -153,8 +167,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
     id: number;
     drawer: string;
   } {
-    const legacyDrawerLabel =
-      data.provider === "OMT" ? "OMT_Drawer_A" : "General_Drawer_B";
+    const legacyDrawerLabel = this.mapDrawerName(data.provider);
 
     const useCostPriceFlow = data.cost !== undefined && data.cost > 0;
 
@@ -170,8 +183,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         INSERT INTO financial_services (
           provider, service_type, amount, currency,
           commission, cost, price, paid_by, client_id,
-          client_name, reference_number, item_key, note
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          client_name, reference_number, phone_number,
+          omt_service_type, item_key, note
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       const result = stmt.run(
@@ -186,6 +200,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         data.clientId || null,
         data.clientName || null,
         data.referenceNumber || null,
+        data.phoneNumber || null,
+        data.omtServiceType || null,
         data.itemKey || null,
         data.note || null,
       );
@@ -246,7 +262,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       `);
 
       if (useCostPriceFlow) {
-        // ─── COST/PRICE FLOW (IPEC, KATCH, WISH_APP, OMT_APP) ───
+        // ─── COST/PRICE FLOW (IPEC, KATCH, WISH_APP, OMT_APP, BINANCE) ───
         const providerDrawer = this.mapDrawerName(data.provider);
 
         // Cost outflow: shop pays the provider
@@ -263,78 +279,175 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           upsertBalanceDelta.run(providerDrawer, currency, -Math.abs(cost));
         }
 
-        // Price inflow: customer pays the shop (skip for DEBT)
-        if (price > 0 && isDrawerAffectingMethod(paidBy)) {
-          const paidByDrawer = paymentMethodToDrawerName(paidBy);
-          insertPayment.run(
-            txnId,
-            paidBy,
-            paidByDrawer,
-            currency,
-            Math.abs(price),
-            note,
-            createdBy,
-          );
-          upsertBalanceDelta.run(paidByDrawer, currency, Math.abs(price));
-        }
-
-        // DEBT: create debt_ledger entry
-        if (paidBy === "DEBT") {
-          if (!data.clientId) {
-            throw new Error("Cannot create debt without a client");
-          }
-          this.db
-            .prepare(
-              `INSERT INTO debt_ledger (
-                client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, due_date
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
-            )
-            .run(
-              data.clientId,
-              "Service Debt",
-              currency === "USD" ? price : 0,
-              currency === "LBP" ? price : 0,
+        // Price inflow: customer pays the shop
+        if (data.payments && data.payments.length > 0) {
+          // Multi-payment: iterate each payment leg
+          let hasDebt = false;
+          for (const p of data.payments) {
+            if (!isDrawerAffectingMethod(p.method)) {
+              hasDebt = true;
+              continue;
+            }
+            const paidByDrawer = paymentMethodToDrawerName(p.method);
+            insertPayment.run(
               txnId,
-              `${data.provider} service${data.itemKey ? ` [${data.itemKey}]` : ""}`,
+              p.method,
+              paidByDrawer,
+              p.currencyCode,
+              Math.abs(p.amount),
+              note,
               createdBy,
             );
+            upsertBalanceDelta.run(
+              paidByDrawer,
+              p.currencyCode,
+              Math.abs(p.amount),
+            );
+          }
+          // Create debt for any DEBT payment legs
+          if (hasDebt) {
+            if (!data.clientId) {
+              throw new Error("Cannot create debt without a client");
+            }
+            const debtAmount = data.payments
+              .filter((p) => !isDrawerAffectingMethod(p.method))
+              .reduce((sum, p) => sum + Math.abs(p.amount), 0);
+            this.db
+              .prepare(
+                `INSERT INTO debt_ledger (
+                  client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, due_date
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
+              )
+              .run(
+                data.clientId,
+                "Service Debt",
+                currency === "USD" ? debtAmount : 0,
+                currency === "LBP" ? debtAmount : 0,
+                txnId,
+                `${data.provider} service${data.itemKey ? ` [${data.itemKey}]` : ""}`,
+                createdBy,
+              );
+          }
+        } else {
+          // Single payment (backwards-compatible)
+          if (price > 0 && isDrawerAffectingMethod(paidBy)) {
+            const paidByDrawer = paymentMethodToDrawerName(paidBy);
+            insertPayment.run(
+              txnId,
+              paidBy,
+              paidByDrawer,
+              currency,
+              Math.abs(price),
+              note,
+              createdBy,
+            );
+            upsertBalanceDelta.run(paidByDrawer, currency, Math.abs(price));
+          }
+
+          // DEBT: create debt_ledger entry
+          if (paidBy === "DEBT") {
+            if (!data.clientId) {
+              throw new Error("Cannot create debt without a client");
+            }
+            this.db
+              .prepare(
+                `INSERT INTO debt_ledger (
+                  client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, due_date
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
+              )
+              .run(
+                data.clientId,
+                "Service Debt",
+                currency === "USD" ? price : 0,
+                currency === "LBP" ? price : 0,
+                txnId,
+                `${data.provider} service${data.itemKey ? ` [${data.itemKey}]` : ""}`,
+                createdBy,
+              );
+          }
         }
       } else {
-        // ─── LEGACY FLOW (OMT, WHISH, BOB, OTHER) ───
-        const drawerName = data.paidByMethod
-          ? paymentMethodToDrawerName(data.paidByMethod)
-          : this.mapDrawerName(data.provider);
-        const paymentMethod = data.paidByMethod || data.provider;
-        const sign = data.serviceType === "SEND" ? -1 : 1;
+        // ─── LEGACY FLOW (OMT, WHISH, BOB, OTHER, BINANCE without cost) ───
+        // OMT uses 3-drawer cash-reserve: payment +amount, General -amount, OMT_System +amount
+        // WHISH uses 2-drawer: payment +amount, Whish_System +amount (no General)
+        // Other providers: single drawer movement (backwards-compatible)
 
-        // Amount movement
-        if (data.amount && data.amount !== 0) {
-          const delta = sign * Math.abs(data.amount);
-          insertPayment.run(
-            txnId,
-            paymentMethod,
-            drawerName,
-            currency,
-            delta,
-            note,
-            createdBy,
-          );
-          upsertBalanceDelta.run(drawerName, currency, delta);
+        const systemDrawer = this.mapDrawerName(data.provider);
+        const isOMT = data.provider === "OMT";
+        const isWHISH = data.provider === "WHISH";
+        const useSystemDrawerFlow = isOMT || isWHISH;
+
+        if (data.serviceType === "SEND") {
+          // ─── SEND (In): customer gives money to shop, shop sends via provider ───
+          const totalAmount = Math.abs(data.amount);
+
+          if (data.payments && data.payments.length > 0) {
+            // Multi-payment mode
+            for (const p of data.payments) {
+              if (!isDrawerAffectingMethod(p.method)) continue;
+              const drawerName = paymentMethodToDrawerName(p.method);
+              insertPayment.run(txnId, p.method, drawerName, p.currencyCode, Math.abs(p.amount), note, createdBy);
+              upsertBalanceDelta.run(drawerName, p.currencyCode, Math.abs(p.amount));
+            }
+          } else {
+            // Single payment
+            const paidByDrawer = paymentMethodToDrawerName(paidBy);
+            if (isDrawerAffectingMethod(paidBy)) {
+              insertPayment.run(txnId, paidBy, paidByDrawer, currency, totalAmount, note, createdBy);
+              upsertBalanceDelta.run(paidByDrawer, currency, totalAmount);
+            }
+          }
+
+          if (useSystemDrawerFlow) {
+            // Cash reserve: General -amount (for OMT only)
+            // Always debit General for OMT SEND, regardless of payment method.
+            // For cash: General +amount (from CASH payment) then -amount here = net 0.
+            // For non-cash: General -amount = cash reserve for OMT settlement.
+            if (isOMT) {
+              insertPayment.run(txnId, "RESERVE", "General", currency, -totalAmount, "Cash reserve for settlement", createdBy);
+              upsertBalanceDelta.run("General", currency, -totalAmount);
+            }
+
+            // System drawer +amount (owed to company)
+            insertPayment.run(txnId, data.provider, systemDrawer, currency, totalAmount, `${data.provider} system debt`, createdBy);
+            upsertBalanceDelta.run(systemDrawer, currency, totalAmount);
+          }
+        } else {
+          // ─── RECEIVE (Out): provider sends money, shop gives cash to customer ───
+          const totalAmount = Math.abs(data.amount);
+
+          if (useSystemDrawerFlow) {
+            // OMT RECEIVE: General -amount, OMT_System -amount
+            // WHISH RECEIVE: Whish_System -amount (no General)
+            if (isOMT) {
+              insertPayment.run(txnId, "CASH", "General", currency, -totalAmount, "Cash paid to customer", createdBy);
+              upsertBalanceDelta.run("General", currency, -totalAmount);
+            }
+
+            // System drawer -amount (company settled)
+            insertPayment.run(txnId, data.provider, systemDrawer, currency, -totalAmount, `${data.provider} settlement received`, createdBy);
+            upsertBalanceDelta.run(systemDrawer, currency, -totalAmount);
+          } else {
+            // Other providers: single drawer, positive (money coming in)
+            const drawerName = data.paidByMethod
+              ? paymentMethodToDrawerName(data.paidByMethod)
+              : systemDrawer;
+            const paymentMethod = data.paidByMethod || data.provider;
+            insertPayment.run(txnId, paymentMethod, drawerName, currency, totalAmount, note, createdBy);
+            upsertBalanceDelta.run(drawerName, currency, totalAmount);
+          }
         }
 
-        // Commission inflow (always positive)
+        // Commission inflow (always positive, regardless of payment mode)
         if (data.commission && data.commission !== 0) {
+          const commDrawer = useSystemDrawerFlow
+            ? "General"
+            : data.paidByMethod
+              ? paymentMethodToDrawerName(data.paidByMethod)
+              : systemDrawer;
           const delta = Math.abs(data.commission);
-          insertPayment.run(
-            txnId,
-            paymentMethod,
-            drawerName,
-            currency,
-            delta,
-            "Commission",
-            createdBy,
-          );
-          upsertBalanceDelta.run(drawerName, currency, delta);
+          insertPayment.run(txnId, "COMMISSION", commDrawer, currency, delta, "Commission", createdBy);
+          upsertBalanceDelta.run(commDrawer, currency, delta);
         }
       }
 
@@ -345,9 +458,13 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         if (supplier) {
           const ledgerAmount =
             useCostPriceFlow && cost > 0 ? cost : Math.abs(data.amount);
+
+          // SEND = shop owes supplier (TOP_UP increases debt)
+          // RECEIVE = supplier settles with shop (reduces debt)
+          const isReceive = data.serviceType === "RECEIVE";
           supplierRepo.addLedgerEntry({
             supplier_id: supplier.id,
-            entry_type: "TOP_UP",
+            entry_type: isReceive ? "PAYMENT" : "TOP_UP",
             amount_usd: currency === "USD" ? ledgerAmount : 0,
             amount_lbp: currency === "LBP" ? ledgerAmount : 0,
             note: `Auto: ${data.serviceType} via ${data.provider}${data.itemKey ? ` [${data.itemKey}]` : ""}`,

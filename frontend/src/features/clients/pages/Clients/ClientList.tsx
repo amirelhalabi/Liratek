@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import logger from "../../../../utils/logger";
 import {
   Plus,
@@ -11,13 +11,12 @@ import {
 import { PageHeader, useApi } from "@liratek/ui";
 import ClientForm from "./ClientForm";
 import type { Client } from "@liratek/ui";
-import { ExportBar } from "@/shared/components/ExportBar";
+import { DataTable } from "@/shared/components/DataTable";
 
 export default function ClientList() {
   const api = useApi();
   const [clients, setClients] = useState<Client[]>([]);
   const [search, setSearch] = useState("");
-  const tableRef = useRef<HTMLTableElement>(null);
   const [loading, setLoading] = useState(true);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
@@ -123,88 +122,72 @@ export default function ClientList() {
 
       {/* Table */}
       <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden shadow-xl">
-        <ExportBar
+        <DataTable
+          columns={[
+            {
+              header: "Client Info",
+              className: "p-4 border-b border-slate-700",
+            },
+            { header: "Phone", className: "p-4 border-b border-slate-700" },
+            { header: "WhatsApp", className: "p-4 border-b border-slate-700" },
+            { header: "Notes", className: "p-4 border-b border-slate-700" },
+            {
+              header: "Actions",
+              className: "p-4 border-b border-slate-700 text-right",
+            },
+          ]}
+          data={clients}
+          loading={loading}
+          emptyMessage="No clients found."
           exportExcel
           exportPdf
           exportFilename="clients"
-          tableRef={tableRef}
-          rowCount={clients.length}
-        />
-        <table ref={tableRef} className="w-full text-left border-collapse">
-          <thead className="bg-slate-800/50 text-slate-400 text-xs uppercase font-semibold">
-            <tr>
-              <th className="p-4 border-b border-slate-700">Client Info</th>
-              <th className="p-4 border-b border-slate-700">Phone</th>
-              <th className="p-4 border-b border-slate-700">WhatsApp</th>
-              <th className="p-4 border-b border-slate-700">Notes</th>
-              <th className="p-4 border-b border-slate-700 text-right">
-                Actions
-              </th>
+          className="w-full text-left border-collapse"
+          theadClassName="bg-slate-800/50 text-slate-400 text-xs uppercase font-semibold"
+          tbodyClassName="divide-y divide-slate-700 text-sm"
+          renderRow={(client) => (
+            <tr
+              key={client.id}
+              className="hover:bg-slate-700/50 transition-colors"
+            >
+              <td className="p-4">
+                <div className="font-medium text-white">{client.full_name}</div>
+                <div className="text-slate-500 text-xs">ID: #{client.id}</div>
+              </td>
+              <td className="p-4 text-slate-300 font-mono">
+                {client.phone_number}
+              </td>
+              <td className="p-4">
+                {client.whatsapp_opt_in === 1 ? (
+                  <span className="flex items-center gap-1 text-green-400 text-xs bg-green-400/10 px-2 py-1 rounded w-fit">
+                    <MessageCircle size={12} /> Yes
+                  </span>
+                ) : (
+                  <span className="text-slate-600 text-xs">No</span>
+                )}
+              </td>
+              <td className="p-4 text-slate-400 italic">
+                {client.notes || "-"}
+              </td>
+              <td className="p-4 text-right">
+                <div className="flex items-center justify-end gap-2">
+                  <button
+                    onClick={() => handleEdit(client)}
+                    className="p-2 text-slate-400 hover:text-blue-400 hover:bg-blue-400/10 rounded transition-colors"
+                  >
+                    <Edit2 size={16} />
+                  </button>
+                  <button
+                    onClick={() => handleDelete(client.id)}
+                    className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-400/10 rounded transition-colors"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              </td>
             </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-700 text-sm">
-            {loading ? (
-              <tr>
-                <td colSpan={5} className="p-8 text-center text-slate-500">
-                  Loading clients...
-                </td>
-              </tr>
-            ) : clients.length === 0 ? (
-              <tr>
-                <td colSpan={5} className="p-8 text-center text-slate-500">
-                  No clients found.
-                </td>
-              </tr>
-            ) : (
-              clients.map((client) => (
-                <tr
-                  key={client.id}
-                  className="hover:bg-slate-700/50 transition-colors"
-                >
-                  <td className="p-4">
-                    <div className="font-medium text-white">
-                      {client.full_name}
-                    </div>
-                    <div className="text-slate-500 text-xs">
-                      ID: #{client.id}
-                    </div>
-                  </td>
-                  <td className="p-4 text-slate-300 font-mono">
-                    {client.phone_number}
-                  </td>
-                  <td className="p-4">
-                    {client.whatsapp_opt_in === 1 ? (
-                      <span className="flex items-center gap-1 text-green-400 text-xs bg-green-400/10 px-2 py-1 rounded w-fit">
-                        <MessageCircle size={12} /> Yes
-                      </span>
-                    ) : (
-                      <span className="text-slate-600 text-xs">No</span>
-                    )}
-                  </td>
-                  <td className="p-4 text-slate-400 italic">
-                    {client.notes || "-"}
-                  </td>
-                  <td className="p-4 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        onClick={() => handleEdit(client)}
-                        className="p-2 text-slate-400 hover:text-blue-400 hover:bg-blue-400/10 rounded transition-colors"
-                      >
-                        <Edit2 size={16} />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(client.id)}
-                        className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-400/10 rounded transition-colors"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+          )}
+        />
       </div>
 
       {isFormOpen && (

@@ -24,11 +24,11 @@ interface ModuleRow {
 }
 
 /** Modules whose currencies are shown per-provider via drawer lookup */
-const RECHARGE_MODULE_KEYS = new Set(["recharge", "ipec_katch", "binance"]);
+const RECHARGE_MODULE_KEYS = new Set(["recharge", "ipec_katch"]);
 
 /** Each recharge provider with its drawer name and parent module */
 const RECHARGE_PROVIDERS = [
-  { key: "MTC", label: "Touch / MTC", drawer: "MTC", module: "recharge" },
+  { key: "MTC", label: "MTC", drawer: "MTC", module: "recharge" },
   { key: "Alfa", label: "Alfa", drawer: "Alfa", module: "recharge" },
   { key: "IPEC", label: "IPEC", drawer: "IPEC", module: "ipec_katch" },
   { key: "KATCH", label: "Katch", drawer: "Katch", module: "ipec_katch" },
@@ -39,7 +39,7 @@ const RECHARGE_PROVIDERS = [
     module: "ipec_katch",
   },
   { key: "OMT_APP", label: "OMT App", drawer: "OMT_App", module: "ipec_katch" },
-  { key: "BINANCE", label: "Binance", drawer: "Binance", module: "binance" },
+  { key: "BINANCE", label: "Binance", drawer: "Binance", module: "ipec_katch" },
 ] as const;
 
 interface ProviderCurrencyRow {

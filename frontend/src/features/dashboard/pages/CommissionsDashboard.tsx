@@ -1,9 +1,9 @@
-import { useState, useEffect, lazy, Suspense, useRef } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import logger from "../../../utils/logger";
 import { TrendingUp, PieChart as PieChartIcon, Activity } from "lucide-react";
 import { PageHeader, useApi } from "@liratek/ui";
 import { useCurrencyContext } from "../../../contexts/CurrencyContext";
-import { ExportBar } from "@/shared/components/ExportBar";
+import { DataTable } from "@/shared/components/DataTable";
 
 const CommissionsChart = lazy(() => import("../components/CommissionsChart"));
 
@@ -25,7 +25,6 @@ export default function CommissionsDashboard() {
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const { formatAmount } = useCurrencyContext();
-  const tableRef = useRef<HTMLTableElement>(null);
 
   useEffect(() => {
     const fetchAnalytics = async () => {
@@ -124,40 +123,35 @@ export default function CommissionsDashboard() {
             Provider Performance (Today)
           </h3>
           <div className="flex-1 overflow-auto">
-            <ExportBar
+            <DataTable
+              columns={[
+                { header: "Provider", className: "pb-3" },
+                { header: "Transactions", className: "pb-3 text-right" },
+                { header: "Commission (USD)", className: "pb-3 text-right" },
+              ]}
+              data={data?.byProvider ?? []}
               exportExcel
               exportPdf
               exportFilename="commissions"
-              tableRef={tableRef}
-              rowCount={data?.byProvider?.length ?? 0}
-            />
-            <table ref={tableRef} className="w-full text-left">
-              <thead className="text-xs text-slate-500 uppercase tracking-wider border-b border-slate-700/50">
-                <tr>
-                  <th className="pb-3">Provider</th>
-                  <th className="pb-3 text-right">Transactions</th>
-                  <th className="pb-3 text-right">Commission (USD)</th>
+              className="w-full text-left"
+              theadClassName="text-xs text-slate-500 uppercase tracking-wider border-b border-slate-700/50"
+              tbodyClassName="divide-y divide-slate-700/30"
+              emptyMessage="No provider data"
+              renderRow={(p) => (
+                <tr
+                  key={p.provider}
+                  className="group hover:bg-slate-700/30 transition-colors"
+                >
+                  <td className="py-4 font-medium text-slate-200">
+                    {p.provider}
+                  </td>
+                  <td className="py-4 text-right text-slate-400">{p.count}</td>
+                  <td className="py-4 text-right text-emerald-400 font-mono">
+                    {formatAmount(p.commission, "USD")}
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-700/30">
-                {data?.byProvider.map((p) => (
-                  <tr
-                    key={p.provider}
-                    className="group hover:bg-slate-700/30 transition-colors"
-                  >
-                    <td className="py-4 font-medium text-slate-200">
-                      {p.provider}
-                    </td>
-                    <td className="py-4 text-right text-slate-400">
-                      {p.count}
-                    </td>
-                    <td className="py-4 text-right text-emerald-400 font-mono">
-                      {formatAmount(p.commission, "USD")}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+              )}
+            />
           </div>
         </div>
       </div>

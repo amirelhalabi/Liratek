@@ -206,23 +206,6 @@ export type ApiAdapter = {
   ) => Promise<ApiResult & { id?: number }>;
 
   // ---------------------------------------------------------------------------
-  // Binance
-  // ---------------------------------------------------------------------------
-  getBinanceHistory: (limit?: number) => Promise<any[]>;
-  getBinanceTodayStats: () => Promise<{
-    totalSent: number;
-    totalReceived: number;
-    count: number;
-  }>;
-  addBinanceTransaction: (payload: {
-    type: "SEND" | "RECEIVE";
-    amount: number;
-    currencyCode?: string;
-    description?: string;
-    clientName?: string;
-  }) => Promise<ApiResult & { id?: number }>;
-
-  // ---------------------------------------------------------------------------
   // Expenses
   // ---------------------------------------------------------------------------
   getTodayExpenses: () => Promise<any[]>;
@@ -571,4 +554,5 @@ export type ApiAdapter = {
     to: string,
     limit?: number,
   ) => Promise<any[]>;
+  getPendingProfit: (from: string, to: string) => Promise<any>;
 };

@@ -1,29 +1,105 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import logger from "../../../../utils/logger";
 import {
   Send,
   ArrowDownToLine,
-  Receipt,
   History,
   TrendingUp,
   Calendar,
   User,
   Hash,
+  Phone,
   RefreshCw,
   AlertTriangle,
 } from "lucide-react";
 import { useSession } from "../../../sessions/context/SessionContext";
 import { usePaymentMethods } from "../../../../hooks/usePaymentMethods";
 import { Select, useApi } from "@liratek/ui";
-import { ExportBar } from "@/shared/components/ExportBar";
+import { DataTable } from "@/shared/components/DataTable";
 
 type Provider = "OMT" | "WHISH";
-type ServiceType = "SEND" | "RECEIVE" | "BILL_PAYMENT";
+type ServiceType = "SEND" | "RECEIVE";
+type OmtServiceType =
+  | "BILL_PAYMENT"
+  | "CASH_TO_BUSINESS"
+  | "MINISTRY_OF_INTERIOR"
+  | "CASH_OUT"
+  | "MINISTRY_OF_FINANCE"
+  | "INTRA"
+  | "ONLINE_BROKERAGE"
+  | "WESTERN_UNION";
+
+const OMT_SERVICE_OPTIONS: { value: OmtServiceType; label: string }[] = [
+  { value: "BILL_PAYMENT", label: "Bill Payment" },
+  { value: "CASH_TO_BUSINESS", label: "Cash To Business" },
+  { value: "MINISTRY_OF_INTERIOR", label: "Ministry of Interior" },
+  { value: "CASH_OUT", label: "Cash Out" },
+  { value: "MINISTRY_OF_FINANCE", label: "Ministry of Finance" },
+  { value: "INTRA", label: "INTRA" },
+  { value: "ONLINE_BROKERAGE", label: "Online Brokerage" },
+  { value: "WESTERN_UNION", label: "Western Union" },
+];
+
+const PROVIDERS: Provider[] = ["OMT", "WHISH"];
+const SERVICE_TYPES: ServiceType[] = ["SEND", "RECEIVE"];
 
 const PROVIDER_DEFAULT_METHOD: Record<Provider, string> = {
-  OMT: "OMT",
-  WHISH: "WHISH",
+  OMT: "CASH",
+  WHISH: "CASH",
 };
+
+const PROVIDER_COLORS: Record<
+  Provider,
+  { bg: string; activeBg: string; text: string }
+> = {
+  OMT: {
+    bg: "bg-[#ffde00]/10",
+    activeBg: "bg-[#ffde00]",
+    text: "text-[#ffde00]",
+  },
+  WHISH: {
+    bg: "bg-[#ff0a46]/10",
+    activeBg: "bg-[#ff0a46]",
+    text: "text-[#ff0a46]",
+  },
+};
+
+const PROVIDER_BADGE_COLORS: Record<Provider, string> = {
+  OMT: "bg-[#ffde00]/10 text-[#ffde00]",
+  WHISH: "bg-[#ff0a46]/10 text-[#ff0a46]",
+};
+
+const SERVICE_TYPE_ICONS: Record<ServiceType, typeof Send> = {
+  SEND: ArrowDownToLine,
+  RECEIVE: Send,
+};
+
+const SERVICE_TYPE_LABELS: Record<ServiceType, string> = {
+  SEND: "Money In",
+  RECEIVE: "Money Out",
+};
+
+const INPUT_CLASS =
+  "w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-violet-500 transition-colors";
+
+function getBalanceColor(value: number): string {
+  if (value > 0) return "text-red-400";
+  if (value < 0) return "text-emerald-400";
+  return "text-slate-500";
+}
+
+function getBalanceLabel(value: number, provider: string): string {
+  if (value > 0) return `You owe ${provider}`;
+  if (value < 0) return `${provider} owes you`;
+  return "Settled";
+}
+
+function formatAmount(amount: number, currency: string): string {
+  if (currency === "USD") return `$${amount.toFixed(2)}`;
+  if (currency === "LBP") return `${amount.toLocaleString()} LBP`;
+  if (currency === "EUR") return `\u20ac${amount.toFixed(2)}`;
+  return `${amount} ${currency}`;
+}
 
 interface Analytics {
   today: { commission: number; count: number };
@@ -45,6 +121,8 @@ interface Transaction {
   commission: number;
   client_name?: string;
   reference_number?: string;
+  phone_number?: string;
+  omt_service_type?: OmtServiceType;
   note?: string;
   created_at: string;
 }
@@ -58,7 +136,6 @@ export default function Services() {
   const api = useApi();
   const { activeSession, linkTransaction } = useSession();
   const { drawerAffectingMethods } = usePaymentMethods();
-  const tableRef = useRef<HTMLTableElement>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [analytics, setAnalytics] = useState<Analytics>({
     today: { commission: 0, count: 0 },
@@ -71,13 +148,15 @@ export default function Services() {
 
   // Form State
   const [provider, setProvider] = useState<Provider>("OMT");
-  const [paidByMethod, setPaidByMethod] = useState("OMT");
+  const [paidByMethod, setPaidByMethod] = useState("CASH");
   const [serviceType, setServiceType] = useState<ServiceType>("SEND");
   const [amount, setAmount] = useState<string>("");
   const currency = "USD"; // Fixed to USD only for now
   const [commission, setCommission] = useState<string>("");
   const [clientName, setClientName] = useState("");
   const [referenceNumber, setReferenceNumber] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [omtServiceType, setOmtServiceType] = useState<OmtServiceType | "">("INTRA");
   const [note, setNote] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -140,6 +219,8 @@ export default function Services() {
         commission: parseFloat(commission) || 0,
         ...(clientName ? { clientName } : {}),
         ...(referenceNumber ? { referenceNumber } : {}),
+        ...(phoneNumber ? { phoneNumber } : {}),
+        ...(provider === "OMT" && omtServiceType ? { omtServiceType } : {}),
         note: note || `${provider} - ${serviceType}`,
         paidByMethod,
       });
@@ -165,6 +246,8 @@ export default function Services() {
         setCommission("");
         setClientName("");
         setReferenceNumber("");
+        setPhoneNumber("");
+        setOmtServiceType("INTRA");
         setNote("");
         loadData();
       } else {
@@ -176,44 +259,6 @@ export default function Services() {
     } finally {
       setIsSubmitting(false);
     }
-  };
-
-  const providerColors: Record<
-    Provider,
-    { bg: string; activeBg: string; text: string }
-  > = {
-    OMT: {
-      bg: "bg-[#ffde00]/10",
-      activeBg: "bg-[#ffde00]",
-      text: "text-[#ffde00]",
-    },
-    WHISH: {
-      bg: "bg-[#ff0a46]/10",
-      activeBg: "bg-[#ff0a46]",
-      text: "text-[#ff0a46]",
-    },
-  };
-
-  const providerBadgeColors: Record<Provider, string> = {
-    OMT: "bg-[#ffde00]/10 text-[#ffde00]",
-    WHISH: "bg-[#ff0a46]/10 text-[#ff0a46]",
-  };
-
-  const serviceTypeIcons: Record<ServiceType, typeof Send> = {
-    SEND: Send,
-    RECEIVE: ArrowDownToLine,
-    BILL_PAYMENT: Receipt,
-  };
-
-  const formatAmount = (amount: number, currency: string) => {
-    if (currency === "USD") {
-      return `$${amount.toFixed(2)}`;
-    } else if (currency === "LBP") {
-      return `${amount.toLocaleString()} LBP`;
-    } else if (currency === "EUR") {
-      return `€${amount.toFixed(2)}`;
-    }
-    return `${amount} ${currency}`;
   };
 
   return (
@@ -259,66 +304,50 @@ export default function Services() {
           </p>
         </div>
 
-        {/* Provider breakdown - Show up to 2 */}
-        {analytics.byProvider.slice(0, 2).map((p) => (
-          <div
-            key={p.provider}
-            className="bg-slate-800 p-5 rounded-xl border border-slate-700/50 shadow-lg hover:border-slate-600 transition-colors"
-          >
-            <div className="flex items-center justify-between mb-3">
-              <div
-                className={`p-2 rounded-lg ${providerColors[p.provider as Provider].bg}`}
-              >
-                <Send
-                  className={`w-5 h-5 ${providerColors[p.provider as Provider].text}`}
-                />
-              </div>
-            </div>
-            <h3 className="text-slate-500 text-xs font-medium uppercase tracking-wider">
-              {p.provider} Today
-            </h3>
-            <p className="text-2xl font-bold text-white mt-1">
-              ${p.commission.toFixed(2)}
-            </p>
-            <p className="text-xs text-slate-500 mt-1">
-              {p.count} transactions
-            </p>
-          </div>
-        ))}
-      </div>
-
-      {/* Owed to Suppliers */}
-      <div className="grid grid-cols-2 gap-4">
-        {(["OMT", "WHISH"] as Provider[]).map((p) => {
+        {/* Settlement cards — same card style */}
+        {PROVIDERS.map((p) => {
           const owed = owedByProvider[p];
-          const hasDebt = owed && (owed.usd !== 0 || owed.lbp !== 0);
+          const usd = owed?.usd ?? 0;
+          const lbp = owed?.lbp ?? 0;
+          const hasBalance = usd !== 0 || lbp !== 0;
+          const usdLabel = getBalanceLabel(usd, p);
+          const lbpLabel = getBalanceLabel(lbp, p);
+          const usdColor = getBalanceColor(usd);
+          const lbpColor = getBalanceColor(lbp);
+
           return (
             <div
               key={p}
-              className="bg-slate-800 border border-slate-700/50 rounded-xl p-4 flex items-center gap-4"
+              className="bg-slate-800 p-5 rounded-xl border border-slate-700/50 shadow-lg hover:border-slate-600 transition-colors"
             >
-              <div className={`p-2 rounded-lg ${providerColors[p].bg}`}>
-                <AlertTriangle
-                  className={`w-5 h-5 ${hasDebt ? "text-red-400" : "text-slate-500"}`}
-                />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-xs text-slate-400 font-medium uppercase tracking-wider">
-                  Owed to {p}
-                </div>
-                <div className="flex items-baseline gap-3 mt-1">
-                  <span
-                    className={`text-lg font-bold font-mono ${hasDebt ? "text-red-400" : "text-slate-500"}`}
-                  >
-                    ${(owed?.usd ?? 0).toFixed(2)}
-                  </span>
-                  <span
-                    className={`text-sm font-mono ${hasDebt ? "text-red-400/70" : "text-slate-600"}`}
-                  >
-                    {(owed?.lbp ?? 0).toLocaleString()} LBP
-                  </span>
+              <div className="flex items-center justify-between mb-3">
+                <div className={`p-2 rounded-lg ${PROVIDER_COLORS[p].bg}`}>
+                  <AlertTriangle
+                    className={`w-5 h-5 ${hasBalance ? PROVIDER_COLORS[p].text : "text-slate-500"}`}
+                  />
                 </div>
               </div>
+              <h3 className="text-slate-500 text-xs font-medium uppercase tracking-wider">
+                {p} Settlement
+              </h3>
+              <div className="mt-1 flex items-baseline gap-2">
+                <span className={`text-2xl font-bold font-mono ${usdColor}`}>
+                  ${Math.abs(usd).toFixed(2)}
+                </span>
+              </div>
+              <p
+                className={`text-[10px] uppercase tracking-wider mt-0.5 ${usdColor} opacity-75`}
+              >
+                {usdLabel}
+              </p>
+              {lbp !== 0 && (
+                <p className={`text-xs font-mono mt-1 ${lbpColor}`}>
+                  {Math.abs(lbp).toLocaleString()} LBP
+                  <span className={`text-[10px] ml-1 opacity-75`}>
+                    ({lbpLabel})
+                  </span>
+                </p>
+              )}
             </div>
           );
         })}
@@ -329,7 +358,7 @@ export default function Services() {
         <div className="w-1/3 min-w-[380px] bg-slate-800 rounded-xl border border-slate-700/50 shadow-lg p-4 flex flex-col">
           {/* Provider Selector */}
           <div className="flex gap-2 p-1 bg-slate-900 rounded-xl mb-6">
-            {(["OMT", "WHISH"] as Provider[]).map((p) => (
+            {PROVIDERS.map((p) => (
               <button
                 key={p}
                 onClick={() => {
@@ -338,7 +367,7 @@ export default function Services() {
                 }}
                 className={`flex-1 py-2.5 rounded-lg font-bold text-sm transition-all ${
                   provider === p
-                    ? `${providerColors[p].activeBg} ${p === "OMT" ? "text-black" : "text-white"} shadow-lg`
+                    ? `${PROVIDER_COLORS[p].activeBg} ${p === "OMT" ? "text-black" : "text-white"} shadow-lg`
                     : "text-slate-400 hover:text-white hover:bg-slate-800"
                 }`}
               >
@@ -349,30 +378,26 @@ export default function Services() {
 
           {/* Service Type */}
           <div className="flex gap-2 mb-6">
-            {(["SEND", "RECEIVE", "BILL_PAYMENT"] as ServiceType[]).map(
-              (type) => {
-                const Icon = serviceTypeIcons[type];
-                return (
-                  <button
-                    key={type}
-                    onClick={() => setServiceType(type)}
-                    className={`flex-1 py-3 rounded-lg font-medium text-sm transition-all flex flex-col items-center gap-1 ${
-                      serviceType === type
-                        ? "bg-violet-600 text-white shadow-lg shadow-violet-900/20"
-                        : "bg-slate-700/50 text-slate-400 hover:text-white hover:bg-slate-700"
-                    }`}
-                  >
-                    <Icon size={18} />
-                    {type === "BILL_PAYMENT"
-                      ? "Bill"
-                      : type.charAt(0) + type.slice(1).toLowerCase()}
-                  </button>
-                );
-              },
-            )}
+            {SERVICE_TYPES.map((type) => {
+              const Icon = SERVICE_TYPE_ICONS[type];
+              return (
+                <button
+                  key={type}
+                  onClick={() => setServiceType(type)}
+                  className={`flex-1 py-3 rounded-lg font-medium text-sm transition-all flex flex-col items-center gap-1 ${
+                    serviceType === type
+                      ? "bg-violet-600 text-white shadow-lg shadow-violet-900/20"
+                      : "bg-slate-700/50 text-slate-400 hover:text-white hover:bg-slate-700"
+                  }`}
+                >
+                  <Icon size={18} />
+                  {SERVICE_TYPE_LABELS[type]}
+                </button>
+              );
+            })}
           </div>
 
-          <div className="space-y-4 flex-1">
+          <div className="space-y-4 flex-1 min-h-0 overflow-y-auto">
             {/* Amount Field (USD Only) */}
             <div className="grid grid-cols-3 gap-3">
               <div className="col-span-2">
@@ -387,7 +412,7 @@ export default function Services() {
                   type="number"
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-violet-500 transition-colors"
+                  className={INPUT_CLASS}
                   placeholder="0.00"
                   step="0.01"
                 />
@@ -461,27 +486,65 @@ export default function Services() {
                   type="text"
                   value={clientName}
                   onChange={(e) => setClientName(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-violet-500 transition-colors"
+                  className={INPUT_CLASS}
                   placeholder="Optional"
                 />
               </div>
               <div>
                 <label
-                  htmlFor="service-reference"
+                  htmlFor="service-phone"
                   className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
                 >
-                  <Hash size={12} /> Reference #
+                  <Phone size={12} /> Phone #
                 </label>
                 <input
-                  id="service-reference"
-                  type="text"
-                  value={referenceNumber}
-                  onChange={(e) => setReferenceNumber(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-violet-500 transition-colors"
+                  id="service-phone"
+                  type="tel"
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                  className={INPUT_CLASS}
                   placeholder="Optional"
                 />
               </div>
             </div>
+
+            {/* Reference # */}
+            <div>
+              <label
+                htmlFor="service-reference"
+                className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+              >
+                <Hash size={12} /> Reference #
+              </label>
+              <input
+                id="service-reference"
+                type="text"
+                value={referenceNumber}
+                onChange={(e) => setReferenceNumber(e.target.value)}
+                className={INPUT_CLASS}
+                placeholder="Optional"
+              />
+            </div>
+
+            {/* OMT Service Type - Only shown for OMT provider */}
+            {provider === "OMT" && (
+              <div>
+                <label
+                  htmlFor="service-omt-type"
+                  className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
+                >
+                  OMT Service
+                </label>
+                <Select
+                  value={omtServiceType}
+                  onChange={(v) => setOmtServiceType(v as OmtServiceType | "")}
+                  options={[
+                    { value: "", label: "— Select service —" },
+                    ...OMT_SERVICE_OPTIONS,
+                  ]}
+                />
+              </div>
+            )}
           </div>
 
           {/* Submit Button - Matching Exchange style */}
@@ -491,16 +554,17 @@ export default function Services() {
             className={`w-full mt-6 py-4 rounded-xl font-bold text-lg shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2 ${
               isSubmitting
                 ? "bg-slate-600 text-slate-400 cursor-not-allowed"
-                : `${providerColors[provider].activeBg} text-white hover:opacity-90`
+                : `${PROVIDER_COLORS[provider].activeBg} text-white hover:opacity-90`
             }`}
           >
             {isSubmitting ? (
               "Processing..."
             ) : (
               <>
-                {serviceType === "SEND" && <Send size={20} />}
-                {serviceType === "RECEIVE" && <ArrowDownToLine size={20} />}
-                {serviceType === "BILL_PAYMENT" && <Receipt size={20} />}
+                {(() => {
+                  const Icon = SERVICE_TYPE_ICONS[serviceType];
+                  return <Icon size={20} />;
+                })()}
                 Record Transaction
               </>
             )}
@@ -523,83 +587,83 @@ export default function Services() {
           </div>
 
           <div className="flex-1 min-h-0 overflow-auto">
-            <ExportBar
+            <DataTable<Transaction>
+              columns={[
+                { header: "Provider", className: "px-6 py-3" },
+                { header: "Type", className: "px-6 py-3" },
+                { header: "Amount", className: "px-6 py-3" },
+                { header: "Commission", className: "px-6 py-3" },
+                { header: "Client / Phone", className: "px-6 py-3" },
+                { header: "Time", className: "px-6 py-3" },
+              ]}
+              data={transactions}
               exportExcel
               exportPdf
               exportFilename="services-history"
-              tableRef={tableRef}
-              rowCount={transactions.length}
-            />
-            <table ref={tableRef} className="w-full">
-              <thead className="bg-slate-900/50 text-left text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0">
-                <tr>
-                  <th className="px-6 py-3">Provider</th>
-                  <th className="px-6 py-3">Type</th>
-                  <th className="px-6 py-3">Amount</th>
-                  <th className="px-6 py-3">Commission</th>
-                  <th className="px-6 py-3">Client</th>
-                  <th className="px-6 py-3">Time</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-700/50">
-                {transactions.map((tx) => {
-                  const Icon = serviceTypeIcons[tx.service_type];
-                  return (
-                    <tr
-                      key={tx.id}
-                      className="hover:bg-slate-700/20 transition-colors"
-                    >
-                      <td className="px-6 py-4">
-                        <span
-                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${providerBadgeColors[tx.provider]}`}
-                        >
-                          {tx.provider}
+              className="w-full"
+              theadClassName="bg-slate-900/50 text-left text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0"
+              tbodyClassName="divide-y divide-slate-700/50"
+              emptyMessage="No transactions yet today."
+              renderRow={(tx) => {
+                const Icon = SERVICE_TYPE_ICONS[tx.service_type];
+                const omtLabel = tx.omt_service_type
+                  ? OMT_SERVICE_OPTIONS.find(
+                      (o) => o.value === tx.omt_service_type,
+                    )?.label
+                  : null;
+                return (
+                  <tr
+                    key={tx.id}
+                    className="hover:bg-slate-700/20 transition-colors"
+                  >
+                    <td className="px-6 py-4">
+                      <span
+                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${PROVIDER_BADGE_COLORS[tx.provider]}`}
+                      >
+                        {tx.provider}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-2 text-slate-300">
+                        <Icon size={14} />
+                        <span className="text-sm">
+                          {SERVICE_TYPE_LABELS[tx.service_type]}
                         </span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-2 text-slate-300">
-                          <Icon size={14} />
-                          <span className="text-sm">
-                            {tx.service_type === "BILL_PAYMENT"
-                              ? "Bill"
-                              : tx.service_type.charAt(0) +
-                                tx.service_type.slice(1).toLowerCase()}
-                          </span>
+                      </div>
+                      {omtLabel && (
+                        <div className="text-xs text-slate-500 mt-0.5">
+                          {omtLabel}
                         </div>
-                      </td>
-                      <td className="px-6 py-4 text-sm font-medium text-white">
-                        {formatAmount(tx.amount, tx.currency)}
-                      </td>
-                      <td className="px-6 py-4 text-sm font-bold text-emerald-400">
-                        ${tx.commission.toFixed(2)}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-slate-300">
-                        {tx.client_name || "-"}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-slate-400">
-                        {new Date(tx.created_at).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                        <div className="text-xs text-slate-500">
-                          {new Date(tx.created_at).toLocaleDateString()}
+                      )}
+                    </td>
+                    <td className="px-6 py-4 text-sm font-medium text-white">
+                      {formatAmount(tx.amount, tx.currency)}
+                    </td>
+                    <td className="px-6 py-4 text-sm font-bold text-emerald-400">
+                      ${tx.commission.toFixed(2)}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-slate-300">
+                      {tx.client_name || "-"}
+                      {tx.phone_number && (
+                        <div className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
+                          <Phone size={10} />
+                          {tx.phone_number}
                         </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-                {transactions.length === 0 && (
-                  <tr>
-                    <td
-                      colSpan={6}
-                      className="px-6 py-8 text-center text-slate-500 text-sm"
-                    >
-                      No transactions yet today.
+                      )}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-slate-400">
+                      {new Date(tx.created_at).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                      <div className="text-xs text-slate-500">
+                        {new Date(tx.created_at).toLocaleDateString()}
+                      </div>
                     </td>
                   </tr>
-                )}
-              </tbody>
-            </table>
+                );
+              }}
+            />
           </div>
         </div>
       </div>

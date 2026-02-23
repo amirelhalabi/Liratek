@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo } from "react";
 import logger from "../../../../utils/logger";
 import {
   Search,
@@ -23,7 +23,7 @@ import {
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { useExchangeRate } from "../../../../hooks/useExchangeRate";
 import { usePaymentMethods } from "../../../../hooks/usePaymentMethods";
-import { ExportBar } from "@/shared/components/ExportBar";
+import { DataTable } from "@/shared/components/DataTable";
 import { getDebtAging } from "../../../../api/backendApi";
 
 type DebtAgingBuckets = {
@@ -43,10 +43,6 @@ export default function Debts() {
   const { rate: EXCHANGE_RATE } = useExchangeRate("USD", "LBP");
   const { drawerAffectingMethods } = usePaymentMethods();
 
-  // Table refs for export
-  const debtTableRef = useRef<HTMLTableElement>(null);
-  const paymentTableRef = useRef<HTMLTableElement>(null);
-  const saleItemsTableRef = useRef<HTMLTableElement>(null);
   type DebtHistoryItem = DebtLedgerEntity & {
     itemNames?: string[];
   };
@@ -583,17 +579,10 @@ export default function Debts() {
                     </span>
                   </div>
                   <div className="flex-1 overflow-y-auto">
-                    <ExportBar
-                      exportExcel
-                      exportPdf
-                      exportFilename="debt-purchases"
-                      tableRef={debtTableRef}
-                      rowCount={debtEntries.length}
-                    />
-                    <table ref={debtTableRef} className="w-full">
-                      <thead className="sticky top-0 bg-slate-900/95 backdrop-blur-sm text-left text-slate-400 border-b border-slate-700/50">
-                        <tr>
-                          <th className="px-4 py-2 text-xs font-medium">
+                    <DataTable
+                      columns={[
+                        {
+                          header: (
                             <button
                               onClick={toggleDateSort}
                               className="flex items-center gap-1 hover:text-slate-200 transition-colors"
@@ -611,109 +600,108 @@ export default function Debts() {
                                 />
                               )}
                             </button>
-                          </th>
-                          <th className="px-3 py-2 text-xs font-medium">
-                            Note
-                          </th>
-                          <th className="px-3 py-2 text-xs font-medium text-right">
-                            USD
-                          </th>
-                          <th className="px-3 py-2 text-xs font-medium text-right">
-                            LBP
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-700/30">
-                        {debtEntries.map((item) => (
-                          <tr key={item.id} className="hover:bg-slate-800/50">
-                            <td className="px-4 py-2.5 text-slate-300 text-sm whitespace-nowrap">
-                              {new Date(item.created_at).toLocaleDateString()}
-                              <div className="text-[10px] text-slate-500">
-                                {new Date(item.created_at).toLocaleTimeString()}
-                              </div>
-                            </td>
-                            <td className="px-3 py-2.5 text-slate-400 text-sm">
-                              <div className="flex flex-col gap-1">
-                                {item.transaction_type &&
-                                  item.transaction_type !== "Sale Debt" && (
-                                    <span
-                                      className={`inline-flex items-center self-start px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                                        item.transaction_type === "Service Debt"
-                                          ? "bg-sky-400/10 text-sky-400"
+                          ),
+                          className: "px-4 py-2 text-xs font-medium",
+                        },
+                        {
+                          header: "Note",
+                          className: "px-3 py-2 text-xs font-medium",
+                        },
+                        {
+                          header: "USD",
+                          className: "px-3 py-2 text-xs font-medium text-right",
+                        },
+                        {
+                          header: "LBP",
+                          className: "px-3 py-2 text-xs font-medium text-right",
+                        },
+                      ]}
+                      data={debtEntries}
+                      exportExcel
+                      exportPdf
+                      exportFilename="debt-purchases"
+                      className="w-full"
+                      theadClassName="sticky top-0 bg-slate-900/95 backdrop-blur-sm text-left text-slate-400 border-b border-slate-700/50"
+                      tbodyClassName="divide-y divide-slate-700/30"
+                      emptyMessage="No purchases on debt"
+                      renderRow={(item) => (
+                        <tr key={item.id} className="hover:bg-slate-800/50">
+                          <td className="px-4 py-2.5 text-slate-300 text-sm whitespace-nowrap">
+                            {new Date(item.created_at).toLocaleDateString()}
+                            <div className="text-[10px] text-slate-500">
+                              {new Date(item.created_at).toLocaleTimeString()}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2.5 text-slate-400 text-sm">
+                            <div className="flex flex-col gap-1">
+                              {item.transaction_type &&
+                                item.transaction_type !== "Sale Debt" && (
+                                  <span
+                                    className={`inline-flex items-center self-start px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                      item.transaction_type === "Service Debt"
+                                        ? "bg-sky-400/10 text-sky-400"
+                                        : item.transaction_type ===
+                                            "Recharge Debt"
+                                          ? "bg-cyan-400/10 text-cyan-400"
                                           : item.transaction_type ===
-                                              "Recharge Debt"
-                                            ? "bg-cyan-400/10 text-cyan-400"
-                                            : item.transaction_type ===
-                                                "Custom Service Debt"
-                                              ? "bg-teal-400/10 text-teal-400"
-                                              : "bg-slate-700 text-slate-400"
-                                      }`}
-                                    >
-                                      {item.transaction_type ===
-                                        "Custom Service Debt" && (
-                                        <Briefcase size={10} className="mr-1" />
-                                      )}
-                                      {item.transaction_type}
-                                    </span>
-                                  )}
-                                <div className="flex items-center gap-1.5">
-                                  {item.itemNames &&
-                                  item.itemNames.length > 0 ? (
-                                    <div className="flex flex-col gap-0.5 text-xs leading-tight max-w-[140px]">
-                                      {item.itemNames.map((name) => (
-                                        <div key={name} className="truncate">
-                                          • {name}
-                                        </div>
-                                      ))}
-                                    </div>
-                                  ) : (
-                                    <span className="truncate max-w-[120px]">
-                                      {item.note || "-"}
-                                    </span>
-                                  )}
-                                  {item.transaction_id &&
-                                    item.transaction_type === "Sale Debt" && (
-                                      <button
-                                        onClick={() =>
-                                          loadSaleDetails(item.transaction_id!)
-                                        }
-                                        className="shrink-0 p-1 rounded bg-violet-500/10 hover:bg-violet-500/20 text-violet-400 transition-all"
-                                        title="View Sale Details"
-                                      >
-                                        <Eye size={13} />
-                                      </button>
+                                              "Custom Service Debt"
+                                            ? "bg-teal-400/10 text-teal-400"
+                                            : "bg-slate-700 text-slate-400"
+                                    }`}
+                                  >
+                                    {item.transaction_type ===
+                                      "Custom Service Debt" && (
+                                      <Briefcase size={10} className="mr-1" />
                                     )}
-                                </div>
+                                    {item.transaction_type}
+                                  </span>
+                                )}
+                              <div className="flex items-center gap-1.5">
+                                {item.itemNames && item.itemNames.length > 0 ? (
+                                  <div className="flex flex-col gap-0.5 text-xs leading-tight max-w-[140px]">
+                                    {item.itemNames.map((name) => (
+                                      <div key={name} className="truncate">
+                                        • {name}
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <span className="truncate max-w-[120px]">
+                                    {item.note || "-"}
+                                  </span>
+                                )}
+                                {item.transaction_id &&
+                                  item.transaction_type === "Sale Debt" && (
+                                    <button
+                                      onClick={() =>
+                                        loadSaleDetails(item.transaction_id!)
+                                      }
+                                      className="shrink-0 p-1 rounded bg-violet-500/10 hover:bg-violet-500/20 text-violet-400 transition-all"
+                                      title="View Sale Details"
+                                    >
+                                      <Eye size={13} />
+                                    </button>
+                                  )}
                               </div>
-                            </td>
-                            <td className="px-3 py-2.5 text-right font-mono text-sm font-bold text-red-400">
-                              {item.amount_usd > 0 ? (
-                                `$${item.amount_usd.toFixed(2)}`
-                              ) : (
-                                <span className="text-slate-600">-</span>
-                              )}
-                            </td>
-                            <td className="px-3 py-2.5 text-right font-mono text-sm font-bold text-red-400">
-                              {item.amount_lbp > 0 ? (
-                                `${item.amount_lbp.toLocaleString()}`
-                              ) : (
-                                <span className="text-slate-600">-</span>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                        {debtEntries.length === 0 && (
-                          <tr>
-                            <td
-                              colSpan={4}
-                              className="px-4 py-8 text-center text-slate-500 text-sm"
-                            >
-                              No purchases on debt
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
+                            </div>
+                          </td>
+                          <td className="px-3 py-2.5 text-right font-mono text-sm font-bold text-red-400">
+                            {item.amount_usd > 0 ? (
+                              `$${item.amount_usd.toFixed(2)}`
+                            ) : (
+                              <span className="text-slate-600">-</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2.5 text-right font-mono text-sm font-bold text-red-400">
+                            {item.amount_lbp > 0 ? (
+                              `${item.amount_lbp.toLocaleString()}`
+                            ) : (
+                              <span className="text-slate-600">-</span>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    />
                   </div>
                   {/* Footer total */}
                   <div className="px-4 py-2.5 border-t border-slate-700/50 bg-slate-900/80 flex justify-between items-center">
@@ -744,17 +732,10 @@ export default function Debts() {
                     </span>
                   </div>
                   <div className="flex-1 overflow-y-auto">
-                    <ExportBar
-                      exportExcel
-                      exportPdf
-                      exportFilename="debt-payments"
-                      tableRef={paymentTableRef}
-                      rowCount={paymentEntries.length}
-                    />
-                    <table ref={paymentTableRef} className="w-full">
-                      <thead className="sticky top-0 bg-slate-900/95 backdrop-blur-sm text-left text-slate-400 border-b border-slate-700/50">
-                        <tr>
-                          <th className="px-4 py-2 text-xs font-medium">
+                    <DataTable
+                      columns={[
+                        {
+                          header: (
                             <button
                               onClick={toggleDateSort}
                               className="flex items-center gap-1 hover:text-slate-200 transition-colors"
@@ -772,58 +753,58 @@ export default function Debts() {
                                 />
                               )}
                             </button>
-                          </th>
-                          <th className="px-3 py-2 text-xs font-medium">
-                            Note
-                          </th>
-                          <th className="px-3 py-2 text-xs font-medium text-right">
-                            USD
-                          </th>
-                          <th className="px-3 py-2 text-xs font-medium text-right">
-                            LBP
-                          </th>
+                          ),
+                          className: "px-4 py-2 text-xs font-medium",
+                        },
+                        {
+                          header: "Note",
+                          className: "px-3 py-2 text-xs font-medium",
+                        },
+                        {
+                          header: "USD",
+                          className: "px-3 py-2 text-xs font-medium text-right",
+                        },
+                        {
+                          header: "LBP",
+                          className: "px-3 py-2 text-xs font-medium text-right",
+                        },
+                      ]}
+                      data={paymentEntries}
+                      exportExcel
+                      exportPdf
+                      exportFilename="debt-payments"
+                      className="w-full"
+                      theadClassName="sticky top-0 bg-slate-900/95 backdrop-blur-sm text-left text-slate-400 border-b border-slate-700/50"
+                      tbodyClassName="divide-y divide-slate-700/30"
+                      emptyMessage="No payments recorded"
+                      renderRow={(item) => (
+                        <tr key={item.id} className="hover:bg-slate-800/50">
+                          <td className="px-4 py-2.5 text-slate-300 text-sm whitespace-nowrap">
+                            {new Date(item.created_at).toLocaleDateString()}
+                            <div className="text-[10px] text-slate-500">
+                              {new Date(item.created_at).toLocaleTimeString()}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2.5 text-slate-400 text-sm">
+                            {item.note || "-"}
+                          </td>
+                          <td className="px-3 py-2.5 text-right font-mono text-sm font-bold text-emerald-400">
+                            {Math.abs(item.amount_usd) > 0 ? (
+                              `$${Math.abs(item.amount_usd).toFixed(2)}`
+                            ) : (
+                              <span className="text-slate-600">-</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2.5 text-right font-mono text-sm font-bold text-emerald-400">
+                            {Math.abs(item.amount_lbp) > 0 ? (
+                              `${Math.abs(item.amount_lbp).toLocaleString()}`
+                            ) : (
+                              <span className="text-slate-600">-</span>
+                            )}
+                          </td>
                         </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-700/30">
-                        {paymentEntries.map((item) => (
-                          <tr key={item.id} className="hover:bg-slate-800/50">
-                            <td className="px-4 py-2.5 text-slate-300 text-sm whitespace-nowrap">
-                              {new Date(item.created_at).toLocaleDateString()}
-                              <div className="text-[10px] text-slate-500">
-                                {new Date(item.created_at).toLocaleTimeString()}
-                              </div>
-                            </td>
-                            <td className="px-3 py-2.5 text-slate-400 text-sm">
-                              {item.note || "-"}
-                            </td>
-                            <td className="px-3 py-2.5 text-right font-mono text-sm font-bold text-emerald-400">
-                              {Math.abs(item.amount_usd) > 0 ? (
-                                `$${Math.abs(item.amount_usd).toFixed(2)}`
-                              ) : (
-                                <span className="text-slate-600">-</span>
-                              )}
-                            </td>
-                            <td className="px-3 py-2.5 text-right font-mono text-sm font-bold text-emerald-400">
-                              {Math.abs(item.amount_lbp) > 0 ? (
-                                `${Math.abs(item.amount_lbp).toLocaleString()}`
-                              ) : (
-                                <span className="text-slate-600">-</span>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                        {paymentEntries.length === 0 && (
-                          <tr>
-                            <td
-                              colSpan={4}
-                              className="px-4 py-8 text-center text-slate-500 text-sm"
-                            >
-                              No payments recorded
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
+                      )}
+                    />
                   </div>
                   {/* Footer total */}
                   <div className="px-4 py-2.5 border-t border-slate-700/50 bg-slate-900/80 flex justify-between items-center">
@@ -1022,47 +1003,47 @@ export default function Debts() {
               <div>
                 <h3 className="text-lg font-semibold text-white mb-3">Items</h3>
                 <div className="overflow-x-auto">
-                  <ExportBar
+                  <DataTable
+                    columns={[
+                      {
+                        header: "Product",
+                        className: "pb-3 text-sm font-medium",
+                      },
+                      {
+                        header: "Qty",
+                        className: "pb-3 text-sm font-medium text-center",
+                      },
+                      {
+                        header: "Price",
+                        className: "pb-3 text-sm font-medium text-right",
+                      },
+                      {
+                        header: "Subtotal",
+                        className: "pb-3 text-sm font-medium text-right",
+                      },
+                    ]}
+                    data={selectedSale.items}
                     exportExcel
                     exportPdf
                     exportFilename="sale-items"
-                    tableRef={saleItemsTableRef}
-                    rowCount={selectedSale?.items?.length ?? 0}
-                  />
-                  <table ref={saleItemsTableRef} className="w-full">
-                    <thead className="border-b border-slate-700">
-                      <tr className="text-left text-slate-400">
-                        <th className="pb-3 text-sm font-medium">Product</th>
-                        <th className="pb-3 text-sm font-medium text-center">
-                          Qty
-                        </th>
-                        <th className="pb-3 text-sm font-medium text-right">
-                          Price
-                        </th>
-                        <th className="pb-3 text-sm font-medium text-right">
-                          Subtotal
-                        </th>
+                    className="w-full"
+                    theadClassName="border-b border-slate-700"
+                    tbodyClassName="divide-y divide-slate-700"
+                    renderRow={(item) => (
+                      <tr key={`${item.product_name}-${item.price_per_unit}`}>
+                        <td className="py-3 text-white">{item.product_name}</td>
+                        <td className="py-3 text-slate-300 text-center">
+                          {item.quantity}
+                        </td>
+                        <td className="py-3 text-slate-300 text-right">
+                          ${item.price_per_unit.toFixed(2)}
+                        </td>
+                        <td className="py-3 text-white font-medium text-right">
+                          ${item.subtotal.toFixed(2)}
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-700">
-                      {selectedSale.items.map((item) => (
-                        <tr key={`${item.product_name}-${item.price_per_unit}`}>
-                          <td className="py-3 text-white">
-                            {item.product_name}
-                          </td>
-                          <td className="py-3 text-slate-300 text-center">
-                            {item.quantity}
-                          </td>
-                          <td className="py-3 text-slate-300 text-right">
-                            ${item.price_per_unit.toFixed(2)}
-                          </td>
-                          <td className="py-3 text-white font-medium text-right">
-                            ${item.subtotal.toFixed(2)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                    )}
+                  />
                 </div>
               </div>
 
