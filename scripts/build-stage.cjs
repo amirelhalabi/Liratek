@@ -4,7 +4,8 @@
  * Prepares the project root for electron-builder packaging:
  *   1. Copies frontend/dist     -> dist/          (renderer files)
  *   2. Copies electron-app/dist -> dist-electron/  (main process files)
- *   3. Replaces the @liratek/core symlink in node_modules with a real
+ *   3. Copies create_db.sql     -> dist-electron/  (DB schema for first launch)
+ *   4. Replaces the @liratek/core symlink in node_modules with a real
  *      copy so electron-builder can pack it into the asar archive.
  */
 
@@ -19,7 +20,14 @@ console.log("  Staged frontend/dist -> dist/");
 fs.cpSync("electron-app/dist", "dist-electron", { recursive: true });
 console.log("  Staged electron-app/dist -> dist-electron/");
 
-// 3. Replace @liratek/core workspace symlink with real copy
+// 3. Copy create_db.sql into dist-electron/ so it's available in packaged app
+fs.cpSync(
+  path.join("electron-app", "create_db.sql"),
+  path.join("dist-electron", "create_db.sql"),
+);
+console.log("  Staged electron-app/create_db.sql -> dist-electron/");
+
+// 4. Replace @liratek/core workspace symlink with real copy
 const coreLinkPath = path.join("node_modules", "@liratek", "core");
 const coreSourcePath = path.join("packages", "core");
 

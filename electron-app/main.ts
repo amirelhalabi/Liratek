@@ -88,8 +88,12 @@ function createWindow() {
   }
   // Production: Load from built files
   else {
-    // In production builds, frontend should be built under frontend/dist
-    mainWindow.loadFile(path.join(__dirname, "../../frontend/dist/index.html"));
+    // In packaged app: dist-electron/main.js -> ../dist/index.html
+    // In dev (non-packaged): dist-electron/main.js -> ../../frontend/dist/index.html
+    const indexPath = app.isPackaged
+      ? path.join(__dirname, "../dist/index.html")
+      : path.join(__dirname, "../../frontend/dist/index.html");
+    mainWindow.loadFile(indexPath);
   }
 
   mainWindow.on("closed", () => {
@@ -178,7 +182,11 @@ function initializeDatabase() {
     if (!tableCheck) {
       logger.info("Database has no schema, initializing from create_db.sql...");
 
-      const schemaPath = path.join(__dirname, "../create_db.sql");
+      // In packaged app: create_db.sql is staged into dist-electron/
+      // In dev: it's at electron-app/create_db.sql (one level up from dist/)
+      const schemaPath = app.isPackaged
+        ? path.join(__dirname, "create_db.sql")
+        : path.join(__dirname, "../create_db.sql");
       if (!fs.existsSync(schemaPath)) {
         throw new Error(`Schema file not found at ${schemaPath}`);
       }
