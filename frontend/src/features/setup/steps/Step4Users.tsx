@@ -1,0 +1,166 @@
+import { useState } from "react";
+import { useSetup } from "../context/SetupContext";
+import { Plus, Trash2 } from "lucide-react";
+
+export default function Step4Users() {
+  const { payload, updatePayload, setStep } = useSetup();
+  const [newUser, setNewUser] = useState({
+    username: "",
+    password: "",
+    role: "staff",
+  });
+
+  const addUser = () => {
+    if (!newUser.username.trim() || !newUser.password) return;
+    updatePayload({ extra_users: [...payload.extra_users, { ...newUser }] });
+    setNewUser({ username: "", password: "", role: "staff" });
+  };
+
+  const removeUser = (idx: number) => {
+    updatePayload({
+      extra_users: payload.extra_users.filter((_, i) => i !== idx),
+    });
+  };
+
+  const inputCls =
+    "w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500";
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-start justify-between">
+        <div>
+          <h2 className="text-xl font-bold text-white">Users & WhatsApp</h2>
+          <p className="text-slate-400 text-sm mt-1">
+            Add staff users and configure WhatsApp. Both are optional — you can
+            do this later in Settings.
+          </p>
+        </div>
+        <button
+          onClick={() => setStep(5)}
+          className="text-xs text-slate-400 hover:text-white underline mt-1"
+        >
+          Skip
+        </button>
+      </div>
+
+      {/* Extra Users */}
+      <div className="bg-slate-900/50 rounded-xl p-4 space-y-3">
+        <h3 className="text-sm font-semibold text-slate-300">Staff Users</h3>
+
+        {payload.extra_users.length > 0 && (
+          <div className="space-y-2">
+            {payload.extra_users.map((u, i) => (
+              <div
+                key={i}
+                className="flex items-center justify-between bg-slate-800 rounded-lg px-3 py-2"
+              >
+                <div>
+                  <span className="text-sm text-white font-medium">
+                    {u.username}
+                  </span>
+                  <span className="ml-2 text-xs text-slate-400 capitalize">
+                    {u.role}
+                  </span>
+                </div>
+                <button
+                  onClick={() => removeUser(i)}
+                  className="text-slate-500 hover:text-red-400"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="grid grid-cols-3 gap-2">
+          <input
+            type="text"
+            placeholder="Username"
+            value={newUser.username}
+            onChange={(e) =>
+              setNewUser((p) => ({ ...p, username: e.target.value }))
+            }
+            className={inputCls}
+          />
+          <input
+            type="password"
+            placeholder="Password"
+            value={newUser.password}
+            onChange={(e) =>
+              setNewUser((p) => ({ ...p, password: e.target.value }))
+            }
+            className={inputCls}
+          />
+          <div className="flex gap-2">
+            <select
+              value={newUser.role}
+              onChange={(e) =>
+                setNewUser((p) => ({ ...p, role: e.target.value }))
+              }
+              className={inputCls}
+            >
+              <option value="staff">Staff</option>
+              <option value="admin">Admin</option>
+            </select>
+            <button
+              onClick={addUser}
+              className="px-3 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg transition-colors"
+            >
+              <Plus size={16} />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* WhatsApp */}
+      <div className="bg-slate-900/50 rounded-xl p-4 space-y-3">
+        <h3 className="text-sm font-semibold text-slate-300">
+          WhatsApp Integration
+        </h3>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs text-slate-400 mb-1">
+              Phone Number
+            </label>
+            <input
+              type="text"
+              value={payload.whatsapp_phone}
+              onChange={(e) =>
+                updatePayload({ whatsapp_phone: e.target.value })
+              }
+              className={inputCls}
+              placeholder="+961..."
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-slate-400 mb-1">API Key</label>
+            <input
+              type="password"
+              value={payload.whatsapp_api_key}
+              onChange={(e) =>
+                updatePayload({ whatsapp_api_key: e.target.value })
+              }
+              className={inputCls}
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="flex justify-between">
+        <button
+          onClick={() => setStep(3)}
+          className="px-6 py-2.5 border border-slate-600 text-slate-300 hover:bg-slate-800 rounded-lg transition-colors text-sm"
+        >
+          ← Back
+        </button>
+        <button
+          onClick={() => setStep(5)}
+          className="px-6 py-2.5 bg-violet-600 hover:bg-violet-500 text-white font-medium rounded-lg transition-colors text-sm"
+        >
+          Finish Setup →
+        </button>
+      </div>
+    </div>
+  );
+}

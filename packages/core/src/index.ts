@@ -16,6 +16,7 @@ export * from "./utils/errors.js";
 export * from "./utils/barcode.js";
 export * from "./utils/payments.js";
 export * from "./utils/currency.js";
+export * from "./utils/currencyConverter.js";
 
 // Repositories
 export * from "./repositories/index.js";

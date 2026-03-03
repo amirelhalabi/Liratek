@@ -245,7 +245,8 @@ export class TransactionService {
    */
   private snapshotExchangeRate(): number | null {
     try {
-      return getRateRepository().getRate("USD", "LBP");
+      const rateEntity = getRateRepository().findByCode("LBP");
+      return rateEntity ? rateEntity.market_rate : null;
     } catch {
       return null;
     }

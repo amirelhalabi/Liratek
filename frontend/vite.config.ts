@@ -9,10 +9,10 @@ export default defineConfig({
   base: "./",
   resolve: {
     alias: {
-      // Shared package aliases
+      // @liratek/core: browser-safe entry (excludes Node.js-only modules)
       "@liratek/core": path.resolve(
         __dirname,
-        "../packages/shared/src/index.ts",
+        "../packages/core/src/browser.ts",
       ),
       "@liratek/ui": path.resolve(__dirname, "../packages/ui/src/index.ts"),
       "@shared": path.resolve(__dirname, "../packages/core/src"),

@@ -65,7 +65,7 @@ export const MIGRATIONS: Migration[] = [
           ('OMT',     'OMT Wallet',    'OMT_App',    1, 1, 0),
           ('WHISH',   'Whish Wallet',  'Whish_App',  1, 2, 0),
           ('BINANCE', 'Binance',       'Binance',    1, 3, 0),
-          ('DEBT',    'Debt (On Tab)', 'General',    0, 4, 1);
+          ('DEBT',    'Debt (On Tab)', 'General',    0, 4, 0);
       `);
     },
     down(db) {
@@ -873,6 +873,650 @@ export const MIGRATIONS: Migration[] = [
         CREATE INDEX IF NOT EXISTS idx_financial_services_provider_type_created_at ON financial_services(provider, service_type, created_at);
         CREATE INDEX IF NOT EXISTS idx_financial_services_paid_by ON financial_services(paid_by);
         CREATE INDEX IF NOT EXISTS idx_financial_services_client_id ON financial_services(client_id);
+      `);
+    },
+  },
+  {
+    version: 27,
+    name: "update_omt_service_types",
+    description:
+      "Update OMT service types: remove BILL_PAYMENT/MINISTRY_OF_INTERIOR/MINISTRY_OF_FINANCE/CASH_OUT, add CASH_TO_GOV/OMT_WALLET/OMT_CARD, rename BILL_PAYMENT to OGERO_MECANIQUE",
+    type: "typescript",
+    up(db) {
+      // SQLite cannot ALTER CHECK constraints — full table rebuild required.
+
+      // 1. Create new table with updated CHECK constraints
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS financial_services_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          provider TEXT CHECK(provider IN ('OMT', 'WHISH', 'BOB', 'OTHER', 'IPEC', 'KATCH', 'WISH_APP', 'OMT_APP', 'BINANCE')) NOT NULL,
+          service_type TEXT CHECK(service_type IN ('SEND', 'RECEIVE')) NOT NULL,
+          amount DECIMAL(10, 2) NOT NULL,
+          currency TEXT DEFAULT 'USD' NOT NULL,
+          commission DECIMAL(10, 2) DEFAULT 0,
+          cost DECIMAL(10, 2) DEFAULT 0,
+          price DECIMAL(10, 2) DEFAULT 0,
+          paid_by TEXT DEFAULT 'CASH',
+          client_id INTEGER REFERENCES clients(id),
+          client_name TEXT,
+          reference_number TEXT,
+          phone_number TEXT,
+          omt_service_type TEXT CHECK(omt_service_type IN ('INTRA', 'WESTERN_UNION', 'CASH_TO_BUSINESS', 'CASH_TO_GOV', 'OMT_WALLET', 'OMT_CARD', 'OGERO_MECANIQUE', 'ONLINE_BROKERAGE')),
+          item_key TEXT,
+          note TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          created_by INTEGER
+        );
+      `);
+
+      // 2. Copy data with mapping old service types to new ones
+      db.exec(`
+        INSERT INTO financial_services_new
+        SELECT id, provider, service_type, amount, currency, commission, cost, price, paid_by, client_id,
+          client_name, reference_number, phone_number,
+          CASE 
+            WHEN omt_service_type = 'BILL_PAYMENT' THEN 'OGERO_MECANIQUE'
+            WHEN omt_service_type IN ('MINISTRY_OF_INTERIOR', 'MINISTRY_OF_FINANCE') THEN 'CASH_TO_GOV'
+            WHEN omt_service_type = 'CASH_OUT' THEN 'INTRA'
+            ELSE omt_service_type
+          END,
+          item_key, note, created_at, created_by
+        FROM financial_services;
+      `);
+
+      // 3. Swap tables
+      db.exec(`
+        DROP TABLE financial_services;
+        ALTER TABLE financial_services_new RENAME TO financial_services;
+      `);
+
+      // 4. Recreate indexes
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_financial_services_provider ON financial_services(provider);
+        CREATE INDEX IF NOT EXISTS idx_financial_services_created_at ON financial_services(created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_financial_services_provider_type_created_at ON financial_services(provider, service_type, created_at);
+        CREATE INDEX IF NOT EXISTS idx_financial_services_paid_by ON financial_services(paid_by);
+        CREATE INDEX IF NOT EXISTS idx_financial_services_client_id ON financial_services(client_id);
+      `);
+    },
+  },
+  {
+    version: 28,
+    name: "add_fee_calculation_fields",
+    description:
+      "Add omtFee, profitRate, and payFee fields to financial_services for auto-calculation",
+    type: "typescript",
+    up(db) {
+      // Get existing columns
+      const columns = db
+        .prepare("PRAGMA table_info(financial_services)")
+        .all() as Array<{ name: string }>;
+      const colNames = new Set(columns.map((c) => c.name));
+
+      // Add omtFee column (OMT's fee, user-entered)
+      if (!colNames.has("omt_fee")) {
+        db.exec(
+          "ALTER TABLE financial_services ADD COLUMN omt_fee DECIMAL(10, 2) DEFAULT 0",
+        );
+      }
+
+      // Add profitRate column (for ONLINE_BROKERAGE, 0.1%-0.4%)
+      if (!colNames.has("profit_rate")) {
+        db.exec(
+          "ALTER TABLE financial_services ADD COLUMN profit_rate DECIMAL(6, 5) DEFAULT NULL",
+        );
+      }
+
+      // Add payFee column (for BINANCE fee checkbox)
+      if (!colNames.has("pay_fee")) {
+        db.exec(
+          "ALTER TABLE financial_services ADD COLUMN pay_fee INTEGER DEFAULT 0",
+        );
+      }
+    },
+  },
+  // =========================================================================
+  // Remove analytics/commissions module (merged into Profits)
+  // =========================================================================
+  {
+    version: 29,
+    name: "remove_analytics_commissions_module",
+    description:
+      "Remove analytics/commissions module (functionality merged into Profits page)",
+    type: "typescript",
+    up(db) {
+      db.exec(`
+        DELETE FROM modules WHERE key IN ('analytics', 'commissions', 'commissions_dashboard');
+        DELETE FROM currency_modules WHERE module_key IN ('analytics', 'commissions', 'commissions_dashboard');
+      `);
+    },
+  },
+  // =========================================================================
+  // v33 — Add payment_method_fee + payment_method_fee_rate to financial_services
+  // =========================================================================
+  {
+    version: 33,
+    name: "add_payment_method_fee_columns",
+    description:
+      "Add payment_method_fee and payment_method_fee_rate columns to financial_services " +
+      "for tracking non-cash payment method surcharge (e.g. 1% on WHISH/OMT wallet payments).",
+    type: "typescript",
+    up(db) {
+      const cols = db
+        .prepare("PRAGMA table_info(financial_services)")
+        .all() as { name: string }[];
+      const colNames = new Set(cols.map((c) => c.name));
+      if (!colNames.has("payment_method_fee")) {
+        db.exec(
+          "ALTER TABLE financial_services ADD COLUMN payment_method_fee REAL DEFAULT 0",
+        );
+      }
+      if (!colNames.has("payment_method_fee_rate")) {
+        db.exec(
+          "ALTER TABLE financial_services ADD COLUMN payment_method_fee_rate REAL DEFAULT NULL",
+        );
+      }
+    },
+    down(db) {
+      // SQLite: no DROP COLUMN — rebuild table omitting the two new columns
+      db.exec(`
+        CREATE TABLE financial_services_v33_rb AS
+        SELECT id, provider, service_type, amount, currency, commission,
+               cost, price, paid_by, client_id, client_name, reference_number,
+               phone_number, omt_service_type, item_key, note,
+               omt_fee, whish_fee, profit_rate, pay_fee,
+               is_settled, settled_at, settlement_id,
+               created_at, created_by
+        FROM financial_services;
+        DROP TABLE financial_services;
+        ALTER TABLE financial_services_v33_rb RENAME TO financial_services;
+      `);
+    },
+  },
+  // =========================================================================
+  // v34 — Add supplier_id to products table
+  // =========================================================================
+  {
+    version: 34,
+    name: "add_supplier_id_to_products",
+    description:
+      "Add supplier_id foreign key to products table for supplier tracking per inventory item",
+    type: "typescript",
+    up(db) {
+      const cols = db.prepare("PRAGMA table_info(products)").all() as {
+        name: string;
+      }[];
+      if (!cols.some((c) => c.name === "supplier_id")) {
+        db.exec(
+          `ALTER TABLE products ADD COLUMN supplier_id INTEGER DEFAULT NULL REFERENCES suppliers(id) ON DELETE SET NULL;`,
+        );
+        db.exec(
+          `CREATE INDEX IF NOT EXISTS idx_products_supplier_id ON products(supplier_id);`,
+        );
+      }
+    },
+    down(db) {
+      // SQLite: no DROP COLUMN — rebuild table omitting supplier_id
+      db.exec(`
+        CREATE TABLE products_v34_rb AS
+        SELECT id, barcode, name, item_type, category, description,
+               cost_price_usd, selling_price_usd, min_stock_level, stock_quantity,
+               imei, color, image_url, warranty_expiry, status, is_active,
+               created_at, is_deleted, updated_at
+        FROM products;
+        DROP TABLE products;
+        ALTER TABLE products_v34_rb RENAME TO products;
+      `);
+    },
+  },
+  // =========================================================================
+  // v38 — Add category_id FK to products (CASCADE DELETE) + populate from text
+  // =========================================================================
+  {
+    version: 38,
+    name: "add_category_id_fk_to_products",
+    description:
+      "Add category_id INTEGER FK to products referencing product_categories with ON DELETE CASCADE. " +
+      "Populate from existing category TEXT. Enable WAL + foreign_keys pragma.",
+    type: "typescript",
+    up(db) {
+      // Ensure product_categories exists (may have been created by v37)
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS product_categories (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          is_active INTEGER NOT NULL DEFAULT 1,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        INSERT OR IGNORE INTO product_categories (name, sort_order) VALUES
+          ('Accessories', 0),('Phones', 1),('Chargers', 2),('Audio', 3),
+          ('Parts', 4),('Services', 5),('Games', 6),('Toys', 7),
+          ('Education', 8),('Gifts', 9),('Other', 99);
+      `);
+
+      // Import any new categories from existing products text column
+      db.exec(`
+        INSERT OR IGNORE INTO product_categories (name, sort_order)
+        SELECT DISTINCT category, 50
+        FROM products
+        WHERE category IS NOT NULL AND category != ''
+          AND LOWER(category) NOT IN (SELECT LOWER(name) FROM product_categories);
+      `);
+
+      // Add category_id column if missing
+      const cols = db.prepare("PRAGMA table_info(products)").all() as {
+        name: string;
+      }[];
+      if (!cols.some((c) => c.name === "category_id")) {
+        db.exec(
+          `ALTER TABLE products ADD COLUMN category_id INTEGER REFERENCES product_categories(id) ON DELETE CASCADE;`,
+        );
+      }
+
+      // Populate category_id from the text category field
+      db.exec(`
+        UPDATE products
+        SET category_id = (
+          SELECT id FROM product_categories
+          WHERE name = products.category COLLATE NOCASE
+          LIMIT 1
+        )
+        WHERE category_id IS NULL AND category IS NOT NULL;
+      `);
+
+      // Create index for FK lookups
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_products_category_id ON products(category_id);`,
+      );
+    },
+  },
+  // =========================================================================
+  // v35 — Add unit column to products table
+  // =========================================================================
+  {
+    version: 35,
+    name: "add_unit_to_products",
+    description:
+      "Add unit column to products table (e.g. 'pcs', 'box', 'kg') for .toon import and display",
+    type: "typescript",
+    up(db) {
+      const cols = db.prepare("PRAGMA table_info(products)").all() as {
+        name: string;
+      }[];
+      if (!cols.some((c) => c.name === "unit")) {
+        db.exec(`ALTER TABLE products ADD COLUMN unit TEXT DEFAULT NULL;`);
+      }
+    },
+  },
+  // =========================================================================
+  // v36 — Replace supplier_id FK with supplier TEXT on products
+  // =========================================================================
+  {
+    version: 36,
+    name: "replace_supplier_id_with_supplier_text",
+    description:
+      "Replace supplier_id FK with plain text supplier field on products table. Remove unit column.",
+    type: "typescript",
+    up(db) {
+      const cols = db.prepare("PRAGMA table_info(products)").all() as {
+        name: string;
+      }[];
+      const colNames = new Set(cols.map((c) => c.name));
+      // Add supplier TEXT if missing
+      if (!colNames.has("supplier")) {
+        db.exec(`ALTER TABLE products ADD COLUMN supplier TEXT DEFAULT NULL;`);
+      }
+      // SQLite can't drop columns — we just leave supplier_id and unit in place
+      // (they'll be ignored). Supplier text takes priority going forward.
+    },
+  },
+  // =========================================================================
+  // v37 — Create product_categories table
+  // =========================================================================
+  {
+    version: 37,
+    name: "create_product_categories",
+    description:
+      "Create product_categories table with default categories for inventory",
+    type: "typescript",
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS product_categories (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          is_active INTEGER NOT NULL DEFAULT 1,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        INSERT OR IGNORE INTO product_categories (name, sort_order) VALUES
+          ('Accessories', 0),
+          ('Phones', 1),
+          ('Chargers', 2),
+          ('Audio', 3),
+          ('Parts', 4),
+          ('Services', 5),
+          ('Games', 6);
+      `);
+
+      // Import any existing product categories from the products table
+      db.exec(`
+        INSERT OR IGNORE INTO product_categories (name, sort_order)
+        SELECT DISTINCT category, 50
+        FROM products
+        WHERE category IS NOT NULL AND category != ''
+          AND category NOT IN (SELECT name FROM product_categories);
+      `);
+    },
+  },
+  // =========================================================================
+  // v32 — Add whish_fee column to financial_services
+  // =========================================================================
+  {
+    version: 32,
+    name: "add_whish_fee_to_financial_services",
+    description:
+      "Add whish_fee column to financial_services table for WHISH fee tracking.",
+    type: "typescript",
+    up(db) {
+      const cols = db
+        .prepare("PRAGMA table_info(financial_services)")
+        .all() as { name: string }[];
+      const colNames = new Set(cols.map((c) => c.name));
+      if (!colNames.has("whish_fee")) {
+        db.exec(
+          "ALTER TABLE financial_services ADD COLUMN whish_fee DECIMAL(10, 4) DEFAULT NULL",
+        );
+      }
+    },
+    down(db) {
+      // SQLite: no DROP COLUMN — rebuild table
+      db.exec(`
+        CREATE TABLE financial_services_v32_rb AS
+        SELECT id, provider, service_type, amount, currency, commission,
+               cost, price, paid_by, client_id, client_name, reference_number,
+               phone_number, omt_service_type, item_key, note,
+               omt_fee, profit_rate, pay_fee,
+               is_settled, settled_at, settlement_id,
+               created_at, created_by
+        FROM financial_services;
+        DROP TABLE financial_services;
+        ALTER TABLE financial_services_v32_rb RENAME TO financial_services;
+      `);
+    },
+  },
+
+  // =========================================================================
+  // v31 — Settlement tracking: is_settled, settled_at, settlement_id on financial_services
+  //        + SETTLEMENT entry type on supplier_ledger
+  // =========================================================================
+  {
+    version: 31,
+    name: "add_settlement_tracking_to_financial_services",
+    description:
+      "Add is_settled, settled_at, settlement_id to financial_services. " +
+      "Rebuild supplier_ledger to include SETTLEMENT entry type. " +
+      "Backfill: SEND rows → is_settled=1, RECEIVE rows with commission > 0 → is_settled=0.",
+    type: "typescript",
+    up(db) {
+      // ── Step 1: Add columns to financial_services (idempotent) ────────────
+      const fsCols = db
+        .prepare("PRAGMA table_info(financial_services)")
+        .all() as { name: string }[];
+      const fsColNames = new Set(fsCols.map((c) => c.name));
+
+      if (!fsColNames.has("is_settled")) {
+        // Default 1 = settled (all existing rows assumed settled until backfill below)
+        db.exec(
+          `ALTER TABLE financial_services ADD COLUMN is_settled INTEGER NOT NULL DEFAULT 1`,
+        );
+      }
+      if (!fsColNames.has("settled_at")) {
+        db.exec(`ALTER TABLE financial_services ADD COLUMN settled_at TEXT`);
+      }
+      if (!fsColNames.has("settlement_id")) {
+        db.exec(
+          `ALTER TABLE financial_services ADD COLUMN settlement_id INTEGER`,
+        );
+      }
+
+      // ── Step 2: Backfill — mark RECEIVE rows with commission > 0 as unsettled ──
+      db.exec(`
+        UPDATE financial_services
+        SET is_settled = 0, settled_at = NULL
+        WHERE service_type = 'RECEIVE'
+          AND commission > 0
+          AND is_settled = 1;
+      `);
+
+      // Backfill settled_at for SEND rows (already settled at creation time)
+      db.exec(`
+        UPDATE financial_services
+        SET settled_at = created_at
+        WHERE service_type = 'SEND'
+          AND is_settled = 1
+          AND settled_at IS NULL;
+      `);
+
+      // ── Step 3: Rebuild supplier_ledger with SETTLEMENT in CHECK constraint ──
+      // SQLite cannot ALTER CHECK constraints — full rebuild required.
+      db.exec(`
+        CREATE TABLE supplier_ledger_new (
+          id            INTEGER PRIMARY KEY AUTOINCREMENT,
+          supplier_id   INTEGER NOT NULL,
+          entry_type    TEXT    NOT NULL CHECK(entry_type IN ('TOP_UP', 'PAYMENT', 'ADJUSTMENT', 'SETTLEMENT')),
+          amount_usd    REAL    NOT NULL DEFAULT 0,
+          amount_lbp    REAL    NOT NULL DEFAULT 0,
+          note          TEXT,
+          created_by    INTEGER,
+          transaction_id INTEGER,
+          created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (supplier_id)   REFERENCES suppliers(id) ON DELETE CASCADE,
+          FOREIGN KEY (transaction_id) REFERENCES transactions(id),
+          FOREIGN KEY (created_by)    REFERENCES users(id)
+        );
+      `);
+
+      db.exec(`
+        INSERT INTO supplier_ledger_new
+          (id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, created_at)
+        SELECT
+          id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, created_at
+        FROM supplier_ledger;
+      `);
+
+      db.exec(`DROP TABLE supplier_ledger;`);
+      db.exec(`ALTER TABLE supplier_ledger_new RENAME TO supplier_ledger;`);
+
+      // Recreate indexes on financial_services
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_financial_services_is_settled
+          ON financial_services(is_settled);
+        CREATE INDEX IF NOT EXISTS idx_financial_services_provider_settled
+          ON financial_services(provider, is_settled);
+      `);
+    },
+    down(db) {
+      // Remove added columns (SQLite: requires table rebuild)
+      db.exec(`
+        CREATE TABLE financial_services_rollback AS
+        SELECT id, provider, service_type, amount, currency, commission,
+               cost, price, paid_by, client_id, client_name, reference_number,
+               phone_number, omt_service_type, item_key, note,
+               omt_fee, profit_rate, pay_fee, created_at, created_by
+        FROM financial_services;
+        DROP TABLE financial_services;
+        ALTER TABLE financial_services_rollback RENAME TO financial_services;
+      `);
+      // Rebuild supplier_ledger without SETTLEMENT
+      db.exec(`
+        CREATE TABLE supplier_ledger_rollback (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          supplier_id INTEGER NOT NULL,
+          entry_type TEXT NOT NULL CHECK(entry_type IN ('TOP_UP','PAYMENT','ADJUSTMENT')),
+          amount_usd REAL NOT NULL DEFAULT 0,
+          amount_lbp REAL NOT NULL DEFAULT 0,
+          note TEXT, created_by INTEGER, transaction_id INTEGER,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE
+        );
+        INSERT INTO supplier_ledger_rollback
+          SELECT id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, created_at
+          FROM supplier_ledger WHERE entry_type != 'SETTLEMENT';
+        DROP TABLE supplier_ledger;
+        ALTER TABLE supplier_ledger_rollback RENAME TO supplier_ledger;
+      `);
+    },
+  },
+
+  // =========================================================================
+  // v30 — Exchange rates schema refactor: 4-column universal formula model
+  //        + leg tracking columns on exchange_transactions
+  // =========================================================================
+  {
+    version: 30,
+    name: "exchange_rates_universal_formula_schema",
+    description:
+      "Redesign exchange_rates to 4-column schema (to_code, market_rate, delta, is_stronger). " +
+      "Add leg1/leg2 profit tracking columns to exchange_transactions.",
+    type: "typescript",
+    up(db) {
+      // ── Step 1: Recreate exchange_rates with new schema ─────────────────
+      // Derive market_rate and delta from existing rows where possible.
+      // Existing schema: (from_code, to_code, rate, base_rate)
+      // LBP row: ('USD','LBP', sell_rate, base_rate) → market=base_rate, delta=|rate-base_rate|, is_stronger=+1
+      // EUR row: ('EUR','USD', buy_rate,  base_rate) → market=base_rate, delta=|rate-base_rate|, is_stronger=-1
+
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS exchange_rates_new (
+          id          INTEGER PRIMARY KEY AUTOINCREMENT,
+          to_code     TEXT    NOT NULL UNIQUE,
+          market_rate REAL    NOT NULL,
+          delta       REAL    NOT NULL DEFAULT 0,
+          is_stronger INTEGER NOT NULL DEFAULT 1 CHECK(is_stronger IN (1, -1)),
+          updated_at  TEXT    DEFAULT (datetime('now'))
+        );
+      `);
+
+      // Migrate LBP (is_stronger = +1, USD is stronger)
+      const lbpRow = db
+        .prepare(
+          "SELECT rate, base_rate FROM exchange_rates WHERE from_code='USD' AND to_code='LBP'",
+        )
+        .get() as { rate: number; base_rate: number | null } | undefined;
+
+      if (lbpRow) {
+        const market = lbpRow.base_rate ?? lbpRow.rate;
+        const delta = Math.abs(lbpRow.rate - market);
+        db.prepare(
+          "INSERT OR IGNORE INTO exchange_rates_new (to_code, market_rate, delta, is_stronger) VALUES ('LBP', ?, ?, 1)",
+        ).run(market, delta);
+      } else {
+        // Fresh DB with no rates yet — insert sensible defaults
+        db.prepare(
+          "INSERT OR IGNORE INTO exchange_rates_new (to_code, market_rate, delta, is_stronger) VALUES ('LBP', 89500, 500, 1)",
+        ).run();
+      }
+
+      // Migrate EUR (is_stronger = -1, EUR is stronger)
+      const eurRow = db
+        .prepare(
+          "SELECT rate, base_rate FROM exchange_rates WHERE from_code='EUR' AND to_code='USD'",
+        )
+        .get() as { rate: number; base_rate: number | null } | undefined;
+
+      if (eurRow) {
+        const market = eurRow.base_rate ?? eurRow.rate;
+        const delta = Math.abs(eurRow.rate - market);
+        db.prepare(
+          "INSERT OR IGNORE INTO exchange_rates_new (to_code, market_rate, delta, is_stronger) VALUES ('EUR', ?, ?, -1)",
+        ).run(market, delta);
+      } else {
+        db.prepare(
+          "INSERT OR IGNORE INTO exchange_rates_new (to_code, market_rate, delta, is_stronger) VALUES ('EUR', 1.18, 0.02, -1)",
+        ).run();
+      }
+
+      // Migrate any other non-USD currencies stored as (X, USD, rate, base_rate) — is_stronger = -1
+      const otherRows = db
+        .prepare(
+          "SELECT from_code, rate, base_rate FROM exchange_rates WHERE to_code='USD' AND from_code NOT IN ('USD','LBP','EUR')",
+        )
+        .all() as {
+        from_code: string;
+        rate: number;
+        base_rate: number | null;
+      }[];
+
+      for (const row of otherRows) {
+        const market = row.base_rate ?? row.rate;
+        const delta = Math.abs(row.rate - market);
+        db.prepare(
+          "INSERT OR IGNORE INTO exchange_rates_new (to_code, market_rate, delta, is_stronger) VALUES (?, ?, ?, -1)",
+        ).run(row.from_code, market, delta);
+      }
+
+      // Swap tables
+      db.exec(`
+        DROP TABLE exchange_rates;
+        ALTER TABLE exchange_rates_new RENAME TO exchange_rates;
+      `);
+
+      // ── Step 2: Add leg tracking columns to exchange_transactions ───────
+      const etCols = db
+        .prepare("PRAGMA table_info(exchange_transactions)")
+        .all() as { name: string }[];
+      const etColNames = new Set(etCols.map((c) => c.name));
+
+      const legCols: [string, string][] = [
+        ["leg1_rate", "REAL"],
+        ["leg1_market_rate", "REAL"],
+        ["leg1_profit_usd", "REAL"],
+        ["leg2_rate", "REAL"],
+        ["leg2_market_rate", "REAL"],
+        ["leg2_profit_usd", "REAL"],
+        ["via_currency", "TEXT"],
+      ];
+
+      for (const [col, type] of legCols) {
+        if (!etColNames.has(col)) {
+          db.exec(
+            `ALTER TABLE exchange_transactions ADD COLUMN ${col} ${type};`,
+          );
+        }
+      }
+
+      // Backfill existing rows: copy old rate → leg1_rate, base_rate → leg1_market_rate, profit_usd → leg1_profit_usd
+      db.exec(`
+        UPDATE exchange_transactions
+        SET
+          leg1_rate        = rate,
+          leg1_market_rate = base_rate,
+          leg1_profit_usd  = profit_usd
+        WHERE leg1_rate IS NULL;
+      `);
+    },
+  },
+  // =========================================================================
+  // v39 — Setup wizard feature flags
+  // =========================================================================
+  {
+    version: 39,
+    name: "setup_wizard_feature_flags",
+    description:
+      "Add setup_complete, feature_session_management, and feature_customer_sessions settings keys",
+    type: "typescript",
+    up(db) {
+      db.exec(`
+        INSERT OR IGNORE INTO system_settings (key_name, value) VALUES ('setup_complete', '0');
+        INSERT OR IGNORE INTO system_settings (key_name, value) VALUES ('feature_session_management', 'enabled');
+        INSERT OR IGNORE INTO system_settings (key_name, value) VALUES ('feature_customer_sessions', 'enabled');
+      `);
+    },
+    down(db) {
+      db.exec(`
+        DELETE FROM system_settings WHERE key_name IN ('setup_complete', 'feature_session_management', 'feature_customer_sessions');
       `);
     },
   },

@@ -47,6 +47,8 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("inventory:create-product", product),
     updateProduct: (product: unknown) =>
       ipcRenderer.invoke("inventory:update-product", product),
+    batchUpdate: (payload: unknown) =>
+      ipcRenderer.invoke("inventory:batch-update", payload),
     deleteProduct: (id: number) =>
       ipcRenderer.invoke("inventory:delete-product", id),
     adjustStock: (id: number, quantity: number) =>
@@ -54,6 +56,15 @@ contextBridge.exposeInMainWorld("api", {
     getLowStockProducts: () =>
       ipcRenderer.invoke("inventory:get-low-stock-products"),
     getStockStats: () => ipcRenderer.invoke("inventory:get-stock-stats"),
+    getCategories: () => ipcRenderer.invoke("inventory:get-categories"),
+    getCategoriesFull: () =>
+      ipcRenderer.invoke("inventory:get-categories-full"),
+    createCategory: (name: string) =>
+      ipcRenderer.invoke("inventory:create-category", name),
+    updateCategory: (id: number, name: string) =>
+      ipcRenderer.invoke("inventory:update-category", id, name),
+    deleteCategory: (id: number) =>
+      ipcRenderer.invoke("inventory:delete-category", id),
   },
 
   // Clients
@@ -151,6 +162,9 @@ contextBridge.exposeInMainWorld("api", {
     getHistory: (provider?: string) =>
       ipcRenderer.invoke("omt:get-history", provider),
     getAnalytics: () => ipcRenderer.invoke("omt:get-analytics"),
+    getById: (id: number) => ipcRenderer.invoke("omt:get-by-id", id),
+    getPaymentsByTransaction: (transactionId: number) =>
+      ipcRenderer.invoke("omt:get-payments-by-transaction", transactionId),
   },
 
   // Recharge (Alfa/MTC)
@@ -191,6 +205,20 @@ contextBridge.exposeInMainWorld("api", {
       amount_lbp: number;
       note?: string;
     }) => ipcRenderer.invoke("suppliers:add-ledger-entry", data),
+    getUnsettledTransactions: (provider: string) =>
+      ipcRenderer.invoke("suppliers:unsettled-transactions", provider),
+    getUnsettledSummary: () =>
+      ipcRenderer.invoke("suppliers:unsettled-summary"),
+    settleTransactions: (data: {
+      supplier_id: number;
+      financial_service_ids: number[];
+      amount_usd: number;
+      amount_lbp: number;
+      commission_usd: number;
+      commission_lbp: number;
+      drawer_name: string;
+      note?: string;
+    }) => ipcRenderer.invoke("suppliers:settle-transactions", data),
   },
 
   // Maintenance
@@ -346,8 +374,13 @@ contextBridge.exposeInMainWorld("api", {
   // Rates
   rates: {
     list: () => ipcRenderer.invoke("rates:list"),
-    set: (from_code: string, to_code: string, rate: number) =>
-      ipcRenderer.invoke("rates:set", { from_code, to_code, rate }),
+    set: (data: {
+      to_code: string;
+      market_rate: number;
+      delta: number;
+      is_stronger: 1 | -1;
+    }) => ipcRenderer.invoke("rates:set", data),
+    delete: (to_code: string) => ipcRenderer.invoke("rates:delete", to_code),
   },
 
   // Currencies
@@ -508,6 +541,14 @@ contextBridge.exposeInMainWorld("api", {
       note?: string;
     }) => ipcRenderer.invoke("custom-services:add", data),
     delete: (id: number) => ipcRenderer.invoke("custom-services:delete", id),
+  },
+
+  // Setup Wizard
+  setup: {
+    isRequired: () => ipcRenderer.invoke("setup:isRequired"),
+    complete: (payload: unknown) =>
+      ipcRenderer.invoke("setup:complete", payload),
+    reset: () => ipcRenderer.invoke("setup:reset"),
   },
 });
 

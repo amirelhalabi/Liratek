@@ -4,7 +4,7 @@ export type NotificationType = "success" | "error" | "info" | "warning";
 
 // Minimal UI notification shape to type history events (avoid coupling to UI files)
 export type UINotification = {
-  id: string; // align with NotificationCenter
+  id: string | number;
   message: string;
   type: NotificationType;
   duration?: number;
@@ -21,8 +21,8 @@ type EventMap = {
   "sale:completed": [data?: unknown];
   "debt:repayment": [data?: unknown];
   "inventory:updated": [data?: unknown];
-  openClosingModal: [];
-  openOpeningModal: [];
+  "closing:open": [];
+  "opening:open": [];
   "closing:confirmed": [];
   "closing:completed": [];
 };

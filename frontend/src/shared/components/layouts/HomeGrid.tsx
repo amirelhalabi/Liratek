@@ -25,6 +25,7 @@ import clsx from "clsx";
 import { appEvents } from "@liratek/ui";
 import { useAuth } from "../../../features/auth/context/AuthContext";
 import { useModules } from "../../../contexts/ModuleContext";
+import { useFeatureFlags } from "../../../contexts/FeatureFlagContext";
 
 const iconMap: Record<string, LucideIcon> = {
   LayoutDashboard,
@@ -185,6 +186,7 @@ export default function HomeGrid() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const { enabledModules } = useModules();
+  const { flags } = useFeatureFlags();
 
   const [columns, setColumns] = useState(
     () => Number(localStorage.getItem("home_columns")) || 5,
@@ -281,15 +283,15 @@ export default function HomeGrid() {
         })}
       </div>
 
-      {/* Admin-only Opening / Closing */}
-      {isAdmin && (
+      {/* Admin-only Opening / Closing — only when session management is enabled */}
+      {isAdmin && flags.sessionManagement && (
         <div className="pt-4 border-t border-slate-700/50">
           <p className="text-xs text-slate-500 uppercase tracking-wider mb-3">
             Admin Actions
           </p>
           <div className="flex gap-3">
             <button
-              onClick={() => appEvents.emit("openOpeningModal")}
+              onClick={() => appEvents.emit("opening:open")}
               className="flex items-center gap-2 px-4 py-3 bg-slate-800 border border-slate-700/50 rounded-xl transition-all hover:border-emerald-500/60 hover:shadow-lg text-slate-300 hover:text-white group"
             >
               <div className="p-1.5 rounded-lg bg-emerald-400/10">
@@ -298,7 +300,7 @@ export default function HomeGrid() {
               <span className="text-sm font-medium">Opening</span>
             </button>
             <button
-              onClick={() => appEvents.emit("openClosingModal")}
+              onClick={() => appEvents.emit("closing:open")}
               className="flex items-center gap-2 px-4 py-3 bg-slate-800 border border-slate-700/50 rounded-xl transition-all hover:border-rose-500/60 hover:shadow-lg text-slate-300 hover:text-white group"
             >
               <div className="p-1.5 rounded-lg bg-rose-400/10">

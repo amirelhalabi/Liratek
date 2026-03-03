@@ -127,8 +127,13 @@ export default function ClientList() {
             {
               header: "Client Info",
               className: "p-4 border-b border-slate-700",
+              sortKey: "full_name",
             },
-            { header: "Phone", className: "p-4 border-b border-slate-700" },
+            {
+              header: "Phone",
+              className: "p-4 border-b border-slate-700",
+              sortKey: "phone_number",
+            },
             { header: "WhatsApp", className: "p-4 border-b border-slate-700" },
             { header: "Notes", className: "p-4 border-b border-slate-700" },
             {

@@ -59,19 +59,19 @@ describe("ProfitService.getPendingProfit", () => {
   describe("SQL query", () => {
     it("filters by status = completed", () => {
       service.getPendingProfit("2026-02-22", "2026-02-22");
-      const sql = getLastPreparedSql();
+      const sql = getLastPreparedSql(0);
       expect(sql).toContain("s.status = 'completed'");
     });
 
     it("filters for NOT fully-paid (paid < final - 0.05)", () => {
       service.getPendingProfit("2026-02-22", "2026-02-22");
-      const sql = getLastPreparedSql();
+      const sql = getLastPreparedSql(0);
       expect(sql).toContain("< s.final_amount_usd - 0.05");
     });
 
     it("filters by date range using created_at", () => {
       service.getPendingProfit("2026-02-22", "2026-02-22");
-      const sql = getLastPreparedSql();
+      const sql = getLastPreparedSql(0);
       expect(sql).toContain("s.created_at >= ?");
       expect(sql).toContain("s.created_at <= ?");
     });
@@ -89,13 +89,13 @@ describe("ProfitService.getPendingProfit", () => {
 
     it("excludes refunded items with is_refunded = 0 filter", () => {
       service.getPendingProfit("2026-02-22", "2026-02-22");
-      const sql = getLastPreparedSql();
+      const sql = getLastPreparedSql(0);
       expect(sql).toContain("si.is_refunded = 0");
     });
 
     it("joins transactions and clients for client info", () => {
       service.getPendingProfit("2026-02-22", "2026-02-22");
-      const sql = getLastPreparedSql();
+      const sql = getLastPreparedSql(0);
       expect(sql).toContain("LEFT JOIN transactions t");
       expect(sql).toContain("LEFT JOIN clients c");
       expect(sql).toContain("c.full_name");
@@ -104,21 +104,21 @@ describe("ProfitService.getPendingProfit", () => {
 
     it("does NOT reference s.client_name or s.client_phone (non-existent columns)", () => {
       service.getPendingProfit("2026-02-22", "2026-02-22");
-      const sql = getLastPreparedSql();
+      const sql = getLastPreparedSql(0);
       expect(sql).not.toContain("s.client_name");
       expect(sql).not.toContain("s.client_phone");
     });
 
     it("calculates effective paid = paid_usd + paid_lbp / exchange_rate", () => {
       service.getPendingProfit("2026-02-22", "2026-02-22");
-      const sql = getLastPreparedSql();
+      const sql = getLastPreparedSql(0);
       expect(sql).toContain("s.paid_usd + COALESCE(s.paid_lbp, 0)");
       expect(sql).toContain("NULLIF(s.exchange_rate_snapshot, 0)");
     });
 
     it("computes potential_profit from sale_items subquery", () => {
       service.getPendingProfit("2026-02-22", "2026-02-22");
-      const sql = getLastPreparedSql();
+      const sql = getLastPreparedSql(0);
       expect(sql).toContain(
         "SUM((si.sold_price_usd - si.cost_price_snapshot_usd) * si.quantity)",
       );
@@ -126,13 +126,13 @@ describe("ProfitService.getPendingProfit", () => {
 
     it("builds items_summary with GROUP_CONCAT", () => {
       service.getPendingProfit("2026-02-22", "2026-02-22");
-      const sql = getLastPreparedSql();
+      const sql = getLastPreparedSql(0);
       expect(sql).toContain("GROUP_CONCAT");
     });
 
     it("orders results by created_at DESC", () => {
       service.getPendingProfit("2026-02-22", "2026-02-22");
-      const sql = getLastPreparedSql();
+      const sql = getLastPreparedSql(0);
       expect(sql).toContain("ORDER BY s.created_at DESC");
     });
   });

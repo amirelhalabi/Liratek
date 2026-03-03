@@ -33,6 +33,7 @@ export interface ProductEntity {
   warranty_expiry: string | null;
   status: string;
   is_active: number; // SQLite boolean (0 or 1)
+  supplier: string | null;
   created_at: string;
 }
 
@@ -48,29 +49,34 @@ export interface ProductDTO {
   min_stock_level: number;
   image_url: string | null;
   is_active: number;
+  supplier: string | null;
   created_at: string;
 }
 
 export interface CreateProductData {
-  barcode: string;
+  barcode: string | null;
   name: string;
   category: string;
+  category_id?: number | null;
   cost_price: number; // Maps to cost_price_usd
   retail_price: number; // Maps to selling_price_usd
   stock_quantity?: number;
   min_stock_level?: number;
   image_url?: string;
   item_type?: string;
+  supplier?: string | null;
 }
 
 export interface UpdateProductData {
   barcode?: string;
   name?: string;
   category?: string;
+  category_id?: number | null;
   cost_price?: number;
   retail_price?: number;
   min_stock_level?: number;
   image_url?: string;
+  supplier?: string | null;
 }
 
 export interface StockStats {
@@ -96,7 +102,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
 
   // Override getColumns() from BaseRepository
   protected getColumns(): string {
-    return "id, barcode, name, item_type, category, description, cost_price_usd, selling_price_usd, min_stock_level, stock_quantity, imei, color, image_url, warranty_expiry, status, is_active, created_at, is_deleted, updated_at";
+    return "id, barcode, name, item_type, category, description, cost_price_usd, selling_price_usd, min_stock_level, stock_quantity, imei, color, image_url, warranty_expiry, status, is_active, supplier, created_at, is_deleted, updated_at";
   }
 
   // ---------------------------------------------------------------------------
@@ -110,23 +116,27 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
     try {
       let query = `
         SELECT 
-          id, barcode, name, category, stock_quantity, min_stock_level, 
-          image_url, is_active, created_at,
-          cost_price_usd as cost_price, 
-          selling_price_usd as retail_price
-        FROM ${this.tableName} 
-        WHERE is_active = 1
-          AND item_type NOT IN ('Virtual_MTC', 'Virtual_Alfa')
+          p.id, p.barcode, p.name, p.stock_quantity, p.min_stock_level, 
+          p.image_url, p.is_active, p.created_at,
+          p.cost_price_usd as cost_price, 
+          p.selling_price_usd as retail_price,
+          p.supplier,
+          p.category_id,
+          COALESCE(pc.name, p.category) as category
+        FROM ${this.tableName} p
+        LEFT JOIN product_categories pc ON pc.id = p.category_id
+        WHERE p.is_active = 1
+          AND p.item_type NOT IN ('Virtual_MTC', 'Virtual_Alfa')
       `;
       const params: (string | number)[] = [];
 
       if (search) {
-        query += ` AND (name LIKE ? OR barcode LIKE ? OR category LIKE ?)`;
+        query += ` AND (p.name LIKE ? OR p.barcode LIKE ? OR COALESCE(pc.name, p.category) LIKE ?)`;
         const term = `%${search}%`;
         params.push(term, term, term);
       }
 
-      query += ` ORDER BY name ASC`;
+      query += ` ORDER BY p.name ASC`;
       return this.query<ProductDTO>(query, ...params);
     } catch (error) {
       throw new DatabaseError("Failed to find products", { cause: error });
@@ -195,21 +205,23 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
     try {
       const stmt = this.db.prepare(`
         INSERT INTO ${this.tableName} (
-          barcode, name, category, cost_price_usd, selling_price_usd, 
-          stock_quantity, min_stock_level, image_url, item_type, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          barcode, name, category, category_id, cost_price_usd, selling_price_usd, 
+          stock_quantity, min_stock_level, image_url, item_type, supplier, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       `);
 
       const result = stmt.run(
         data.barcode,
         data.name,
         data.category,
+        data.category_id ?? null,
         data.cost_price,
         data.retail_price,
         data.stock_quantity ?? 0,
         data.min_stock_level ?? 5,
         data.image_url ?? null,
         data.item_type ?? "Product",
+        data.supplier ?? null,
       );
 
       return { id: result.lastInsertRowid as number };
@@ -272,23 +284,77 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
   /**
    * Update product with all fields explicitly (for handler compatibility)
    */
+  /**
+   * Batch-update shared fields for multiple products.
+   * Only updates fields that are explicitly provided (non-undefined).
+   * Unique fields (barcode, name, cost, retail price) are intentionally excluded.
+   */
+  batchUpdateProducts(
+    ids: number[],
+    data: {
+      category?: string;
+      category_id?: number | null;
+      min_stock_level?: number;
+      supplier?: string | null;
+    },
+  ): number {
+    if (ids.length === 0) return 0;
+
+    // Build SET clause dynamically from provided fields
+    const setClauses: string[] = [];
+    const params: unknown[] = [];
+
+    if (data.category !== undefined) {
+      setClauses.push("category = ?");
+      params.push(data.category);
+    }
+    if (data.category_id !== undefined) {
+      setClauses.push("category_id = ?");
+      params.push(data.category_id);
+    }
+    if (data.min_stock_level !== undefined) {
+      setClauses.push("min_stock_level = ?");
+      params.push(data.min_stock_level);
+    }
+    if (data.supplier !== undefined) {
+      setClauses.push("supplier = ?");
+      params.push(data.supplier);
+    }
+
+    if (setClauses.length === 0) return 0;
+
+    const placeholders = ids.map(() => "?").join(", ");
+    params.push(...ids);
+
+    const result = this.db
+      .prepare(
+        `UPDATE ${this.tableName} SET ${setClauses.join(", ")} WHERE id IN (${placeholders})`,
+      )
+      .run(...(params as Parameters<typeof this.db.prepare>[0][]));
+
+    return result.changes;
+  }
+
   updateProductFull(
     id: number,
     data: {
       barcode: string;
       name: string;
       category: string;
+      category_id?: number | null;
       cost_price: number;
       retail_price: number;
       min_stock_level: number;
       image_url?: string | null;
+      supplier?: string | null;
     },
   ): boolean {
     try {
       const stmt = this.db.prepare(`
         UPDATE ${this.tableName} SET
-          barcode = ?, name = ?, category = ?, cost_price_usd = ?, 
-          selling_price_usd = ?, min_stock_level = ?, image_url = ?
+          barcode = ?, name = ?, category = ?, category_id = ?, cost_price_usd = ?, 
+          selling_price_usd = ?, min_stock_level = ?, image_url = ?,
+          supplier = ?
         WHERE id = ?
       `);
 
@@ -296,10 +362,12 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
         data.barcode,
         data.name,
         data.category,
+        data.category_id ?? null,
         data.cost_price,
         data.retail_price,
         data.min_stock_level,
         data.image_url ?? null,
+        data.supplier ?? null,
         id,
       );
 

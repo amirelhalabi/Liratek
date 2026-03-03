@@ -84,6 +84,7 @@ export type {
   TopDebtor,
   DebtSummary,
   CreateRepaymentData,
+  RepaymentPaymentLine,
 } from "./DebtRepository.js";
 
 // Exchange Repository
@@ -109,6 +110,7 @@ export type {
   ProviderStats,
   CurrencyStats,
   FinancialServiceAnalytics,
+  UnsettledSummary,
 } from "./FinancialServiceRepository.js";
 
 // Financial Repository
@@ -182,6 +184,7 @@ export type {
   SupplierLedgerEntryType,
   CreateSupplierData,
   CreateSupplierLedgerEntryData,
+  SettleTransactionsData,
   SupplierBalance,
 } from "./SupplierRepository.js";
 
@@ -287,3 +290,10 @@ export type {
   DebtAgingBuckets,
   OverdueDebtEntry,
 } from "./TransactionRepository.js";
+
+// Category Repository
+export {
+  CategoryRepository,
+  getCategoryRepository,
+} from "./CategoryRepository.js";
+export type { ProductCategory } from "./CategoryRepository.js";

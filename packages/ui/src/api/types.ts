@@ -187,12 +187,13 @@ export type ApiAdapter = {
     client_id: number;
     amount_usd: number;
     amount_lbp: number;
-    paid_amount_usd: number;
-    paid_amount_lbp: number;
-    drawer_name: string;
+    paid_amount_usd?: number;
+    paid_amount_lbp?: number;
+    drawer_name?: string;
     paidByMethod?: string;
     note?: string;
     user_id?: number;
+    payments?: Array<{ method: string; currencyCode: string; amount: number }>;
   }) => Promise<ApiResult>;
 
   // ---------------------------------------------------------------------------
@@ -331,16 +332,29 @@ export type ApiAdapter = {
       drawer_name?: string;
     },
   ) => Promise<ApiResult & { id?: number }>;
+  getUnsettledTransactions: (provider: string) => Promise<any[]>;
+  settleTransactions: (data: {
+    supplier_id: number;
+    financial_service_ids: number[];
+    amount_usd: number;
+    amount_lbp: number;
+    commission_usd: number;
+    commission_lbp: number;
+    drawer_name: string;
+    note?: string;
+  }) => Promise<ApiResult & { id?: number }>;
 
   // ---------------------------------------------------------------------------
-  // Rates
+  // Rates (new 4-column schema: to_code, market_rate, delta, is_stronger)
   // ---------------------------------------------------------------------------
   getRates: () => Promise<any[]>;
-  setRate: (
-    from_code: string,
-    to_code: string,
-    rate: number,
-  ) => Promise<ApiResult>;
+  setRate: (data: {
+    to_code: string;
+    market_rate: number;
+    delta: number;
+    is_stronger: 1 | -1;
+  }) => Promise<ApiResult>;
+  deleteRate: (to_code: string) => Promise<ApiResult>;
 
   // ---------------------------------------------------------------------------
   // Users

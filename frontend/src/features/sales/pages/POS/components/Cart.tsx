@@ -28,7 +28,7 @@ export default function Cart({
   );
 
   return (
-    <div className="flex flex-col h-full bg-slate-800 border border-slate-700/50 rounded-2xl w-96 shadow-2xl z-20 overflow-hidden">
+    <div className="flex flex-col  bg-slate-800 border border-slate-700/50 rounded-2xl w-96 shadow-2xl z-20 overflow-hidden">
       {/* Header */}
       <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-800 rounded-t-2xl">
         <h2 className="text-lg font-bold text-white flex items-center gap-2">

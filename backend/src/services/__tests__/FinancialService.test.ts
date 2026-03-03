@@ -132,20 +132,30 @@ describe("createFinancialServiceSchema", () => {
 
   describe("omtServiceType field", () => {
     const validTypes = [
-      "BILL_PAYMENT",
-      "CASH_TO_BUSINESS",
-      "MINISTRY_OF_INTERIOR",
-      "CASH_OUT",
-      "MINISTRY_OF_FINANCE",
       "INTRA",
-      "ONLINE_BROKERAGE",
       "WESTERN_UNION",
+      "CASH_TO_BUSINESS",
+      "CASH_TO_GOV",
+      "OMT_WALLET",
+      "OMT_CARD",
+      "OGERO_MECANIQUE",
+      "ONLINE_BROKERAGE",
+    ];
+
+    // Service types that require manual fee entry (no auto-lookup table)
+    const typesRequiringManualFee = [
+      "CASH_TO_BUSINESS",
+      "CASH_TO_GOV",
+      "OMT_CARD",
+      "OGERO_MECANIQUE",
     ];
 
     it.each(validTypes)("accepts valid OMT service type: %s", (type) => {
       const result = createFinancialServiceSchema.safeParse({
         ...basePayload,
         omtServiceType: type,
+        // Provide omtFee for types that have no auto-lookup table
+        ...(typesRequiringManualFee.includes(type) ? { omtFee: 5 } : {}),
       });
       expect(result.success).toBe(true);
       if (result.success) {
@@ -183,12 +193,12 @@ describe("createFinancialServiceSchema", () => {
       const result = createFinancialServiceSchema.safeParse({
         ...basePayload,
         phoneNumber: "03123456",
-        omtServiceType: "CASH_OUT",
+        omtServiceType: "INTRA",
       });
       expect(result.success).toBe(true);
       if (result.success) {
         expect(result.data.phoneNumber).toBe("03123456");
-        expect(result.data.omtServiceType).toBe("CASH_OUT");
+        expect(result.data.omtServiceType).toBe("INTRA");
       }
     });
   });
@@ -356,7 +366,7 @@ describe("FinancialService (delegation)", () => {
         amount: 100,
         commission: 5,
         phoneNumber: "+961 3 123 456",
-        omtServiceType: "BILL_PAYMENT",
+        omtServiceType: "OGERO_MECANIQUE",
       };
       mockRepo.createTransaction.mockReturnValue({
         id: 7,
@@ -367,7 +377,7 @@ describe("FinancialService (delegation)", () => {
       expect(mockRepo.createTransaction).toHaveBeenCalledWith(
         expect.objectContaining({
           phoneNumber: "+961 3 123 456",
-          omtServiceType: "BILL_PAYMENT",
+          omtServiceType: "OGERO_MECANIQUE",
         }),
       );
     });
@@ -395,7 +405,7 @@ describe("FinancialService (delegation)", () => {
         currency: "USD",
         commission: 5,
         phone_number: "03123456",
-        omt_service_type: "BILL_PAYMENT",
+        omt_service_type: "OGERO_MECANIQUE",
         created_at: "2026-02-22",
       },
       {
@@ -472,8 +482,18 @@ describe("FinancialService (delegation)", () => {
       });
       const result = service.getAnalytics();
       expect(result).toEqual({
-        today: { commission: 0, byCurrency: [], count: 0 },
-        month: { commission: 0, byCurrency: [], count: 0 },
+        today: {
+          commission: 0,
+          pending_commission: 0,
+          byCurrency: [],
+          count: 0,
+        },
+        month: {
+          commission: 0,
+          pending_commission: 0,
+          byCurrency: [],
+          count: 0,
+        },
         byProvider: [],
       });
     });
@@ -553,12 +573,12 @@ describe("FinancialService (SQL-level)", () => {
         serviceType: "SEND",
         amount: 100,
         commission: 5,
-        omtServiceType: "BILL_PAYMENT",
+        omtServiceType: "OGERO_MECANIQUE",
       });
 
       const insertStmt = tracker.findStmt("INSERT INTO financial_services");
       expect(insertStmt).toBeDefined();
-      expect(insertStmt!.run.mock.calls[0]).toContain("BILL_PAYMENT");
+      expect(insertStmt!.run.mock.calls[0]).toContain("OGERO_MECANIQUE");
     });
 
     it("stores both phone_number and omt_service_type together", () => {
@@ -661,7 +681,7 @@ describe("FinancialService (SQL-level)", () => {
             currency: "USD",
             commission: 5,
             phone_number: "03123456",
-            omt_service_type: "BILL_PAYMENT",
+            omt_service_type: "OGERO_MECANIQUE",
             created_at: "2026-02-22T10:00:00Z",
           },
           {
@@ -682,7 +702,7 @@ describe("FinancialService (SQL-level)", () => {
 
       expect(history).toHaveLength(2);
       expect(history[0].phone_number).toBe("03123456");
-      expect(history[0].omt_service_type).toBe("BILL_PAYMENT");
+      expect(history[0].omt_service_type).toBe("OGERO_MECANIQUE");
       expect(history[1].phone_number).toBe("71999888");
       expect(history[1].omt_service_type).toBeNull();
     });

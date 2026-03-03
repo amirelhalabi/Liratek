@@ -293,7 +293,12 @@ describe("backendApi dual-mode routing", () => {
     await apiMod.addSupplierLedgerEntry(1, { entry_type: "TOP_UP" });
 
     await apiMod.getRates();
-    await apiMod.setRate("USD", "LBP", 89000);
+    await apiMod.setRate({
+      to_code: "LBP",
+      market_rate: 89000,
+      delta: 0,
+      is_stronger: -1,
+    });
 
     await apiMod.getNonAdminUsers();
     await apiMod.createUser({ username: "u", password: "p", role: "staff" });

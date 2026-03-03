@@ -134,6 +134,13 @@ function initializeDatabase() {
 
   logger.info({ dbPath, source: resolved.source }, "DB path resolved");
 
+  // Ensure the database directory exists (fresh installs won't have it)
+  const dbDir = path.dirname(dbPath);
+  if (!fs.existsSync(dbDir)) {
+    fs.mkdirSync(dbDir, { recursive: true });
+    logger.info({ dbDir }, "Created database directory");
+  }
+
   try {
     db = new Database(dbPath);
 
@@ -196,16 +203,23 @@ function initializeDatabase() {
       logger.info("Database schema OK");
     }
 
-    // Ensure default admin user exists for first-run
+    // Seed default admin user only when setup is NOT complete (dev mode / fresh install before wizard)
     try {
-      const adminRow = db
-        .prepare(
-          "SELECT id, password_hash FROM users WHERE username = 'admin' LIMIT 1",
-        )
-        .get() as { id?: number; password_hash?: string } | undefined;
+      const setupComplete = (
+        db
+          .prepare(
+            "SELECT value FROM system_settings WHERE key_name = 'setup_complete' LIMIT 1",
+          )
+          .get() as { value?: string } | undefined
+      )?.value;
+      const userCount = (
+        db.prepare("SELECT COUNT(*) as cnt FROM users").get() as { cnt: number }
+      ).cnt;
 
-      if (!adminRow) {
-        logger.info("Seeding default admin user...");
+      if (setupComplete !== "1" && userCount === 0) {
+        logger.info(
+          "Seeding default admin user (setup not complete, no users)...",
+        );
         const salt = crypto.randomBytes(16).toString("hex");
         const hash = crypto
           .scryptSync("admin123", Buffer.from(salt, "hex"), 64)
@@ -311,6 +325,7 @@ async function registerHandlers() {
     const transactionHandlers =
       await import("./handlers/transactionHandlers.js");
     const profitHandlers = await import("./handlers/profitHandlers.js");
+    const setupHandlers = await import("./handlers/setupHandlers.js");
 
     // Register all handlers (they auto-register with ipcMain)
     authHandlers.registerAuthHandlers();
@@ -338,6 +353,7 @@ async function registerHandlers() {
     customServiceHandlers.registerCustomServiceHandlers();
     transactionHandlers.registerTransactionHandlers();
     profitHandlers.registerProfitHandlers();
+    setupHandlers.registerSetupHandlers();
 
     logger.info("All IPC handlers registered");
 

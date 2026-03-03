@@ -15,6 +15,7 @@ import { VarianceCard } from "../../components/VarianceCard";
 import { AlertBanner } from "../../components/AlertBanner";
 import { appEvents, useApi } from "@liratek/ui";
 import { useAuth } from "../../../auth/context/AuthContext";
+import { useModules } from "../../../../contexts/ModuleContext";
 import { generateClosingReport } from "../../utils/closingReportGenerator";
 import { X, ChevronLeft, ChevronRight } from "lucide-react";
 
@@ -23,9 +24,29 @@ interface ClosingProps {
   onClose: () => void;
 }
 
+/** Map each drawer to the module key that must be enabled for it to appear */
+const DRAWER_MODULE_MAP: Partial<Record<string, string>> = {
+  OMT_App: "ipec_katch",
+  OMT_System: "ipec_katch",
+  Whish_App: "ipec_katch",
+  Whish_System: "ipec_katch",
+  Binance: "binance",
+  MTC: "recharge",
+  Alfa: "recharge",
+  IPEC: "ipec_katch",
+  Katch: "ipec_katch",
+};
+
 export default function Closing({ isOpen, onClose }: ClosingProps) {
   const api = useApi();
   const { user } = useAuth();
+  const { isModuleEnabled } = useModules();
+
+  /** Only show drawers whose required module is enabled (General has no restriction) */
+  const activeDrawerOrder = DRAWER_ORDER.filter((drawer) => {
+    const requiredModule = DRAWER_MODULE_MAP[drawer];
+    return !requiredModule || isModuleEnabled(requiredModule);
+  });
   const {
     currencies,
     loading: currenciesLoading,
@@ -136,7 +157,7 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
 
     const closingDate = new Date().toISOString().split("T")[0];
 
-    const amounts = DRAWER_ORDER.flatMap((drawer) =>
+    const amounts = activeDrawerOrder.flatMap((drawer) =>
       currencies.map((currency) => ({
         drawer_name: drawer,
         currency_code: currency.code,
@@ -349,7 +370,7 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {DRAWER_ORDER.map((drawer) => {
+                  {activeDrawerOrder.map((drawer) => {
                     const allowed = drawerCurrencyConfig[drawer];
                     const drawerCurrencies = allowed
                       ? currencies.filter((c) => allowed.includes(c.code))
@@ -409,7 +430,7 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
                     pct: number;
                   }> = [];
 
-                  for (const drawer of DRAWER_ORDER) {
+                  for (const drawer of activeDrawerOrder) {
                     const allowed = drawerCurrencyConfig[drawer];
                     const drawerCurrencies = allowed
                       ? currencies.filter((c) => allowed.includes(c.code))
@@ -461,7 +482,7 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
                       )}
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {DRAWER_ORDER.map((drawer) => {
+                        {activeDrawerOrder.map((drawer) => {
                           const allowed = drawerCurrencyConfig[drawer];
                           const drawerCurrencies = allowed
                             ? currencies.filter((c) => allowed.includes(c.code))

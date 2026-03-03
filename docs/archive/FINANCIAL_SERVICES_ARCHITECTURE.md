@@ -1,8 +1,12 @@
 # Financial Services Architecture Analysis
 
-**Date**: February 23, 2026 (updated)
+**Date**: February 24, 2026 (updated)
 **Scope**: Database vs code implementation of financial modules, best practices recommendations
-**Status**: Phase 1 implemented — 3-drawer OMT, 2-drawer WHISH, BILL_PAYMENT removed, Western Union added
+**Status**:
+
+- ✅ Phase 1 complete — 3-drawer OMT, 2-drawer WHISH, BILL_PAYMENT removed, Western Union added
+- ✅ Phase 2 backend complete — Auto-calculation, fee schedules, service types updated
+- 🚧 Phase 2 frontend pending — UI updates for fee input and commission preview
 
 ---
 
@@ -25,7 +29,10 @@
 | `client_name`      | TEXT               | Denormalized                                                                  |
 | `reference_number` | TEXT               |                                                                               |
 | `phone_number`     | TEXT               | Added by T-30                                                                 |
-| `omt_service_type` | TEXT               | CHECK: 8 OMT sub-types (WESTERN_UNION added in v26). Added by T-30           |
+| `omt_service_type` | TEXT               | CHECK: 8 OMT sub-types (updated v27). Added by T-30                           |
+| `omt_fee`          | DECIMAL(10,2)      | OMT's fee (user-entered). Added by migration v28                              |
+| `profit_rate`      | DECIMAL(6,5)       | For ONLINE_BROKERAGE (0.1%-0.4%). Added by migration v28                      |
+| `pay_fee`          | INTEGER            | BINANCE fee checkbox (0 or 1). Added by migration v28                         |
 | `item_key`         | TEXT               | Links to mobileServices catalog                                               |
 | `note`             | TEXT               |                                                                               |
 | `created_at`       | DATETIME           |                                                                               |
@@ -136,18 +143,18 @@ Three module keys share the `/recharge` route: `recharge`, `binance`, `ipec_katc
 
 ## 4. Drawer Architecture
 
-| Drawer Name    | Currencies | Used By                    | Notes                                          |
-| -------------- | ---------- | -------------------------- | ---------------------------------------------- |
-| `General`      | USD, LBP   | Sales, BOB, OTHER, OMT     | Main cash drawer + OMT cash reserve            |
-| `OMT_System`   | USD, LBP   | OMT (legacy flow)          | Tracks OMT system debt (what OMT owes shop)    |
-| `OMT_App`      | USD, LBP   | OMT_APP (cost/price flow)  | OMT app reselling                              |
-| `Whish_System` | USD, LBP   | WHISH (legacy flow)        | Tracks WHISH system debt (what WHISH owes shop)|
-| `Whish_App`    | USD, LBP   | WISH_APP (cost/price flow) | Whish app reselling                            |
-| `Binance`      | USD only   | BINANCE                    | Crypto                                         |
-| `MTC`          | USD only   | MTC recharges              | Telecom stock                                  |
-| `Alfa`         | USD only   | Alfa recharges             | Telecom stock                                  |
-| `IPEC`         | USD, LBP   | IPEC                       | Financial service                              |
-| `Katch`        | USD, LBP   | KATCH                      | Financial service                              |
+| Drawer Name    | Currencies | Used By                    | Notes                                           |
+| -------------- | ---------- | -------------------------- | ----------------------------------------------- |
+| `General`      | USD, LBP   | Sales, BOB, OTHER, OMT     | Main cash drawer + OMT cash reserve             |
+| `OMT_System`   | USD, LBP   | OMT (legacy flow)          | Tracks OMT system debt (what OMT owes shop)     |
+| `OMT_App`      | USD, LBP   | OMT_APP (cost/price flow)  | OMT app reselling                               |
+| `Whish_System` | USD, LBP   | WHISH (legacy flow)        | Tracks WHISH system debt (what WHISH owes shop) |
+| `Whish_App`    | USD, LBP   | WISH_APP (cost/price flow) | Whish app reselling                             |
+| `Binance`      | USD only   | BINANCE                    | Crypto                                          |
+| `MTC`          | USD only   | MTC recharges              | Telecom stock                                   |
+| `Alfa`         | USD only   | Alfa recharges             | Telecom stock                                   |
+| `IPEC`         | USD, LBP   | IPEC                       | Financial service                               |
+| `Katch`        | USD, LBP   | KATCH                      | Financial service                               |
 
 ### 4a. OMT / WHISH Drawer Logic (Phase 1 — Implemented)
 
@@ -156,10 +163,10 @@ and system obligations. This was implemented in migration v26.
 
 #### Terminology
 
-| UI Label      | DB Value   | Meaning                                                          |
-| ------------- | ---------- | ---------------------------------------------------------------- |
-| **Money In**  | `SEND`     | Customer gives money to shop, shop sends via OMT/WHISH           |
-| **Money Out** | `RECEIVE`  | Customer receives money from OMT/WHISH, shop gives cash out      |
+| UI Label      | DB Value  | Meaning                                                     |
+| ------------- | --------- | ----------------------------------------------------------- |
+| **Money In**  | `SEND`    | Customer gives money to shop, shop sends via OMT/WHISH      |
+| **Money Out** | `RECEIVE` | Customer receives money from OMT/WHISH, shop gives cash out |
 
 #### OMT — 3-Drawer Cash-Reserve Model
 
@@ -186,19 +193,20 @@ will later collect. The "General" drawer acts as the cash reserve.
 ```
 
 **OMT Settlement (end of period):**
+
 - OMT pays the shop the net OMT_System balance.
 - Shop releases the cash reserve from General.
 - Both OMT_System and General return toward 0.
 
 **Example — Full OMT Cycle:**
 
-| Step | Action | General | OMT_System |
-|------|--------|---------|------------|
-| 1 | Money In $100 (CASH) | +100 -100 = **0** | **+100** |
-| 2 | Money In $50 (CASH) | +50 -50 = **0** | **+150** |
-| 3 | Money Out $30 | **-30** | **+120** |
-| 4 | OMT settles $120 | **+120** (cash from OMT) | **0** |
-| — | Final | **+90** (net: -30 out + 120 settlement) | **0** |
+| Step | Action               | General                                 | OMT_System |
+| ---- | -------------------- | --------------------------------------- | ---------- |
+| 1    | Money In $100 (CASH) | +100 -100 = **0**                       | **+100**   |
+| 2    | Money In $50 (CASH)  | +50 -50 = **0**                         | **+150**   |
+| 3    | Money Out $30        | **-30**                                 | **+120**   |
+| 4    | OMT settles $120     | **+120** (cash from OMT)                | **0**      |
+| —    | Final                | **+90** (net: -30 out + 120 settlement) | **0**      |
 
 #### WHISH — 2-Drawer Model (No Cash Reserve)
 
@@ -227,11 +235,11 @@ for WHISH settlement, so General is not involved in the system drawer flow.
 
 **Example — Full WHISH Cycle:**
 
-| Step | Action | General | Whish_System |
-|------|--------|---------|-------------|
-| 1 | Money In $100 (CASH) | **+100** | **+100** |
-| 2 | Money Out $50 | **+100** (unchanged) | **+50** |
-| 3 | WHISH settles $50 | **+100** (unchanged) | **0** |
+| Step | Action               | General              | Whish_System |
+| ---- | -------------------- | -------------------- | ------------ |
+| 1    | Money In $100 (CASH) | **+100**             | **+100**     |
+| 2    | Money Out $50        | **+100** (unchanged) | **+50**      |
+| 3    | WHISH settles $50    | **+100** (unchanged) | **0**        |
 
 #### BOB / OTHER — Single-Drawer (Legacy)
 
@@ -247,29 +255,47 @@ No system drawer tracking. No settlement cycle.
 
 Every financial service transaction auto-records to the `supplier_ledger`:
 
-| Service Type | Ledger Entry Type | Effect |
-|-------------|-------------------|--------|
-| SEND (Money In) | `TOP_UP` | Increases supplier debt (shop owes supplier) |
-| RECEIVE (Money Out) | `PAYMENT` | Decreases supplier debt (supplier settled) |
+| Service Type        | Ledger Entry Type | Effect                                       |
+| ------------------- | ----------------- | -------------------------------------------- |
+| SEND (Money In)     | `TOP_UP`          | Increases supplier debt (shop owes supplier) |
+| RECEIVE (Money Out) | `PAYMENT`         | Decreases supplier debt (supplier settled)   |
 
 #### OMT Service Types (omt_service_type)
 
 OMT transactions have a sub-classification (8 values):
 
-| Value | Description |
-|-------|-------------|
-| `INTRA` | Internal transfers (default) |
-| `MTC_BILL` | MTC bill payments |
-| `EDL_BILL` | EDL bill payments |
-| `IDM_BILL` | IDM bill payments |
-| `BILL_PAYMENT` | Generic bill payments |
-| `CASH_ON_DELIVERY` | COD transactions |
-| `OTHER` | Miscellaneous |
-| `WESTERN_UNION` | Western Union transfers (added v26) |
+| Value              | Description                                 |
+| ------------------ | ------------------------------------------- | ------------------- |
+| Service Type       | Description                                 | Commission Rate     |
+| --------------     | -------------                               | -----------------   |
+| `INTRA`            | Internal transfers (default)                | 15% of OMT fee      |
+| `WESTERN_UNION`    | Western Union transfers                     | 10% of OMT fee      |
+| `CASH_TO_BUSINESS` | Cash to business                            | 25% of OMT fee      |
+| `CASH_TO_GOV`      | Cash to gov (bills: darayeb, water, meliye) | 25% of OMT fee      |
+| `OMT_WALLET`       | OMT Wallet (NO FEES)                        | 0%                  |
+| `OMT_CARD`         | OMT Card                                    | 10% of OMT fee      |
+| `OGERO_MECANIQUE`  | Ogero/Mecanique (renamed from BILL_PAYMENT) | 25% of OMT fee      |
+| `ONLINE_BROKERAGE` | Online Brokerage (UNICEF, etc.)             | 0.1%-0.4% of amount |
 
-> **Note**: `BILL_PAYMENT` as an `omt_service_type` is a separate concept from the
-> removed `service_type` value. The service type `BILL_PAYMENT` was removed because
-> all transactions are either money-in or money-out. The OMT sub-type remains.
+**Changes in Migration v27** (Feb 24, 2026):
+
+- Reordered service types to match business priority
+- Consolidated `MINISTRY_OF_INTERIOR` + `MINISTRY_OF_FINANCE` → `CASH_TO_GOV`
+- Renamed `BILL_PAYMENT` → `OGERO_MECANIQUE`
+- Migrated `CASH_OUT` → `INTRA`
+- Added `OMT_WALLET` and `OMT_CARD` as new service types
+- Removed obsolete service types: `MTC_BILL`, `EDL_BILL`, `IDM_BILL`, `CASH_ON_DELIVERY`, `OTHER`
+
+**Auto-Calculation** (Migration v28):
+
+- Backend automatically calculates `commission` based on `omt_service_type`
+- User enters `omt_fee` (OMT's fee) → system calculates shop profit
+- Special case: `ONLINE_BROKERAGE` uses `profit_rate` (0.1%-0.4%) × amount
+- Special case: `OMT_WALLET` always has 0 commission
+
+> **Note**: `BILL_PAYMENT` as a `service_type` was removed in v26 because all transactions
+> are either SEND or RECEIVE. The `omt_service_type` `BILL_PAYMENT` was renamed to
+> `OGERO_MECANIQUE` in v27 for clarity.
 
 ---
 
@@ -316,7 +342,7 @@ products (1) ←── (M) sale_items (M) ──→ (1) sales
 | F3  | API methods named `api.getOMTHistory()` used for non-OMT providers   | **RENAME** to `api.getFinancialServiceHistory()` etc.  |
 | F4  | "Mobile Recharge" sidebar label for mixed content                    | **KEEP AS IS**                                         |
 | F5  | OMT App grouped under `ipec_katch` module                            | **KEEP AS IS** (intentional — different business flow) |
-| F6  | SEND/RECEIVE labels in UI                                            | **DONE** — Renamed to Money In / Money Out   |
+| F6  | SEND/RECEIVE labels in UI                                            | **DONE** — Renamed to Money In / Money Out             |
 
 ---
 
@@ -324,11 +350,11 @@ products (1) ←── (M) sale_items (M) ──→ (1) sales
 
 ### Phase 1: Quick Fixes (✅ DONE)
 
-| #   | Task                                                                         | Status     |
-| --- | ---------------------------------------------------------------------------- | ---------- |
-| 1.1 | **Fix `sales.drawer_name` default** from `'General_Drawer_B'` to `'General'` | ✅ Done     |
-| 1.2 | **Delete orphaned pages**: `IKWServices/index.tsx`, `Binance/index.tsx`      | ✅ Done     |
-| 1.3 | **Rename SEND/RECEIVE → Money In/Money Out** in all service UI labels        | ✅ Done     |
+| #   | Task                                                                         | Status  |
+| --- | ---------------------------------------------------------------------------- | ------- |
+| 1.1 | **Fix `sales.drawer_name` default** from `'General_Drawer_B'` to `'General'` | ✅ Done |
+| 1.2 | **Delete orphaned pages**: `IKWServices/index.tsx`, `Binance/index.tsx`      | ✅ Done |
+| 1.3 | **Rename SEND/RECEIVE → Money In/Money Out** in all service UI labels        | ✅ Done |
 
 ### Phase 2: MTC/Alfa → `recharges` table (data integrity)
 

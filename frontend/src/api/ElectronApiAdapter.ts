@@ -167,13 +167,21 @@ export class ElectronApiAdapter implements ApiAdapter {
   }) => api.createSupplier(data);
   addSupplierLedgerEntry = (supplierId: number, data: any) =>
     api.addSupplierLedgerEntry(supplierId, data);
+  getUnsettledTransactions = (provider: string) =>
+    api.getUnsettledTransactions(provider);
+  settleTransactions = (data: any) => api.settleTransactions(data);
 
   // ---------------------------------------------------------------------------
   // Rates
   // ---------------------------------------------------------------------------
   getRates = () => api.getRates();
-  setRate = (from_code: string, to_code: string, rate: number) =>
-    api.setRate(from_code, to_code, rate);
+  setRate = (data: {
+    to_code: string;
+    market_rate: number;
+    delta: number;
+    is_stronger: 1 | -1;
+  }) => api.setRate(data);
+  deleteRate = (to_code: string) => api.deleteRate(to_code);
 
   // ---------------------------------------------------------------------------
   // Users

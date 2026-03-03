@@ -29,6 +29,7 @@ import { appEvents } from "@liratek/ui";
 import { useAuth } from "../../../features/auth/context/AuthContext";
 import { useModules } from "../../../contexts/ModuleContext";
 import { useShopName } from "../../../hooks/useShopName";
+import { useFeatureFlags } from "../../../contexts/FeatureFlagContext";
 
 // Map Lucide icon names (stored in DB) to actual icon components
 const iconMap: Record<string, LucideIcon> = {
@@ -61,6 +62,7 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
   const isAdmin = user?.role === "admin";
   const { enabledModules } = useModules();
   const shopName = useShopName();
+  const { flags } = useFeatureFlags();
 
   // Consolidated module group: recharge + ipec_katch + binance → one "Mobile Recharge" link
   const CONSOLIDATED_KEYS = new Set(["recharge", "ipec_katch", "binance"]);
@@ -96,11 +98,11 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
   }, [enabledModules, isAdmin]);
 
   const handleClosingClick = () => {
-    appEvents.emit("openClosingModal");
+    appEvents.emit("closing:open");
   };
 
   const handleOpeningClick = () => {
-    appEvents.emit("openOpeningModal");
+    appEvents.emit("opening:open");
   };
 
   return (
@@ -152,8 +154,8 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
             )}
           </NavLink>
         ))}
-        {/* Opening and Closing Buttons - admin only */}
-        {isAdmin && (
+        {/* Opening and Closing Buttons - admin only, only when session management is enabled */}
+        {isAdmin && flags.sessionManagement && (
           <button
             onClick={handleOpeningClick}
             className={clsx(
@@ -171,7 +173,7 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
             )}
           </button>
         )}
-        {isAdmin && (
+        {isAdmin && flags.sessionManagement && (
           <button
             onClick={handleClosingClick}
             className={clsx(

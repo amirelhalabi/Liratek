@@ -1,9 +1,13 @@
 /**
- * Utility functions for exporting HTML table data to Excel and PDF.
+ * Utility functions for exporting table data to Excel and PDF.
  *
- * Both helpers accept a ref to the `<table>` element and extract
- * header + body data from the DOM so callers don't need to pass
- * column definitions or row arrays.
+ * Both helpers accept either:
+ *   - a pre-built `TableData` object (headers + rows), OR
+ *   - a ref to the `<table>` DOM element (legacy fallback).
+ *
+ * Using `TableData` directly is preferred because it exports ALL rows
+ * regardless of pagination, whereas DOM scraping only captures the
+ * currently rendered page.
  */
 
 import * as XLSX from "xlsx";
@@ -12,25 +16,35 @@ import autoTable from "jspdf-autotable";
 import { saveAs } from "file-saver";
 
 /* ------------------------------------------------------------------ */
-/*  Internal helpers                                                   */
+/*  Public types                                                       */
 /* ------------------------------------------------------------------ */
 
-interface TableData {
+export interface TableData {
   headers: string[];
   rows: string[][];
 }
+
+/* ------------------------------------------------------------------ */
+/*  Internal helpers                                                   */
+/* ------------------------------------------------------------------ */
 
 function extractTableData(table: HTMLTableElement): TableData {
   const headers: string[] = [];
   const rows: string[][] = [];
 
+  // Determine which column indices to exclude (checkbox, action columns)
+  const excludedIndices = new Set<number>();
+
   // Extract headers from <thead>
   const thead = table.querySelector("thead");
   if (thead) {
     const headerCells = thead.querySelectorAll("th");
-    headerCells.forEach((th) => {
+    headerCells.forEach((th, i) => {
+      if (th.hasAttribute("data-export-ignore")) {
+        excludedIndices.add(i);
+        return;
+      }
       const text = th.textContent?.trim() ?? "";
-      // Skip empty header cells (e.g. action columns, expand icons)
       headers.push(text);
     });
   }
@@ -49,7 +63,8 @@ function extractTableData(table: HTMLTableElement): TableData {
       if (cells.length === 1 && cells[0].hasAttribute("colspan")) return;
 
       const row: string[] = [];
-      cells.forEach((td) => {
+      cells.forEach((td, i) => {
+        if (excludedIndices.has(i)) return;
         row.push(td.textContent?.trim() ?? "");
       });
       rows.push(row);
@@ -59,18 +74,27 @@ function extractTableData(table: HTMLTableElement): TableData {
   return { headers, rows };
 }
 
+/** Resolve input to a `TableData` object. */
+function resolveTableData(source: HTMLTableElement | TableData): TableData {
+  if ("headers" in source && "rows" in source) return source;
+  return extractTableData(source);
+}
+
 /* ------------------------------------------------------------------ */
 /*  Public API                                                         */
 /* ------------------------------------------------------------------ */
 
 /**
- * Export an HTML <table> element to an .xlsx Excel file.
+ * Export table data to an .xlsx Excel file.
+ *
+ * @param source  Pre-built `TableData` or an HTML `<table>` element.
+ * @param filename  Base filename (without extension).
  */
 export function exportToExcel(
-  table: HTMLTableElement,
+  source: HTMLTableElement | TableData,
   filename = "export",
 ): void {
-  const { headers, rows } = extractTableData(table);
+  const { headers, rows } = resolveTableData(source);
   const worksheetData = [headers, ...rows];
 
   const wb = XLSX.utils.book_new();
@@ -91,13 +115,16 @@ export function exportToExcel(
 }
 
 /**
- * Export an HTML <table> element to a PDF file.
+ * Export table data to a PDF file.
+ *
+ * @param source  Pre-built `TableData` or an HTML `<table>` element.
+ * @param filename  Base filename (without extension).
  */
 export function exportToPdf(
-  table: HTMLTableElement,
+  source: HTMLTableElement | TableData,
   filename = "export",
 ): void {
-  const { headers, rows } = extractTableData(table);
+  const { headers, rows } = resolveTableData(source);
 
   const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
 

@@ -31,6 +31,10 @@ import {
 } from "../../hooks/useCustomServices";
 import logger from "../../../../utils/logger";
 import { DataTable } from "@/shared/components/DataTable";
+import {
+  MultiPaymentInput,
+  type PaymentLine,
+} from "@/shared/components/MultiPaymentInput";
 
 // =============================================================================
 // Helper
@@ -84,6 +88,10 @@ export default function CustomServices() {
   const [paidBy, setPaidBy] = useState("CASH");
   const [note, setNote] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // ─── Multi-payment support ───
+  const [useMultiPayment, setUseMultiPayment] = useState(false);
+  const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
 
   // ─── Customer Details (for ALL payment methods) ───
   const [clientId, setClientId] = useState<number | null>(null);
@@ -201,7 +209,15 @@ export default function CustomServices() {
         cost_lbp: costLbpVal,
         price_usd: priceUsdVal,
         price_lbp: priceLbpVal,
-        paid_by: paidBy,
+        ...(useMultiPayment && paymentLines.length > 0
+          ? {
+              payments: paymentLines.map((p) => ({
+                method: p.method,
+                currency_code: p.currencyCode,
+                amount: p.amount,
+              })),
+            }
+          : { paid_by: paidBy }),
       };
       if (finalClientId) payload.client_id = finalClientId;
       if (clientName.trim()) payload.client_name = clientName.trim();
@@ -231,6 +247,8 @@ export default function CustomServices() {
         setPriceUsd("");
         setPriceLbp("");
         setNote("");
+        setUseMultiPayment(false);
+        setPaymentLines([]);
         clearClient();
         reload();
       } else {
@@ -454,24 +472,42 @@ export default function CustomServices() {
               )}
             </div>
 
-            {/* Paid By */}
+            {/* Payment Method */}
             <div>
-              <label
-                htmlFor="svc-paid-by"
-                className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
-              >
-                Paid By
-              </label>
-              <Select
-                value={paidBy}
-                onChange={(value) => setPaidBy(value)}
-                options={methods.map((m) => ({
-                  value: m.code,
-                  label: m.label,
-                }))}
-                ringColor="ring-teal-500"
-                buttonClassName="py-2.5 text-sm font-bold rounded-lg"
-              />
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider">
+                  Payment Method
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setUseMultiPayment(!useMultiPayment)}
+                  className="text-xs px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
+                >
+                  {useMultiPayment ? "Single Payment" : "Split Payment"}
+                </button>
+              </div>
+
+              {!useMultiPayment ? (
+                <Select
+                  value={paidBy}
+                  onChange={(value) => setPaidBy(value)}
+                  options={methods.map((m) => ({
+                    value: m.code,
+                    label: m.label,
+                  }))}
+                  ringColor="ring-teal-500"
+                  buttonClassName="py-2.5 text-sm font-bold rounded-lg"
+                />
+              ) : (
+                <MultiPaymentInput
+                  totalAmount={priceUsdVal || costUsdVal}
+                  currency="USD"
+                  onChange={setPaymentLines}
+                  requiresClientForDebt={true}
+                  hasClient={!!clientId || !!clientName}
+                  transactionType="CUSTOM_SERVICE"
+                />
+              )}
             </div>
 
             {/* Customer Details — available for ALL payment methods */}
@@ -648,13 +684,41 @@ export default function CustomServices() {
               <>
                 <DataTable<CustomServiceEntry>
                   columns={[
-                    { header: "Time", className: "px-4 py-3" },
-                    { header: "Description", className: "px-4 py-3" },
-                    { header: "Customer", className: "px-4 py-3" },
-                    { header: "Cost", className: "px-4 py-3 text-right" },
-                    { header: "Price", className: "px-4 py-3 text-right" },
-                    { header: "Profit", className: "px-4 py-3 text-right" },
-                    { header: "Paid By", className: "px-4 py-3" },
+                    {
+                      header: "Time",
+                      className: "px-4 py-3",
+                      sortKey: "created_at",
+                    },
+                    {
+                      header: "Description",
+                      className: "px-4 py-3",
+                      sortKey: "description",
+                    },
+                    {
+                      header: "Customer",
+                      className: "px-4 py-3",
+                      sortKey: "client_name",
+                    },
+                    {
+                      header: "Cost",
+                      className: "px-4 py-3 text-right",
+                      sortKey: "cost_usd",
+                    },
+                    {
+                      header: "Price",
+                      className: "px-4 py-3 text-right",
+                      sortKey: "price_usd",
+                    },
+                    {
+                      header: "Profit",
+                      className: "px-4 py-3 text-right",
+                      sortKey: "profit_usd",
+                    },
+                    {
+                      header: "Paid By",
+                      className: "px-4 py-3",
+                      sortKey: "paid_by",
+                    },
                     { header: "", className: "px-4 py-3 w-10" },
                   ]}
                   data={history}

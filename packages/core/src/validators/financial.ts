@@ -32,19 +32,47 @@ export const createFinancialServiceSchema = z
     phoneNumber: z.string().max(30).optional(),
     omtServiceType: z
       .enum([
-        "BILL_PAYMENT",
-        "CASH_TO_BUSINESS",
-        "MINISTRY_OF_INTERIOR",
-        "CASH_OUT",
-        "MINISTRY_OF_FINANCE",
         "INTRA",
-        "ONLINE_BROKERAGE",
         "WESTERN_UNION",
+        "CASH_TO_BUSINESS",
+        "CASH_TO_GOV",
+        "OMT_WALLET",
+        "OMT_CARD",
+        "OGERO_MECANIQUE",
+        "ONLINE_BROKERAGE",
       ])
       .optional(),
     itemKey: z.string().max(255).optional(),
     itemCategory: z.string().max(500).optional(),
     note: z.string().max(500).optional(),
+    // New fields for fee calculation
+    omtFee: positiveDecimalSchema.optional(), // Fee charged by OMT (user-entered or auto-looked-up)
+    /** Fee charged by WHISH (user-entered or auto-looked-up from WHISH_FEE_TIERS) */
+    whishFee: positiveDecimalSchema.optional(),
+    profitRate: z.number().min(0.001).max(0.004).optional(), // For ONLINE_BROKERAGE (0.1%-0.4%)
+    payFee: z.boolean().optional(), // For BINANCE: charge fee to customer
+    /** For SEND: true = fee already deducted from amount by frontend (amount is net sent amount) */
+    includingFees: z.boolean().optional(),
+    /**
+     * Surcharge collected from customer for paying via non-cash method (e.g. WHISH Wallet, Binance).
+     * This is the shop's immediately realized profit. Only applies to SEND with non-cash paidByMethod.
+     */
+    paymentMethodFee: z.number().min(0).optional(),
+    /**
+     * Rate used to calculate paymentMethodFee (e.g. 0.01 = 1%).
+     * Stored for audit purposes.
+     */
+    paymentMethodFeeRate: z.number().min(0).max(0.1).optional(),
+    /** Multi-payment support */
+    payments: z
+      .array(
+        z.object({
+          method: z.string(),
+          currencyCode: z.string(),
+          amount: z.number().positive(),
+        }),
+      )
+      .optional(),
   })
   .refine(
     (data) => {
@@ -57,6 +85,46 @@ export const createFinancialServiceSchema = z
     {
       message: "Client is required when paying by DEBT",
       path: ["clientId"],
+    },
+  )
+  .refine(
+    (data) => {
+      // For OMT services (except OMT_WALLET and ONLINE_BROKERAGE), omtFee is optional
+      // when the service type has a fee lookup table (INTRA, WESTERN_UNION).
+      // For other service types (CASH_TO_BUSINESS, CASH_TO_GOV, OMT_CARD, OGERO_MECANIQUE),
+      // the fee must be entered manually.
+      const hasFeeLookupTable =
+        data.omtServiceType === "INTRA" ||
+        data.omtServiceType === "WESTERN_UNION";
+
+      if (
+        data.provider === "OMT" &&
+        data.omtServiceType &&
+        data.omtServiceType !== "OMT_WALLET" &&
+        data.omtServiceType !== "ONLINE_BROKERAGE" &&
+        !hasFeeLookupTable &&
+        !data.omtFee
+      ) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message: "OMT fee is required for this service type",
+      path: ["omtFee"],
+    },
+  )
+  .refine(
+    (data) => {
+      // For BINANCE with payFee=true, omtServiceType is required to calculate fee
+      if (data.provider === "BINANCE" && data.payFee && !data.omtServiceType) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message: "Service type is required when charging fee",
+      path: ["omtServiceType"],
     },
   );
 

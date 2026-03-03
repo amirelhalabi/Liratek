@@ -44,6 +44,16 @@ export interface TransactionEntity extends BaseEntity {
   created_at: string;
 }
 
+export interface PaymentRow {
+  id: number;
+  method: string;
+  drawer_name: string;
+  currency_code: string;
+  amount: number;
+  note: string | null;
+  created_at: string;
+}
+
 export interface CreateTransactionInput {
   type: TransactionType;
   source_table: string;
@@ -443,6 +453,21 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    * For each payment row linked to the original transaction, insert a negated
    * payment row linked to the reversal transaction and update drawer_balances.
    */
+  /**
+   * Get all payment rows linked to a transaction.
+   * Used by the debt detail eye button to show a full payment breakdown
+   * (Cash $50, WHISH $49.50 + PM fee $0.50, Debt $1.50, etc.)
+   */
+  getPaymentsByTransactionId(transactionId: number): PaymentRow[] {
+    return this.query<PaymentRow>(
+      `SELECT id, method, drawer_name, currency_code, amount, note, created_at
+       FROM payments
+       WHERE transaction_id = ?
+       ORDER BY id ASC`,
+      transactionId,
+    );
+  }
+
   private _reversePayments(
     originalTxnId: number,
     reversalTxnId: number,

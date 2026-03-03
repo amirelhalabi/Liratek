@@ -7,9 +7,28 @@
 
 import { BaseRepository } from "./BaseRepository.js";
 import { DatabaseError } from "../utils/errors.js";
-import { paymentMethodToDrawerName } from "../utils/payments.js";
+import {
+  paymentMethodToDrawerName,
+  isNonCashDrawerMethod,
+} from "../utils/payments.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
+
+/** A single payment leg for multi-payment repayments */
+export interface RepaymentPaymentLine {
+  method: string;
+  currencyCode: string;
+  amount: number;
+}
+
+// Maps transaction_type stored in debt_ledger to the system drawer that should
+// receive the repayment funds (the drawer that tracks the provider debt)
+const SERVICE_DEBT_SYSTEM_DRAWER: Record<string, string> = {
+  "Service Debt": "", // resolved dynamically from originating financial_service
+  "Recharge Debt": "General", // recharge cost was paid from General
+  "Sale Debt": "", // no system drawer — sale profit recognised on full payment
+  Repayment: "", // repayment rows themselves
+};
 
 // =============================================================================
 // Entity Types
@@ -57,6 +76,10 @@ export interface CreateRepaymentData {
   note?: string | null;
   created_by?: number | null;
   paid_by_method?: string;
+  /** Optional multi-payment legs. When provided, overrides paid_by_method for
+   *  drawer routing. Each leg is processed independently with per-leg RESERVE
+   *  routing for Service Debt (e.g. WHISH leg → Whish_App → Whish_System). */
+  payments?: RepaymentPaymentLine[];
 }
 
 // =============================================================================
@@ -78,21 +101,30 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
   // ---------------------------------------------------------------------------
 
   /**
-   * Get the current exchange rate for a currency pair.
-   * Defaults to USD→LBP for backward compatibility.
+   * Get the current exchange rate for USD→LBP conversions.
+   * Computes effective sell rate using: market_rate + is_stronger * delta
+   * Falls back to 89500 if no rate found (logs warning instead of throwing).
    */
   private getExchangeRate(fromCode = "USD", toCode = "LBP"): number {
     const rateResult = this.db
       .prepare(
-        `SELECT rate FROM exchange_rates WHERE from_code = ? AND to_code = ? LIMIT 1`,
+        `SELECT market_rate, delta, is_stronger FROM exchange_rates WHERE to_code = ? LIMIT 1`,
       )
-      .get(fromCode, toCode) as { rate: number } | undefined;
+      .get(toCode) as
+      | { market_rate: number; delta: number; is_stronger: number }
+      | undefined;
+
     if (!rateResult) {
-      throw new DatabaseError(
-        `No exchange rate found for ${fromCode}→${toCode}`,
+      console.warn(
+        `No exchange rate found for ${fromCode}→${toCode}, falling back to 89500`,
       );
+      return 89500;
     }
-    return rateResult.rate;
+
+    // Compute effective sell rate: market_rate + is_stronger * delta (GIVE_USD = +1)
+    const effectiveRate =
+      rateResult.market_rate + rateResult.is_stronger * rateResult.delta;
+    return effectiveRate;
   }
 
   /**
@@ -173,6 +205,45 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
 
       const repaymentId = Number(result.lastInsertRowid);
 
+      // Build payment legs: if multi-payment provided, use them; otherwise fall
+      // back to the legacy single-method path using amount_usd / amount_lbp.
+      const paymentLegs: RepaymentPaymentLine[] =
+        data.payments && data.payments.length > 0
+          ? data.payments
+          : [
+              ...(data.amount_usd > 0
+                ? [
+                    {
+                      method: data.paid_by_method || "CASH",
+                      currencyCode: "USD",
+                      amount: data.amount_usd,
+                    },
+                  ]
+                : []),
+              ...(data.amount_lbp > 0
+                ? [
+                    {
+                      method: data.paid_by_method || "CASH",
+                      currencyCode: "LBP",
+                      amount: data.amount_lbp,
+                    },
+                  ]
+                : []),
+            ];
+
+      // Compute total USD equivalent for transaction summary & FIFO attribution
+      const totalUSD = paymentLegs
+        .filter((l) => l.currencyCode === "USD")
+        .reduce((s, l) => s + l.amount, 0);
+      const totalLBP = paymentLegs
+        .filter((l) => l.currencyCode === "LBP")
+        .reduce((s, l) => s + l.amount, 0);
+
+      // Derive primary method label for metadata (first leg, or SPLIT)
+      const uniqueMethods = [...new Set(paymentLegs.map((l) => l.method))];
+      const primaryMethod =
+        uniqueMethods.length === 1 ? uniqueMethods[0] : "SPLIT";
+
       // Create unified transaction row
       const txnId = getTransactionRepository().createTransaction({
         type: TRANSACTION_TYPES.DEBT_REPAYMENT,
@@ -184,7 +255,8 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         client_id: data.client_id,
         summary: `Debt Repayment: $${data.amount_usd} + ${data.amount_lbp} LBP`,
         metadata_json: {
-          paid_by: data.paid_by_method || "CASH",
+          paid_by: primaryMethod,
+          legs: paymentLegs.length > 1 ? paymentLegs : undefined,
         },
       });
 
@@ -209,39 +281,91 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
           updated_at = CURRENT_TIMESTAMP
       `);
 
-      // Resolve drawer from payment method (defaults to CASH → General)
-      const paidBy = data.paid_by_method || "CASH";
-      const drawerName = paymentMethodToDrawerName(paidBy);
+      // Determine if this repayment is for a Service Debt — if so, funds must
+      // flow to the originating provider's system drawer, not just stay in General.
+      // Look up the oldest unrepaid Service Debt entry for this client to find the provider.
+      const originatingDebt = this.db
+        .prepare(
+          `SELECT dl.transaction_type, dl.transaction_id,
+                  fs.provider
+           FROM debt_ledger dl
+           LEFT JOIN transactions t ON t.id = dl.transaction_id
+           LEFT JOIN financial_services fs ON fs.id = t.source_id
+             AND t.source_table = 'financial_services'
+           WHERE dl.client_id = ?
+             AND dl.amount_usd > 0
+             AND dl.transaction_type = 'Service Debt'
+           ORDER BY dl.created_at ASC
+           LIMIT 1`,
+        )
+        .get(data.client_id) as
+        | {
+            transaction_type: string;
+            transaction_id: number | null;
+            provider: string | null;
+          }
+        | undefined;
 
-      if (data.amount_usd > 0) {
+      // System drawer to credit when settling a Service Debt
+      const providerSystemDrawer =
+        originatingDebt?.provider === "OMT"
+          ? "OMT_System"
+          : originatingDebt?.provider === "WHISH"
+            ? "Whish_System"
+            : null;
+
+      // Process each payment leg independently
+      for (const leg of paymentLegs) {
+        if (leg.amount <= 0) continue;
+
+        const legDrawer = paymentMethodToDrawerName(leg.method);
+        const legCurrency = leg.currencyCode;
+        const legNote = data.note || "Debt repayment";
+
+        // Credit inbound payment to the leg's drawer
         insertPayment.run(
           txnId,
-          paidBy,
-          drawerName,
-          "USD",
-          data.amount_usd,
-          data.note || "Debt repayment",
+          leg.method,
+          legDrawer,
+          legCurrency,
+          leg.amount,
+          legNote,
           data.created_by || null,
         );
-        upsertBalance.run(drawerName, "USD", data.amount_usd);
-      }
+        upsertBalance.run(legDrawer, legCurrency, leg.amount);
 
-      if (data.amount_lbp > 0) {
-        insertPayment.run(
-          txnId,
-          paidBy,
-          drawerName,
-          "LBP",
-          data.amount_lbp,
-          data.note || "Debt repayment",
-          data.created_by || null,
-        );
-        upsertBalance.run(drawerName, "LBP", data.amount_lbp);
+        // For Service Debt: transfer from payment drawer → provider system drawer.
+        // For non-cash legs (WHISH, OMT wallet), the RESERVE comes out of the
+        // wallet drawer; for CASH legs it comes out of General — same as original.
+        if (providerSystemDrawer) {
+          insertPayment.run(
+            txnId,
+            "RESERVE",
+            legDrawer,
+            legCurrency,
+            -leg.amount,
+            `Reserve for ${originatingDebt?.provider} settlement`,
+            data.created_by || null,
+          );
+          upsertBalance.run(legDrawer, legCurrency, -leg.amount);
+
+          insertPayment.run(
+            txnId,
+            originatingDebt!.provider!,
+            providerSystemDrawer,
+            legCurrency,
+            leg.amount,
+            `Debt repayment → ${providerSystemDrawer}`,
+            data.created_by || null,
+          );
+          upsertBalance.run(providerSystemDrawer, legCurrency, leg.amount);
+        }
       }
 
       // 4. Mark originating sales as paid (FIFO — oldest unpaid sale first)
       //    so that profit is recognized once fully paid.
-      this._markSalesPaidFIFO(data.client_id, data.amount_usd);
+      //    Use totalUSD from legs (USD legs only) for accurate attribution.
+      this._markSalesPaidFIFO(data.client_id, totalUSD || data.amount_usd);
 
       return { id: repaymentId };
     });

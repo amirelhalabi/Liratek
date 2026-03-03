@@ -15,7 +15,7 @@ export const createProductSchema = z.object({
   retail_price_lbp: positiveDecimalSchema.optional(),
   stock: positiveIntegerSchema.default(0),
   min_stock_threshold: positiveIntegerSchema.default(0),
-  supplier_id: z.number().int().positive().optional(),
+  supplier: z.string().max(200).optional().nullable(),
   is_active: z.boolean().default(true),
   notes: z.string().max(500).optional(),
 });
@@ -31,7 +31,7 @@ export const updateProductSchema = z.object({
   retail_price_lbp: positiveDecimalSchema.optional(),
   stock: positiveIntegerSchema.optional(),
   min_stock_threshold: positiveIntegerSchema.optional(),
-  supplier_id: z.number().int().positive().nullable().optional(),
+  supplier: z.string().max(200).optional().nullable(),
   is_active: z.boolean().optional(),
   notes: z.string().max(500).optional(),
 });

@@ -40,7 +40,11 @@ const envSchema = z
   })
   .transform((data) => {
     // Auto-adjust log level based on environment if not explicitly set
-    if (!process.env.LOG_LEVEL) {
+    const hasLogLevel =
+      typeof process !== "undefined" &&
+      typeof process.env !== "undefined" &&
+      !!process.env.LOG_LEVEL;
+    if (!hasLogLevel) {
       if (data.NODE_ENV === "development") {
         data.LOG_LEVEL = "debug";
       } else if (data.NODE_ENV === "test") {
@@ -57,10 +61,17 @@ export type EnvConfig = z.infer<typeof envSchema>;
 // =============================================================================
 
 /**
- * Parse and validate environment variables
- * @throws {ZodError} if validation fails
+ * Parse and validate environment variables.
+ * Browser-safe: returns defaults if process is not available (Vite/frontend context).
  */
 function parseEnv(): EnvConfig {
+  // In browser/Vite context, process is not defined — return safe defaults
+  const isBrowser =
+    typeof process === "undefined" || typeof process.env === "undefined";
+  if (isBrowser) {
+    return envSchema.parse({});
+  }
+
   const result = envSchema.safeParse({
     NODE_ENV: process.env.NODE_ENV,
     LOG_LEVEL: process.env.LOG_LEVEL,
@@ -139,8 +150,12 @@ export function validateProductionEnv(): void {
 
   // Warn if using default values in production
   if (env.CORS_ORIGIN === "http://localhost:5173") {
-    process.stderr.write(
-      "⚠️  WARNING: Using default CORS_ORIGIN in production\n",
-    );
+    if (typeof process !== "undefined" && process.stderr) {
+      process.stderr.write(
+        "⚠️  WARNING: Using default CORS_ORIGIN in production\n",
+      );
+    } else {
+      console.warn("⚠️  WARNING: Using default CORS_ORIGIN in production");
+    }
   }
 }

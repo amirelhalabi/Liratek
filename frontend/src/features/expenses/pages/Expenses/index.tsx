@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import logger from "../../../../utils/logger";
 import { Plus, Ban, Calendar, DollarSign } from "lucide-react";
 import { Select, useApi } from "@liratek/ui";
-import { usePaymentMethods } from "../../../../hooks/usePaymentMethods";
 import { DataTable } from "@/shared/components/DataTable";
 
 interface Expense {
@@ -26,7 +25,6 @@ const EXPENSE_CATEGORIES = [
 export default function Expenses() {
   const api = useApi();
   const [expenses, setExpenses] = useState<Expense[]>([]);
-  const { drawerAffectingMethods } = usePaymentMethods();
   const [formData, setFormData] = useState<Expense>({
     description: "",
     category: "Shop_Supply",
@@ -180,29 +178,14 @@ export default function Expenses() {
               />
             </div>
 
-            {/* Paid By (payment method) */}
-            <div>
-              <label
-                htmlFor="expense-paid-by"
-                className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
-              >
+            {/* Paid By — always Cash (only payment method for expenses) */}
+            <div className="flex items-center gap-2 px-3 py-2 bg-slate-900/50 rounded-lg border border-slate-700/50">
+              <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">
                 Paid By
-              </label>
-              <Select
-                value={formData.paid_by_method || "CASH"}
-                onChange={(value) => {
-                  setFormData({
-                    ...formData,
-                    paid_by_method: value,
-                  });
-                }}
-                options={drawerAffectingMethods.map((m) => ({
-                  value: m.code,
-                  label: m.label,
-                }))}
-                ringColor="ring-orange-500"
-                buttonClassName="text-sm"
-              />
+              </span>
+              <span className="ml-auto text-sm text-slate-300 font-medium">
+                💵 Cash
+              </span>
             </div>
 
             {/* Amounts */}
@@ -302,10 +285,22 @@ export default function Expenses() {
           <div className="flex-1 min-h-0 overflow-auto">
             <DataTable
               columns={[
-                { header: "Description", className: "px-6 py-3" },
-                { header: "Category", className: "px-6 py-3" },
+                {
+                  header: "Description",
+                  className: "px-6 py-3",
+                  sortKey: "created_at",
+                },
+                {
+                  header: "Category",
+                  className: "px-6 py-3",
+                  sortKey: "category",
+                },
                 { header: "Paid By", className: "px-6 py-3" },
-                { header: "USD", className: "px-6 py-3 text-right" },
+                {
+                  header: "USD",
+                  className: "px-6 py-3 text-right",
+                  sortKey: "amount_usd",
+                },
                 { header: "LBP", className: "px-6 py-3 text-right" },
                 { header: "Action", className: "px-6 py-3 text-center" },
               ]}
@@ -332,13 +327,7 @@ export default function Expenses() {
                       {expense.category.replace(/_/g, " ")}
                     </span>
                   </td>
-                  <td className="px-6 py-4 text-sm text-slate-400">
-                    {drawerAffectingMethods.find(
-                      (m) => m.code === expense.paid_by_method,
-                    )?.label ||
-                      expense.paid_by_method ||
-                      "Cash"}
-                  </td>
+                  <td className="px-6 py-4 text-sm text-slate-400">Cash</td>
                   <td className="px-6 py-4 text-right text-sm font-bold text-orange-400 font-mono">
                     ${expense.amount_usd.toFixed(2)}
                   </td>

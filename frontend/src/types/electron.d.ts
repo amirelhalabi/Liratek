@@ -90,6 +90,13 @@ export interface ElectronAPI {
       code?: "DUPLICATE_BARCODE";
       suggested_barcode?: string;
     }>;
+    batchUpdate: (payload: {
+      ids: number[];
+      category?: string;
+      min_stock_level?: number;
+      supplier_id?: number | null;
+      unit?: string | null;
+    }) => Promise<{ success: boolean; updated: number; error?: string }>;
     updateProduct: (
       product: Partial<import("@liratek/core").Product> & { id: number },
     ) => Promise<{
@@ -110,6 +117,20 @@ export interface ElectronAPI {
       stock_count: number;
     }>;
     getLowStockProducts: () => Promise<Array<import("@liratek/core").Product>>;
+    getCategories: () => Promise<string[]>;
+    getCategoriesFull: () => Promise<
+      Array<{ id: number; name: string; sort_order: number; is_active: number }>
+    >;
+    createCategory: (
+      name: string,
+    ) => Promise<{ success: boolean; id?: number; error?: string }>;
+    updateCategory: (
+      id: number,
+      name: string,
+    ) => Promise<{ success: boolean; error?: string }>;
+    deleteCategory: (
+      id: number,
+    ) => Promise<{ success: boolean; error?: string }>;
   };
 
   // Clients
@@ -322,6 +343,18 @@ export interface ElectronAPI {
         count: number;
       }[];
     }>;
+    getById: (id: number) => Promise<Record<string, unknown> | null>;
+    getPaymentsByTransaction: (transactionId: number) => Promise<
+      Array<{
+        id: number;
+        method: string;
+        drawer_name: string;
+        currency_code: string;
+        amount: number;
+        note: string | null;
+        created_at: string;
+      }>
+    >;
   };
 
   // Recharge
@@ -387,6 +420,39 @@ export interface ElectronAPI {
       amount_lbp: number;
       note?: string;
       drawer_name?: string;
+    }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    getUnsettledTransactions: (provider: string) => Promise<
+      Array<{
+        id: number;
+        service_type: string;
+        amount: number;
+        currency: string;
+        commission: number;
+        omt_fee: number | null;
+        omt_service_type: string | null;
+        client_name: string | null;
+        created_at: string;
+      }>
+    >;
+    getUnsettledSummary: () => Promise<
+      Array<{
+        provider: string;
+        count: number;
+        pending_commission_usd: number;
+        pending_commission_lbp: number;
+        total_owed_usd: number;
+        total_owed_lbp: number;
+      }>
+    >;
+    settleTransactions: (data: {
+      supplier_id: number;
+      financial_service_ids: number[];
+      amount_usd: number;
+      amount_lbp: number;
+      commission_usd: number;
+      commission_lbp: number;
+      drawer_name: string;
+      note?: string;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
   };
 
@@ -803,6 +869,10 @@ export interface ElectronAPI {
       to_code: string,
       rate: number,
     ) => Promise<{ success: boolean; error?: string }>;
+    delete: (
+      from_code: string,
+      to_code: string,
+    ) => Promise<{ success: boolean; error?: string }>;
   };
 
   // Currencies
@@ -1007,6 +1077,29 @@ export interface ElectronAPI {
       amountUsd: number;
       amountLbp: number;
     }) => Promise<{ success: boolean; linked: boolean; error?: string }>;
+  };
+
+  // Setup Wizard
+  setup: {
+    isRequired: () => Promise<{
+      success: boolean;
+      isRequired: boolean;
+      error?: string;
+    }>;
+    complete: (payload: {
+      shop_name: string;
+      admin_username: string;
+      admin_password: string;
+      enabled_modules: string[];
+      enabled_payment_methods: string[];
+      session_management_enabled: boolean;
+      customer_sessions_enabled: boolean;
+      active_currencies?: string[];
+      extra_users?: { username: string; password: string; role: string }[];
+      whatsapp_phone?: string;
+      whatsapp_api_key?: string;
+    }) => Promise<{ success: boolean; error?: string }>;
+    reset: () => Promise<{ success: boolean; error?: string }>;
   };
 
   // Custom Services

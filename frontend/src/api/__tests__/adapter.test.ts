@@ -128,9 +128,15 @@ describe("ElectronApiAdapter (via backendApiAdapter)", () => {
     expect(backendApi.getProducts).toHaveBeenCalledWith("");
   });
 
-  it("delegates setRate with three arguments", async () => {
-    await backendApiAdapter.setRate("USD", "LBP", 89500);
-    expect(backendApi.setRate).toHaveBeenCalledWith("USD", "LBP", 89500);
+  it("delegates setRate with single object argument", async () => {
+    const data = {
+      to_code: "LBP",
+      market_rate: 89500,
+      delta: 0,
+      is_stronger: -1 as const,
+    };
+    await backendApiAdapter.setRate(data);
+    expect(backendApi.setRate).toHaveBeenCalledWith(data);
   });
 
   it("delegates createSupplier correctly", async () => {

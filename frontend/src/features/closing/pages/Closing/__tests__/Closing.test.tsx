@@ -8,6 +8,15 @@ jest.mock("../../../../auth/context/AuthContext", () => ({
   useAuth: () => ({ user: { id: 123, username: "admin", role: "admin" } }),
 }));
 
+jest.mock("../../../../../contexts/ModuleContext", () => ({
+  useModules: () => ({
+    isModuleEnabled: () => true,
+    enabledModules: [],
+    allModules: [],
+    refreshModules: jest.fn(),
+  }),
+}));
+
 const mockUseCurrencies = jest.fn();
 jest.mock("../../../hooks/useCurrencies", () => ({
   useCurrencies: () => mockUseCurrencies(),

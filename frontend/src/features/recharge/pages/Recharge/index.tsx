@@ -388,27 +388,23 @@ function FinancialForm({
         <div className="w-1/3 min-w-[360px] bg-slate-800 rounded-xl border border-slate-700/50 p-4 flex flex-col overflow-auto">
           {/* Service Type */}
           <div className="flex gap-2 mb-5">
-            {(["SEND", "RECEIVE"] as ServiceType[]).map(
-              (type) => {
-                const Icon = FINANCIAL_SERVICE_ICONS[type];
-                return (
-                  <button
-                    key={type}
-                    onClick={() => setServiceType(type)}
-                    className={`flex-1 py-3 rounded-lg font-medium text-sm transition-all flex flex-col items-center gap-1 ${
-                      serviceType === type
-                        ? "bg-violet-600 text-white shadow-lg shadow-violet-900/20"
-                        : "bg-slate-700/50 text-slate-400 hover:text-white hover:bg-slate-700"
-                    }`}
-                  >
-                    <Icon size={18} />
-                    {type === "SEND"
-                      ? "Money In"
-                      : "Money Out"}
-                  </button>
-                );
-              },
-            )}
+            {(["SEND", "RECEIVE"] as ServiceType[]).map((type) => {
+              const Icon = FINANCIAL_SERVICE_ICONS[type];
+              return (
+                <button
+                  key={type}
+                  onClick={() => setServiceType(type)}
+                  className={`flex-1 py-3 rounded-lg font-medium text-sm transition-all flex flex-col items-center gap-1 ${
+                    serviceType === type
+                      ? "bg-violet-600 text-white shadow-lg shadow-violet-900/20"
+                      : "bg-slate-700/50 text-slate-400 hover:text-white hover:bg-slate-700"
+                  }`}
+                >
+                  <Icon size={18} />
+                  {type === "SEND" ? "Money In" : "Money Out"}
+                </button>
+              );
+            })}
           </div>
 
           <div className="space-y-4 flex-1">
@@ -776,11 +772,27 @@ function FinancialForm({
           <div className="flex-1 min-h-0 overflow-auto">
             <DataTable
               columns={[
-                { header: "Type", className: "px-5 py-3" },
-                { header: "Amount", className: "px-5 py-3" },
-                { header: "Commission", className: "px-5 py-3" },
-                { header: "Client", className: "px-5 py-3" },
-                { header: "Time", className: "px-5 py-3" },
+                {
+                  header: "Type",
+                  className: "px-5 py-3",
+                  sortKey: "service_type",
+                },
+                { header: "Amount", className: "px-5 py-3", sortKey: "amount" },
+                {
+                  header: "Commission",
+                  className: "px-5 py-3",
+                  sortKey: "commission",
+                },
+                {
+                  header: "Client",
+                  className: "px-5 py-3",
+                  sortKey: "client_name",
+                },
+                {
+                  header: "Time",
+                  className: "px-5 py-3",
+                  sortKey: "created_at",
+                },
               ]}
               data={providerTx}
               exportExcel
@@ -801,9 +813,7 @@ function FinancialForm({
                       <div className="flex items-center gap-2 text-slate-300">
                         <Icon size={14} />
                         <span className="text-sm">
-                          {tx.service_type === "SEND"
-                            ? "Out"
-                            : "In"}
+                          {tx.service_type === "SEND" ? "Out" : "In"}
                         </span>
                       </div>
                     </td>
@@ -1477,11 +1487,23 @@ function CryptoForm({
           <div className="flex-1 min-h-0 overflow-auto">
             <DataTable
               columns={[
-                { header: "Type", className: "px-5 py-3" },
-                { header: "Amount", className: "px-5 py-3" },
-                { header: "Client", className: "px-5 py-3" },
-                { header: "Description", className: "px-5 py-3" },
-                { header: "Time", className: "px-5 py-3" },
+                { header: "Type", className: "px-5 py-3", sortKey: "type" },
+                { header: "Amount", className: "px-5 py-3", sortKey: "amount" },
+                {
+                  header: "Client",
+                  className: "px-5 py-3",
+                  sortKey: "client_name",
+                },
+                {
+                  header: "Description",
+                  className: "px-5 py-3",
+                  sortKey: "description",
+                },
+                {
+                  header: "Time",
+                  className: "px-5 py-3",
+                  sortKey: "created_at",
+                },
               ]}
               data={binanceTransactions}
               exportExcel

@@ -44,11 +44,11 @@ export class RateService {
   }
 
   /**
-   * Set or update an exchange rate
+   * Set or update an exchange rate (new 4-column schema)
    */
   setRate(data: SetRateData): RateResult {
     try {
-      this.rateRepo.setRate(data);
+      this.rateRepo.upsert(data);
       return { success: true };
     } catch (e) {
       return { success: false, error: toErrorString(e) };
@@ -59,7 +59,25 @@ export class RateService {
    * Get a specific rate
    */
   getRate(fromCode: string, toCode: string): number | null {
-    return this.rateRepo.getRate(fromCode, toCode);
+    // Handle USD conversions: the non-USD currency code is what we look up
+    const code = fromCode === "USD" ? toCode : fromCode;
+    const rateEntity = this.rateRepo.findByCode(code);
+    if (!rateEntity) return null;
+    return rateEntity.market_rate;
+  }
+
+  /**
+   * Delete an exchange rate
+   */
+  deleteRate(fromCode: string, toCode: string): RateResult {
+    try {
+      // Handle USD conversions: the non-USD currency code is what we delete
+      const code = fromCode === "USD" ? toCode : fromCode;
+      this.rateRepo.deleteByCode(code);
+      return { success: true };
+    } catch (e) {
+      return { success: false, error: toErrorString(e) };
+    }
   }
 }
 

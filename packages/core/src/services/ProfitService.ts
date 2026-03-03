@@ -50,6 +50,12 @@ export interface ProfitByPaymentMethod {
   total_usd: number;
   total_lbp: number;
   count: number;
+  /** For commission rows: the pending amount not yet realized */
+  pending_commission_usd?: number;
+  /** 1 = realized/settled, 0 = pending settlement */
+  is_settled?: number;
+  /** 1 = all entries are debt repayment pass-throughs (no profit generated) */
+  is_debt_repayment_only?: number;
 }
 
 export interface ProfitByUser {
@@ -60,6 +66,8 @@ export interface ProfitByUser {
   profit_usd: number;
   profit_lbp: number;
   transaction_count: number;
+  /** Pending profit from unsettled OMT/WHISH commissions for this cashier */
+  pending_profit_usd: number;
 }
 
 export interface ProfitSummary {
@@ -101,6 +109,11 @@ export interface ProfitSummary {
     profit_usd: number;
     count: number;
   };
+  exchange: {
+    revenue_usd: number;
+    profit_usd: number;
+    count: number;
+  };
   expenses: { total_usd: number; total_lbp: number; count: number };
   totals: {
     gross_revenue_usd: number;
@@ -122,6 +135,8 @@ export interface ProfitByClient {
   profit_usd: number;
   profit_lbp: number;
   transaction_count: number;
+  /** Pending profit from unsettled commissions linked to this client */
+  pending_profit_usd: number;
 }
 
 export interface PendingProfitRow {
@@ -134,6 +149,17 @@ export interface PendingProfitRow {
   outstanding_usd: number;
   potential_profit_usd: number;
   items_summary: string;
+}
+
+export interface UnsettledCommissionRow {
+  id: number;
+  provider: string;
+  omt_service_type: string | null;
+  amount: number;
+  currency: string;
+  commission: number;
+  omt_fee: number | null;
+  created_at: string;
 }
 
 // =============================================================================
@@ -175,7 +201,8 @@ export class ProfitService {
         count: number;
       };
 
-      // 2. Financial services (commission-based profit)
+      // 2. Financial services — ONLY is_settled = 1 (realized commission)
+      //    Unsettled RECEIVE commissions are pending and shown in Pending Profit tab
       const finRows = this.db
         .prepare(
           `SELECT
@@ -184,7 +211,8 @@ export class ProfitService {
             COALESCE(SUM(commission), 0) AS commission,
             COUNT(*) AS count
           FROM financial_services
-          WHERE created_at >= ? AND created_at <= ?
+          WHERE is_settled = 1
+            AND created_at >= ? AND created_at <= ?
           GROUP BY currency`,
         )
         .all(fromDt, toDt) as {
@@ -299,7 +327,25 @@ export class ProfitService {
         count: number;
       };
 
-      // 6. Expenses
+      // 6. Exchange profit (v30+: sum leg profits; fallback to legacy profit_usd for old rows)
+      const exchange = this.db
+        .prepare(
+          `SELECT
+            COALESCE(SUM(
+              COALESCE(leg1_profit_usd, 0) + COALESCE(leg2_profit_usd, 0)
+            ), 0) AS profit_usd,
+            COALESCE(SUM(amount_in), 0) AS revenue_usd,
+            COUNT(*) AS count
+          FROM exchange_transactions
+          WHERE created_at >= ? AND created_at <= ?`,
+        )
+        .get(fromDt, toDt) as {
+        revenue_usd: number;
+        profit_usd: number;
+        count: number;
+      };
+
+      // 7. Expenses
       const expenses = this.db
         .prepare(
           `SELECT
@@ -322,7 +368,8 @@ export class ProfitService {
         finSvc.revenue_usd +
         recharges.revenue_usd +
         custom.revenue_usd +
-        maint.revenue_usd;
+        maint.revenue_usd +
+        exchange.revenue_usd;
       const grossRevenueLbp =
         finSvc.revenue_lbp + recharges.revenue_lbp + custom.revenue_lbp;
       const totalCostUsd =
@@ -333,7 +380,8 @@ export class ProfitService {
         finSvc.commission_usd +
         recharges.profit_usd +
         custom.profit_usd +
-        maint.profit_usd;
+        maint.profit_usd +
+        exchange.profit_usd;
       const grossProfitLbp =
         finSvc.commission_lbp + recharges.profit_lbp + custom.profit_lbp;
 
@@ -344,6 +392,7 @@ export class ProfitService {
         recharges,
         custom_services: custom,
         maintenance: maint,
+        exchange,
         expenses,
         totals: {
           gross_revenue_usd: grossRevenueUsd,
@@ -407,7 +456,7 @@ export class ProfitService {
         });
       }
 
-      // Financial services by provider
+      // Financial services by provider — ONLY is_settled = 1 (realized commission)
       const finRows = this.db
         .prepare(
           `SELECT
@@ -418,7 +467,8 @@ export class ProfitService {
             COALESCE(SUM(CASE WHEN currency = 'LBP' THEN commission ELSE 0 END), 0) AS profit_lbp,
             COUNT(*) AS count
           FROM financial_services
-          WHERE created_at >= ? AND created_at <= ?
+          WHERE is_settled = 1
+            AND created_at >= ? AND created_at <= ?
           GROUP BY provider`,
         )
         .all(fromDt, toDt) as {
@@ -553,6 +603,37 @@ export class ProfitService {
         });
       }
 
+      // Exchange (v30+: sum leg profits)
+      const exchangeRow = this.db
+        .prepare(
+          `SELECT
+            COALESCE(SUM(
+              COALESCE(leg1_profit_usd, 0) + COALESCE(leg2_profit_usd, 0)
+            ), 0) AS profit_usd,
+            COALESCE(SUM(amount_in), 0) AS revenue_usd,
+            COUNT(*) AS count
+          FROM exchange_transactions
+          WHERE created_at >= ? AND created_at <= ?`,
+        )
+        .get(fromDt, toDt) as {
+        revenue_usd: number;
+        profit_usd: number;
+        count: number;
+      };
+      if (exchangeRow.count > 0) {
+        results.push({
+          module: "EXCHANGE",
+          label: "Currency Exchange",
+          revenue_usd: exchangeRow.revenue_usd, // USD equivalent of all exchanges
+          revenue_lbp: 0,
+          cost_usd: exchangeRow.revenue_usd - exchangeRow.profit_usd, // Revenue - Profit = Cost
+          cost_lbp: 0,
+          profit_usd: exchangeRow.profit_usd,
+          profit_lbp: 0,
+          count: exchangeRow.count,
+        });
+      }
+
       return results.sort((a, b) => b.profit_usd - a.profit_usd);
     } catch (error) {
       logger.error({ error }, "ProfitService.getByModule error");
@@ -597,7 +678,8 @@ export class ProfitService {
               COALESCE(SUM(CASE WHEN currency != 'LBP' THEN (CASE WHEN cost > 0 THEN price ELSE amount END) ELSE 0 END), 0) AS revenue_usd,
               COALESCE(SUM(CASE WHEN currency = 'LBP' THEN (CASE WHEN cost > 0 THEN price ELSE amount END) ELSE 0 END), 0) AS revenue_lbp
             FROM financial_services
-            WHERE created_at >= ? AND created_at <= ?
+            WHERE is_settled = 1
+              AND created_at >= ? AND created_at <= ?
             GROUP BY DATE(created_at)
           ),
           daily_recharges AS (
@@ -693,25 +775,130 @@ export class ProfitService {
 
   /**
    * Profit breakdown by payment method.
+   *
+   * Shows only real customer-facing payment methods (CASH, CARD, etc.).
+   * Excludes internal system flows: OMT, WHISH, RESERVE, COMMISSION drawer entries.
+   *
+   * Financial service commissions are shown as a separate "Commission" row:
+   *   - Realized commission (is_settled = 1) → shown as positive profit
+   *   - Pending commission (is_settled = 0) → shown separately with status
    */
   getByPaymentMethod(from: string, to: string): ProfitByPaymentMethod[] {
     try {
       const fromDt = `${from} 00:00:00`;
       const toDt = `${to} 23:59:59`;
 
-      return this.db
+      // Real customer-facing payment methods only.
+      // Split into two groups:
+      //   1. Profit-generating payments (sales, services, recharges, etc.)
+      //   2. Debt repayment pass-throughs (no profit — flagged separately)
+      // Exclude internal system flows (RESERVE, COMMISSION, provider system entries).
+      const paymentRows = this.db
         .prepare(
           `SELECT
             p.method,
-            SUM(CASE WHEN p.currency_code != 'LBP' THEN p.amount ELSE 0 END) AS total_usd,
-            SUM(CASE WHEN p.currency_code = 'LBP' THEN p.amount ELSE 0 END) AS total_lbp,
-            COUNT(*) AS count
+            COALESCE(SUM(CASE WHEN p.currency_code != 'LBP' AND p.amount > 0 THEN p.amount ELSE 0 END), 0) AS total_usd,
+            COALESCE(SUM(CASE WHEN p.currency_code = 'LBP'  AND p.amount > 0 THEN p.amount ELSE 0 END), 0) AS total_lbp,
+            COUNT(*) AS count,
+            0 AS pending_commission_usd,
+            1 AS is_settled,
+            -- Flag if ALL entries for this method are debt repayments (no profit)
+            CASE WHEN SUM(CASE WHEN t.type != 'DEBT_REPAYMENT' THEN 1 ELSE 0 END) = 0 THEN 1 ELSE 0 END AS is_debt_repayment_only
           FROM payments p
+          LEFT JOIN transactions t ON t.id = p.transaction_id
           WHERE p.created_at >= ? AND p.created_at <= ?
+            -- Exclude internal system flows
+            AND p.method NOT IN ('OMT', 'WHISH', 'BOB', 'IPEC', 'KATCH', 'WISH_APP', 'OMT_APP', 'BINANCE', 'RESERVE', 'COMMISSION')
+            AND p.amount > 0
           GROUP BY p.method
-          ORDER BY total_usd DESC`,
+          HAVING total_usd > 0 OR total_lbp > 0`,
         )
-        .all(fromDt, toDt) as ProfitByPaymentMethod[];
+        .all(fromDt, toDt) as (ProfitByPaymentMethod & {
+        is_debt_repayment_only: number;
+      })[];
+
+      // Realized financial service commissions → shown as "Commission (Settled)"
+      const realizedCommission = this.db
+        .prepare(
+          `SELECT
+            COALESCE(SUM(CASE WHEN currency != 'LBP' THEN commission ELSE 0 END), 0) AS total_usd,
+            COALESCE(SUM(CASE WHEN currency  = 'LBP' THEN commission ELSE 0 END), 0) AS total_lbp,
+            COUNT(*) AS count
+          FROM financial_services
+          WHERE is_settled = 1
+            AND commission > 0
+            AND created_at >= ? AND created_at <= ?`,
+        )
+        .get(fromDt, toDt) as {
+        total_usd: number;
+        total_lbp: number;
+        count: number;
+      };
+
+      // Pending financial service commissions → shown as "Commission (Pending)"
+      const pendingCommission = this.db
+        .prepare(
+          `SELECT
+            COALESCE(SUM(CASE WHEN currency != 'LBP' THEN commission ELSE 0 END), 0) AS total_usd,
+            COALESCE(SUM(CASE WHEN currency  = 'LBP' THEN commission ELSE 0 END), 0) AS total_lbp,
+            COUNT(*) AS count
+          FROM financial_services
+          WHERE is_settled = 0
+            AND commission > 0
+            AND created_at >= ? AND created_at <= ?`,
+        )
+        .get(fromDt, toDt) as {
+        total_usd: number;
+        total_lbp: number;
+        count: number;
+      };
+
+      const results: ProfitByPaymentMethod[] = [...paymentRows];
+
+      if (realizedCommission.count > 0) {
+        results.push({
+          method: "Commission (Settled)",
+          total_usd: realizedCommission.total_usd,
+          total_lbp: realizedCommission.total_lbp,
+          count: realizedCommission.count,
+          pending_commission_usd: 0,
+          is_settled: 1,
+        });
+      }
+
+      if (pendingCommission.count > 0) {
+        // Build per-provider pending commission details for the label
+        const pendingByProvider = this.db
+          .prepare(
+            `SELECT provider,
+               COALESCE(SUM(CASE WHEN currency != 'LBP' THEN commission ELSE 0 END), 0) AS total_usd,
+               COUNT(*) AS count
+             FROM financial_services
+             WHERE is_settled = 0 AND commission > 0
+               AND created_at >= ? AND created_at <= ?
+             GROUP BY provider`,
+          )
+          .all(fromDt, toDt) as {
+          provider: string;
+          total_usd: number;
+          count: number;
+        }[];
+
+        const providerLabel = pendingByProvider
+          .map((p) => `${p.provider} $${p.total_usd.toFixed(2)}`)
+          .join(", ");
+
+        results.push({
+          method: `Commission Pending Settlement (${providerLabel || "OMT/WHISH"})`,
+          total_usd: 0, // not yet in hand — shown as pending
+          total_lbp: 0,
+          count: pendingCommission.count,
+          pending_commission_usd: pendingCommission.total_usd,
+          is_settled: 0,
+        });
+      }
+
+      return results.sort((a, b) => b.total_usd - a.total_usd);
     } catch (error) {
       logger.error({ error }, "ProfitService.getByPaymentMethod error");
       return [];
@@ -731,7 +918,26 @@ export class ProfitService {
           `SELECT
             t.user_id,
             COALESCE(u.username, 'Unknown') AS username,
-            SUM(t.amount_usd) AS revenue_usd,
+            -- Revenue: only count what the shop actually collected (realized).
+            -- For FINANCIAL_SERVICE: only is_settled=1 rows contribute revenue.
+            --   DEBT-funded rows have no cash collected → revenue = 0.
+            -- For SALE: only fully-paid sales contribute revenue.
+            -- For others: use transaction amount directly.
+            SUM(CASE
+              WHEN t.type = 'FINANCIAL_SERVICE' THEN (
+                SELECT CASE WHEN fs.is_settled = 1
+                  THEN COALESCE(CASE WHEN fs.cost > 0 THEN fs.price ELSE fs.amount END, 0)
+                  ELSE 0 END
+                FROM financial_services fs WHERE fs.id = t.source_id
+              )
+              WHEN t.type = 'SALE' THEN (
+                SELECT CASE
+                  WHEN (s2.paid_usd + COALESCE(s2.paid_lbp, 0) / COALESCE(NULLIF(s2.exchange_rate_snapshot, 0), 1)) >= s2.final_amount_usd - 0.05
+                  THEN s2.final_amount_usd ELSE 0 END
+                FROM sales s2 WHERE s2.id = t.source_id
+              )
+              ELSE t.amount_usd
+            END) AS revenue_usd,
             SUM(t.amount_lbp) AS revenue_lbp,
             SUM(CASE
               WHEN t.type = 'SALE' THEN (
@@ -742,7 +948,7 @@ export class ProfitService {
                   AND (s2.paid_usd + COALESCE(s2.paid_lbp, 0) / COALESCE(NULLIF(s2.exchange_rate_snapshot, 0), 1)) >= s2.final_amount_usd - 0.05
               )
               WHEN t.type = 'FINANCIAL_SERVICE' THEN (
-                SELECT COALESCE(commission, 0) FROM financial_services WHERE id = t.source_id
+                SELECT COALESCE(commission, 0) FROM financial_services WHERE id = t.source_id AND is_settled = 1
               )
               WHEN t.type = 'RECHARGE' THEN (
                 SELECT COALESCE(price - cost, 0) FROM recharges WHERE id = t.source_id
@@ -756,7 +962,16 @@ export class ProfitService {
               ELSE 0
             END) AS profit_usd,
             0 AS profit_lbp,
-            COUNT(*) AS transaction_count
+            COUNT(*) AS transaction_count,
+            COALESCE((
+              SELECT SUM(fs2.commission)
+              FROM financial_services fs2
+              JOIN transactions t2 ON t2.source_table = 'financial_services' AND t2.source_id = fs2.id
+              WHERE t2.user_id = t.user_id
+                AND fs2.is_settled = 0
+                AND fs2.commission > 0
+                AND fs2.created_at >= ? AND fs2.created_at <= ?
+            ), 0) AS pending_profit_usd
           FROM transactions t
           LEFT JOIN users u ON u.id = t.user_id
           WHERE t.status = 'ACTIVE'
@@ -765,7 +980,7 @@ export class ProfitService {
           GROUP BY t.user_id
           ORDER BY profit_usd DESC`,
         )
-        .all(fromDt, toDt) as ProfitByUser[];
+        .all(fromDt, toDt, fromDt, toDt) as ProfitByUser[];
     } catch (error) {
       logger.error({ error }, "ProfitService.getByUser error");
       return [];
@@ -785,7 +1000,22 @@ export class ProfitService {
           `SELECT
             t.client_id,
             COALESCE(c.full_name, 'Walk-in') AS client_name,
-            SUM(t.amount_usd) AS revenue_usd,
+            -- Revenue: only count realized/collected amounts (same logic as getByUser)
+            SUM(CASE
+              WHEN t.type = 'FINANCIAL_SERVICE' THEN (
+                SELECT CASE WHEN fs.is_settled = 1
+                  THEN COALESCE(CASE WHEN fs.cost > 0 THEN fs.price ELSE fs.amount END, 0)
+                  ELSE 0 END
+                FROM financial_services fs WHERE fs.id = t.source_id
+              )
+              WHEN t.type = 'SALE' THEN (
+                SELECT CASE
+                  WHEN (s2.paid_usd + COALESCE(s2.paid_lbp, 0) / COALESCE(NULLIF(s2.exchange_rate_snapshot, 0), 1)) >= s2.final_amount_usd - 0.05
+                  THEN s2.final_amount_usd ELSE 0 END
+                FROM sales s2 WHERE s2.id = t.source_id
+              )
+              ELSE t.amount_usd
+            END) AS revenue_usd,
             SUM(t.amount_lbp) AS revenue_lbp,
             SUM(CASE
               WHEN t.type = 'SALE' THEN (
@@ -796,7 +1026,7 @@ export class ProfitService {
                   AND (s2.paid_usd + COALESCE(s2.paid_lbp, 0) / COALESCE(NULLIF(s2.exchange_rate_snapshot, 0), 1)) >= s2.final_amount_usd - 0.05
               )
               WHEN t.type = 'FINANCIAL_SERVICE' THEN (
-                SELECT COALESCE(commission, 0) FROM financial_services WHERE id = t.source_id
+                SELECT COALESCE(commission, 0) FROM financial_services WHERE id = t.source_id AND is_settled = 1
               )
               WHEN t.type = 'RECHARGE' THEN (
                 SELECT COALESCE(price - cost, 0) FROM recharges WHERE id = t.source_id
@@ -810,7 +1040,16 @@ export class ProfitService {
               ELSE 0
             END) AS profit_usd,
             0 AS profit_lbp,
-            COUNT(*) AS transaction_count
+            COUNT(*) AS transaction_count,
+            COALESCE((
+              SELECT SUM(fs2.commission)
+              FROM financial_services fs2
+              JOIN transactions t2 ON t2.source_table = 'financial_services' AND t2.source_id = fs2.id
+              WHERE t2.client_id = t.client_id
+                AND fs2.is_settled = 0
+                AND fs2.commission > 0
+                AND fs2.created_at >= ? AND fs2.created_at <= ?
+            ), 0) AS pending_profit_usd
           FROM transactions t
           LEFT JOIN clients c ON c.id = t.client_id
           WHERE t.status = 'ACTIVE'
@@ -820,7 +1059,7 @@ export class ProfitService {
           ORDER BY profit_usd DESC
           LIMIT ?`,
         )
-        .all(fromDt, toDt, limit) as ProfitByClient[];
+        .all(fromDt, toDt, fromDt, toDt, limit) as ProfitByClient[];
     } catch (error) {
       logger.error({ error }, "ProfitService.getByClient error");
       return [];
@@ -842,11 +1081,18 @@ export class ProfitService {
       total_pending_profit_usd: number;
       count: number;
     };
+    unsettled_commissions: UnsettledCommissionRow[];
+    unsettled_totals: {
+      total_pending_commission_usd: number;
+      total_pending_commission_lbp: number;
+      count: number;
+    };
   } {
     try {
       const fromDt = `${from} 00:00:00`;
       const toDt = `${to} 23:59:59`;
 
+      // Pending sales profit (debt not yet paid)
       const rows = this.db
         .prepare(
           `SELECT
@@ -890,7 +1136,30 @@ export class ProfitService {
         count: rows.length,
       };
 
-      return { rows, totals };
+      // Unsettled financial service commissions (RECEIVE rows not yet settled with supplier)
+      const unsettled_commissions = this.db
+        .prepare(
+          `SELECT
+            id, provider, omt_service_type, amount, currency, commission, omt_fee, created_at
+          FROM financial_services
+          WHERE is_settled = 0
+            AND commission > 0
+            AND created_at >= ? AND created_at <= ?
+          ORDER BY created_at DESC`,
+        )
+        .all(fromDt, toDt) as UnsettledCommissionRow[];
+
+      const unsettled_totals = {
+        total_pending_commission_usd: unsettled_commissions
+          .filter((r) => r.currency !== "LBP")
+          .reduce((s, r) => s + r.commission, 0),
+        total_pending_commission_lbp: unsettled_commissions
+          .filter((r) => r.currency === "LBP")
+          .reduce((s, r) => s + r.commission, 0),
+        count: unsettled_commissions.length,
+      };
+
+      return { rows, totals, unsettled_commissions, unsettled_totals };
     } catch (error) {
       logger.error({ error }, "ProfitService.getPendingProfit error");
       return {
@@ -898,6 +1167,12 @@ export class ProfitService {
         totals: {
           total_outstanding_usd: 0,
           total_pending_profit_usd: 0,
+          count: 0,
+        },
+        unsettled_commissions: [],
+        unsettled_totals: {
+          total_pending_commission_usd: 0,
+          total_pending_commission_lbp: 0,
           count: 0,
         },
       };

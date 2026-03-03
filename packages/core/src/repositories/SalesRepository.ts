@@ -442,6 +442,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
                 client_id, transaction_type, amount_usd, transaction_id, note, due_date
               ) VALUES (?, ?, ?, ?, ?, datetime('now', '+30 days'))
             `);
+            // Use txnId (transactions table FK) per unified transaction architecture
             debtStmt.run(
               finalClientId,
               "Sale Debt",

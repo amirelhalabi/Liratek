@@ -16,7 +16,11 @@ export interface SupplierEntity {
   created_at: string;
 }
 
-export type SupplierLedgerEntryType = "TOP_UP" | "PAYMENT" | "ADJUSTMENT";
+export type SupplierLedgerEntryType =
+  | "TOP_UP"
+  | "PAYMENT"
+  | "ADJUSTMENT"
+  | "SETTLEMENT";
 
 export interface SupplierLedgerEntryEntity {
   id: number;
@@ -28,6 +32,22 @@ export interface SupplierLedgerEntryEntity {
   created_by: number | null;
   transaction_id: number | null;
   created_at: string;
+}
+
+export interface SettleTransactionsData {
+  supplier_id: number;
+  /** IDs from financial_services to mark as settled */
+  financial_service_ids: number[];
+  /** Net amount paid to supplier (total owed minus commission) */
+  amount_usd: number;
+  amount_lbp: number;
+  /** Total commission earned (will be credited to General drawer) */
+  commission_usd: number;
+  commission_lbp: number;
+  /** Drawer cash is paid from (usually General) */
+  drawer_name: string;
+  note?: string;
+  created_by?: number;
 }
 
 export interface CreateSupplierData {
@@ -255,6 +275,138 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       `);
     } catch (e) {
       throw new DatabaseError("Failed to get supplier balances", { cause: e });
+    }
+  }
+
+  /**
+   * Atomically settle a batch of financial_services transactions with a supplier.
+   *
+   * In a single DB transaction:
+   * 1. Insert a SETTLEMENT supplier_ledger entry (negative = shop paying out)
+   * 2. Mark all specified financial_services rows as is_settled = 1
+   * 3. Credit commission to General drawer (commission was pending until now)
+   * 4. Debit net payment from drawer (shop pays OMT the net amount)
+   * 5. Create unified transactions row for audit trail
+   */
+  settleTransactions(data: SettleTransactionsData): { id: number } {
+    if (!data.financial_service_ids.length) {
+      throw new DatabaseError("No transactions selected for settlement");
+    }
+
+    try {
+      const settle = this.db.transaction(() => {
+        const now = new Date().toISOString();
+
+        // ── 1. Insert SETTLEMENT ledger entry (net paid to supplier, stored negative) ──
+        const netUsd = -Math.abs(data.amount_usd);
+        const netLbp = -Math.abs(data.amount_lbp);
+        const ledgerRes = this.db
+          .prepare(
+            `INSERT INTO supplier_ledger
+               (supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, created_at)
+             VALUES (?, 'SETTLEMENT', ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            data.supplier_id,
+            netUsd,
+            netLbp,
+            data.note ?? null,
+            data.created_by ?? null,
+            now,
+          );
+        const ledgerEntryId = Number(ledgerRes.lastInsertRowid);
+
+        // ── 2. Mark financial_services rows as settled ─────────────────────
+        const placeholders = data.financial_service_ids
+          .map(() => "?")
+          .join(",");
+        this.db
+          .prepare(
+            `UPDATE financial_services
+             SET is_settled = 1,
+                 settled_at = ?,
+                 settlement_id = ?
+             WHERE id IN (${placeholders})
+               AND is_settled = 0`,
+          )
+          .run(now, ledgerEntryId, ...data.financial_service_ids);
+
+        // ── 3. Credit commission to General drawer ─────────────────────────
+        const upsertBalance = this.db.prepare(`
+          INSERT INTO drawer_balances (drawer_name, currency_code, balance)
+          VALUES (?, ?, ?)
+          ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+            balance = drawer_balances.balance + excluded.balance,
+            updated_at = CURRENT_TIMESTAMP
+        `);
+
+        if (data.commission_usd > 0) {
+          upsertBalance.run("General", "USD", data.commission_usd);
+        }
+        if (data.commission_lbp > 0) {
+          upsertBalance.run("General", "LBP", data.commission_lbp);
+        }
+
+        // ── 4. Debit net payment from drawer (shop pays supplier) ──────────
+        if (data.amount_usd > 0) {
+          upsertBalance.run(data.drawer_name, "USD", -data.amount_usd);
+        }
+        if (data.amount_lbp > 0) {
+          upsertBalance.run(data.drawer_name, "LBP", -data.amount_lbp);
+        }
+
+        // ── 5. Create unified transaction for audit trail ──────────────────
+        const txnRes = this.db
+          .prepare(
+            `INSERT INTO transactions
+               (type, status, source_table, source_id, user_id,
+                amount_usd, amount_lbp, summary, metadata_json, created_at)
+             VALUES ('SUPPLIER_SETTLEMENT', 'ACTIVE', 'supplier_ledger', ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            ledgerEntryId,
+            data.created_by ?? 1,
+            data.amount_usd,
+            data.amount_lbp,
+            `Settlement: ${data.financial_service_ids.length} txns, net $${data.amount_usd.toFixed(2)}`,
+            JSON.stringify({
+              supplier_id: data.supplier_id,
+              financial_service_ids: data.financial_service_ids,
+              commission_usd: data.commission_usd,
+              commission_lbp: data.commission_lbp,
+              drawer_name: data.drawer_name,
+            }),
+            now,
+          );
+        const txnId = Number(txnRes.lastInsertRowid);
+
+        // Link ledger entry to unified transaction
+        this.db
+          .prepare(`UPDATE supplier_ledger SET transaction_id = ? WHERE id = ?`)
+          .run(txnId, ledgerEntryId);
+
+        // Insert payments rows for audit
+        if (data.amount_usd > 0) {
+          this.db
+            .prepare(
+              `INSERT INTO payments (transaction_id, method, drawer_name, currency_code, amount, note, created_by)
+               VALUES (?, 'CASH', ?, 'USD', ?, ?, ?)`,
+            )
+            .run(
+              txnId,
+              data.drawer_name,
+              -data.amount_usd,
+              data.note ?? "Settlement payment",
+              data.created_by ?? 1,
+            );
+        }
+
+        return { id: ledgerEntryId };
+      });
+
+      return settle();
+    } catch (e) {
+      throw new DatabaseError("Failed to settle transactions", { cause: e });
     }
   }
 }

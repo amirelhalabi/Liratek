@@ -11,10 +11,10 @@ import {
   Briefcase,
   Clock,
   X as CloseIcon,
+  Zap,
 } from "lucide-react";
 import {
   PageHeader,
-  roundLBPUp,
   Select,
   useApi,
   type DebtorSummary,
@@ -22,8 +22,16 @@ import {
 } from "@liratek/ui";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { useExchangeRate } from "../../../../hooks/useExchangeRate";
-import { usePaymentMethods } from "../../../../hooks/usePaymentMethods";
 import { DataTable } from "@/shared/components/DataTable";
+import {
+  MultiPaymentInput,
+  type PaymentLine,
+} from "@/shared/components/MultiPaymentInput";
+import {
+  ServiceDebtDetailModal,
+  type FinancialServiceData,
+  type PaymentRowData,
+} from "../../components/ServiceDebtDetailModal";
 import { getDebtAging } from "../../../../api/backendApi";
 
 type DebtAgingBuckets = {
@@ -41,7 +49,6 @@ export default function Debts() {
   const api = useApi();
   const { user } = useAuth();
   const { rate: EXCHANGE_RATE } = useExchangeRate("USD", "LBP");
-  const { drawerAffectingMethods } = usePaymentMethods();
 
   type DebtHistoryItem = DebtLedgerEntity & {
     itemNames?: string[];
@@ -49,9 +56,10 @@ export default function Debts() {
 
   type SaleDetail = {
     id: number;
-    final_amount_usd: number;
-    paid_usd: number;
-    paid_lbp: number;
+    final_amount_usd?: number;
+    total_amount_usd?: number;
+    paid_usd?: number;
+    paid_lbp?: number;
     status: string;
     created_at: string;
     items: Array<{
@@ -75,15 +83,20 @@ export default function Debts() {
   const [dateSortOrder, setDateSortOrder] = useState<SortOrder>("desc"); // Default: most recent first
   const [aging, setAging] = useState<DebtAgingBuckets | null>(null);
 
+  // Service Debt detail modal state
+  const [showServiceDetail, setShowServiceDetail] = useState(false);
+  const [serviceDetail, setServiceDetail] = useState<{
+    fs: FinancialServiceData;
+    payments: PaymentRowData[];
+    debtAmount: number;
+  } | null>(null);
+
   // Repayment State
-  const [repayAmountUSD, setRepayAmountUSD] = useState<string>("");
-  const [repayAmountLBP, setRepayAmountLBP] = useState<string>("");
-  const [repayPaidBy, setRepayPaidBy] = useState("CASH");
+  const [repayPaymentLines, setRepayPaymentLines] = useState<PaymentLine[]>([]);
   const [repayNote, setRepayNote] = useState("");
 
   useEffect(() => {
     loadDebtors();
-    // Fetch exchange rate on mount if possible
   }, []);
 
   useEffect(() => {
@@ -227,10 +240,36 @@ export default function Debts() {
     }
   };
 
-  const loadSaleDetails = async (saleId: number) => {
+  const loadSaleDetails = async (transactionId: number) => {
     try {
+      logger.debug("Loading sale details for transaction ID:", {
+        transactionId,
+      });
+
+      // First, get the transaction to find the actual sale ID
+      const transaction = await api.getTransactionById(transactionId);
+      logger.debug("Transaction data received:", { transaction });
+
+      if (!transaction || transaction.source_table !== "sales") {
+        alert(`Transaction #${transactionId} is not a sale or was not found.`);
+        return;
+      }
+
+      const saleId = transaction.source_id;
+      logger.debug("Sale ID from transaction:", { saleId });
+
       const sale = await api.getSale(saleId);
+      logger.debug("Sale data received:", { sale });
+
+      if (!sale) {
+        alert(
+          `Sale #${saleId} not found. This debt entry may reference a deleted or non-existent sale.`,
+        );
+        return;
+      }
+
       const items = await api.getSaleItems(saleId);
+      logger.debug("Sale items received:", { items });
 
       setSelectedSale({
         ...sale,
@@ -244,68 +283,97 @@ export default function Debts() {
       setShowSaleDetails(true);
     } catch (error) {
       logger.error("Failed to load sale details:", error);
+      console.error("Sale details error:", error);
+      alert(
+        "Failed to load sale details. The data might be corrupted or the transaction ID is invalid.",
+      );
+    }
+  };
+
+  const loadServiceDebtDetails = async (
+    transactionId: number,
+    debtAmount: number,
+  ) => {
+    try {
+      if (!window.api) return;
+      // 1. Get the unified transaction to find source_id
+      const txn = await window.api.transactions.getById(transactionId);
+      if (!txn || txn.source_table !== "financial_services") return;
+
+      // 2. Load the financial service record
+      const fs = (await window.api.omt.getById(
+        txn.source_id as number,
+      )) as FinancialServiceData | null;
+      if (!fs) return;
+
+      // 3. Load all payment rows for this transaction
+      const payments = (await window.api.omt.getPaymentsByTransaction(
+        transactionId,
+      )) as PaymentRowData[];
+
+      setServiceDetail({ fs, payments, debtAmount });
+      setShowServiceDetail(true);
+    } catch (error) {
+      logger.error("Failed to load service debt details:", error);
     }
   };
 
   const handleProcessRepayment = async () => {
     if (!selectedClient) return;
 
-    const paidUSD = parseFloat(repayAmountUSD) || 0;
-    const paidLBP = parseFloat(repayAmountLBP) || 0;
-    const paidByMethod = repayPaidBy || "CASH";
-
-    if (paidUSD === 0 && paidLBP === 0) {
-      alert("Please enter an amount.");
+    const validLines = repayPaymentLines.filter((l) => l.amount > 0);
+    if (validLines.length === 0) {
+      alert("Please enter a repayment amount.");
       return;
     }
 
-    // Calculate the actual debt reduction amounts
-    // For USD: reduce debt by the exact paid amount
-    // For LBP: if paying the fractional portion, reduce by the actual fractional debt (not the rounded payment)
-    // This allows customers to pay rounded amounts while maintaining accurate debt tracking
+    // Compute USD and LBP totals from payment lines
+    const paidUSD = validLines
+      .filter((l) => l.currencyCode === "USD")
+      .reduce((s, l) => s + l.amount, 0);
+    const paidLBP = validLines
+      .filter((l) => l.currencyCode === "LBP")
+      .reduce((s, l) => s + l.amount, 0);
+
+    // Debt reduction: USD lines reduce debt directly; LBP lines are converted
+    // using the fractional-debt logic (preserving the rounding behaviour).
     const integerDebt = Math.floor(totalDebt);
     const fractionalDebt = totalDebt - integerDebt;
     const fractionalLBP = fractionalDebt * EXCHANGE_RATE;
 
     let debtReductionUSD = paidUSD;
 
-    // If user is paying LBP and it's approximately the fractional portion
     if (paidLBP > 0) {
       const roundedFractionalLBP = Math.ceil(fractionalLBP / 5000) * 5000;
-      // Check if paying the full fractional portion (with rounding tolerance)
       if (Math.abs(paidLBP - roundedFractionalLBP) < 1000) {
-        // Reduce debt by the actual fractional amount, not the rounded payment
         debtReductionUSD += fractionalDebt;
       } else {
-        // Otherwise, reduce by the exact LBP value
         debtReductionUSD += paidLBP / EXCHANGE_RATE;
       }
     }
 
-    const debtReductionLBP = 0; // We track debt in USD
-    const totalDebtReductionUSD = debtReductionUSD;
+    // Map frontend PaymentLine[] → backend leg format
+    const paymentLegs = validLines.map((l) => ({
+      method: l.method,
+      currencyCode: l.currencyCode,
+      amount: l.amount,
+    }));
 
     try {
       const result = window.api
         ? await window.api.debt.addRepayment({
             clientId: selectedClient.id,
-            amountUSD: totalDebtReductionUSD,
-            amountLBP: debtReductionLBP,
-            paidAmountUSD: paidUSD,
-            paidAmountLBP: paidLBP,
-            drawerName: "General",
-            paidByMethod: paidByMethod,
+            amountUSD: debtReductionUSD,
+            amountLBP: 0,
+            payments: paymentLegs,
             note: repayNote,
             ...(user?.id != null ? { userId: user.id } : {}),
           } as any)
         : await api.addRepayment({
             client_id: selectedClient.id,
-            amount_usd: totalDebtReductionUSD,
-            amount_lbp: debtReductionLBP,
-            paid_amount_usd: paidUSD,
-            paid_amount_lbp: paidLBP,
-            drawer_name: "General",
-            paidByMethod: paidByMethod,
+            amount_usd: debtReductionUSD,
+            amount_lbp: 0,
+            payments: paymentLegs,
             note: repayNote,
             ...(user?.id != null ? { user_id: user.id } : {}),
           });
@@ -313,10 +381,8 @@ export default function Debts() {
       if (result.success) {
         alert("Repayment processed!");
         setShowRepaymentModal(false);
-        setRepayAmountUSD("");
-        setRepayAmountLBP("");
+        setRepayPaymentLines([]);
         setRepayNote("");
-        setRepayPaidBy("CASH");
 
         // Reload debtors list
         await loadDebtors();
@@ -478,15 +544,7 @@ export default function Debts() {
                 </div>
                 <button
                   onClick={() => {
-                    // Calculate autofill amounts based on debt breakdown
-                    const integerUSD = Math.floor(totalDebt);
-                    const fractionUSD = totalDebt - integerUSD;
-                    const rawLBP = fractionUSD * EXCHANGE_RATE;
-                    const roundedLBP = roundLBPUp(rawLBP);
-
-                    // Autofill the modal inputs with rounded amounts
-                    setRepayAmountUSD(integerUSD.toString());
-                    setRepayAmountLBP(roundedLBP.toString());
+                    setRepayPaymentLines([]);
                     setShowRepaymentModal(true);
                   }}
                   className="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2 rounded-lg font-bold shadow-lg shadow-emerald-900/20 active:scale-95 transition-all flex items-center gap-2"
@@ -682,6 +740,21 @@ export default function Debts() {
                                       <Eye size={13} />
                                     </button>
                                   )}
+                                {item.transaction_id &&
+                                  item.transaction_type === "Service Debt" && (
+                                    <button
+                                      onClick={() =>
+                                        loadServiceDebtDetails(
+                                          item.transaction_id!,
+                                          item.amount_usd,
+                                        )
+                                      }
+                                      className="shrink-0 p-1 rounded bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 transition-all"
+                                      title="View Transaction Details"
+                                    >
+                                      <Eye size={13} />
+                                    </button>
+                                  )}
                               </div>
                             </div>
                           </td>
@@ -835,6 +908,19 @@ export default function Debts() {
           )}
         </div>
 
+        {/* Service Debt Detail Modal */}
+        {showServiceDetail && serviceDetail && (
+          <ServiceDebtDetailModal
+            financialService={serviceDetail.fs}
+            payments={serviceDetail.payments}
+            debtAmount={serviceDetail.debtAmount}
+            onClose={() => {
+              setShowServiceDetail(false);
+              setServiceDetail(null);
+            }}
+          />
+        )}
+
         {/* Repayment Modal */}
         {showRepaymentModal && (
           <div
@@ -856,65 +942,38 @@ export default function Debts() {
               </h3>
 
               <div className="space-y-4">
-                {/* Merged Amount Header with Two Columns */}
+                {/* Quick Fill — full debt in USD */}
                 <div>
-                  <span
-                    id="repay-amount-label"
-                    className="block text-sm font-medium text-slate-300 mb-2 text-center uppercase"
-                  >
-                    Amount
-                  </span>
-                  <div
-                    className="grid grid-cols-2 gap-3"
-                    role="group"
-                    aria-labelledby="repay-amount-label"
-                  >
-                    {/* USD Column */}
-                    <div className="relative">
-                      <input
-                        type="number"
-                        value={repayAmountUSD}
-                        onChange={(e) => setRepayAmountUSD(e.target.value)}
-                        className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-3 text-white text-center font-mono text-lg focus:outline-none focus:border-emerald-500"
-                        placeholder="0"
-                      />
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-400 font-bold">
-                        $
-                      </span>
-                    </div>
-
-                    {/* LBP Column */}
-                    <div className="relative">
-                      <input
-                        type="number"
-                        value={repayAmountLBP}
-                        onChange={(e) => setRepayAmountLBP(e.target.value)}
-                        className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-3 text-white text-center font-mono text-lg focus:outline-none focus:border-emerald-500"
-                        placeholder="0"
-                      />
-                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-violet-400 text-xs font-bold">
-                        LBP
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="repay-paid-by"
-                    className="block text-xs font-medium text-slate-400 mb-1 uppercase"
-                  >
-                    Paid By
+                  <label className="block text-xs font-medium text-slate-400 mb-2 uppercase tracking-wider">
+                    Quick Fill
                   </label>
-                  <Select
-                    value={repayPaidBy}
-                    onChange={setRepayPaidBy}
-                    options={drawerAffectingMethods.map((m) => ({
-                      value: m.code,
-                      label: m.label,
-                    }))}
-                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRepayPaymentLines([
+                        {
+                          id: crypto.randomUUID(),
+                          method: "CASH",
+                          currencyCode: "USD",
+                          amount: totalDebt,
+                        },
+                      ]);
+                    }}
+                    className="w-full px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-1"
+                  >
+                    <Zap size={14} />
+                    Full debt — ${totalDebt.toFixed(2)}
+                  </button>
                 </div>
+
+                {/* Multi-payment input */}
+                <MultiPaymentInput
+                  totalAmount={totalDebt}
+                  currency="USD"
+                  onChange={setRepayPaymentLines}
+                  transactionType="DEBT_PAYMENT"
+                  showPmFee={false}
+                />
 
                 <div>
                   <label
@@ -986,14 +1045,20 @@ export default function Debts() {
                 <div className="flex-1">
                   <p className="text-slate-500 text-sm">Total Amount</p>
                   <p className="text-white font-medium">
-                    ${selectedSale.final_amount_usd.toFixed(2)}
+                    $
+                    {(
+                      selectedSale.final_amount_usd ||
+                      selectedSale.total_amount_usd ||
+                      0
+                    ).toFixed(2)}
                   </p>
                 </div>
                 <div className="flex-1">
                   <p className="text-slate-500 text-sm">Amount Paid</p>
                   <p className="text-emerald-400 font-medium">
-                    ${selectedSale.paid_usd.toFixed(2)}
-                    {selectedSale.paid_lbp > 0 &&
+                    ${(selectedSale.paid_usd || 0).toFixed(2)}
+                    {selectedSale.paid_lbp &&
+                      selectedSale.paid_lbp > 0 &&
                       ` + ${selectedSale.paid_lbp.toLocaleString()} LBP`}
                   </p>
                 </div>
@@ -1052,13 +1117,18 @@ export default function Debts() {
                 <div className="flex justify-between text-slate-400">
                   <span>Total Amount:</span>
                   <span className="text-white font-medium">
-                    ${selectedSale.final_amount_usd.toFixed(2)}
+                    $
+                    {(
+                      selectedSale.final_amount_usd ||
+                      selectedSale.total_amount_usd ||
+                      0
+                    ).toFixed(2)}
                   </span>
                 </div>
                 <div className="flex justify-between text-slate-400">
                   <span>Amount Paid:</span>
                   <span className="text-emerald-400 font-medium">
-                    ${selectedSale.paid_usd.toFixed(2)}
+                    ${(selectedSale.paid_usd || 0).toFixed(2)}
                   </span>
                 </div>
                 <div className="flex justify-between text-lg font-bold border-t border-slate-700 pt-2">
@@ -1066,7 +1136,9 @@ export default function Debts() {
                   <span className="text-red-400">
                     $
                     {(
-                      selectedSale.final_amount_usd - selectedSale.paid_usd
+                      (selectedSale.final_amount_usd ||
+                        selectedSale.total_amount_usd ||
+                        0) - (selectedSale.paid_usd || 0)
                     ).toFixed(2)}
                   </span>
                 </div>

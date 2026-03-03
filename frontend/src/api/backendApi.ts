@@ -817,7 +817,41 @@ export async function addSupplierLedgerEntry(
   );
 }
 
+export async function getUnsettledTransactions(provider: string) {
+  return ipcOrHttp(
+    async () => getElectronApi().suppliers.getUnsettledTransactions(provider),
+    async () => {
+      const res = await requestJson<{ success: boolean; transactions: any[] }>(
+        `/api/suppliers/unsettled?provider=${encodeURIComponent(provider)}`,
+      );
+      return res.transactions || [];
+    },
+  );
+}
+
+export async function settleTransactions(data: {
+  supplier_id: number;
+  financial_service_ids: number[];
+  amount_usd: number;
+  amount_lbp: number;
+  commission_usd: number;
+  commission_lbp: number;
+  drawer_name: string;
+  note?: string;
+}) {
+  return ipcOrHttp(
+    async () => getElectronApi().suppliers.settleTransactions(data),
+    async () =>
+      requestJson<{ success: boolean; id?: number; error?: string }>(
+        `/api/suppliers/${data.supplier_id}/settle`,
+        { method: "POST", body: data },
+      ),
+  );
+}
+
 // ==================== Rates API ====================
+// New schema (v30): one row per non-USD currency
+// { to_code, market_rate, delta, is_stronger }
 
 export async function getRates() {
   if (isElectron()) {
@@ -829,18 +863,30 @@ export async function getRates() {
   return res.rates || [];
 }
 
-export async function setRate(
-  from_code: string,
-  to_code: string,
-  rate: number,
-) {
+export async function setRate(data: {
+  to_code: string;
+  market_rate: number;
+  delta: number;
+  is_stronger: 1 | -1;
+}) {
   return ipcOrHttp(
-    async () => getElectronApi().rates.set(from_code, to_code, rate),
+    async () => getElectronApi().rates.set(data),
     async () =>
       requestJson<{ success: boolean; error?: string }>("/api/rates", {
         method: "POST",
-        body: { from_code, to_code, rate },
+        body: data,
       }),
+  );
+}
+
+export async function deleteRate(to_code: string) {
+  return ipcOrHttp(
+    async () => getElectronApi().rates.delete(to_code),
+    async () =>
+      requestJson<{ success: boolean; error?: string }>(
+        `/api/rates/${to_code}`,
+        { method: "DELETE" },
+      ),
   );
 }
 

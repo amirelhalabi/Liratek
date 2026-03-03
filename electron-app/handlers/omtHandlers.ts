@@ -5,7 +5,12 @@
  */
 
 import { ipcMain } from "electron";
-import { getFinancialService, financialLogger } from "@liratek/core";
+import {
+  getFinancialService,
+  financialLogger,
+  getFinancialServiceRepository,
+  getTransactionRepository,
+} from "@liratek/core";
 import type { CreateFinancialServiceData } from "@liratek/core";
 
 export function registerOMTHandlers(): void {
@@ -37,4 +42,19 @@ export function registerOMTHandlers(): void {
   ipcMain.handle("omt:get-analytics", () => {
     return financialService.getAnalytics();
   });
+
+  // Get a single financial service record by ID (for debt detail eye button)
+  ipcMain.handle("omt:get-by-id", (_event, id: number) => {
+    return getFinancialServiceRepository().findById(id);
+  });
+
+  // Get all payment rows for a transaction (for debt detail eye button)
+  ipcMain.handle(
+    "omt:get-payments-by-transaction",
+    (_event, transactionId: number) => {
+      return getTransactionRepository().getPaymentsByTransactionId(
+        transactionId,
+      );
+    },
+  );
 }

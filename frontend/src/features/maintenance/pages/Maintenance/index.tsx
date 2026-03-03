@@ -238,11 +238,23 @@ export default function Maintenance() {
         <div className="overflow-auto flex-1">
           <DataTable
             columns={[
-              { header: "Date", className: "px-6 py-3" },
-              { header: "Client", className: "px-6 py-3" },
-              { header: "Device / Issue", className: "px-6 py-3" },
-              { header: "Status", className: "px-6 py-3" },
-              { header: "Price", className: "px-6 py-3 text-right" },
+              { header: "Date", className: "px-6 py-3", sortKey: "created_at" },
+              {
+                header: "Client",
+                className: "px-6 py-3",
+                sortKey: "client_name",
+              },
+              {
+                header: "Device / Issue",
+                className: "px-6 py-3",
+                sortKey: "device_name",
+              },
+              { header: "Status", className: "px-6 py-3", sortKey: "status" },
+              {
+                header: "Price",
+                className: "px-6 py-3 text-right",
+                sortKey: "price_usd",
+              },
               { header: "Paid", className: "px-6 py-3 text-right" },
               { header: "Actions", className: "px-6 py-3 text-right" },
             ]}

@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, lazy, Suspense } from "react";
 import { PageHeader, useApi } from "@liratek/ui";
+import { useModules } from "../../../contexts/ModuleContext";
 import {
   TrendingUp,
   DollarSign,
@@ -12,9 +13,15 @@ import {
   ArrowDownRight,
   Minus,
   Clock,
+  PieChart as PieChartIcon,
+  Activity,
 } from "lucide-react";
 import { useCurrencyContext } from "../../../contexts/CurrencyContext";
 import { DataTable } from "@/shared/components/DataTable";
+
+const CommissionsChart = lazy(
+  () => import("../../dashboard/components/CommissionsChart"),
+);
 
 // ---------------------------------------------------------------------------
 // Types
@@ -97,6 +104,9 @@ interface PaymentMethodRow {
   total_usd: number;
   total_lbp: number;
   count: number;
+  pending_commission_usd?: number;
+  is_settled?: number;
+  is_debt_repayment_only?: number;
 }
 
 interface UserRow {
@@ -105,6 +115,7 @@ interface UserRow {
   revenue_usd: number;
   profit_usd: number;
   transaction_count: number;
+  pending_profit_usd: number;
 }
 
 interface ClientRow {
@@ -113,6 +124,7 @@ interface ClientRow {
   revenue_usd: number;
   profit_usd: number;
   transaction_count: number;
+  pending_profit_usd: number;
 }
 
 type TabKey =
@@ -122,7 +134,30 @@ type TabKey =
   | "by-payment"
   | "by-user"
   | "by-client"
-  | "pending";
+  | "pending"
+  | "commissions";
+
+interface ProviderStats {
+  provider: string;
+  commission: number;
+  currency: string;
+  count: number;
+}
+
+interface CommissionsAnalytics {
+  today: { commission: number; pending_commission: number; count: number };
+  month: { commission: number; pending_commission: number; count: number };
+  byProvider: ProviderStats[];
+}
+
+interface UnsettledProviderSummary {
+  provider: string;
+  count: number;
+  pending_commission_usd: number;
+  pending_commission_lbp: number;
+  total_owed_usd: number;
+  total_owed_lbp: number;
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -195,6 +230,12 @@ function SummaryCard({
 export default function Profits() {
   const api = useApi();
   const { formatAmount } = useCurrencyContext();
+  const { isModuleEnabled } = useModules();
+  const commissionsEnabled =
+    isModuleEnabled("services") ||
+    isModuleEnabled("recharge") ||
+    isModuleEnabled("binance") ||
+    isModuleEnabled("ipec_katch");
 
   const [tab, setTab] = useState<TabKey>("overview");
   const [from, setFrom] = useState(daysAgoISO(30));
@@ -208,6 +249,11 @@ export default function Profits() {
   const [byPayment, setByPayment] = useState<PaymentMethodRow[]>([]);
   const [byUser, setByUser] = useState<UserRow[]>([]);
   const [byClient, setByClient] = useState<ClientRow[]>([]);
+  const [commissionsData, setCommissionsData] =
+    useState<CommissionsAnalytics | null>(null);
+  const [unsettledByProvider, setUnsettledByProvider] = useState<
+    UnsettledProviderSummary[]
+  >([]);
   const [pendingData, setPendingData] = useState<{
     rows: {
       sale_id: number;
@@ -223,6 +269,21 @@ export default function Profits() {
     totals: {
       total_outstanding_usd: number;
       total_pending_profit_usd: number;
+      count: number;
+    };
+    unsettled_commissions: {
+      id: number;
+      provider: string;
+      omt_service_type: string | null;
+      amount: number;
+      currency: string;
+      commission: number;
+      omt_fee: number | null;
+      created_at: string;
+    }[];
+    unsettled_totals: {
+      total_pending_commission_usd: number;
+      total_pending_commission_lbp: number;
       count: number;
     };
   } | null>(null);
@@ -327,6 +388,24 @@ export default function Profits() {
     }
   }, [api, from, to]);
 
+  const loadCommissions = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [data, unsettled] = await Promise.all([
+        window.api ? window.api.omt.getAnalytics() : api.getOMTAnalytics(),
+        window.api
+          ? window.api.suppliers.getUnsettledSummary()
+          : ((api as any).getUnsettledSummary?.() ?? []),
+      ]);
+      setCommissionsData(data);
+      setUnsettledByProvider(unsettled || []);
+    } catch {
+      setCommissionsData(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [api]);
+
   useEffect(() => {
     if (tab === "overview") loadSummary();
     else if (tab === "by-module") loadByModule();
@@ -335,6 +414,7 @@ export default function Profits() {
     else if (tab === "by-user") loadByUser();
     else if (tab === "by-client") loadByClient();
     else if (tab === "pending") loadPending();
+    else if (tab === "commissions") loadCommissions();
   }, [
     tab,
     loadSummary,
@@ -344,6 +424,7 @@ export default function Profits() {
     loadByUser,
     loadByClient,
     loadPending,
+    loadCommissions,
   ]);
 
   // ---------- Tabs ----------
@@ -356,6 +437,10 @@ export default function Profits() {
     { key: "by-user", label: "By Cashier", icon: UserCheck },
     { key: "by-client", label: "By Client", icon: Users },
     { key: "pending", label: "Pending Profit", icon: Clock },
+    // Only show Commissions tab when a commission-generating module is enabled
+    ...(commissionsEnabled
+      ? [{ key: "commissions" as TabKey, label: "Commissions", icon: Activity }]
+      : []),
   ];
 
   // ---------- Render ----------
@@ -877,6 +962,7 @@ export default function Profits() {
               { header: "Total (USD)", className: "text-right px-4 py-3" },
               { header: "Total (LBP)", className: "text-right px-4 py-3" },
               { header: "Count", className: "text-right px-4 py-3" },
+              { header: "Status", className: "text-right px-4 py-3" },
               { header: "Share", className: "text-right px-4 py-3" },
             ]}
             data={byPayment}
@@ -887,20 +973,63 @@ export default function Profits() {
             theadClassName="border-b border-gray-700 text-gray-400 text-xs uppercase"
             emptyMessage="No payment data for this period"
             renderRow={(row) => {
-              const totalAll = byPayment.reduce((s, r) => s + r.total_usd, 0);
+              const totalAll = byPayment
+                .filter(
+                  (r) =>
+                    r.method !== "PM_FEE" &&
+                    r.is_settled !== 0 &&
+                    !r.is_debt_repayment_only,
+                )
+                .reduce((s, r) => s + r.total_usd, 0);
+              const isPending = row.is_settled === 0;
+              const isCommission = row.method.startsWith("Commission");
+              const isPmFee = row.method === "PM_FEE";
+              const isDebtRepayment = !!row.is_debt_repayment_only;
               return (
                 <tr
                   key={row.method}
-                  className="border-b border-gray-700/50 hover:bg-gray-700/30"
+                  className={`border-b border-gray-700/50 hover:bg-gray-700/30 ${
+                    isPending
+                      ? "bg-amber-950/20"
+                      : isPmFee
+                        ? "bg-violet-950/20"
+                        : ""
+                  }`}
                 >
                   <td className="px-4 py-3 font-medium text-white">
                     <div className="flex items-center gap-2">
-                      <CreditCard className="h-4 w-4 text-gray-400" />
-                      {row.method}
+                      <CreditCard
+                        className={`h-4 w-4 ${
+                          isCommission
+                            ? "text-emerald-400"
+                            : isPmFee
+                              ? "text-violet-400"
+                              : "text-gray-400"
+                        }`}
+                      />
+                      {isPmFee
+                        ? "Payment Method Fee (Wallet Surcharge)"
+                        : row.method}
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-right text-white">
-                    {formatAmount(row.total_usd, "USD")}
+                  <td className="px-4 py-3 text-right font-mono">
+                    {isPending && (row.pending_commission_usd ?? 0) > 0 ? (
+                      <span className="text-amber-400">
+                        ${(row.pending_commission_usd ?? 0).toFixed(4)}
+                      </span>
+                    ) : (
+                      <span
+                        className={
+                          isCommission
+                            ? "text-emerald-400 font-semibold"
+                            : isPmFee
+                              ? "text-violet-300 font-semibold"
+                              : "text-white"
+                        }
+                      >
+                        {formatAmount(row.total_usd, "USD")}
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-right text-white">
                     {row.total_lbp > 0
@@ -911,19 +1040,55 @@ export default function Profits() {
                     {row.count}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <div className="w-16 bg-gray-700 rounded-full h-1.5">
-                        <div
-                          className="bg-blue-500 h-1.5 rounded-full"
-                          style={{
-                            width: `${totalAll > 0 ? (row.total_usd / totalAll) * 100 : 0}%`,
-                          }}
-                        />
-                      </div>
-                      <span className="text-gray-300 text-xs w-10 text-right">
-                        {formatPct(row.total_usd, totalAll)}
+                    {isPending ? (
+                      <span className="text-xs font-medium text-amber-400">
+                        Profit Pending
                       </span>
-                    </div>
+                    ) : isCommission ? (
+                      <span className="text-xs font-medium text-emerald-400">
+                        Settled
+                      </span>
+                    ) : isPmFee ? (
+                      <span className="text-xs font-medium text-violet-400">
+                        Immediate Profit
+                      </span>
+                    ) : isDebtRepayment ? (
+                      <span className="text-xs font-medium text-slate-500">
+                        No Profit
+                      </span>
+                    ) : (
+                      <span className="text-slate-600 text-xs">—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    {!isPending && !isPmFee && !isDebtRepayment && (
+                      <div className="flex items-center justify-end gap-2">
+                        <div className="w-16 bg-gray-700 rounded-full h-1.5">
+                          <div
+                            className="bg-blue-500 h-1.5 rounded-full"
+                            style={{
+                              width: `${totalAll > 0 ? (row.total_usd / totalAll) * 100 : 0}%`,
+                            }}
+                          />
+                        </div>
+                        <span className="text-gray-300 text-xs w-10 text-right">
+                          {formatPct(row.total_usd, totalAll)}
+                        </span>
+                      </div>
+                    )}
+                    {isPending && (
+                      <span className="text-xs text-amber-500/70">
+                        → Settle in Settings
+                      </span>
+                    )}
+                    {isPmFee && (
+                      <span className="text-xs text-violet-500/70">
+                        In wallet drawer
+                      </span>
+                    )}
+                    {isDebtRepayment && (
+                      <span className="text-xs text-slate-600">0%</span>
+                    )}
                   </td>
                 </tr>
               );
@@ -939,7 +1104,8 @@ export default function Profits() {
             columns={[
               { header: "Cashier", className: "text-left px-4 py-3" },
               { header: "Revenue (USD)", className: "text-right px-4 py-3" },
-              { header: "Profit (USD)", className: "text-right px-4 py-3" },
+              { header: "Profits", className: "text-right px-4 py-3" },
+              { header: "Pending Profits", className: "text-right px-4 py-3" },
               { header: "Transactions", className: "text-right px-4 py-3" },
               { header: "Avg Profit/Txn", className: "text-right px-4 py-3" },
             ]}
@@ -967,6 +1133,15 @@ export default function Profits() {
                 <td className="px-4 py-3 text-right text-emerald-400 font-medium">
                   {formatAmount(row.profit_usd, "USD")}
                 </td>
+                <td className="px-4 py-3 text-right">
+                  {(row.pending_profit_usd ?? 0) > 0 ? (
+                    <span className="text-amber-400 font-medium">
+                      ⚠ {formatAmount(row.pending_profit_usd, "USD")}
+                    </span>
+                  ) : (
+                    <span className="text-gray-600 text-xs">—</span>
+                  )}
+                </td>
                 <td className="px-4 py-3 text-right text-gray-300">
                   {row.transaction_count}
                 </td>
@@ -992,7 +1167,8 @@ export default function Profits() {
               { header: "#", className: "text-left px-4 py-3" },
               { header: "Client", className: "text-left px-4 py-3" },
               { header: "Revenue (USD)", className: "text-right px-4 py-3" },
-              { header: "Profit (USD)", className: "text-right px-4 py-3" },
+              { header: "Profits", className: "text-right px-4 py-3" },
+              { header: "Pending Profits", className: "text-right px-4 py-3" },
               { header: "Transactions", className: "text-right px-4 py-3" },
             ]}
             data={byClient}
@@ -1017,6 +1193,15 @@ export default function Profits() {
                 <td className="px-4 py-3 text-right text-emerald-400 font-medium">
                   {formatAmount(row.profit_usd, "USD")}
                 </td>
+                <td className="px-4 py-3 text-right">
+                  {(row.pending_profit_usd ?? 0) > 0 ? (
+                    <span className="text-amber-400 font-medium">
+                      ⚠ {formatAmount(row.pending_profit_usd, "USD")}
+                    </span>
+                  ) : (
+                    <span className="text-gray-600 text-xs">—</span>
+                  )}
+                </td>
                 <td className="px-4 py-3 text-right text-gray-300">
                   {row.transaction_count}
                 </td>
@@ -1026,7 +1211,256 @@ export default function Profits() {
         </div>
       )}
 
+      {/* ==================== Commissions Tab ==================== */}
+      {!loading && tab === "commissions" && !commissionsData && (
+        <div className="text-center py-12 text-gray-500">Loading...</div>
+      )}
+      {!loading && tab === "commissions" && commissionsData && (
+        <div className="space-y-6">
+          {/* Overview Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="bg-slate-800 p-6 rounded-xl border border-slate-700/50 shadow-lg">
+              <p className="text-slate-400 text-sm font-medium uppercase mb-4">
+                Realized Commissions (Month)
+              </p>
+              <div className="flex items-end gap-3">
+                <span className="text-3xl font-bold text-white">
+                  {formatAmount(commissionsData.month.commission, "USD")}
+                </span>
+              </div>
+              {commissionsData.month.pending_commission > 0 && (
+                <p className="text-xs text-amber-400 mt-2 font-mono">
+                  + ${commissionsData.month.pending_commission.toFixed(4)}{" "}
+                  pending settlement
+                </p>
+              )}
+            </div>
+
+            <div className="bg-slate-800 p-6 rounded-xl border border-slate-700/50 shadow-lg">
+              <p className="text-slate-400 text-sm font-medium uppercase mb-4">
+                Realized Commissions (Today)
+              </p>
+              <div className="flex items-end gap-3">
+                <span className="text-3xl font-bold text-emerald-400">
+                  {formatAmount(commissionsData.today.commission, "USD")}
+                </span>
+              </div>
+              {commissionsData.today.pending_commission > 0 && (
+                <p className="text-xs text-amber-400 mt-2 font-mono">
+                  + ${commissionsData.today.pending_commission.toFixed(4)}{" "}
+                  pending settlement
+                </p>
+              )}
+            </div>
+
+            <div className="bg-slate-800 p-6 rounded-xl border border-slate-700/50 shadow-lg">
+              <p className="text-slate-400 text-sm font-medium uppercase mb-4">
+                Transaction Volume
+              </p>
+              <div className="flex items-end gap-3">
+                <span className="text-3xl font-bold text-blue-400">
+                  {commissionsData.month.count}
+                </span>
+                <span className="text-slate-500 mb-1">services this month</span>
+              </div>
+              <div className="mt-2 text-blue-500/70 text-sm">
+                {commissionsData.today.count} processed today
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Market Share / Provider Breakdown */}
+            <div className="bg-slate-800 p-6 rounded-xl border border-slate-700/50 shadow-lg">
+              <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
+                <PieChartIcon size={18} className="text-pink-500" />
+                Revenue by Provider
+              </h3>
+              <div className="h-80">
+                <Suspense
+                  fallback={
+                    <div className="h-80 animate-pulse bg-slate-700/30 rounded-xl" />
+                  }
+                >
+                  <CommissionsChart
+                    pieData={commissionsData.byProvider.map((p) => ({
+                      name: p.provider,
+                      value: p.commission,
+                      pending:
+                        unsettledByProvider.find(
+                          (u) => u.provider === p.provider,
+                        )?.pending_commission_usd ?? 0,
+                    }))}
+                    formatAmount={formatAmount}
+                  />
+                </Suspense>
+              </div>
+            </div>
+
+            {/* Detailed Table */}
+            <div className="bg-slate-800 p-6 rounded-xl border border-slate-700/50 shadow-lg flex flex-col">
+              <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
+                <Activity size={18} className="text-blue-400" />
+                Provider Performance (Today)
+              </h3>
+              {/* fetch unsettled per provider from pendingData if available, else show from commissionsData */}
+              <div className="flex-1 overflow-auto">
+                <DataTable
+                  columns={[
+                    { header: "Provider", className: "pb-3" },
+                    { header: "Transactions", className: "pb-3 text-right" },
+                    {
+                      header: "Commission (Realized)",
+                      className: "pb-3 text-right",
+                    },
+                    {
+                      header: "Commission (Pending)",
+                      className: "pb-3 text-right",
+                    },
+                    { header: "Status", className: "pb-3 text-right" },
+                  ]}
+                  data={commissionsData.byProvider}
+                  exportExcel
+                  exportPdf
+                  exportFilename="commissions"
+                  className="w-full text-left"
+                  theadClassName="text-xs text-slate-500 uppercase tracking-wider border-b border-slate-700/50"
+                  tbodyClassName="divide-y divide-slate-700/30"
+                  emptyMessage="No provider data"
+                  renderRow={(p) => {
+                    // Per-provider pending from unsettledByProvider (exact, not global)
+                    const providerUnsettled = unsettledByProvider.find(
+                      (u) => u.provider === p.provider,
+                    );
+                    const pendingUsd =
+                      providerUnsettled?.pending_commission_usd ?? 0;
+                    return (
+                      <tr
+                        key={p.provider}
+                        className="group hover:bg-slate-700/30 transition-colors"
+                      >
+                        <td className="py-4 font-medium text-slate-200">
+                          {p.provider}
+                        </td>
+                        <td className="py-4 text-right text-slate-400">
+                          {p.count}
+                        </td>
+                        <td className="py-4 text-right text-emerald-400 font-mono font-medium">
+                          ${p.commission.toFixed(4)}
+                        </td>
+                        <td className="py-4 text-right text-amber-400 font-mono">
+                          {pendingUsd > 0 ? `$${pendingUsd.toFixed(4)}` : "—"}
+                        </td>
+                        <td className="py-4 text-right">
+                          {pendingUsd > 0 ? (
+                            <span className="text-xs font-medium text-amber-400">
+                              Profit Pending
+                            </span>
+                          ) : p.commission > 0 ? (
+                            <span className="text-xs font-medium text-emerald-400">
+                              Settled
+                            </span>
+                          ) : (
+                            <span className="text-slate-600 text-xs">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ==================== Pending Profit Tab ==================== */}
+      {/* ── Unsettled commissions section (OMT/WHISH RECEIVE pending settlement) ── */}
+      {!loading &&
+        tab === "pending" &&
+        pendingData &&
+        pendingData.unsettled_commissions.length > 0 && (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-semibold text-amber-400 uppercase tracking-wider">
+                Pending OMT/WHISH Commissions
+              </h3>
+              <span className="text-xs bg-amber-900/50 text-amber-400 px-2 py-0.5 rounded-full border border-amber-700">
+                {pendingData.unsettled_totals.count} txns
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-amber-950/30 border border-amber-800/50 rounded-xl p-4">
+                <p className="text-xs text-amber-400/70 uppercase tracking-wider mb-1">
+                  Pending Commission (USD)
+                </p>
+                <p className="text-2xl font-bold text-amber-300 font-mono">
+                  $
+                  {pendingData.unsettled_totals.total_pending_commission_usd.toFixed(
+                    4,
+                  )}
+                </p>
+                <p className="text-xs text-amber-500/70 mt-1">
+                  Will be realized after settlement with supplier
+                </p>
+              </div>
+              {pendingData.unsettled_totals.total_pending_commission_lbp >
+                0 && (
+                <div className="bg-amber-950/30 border border-amber-800/50 rounded-xl p-4">
+                  <p className="text-xs text-amber-400/70 uppercase tracking-wider mb-1">
+                    Pending Commission (LBP)
+                  </p>
+                  <p className="text-2xl font-bold text-amber-300 font-mono">
+                    {pendingData.unsettled_totals.total_pending_commission_lbp.toLocaleString()}{" "}
+                    LBP
+                  </p>
+                </div>
+              )}
+            </div>
+            <div className="bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden">
+              <div className="grid grid-cols-12 gap-2 bg-gray-800 text-gray-400 text-xs font-semibold uppercase px-4 py-2">
+                <div className="col-span-2">Provider</div>
+                <div className="col-span-3">Service Type</div>
+                <div className="col-span-2 text-right">Amount</div>
+                <div className="col-span-2 text-right">OMT Fee</div>
+                <div className="col-span-2 text-right">Commission</div>
+                <div className="col-span-1 text-right">Date</div>
+              </div>
+              {pendingData.unsettled_commissions.map((r) => (
+                <div
+                  key={r.id}
+                  className="grid grid-cols-12 gap-2 px-4 py-2.5 text-sm border-t border-gray-700/50"
+                >
+                  <div className="col-span-2 font-medium text-white">
+                    {r.provider}
+                  </div>
+                  <div className="col-span-3 text-gray-400 text-xs">
+                    {r.omt_service_type || "—"}
+                  </div>
+                  <div className="col-span-2 text-right font-mono text-white">
+                    ${Math.abs(r.amount).toFixed(2)}
+                  </div>
+                  <div className="col-span-2 text-right font-mono text-amber-400">
+                    {r.omt_fee ? `$${r.omt_fee.toFixed(2)}` : "—"}
+                  </div>
+                  <div className="col-span-2 text-right font-mono text-amber-300 font-bold">
+                    ${r.commission.toFixed(4)}
+                  </div>
+                  <div className="col-span-1 text-right text-xs text-gray-500">
+                    {new Date(r.created_at).toLocaleDateString()}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-gray-500">
+              → Settle these in{" "}
+              <span className="text-white font-medium">
+                Settings → Supplier Ledger
+              </span>
+            </p>
+          </div>
+        )}
+
       {!loading && tab === "pending" && !pendingData && (
         <div className="text-center py-12 text-gray-500">
           No data for this period

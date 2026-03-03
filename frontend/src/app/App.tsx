@@ -5,7 +5,6 @@ import { ModuleProvider } from "../contexts/ModuleContext";
 import { CurrencyProvider } from "../contexts/CurrencyContext";
 import Login from "../features/auth/pages/Login";
 import Dashboard from "../features/dashboard/pages/Dashboard";
-import CommissionsDashboard from "../features/dashboard/pages/CommissionsDashboard";
 import ProductList from "../features/inventory/pages/Inventory/ProductList";
 import ClientList from "../features/clients/pages/Clients/ClientList";
 import POS from "../features/sales/pages/POS";
@@ -18,16 +17,19 @@ import Maintenance from "../features/maintenance/pages/Maintenance";
 import CustomServices from "../features/custom-services/pages/CustomServices";
 import Settings from "../features/settings/pages/Settings";
 import Reports from "../features/reports/pages/Reports";
+import TransactionHistory from "../features/transactions/pages/TransactionHistory";
 import Profits from "../features/profits/pages/Profits";
 import MainLayout from "../shared/components/layouts/MainLayout";
 import HomeGrid from "../shared/components/layouts/HomeGrid";
 import "../index.css";
 import { ApiProvider } from "@liratek/ui";
 import { backendApiAdapter } from "../api/adapter";
+import { FeatureFlagProvider } from "../contexts/FeatureFlagContext";
+import SetupWizard from "../features/setup/SetupWizard";
 
 // Wrapper for protected routes
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, isSetupRequired } = useAuth();
 
   if (isLoading) {
     return (
@@ -35,6 +37,10 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
         Loading...
       </div>
     );
+  }
+
+  if (isSetupRequired) {
+    return <Navigate to="/setup" />;
   }
 
   if (!isAuthenticated) {
@@ -51,8 +57,13 @@ function HomeRoute() {
 }
 
 function AppRoutes() {
+  const { isSetupRequired } = useAuth();
   return (
     <Routes>
+      <Route
+        path="/setup"
+        element={isSetupRequired ? <SetupWizard /> : <Navigate to="/" />}
+      />
       <Route path="/login" element={<Login />} />
       <Route
         path="/"
@@ -67,14 +78,6 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <Dashboard />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/commissions"
-        element={
-          <ProtectedRoute>
-            <CommissionsDashboard />
           </ProtectedRoute>
         }
       />
@@ -175,6 +178,14 @@ function AppRoutes() {
         }
       />
       <Route
+        path="/transactions"
+        element={
+          <ProtectedRoute>
+            <TransactionHistory />
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/profits"
         element={
           <ProtectedRoute>
@@ -194,13 +205,15 @@ function App() {
     <ApiProvider adapter={backendApiAdapter}>
       <ModuleProvider>
         <CurrencyProvider>
-          <HashRouter>
-            <AuthProvider>
-              <SessionProvider>
-                <AppRoutes />
-              </SessionProvider>
-            </AuthProvider>
-          </HashRouter>
+          <FeatureFlagProvider>
+            <HashRouter>
+              <AuthProvider>
+                <SessionProvider>
+                  <AppRoutes />
+                </SessionProvider>
+              </AuthProvider>
+            </HashRouter>
+          </FeatureFlagProvider>
         </CurrencyProvider>
       </ModuleProvider>
     </ApiProvider>
