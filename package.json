@@ -4,7 +4,7 @@
   "description": "Point of Sale system for Lebanese phone shops with multi-currency support",
   "author": "Amir <amir@liratek.com>",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.15.5",
   "type": "module",
   "main": "dist-electron/main.js",
   "workspaces": [
@@ -131,11 +131,11 @@
       "package.json"
     ],
     "directories": {
-      "buildResources": "build",
+      "buildResources": "resources",
       "output": "releases"
     },
     "mac": {
-      "icon": "build/icon.icns",
+      "icon": "resources/icon.png",
       "target": [
         {
           "target": "dmg",
@@ -155,7 +155,7 @@
       "artifactName": "mac${arch}/${productName}-${version}.${ext}"
     },
     "win": {
-      "icon": "build/icon.ico",
+      "icon": "resources/icon.png",
       "target": [
         {
           "target": "nsis",
