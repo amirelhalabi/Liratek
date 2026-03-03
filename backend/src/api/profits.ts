@@ -114,6 +114,21 @@ router.get("/by-client", async (req, res) => {
   }
 });
 
+// GET /api/profits/pending?from=...&to=...
+router.get("/pending", async (req, res) => {
+  try {
+    const from = (req.query.from as string) || todayISO();
+    const to = (req.query.to as string) || todayISO();
+    const data = getProfitService().getPendingProfit(from, to);
+    res.json({ success: true, data });
+  } catch (error) {
+    logger.error({ error }, "Profits pending error");
+    res
+      .status(500)
+      .json({ success: false, error: "Failed to get pending profit" });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

@@ -1,10 +1,10 @@
 import { ipcMain } from "electron";
+import { requireRole } from "../session.js";
 import {
   getMaintenanceService,
   maintenanceLogger,
   type SaveJobParams,
 } from "@liratek/core";
-/* eslint-disable @typescript-eslint/no-require-imports */
 
 export function registerMaintenanceHandlers(): void {
   const service = getMaintenanceService();
@@ -12,7 +12,6 @@ export function registerMaintenanceHandlers(): void {
   // Add / Update Maintenance Job (Drawer B - General Drawer)
   ipcMain.handle("maintenance:save", (e, job: SaveJobParams) => {
     try {
-      const { requireRole } = require("../session");
       const auth = requireRole(e.sender.id, ["admin"]);
       if (!auth.ok) return { success: false, error: auth.error };
     } catch {}
@@ -31,7 +30,6 @@ export function registerMaintenanceHandlers(): void {
   // Delete / Cancel
   ipcMain.handle("maintenance:delete", (e, id: number) => {
     try {
-      const { requireRole } = require("../session");
       const auth = requireRole(e.sender.id, ["admin"]);
       if (!auth.ok) return { success: false, error: auth.error };
     } catch {}

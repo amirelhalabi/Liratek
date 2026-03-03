@@ -4,6 +4,14 @@
 
 import { jest } from "@jest/globals";
 
+// Mock rate repository that ExchangeService will use internally
+const mockRateRepo = {
+  findAllAsCurrencyRates: jest.fn().mockReturnValue([
+    { to_code: "LBP", market_rate: 90000, delta: 500, is_stronger: 1 },
+    { to_code: "EUR", market_rate: 1.08, delta: 0.02, is_stronger: -1 },
+  ]),
+};
+
 jest.mock("@liratek/core", () => {
   const actual =
     jest.requireActual<typeof import("@liratek/core")>("@liratek/core");
@@ -11,6 +19,18 @@ jest.mock("@liratek/core", () => {
     ...actual,
     getExchangeRepository: jest.fn(),
     ExchangeRepository: jest.fn(),
+    getRateRepository: jest.fn(() => mockRateRepo),
+  };
+});
+
+// Mock the internal repositories module used by ExchangeService's relative imports
+jest.mock("../../../../packages/core/src/repositories/index", () => {
+  const actual = jest.requireActual<any>(
+    "../../../../packages/core/src/repositories/index",
+  );
+  return {
+    ...actual,
+    getRateRepository: jest.fn(() => mockRateRepo),
   };
 });
 
@@ -20,7 +40,6 @@ import {
   resetExchangeService,
   ExchangeRepository,
   getExchangeRepository,
-  type CreateExchangeData,
   type ExchangeTransactionEntity,
 } from "@liratek/core";
 
@@ -50,30 +69,27 @@ describe("ExchangeService", () => {
   // ===========================================================================
 
   describe("addTransaction", () => {
-    const mockExchangeData: CreateExchangeData = {
+    const mockInput = {
       fromCurrency: "USD",
       toCurrency: "LBP",
       amountIn: 100,
-      amountOut: 9000000,
-      rate: 90000,
     };
 
     it("should add exchange transaction successfully", () => {
       mockRepo.createTransaction.mockReturnValue({ id: 1 });
 
-      const result = service.addTransaction(mockExchangeData);
+      const result = service.addTransaction(mockInput);
 
-      expect(result).toEqual({ success: true, id: 1 });
-      expect(mockRepo.createTransaction).toHaveBeenCalledWith(mockExchangeData);
+      expect(result.success).toBe(true);
+      expect(result.id).toBe(1);
+      expect(mockRepo.createTransaction).toHaveBeenCalled();
     });
 
     it("should handle USD to LBP exchange", () => {
-      const usdToLbp: CreateExchangeData = {
+      const usdToLbp = {
         fromCurrency: "USD",
         toCurrency: "LBP",
         amountIn: 500,
-        amountOut: 45000000,
-        rate: 90000,
       };
 
       mockRepo.createTransaction.mockReturnValue({ id: 2 });
@@ -84,12 +100,10 @@ describe("ExchangeService", () => {
     });
 
     it("should handle LBP to USD exchange", () => {
-      const lbpToUsd: CreateExchangeData = {
+      const lbpToUsd = {
         fromCurrency: "LBP",
         toCurrency: "USD",
         amountIn: 9000000,
-        amountOut: 100,
-        rate: 90000,
       };
 
       mockRepo.createTransaction.mockReturnValue({ id: 3 });
@@ -100,12 +114,10 @@ describe("ExchangeService", () => {
     });
 
     it("should handle EUR to USD exchange", () => {
-      const eurToUsd: CreateExchangeData = {
+      const eurToUsd = {
         fromCurrency: "EUR",
         toCurrency: "USD",
         amountIn: 100,
-        amountOut: 108,
-        rate: 1.08,
       };
 
       mockRepo.createTransaction.mockReturnValue({ id: 4 });
@@ -120,7 +132,7 @@ describe("ExchangeService", () => {
         throw new Error("Database error");
       });
 
-      const result = service.addTransaction(mockExchangeData);
+      const result = service.addTransaction(mockInput);
 
       expect(result).toEqual({
         success: false,
@@ -144,6 +156,15 @@ describe("ExchangeService", () => {
           amount_in: 100,
           amount_out: 9000000,
           rate: 90000,
+          base_rate: 90000,
+          profit_usd: 0.56,
+          leg1_rate: 90000,
+          leg1_market_rate: 90000,
+          leg1_profit_usd: 0.56,
+          leg2_rate: null,
+          leg2_market_rate: null,
+          leg2_profit_usd: null,
+          via_currency: null,
           client_name: null,
           note: null,
           created_at: "2025-01-01",
@@ -157,6 +178,15 @@ describe("ExchangeService", () => {
           amount_in: 4500000,
           amount_out: 50,
           rate: 90000,
+          base_rate: 90000,
+          profit_usd: 0.28,
+          leg1_rate: 90000,
+          leg1_market_rate: 90000,
+          leg1_profit_usd: 0.28,
+          leg2_rate: null,
+          leg2_market_rate: null,
+          leg2_profit_usd: null,
+          via_currency: null,
           client_name: null,
           note: null,
           created_at: "2025-01-01",
@@ -181,6 +211,15 @@ describe("ExchangeService", () => {
           amount_in: 100,
           amount_out: 9000000,
           rate: 90000,
+          base_rate: 90000,
+          profit_usd: 0.56,
+          leg1_rate: 90000,
+          leg1_market_rate: 90000,
+          leg1_profit_usd: 0.56,
+          leg2_rate: null,
+          leg2_market_rate: null,
+          leg2_profit_usd: null,
+          via_currency: null,
           client_name: null,
           note: null,
           created_at: "2025-01-01",
@@ -221,6 +260,15 @@ describe("ExchangeService", () => {
           amount_in: 200,
           amount_out: 18000000,
           rate: 90000,
+          base_rate: 90000,
+          profit_usd: 1.11,
+          leg1_rate: 90000,
+          leg1_market_rate: 90000,
+          leg1_profit_usd: 1.11,
+          leg2_rate: null,
+          leg2_market_rate: null,
+          leg2_profit_usd: null,
+          via_currency: null,
           client_name: null,
           note: null,
           created_at: "2025-01-15",

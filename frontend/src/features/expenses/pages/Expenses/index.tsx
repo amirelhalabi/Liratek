@@ -1,9 +1,8 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import logger from "../../../../utils/logger";
 import { Plus, Ban, Calendar, DollarSign } from "lucide-react";
 import { Select, useApi } from "@liratek/ui";
-import { usePaymentMethods } from "../../../../hooks/usePaymentMethods";
-import { ExportBar } from "@/shared/components/ExportBar";
+import { DataTable } from "@/shared/components/DataTable";
 
 interface Expense {
   id?: number;
@@ -26,8 +25,6 @@ const EXPENSE_CATEGORIES = [
 export default function Expenses() {
   const api = useApi();
   const [expenses, setExpenses] = useState<Expense[]>([]);
-  const { drawerAffectingMethods } = usePaymentMethods();
-  const tableRef = useRef<HTMLTableElement>(null);
   const [formData, setFormData] = useState<Expense>({
     description: "",
     category: "Shop_Supply",
@@ -181,29 +178,14 @@ export default function Expenses() {
               />
             </div>
 
-            {/* Paid By (payment method) */}
-            <div>
-              <label
-                htmlFor="expense-paid-by"
-                className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
-              >
+            {/* Paid By — always Cash (only payment method for expenses) */}
+            <div className="flex items-center gap-2 px-3 py-2 bg-slate-900/50 rounded-lg border border-slate-700/50">
+              <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">
                 Paid By
-              </label>
-              <Select
-                value={formData.paid_by_method || "CASH"}
-                onChange={(value) => {
-                  setFormData({
-                    ...formData,
-                    paid_by_method: value,
-                  });
-                }}
-                options={drawerAffectingMethods.map((m) => ({
-                  value: m.code,
-                  label: m.label,
-                }))}
-                ringColor="ring-orange-500"
-                buttonClassName="text-sm"
-              />
+              </span>
+              <span className="ml-auto text-sm text-slate-300 font-medium">
+                💵 Cash
+              </span>
             </div>
 
             {/* Amounts */}
@@ -301,76 +283,69 @@ export default function Expenses() {
           </div>
 
           <div className="flex-1 min-h-0 overflow-auto">
-            <ExportBar
+            <DataTable
+              columns={[
+                {
+                  header: "Description",
+                  className: "px-6 py-3",
+                  sortKey: "created_at",
+                },
+                {
+                  header: "Category",
+                  className: "px-6 py-3",
+                  sortKey: "category",
+                },
+                { header: "Paid By", className: "px-6 py-3" },
+                {
+                  header: "USD",
+                  className: "px-6 py-3 text-right",
+                  sortKey: "amount_usd",
+                },
+                { header: "LBP", className: "px-6 py-3 text-right" },
+                { header: "Action", className: "px-6 py-3 text-center" },
+              ]}
+              data={expenses}
               exportExcel
               exportPdf
               exportFilename="expenses"
-              tableRef={tableRef}
-              rowCount={expenses.length}
-            />
-            <table ref={tableRef} className="w-full">
-              <thead className="bg-slate-900/50 text-left text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0">
-                <tr>
-                  <th className="px-6 py-3">Description</th>
-                  <th className="px-6 py-3">Category</th>
-                  <th className="px-6 py-3">Paid By</th>
-                  <th className="px-6 py-3 text-right">USD</th>
-                  <th className="px-6 py-3 text-right">LBP</th>
-                  <th className="px-6 py-3 text-center">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-700/50">
-                {expenses.map((expense) => (
-                  <tr
-                    key={expense.id}
-                    className="hover:bg-slate-700/20 transition-colors"
-                  >
-                    <td className="px-6 py-4">
-                      <div className="text-sm text-white font-medium">
-                        {expense.description}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="px-2.5 py-0.5 bg-slate-700 text-slate-300 rounded-full text-xs font-medium">
-                        {expense.category.replace(/_/g, " ")}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-slate-400">
-                      {drawerAffectingMethods.find(
-                        (m) => m.code === expense.paid_by_method,
-                      )?.label ||
-                        expense.paid_by_method ||
-                        "Cash"}
-                    </td>
-                    <td className="px-6 py-4 text-right text-sm font-bold text-orange-400 font-mono">
-                      ${expense.amount_usd.toFixed(2)}
-                    </td>
-                    <td className="px-6 py-4 text-right text-sm font-bold text-orange-400 font-mono">
-                      {expense.amount_lbp.toLocaleString()}
-                    </td>
-                    <td className="px-6 py-4 text-center">
-                      <button
-                        onClick={() => handleVoid(expense.id!)}
-                        className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-colors"
-                        title="Void expense"
-                      >
-                        <Ban size={16} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-                {expenses.length === 0 && (
-                  <tr>
-                    <td
-                      colSpan={6}
-                      className="px-6 py-12 text-center text-slate-500 text-sm"
+              className="w-full"
+              theadClassName="bg-slate-900/50 text-left text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0"
+              tbodyClassName="divide-y divide-slate-700/50"
+              emptyMessage="No expenses recorded yet today."
+              renderRow={(expense) => (
+                <tr
+                  key={expense.id}
+                  className="hover:bg-slate-700/20 transition-colors"
+                >
+                  <td className="px-6 py-4">
+                    <div className="text-sm text-white font-medium">
+                      {expense.description}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4">
+                    <span className="px-2.5 py-0.5 bg-slate-700 text-slate-300 rounded-full text-xs font-medium">
+                      {expense.category.replace(/_/g, " ")}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 text-sm text-slate-400">Cash</td>
+                  <td className="px-6 py-4 text-right text-sm font-bold text-orange-400 font-mono">
+                    ${expense.amount_usd.toFixed(2)}
+                  </td>
+                  <td className="px-6 py-4 text-right text-sm font-bold text-orange-400 font-mono">
+                    {expense.amount_lbp.toLocaleString()}
+                  </td>
+                  <td className="px-6 py-4 text-center">
+                    <button
+                      onClick={() => handleVoid(expense.id!)}
+                      className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-colors"
+                      title="Void expense"
                     >
-                      No expenses recorded yet today.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                      <Ban size={16} />
+                    </button>
+                  </td>
+                </tr>
+              )}
+            />
           </div>
         </div>
       </div>

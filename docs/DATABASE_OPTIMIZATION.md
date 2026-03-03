@@ -473,13 +473,13 @@ VACUUM; -- Reclaim space and defragment
 
 ## Migration History
 
-| Migration               | Date       | Indexes Added | Purpose                  |
-| ----------------------- | ---------- | ------------- | ------------------------ |
-| Initial Schema          | 2024       | 30            | Base indexes             |
-| 004_add_missing_indexes | 2026-02-14 | 14            | Performance optimization |
-| v17-v20 (transactions)  | 2026-02-21 | 6             | Unified transactions table |
-| v17-v20 (new tables)    | 2026-02-21 | 5             | Custom services, financial services, debt ledger |
-| **Total**               | -          | **51** (+4 on `item_costs` implied) | -                        |
+| Migration               | Date       | Indexes Added                       | Purpose                                          |
+| ----------------------- | ---------- | ----------------------------------- | ------------------------------------------------ |
+| Initial Schema          | 2024       | 30                                  | Base indexes                                     |
+| 004_add_missing_indexes | 2026-02-14 | 14                                  | Performance optimization                         |
+| v17-v20 (transactions)  | 2026-02-21 | 6                                   | Unified transactions table                       |
+| v17-v20 (new tables)    | 2026-02-21 | 5                                   | Custom services, financial services, debt ledger |
+| **Total**               | -          | **51** (+4 on `item_costs` implied) | -                                                |
 
 ---
 

@@ -2,7 +2,7 @@
  * Recharge Repository
  *
  * Handles recharge-specific queries (virtual stock).
- * Uses products and sales tables.
+ * Uses recharges and drawer_balances tables.
  */
 
 import { BaseRepository } from "./BaseRepository.js";
@@ -34,22 +34,44 @@ export interface RechargeData {
   price: number;
   currency?: string; // Defaults to "USD"
   paid_by_method?: RechargePaidByMethod;
+  /** Multi-payment support: when provided, overrides paid_by_method */
+  payments?: Array<{
+    method: string;
+    currencyCode: string;
+    amount: number;
+  }>;
   phoneNumber?: string;
   clientId?: number;
+}
+
+export interface RechargeEntity {
+  id: number;
+  carrier: string;
+  recharge_type: string;
+  amount: number;
+  cost: number;
+  price: number;
+  currency_code: string;
+  paid_by: string;
+  phone_number: string | null;
+  client_id: number | null;
+  client_name: string | null;
+  note: string | null;
+  created_at: string;
+  created_by: number;
 }
 
 // =============================================================================
 // Recharge Repository Class
 // =============================================================================
 
-export class RechargeRepository extends BaseRepository<{ id: number }> {
+export class RechargeRepository extends BaseRepository<RechargeEntity> {
   constructor() {
-    super("products", { softDelete: false });
+    super("recharges", { softDelete: false });
   }
 
-  // Override getColumns() - This repository uses drawer_balances for virtual stock, not products directly
   protected getColumns(): string {
-    return "id, barcode, name, item_type, category, description, cost_price_usd, selling_price_usd, min_stock_level, stock_quantity, imei, color, image_url, warranty_expiry, status, is_active, created_at, is_deleted, updated_at";
+    return "id, carrier, recharge_type, amount, cost, price, currency_code, paid_by, phone_number, client_id, client_name, note, created_at, created_by";
   }
 
   /**
@@ -78,6 +100,7 @@ export class RechargeRepository extends BaseRepository<{ id: number }> {
   /**
    * Top up the MTC or Alfa drawer balance.
    * This is used when the shop owner loads credits onto their telecom account.
+   * Records a TOP_UP entry in the recharges table.
    */
   topUp(data: {
     provider: "MTC" | "Alfa";
@@ -89,6 +112,19 @@ export class RechargeRepository extends BaseRepository<{ id: number }> {
       const currency = data.currency ?? "USD";
 
       this.db.transaction(() => {
+        // Record the top-up in recharges table
+        this.db
+          .prepare(
+            `INSERT INTO recharges (carrier, recharge_type, amount, cost, price, currency_code, paid_by, note, created_by)
+             VALUES (?, 'TOP_UP', ?, 0, 0, ?, 'CASH', ?, 1)`,
+          )
+          .run(
+            data.provider,
+            Math.abs(data.amount),
+            currency,
+            `${data.provider} top-up: +${data.amount} ${currency}`,
+          );
+
         // Increase the provider drawer balance
         this.db
           .prepare(
@@ -117,7 +153,7 @@ export class RechargeRepository extends BaseRepository<{ id: number }> {
   }
 
   /**
-   * Process a recharge transaction (creates sale, deducts stock, logs activity)
+   * Process a recharge transaction (creates recharges row, updates drawers, logs activity)
    */
   processRecharge(data: RechargeData): {
     success: boolean;
@@ -126,28 +162,48 @@ export class RechargeRepository extends BaseRepository<{ id: number }> {
   } {
     try {
       const result = this.db.transaction(() => {
-        // 1. Create Sale Record
         const note = `${data.provider} ${data.type} - ${data.phoneNumber || "No Number"}`;
-        const insertSale = this.db.prepare(`
-          INSERT INTO sales (
-            client_id, total_amount_usd, final_amount_usd, paid_usd, status, note
-          ) VALUES (?, ?, ?, ?, 'completed', ?)
-        `);
-        const saleResult = insertSale.run(
-          data.clientId || null,
-          data.price,
-          data.price,
-          data.paid_by_method === "DEBT" ? 0 : data.price,
-          note,
-        );
-        const saleId = Number(saleResult.lastInsertRowid);
+        const paidBy = data.paid_by_method || "CASH";
+        const currency = data.currency ?? "USD";
+        const createdBy = 1;
 
-        // Create unified transaction row
+        // 1. Create Recharge Record (goes into recharges table, not sales)
+        const clientName = data.clientId
+          ? ((
+              this.db
+                .prepare("SELECT name FROM clients WHERE id = ?")
+                .get(data.clientId) as { name: string } | undefined
+            )?.name ?? null)
+          : null;
+
+        const insertRecharge = this.db.prepare(`
+          INSERT INTO recharges (
+            carrier, recharge_type, amount, cost, price, currency_code,
+            paid_by, phone_number, client_id, client_name, note, created_by
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        const rechargeResult = insertRecharge.run(
+          data.provider,
+          data.type,
+          data.amount,
+          data.cost,
+          data.price,
+          currency,
+          paidBy,
+          data.phoneNumber || null,
+          data.clientId || null,
+          clientName,
+          note,
+          createdBy,
+        );
+        const rechargeId = Number(rechargeResult.lastInsertRowid);
+
+        // 2. Create unified transaction row
         const txnId = getTransactionRepository().createTransaction({
           type: TRANSACTION_TYPES.RECHARGE,
-          source_table: "sales",
-          source_id: saleId,
-          user_id: 1,
+          source_table: "recharges",
+          source_id: rechargeId,
+          user_id: createdBy,
           amount_usd: data.price,
           client_id: data.clientId ?? null,
           summary: `Recharge: ${data.provider} ${data.type} $${data.price}`,
@@ -157,21 +213,14 @@ export class RechargeRepository extends BaseRepository<{ id: number }> {
             amount: data.amount,
             cost: data.cost,
             price: data.price,
-            paid_by: data.paid_by_method ?? "CASH",
+            paid_by: paidBy,
             phone: data.phoneNumber,
           },
         });
 
-        // 2. Update running balances
-        // - Customer payment increases the selected method drawer by the FULL price.
-        // - Telecom balance (MTC/Alfa) decreases by the recharge `amount` (shop number balance sent).
-        const paidBy = data.paid_by_method || "CASH";
-
+        // 3. Update running balances
         const methodDrawerName = paymentMethodToDrawerName(paidBy);
-
         const providerDrawerName = data.provider === "MTC" ? "MTC" : "Alfa";
-        const currency = data.currency ?? "USD";
-        const createdBy = 1;
 
         const insertPayment = this.db.prepare(`
           INSERT INTO payments (
@@ -190,8 +239,28 @@ export class RechargeRepository extends BaseRepository<{ id: number }> {
         `);
 
         // Customer payment (cash-like inflow)
-        // Non-drawer-affecting methods (DEBT) skip drawer movement.
-        if (isDrawerAffectingMethod(paidBy)) {
+        let hasDebt = false;
+        if (data.payments && data.payments.length > 0) {
+          // Multi-payment mode
+          for (const p of data.payments) {
+            if (!isDrawerAffectingMethod(p.method)) {
+              hasDebt = true;
+              continue;
+            }
+            const drawer = paymentMethodToDrawerName(p.method);
+            insertPayment.run(
+              txnId,
+              p.method,
+              drawer,
+              p.currencyCode,
+              Math.abs(p.amount),
+              note,
+              createdBy,
+            );
+            upsertBalanceDelta.run(drawer, p.currencyCode, Math.abs(p.amount));
+          }
+        } else if (isDrawerAffectingMethod(paidBy)) {
+          // Single payment (backwards-compatible)
           insertPayment.run(
             txnId,
             paidBy,
@@ -206,6 +275,8 @@ export class RechargeRepository extends BaseRepository<{ id: number }> {
             currency,
             Math.abs(data.price),
           );
+        } else {
+          hasDebt = true;
         }
 
         // Telecom balance consumed (shop number stock)
@@ -222,10 +293,16 @@ export class RechargeRepository extends BaseRepository<{ id: number }> {
         upsertBalanceDelta.run(providerDrawerName, currency, stockDelta);
 
         // Debt: create ledger entry when paid by DEBT
-        if (paidBy === "DEBT") {
+        if (hasDebt) {
           if (!data.clientId) {
             throw new Error("Cannot create debt without a client");
           }
+          const debtAmount =
+            data.payments && data.payments.length > 0
+              ? data.payments
+                  .filter((p) => !isDrawerAffectingMethod(p.method))
+                  .reduce((sum, p) => sum + Math.abs(p.amount), 0)
+              : data.price;
           this.db
             .prepare(
               `INSERT INTO debt_ledger (
@@ -235,14 +312,14 @@ export class RechargeRepository extends BaseRepository<{ id: number }> {
             .run(
               data.clientId,
               "Recharge Debt",
-              data.price,
+              debtAmount,
               txnId,
               note,
               createdBy,
             );
         }
 
-        return saleId;
+        return rechargeId;
       })();
 
       rechargeLogger.info(

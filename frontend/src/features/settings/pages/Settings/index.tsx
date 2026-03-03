@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Settings as SettingsIcon } from "lucide-react";
+import { Settings as SettingsIcon, Tag } from "lucide-react";
 import UsersManager from "./UsersManager";
 import Diagnostics from "./Diagnostics";
 import CurrencyManager from "./CurrencyManager";
@@ -9,9 +9,11 @@ import NotificationsConfig from "./NotificationsConfig";
 import ActivityLogViewer from "./ActivityLogViewer";
 import ModulesManager from "./ModulesManager";
 import IntegrationsConfig from "./IntegrationsConfig";
+import CategoriesManager from "./CategoriesManager";
 
 type TabKey =
   | "shop"
+  | "categories"
   | "suppliers"
   | "notifications"
   | "activity"
@@ -37,6 +39,7 @@ export default function Settings() {
           {(
             [
               { key: "shop", label: "Shop Config" },
+              { key: "categories", label: "Categories", icon: Tag },
               { key: "suppliers", label: "Suppliers" },
               { key: "notifications", label: "Notifications" },
               { key: "activity", label: "Activity Logs" },
@@ -45,7 +48,7 @@ export default function Settings() {
               { key: "users", label: "Users" },
               { key: "integrations", label: "Integrations" },
               { key: "diagnostics", label: "Diagnostics" },
-            ] as { key: TabKey; label: string }[]
+            ] as { key: TabKey; label: string; icon?: any }[]
           ).map((t) => (
             <button
               key={t.key}
@@ -58,6 +61,7 @@ export default function Settings() {
         </div>
         <div className="p-4">
           {active === "shop" && <ShopConfig />}
+          {active === "categories" && <CategoriesManager />}
           {active === "suppliers" && <SupplierLedger />}
           {active === "notifications" && <NotificationsConfig />}
           {active === "activity" && <ActivityLogViewer />}

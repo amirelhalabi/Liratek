@@ -227,19 +227,19 @@ describe("dbHandlers IPC: Closing functionality", () => {
         variance_notes: "Test closing variance",
         amounts: [
           {
-            drawer_name: "General_Drawer_B",
+            drawer_name: "General",
             currency_code: "USD",
             physical_amount: 110,
             opening_amount: 100,
           },
           {
-            drawer_name: "General_Drawer_B",
+            drawer_name: "General",
             currency_code: "LBP",
             physical_amount: 105000,
             opening_amount: 100000,
           },
           {
-            drawer_name: "General_Drawer_B",
+            drawer_name: "General",
             currency_code: "EUR",
             physical_amount: 50,
             opening_amount: 0,

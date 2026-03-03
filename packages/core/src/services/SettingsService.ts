@@ -58,6 +58,44 @@ export class SettingsService {
   }
 
   /**
+   * Check if the setup wizard has been completed
+   */
+  isSetupComplete(): boolean {
+    try {
+      const value = this.repo.getSettingValue("setup_complete");
+      return value === "1";
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Mark setup as complete
+   */
+  markSetupComplete(): SettingResult {
+    return this.updateSetting("setup_complete", "1");
+  }
+
+  /**
+   * Reset setup (for factory-reset / demo scenarios)
+   */
+  resetSetup(): SettingResult {
+    return this.updateSetting("setup_complete", "0");
+  }
+
+  /**
+   * Get a feature flag value ('enabled' | 'disabled')
+   */
+  getFeatureFlag(key: string): "enabled" | "disabled" {
+    try {
+      const value = this.repo.getSettingValue(key);
+      return value === "disabled" ? "disabled" : "enabled";
+    } catch {
+      return "enabled";
+    }
+  }
+
+  /**
    * Update a setting (upsert)
    */
   updateSetting(key: string, value: string): SettingResult {

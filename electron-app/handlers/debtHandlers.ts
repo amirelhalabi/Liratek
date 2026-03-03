@@ -8,6 +8,12 @@
 import { ipcMain } from "electron";
 import { getDebtService, debtLogger } from "@liratek/core";
 
+interface RepaymentPaymentLeg {
+  method: string;
+  currencyCode: string;
+  amount: number;
+}
+
 interface RepaymentData {
   clientId: number;
   amountUSD: number;
@@ -18,6 +24,7 @@ interface RepaymentData {
   note?: string;
   userId?: number;
   paidByMethod?: string;
+  payments?: RepaymentPaymentLeg[];
 }
 
 export function registerDebtHandlers(): void {

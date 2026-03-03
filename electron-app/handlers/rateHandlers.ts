@@ -2,6 +2,7 @@
  * Rate IPC Handlers
  *
  * Thin wrapper over RateService for IPC communication.
+ * New schema (v30): one row per non-USD currency (to_code, market_rate, delta, is_stronger)
  */
 
 import { ipcMain, IpcMainInvokeEvent } from "electron";
@@ -17,7 +18,8 @@ export function registerRateHandlers(): void {
     return rateService.listRates();
   });
 
-  // Set a rate (admin only)
+  // Set / upsert a rate (admin only)
+  // Payload: { to_code, market_rate, delta, is_stronger }
   ipcMain.handle(
     "rates:set",
     (event: IpcMainInvokeEvent, data: SetRateData) => {
@@ -25,10 +27,27 @@ export function registerRateHandlers(): void {
       if (!auth.ok) return { success: false, error: auth.error };
 
       settingsLogger.info(
-        { fromCode: data.from_code, toCode: data.to_code, rate: data.rate },
+        {
+          toCode: data.to_code,
+          marketRate: data.market_rate,
+          delta: data.delta,
+          isStronger: data.is_stronger,
+        },
         "Setting rate",
       );
       return rateService.setRate(data);
+    },
+  );
+
+  // Delete a rate by currency code (admin only)
+  ipcMain.handle(
+    "rates:delete",
+    (event: IpcMainInvokeEvent, toCode: string) => {
+      const auth = requireRole(event.sender.id, ["admin"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+
+      settingsLogger.info({ toCode }, "Deleting rate");
+      return rateService.deleteRate(toCode, "USD");
     },
   );
 }

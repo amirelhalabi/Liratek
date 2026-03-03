@@ -23,12 +23,9 @@ interface ModuleRow {
   enabledCurrencies?: string[];
 }
 
-/** Modules whose currencies are shown per-provider via drawer lookup */
-const RECHARGE_MODULE_KEYS = new Set(["recharge", "ipec_katch", "binance"]);
-
 /** Each recharge provider with its drawer name and parent module */
 const RECHARGE_PROVIDERS = [
-  { key: "MTC", label: "Touch / MTC", drawer: "MTC", module: "recharge" },
+  { key: "MTC", label: "MTC", drawer: "MTC", module: "recharge" },
   { key: "Alfa", label: "Alfa", drawer: "Alfa", module: "recharge" },
   { key: "IPEC", label: "IPEC", drawer: "IPEC", module: "ipec_katch" },
   { key: "KATCH", label: "Katch", drawer: "Katch", module: "ipec_katch" },
@@ -68,10 +65,9 @@ export default function ModulesManager() {
         api.getConfiguredDrawerNames(),
       ]);
 
-      // For non-recharge modules, fetch currencies by module
-      const nonRecharge = mods.filter((m) => !RECHARGE_MODULE_KEYS.has(m.key));
+      // Fetch currencies for ALL modules
       const withCurrencies = await Promise.all(
-        nonRecharge.map(async (m: ModuleRow) => ({
+        mods.map(async (m: ModuleRow) => ({
           ...m,
           enabledCurrencies: await api
             .getCurrenciesByModule(m.key)
@@ -152,55 +148,115 @@ export default function ModulesManager() {
           </thead>
           <tbody>
             {/* Non-recharge modules */}
-            {modules.map((m) => (
-              <tr key={m.key} className="border-t border-slate-800">
-                <td className="py-2 px-3 text-white font-medium">{m.label}</td>
-                <td className="py-2 px-3 text-slate-400 font-mono text-xs">
-                  {m.route || "—"}
-                </td>
-                <td className="py-2 px-3 text-slate-300">
-                  {m.enabledCurrencies?.length
-                    ? m.enabledCurrencies.join(", ")
-                    : "—"}
-                </td>
-                <td className="py-2 px-3">
-                  <button
-                    onClick={() => handleToggle(m.key, m.is_enabled)}
-                    className={`px-3 py-1 rounded text-xs font-medium ${
-                      m.is_enabled
-                        ? "bg-green-600/20 text-green-400 hover:bg-green-600/30"
-                        : "bg-red-600/20 text-red-400 hover:bg-red-600/30"
-                    }`}
-                  >
-                    {m.is_enabled ? "Enabled" : "Disabled"}
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {modules
+              .filter(
+                (m) => !["recharge", "ipec_katch", "binance"].includes(m.key),
+              )
+              .map((m) => (
+                <tr key={m.key} className="border-t border-slate-800">
+                  <td className="py-2 px-3 text-white font-medium">
+                    {m.label}
+                  </td>
+                  <td className="py-2 px-3 text-slate-400 font-mono text-xs">
+                    {m.route || "—"}
+                  </td>
+                  <td className="py-2 px-3 text-slate-300">
+                    {m.enabledCurrencies?.length
+                      ? m.enabledCurrencies.join(", ")
+                      : "—"}
+                  </td>
+                  <td className="py-2 px-3">
+                    <button
+                      onClick={() => handleToggle(m.key, m.is_enabled)}
+                      className={`px-3 py-1 rounded text-xs font-medium ${
+                        m.is_enabled
+                          ? "bg-green-600/20 text-green-400 hover:bg-green-600/30"
+                          : "bg-red-600/20 text-red-400 hover:bg-red-600/30"
+                      }`}
+                    >
+                      {m.is_enabled ? "Enabled" : "Disabled"}
+                    </button>
+                  </td>
+                </tr>
+              ))}
 
-            {/* Recharge — single group header */}
-            <tr className="border-t-2 border-slate-600 bg-slate-800/50">
+            {/* Recharge group header */}
+            <tr className="border-t-2 border-slate-600 bg-slate-800/30">
               <td className="py-2 px-3 text-white font-semibold" colSpan={2}>
-                Recharge
+                Recharge Providers
               </td>
               <td className="py-2 px-3 text-slate-400 text-xs" colSpan={2}>
-                Per-provider currencies (from drawer configuration)
+                {/* derive status from modules state */}
+                {(() => {
+                  const rechargeModules = modules.filter((m) =>
+                    ["recharge", "ipec_katch", "binance"].includes(m.key),
+                  );
+                  const enabledCount = rechargeModules.filter(
+                    (m) => m.is_enabled,
+                  ).length;
+                  if (enabledCount === 0)
+                    return (
+                      <span className="px-2 py-0.5 rounded text-xs bg-red-600/20 text-red-400">
+                        All Disabled
+                      </span>
+                    );
+                  if (enabledCount === rechargeModules.length)
+                    return (
+                      <span className="px-2 py-0.5 rounded text-xs bg-green-600/20 text-green-400">
+                        All Enabled
+                      </span>
+                    );
+                  return (
+                    <span className="px-2 py-0.5 rounded text-xs bg-amber-600/20 text-amber-400">
+                      Partially Enabled
+                    </span>
+                  );
+                })()}
               </td>
             </tr>
-            {providerCurrencies.map((p) => (
-              <tr key={p.key} className="border-t border-slate-800/50">
-                <td className="py-1.5 px-3 pl-6 text-slate-200">{p.label}</td>
-                <td className="py-1.5 px-3 text-slate-500 font-mono text-xs">
-                  {p.drawer}
-                </td>
-                <td className="py-1.5 px-3 text-slate-300">
-                  {p.currencies.length ? p.currencies.join(", ") : "—"}
-                </td>
-                <td className="py-1.5 px-3 text-slate-500 text-xs">
-                  {p.module}
-                </td>
-              </tr>
-            ))}
+            {/* Individual recharge module toggles */}
+            {modules
+              .filter((m) =>
+                ["recharge", "ipec_katch", "binance"].includes(m.key),
+              )
+              .map((m) => {
+                const providers = RECHARGE_PROVIDERS.filter(
+                  (p) => p.module === m.key,
+                );
+                const prov = providerCurrencies.filter(
+                  (p) => p.module === m.key,
+                );
+                return (
+                  <tr
+                    key={m.key}
+                    className="border-t border-slate-800 bg-slate-800/20"
+                  >
+                    <td className="py-2 px-3 pl-6 text-slate-200 font-medium">
+                      {m.label}
+                    </td>
+                    <td className="py-2 px-3 text-slate-500 font-mono text-xs">
+                      {providers.map((p) => p.drawer).join(", ")}
+                    </td>
+                    <td className="py-2 px-3 text-slate-400 text-xs">
+                      {prov
+                        .map((p) => `${p.label}: ${p.currencies.join("/")}`)
+                        .join(" · ") || "—"}
+                    </td>
+                    <td className="py-2 px-3">
+                      <button
+                        onClick={() => handleToggle(m.key, m.is_enabled)}
+                        className={`px-3 py-1 rounded text-xs font-medium ${
+                          m.is_enabled
+                            ? "bg-green-600/20 text-green-400 hover:bg-green-600/30"
+                            : "bg-red-600/20 text-red-400 hover:bg-red-600/30"
+                        }`}
+                      >
+                        {m.is_enabled ? "Enabled" : "Disabled"}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
           </tbody>
         </table>
       </div>

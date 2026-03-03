@@ -287,9 +287,11 @@ describe("InventoryService", () => {
       barcode: "123456",
       name: "Updated Product",
       category: "Electronics",
+      category_id: null,
       cost_price: 15,
       retail_price: 30,
       min_stock_level: 5,
+      supplier: null,
     };
 
     it("updates product successfully", () => {

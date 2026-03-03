@@ -35,6 +35,10 @@ describe("RateService", () => {
     // Create mock repository
     mockRepo = {
       findAllRates: jest.fn(),
+      findAll: jest.fn(),
+      findByCode: jest.fn(),
+      upsert: jest.fn(),
+      deleteByCode: jest.fn(),
       setRate: jest.fn(),
       getRate: jest.fn(),
     } as unknown as jest.Mocked<RateRepository>;
@@ -53,16 +57,18 @@ describe("RateService", () => {
       const mockRates: ExchangeRateEntity[] = [
         {
           id: 1,
-          from_code: "USD",
           to_code: "LBP",
-          rate: 90000,
+          market_rate: 90000,
+          delta: 500,
+          is_stronger: 1,
           updated_at: "2025-01-15",
         },
         {
           id: 2,
-          from_code: "EUR",
-          to_code: "USD",
-          rate: 1.08,
+          to_code: "EUR",
+          market_rate: 1.08,
+          delta: 0.02,
+          is_stronger: -1,
           updated_at: "2025-01-15",
         },
       ];
@@ -100,38 +106,41 @@ describe("RateService", () => {
   describe("setRate", () => {
     it("should set a new rate successfully", () => {
       const rateData: SetRateData = {
-        from_code: "USD",
         to_code: "LBP",
-        rate: 90500,
+        market_rate: 90500,
+        delta: 500,
+        is_stronger: 1,
       };
-      mockRepo.setRate.mockReturnValue(undefined);
+      mockRepo.upsert.mockReturnValue(undefined);
 
       const result = service.setRate(rateData);
 
       expect(result).toEqual({ success: true });
-      expect(mockRepo.setRate).toHaveBeenCalledWith(rateData);
+      expect(mockRepo.upsert).toHaveBeenCalledWith(rateData);
     });
 
     it("should update an existing rate", () => {
       const rateData: SetRateData = {
-        from_code: "USD",
         to_code: "LBP",
-        rate: 91000,
+        market_rate: 91000,
+        delta: 500,
+        is_stronger: 1,
       };
-      mockRepo.setRate.mockReturnValue(undefined);
+      mockRepo.upsert.mockReturnValue(undefined);
 
       const result = service.setRate(rateData);
 
       expect(result).toEqual({ success: true });
     });
 
-    it("should handle EUR to USD rate", () => {
+    it("should handle EUR rate", () => {
       const rateData: SetRateData = {
-        from_code: "EUR",
-        to_code: "USD",
-        rate: 1.1,
+        to_code: "EUR",
+        market_rate: 1.1,
+        delta: 0.02,
+        is_stronger: -1,
       };
-      mockRepo.setRate.mockReturnValue(undefined);
+      mockRepo.upsert.mockReturnValue(undefined);
 
       const result = service.setRate(rateData);
 
@@ -140,11 +149,12 @@ describe("RateService", () => {
 
     it("should return error on failure", () => {
       const rateData: SetRateData = {
-        from_code: "USD",
         to_code: "LBP",
-        rate: 90000,
+        market_rate: 90000,
+        delta: 500,
+        is_stronger: 1,
       };
-      mockRepo.setRate.mockImplementation(() => {
+      mockRepo.upsert.mockImplementation(() => {
         throw new Error("Update failed");
       });
 
@@ -156,13 +166,14 @@ describe("RateService", () => {
       });
     });
 
-    it("should handle zero rate", () => {
+    it("should handle zero delta rate", () => {
       const rateData: SetRateData = {
-        from_code: "USD",
         to_code: "LBP",
-        rate: 0,
+        market_rate: 90000,
+        delta: 0,
+        is_stronger: 1,
       };
-      mockRepo.setRate.mockReturnValue(undefined);
+      mockRepo.upsert.mockReturnValue(undefined);
 
       const result = service.setRate(rateData);
 
@@ -171,11 +182,12 @@ describe("RateService", () => {
 
     it("should handle decimal rates", () => {
       const rateData: SetRateData = {
-        from_code: "GBP",
-        to_code: "USD",
-        rate: 1.27345,
+        to_code: "GBP",
+        market_rate: 1.27345,
+        delta: 0.01,
+        is_stronger: -1,
       };
-      mockRepo.setRate.mockReturnValue(undefined);
+      mockRepo.upsert.mockReturnValue(undefined);
 
       const result = service.setRate(rateData);
 
@@ -189,33 +201,54 @@ describe("RateService", () => {
 
   describe("getRate", () => {
     it("should return rate for currency pair", () => {
-      mockRepo.getRate.mockReturnValue(90000);
+      mockRepo.findByCode.mockReturnValue({
+        id: 1,
+        to_code: "LBP",
+        market_rate: 90000,
+        delta: 500,
+        is_stronger: 1 as const,
+        updated_at: "2025-01-15",
+      });
 
       const result = service.getRate("USD", "LBP");
 
       expect(result).toBe(90000);
-      expect(mockRepo.getRate).toHaveBeenCalledWith("USD", "LBP");
+      expect(mockRepo.findByCode).toHaveBeenCalledWith("LBP");
     });
 
     it("should return null for non-existent pair", () => {
-      mockRepo.getRate.mockReturnValue(null);
+      mockRepo.findByCode.mockReturnValue(null);
 
       const result = service.getRate("ABC", "XYZ");
 
       expect(result).toBeNull();
     });
 
-    it("should handle reverse currency pair", () => {
-      mockRepo.getRate.mockReturnValue(0.0000111);
+    it("should handle reverse currency pair (LBP from)", () => {
+      mockRepo.findByCode.mockReturnValue({
+        id: 1,
+        to_code: "LBP",
+        market_rate: 90000,
+        delta: 500,
+        is_stronger: 1 as const,
+        updated_at: "2025-01-15",
+      });
 
       const result = service.getRate("LBP", "USD");
 
-      expect(result).toBe(0.0000111);
-      expect(mockRepo.getRate).toHaveBeenCalledWith("LBP", "USD");
+      expect(result).toBe(90000);
+      expect(mockRepo.findByCode).toHaveBeenCalledWith("LBP");
     });
 
     it("should handle decimal rate return", () => {
-      mockRepo.getRate.mockReturnValue(1.08);
+      mockRepo.findByCode.mockReturnValue({
+        id: 2,
+        to_code: "EUR",
+        market_rate: 1.08,
+        delta: 0.02,
+        is_stronger: -1 as const,
+        updated_at: "2025-01-15",
+      });
 
       const result = service.getRate("EUR", "USD");
 

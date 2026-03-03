@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import logger from "../../../../utils/logger";
 import { X, Save } from "lucide-react";
-import { Select, useApi } from "@liratek/ui";
+import { useApi } from "@liratek/ui";
 import type { Product } from "@liratek/ui";
 
 interface ProductFormProps {
@@ -18,6 +18,7 @@ export default function ProductForm({
   const api = useApi();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [categories, setCategories] = useState<string[]>([]);
   const [duplicateInfo, setDuplicateInfo] = useState<null | {
     attempted: string;
     suggested: string;
@@ -30,6 +31,7 @@ export default function ProductForm({
     retail_price: 0,
     min_stock_level: 5,
     stock_quantity: 0,
+    supplier: "" as string,
   });
 
   useEffect(() => {
@@ -42,9 +44,38 @@ export default function ProductForm({
         retail_price: product.retail_price,
         min_stock_level: product.min_stock_level,
         stock_quantity: product.stock_quantity,
+        supplier: (product as any).supplier ?? "",
       });
     }
   }, [product]);
+
+  useEffect(() => {
+    const loadCategories = async () => {
+      try {
+        const data = (await window.api?.inventory?.getCategories?.()) || [];
+        const fallback = [
+          "Accessories",
+          "Phones",
+          "Chargers",
+          "Audio",
+          "Parts",
+          "Services",
+        ];
+        setCategories(Array.isArray(data) ? data : fallback);
+      } catch {
+        // Default fallback list
+        setCategories([
+          "Accessories",
+          "Phones",
+          "Chargers",
+          "Audio",
+          "Parts",
+          "Services",
+        ]);
+      }
+    };
+    loadCategories();
+  }, [api]);
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
@@ -63,7 +94,11 @@ export default function ProductForm({
     setIsLoading(true);
 
     try {
-      const payload = { ...formData, id: product?.id ?? 0 } as any;
+      const payload = {
+        ...formData,
+        id: product?.id ?? 0,
+        supplier: formData.supplier || null,
+      } as any;
 
       let result;
       if (product) {
@@ -162,23 +197,7 @@ export default function ProductForm({
           )}
 
           <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label
-                htmlFor="product-barcode"
-                className="block text-sm font-medium text-slate-400 mb-1"
-              >
-                Barcode
-              </label>
-              <input
-                id="product-barcode"
-                name="barcode"
-                type="text"
-                value={formData.barcode}
-                onChange={handleChange}
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
-                required
-              />
-            </div>
+            {/* Row 1: Product Name | Barcode */}
             <div>
               <label
                 htmlFor="product-name"
@@ -197,6 +216,23 @@ export default function ProductForm({
               />
             </div>
 
+            {/* Row 1 col 2: Barcode | Row 2: Category */}
+            <div>
+              <label
+                htmlFor="product-barcode"
+                className="block text-sm font-medium text-slate-400 mb-1"
+              >
+                Barcode
+              </label>
+              <input
+                id="product-barcode"
+                name="barcode"
+                type="text"
+                value={formData.barcode}
+                onChange={handleChange}
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
+              />
+            </div>
             <div>
               <label
                 htmlFor="product-category"
@@ -204,40 +240,45 @@ export default function ProductForm({
               >
                 Category
               </label>
-              <Select
+              <select
+                id="product-category"
                 value={formData.category}
-                onChange={(value) =>
-                  handleChange({ target: { name: "category", value } } as any)
+                onChange={(e) =>
+                  setFormData((prev) => ({ ...prev, category: e.target.value }))
                 }
-                options={[
-                  { value: "Accessories", label: "Accessories" },
-                  { value: "Phones", label: "Phones" },
-                  { value: "Chargers", label: "Chargers" },
-                  { value: "Audio", label: "Audio" },
-                  { value: "Parts", label: "Parts" },
-                  { value: "Services", label: "Services" },
-                ]}
-                ringColor="ring-violet-600"
-                buttonClassName="bg-slate-950"
-              />
-            </div>
-            <div>
-              <label
-                htmlFor="product-stock"
-                className="block text-sm font-medium text-slate-400 mb-1"
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-violet-500"
               >
-                Initial Stock
+                {categories.map((cat) => (
+                  <option key={cat} value={cat}>
+                    {cat}
+                  </option>
+                ))}
+                {!categories.includes(formData.category) &&
+                  formData.category && (
+                    <option value={formData.category}>
+                      {formData.category}
+                    </option>
+                  )}
+              </select>
+            </div>
+
+            {/* Row 3: Supplier | Quantity */}
+            <div>
+              <label className="block text-sm font-medium text-slate-400 mb-1">
+                Supplier
               </label>
               <input
-                id="product-stock"
-                name="stock_quantity"
-                type="number"
-                value={formData.stock_quantity}
-                onChange={handleChange}
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
+                type="text"
+                value={formData.supplier ?? ""}
+                onChange={(e) =>
+                  setFormData((prev) => ({ ...prev, supplier: e.target.value }))
+                }
+                placeholder="Supplier name (optional)"
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-violet-500"
               />
             </div>
 
+            {/* Row 4: Cost Price | Retail Price */}
             <div>
               <label
                 htmlFor="product-cost-price"
@@ -274,6 +315,25 @@ export default function ProductForm({
                 required
               />
             </div>
+
+            {/* Row 5: Min Stock Alert (half width) */}
+            <div>
+              <label
+                htmlFor="product-stock"
+                className="block text-sm font-medium text-slate-400 mb-1"
+              >
+                Quantity
+              </label>
+              <input
+                id="product-stock"
+                name="stock_quantity"
+                type="number"
+                value={formData.stock_quantity}
+                onChange={handleChange}
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
+              />
+            </div>
+
             <div>
               <label
                 htmlFor="product-min-stock"

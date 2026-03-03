@@ -84,6 +84,7 @@ export type {
   TopDebtor,
   DebtSummary,
   CreateRepaymentData,
+  RepaymentPaymentLine,
 } from "./DebtRepository.js";
 
 // Exchange Repository
@@ -97,19 +98,7 @@ export type {
   CreateExchangeData,
 } from "./ExchangeRepository.js";
 
-// Binance Repository
-export {
-  BinanceRepository,
-  getBinanceRepository,
-  resetBinanceRepository,
-} from "./BinanceRepository.js";
-export type {
-  BinanceTransactionEntity,
-  CreateBinanceTransactionData,
-  BinanceTodayStats,
-} from "./BinanceRepository.js";
-
-// Financial Service Repository (OMT, WHISH, BOB)
+// Financial Service Repository (OMT, WHISH, BOB, OTHER, IPEC, KATCH, WISH_APP, OMT_APP, BINANCE)
 export {
   FinancialServiceRepository,
   getFinancialServiceRepository,
@@ -121,6 +110,7 @@ export type {
   ProviderStats,
   CurrencyStats,
   FinancialServiceAnalytics,
+  UnsettledSummary,
 } from "./FinancialServiceRepository.js";
 
 // Financial Repository
@@ -176,7 +166,11 @@ export {
   getRechargeRepository,
   resetRechargeRepository,
 } from "./RechargeRepository.js";
-export type { VirtualStock, RechargeData } from "./RechargeRepository.js";
+export type {
+  VirtualStock,
+  RechargeData,
+  RechargeEntity,
+} from "./RechargeRepository.js";
 
 // Supplier Repository
 export {
@@ -190,6 +184,7 @@ export type {
   SupplierLedgerEntryType,
   CreateSupplierData,
   CreateSupplierLedgerEntryData,
+  SettleTransactionsData,
   SupplierBalance,
 } from "./SupplierRepository.js";
 
@@ -295,3 +290,10 @@ export type {
   DebtAgingBuckets,
   OverdueDebtEntry,
 } from "./TransactionRepository.js";
+
+// Category Repository
+export {
+  CategoryRepository,
+  getCategoryRepository,
+} from "./CategoryRepository.js";
+export type { ProductCategory } from "./CategoryRepository.js";

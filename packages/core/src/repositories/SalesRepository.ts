@@ -251,7 +251,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             sale.change_given_usd || 0,
             sale.change_given_lbp || 0,
             sale.exchange_rate,
-            sale.drawer_name || "General_Drawer_B",
+            sale.drawer_name || "General",
             status,
             sale.note || null,
             saleId,
@@ -279,7 +279,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             sale.change_given_usd || 0,
             sale.change_given_lbp || 0,
             sale.exchange_rate,
-            sale.drawer_name || "General_Drawer_B",
+            sale.drawer_name || "General",
             status,
             sale.note || null,
           );
@@ -442,6 +442,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
                 client_id, transaction_type, amount_usd, transaction_id, note, due_date
               ) VALUES (?, ?, ?, ?, ?, datetime('now', '+30 days'))
             `);
+            // Use txnId (transactions table FK) per unified transaction architecture
             debtStmt.run(
               finalClientId,
               "Sale Debt",
@@ -745,7 +746,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           SUM(paid_usd) as total_usd, 
           SUM(paid_lbp) as total_lbp 
         FROM ${this.tableName} 
-        WHERE DATE(created_at) = ? AND status = 'completed' AND drawer_name = 'General_Drawer_B'
+        WHERE DATE(created_at) = ? AND status = 'completed' AND drawer_name = 'General'
       `,
         today,
       );
@@ -943,7 +944,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         FROM ${this.tableName} s
         JOIN sale_items si ON s.id = si.sale_id
         WHERE s.status = 'completed' 
-          AND (s.paid_usd + (s.paid_lbp / s.exchange_rate_snapshot)) >= s.final_amount_usd
+          AND si.is_refunded = 0
           AND DATE(s.created_at, 'localtime') >= ?
         GROUP BY profit_date
       `,

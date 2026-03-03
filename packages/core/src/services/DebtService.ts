@@ -16,6 +16,7 @@ import {
   type DebtLedgerEntity,
   type DebtorSummary,
   type DebtSummary,
+  type RepaymentPaymentLine,
 } from "../repositories/index.js";
 import { debtLogger } from "../utils/logger.js";
 
@@ -36,6 +37,7 @@ export interface RepaymentData {
   note?: string;
   userId?: number;
   paidByMethod?: string;
+  payments?: RepaymentPaymentLine[];
 }
 
 // =============================================================================
@@ -88,27 +90,53 @@ export class DebtService {
    * Process a debt repayment
    */
   addRepayment(data: RepaymentData): RepaymentResult {
-    const { clientId, amountUSD, amountLBP, note, userId, paidByMethod } = data;
+    const {
+      clientId,
+      amountUSD,
+      amountLBP,
+      note,
+      userId,
+      paidByMethod,
+      payments,
+    } = data;
 
     // Validate
     if (!clientId) {
       return { success: false, error: "Client ID is required" };
     }
-    if (amountUSD <= 0 && amountLBP <= 0) {
+    // When multi-payment legs are provided, validate their total > 0
+    const hasLegs =
+      payments && payments.length > 0 && payments.some((p) => p.amount > 0);
+    if (!hasLegs && amountUSD <= 0 && amountLBP <= 0) {
       return {
         success: false,
         error: "Repayment amount must be greater than zero",
       };
     }
 
+    // Derive amountUSD / amountLBP from legs when not explicitly provided
+    const resolvedAmountUSD =
+      amountUSD > 0
+        ? amountUSD
+        : (payments
+            ?.filter((p) => p.currencyCode === "USD")
+            .reduce((s, p) => s + p.amount, 0) ?? 0);
+    const resolvedAmountLBP =
+      amountLBP > 0
+        ? amountLBP
+        : (payments
+            ?.filter((p) => p.currencyCode === "LBP")
+            .reduce((s, p) => s + p.amount, 0) ?? 0);
+
     try {
       const result = this.debtRepo.addRepayment({
         client_id: clientId,
-        amount_usd: amountUSD,
-        amount_lbp: amountLBP,
+        amount_usd: resolvedAmountUSD,
+        amount_lbp: resolvedAmountLBP,
         note: note || null,
         created_by: userId || null,
         paid_by_method: paidByMethod,
+        payments,
       });
 
       debtLogger.info(

@@ -25,13 +25,6 @@ jest.mock("../backendApi", () => ({
   getCurrenciesList: jest.fn(async () => []),
   getExchangeHistory: jest.fn(async () => []),
   addExchangeTransaction: jest.fn(async () => ({ success: true })),
-  getBinanceHistory: jest.fn(async () => []),
-  getBinanceTodayStats: jest.fn(async () => ({
-    totalSent: 0,
-    totalReceived: 0,
-    count: 0,
-  })),
-  addBinanceTransaction: jest.fn(async () => ({ success: true })),
   getTodayExpenses: jest.fn(async () => []),
   addExpense: jest.fn(async () => ({ success: true })),
   deleteExpense: jest.fn(async () => ({ success: true })),
@@ -135,19 +128,15 @@ describe("ElectronApiAdapter (via backendApiAdapter)", () => {
     expect(backendApi.getProducts).toHaveBeenCalledWith("");
   });
 
-  it("delegates addBinanceTransaction with typed payload", async () => {
-    const payload = {
-      type: "SEND" as const,
-      amount: 100,
-      currencyCode: "USDT",
+  it("delegates setRate with single object argument", async () => {
+    const data = {
+      to_code: "LBP",
+      market_rate: 89500,
+      delta: 0,
+      is_stronger: -1 as const,
     };
-    await backendApiAdapter.addBinanceTransaction(payload);
-    expect(backendApi.addBinanceTransaction).toHaveBeenCalledWith(payload);
-  });
-
-  it("delegates setRate with three arguments", async () => {
-    await backendApiAdapter.setRate("USD", "LBP", 89500);
-    expect(backendApi.setRate).toHaveBeenCalledWith("USD", "LBP", 89500);
+    await backendApiAdapter.setRate(data);
+    expect(backendApi.setRate).toHaveBeenCalledWith(data);
   });
 
   it("delegates createSupplier correctly", async () => {
@@ -190,9 +179,6 @@ describe("ElectronApiAdapter (via backendApiAdapter)", () => {
       "getCurrenciesList",
       "getExchangeHistory",
       "addExchangeTransaction",
-      "getBinanceHistory",
-      "getBinanceTodayStats",
-      "addBinanceTransaction",
       "getTodayExpenses",
       "addExpense",
       "deleteExpense",

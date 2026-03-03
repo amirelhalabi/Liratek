@@ -2,7 +2,8 @@
  * Exchange Service
  *
  * Business logic layer for currency exchange operations.
- * Uses ExchangeRepository for data access.
+ * Uses the universal CurrencyConverter (calculateExchange) for all calculations.
+ * USD is the base/pivot currency — all cross-currency exchanges route through USD.
  */
 
 import {
@@ -11,16 +12,29 @@ import {
   type ExchangeTransactionEntity,
   type CreateExchangeData,
 } from "../repositories/index.js";
+import { getRateRepository } from "../repositories/index.js";
+import { calculateExchange } from "../utils/currencyConverter.js";
 import { exchangeLogger } from "../utils/logger.js";
 
 // =============================================================================
 // Types
 // =============================================================================
 
-export interface ExchangeResult {
+export interface ExchangeOpResult {
   success: boolean;
   id?: number;
   error?: string;
+}
+
+/** @deprecated Use ExchangeOpResult */
+export type ExchangeResult = ExchangeOpResult;
+
+export interface AddExchangeInput {
+  fromCurrency: string;
+  toCurrency: string;
+  amountIn: number;
+  clientName?: string;
+  note?: string;
 }
 
 // =============================================================================
@@ -39,28 +53,67 @@ export class ExchangeService {
   // ---------------------------------------------------------------------------
 
   /**
-   * Add a new exchange transaction
+   * Add a new exchange transaction.
+   *
+   * Loads rates from DB, runs the universal calculator, then stores
+   * full leg breakdown (leg1/leg2 rates and profits).
    */
-  addTransaction(data: CreateExchangeData): ExchangeResult {
+  addTransaction(input: AddExchangeInput): ExchangeOpResult {
     try {
-      const result = this.exchangeRepo.createTransaction(data);
+      // 1. Load rates from DB
+      const rates = getRateRepository().findAllAsCurrencyRates();
+
+      // 2. Run the universal calculator (1 or 2 legs, any currency pair)
+      const result = calculateExchange(
+        input.fromCurrency,
+        input.toCurrency,
+        input.amountIn,
+        rates,
+      );
+
+      const leg1 = result.legs[0];
+      const leg2 = result.legs[1]; // undefined for direct exchanges
+
+      // 3. Build repository input with full leg data
+      const txData: CreateExchangeData = {
+        fromCurrency: input.fromCurrency,
+        toCurrency: input.toCurrency,
+        amountIn: input.amountIn,
+        amountOut: result.totalAmountOut,
+        leg1Rate: leg1.rate,
+        leg1MarketRate: leg1.marketRate,
+        leg1ProfitUsd: leg1.profitUsd,
+        leg2Rate: leg2?.rate,
+        leg2MarketRate: leg2?.marketRate,
+        leg2ProfitUsd: leg2?.profitUsd,
+        viaCurrency: result.viaCurrency ?? undefined,
+        totalProfitUsd: result.totalProfitUsd,
+        clientName: input.clientName,
+        note: input.note,
+      };
+
+      const { id } = this.exchangeRepo.createTransaction(txData);
 
       exchangeLogger.info(
         {
-          id: result.id,
-          fromCurrency: data.fromCurrency,
-          toCurrency: data.toCurrency,
-          amountIn: data.amountIn,
-          amountOut: data.amountOut,
-          rate: data.rate,
+          id,
+          fromCurrency: input.fromCurrency,
+          toCurrency: input.toCurrency,
+          amountIn: input.amountIn,
+          amountOut: result.totalAmountOut,
+          legs: result.legs.length,
+          viaCurrency: result.viaCurrency,
+          totalProfitUsd: result.totalProfitUsd,
         },
-        `${data.fromCurrency} -> ${data.toCurrency}: ${data.amountIn} -> ${data.amountOut} (Rate: ${data.rate})`,
+        `Exchange: ${input.amountIn} ${input.fromCurrency} → ${result.totalAmountOut} ${input.toCurrency}` +
+          (result.viaCurrency ? ` via ${result.viaCurrency}` : "") +
+          ` | Profit: $${result.totalProfitUsd.toFixed(4)}`,
       );
 
-      return { success: true, id: result.id };
+      return { success: true, id };
     } catch (error) {
       exchangeLogger.error(
-        { error, data },
+        { error, input },
         "Failed to add exchange transaction",
       );
       return {

@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, ChevronDown, Plus, Save, Trash2, X } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  Plus,
+  Save,
+  Trash2,
+  TrendingUp,
+  X,
+} from "lucide-react";
 import { useApi } from "@liratek/ui";
+import { calculateProfitSpread } from "../../../../utils/currencyUtils";
 
 interface CurrencyRow {
   id: number;
@@ -161,125 +170,147 @@ function ExchangeRatesSection() {
   const [rates, setRates] = useState<
     Array<{
       id: number;
-      from_code: string;
       to_code: string;
-      rate: number;
+      market_rate: number;
+      delta: number;
+      is_stronger: 1 | -1;
       updated_at: string;
     }>
   >([]);
-  const [currencies, setCurrencies] = useState<string[]>([]);
-  const [from, setFrom] = useState("USD");
-  const [to, setTo] = useState("LBP");
-  const [rate, setRate] = useState("");
   const [loading, setLoading] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [rows, currencyRows] = await Promise.all([
-        api.getRates(),
-        api.getCurrencies(),
-      ]);
+      const rows = await api.getRates();
       setRates(Array.isArray(rows) ? rows : []);
-      setCurrencies(
-        (currencyRows as Array<{ code: string; is_active: number }>)
-          .filter((c) => c.is_active)
-          .map((c) => c.code),
-      );
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [api]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  const save = async () => {
-    if (!from || !to || !rate) return;
-    const r = parseFloat(rate);
-    if (!r || r <= 0) return alert("Invalid rate");
-    const res = await api.setRate(from, to, r);
-    if (!res.success) return alert(res.error);
-    setRate("");
-    load();
-  };
+  const lbpSpread = calculateProfitSpread(rates as any, "LBP");
+  const eurSpread = calculateProfitSpread(rates as any, "EUR");
 
   return (
     <div className="space-y-3">
       <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">
         Exchange Rates
       </h3>
-      <div className="flex items-center gap-2 flex-wrap">
-        <select
-          value={from}
-          onChange={(e) => {
-            setFrom(e.target.value);
-            if (e.target.value === to) {
-              const alt = currencies.find((c) => c !== e.target.value);
-              if (alt) setTo(alt);
-            }
-          }}
-          className="bg-slate-800/50 border border-slate-600 rounded-lg px-3 py-2 text-white w-24 text-sm"
-        >
-          {currencies.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </select>
-        <span className="text-slate-500">→</span>
-        <select
-          value={to}
-          onChange={(e) => setTo(e.target.value)}
-          className="bg-slate-800/50 border border-slate-600 rounded-lg px-3 py-2 text-white w-24 text-sm"
-        >
-          {currencies
-            .filter((c) => c !== from)
-            .map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-        </select>
-        <input
-          value={rate}
-          onChange={(e) => setRate(e.target.value)}
-          placeholder="Rate"
-          type="number"
-          className="bg-slate-800/50 border border-slate-600 rounded-lg px-3 py-2 text-white w-32 text-sm"
-        />
-        <button
-          onClick={save}
-          className="px-3 py-2 bg-violet-600 hover:bg-violet-500 rounded-lg text-white text-sm transition-colors"
-        >
-          Set Rate
-        </button>
+
+      {/* Spread Display */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {lbpSpread !== null && (
+          <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
+            <div className="flex items-center gap-3">
+              <TrendingUp className="w-4 h-4 text-emerald-400" />
+              <div>
+                <h4 className="text-xs font-semibold text-emerald-400">
+                  USD/LBP Profit Spread
+                </h4>
+                <p className="text-lg font-bold text-white mt-0.5">
+                  {lbpSpread.toLocaleString()} LBP
+                </p>
+                <p className="text-xs text-emerald-300/70">
+                  Per 1 USD exchanged (2 × delta)
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+        {eurSpread !== null && (
+          <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
+            <div className="flex items-center gap-3">
+              <TrendingUp className="w-4 h-4 text-emerald-400" />
+              <div>
+                <h4 className="text-xs font-semibold text-emerald-400">
+                  USD/EUR Profit Spread
+                </h4>
+                <p className="text-lg font-bold text-white mt-0.5">
+                  ${eurSpread.toFixed(2)} USD
+                </p>
+                <p className="text-xs text-emerald-300/70">
+                  Per 1 EUR exchanged (2 × delta)
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
+      {/* Rate List */}
       {loading ? (
         <p className="text-slate-500 text-sm">Loading rates...</p>
       ) : rates.length === 0 ? (
         <p className="text-slate-500 text-sm">
-          No exchange rates set. Add one above.
+          No exchange rates set. Go to the Rates tab to add rates.
         </p>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-          {rates.map((r) => (
-            <div
-              key={r.id}
-              className="flex items-center justify-between rounded-lg border border-slate-700 bg-slate-800/30 px-3 py-2"
-            >
-              <span className="text-sm font-mono text-white">
-                {r.from_code} → {r.to_code}
-              </span>
-              <span className="text-sm font-semibold text-emerald-400 tabular-nums">
-                {Number(r.rate).toLocaleString()}
-              </span>
-            </div>
-          ))}
+        <div className="space-y-2">
+          {rates.map((r) => {
+            const buyRate = r.market_rate + r.is_stronger * r.delta;
+            const sellRate = r.market_rate + r.is_stronger * (-1 * r.delta);
+            const isStrong = r.is_stronger === -1;
+            const fmt = (v: number) =>
+              isStrong
+                ? v.toFixed(4) + " USD"
+                : v.toLocaleString(undefined, { maximumFractionDigits: 0 }) +
+                  " LBP";
+
+            return (
+              <div
+                key={r.id}
+                className="rounded-lg border border-slate-700 bg-slate-800/30 px-3 py-2"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-sm font-bold text-white font-mono">
+                      {r.to_code}
+                    </span>
+                    <span className="text-xs text-slate-500 ml-2">
+                      {isStrong
+                        ? `1 ${r.to_code} = X USD`
+                        : `1 USD = X ${r.to_code}`}
+                    </span>
+                  </div>
+                  <span className="text-xs text-slate-500">
+                    Updated: {new Date(r.updated_at).toLocaleDateString()}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-2 mt-2 text-xs">
+                  <div className="text-center">
+                    <div className="text-slate-400">We Pay</div>
+                    <div className="font-mono text-emerald-400 font-bold">
+                      {fmt(buyRate)}
+                    </div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-slate-400">Market</div>
+                    <div className="font-mono text-white font-bold">
+                      {fmt(r.market_rate)}
+                    </div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-slate-400">Customer Pays</div>
+                    <div className="font-mono text-red-400 font-bold">
+                      {fmt(sellRate)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
+
+      <p className="text-xs text-slate-500">
+        ℹ️ To add or edit exchange rates, go to the{" "}
+        <strong className="text-slate-400">Rates</strong> tab in Settings.
+      </p>
     </div>
   );
 }
