@@ -4,7 +4,7 @@
   "description": "Point of Sale system for Lebanese phone shops with multi-currency support",
   "author": "Amir <amir@liratek.com>",
   "private": true,
-  "version": "1.15.7",
+  "version": "1.15.8",
   "type": "module",
   "main": "dist-electron/main.js",
   "workspaces": [
@@ -24,7 +24,7 @@
     "build": "npm run build:core && npm run build:frontend && npm run electron:build && npm run build:stage",
     "build:core": "cd packages/core && npm run build",
     "build:frontend": "cd frontend && npm run build",
-    "build:stage": "node -e \"const fs=require('fs');fs.cpSync('frontend/dist','dist',{recursive:true});fs.cpSync('electron-app/dist','dist-electron',{recursive:true});\"",
+    "build:stage": "node scripts/build-stage.cjs",
     "build:backend": "cd backend && npm run build",
     "test": "npm run test:frontend && npm run test:backend",
     "test:frontend": "cd frontend && npm test",
