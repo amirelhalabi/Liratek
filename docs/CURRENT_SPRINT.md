@@ -6,6 +6,24 @@
 
 ---
 
+## ✅ Done This Sprint (March 3, 2026 — CI/CD session)
+
+### Multi-Platform CI/CD Pipeline
+
+| Change                                 | Details                                                                                                                                                                                            |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Multi-platform workflow**            | Expanded `build.yml` from Windows-only to 5-job pipeline: `test → create-draft → [build-windows, build-mac-arm, build-mac-intel] → publish-release`                                                |
+| **Draft release pattern**              | `create-draft` job pre-creates a draft GitHub Release before any build job runs. Eliminates race condition where parallel builds tried to create the same release simultaneously                   |
+| **macOS ARM build**                    | `build-mac-arm` runs on `macos-15` (Apple Silicon runner), builds natively via `yarn ci:build:mac:arm`                                                                                             |
+| **macOS Intel build**                  | `build-mac-intel` runs on `macos-15`, cross-compiles for x64 via `yarn ci:build:mac:intel` (`electron-builder --mac --x64`)                                                                        |
+| **No artifact upload/download**        | electron-builder publishes directly to GitHub Release via `GH_TOKEN`. Bypasses `actions/upload-artifact` quota entirely. Each platform's channel file is separate (`latest.yml`, `latest-mac.yml`) |
+| **Publish release job**                | Final `publish-release` job undrafts the release after all 3 build jobs succeed                                                                                                                    |
+| **Tag handling for workflow_dispatch** | `create-draft` auto-determines tag from git ref or `package.json` version, targets `github.sha` for correct commit association                                                                     |
+| **Deleted stale v1.15.5 release**      | Removed entire v1.15.5 release and tag (contained stale macOS artifacts from pre-icon-fix builds)                                                                                                  |
+| **Version bump to 1.15.6**             | Fresh version for the new multi-platform release                                                                                                                                                   |
+
+---
+
 ## ✅ Done This Sprint (March 3, 2026 — late session)
 
 ### DataTable & UX Polish

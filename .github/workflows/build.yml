@@ -27,9 +27,51 @@ jobs:
       - name: Run tests
         run: yarn test
 
+  # Pre-create a draft release so all build jobs can upload to it
+  # without race conditions (electron-builder finds the existing draft)
+  create-draft:
+    name: Create Draft Release
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine tag
+        id: tag
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          else
+            VERSION="${{ github.event.inputs.version }}"
+            if [ -z "$VERSION" ]; then
+              VERSION=$(node -p "require('./package.json').version")
+            fi
+            echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          # Check if release already exists
+          if gh release view "$TAG" &>/dev/null; then
+            echo "Release $TAG already exists, ensuring it is a draft"
+            gh release edit "$TAG" --draft
+          else
+            echo "Creating draft release $TAG"
+            gh release create "$TAG" \
+              --draft \
+              --title "LiraTek $TAG" \
+              --generate-notes \
+              --target "${{ github.sha }}"
+          fi
+
   build-windows:
     name: Build Windows
-    needs: test
+    needs: create-draft
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -44,3 +86,54 @@ jobs:
         run: yarn ci:build:win
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-mac-arm:
+    name: Build macOS ARM
+    needs: create-draft
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          install: "true"
+
+      - name: Build application
+        run: yarn build
+
+      - name: Build & Publish macOS ARM
+        run: yarn ci:build:mac:arm
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-mac-intel:
+    name: Build macOS Intel
+    needs: create-draft
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          install: "true"
+
+      - name: Build application
+        run: yarn build
+
+      - name: Build & Publish macOS Intel
+        run: yarn ci:build:mac:intel
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-release:
+    name: Publish Release
+    needs: [create-draft, build-windows, build-mac-arm, build-mac-intel]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Undraft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ needs.create-draft.outputs.tag }}"
+          echo "Publishing release $TAG"
+          gh release edit "$TAG" --draft=false

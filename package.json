@@ -4,7 +4,7 @@
   "description": "Point of Sale system for Lebanese phone shops with multi-currency support",
   "author": "Amir <amir@liratek.com>",
   "private": true,
-  "version": "1.15.5",
+  "version": "1.15.6",
   "type": "module",
   "main": "dist-electron/main.js",
   "workspaces": [
