@@ -1,8 +1,24 @@
 # Current Sprint — March 2026
 
-> **Last Updated**: 2026-03-03  
+> **Last Updated**: 2026-03-04  
 > **Sprint Start**: 2026-03-01  
-> **Focus**: Setup Wizard, Module-Linked UI, UX Polish
+> **Focus**: Setup Wizard, Module-Linked UI, UX Polish, CI/CD + Packaging
+
+---
+
+## ✅ Done This Sprint (March 4, 2026 — Packaging Fixes)
+
+### Electron Packaging — Production Path Resolution
+
+| Change                                   | Details                                                                                                                                                                                                                                |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`loadFile` path fix**                  | `mainWindow.loadFile()` now uses `app.isPackaged` to resolve correct path: `../dist/index.html` in asar vs `../../frontend/dist/index.html` in dev. Previously always used dev path, causing packaged app to show blank/fail to launch |
+| **`create_db.sql` path fix**             | `initializeDatabase()` uses `app.isPackaged` to find schema file: same directory in asar (`dist-electron/create_db.sql`) vs `../create_db.sql` in dev                                                                                  |
+| **`create_db.sql` staging**              | `build-stage.cjs` now copies `electron-app/create_db.sql` into `dist-electron/` so it's included in the asar archive for fresh installs                                                                                                |
+| **`@liratek/core` in root deps**         | Added `"@liratek/core": "workspace:*"` to root `package.json` dependencies so electron-builder includes it in asar (was only in `electron-app/package.json`)                                                                           |
+| **`@liratek/core` symlink → real copy**  | `build-stage.cjs` replaces the workspace symlink with a real copy of `package.json` + `dist/` before packaging — electron-builder cannot follow symlinks into asar                                                                     |
+| **Local launch test passed (macOS ARM)** | Unpacked app starts fully: DB init, migrations, all 27 IPC handler files registered, frontend loads correctly                                                                                                                          |
+| **Version bump to 1.16.0**               | Fresh build with all path fixes included — v1.15.9 was built without these fixes due to uncommitted changes                                                                                                                            |
 
 ---
 
