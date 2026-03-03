@@ -5,6 +5,7 @@
 The Recharge module handles MTC (Touch) and Alfa mobile credit transfers, vouchers, and days validity top-ups. Credit balances for MTC and Alfa are tracked via **drawer balances** — not as inventory products.
 
 **Recent changes (T-46, Feb 18 2026):**
+
 - Voucher images per recharge item
 - Full payment methods (CASH, OMT, WHISH, BINANCE, DEBT)
 - Per-item cost tracking with auto-save
@@ -49,13 +50,13 @@ When a customer requests a credit transfer:
 
 All recharge transactions support these payment methods:
 
-| Method   | Drawer Effect                         |
-| -------- | ------------------------------------- |
-| `CASH`   | General drawer increases              |
-| `OMT`    | OMT_System drawer increases           |
-| `WHISH`  | Whish_System drawer increases         |
-| `BINANCE`| Binance drawer increases              |
-| `DEBT`   | No drawer effect; debt ledger updated |
+| Method    | Drawer Effect                         |
+| --------- | ------------------------------------- |
+| `CASH`    | General drawer increases              |
+| `OMT`     | OMT_System drawer increases           |
+| `WHISH`   | Whish_System drawer increases         |
+| `BINANCE` | Binance drawer increases              |
+| `DEBT`    | No drawer effect; debt ledger updated |
 
 ### Balance Display
 
@@ -85,25 +86,25 @@ Recharge items (providers, categories, denominations) are defined in `frontend/s
 
 ### Files
 
-| Layer        | File                                                              | Purpose                                                                              |
-| ------------ | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| Repository   | `packages/core/src/repositories/RechargeRepository.ts`            | `getVirtualStock()`, `processRecharge()`, `topUp()`                                  |
-| Service      | `packages/core/src/services/RechargeService.ts`                   | Business logic wrapper                                                               |
-| Item Costs   | `packages/core/src/repositories/ItemCostRepository.ts`            | Per-item cost CRUD                                                                   |
-| Item Costs   | `packages/core/src/services/ItemCostService.ts`                   | Cost management service                                                              |
-| Voucher Imgs | `packages/core/src/repositories/VoucherImageRepository.ts`        | Voucher image CRUD                                                                   |
-| Voucher Imgs | `packages/core/src/services/VoucherImageService.ts`               | Image management service                                                             |
-| IPC          | `electron-app/handlers/rechargeHandlers.ts`                       | `recharge:get-stock`, `recharge:process`, `recharge:top-up`                          |
-| IPC          | `electron-app/handlers/itemCostHandlers.ts`                       | `item-costs:get-all`, `item-costs:set`                                               |
-| IPC          | `electron-app/handlers/voucherImageHandlers.ts`                   | `voucher-images:get-all`, `voucher-images:set`, `voucher-images:delete`              |
-| Preload      | `electron-app/preload.ts`                                         | `recharge.*`, `itemCosts.*`, `voucherImages.*`                                       |
-| Backend API  | `backend/src/api/recharge.ts`                                     | `GET /api/recharge/stock`, `POST /api/recharge/process`, `POST /api/recharge/top-up` |
-| Backend API  | `backend/src/api/item-costs.ts`                                   | `GET /api/item-costs`, `POST /api/item-costs`                                        |
-| Backend API  | `backend/src/api/voucher-images.ts`                               | `GET /api/voucher-images`, `POST /api/voucher-images`, `DELETE /api/voucher-images/:id` |
-| Data         | `frontend/src/data/mobileServices.ts`                             | Provider/category/item definitions                                                   |
-| Hook         | `frontend/src/features/recharge/hooks/useMobileServiceItems.ts`   | Loads items + costs + images                                                         |
-| Frontend API | `frontend/src/api/backendApi.ts`                                  | `getRechargeStock()`, `processRecharge()`, `topUpRecharge()`, item cost/image APIs   |
-| UI           | `frontend/src/features/recharge/pages/Recharge/index.tsx`         | Recharge form + Top-Up panel                                                         |
+| Layer        | File                                                            | Purpose                                                                                 |
+| ------------ | --------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Repository   | `packages/core/src/repositories/RechargeRepository.ts`          | `getVirtualStock()`, `processRecharge()`, `topUp()`                                     |
+| Service      | `packages/core/src/services/RechargeService.ts`                 | Business logic wrapper                                                                  |
+| Item Costs   | `packages/core/src/repositories/ItemCostRepository.ts`          | Per-item cost CRUD                                                                      |
+| Item Costs   | `packages/core/src/services/ItemCostService.ts`                 | Cost management service                                                                 |
+| Voucher Imgs | `packages/core/src/repositories/VoucherImageRepository.ts`      | Voucher image CRUD                                                                      |
+| Voucher Imgs | `packages/core/src/services/VoucherImageService.ts`             | Image management service                                                                |
+| IPC          | `electron-app/handlers/rechargeHandlers.ts`                     | `recharge:get-stock`, `recharge:process`, `recharge:top-up`                             |
+| IPC          | `electron-app/handlers/itemCostHandlers.ts`                     | `item-costs:get-all`, `item-costs:set`                                                  |
+| IPC          | `electron-app/handlers/voucherImageHandlers.ts`                 | `voucher-images:get-all`, `voucher-images:set`, `voucher-images:delete`                 |
+| Preload      | `electron-app/preload.ts`                                       | `recharge.*`, `itemCosts.*`, `voucherImages.*`                                          |
+| Backend API  | `backend/src/api/recharge.ts`                                   | `GET /api/recharge/stock`, `POST /api/recharge/process`, `POST /api/recharge/top-up`    |
+| Backend API  | `backend/src/api/item-costs.ts`                                 | `GET /api/item-costs`, `POST /api/item-costs`                                           |
+| Backend API  | `backend/src/api/voucher-images.ts`                             | `GET /api/voucher-images`, `POST /api/voucher-images`, `DELETE /api/voucher-images/:id` |
+| Data         | `frontend/src/data/mobileServices.ts`                           | Provider/category/item definitions                                                      |
+| Hook         | `frontend/src/features/recharge/hooks/useMobileServiceItems.ts` | Loads items + costs + images                                                            |
+| Frontend API | `frontend/src/api/backendApi.ts`                                | `getRechargeStock()`, `processRecharge()`, `topUpRecharge()`, item cost/image APIs      |
+| UI           | `frontend/src/features/recharge/pages/Recharge/index.tsx`       | Recharge form + Top-Up panel                                                            |
 
 ### Data Flow
 

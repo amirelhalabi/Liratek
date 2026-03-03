@@ -3,6 +3,13 @@ import logger from "../../../../../utils/logger";
 import { Search, ShoppingCart } from "lucide-react";
 import type { Product } from "@liratek/ui";
 import { useApi } from "@liratek/ui";
+import { DataTable } from "@/shared/components/DataTable";
+
+const PAGE_SIZE = 20;
+
+function getPosShowImages(): boolean {
+  return localStorage.getItem("pos_show_images") !== "false";
+}
 
 interface ProductSearchProps {
   onAddToCart: (product: Product) => void;
@@ -13,6 +20,14 @@ export default function ProductSearch({ onAddToCart }: ProductSearchProps) {
   const [search, setSearch] = useState("");
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(false);
+  const [showImages, setShowImages] = useState(getPosShowImages);
+
+  // Listen for setting changes from ShopConfig
+  useEffect(() => {
+    const handler = () => setShowImages(getPosShowImages());
+    window.addEventListener("pos-display-changed", handler);
+    return () => window.removeEventListener("pos-display-changed", handler);
+  }, []);
 
   const loadProducts = useCallback(async () => {
     setLoading(true);
@@ -37,7 +52,7 @@ export default function ProductSearch({ onAddToCart }: ProductSearchProps) {
       loadProducts();
     }, 300);
     return () => clearTimeout(timer);
-  }, [search, loadProducts]);
+  }, [search]);
 
   return (
     <div className="flex flex-col h-full bg-slate-900/50 rounded-2xl border border-slate-700/50 overflow-hidden">
@@ -66,7 +81,8 @@ export default function ProductSearch({ onAddToCart }: ProductSearchProps) {
             <ShoppingCart size={48} className="mb-4 opacity-50" />
             <p>No products found</p>
           </div>
-        ) : (
+        ) : showImages ? (
+          /* ── Image Grid View ── */
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {products.map((product) => (
               <button
@@ -74,23 +90,21 @@ export default function ProductSearch({ onAddToCart }: ProductSearchProps) {
                 onClick={() => onAddToCart(product)}
                 className="group relative flex flex-col items-start p-4 bg-slate-800 border border-slate-700 rounded-xl hover:border-violet-500 hover:bg-slate-750 transition-all text-left"
               >
-                {/* Stock Badge - Always visible on top-left */}
+                {/* Stock Badge */}
                 <div className="absolute top-2 left-2 z-10">
                   <span
-                    className={`text-xs px-2 py-1 rounded-full font-medium ${product.stock_quantity > 0 ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"}`}
+                    className={`text-xs px-2 py-1 rounded-full font-medium ${(product.stock_quantity ?? 0) > 0 ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"}`}
                   >
-                    {product.stock_quantity} left
+                    {product.stock_quantity ?? 0} left
                   </span>
                 </div>
-
-                {/* Add Button - Shows on hover */}
+                {/* Add Button on hover */}
                 <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
                   <div className="bg-violet-600 text-white text-xs px-2 py-1 rounded-full">
                     Add
                   </div>
                 </div>
-
-                {/* Placeholder Image Area */}
+                {/* Image */}
                 <div className="w-full aspect-square bg-slate-700/50 rounded-lg mb-3 flex items-center justify-center overflow-hidden">
                   {product.image_url ? (
                     <img
@@ -102,23 +116,96 @@ export default function ProductSearch({ onAddToCart }: ProductSearchProps) {
                     <ShoppingCart className="text-slate-600" size={24} />
                   )}
                 </div>
-
                 <h3 className="font-semibold text-slate-200 line-clamp-2 mb-1">
                   {product.name}
                 </h3>
                 <div className="text-xs text-slate-500 mb-2">
                   {product.category}
                 </div>
-
-                {/* Price - Now has full width */}
                 <div className="mt-auto w-full">
                   <span className="text-violet-400 font-bold text-lg">
-                    ${product.retail_price.toFixed(2)}
+                    ${(product.retail_price ?? 0).toFixed(2)}
                   </span>
                 </div>
               </button>
             ))}
           </div>
+        ) : (
+          /* ── Table View — shared DataTable with TanStack sort + pagination ── */
+          <DataTable<Product>
+            columns={[
+              {
+                header: "Product",
+                sortKey: "name",
+                className:
+                  "px-3 py-2 text-left text-xs font-semibold uppercase text-slate-400",
+              },
+              {
+                header: "Category",
+                sortKey: "category",
+                className:
+                  "px-3 py-2 text-left text-xs font-semibold uppercase text-slate-400",
+                width: "130px",
+              },
+              {
+                header: "Stock",
+                sortKey: "stock_quantity",
+                className:
+                  "px-3 py-2 text-right text-xs font-semibold uppercase text-slate-400",
+                width: "70px",
+              },
+              {
+                header: "Price",
+                sortKey: "retail_price",
+                className:
+                  "px-3 py-2 text-right text-xs font-semibold uppercase text-slate-400",
+                width: "80px",
+              },
+            ]}
+            data={products}
+            paginate
+            pageSize={PAGE_SIZE}
+            pageLabel="products"
+            defaultSortKey="name"
+            className="w-full text-sm"
+            theadClassName="border-b border-slate-700"
+            tbodyClassName="divide-y divide-slate-700/50"
+            renderRow={(product) => (
+              <tr
+                key={product.id}
+                onClick={() => onAddToCart(product)}
+                className="hover:bg-slate-700/50 cursor-pointer transition-colors group"
+              >
+                <td className="px-3 py-2.5">
+                  <div className="font-medium text-slate-200 group-hover:text-white">
+                    {product.name}
+                  </div>
+                  {product.barcode && (
+                    <div className="text-xs text-slate-600 font-mono">
+                      {product.barcode}
+                    </div>
+                  )}
+                </td>
+                <td className="px-3 py-2.5">
+                  <span className="text-xs text-slate-400 bg-slate-700/50 px-2 py-0.5 rounded">
+                    {product.category}
+                  </span>
+                </td>
+                <td className="px-3 py-2.5 text-right">
+                  <span
+                    className={`text-xs font-medium ${(product.stock_quantity ?? 0) > 0 ? "text-emerald-400" : "text-red-400"}`}
+                  >
+                    {product.stock_quantity ?? 0}
+                  </span>
+                </td>
+                <td className="px-3 py-2.5 text-right">
+                  <span className="text-violet-400 font-bold">
+                    ${(product.retail_price ?? 0).toFixed(2)}
+                  </span>
+                </td>
+              </tr>
+            )}
+          />
         )}
       </div>
     </div>

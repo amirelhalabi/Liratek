@@ -172,16 +172,44 @@ export class InventoryService {
   /**
    * Update an existing product
    */
+  batchUpdateProducts(
+    ids: number[],
+    data: {
+      category?: string;
+      min_stock_level?: number;
+      supplier?: string | null;
+    },
+  ): { success: boolean; updated: number; error?: string } {
+    if (!ids || ids.length === 0) {
+      return { success: false, updated: 0, error: "No products selected" };
+    }
+    const hasField =
+      data.category !== undefined ||
+      data.min_stock_level !== undefined ||
+      data.supplier !== undefined;
+    if (!hasField) {
+      return { success: false, updated: 0, error: "No fields to update" };
+    }
+    try {
+      const updated = this.productRepo.batchUpdateProducts(ids, data);
+      return { success: true, updated };
+    } catch (err) {
+      return { success: false, updated: 0, error: String(err) };
+    }
+  }
+
   updateProduct(
     id: number,
     data: UpdateProductData & {
       barcode: string;
       name: string;
       category: string;
+      category_id?: number | null;
       cost_price: number;
       retail_price: number;
       min_stock_level: number;
       image_url?: string | null;
+      supplier?: string | null;
     },
   ): ProductResult {
     if (!id) {
@@ -211,10 +239,12 @@ export class InventoryService {
         barcode: data.barcode,
         name: data.name,
         category: data.category,
+        category_id: data.category_id ?? null,
         cost_price: data.cost_price,
         retail_price: data.retail_price,
         min_stock_level: data.min_stock_level,
         ...(data.image_url != null ? { image_url: data.image_url } : {}),
+        supplier: data.supplier ?? null,
       });
       return { success: true };
     } catch (error) {

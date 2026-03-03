@@ -35,6 +35,30 @@ export function isDrawerAffectingMethod(method: string): boolean {
   return method !== "DEBT";
 }
 
+/**
+ * Returns true if the method is a wallet/non-cash drawer-affecting method.
+ *
+ * Used to gate payment-method-fee logic and to decide whether the RESERVE
+ * entry for an OMT/WHISH SEND should come from General (cash) or from the
+ * payment method's own drawer (wallet).
+ *
+ * - CASH  → false (cash goes through General)
+ * - DEBT  → false (no drawer at all)
+ * - OMT / WHISH / BINANCE / any wallet → true
+ */
+export function isNonCashDrawerMethod(method: string): boolean {
+  if (method === "DEBT") return false;
+  try {
+    const repo = getPaymentMethodRepository();
+    const pm = repo.getByCode(method);
+    if (pm) return pm.affects_drawer === 1 && pm.drawer_name !== "General";
+  } catch {
+    // DB not available — fall through to hardcoded list
+  }
+  // Fallback: anything that is not CASH/DEBT and not General-routed
+  return method !== "CASH" && method !== "DEBT";
+}
+
 export function paymentMethodToDrawerName(method: string): string {
   try {
     const repo = getPaymentMethodRepository();

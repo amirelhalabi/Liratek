@@ -1,10 +1,9 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { Select, useApi } from "@liratek/ui";
-import { ExportBar } from "@/shared/components/ExportBar";
+import { DataTable } from "@/shared/components/DataTable";
 
 export default function UsersManager() {
   const api = useApi();
-  const tableRef = useRef<HTMLTableElement>(null);
   const [list, setList] = useState<
     Array<{
       id: number;
@@ -113,66 +112,47 @@ export default function UsersManager() {
       </div>
 
       <div className="border border-slate-700 rounded-lg overflow-hidden">
-        <ExportBar
+        <DataTable
+          columns={[
+            "Username",
+            "Role",
+            "Active",
+            { header: "Actions", className: "p-2 text-right" },
+          ]}
+          data={list}
+          loading={loading}
+          emptyMessage="No users"
           exportExcel
           exportPdf
           exportFilename="users"
-          tableRef={tableRef}
-          rowCount={list.length}
-        />
-        <table ref={tableRef} className="w-full text-left">
-          <thead className="bg-slate-900 text-slate-400 text-xs uppercase">
-            <tr>
-              <th className="p-2">Username</th>
-              <th className="p-2">Role</th>
-              <th className="p-2">Active</th>
-              <th className="p-2 text-right">Actions</th>
+          renderRow={(u) => (
+            <tr key={u.id} className="border-t border-slate-800">
+              <td className="p-2">{u.username}</td>
+              <td className="p-2">{u.role}</td>
+              <td className="p-2">{u.is_active ? "Yes" : "No"}</td>
+              <td className="p-2 text-right space-x-2">
+                <button
+                  onClick={() => toggleActive(u.id, u.is_active)}
+                  className="text-xs px-2 py-1 bg-slate-700 rounded"
+                >
+                  {u.is_active ? "Deactivate" : "Activate"}
+                </button>
+                <button
+                  onClick={() => changeRole(u.id, u.role)}
+                  className="text-xs px-2 py-1 bg-violet-600 rounded text-white"
+                >
+                  Make {u.role === "admin" ? "Staff" : "Admin"}
+                </button>
+                <button
+                  onClick={() => setPassword(u.id)}
+                  className="text-xs px-2 py-1 bg-slate-600 rounded text-white"
+                >
+                  Set Password
+                </button>
+              </td>
             </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr>
-                <td colSpan={4} className="p-3 text-slate-500">
-                  Loading...
-                </td>
-              </tr>
-            ) : list.length === 0 ? (
-              <tr>
-                <td colSpan={4} className="p-3 text-slate-500">
-                  No users
-                </td>
-              </tr>
-            ) : (
-              list.map((u) => (
-                <tr key={u.id} className="border-t border-slate-800">
-                  <td className="p-2">{u.username}</td>
-                  <td className="p-2">{u.role}</td>
-                  <td className="p-2">{u.is_active ? "Yes" : "No"}</td>
-                  <td className="p-2 text-right space-x-2">
-                    <button
-                      onClick={() => toggleActive(u.id, u.is_active)}
-                      className="text-xs px-2 py-1 bg-slate-700 rounded"
-                    >
-                      {u.is_active ? "Deactivate" : "Activate"}
-                    </button>
-                    <button
-                      onClick={() => changeRole(u.id, u.role)}
-                      className="text-xs px-2 py-1 bg-violet-600 rounded text-white"
-                    >
-                      Make {u.role === "admin" ? "Staff" : "Admin"}
-                    </button>
-                    <button
-                      onClick={() => setPassword(u.id)}
-                      className="text-xs px-2 py-1 bg-slate-600 rounded text-white"
-                    >
-                      Set Password
-                    </button>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+          )}
+        />
       </div>
     </div>
   );

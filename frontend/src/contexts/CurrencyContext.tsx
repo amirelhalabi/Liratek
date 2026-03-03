@@ -31,7 +31,10 @@ interface CurrencyContextType {
   refresh: () => Promise<void>;
   getSymbol: (code: string) => string;
   getDecimals: (code: string) => number;
-  formatAmount: (amount: number, currencyCode: string) => string;
+  formatAmount: (
+    amount: number | null | undefined,
+    currencyCode: string,
+  ) => string;
   getCurrenciesForModule: (moduleKey: string) => Promise<CurrencyInfo[]>;
   getCurrenciesForDrawer: (drawerName: string) => Promise<CurrencyInfo[]>;
 }
@@ -84,10 +87,13 @@ export const CurrencyProvider: React.FC<{ children: React.ReactNode }> = ({
   );
 
   const formatAmount = useCallback(
-    (amount: number, currencyCode: string): string => {
+    (amount: number | null | undefined, currencyCode: string): string => {
+      // Guard: null/undefined/NaN amounts (can come from DB aggregates with no rows)
+      const safe = Number(amount ?? 0);
+      const safeAmt = isNaN(safe) ? 0 : safe;
       const decimals = getDecimals(currencyCode);
       const sym = getSymbol(currencyCode);
-      const formatted = amount.toFixed(decimals);
+      const formatted = safeAmt.toFixed(decimals);
       // Prefix-style for $, €, £; suffix-style for LBP, USDT, etc.
       if (["$", "€", "£"].includes(sym)) return `${sym}${formatted}`;
       return `${formatted} ${sym}`;

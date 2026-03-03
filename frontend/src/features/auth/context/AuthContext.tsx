@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect } from "react";
 import logger from "../../../utils/logger";
 import type { ReactNode } from "react";
-import { appEvents, useApi } from "@liratek/ui";
+import { useApi } from "@liratek/ui";
 
 interface User {
   id: number;
@@ -13,6 +13,7 @@ interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  isSetupRequired: boolean;
   login: (
     username: string,
     password: string,
@@ -21,6 +22,7 @@ interface AuthContextType {
   logout: () => Promise<void>;
   needsOpening: boolean;
   clearOpeningFlag: () => void;
+  clearSetupRequired: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -29,6 +31,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const api = useApi();
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSetupRequired, setIsSetupRequired] = useState(false);
   const [needsOpening, setNeedsOpening] = useState(false);
   const [sessionToken, setSessionToken] = useState<string | null>(null);
 
@@ -38,6 +41,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     async function loadUser() {
       try {
+        // Check if setup wizard needs to run (Electron only)
+        if (window.api) {
+          try {
+            const setupCheck = await window.api.setup.isRequired();
+            if (setupCheck?.isRequired) {
+              setIsSetupRequired(true);
+              setIsLoading(false);
+              return;
+            }
+          } catch {
+            // Not available (web mode) — skip
+          }
+        }
+
         // Try to restore from encrypted session first
         if (window.api) {
           // Try to get stored session token from localStorage
@@ -112,7 +129,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // Don't block login on this error
         }
 
-        appEvents.emit("openOpeningModal");
         return { success: true };
       }
       return { success: false, error: result.error || "Login failed" };
@@ -138,16 +154,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setNeedsOpening(false);
   };
 
+  const clearSetupRequired = () => {
+    setIsSetupRequired(false);
+  };
+
   return (
     <AuthContext.Provider
       value={{
         user,
         isAuthenticated: !!user,
         isLoading,
+        isSetupRequired,
         login,
         logout,
         needsOpening,
         clearOpeningFlag,
+        clearSetupRequired,
       }}
     >
       {children}

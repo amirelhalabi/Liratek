@@ -419,17 +419,61 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
       | { total_expenses_usd: number; total_expenses_lbp: number }
       | undefined;
 
-    // Profit
-    const profitStats = this.db
+    // Profit — aggregate across all revenue modules
+    const salesProfit = this.db
       .prepare(
         `SELECT
-          SUM(si.sold_price_usd - si.cost_price_snapshot_usd) as total_profit_usd
+          COALESCE(SUM(si.sold_price_usd - si.cost_price_snapshot_usd), 0) as profit_usd
          FROM sales s
          JOIN sale_items si ON s.id = si.sale_id
          WHERE DATE(s.created_at) = ? AND s.status = 'completed'
-           AND (s.paid_usd + (s.paid_lbp / s.exchange_rate_snapshot)) >= s.final_amount_usd`,
+           AND si.is_refunded = 0
+           AND (s.paid_usd + COALESCE(s.paid_lbp, 0) / COALESCE(NULLIF(s.exchange_rate_snapshot, 0), 1)) >= s.final_amount_usd - 0.05`,
       )
-      .get(today) as { total_profit_usd: number } | undefined;
+      .get(today) as { profit_usd: number };
+
+    const finProfit = this.db
+      .prepare(
+        `SELECT
+          COALESCE(SUM(CASE WHEN currency != 'LBP' THEN commission ELSE 0 END), 0) as profit_usd
+         FROM financial_services
+         WHERE DATE(created_at) = ?`,
+      )
+      .get(today) as { profit_usd: number };
+
+    const rechargeProfit = this.db
+      .prepare(
+        `SELECT
+          COALESCE(SUM(CASE WHEN currency_code != 'LBP' THEN (price - cost) ELSE 0 END), 0) as profit_usd
+         FROM recharges
+         WHERE DATE(created_at) = ?`,
+      )
+      .get(today) as { profit_usd: number };
+
+    const customProfit = this.db
+      .prepare(
+        `SELECT
+          COALESCE(SUM(profit_usd), 0) as profit_usd
+         FROM custom_services
+         WHERE DATE(created_at) = ? AND status = 'completed'`,
+      )
+      .get(today) as { profit_usd: number };
+
+    const maintProfit = this.db
+      .prepare(
+        `SELECT
+          COALESCE(SUM(final_amount_usd - cost_usd), 0) as profit_usd
+         FROM maintenance
+         WHERE DATE(created_at) = ? AND LOWER(status) = 'completed'`,
+      )
+      .get(today) as { profit_usd: number };
+
+    const totalProfitUSD =
+      salesProfit.profit_usd +
+      finProfit.profit_usd +
+      rechargeProfit.profit_usd +
+      customProfit.profit_usd +
+      maintProfit.profit_usd;
 
     return {
       salesCount: salesStats?.sales_count || 0,
@@ -439,7 +483,7 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
       debtPaymentsLBP: debtPayments?.total_debt_payments_lbp || 0,
       totalExpensesUSD: expensesStats?.total_expenses_usd || 0,
       totalExpensesLBP: expensesStats?.total_expenses_lbp || 0,
-      totalProfitUSD: profitStats?.total_profit_usd || 0,
+      totalProfitUSD,
     };
   }
 }

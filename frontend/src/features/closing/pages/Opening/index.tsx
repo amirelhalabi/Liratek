@@ -11,6 +11,7 @@ import { DRAWER_ORDER } from "../../config/drawers";
 import { useCurrencies } from "../../hooks/useCurrencies";
 import { useApi } from "@liratek/ui";
 import { useDrawerAmounts } from "../../hooks/useDrawerAmounts";
+import { useModules } from "../../../../contexts/ModuleContext";
 import { DrawerCard } from "../../components/DrawerCard";
 import { X } from "lucide-react";
 
@@ -19,9 +20,27 @@ interface OpeningProps {
   onClose: () => void;
 }
 
+const DRAWER_MODULE_MAP: Partial<Record<string, string>> = {
+  OMT_App: "ipec_katch",
+  OMT_System: "ipec_katch",
+  Whish_App: "ipec_katch",
+  Whish_System: "ipec_katch",
+  Binance: "binance",
+  MTC: "recharge",
+  Alfa: "recharge",
+  IPEC: "ipec_katch",
+  Katch: "ipec_katch",
+};
+
 export default function Opening({ isOpen, onClose }: OpeningProps) {
   const api = useApi();
   const { user } = useAuth();
+  const { isModuleEnabled } = useModules();
+
+  const activeDrawerOrder = DRAWER_ORDER.filter((drawer) => {
+    const requiredModule = DRAWER_MODULE_MAP[drawer];
+    return !requiredModule || isModuleEnabled(requiredModule);
+  });
   const {
     currencies,
     loading: currenciesLoading,
@@ -109,7 +128,7 @@ export default function Opening({ isOpen, onClose }: OpeningProps) {
     setSaveError(null);
 
     const closingDate = new Date().toISOString().split("T")[0];
-    const amounts = DRAWER_ORDER.flatMap((drawer) =>
+    const amounts = activeDrawerOrder.flatMap((drawer) =>
       currencies.map((currency) => ({
         drawer_name: drawer,
         currency_code: currency.code,
@@ -226,7 +245,7 @@ export default function Opening({ isOpen, onClose }: OpeningProps) {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {DRAWER_ORDER.map((drawer) => {
+                {activeDrawerOrder.map((drawer) => {
                   const allowed = drawerCurrencyConfig[drawer];
                   const drawerCurrencies = allowed
                     ? currencies.filter((c) => allowed.includes(c.code))

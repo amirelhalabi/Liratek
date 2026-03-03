@@ -1,5 +1,5 @@
 import { app, ipcMain } from "electron";
-/* eslint-disable @typescript-eslint/no-require-imports */
+import { requireRole } from "../session.js";
 
 export function registerUpdaterHandlers(): void {
   ipcMain.handle("updater:get-status", () => {
@@ -12,7 +12,6 @@ export function registerUpdaterHandlers(): void {
 
   ipcMain.handle("updater:check", async (e) => {
     try {
-      const { requireRole } = require("../session");
       const auth = requireRole(e.sender.id, ["admin"]);
       if (!auth.ok) return { success: false, error: auth.error };
     } catch {}
@@ -35,7 +34,6 @@ export function registerUpdaterHandlers(): void {
 
   ipcMain.handle("updater:download", async (e) => {
     try {
-      const { requireRole } = require("../session");
       const auth = requireRole(e.sender.id, ["admin"]);
       if (!auth.ok) return { success: false, error: auth.error };
     } catch {}
@@ -58,7 +56,6 @@ export function registerUpdaterHandlers(): void {
 
   ipcMain.handle("updater:quit-and-install", async (e) => {
     try {
-      const { requireRole } = require("../session");
       const auth = requireRole(e.sender.id, ["admin"]);
       if (!auth.ok) return { success: false, error: auth.error };
     } catch {}

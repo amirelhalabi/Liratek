@@ -2,6 +2,7 @@ import {
   getSupplierRepository,
   type CreateSupplierData,
   type CreateSupplierLedgerEntryData,
+  type SettleTransactionsData,
   type SupplierEntity,
   type SupplierLedgerEntryEntity,
   type SupplierBalance,
@@ -58,6 +59,31 @@ export class SupplierService {
       if (!data.supplier_id)
         return { success: false, error: "supplier_id is required" };
       const res = this.repo.addLedgerEntry(data);
+      return { success: true, id: res.id };
+    } catch (e) {
+      return { success: false, error: toErrorString(e) };
+    }
+  }
+
+  /**
+   * Atomically settle a batch of financial_services transactions with a supplier.
+   * Marks transactions as settled, credits commission to General, debits net payment from drawer.
+   */
+  settleTransactions(data: SettleTransactionsData): SupplierResult {
+    try {
+      if (!data.supplier_id)
+        return { success: false, error: "supplier_id is required" };
+      if (!data.financial_service_ids?.length)
+        return {
+          success: false,
+          error: "No transactions selected for settlement",
+        };
+      if (data.amount_usd < 0 || data.amount_lbp < 0)
+        return {
+          success: false,
+          error: "Settlement amounts cannot be negative",
+        };
+      const res = this.repo.settleTransactions(data);
       return { success: true, id: res.id };
     } catch (e) {
       return { success: false, error: toErrorString(e) };

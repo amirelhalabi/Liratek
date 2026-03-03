@@ -1,5 +1,6 @@
 import { ipcMain } from "electron";
 import { z } from "zod";
+import { requireRole } from "../session.js";
 import {
   getSettingsService,
   getExpenseService,
@@ -9,7 +10,6 @@ import {
   expenseLogger,
   closingLogger,
 } from "@liratek/core";
-/* eslint-disable @typescript-eslint/no-require-imports */
 
 export function registerDatabaseHandlers(): void {
   const settingsService = getSettingsService();
@@ -37,7 +37,6 @@ export function registerDatabaseHandlers(): void {
   // Update setting
   ipcMain.handle("db:update-setting", (e, key: string, value: string) => {
     try {
-      const { requireRole } = require("../session");
       const auth = requireRole(e.sender.id, ["admin"]);
       if (!auth.ok) return { success: false, error: auth.error };
     } catch {}
@@ -48,7 +47,6 @@ export function registerDatabaseHandlers(): void {
   // Alias for settings:update
   ipcMain.handle("settings:update", (e, key: string, value: string) => {
     try {
-      const { requireRole } = require("../session");
       const auth = requireRole(e.sender.id, ["admin"]);
       if (!auth.ok) return { success: false, error: auth.error };
     } catch {}
@@ -73,7 +71,6 @@ export function registerDatabaseHandlers(): void {
       },
     ) => {
       try {
-        const { requireRole } = require("../session");
         const auth = requireRole(e.sender.id, ["admin"]);
         if (!auth.ok) return { success: false, error: auth.error };
       } catch {}
@@ -93,7 +90,6 @@ export function registerDatabaseHandlers(): void {
   // Delete Expense
   ipcMain.handle("db:delete-expense", (e, id: number) => {
     try {
-      const { requireRole } = require("../session");
       const auth = requireRole(e.sender.id, ["admin"]);
       if (!auth.ok) return { success: false, error: auth.error };
     } catch {}
@@ -107,7 +103,6 @@ export function registerDatabaseHandlers(): void {
     "closing:set-opening-balances",
     (e, data: { drawer_name: string; balances: Record<string, number> }) => {
       try {
-        const { requireRole } = require("../session");
         const auth = requireRole(e.sender.id, ["admin"]);
         if (!auth.ok) return { success: false, error: auth.error };
       } catch {}
@@ -163,7 +158,6 @@ export function registerDatabaseHandlers(): void {
     "closing:create-daily-closing",
     (e, data: { drawer_name: string; note?: string }) => {
       try {
-        const { requireRole } = require("../session");
         const auth = requireRole(e.sender.id, ["admin"]);
         if (!auth.ok) return { success: false, error: auth.error };
       } catch {}
@@ -239,7 +233,6 @@ export function registerDatabaseHandlers(): void {
       },
     ) => {
       try {
-        const { requireRole } = require("../session");
         const auth = requireRole(e.sender.id, ["admin"]);
         if (!auth.ok) return { success: false, error: auth.error };
       } catch {}
@@ -257,7 +250,6 @@ export function registerDatabaseHandlers(): void {
   // Diagnostics: list sync_errors
   ipcMain.handle("diagnostics:get-sync-errors", (e) => {
     try {
-      const { requireRole } = require("../session");
       const auth = requireRole(e.sender.id, ["admin"]);
       if (!auth.ok) return { error: "Forbidden" };
     } catch {}
@@ -267,7 +259,6 @@ export function registerDatabaseHandlers(): void {
   // Recalculate drawer balances from payments journal
   ipcMain.handle("closing:recalculate-drawer-balances", (e) => {
     try {
-      const { requireRole } = require("../session");
       const auth = requireRole(e.sender.id, ["admin"]);
       if (!auth.ok) return { success: false, error: auth.error };
     } catch {}
@@ -279,7 +270,6 @@ export function registerDatabaseHandlers(): void {
   // Diagnostics: run PRAGMA foreign_key_check
   ipcMain.handle("diagnostics:foreign-key-check", (e) => {
     try {
-      const { requireRole } = require("../session");
       const auth = requireRole(e.sender.id, ["admin"]);
       if (!auth.ok) return { success: false, error: auth.error };
     } catch {}

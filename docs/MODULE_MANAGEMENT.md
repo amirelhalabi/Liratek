@@ -31,22 +31,22 @@ The `modules` table (`create_db.sql` line 488):
 
 **Toggleable:**
 
-| Key           | Label         | Icon         | Route              | sort_order |
-| ------------- | ------------- | ------------ | ------------------ | ---------- |
-| `analytics`   | Analytics     | TrendingUp   | `/commissions`     | 1          |
-| `pos`         | Point of Sale | ShoppingCart | `/pos`             | 2          |
-| `debts`       | Debts         | BookOpen     | `/debts`           | 3          |
-| `inventory`   | Inventory     | Package      | `/products`        | 4          |
-| `clients`     | Clients       | Users        | `/clients`         | 5          |
-| `exchange`    | Exchange      | RefreshCw    | `/exchange`        | 6          |
-| `omt_whish`   | OMT/Whish     | Send         | `/services`        | 7          |
-| `recharge`    | MTC/Alfa      | Smartphone   | `/recharge`        | 8          |
-| `expenses`    | Expenses      | Banknote     | `/expenses`        | 9          |
-| `maintenance` | Maintenance   | Wrench       | `/maintenance`     | 10         |
-| `binance`     | Binance       | Bitcoin      | `/recharge`        | 11         |
-| `ipec_katch`  | IPEC/Katch    | Zap          | `/recharge`        | 12         |
-| `custom_services` | Services  | Briefcase    | `/custom-services` | 13         |
-| `profits`     | Profits       | TrendingUp   | `/profits`         | 14 (admin) |
+| Key               | Label         | Icon         | Route              | sort_order |
+| ----------------- | ------------- | ------------ | ------------------ | ---------- |
+| `analytics`       | Analytics     | TrendingUp   | `/commissions`     | 1          |
+| `pos`             | Point of Sale | ShoppingCart | `/pos`             | 2          |
+| `debts`           | Debts         | BookOpen     | `/debts`           | 3          |
+| `inventory`       | Inventory     | Package      | `/products`        | 4          |
+| `clients`         | Clients       | Users        | `/clients`         | 5          |
+| `exchange`        | Exchange      | RefreshCw    | `/exchange`        | 6          |
+| `omt_whish`       | OMT/Whish     | Send         | `/services`        | 7          |
+| `recharge`        | MTC/Alfa      | Smartphone   | `/recharge`        | 8          |
+| `expenses`        | Expenses      | Banknote     | `/expenses`        | 9          |
+| `maintenance`     | Maintenance   | Wrench       | `/maintenance`     | 10         |
+| `binance`         | Binance       | Bitcoin      | `/recharge`        | 11         |
+| `ipec_katch`      | IPEC/Katch    | Zap          | `/recharge`        | 12         |
+| `custom_services` | Services      | Briefcase    | `/custom-services` | 13         |
+| `profits`         | Profits       | TrendingUp   | `/profits`         | 14 (admin) |
 
 ---
 
@@ -82,15 +82,15 @@ suppliers.module_key → modules(key) ON DELETE SET NULL
 
 Each module that handles money typically has its own drawer(s). There is **no foreign key** from drawers to modules — the link is by convention (e.g. the `Binance` drawer belongs to the `binance` module).
 
-| Module      | Drawer(s)                               |
-| ----------- | --------------------------------------- |
-| pos / debts | `General`                               |
-| omt_whish   | `OMT_System`, `Whish_System`            |
-| recharge    | `MTC`, `Alfa`                           |
-| binance     | `Binance`                               |
-| ipec_katch  | `IPEC`, `Katch`, `Whish_App`, `OMT_App` |
-| custom_services | `General` (uses existing drawer)    |
-| profits     | _(no drawer — analytics only)_          |
+| Module          | Drawer(s)                               |
+| --------------- | --------------------------------------- |
+| pos / debts     | `General`                               |
+| omt_whish       | `OMT_System`, `Whish_System`            |
+| recharge        | `MTC`, `Alfa`                           |
+| binance         | `Binance`                               |
+| ipec_katch      | `IPEC`, `Katch`, `Whish_App`, `OMT_App` |
+| custom_services | `General` (uses existing drawer)        |
+| profits         | _(no drawer — analytics only)_          |
 
 - **Adding a module**: insert `drawer_balances` rows for each (drawer_name, currency_code) pair.
 - **Removing a module**: drawer rows are **NOT** auto-cleaned. Delete them manually or leave them as orphans.

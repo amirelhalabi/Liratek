@@ -1,10 +1,12 @@
 name: CI
 
 on:
-  push:
-    branches: [main, dev, develop]
   pull_request:
     branches: [main, dev, develop]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 # Shared cache paths for yarn install
 env:

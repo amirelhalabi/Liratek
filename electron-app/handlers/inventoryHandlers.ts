@@ -6,8 +6,12 @@
  */
 
 import { ipcMain } from "electron";
-import { getInventoryService, inventoryLogger } from "@liratek/core";
-/* eslint-disable @typescript-eslint/no-require-imports */
+import {
+  getInventoryService,
+  inventoryLogger,
+  getCategoryRepository,
+} from "@liratek/core";
+import { requireRole } from "../session.js";
 
 // =============================================================================
 // Types
@@ -24,6 +28,7 @@ interface ProductInput {
   stock_quantity?: number;
   min_stock_level?: number;
   image_url?: string;
+  supplier?: string | null;
 }
 
 // =============================================================================
@@ -67,7 +72,6 @@ export function registerInventoryHandlers(): void {
   ipcMain.handle("inventory:create-product", (e, product: ProductInput) => {
     // Auth check
     try {
-      const { requireRole } = require("../session");
       const auth = requireRole(e.sender.id, ["admin"]);
       if (!auth.ok) return { success: false, error: auth.error };
     } catch {}
@@ -76,10 +80,15 @@ export function registerInventoryHandlers(): void {
       { barcode: product.barcode, name: product.name },
       "Creating product",
     );
+    // Auto-create category if needed and get its ID
+    const categoryName = product.category || "General";
+    const categoryId = catRepo.getOrCreate(categoryName);
+
     return service.createProduct({
       barcode: product.barcode,
       name: product.name,
-      category: product.category,
+      category: categoryName,
+      category_id: categoryId,
       cost_price: product.cost_price,
       retail_price: product.retail_price,
       ...(product.stock_quantity != null
@@ -89,6 +98,7 @@ export function registerInventoryHandlers(): void {
         ? { min_stock_level: product.min_stock_level }
         : {}),
       ...(product.image_url != null ? { image_url: product.image_url } : {}),
+      supplier: product.supplier ?? null,
     });
   });
 
@@ -96,7 +106,6 @@ export function registerInventoryHandlers(): void {
   ipcMain.handle("inventory:update-product", (e, product: ProductInput) => {
     // Auth check
     try {
-      const { requireRole } = require("../session");
       const auth = requireRole(e.sender.id, ["admin"]);
       if (!auth.ok) return { success: false, error: auth.error };
     } catch {}
@@ -105,22 +114,46 @@ export function registerInventoryHandlers(): void {
       return { success: false, error: "Product ID required" };
     }
 
+    // Resolve category_id for the updated category
+    const updCategoryName = product.category || "General";
+    const updCategoryId = catRepo.getOrCreate(updCategoryName);
+
     return service.updateProduct(product.id, {
       barcode: product.barcode,
       name: product.name,
-      category: product.category,
+      category: updCategoryName,
+      category_id: updCategoryId,
       cost_price: product.cost_price,
       retail_price: product.retail_price,
       min_stock_level: product.min_stock_level ?? 5,
       ...(product.image_url != null ? { image_url: product.image_url } : {}),
+      supplier: product.supplier ?? null,
     });
   });
 
   // Soft delete product
+  ipcMain.handle(
+    "inventory:batch-update",
+    async (
+      _event,
+      payload: {
+        ids: number[];
+        category?: string;
+        min_stock_level?: number;
+        supplier?: string | null;
+      },
+    ) => {
+      return service.batchUpdateProducts(payload.ids, {
+        category: payload.category,
+        min_stock_level: payload.min_stock_level,
+        supplier: payload.supplier,
+      });
+    },
+  );
+
   ipcMain.handle("inventory:delete-product", (e, id: number) => {
     // Auth check
     try {
-      const { requireRole } = require("../session");
       const auth = requireRole(e.sender.id, ["admin"]);
       if (!auth.ok) return { success: false, error: auth.error };
     } catch {}
@@ -138,7 +171,6 @@ export function registerInventoryHandlers(): void {
     (e, id: number, newQuantity: number) => {
       // Auth check
       try {
-        const { requireRole } = require("../session");
         const auth = requireRole(e.sender.id, ["admin"]);
         if (!auth.ok) return { success: false, error: auth.error };
       } catch {}
@@ -170,4 +202,37 @@ export function registerInventoryHandlers(): void {
       return [];
     }
   });
+
+  // ---------------------------------------------------------------------------
+  // Category Management
+  // ---------------------------------------------------------------------------
+
+  const catRepo = getCategoryRepository();
+
+  ipcMain.handle("inventory:get-categories", () => catRepo.getNames());
+  ipcMain.handle("inventory:create-category", (_e, name: string) => {
+    try {
+      return { success: true, ...catRepo.create(name) };
+    } catch (e) {
+      return { success: false, error: String(e) };
+    }
+  });
+  ipcMain.handle(
+    "inventory:update-category",
+    (_e, id: number, name: string) => {
+      try {
+        return { success: true, updated: catRepo.update(id, name) };
+      } catch (e) {
+        return { success: false, error: String(e) };
+      }
+    },
+  );
+  ipcMain.handle("inventory:delete-category", (_e, id: number) => {
+    try {
+      return { success: true, deleted: catRepo.delete(id) };
+    } catch (e) {
+      return { success: false, error: String(e) };
+    }
+  });
+  ipcMain.handle("inventory:get-categories-full", () => catRepo.getAll());
 }

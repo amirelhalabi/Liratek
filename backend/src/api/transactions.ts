@@ -5,7 +5,11 @@
  */
 
 import { Router } from "express";
-import { requireAuth, type AuthRequest } from "../middleware/auth.js";
+import {
+  requireAuth,
+  requireRole,
+  type AuthRequest,
+} from "../middleware/auth.js";
 import { getTransactionService, getReportingService } from "@liratek/core";
 import { logger } from "../server.js";
 
@@ -76,32 +80,40 @@ router.get("/client/:clientId", requireAuth, async (req, res) => {
 });
 
 // POST /api/transactions/:id/void
-router.post("/:id/void", requireAuth, async (req: AuthRequest, res) => {
-  try {
-    const id = parseInt(req.params.id);
-    const userId = req.user?.userId ?? 1;
-    const txnService = getTransactionService();
-    const reversalId = txnService.voidTransaction(id, userId);
-    res.json({ success: true, reversalId });
-  } catch (error) {
-    logger.error({ error }, "Void transaction error");
-    res.status(500).json({ success: false, error: (error as Error).message });
-  }
-});
+router.post(
+  "/:id/void",
+  requireRole(["admin"]),
+  async (req: AuthRequest, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const userId = req.user?.userId ?? 1;
+      const txnService = getTransactionService();
+      const reversalId = txnService.voidTransaction(id, userId);
+      res.json({ success: true, reversalId });
+    } catch (error) {
+      logger.error({ error }, "Void transaction error");
+      res.status(500).json({ success: false, error: (error as Error).message });
+    }
+  },
+);
 
 // POST /api/transactions/:id/refund
-router.post("/:id/refund", requireAuth, async (req: AuthRequest, res) => {
-  try {
-    const id = parseInt(req.params.id);
-    const userId = req.user?.userId ?? 1;
-    const txnService = getTransactionService();
-    const refundId = txnService.refundTransaction(id, userId);
-    res.json({ success: true, refundId });
-  } catch (error) {
-    logger.error({ error }, "Refund transaction error");
-    res.status(500).json({ success: false, error: (error as Error).message });
-  }
-});
+router.post(
+  "/:id/refund",
+  requireRole(["admin"]),
+  async (req: AuthRequest, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const userId = req.user?.userId ?? 1;
+      const txnService = getTransactionService();
+      const refundId = txnService.refundTransaction(id, userId);
+      res.json({ success: true, refundId });
+    } catch (error) {
+      logger.error({ error }, "Refund transaction error");
+      res.status(500).json({ success: false, error: (error as Error).message });
+    }
+  },
+);
 
 // GET /api/transactions/analytics/daily-summary?date=2025-01-15
 router.get("/analytics/daily-summary", requireAuth, async (req, res) => {

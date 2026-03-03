@@ -90,7 +90,7 @@ describe("ClosingService", () => {
         closing_date: "2025-01-15",
         amounts: [
           {
-            drawer_name: "General_Drawer_B",
+            drawer_name: "General",
             currency_code: "USD",
             opening_amount: 300,
           },

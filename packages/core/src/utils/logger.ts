@@ -11,7 +11,7 @@
  * - Performance timing utilities
  */
 
-import pino, { Logger } from "pino";
+import pino, { Logger, DestinationStream } from "pino";
 import path from "path";
 import fs from "fs";
 import env, { isDevelopment, isTest, isProduction } from "../config/env.js";
@@ -58,6 +58,47 @@ const getLogPath = (): string | undefined => {
 // Logger Instance
 // =============================================================================
 
+/**
+ * Build a synchronous pino-pretty destination stream.
+ * Uses require() to avoid worker threads which crash in Electron.
+ * Returns undefined if pino-pretty is not available.
+ */
+const buildPrettyStream = (): DestinationStream | undefined => {
+  try {
+    // Synchronous pino-pretty stream — avoids worker threads which crash in
+    // Electron where pino-pretty's thread-stream exits prematurely.
+    //
+    // We need to resolve pino-pretty without `import.meta.url` (breaks Jest/CJS)
+    // and without bare `require` (breaks ESM). Using globalThis check:
+    const resolvePinoPretty = (): unknown => {
+      // CJS context (Jest): require is available
+      if (typeof globalThis.require === "function") {
+        return globalThis.require("pino-pretty");
+      }
+      // ESM context (Electron): use createRequire
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const mod = require("node:module");
+      const cr = (
+        mod as { createRequire: (url: string) => NodeRequire }
+      ).createRequire(
+        typeof __filename !== "undefined" ? __filename : process.cwd() + "/x",
+      );
+      return cr("pino-pretty");
+    };
+    const pp = resolvePinoPretty() as {
+      build: (opts: Record<string, unknown>) => DestinationStream;
+    };
+    return pp.build({
+      colorize: true,
+      translateTime: "HH:MM:ss",
+      ignore: "pid,hostname,app",
+      sync: true,
+    });
+  } catch {
+    return undefined;
+  }
+};
+
 const createLogger = (): Logger => {
   const logPath = getLogPath();
 
@@ -75,23 +116,14 @@ const createLogger = (): Logger => {
     return pino(options);
   }
 
-  // Development: pretty print to console
+  // Development: pretty print to console (synchronous — avoids worker thread
+  // crashes in Electron where pino-pretty's thread-stream can exit prematurely)
   if (isDev) {
-    try {
-      return pino({
-        ...options,
-        transport: {
-          target: "pino-pretty",
-          options: {
-            colorize: true,
-            translateTime: "HH:MM:ss",
-            ignore: "pid,hostname,app",
-          },
-        },
-      });
-    } catch {
-      return pino(options);
+    const prettyStream = buildPrettyStream();
+    if (prettyStream) {
+      return pino(options, prettyStream);
     }
+    return pino(options);
   }
 
   // Production: JSON to file and console
@@ -129,7 +161,7 @@ export const inventoryLogger = logger.child({ module: "inventory" });
 export const clientLogger = logger.child({ module: "client" });
 export const debtLogger = logger.child({ module: "debt" });
 export const exchangeLogger = logger.child({ module: "exchange" });
-export const binanceLogger = logger.child({ module: "binance" });
+// binanceLogger removed — Binance now uses financialLogger via financial_services provider
 export const financialLogger = logger.child({ module: "financial" });
 export const maintenanceLogger = logger.child({ module: "maintenance" });
 export const rechargeLogger = logger.child({ module: "recharge" });

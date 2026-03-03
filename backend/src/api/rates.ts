@@ -53,4 +53,22 @@ router.post(
   },
 );
 
+// DELETE /api/rates/:fromCurrency/:toCurrency
+router.delete("/:fromCurrency/:toCurrency", requireAuth, async (req, res) => {
+  try {
+    const { fromCurrency, toCurrency } = req.params;
+    const result = rateService.deleteRate(fromCurrency, toCurrency);
+
+    if (result.success) {
+      logger.info({ fromCurrency, toCurrency }, "Exchange rate deleted");
+      res.json(result);
+    } else {
+      res.status(400).json(result);
+    }
+  } catch (error) {
+    logger.error({ error }, "Delete rate error");
+    res.status(500).json({ success: false, error: "Failed to delete rate" });
+  }
+});
+
 export default router;

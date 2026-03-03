@@ -64,7 +64,7 @@ export const DRAWER_CONFIGS: Record<DrawerType, DrawerConfig> = {
   MTC: {
     type: "MTC",
     label: "MTC",
-    description: "Touch recharges",
+    description: "MTC recharges",
     icon: "phone",
     color: {
       border: "border-orange-500/30",

@@ -8,8 +8,10 @@ import {
   Package,
   Wallet,
   TrendingUp,
+  AlertTriangle,
 } from "lucide-react";
 import { useCurrencyContext } from "../../../contexts/CurrencyContext";
+import { useModules } from "../../../contexts/ModuleContext";
 
 const DashboardChart = lazy(() => import("../components/DashboardChart"));
 
@@ -35,6 +37,9 @@ const DRAWER_COLORS = [
 export default function Dashboard() {
   const api = useApi();
   const { formatAmount, getSymbol } = useCurrencyContext();
+  const { isModuleEnabled } = useModules();
+
+  const debtEnabled = isModuleEnabled("debts");
 
   const [stats, setStats] = useState({
     totalSalesUSD: 0,
@@ -53,7 +58,7 @@ export default function Dashboard() {
     Record<string, Record<string, number>>
   >({});
   /** Configured currencies per drawer: drawer_name → currency_code[] */
-  const [drawerCurrencyConfig, setDrawerCurrencyConfig] = useState<
+  const [_drawerCurrencyConfig, setDrawerCurrencyConfig] = useState<
     Record<string, string[]>
   >({});
   type ChartPoint = {
@@ -89,6 +94,18 @@ export default function Dashboard() {
     topDebtors: [],
   });
   const [chartType, setChartType] = useState<ChartType>("Sales");
+
+  type UnsettledSummary = {
+    provider: string;
+    count: number;
+    pending_commission_usd: number;
+    pending_commission_lbp: number;
+    total_owed_usd: number;
+    total_owed_lbp: number;
+  };
+  const [unsettledSummary, setUnsettledSummary] = useState<UnsettledSummary[]>(
+    [],
+  );
 
   // State for dynamic Y-axis domains
   const [maxUsdSales, setMaxUsdSales] = useState(0);
@@ -155,6 +172,16 @@ export default function Dashboard() {
         setDebtSummary(debtData);
       }
 
+      // Load unsettled summary (non-critical — don't let failures block dashboard)
+      try {
+        const unsettled = window.api
+          ? await window.api.suppliers.getUnsettledSummary()
+          : await (api as any).getUnsettledSummary?.();
+        if (Array.isArray(unsettled)) setUnsettledSummary(unsettled);
+      } catch {
+        // non-critical
+      }
+
       // Calculate max values for Y-axis domain
       if (chartType === "Sales" && formattedChartData.length > 0) {
         const currentMaxUsd = Math.max(
@@ -219,31 +246,51 @@ export default function Dashboard() {
       color: "text-blue-400",
       bg: "bg-blue-400/10",
     },
-    {
-      label: "Total Debt",
-      usdValue: debtSummary.totalDebtUsd,
-      lbpValue: debtSummary.totalDebtLbp,
-      icon: Users,
-      color: "text-red-400",
-      bg: "bg-red-400/10",
-    },
+    // Only show Total Debt card when debt module is enabled
+    ...(debtEnabled
+      ? [
+          {
+            label: "Total Debt",
+            usdValue: debtSummary.totalDebtUsd,
+            lbpValue: debtSummary.totalDebtLbp,
+            icon: Users,
+            color: "text-red-400",
+            bg: "bg-red-400/10",
+          },
+        ]
+      : []),
   ];
 
+  // Map drawer names to required module keys so we can hide drawers
+  // for disabled payment methods / modules
+  const drawerModuleMap: Record<string, () => boolean> = {
+    OMT_App: () => isModuleEnabled("ipec_katch"),
+    OMT_System: () => isModuleEnabled("ipec_katch"),
+    Whish_App: () => isModuleEnabled("ipec_katch"),
+    Whish_System: () => isModuleEnabled("ipec_katch"),
+    Binance: () => isModuleEnabled("binance"),
+    MTC: () => isModuleEnabled("recharge"),
+    Alfa: () => isModuleEnabled("recharge"),
+    IPEC: () => isModuleEnabled("ipec_katch"),
+    Katch: () => isModuleEnabled("ipec_katch"),
+  };
+
   // Drawer Balances (Row 2) — dynamic from drawer_balances table
-  // Filter each drawer's currencies to only show those configured in currency_drawers
-  const drawerEntries = Object.entries(drawerBalances);
+  // Filter out drawers whose associated module/PM is disabled
+  const drawerEntries = Object.entries(drawerBalances).filter(([name]) => {
+    const check = drawerModuleMap[name];
+    return !check || check(); // show if no restriction, or if module is enabled
+  });
   const drawerCards = drawerEntries.map(([name, currencies], i) => {
-    const allowedCodes = drawerCurrencyConfig[name];
-    const filteredCurrencies = allowedCodes
-      ? Object.fromEntries(
-          Object.entries(currencies).filter(([code]) =>
-            allowedCodes.includes(code),
-          ),
-        )
-      : currencies; // no config yet → show all (graceful fallback)
+    // Show all currencies with a non-zero balance, or all if all are zero
+    const nonZero = Object.fromEntries(
+      Object.entries(currencies).filter(([, amount]) => amount !== 0),
+    );
+    const displayCurrencies =
+      Object.keys(nonZero).length > 0 ? nonZero : currencies;
     return {
       label: formatDrawerLabel(name),
-      currencies: filteredCurrencies,
+      currencies: displayCurrencies,
       icon: Wallet,
       ...DRAWER_COLORS[i % DRAWER_COLORS.length],
     };
@@ -388,6 +435,52 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* Pending Settlement Banner — only shown when there are unsettled commissions */}
+        {unsettledSummary.length > 0 &&
+          (() => {
+            const totalPendingUsd = unsettledSummary.reduce(
+              (s, r) => s + r.pending_commission_usd,
+              0,
+            );
+            const totalTxns = unsettledSummary.reduce((s, r) => s + r.count, 0);
+            return (
+              <div className="bg-amber-950/40 border border-amber-700/60 rounded-xl p-4 flex items-start gap-3">
+                <AlertTriangle
+                  className="text-amber-400 shrink-0 mt-0.5"
+                  size={18}
+                />
+                <div className="flex-1 min-w-0">
+                  <p className="text-amber-300 font-semibold text-sm">
+                    Pending Settlement — {totalTxns} transaction
+                    {totalTxns !== 1 ? "s" : ""}
+                  </p>
+                  <div className="mt-1 flex flex-wrap gap-3">
+                    {unsettledSummary.map((r) => (
+                      <span
+                        key={r.provider}
+                        className="text-xs text-amber-400/80 font-mono"
+                      >
+                        {r.provider}:{" "}
+                        <span className="text-amber-300 font-semibold">
+                          ${r.pending_commission_usd.toFixed(4)}
+                        </span>{" "}
+                        commission on ${r.total_owed_usd.toFixed(2)} owed (
+                        {r.count} txns)
+                      </span>
+                    ))}
+                  </div>
+                  <p className="text-xs text-amber-500 mt-1">
+                    Total pending:{" "}
+                    <span className="text-amber-300 font-mono font-bold">
+                      ${totalPendingUsd.toFixed(4)}
+                    </span>{" "}
+                    — settle via Settings → Supplier Ledger
+                  </p>
+                </div>
+              </div>
+            );
+          })()}
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 bg-slate-800 p-6 rounded-xl border border-slate-700/50 shadow-lg flex flex-col">
             <div className="flex justify-between items-center mb-6">
@@ -423,40 +516,42 @@ export default function Dashboard() {
           </div>
 
           <div className="flex flex-col h-full gap-4">
-            <div className="bg-slate-800 p-5 rounded-xl border border-slate-700/50 shadow-lg flex-1 flex flex-col">
-              <h3 className="text-md font-bold text-white mb-4 flex items-center gap-2">
-                <BarChart2 size={16} className="text-red-400" />
-                Top Debtors
-              </h3>
-              <div className="flex-1 min-h-[150px] overflow-y-auto space-y-2">
-                {debtSummary.topDebtors.length > 0 ? (
-                  debtSummary.topDebtors.map((debtor) => (
-                    <div
-                      key={debtor.full_name}
-                      className="flex items-center justify-between p-2.5 bg-slate-700/20 rounded-lg"
-                    >
-                      <span className="text-sm text-slate-300 truncate mr-3">
-                        {debtor.full_name}
-                      </span>
-                      <div className="text-right shrink-0">
-                        <span className="text-sm font-bold text-red-400">
-                          {formatAmount(debtor.total_debt_usd, "USD")}
+            {debtEnabled && (
+              <div className="bg-slate-800 p-5 rounded-xl border border-slate-700/50 shadow-lg flex-1 flex flex-col">
+                <h3 className="text-md font-bold text-white mb-4 flex items-center gap-2">
+                  <BarChart2 size={16} className="text-red-400" />
+                  Top Debtors
+                </h3>
+                <div className="flex-1 min-h-[150px] overflow-y-auto space-y-2">
+                  {debtSummary.topDebtors.length > 0 ? (
+                    debtSummary.topDebtors.map((debtor) => (
+                      <div
+                        key={debtor.full_name}
+                        className="flex items-center justify-between p-2.5 bg-slate-700/20 rounded-lg"
+                      >
+                        <span className="text-sm text-slate-300 truncate mr-3">
+                          {debtor.full_name}
                         </span>
-                        {debtor.total_debt_lbp !== 0 && (
-                          <span className="text-xs text-red-400/70 ml-2">
-                            {formatAmount(debtor.total_debt_lbp, "LBP")}
+                        <div className="text-right shrink-0">
+                          <span className="text-sm font-bold text-red-400">
+                            {formatAmount(debtor.total_debt_usd, "USD")}
                           </span>
-                        )}
+                          {debtor.total_debt_lbp !== 0 && (
+                            <span className="text-xs text-red-400/70 ml-2">
+                              {formatAmount(debtor.total_debt_lbp, "LBP")}
+                            </span>
+                          )}
+                        </div>
                       </div>
+                    ))
+                  ) : (
+                    <div className="flex items-center justify-center h-full text-slate-500 text-sm">
+                      No debtors
                     </div>
-                  ))
-                ) : (
-                  <div className="flex items-center justify-center h-full text-slate-500 text-sm">
-                    No debtors
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
-            </div>
+            )}
 
             <div className="bg-slate-800 p-5 rounded-xl border border-slate-700/50 shadow-lg flex-1 flex flex-col">
               <h3 className="text-md font-bold text-white mb-4 flex items-center gap-2">

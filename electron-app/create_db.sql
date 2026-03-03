@@ -102,18 +102,34 @@ INSERT OR IGNORE INTO currencies (code, name, symbol, decimal_places, is_active)
 INSERT OR IGNORE INTO currencies (code, name, symbol, decimal_places, is_active) VALUES ('EUR', 'Euro', '€', 2, 1);
 INSERT OR IGNORE INTO currencies (code, name, symbol, decimal_places, is_active) VALUES ('USDT', 'Tether USD', 'USDT', 2, 0);
 
--- Exchange Rates
+-- Exchange Rates (v30 schema: one row per non-USD currency)
+-- Universal formula: rate = market_rate + is_stronger × (action × delta)
+--   action = GIVE_USD (+1): we give USD out (buying customer's currency)
+--   action = TAKE_USD (-1): we receive USD (selling our currency to customer)
+--
+-- is_stronger = +1: USD is stronger (rate = units per 1 USD, e.g. LBP)
+-- is_stronger = -1: currency is stronger (rate = USD per 1 unit, e.g. EUR)
 CREATE TABLE IF NOT EXISTS exchange_rates (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    from_code TEXT NOT NULL,
-    to_code TEXT NOT NULL,
-    rate REAL NOT NULL,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(from_code, to_code)
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    to_code     TEXT    NOT NULL UNIQUE,
+    market_rate REAL    NOT NULL,
+    delta       REAL    NOT NULL DEFAULT 0,
+    is_stronger INTEGER NOT NULL DEFAULT 1 CHECK(is_stronger IN (1, -1)),
+    updated_at  TEXT    DEFAULT (datetime('now'))
 );
 
--- Seed default exchange rate (update to current market rate after first login)
-INSERT OR IGNORE INTO exchange_rates (from_code, to_code, rate) VALUES ('USD', 'LBP', 89500);
+-- Seed default exchange rates
+-- LBP: 1 USD = 89,500 LBP at market, ±500 spread
+--   USD→LBP (TAKE_USD): 89500 + 1×(-1×500) = 89,000 LBP  (customer gives USD)
+--   LBP→USD (GIVE_USD): 89500 + 1×(+1×500) = 90,000 LBP  (customer gives LBP)
+INSERT OR IGNORE INTO exchange_rates (to_code, market_rate, delta, is_stronger)
+VALUES ('LBP', 89500, 500, 1);
+
+-- EUR: 1 EUR = 1.18 USD at market, ±0.02 spread
+--   EUR→USD (GIVE_USD): 1.18 + (-1)×(+1×0.02) = 1.16 USD  (customer gives EUR)
+--   USD→EUR (TAKE_USD): 1.18 + (-1)×(-1×0.02) = 1.20 USD  (customer gives USD)
+INSERT OR IGNORE INTO exchange_rates (to_code, market_rate, delta, is_stronger)
+VALUES ('EUR', 1.18, 0.02, -1);
 
 -- =============================================================================
 -- 2. Business Entity Tables
@@ -150,7 +166,9 @@ CREATE TABLE IF NOT EXISTS products (
     name TEXT NOT NULL,
     item_type TEXT NOT NULL,
     category TEXT DEFAULT 'General',
+    category_id INTEGER DEFAULT NULL REFERENCES product_categories(id) ON DELETE CASCADE,
     description TEXT,
+    supplier TEXT DEFAULT NULL,
     cost_price_usd DECIMAL(10, 2) DEFAULT 0,
     selling_price_usd DECIMAL(10, 2) DEFAULT 0,
     min_stock_level INTEGER DEFAULT 5,
@@ -163,6 +181,22 @@ CREATE TABLE IF NOT EXISTS products (
     is_active BOOLEAN DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS product_categories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT OR IGNORE INTO product_categories (name, sort_order) VALUES
+    ('Accessories', 0),
+    ('Phones', 1),
+    ('Chargers', 2),
+    ('Audio', 3),
+    ('Parts', 4),
+    ('Services', 5);
 
 -- =============================================================================
 -- 3. Transactional Tables
@@ -180,7 +214,7 @@ CREATE TABLE IF NOT EXISTS sales (
     change_given_usd DECIMAL(10, 2) DEFAULT 0,
     change_given_lbp DECIMAL(15, 2) DEFAULT 0,
     exchange_rate_snapshot DECIMAL(15, 2),
-    drawer_name TEXT DEFAULT 'General_Drawer_B',
+    drawer_name TEXT DEFAULT 'General',
     status TEXT DEFAULT 'completed',
     note TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -302,47 +336,53 @@ CREATE TABLE IF NOT EXISTS expenses (
 -- Mobile Recharges
 CREATE TABLE IF NOT EXISTS recharges (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    carrier TEXT CHECK(carrier IN ('Touch', 'Alfa')) NOT NULL,
-    amount_usd DECIMAL(10, 2) NOT NULL,
+    carrier TEXT CHECK(carrier IN ('MTC', 'Alfa')) NOT NULL,
+    recharge_type TEXT CHECK(recharge_type IN ('CREDIT_TRANSFER', 'VOUCHER', 'DAYS', 'TOP_UP')) NOT NULL DEFAULT 'CREDIT_TRANSFER',
+    amount DECIMAL(10, 2) NOT NULL,
+    cost DECIMAL(10, 2) NOT NULL DEFAULT 0,
+    price DECIMAL(10, 2) NOT NULL DEFAULT 0,
+    currency_code TEXT NOT NULL DEFAULT 'USD',
+    paid_by TEXT DEFAULT 'CASH',
     phone_number TEXT,
-    client_name TEXT,
-    note TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-
--- Exchange Transactions
-CREATE TABLE IF NOT EXISTS exchange_transactions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    type TEXT CHECK(type IN ('BUY', 'SELL')) NOT NULL,
-    from_currency TEXT NOT NULL,
-    to_currency TEXT NOT NULL,
-    amount_in DECIMAL(15, 2) NOT NULL,
-    amount_out DECIMAL(15, 2) NOT NULL,
-    rate DECIMAL(15, 2) NOT NULL,
+    client_id INTEGER,
     client_name TEXT,
     note TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER
-);
-
--- Binance Transactions (Send/Receive)
-CREATE TABLE IF NOT EXISTS binance_transactions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    type TEXT CHECK(type IN ('SEND', 'RECEIVE')) NOT NULL,
-    amount DECIMAL(15, 2) NOT NULL,
-    currency_code TEXT NOT NULL DEFAULT 'USDT',
-    description TEXT,
-    client_name TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER,
+    created_by INTEGER DEFAULT 1,
+    FOREIGN KEY (client_id) REFERENCES clients(id),
     FOREIGN KEY (created_by) REFERENCES users(id)
 );
 
--- Financial Services (OMT, Whish, IPEC, Katch, Wish App, etc.)
+-- Exchange Transactions (v30: includes per-leg rate and profit tracking)
+CREATE TABLE IF NOT EXISTS exchange_transactions (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    type             TEXT CHECK(type IN ('BUY', 'SELL')) NOT NULL,
+    from_currency    TEXT NOT NULL,
+    to_currency      TEXT NOT NULL,
+    amount_in        DECIMAL(15, 2) NOT NULL,
+    amount_out       DECIMAL(15, 2) NOT NULL,
+    rate             DECIMAL(15, 2) NOT NULL,       -- leg1 rate (backward compat)
+    base_rate        DECIMAL(15, 2),                -- leg1 market rate (backward compat)
+    profit_usd       DECIMAL(15, 2),                -- total profit in USD (backward compat)
+    -- Leg tracking (v30+)
+    leg1_rate        REAL,                           -- actual rate used for leg 1
+    leg1_market_rate REAL,                           -- market rate for leg 1 (audit)
+    leg1_profit_usd  REAL,                           -- profit on leg 1
+    leg2_rate        REAL,                           -- actual rate for leg 2 (cross-currency only)
+    leg2_market_rate REAL,                           -- market rate for leg 2
+    leg2_profit_usd  REAL,                           -- profit on leg 2
+    via_currency     TEXT,                           -- 'USD' for cross-currency, NULL for direct
+    client_name      TEXT,
+    note             TEXT,
+    created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_by       INTEGER
+);
+
+-- Financial Services (OMT, Whish, IPEC, Katch, Wish App, Binance, etc.)
 CREATE TABLE IF NOT EXISTS financial_services (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    provider TEXT CHECK(provider IN ('OMT', 'WHISH', 'BOB', 'OTHER', 'IPEC', 'KATCH', 'WISH_APP', 'OMT_APP')) NOT NULL,
-    service_type TEXT CHECK(service_type IN ('SEND', 'RECEIVE', 'BILL_PAYMENT')) NOT NULL,
+    provider TEXT CHECK(provider IN ('OMT', 'WHISH', 'BOB', 'OTHER', 'IPEC', 'KATCH', 'WISH_APP', 'OMT_APP', 'BINANCE')) NOT NULL,
+    service_type TEXT CHECK(service_type IN ('SEND', 'RECEIVE')) NOT NULL,
     amount DECIMAL(10, 2) NOT NULL,
     currency TEXT DEFAULT 'USD' NOT NULL,
     commission DECIMAL(10, 2) DEFAULT 0,
@@ -352,6 +392,11 @@ CREATE TABLE IF NOT EXISTS financial_services (
     client_id INTEGER REFERENCES clients(id),
     client_name TEXT,
     reference_number TEXT,
+    phone_number TEXT,
+    omt_service_type TEXT CHECK(omt_service_type IN ('INTRA', 'WESTERN_UNION', 'CASH_TO_BUSINESS', 'CASH_TO_GOV', 'OMT_WALLET', 'OMT_CARD', 'OGERO_MECANIQUE', 'ONLINE_BROKERAGE')),
+    omt_fee DECIMAL(10, 2) DEFAULT 0,
+    profit_rate DECIMAL(6, 5) DEFAULT NULL,
+    pay_fee INTEGER DEFAULT 0,
     item_key TEXT,
     note TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -523,8 +568,6 @@ CREATE INDEX IF NOT EXISTS idx_debt_ledger_transaction_type_created_at ON debt_l
 CREATE INDEX IF NOT EXISTS idx_expenses_expense_date ON expenses(expense_date);
 CREATE INDEX IF NOT EXISTS idx_maintenance_status_created_at ON maintenance(status, created_at);
 CREATE INDEX IF NOT EXISTS idx_exchange_transactions_created_at ON exchange_transactions(created_at);
-CREATE INDEX IF NOT EXISTS idx_binance_transactions_created_at ON binance_transactions(created_at);
-CREATE INDEX IF NOT EXISTS idx_binance_transactions_type_created_at ON binance_transactions(type, created_at);
 CREATE INDEX IF NOT EXISTS idx_financial_services_provider_type_created_at ON financial_services(provider, service_type, created_at);
 CREATE INDEX IF NOT EXISTS idx_financial_services_created_at ON financial_services(created_at);
 CREATE INDEX IF NOT EXISTS idx_financial_services_paid_by ON financial_services(paid_by);
@@ -588,20 +631,19 @@ INSERT OR IGNORE INTO modules (key, label, icon, route, sort_order, is_enabled, 
 
 -- Toggleable modules (can be enabled/disabled from Settings > Modules)
 INSERT OR IGNORE INTO modules (key, label, icon, route, sort_order, is_enabled, admin_only, is_system) VALUES
-  ('analytics',   'Analytics',    'TrendingUp',    '/commissions',   1,  1, 0, 0),
-  ('pos',         'Point of Sale','ShoppingCart',  '/pos',           2,  1, 0, 0),
-  ('debts',       'Debts',        'BookOpen',      '/debts',         3,  1, 0, 0),
-  ('inventory',   'Inventory',    'Package',       '/products',      4,  1, 0, 0),
-  ('clients',     'Clients',      'Users',         '/clients',       5,  1, 0, 0),
-  ('exchange',    'Exchange',     'RefreshCw',     '/exchange',      6,  1, 0, 0),
-  ('omt_whish',   'OMT/Whish',   'Send',          '/services',      7,  1, 0, 0),
-  ('recharge',    'MTC/Alfa',     'Smartphone',    '/recharge',      8,  1, 0, 0),
-  ('expenses',    'Expenses',     'Banknote',      '/expenses',      9,  1, 0, 0),
-  ('maintenance', 'Maintenance',  'Wrench',        '/maintenance',  10,  1, 0, 0),
-  ('binance',     'Binance',      'Bitcoin',       '/recharge',     11,  1, 0, 0),
-  ('ipec_katch',  'IPEC/Katch',  'Zap',           '/recharge',     12,  1, 0, 0),
-  ('custom_services','Services', 'Briefcase',     '/custom-services',13, 1, 0, 0),
-  ('profits',        'Profits',  'TrendingUp',    '/profits',        14, 1, 1, 0);
+  ('pos',         'Point of Sale','ShoppingCart',  '/pos',           1,  1, 0, 0),
+  ('debts',       'Debts',        'BookOpen',      '/debts',         2,  1, 0, 0),
+  ('inventory',   'Inventory',    'Package',       '/products',      3,  1, 0, 0),
+  ('clients',     'Clients',      'Users',         '/clients',       4,  1, 0, 0),
+  ('exchange',    'Exchange',     'RefreshCw',     '/exchange',      5,  1, 0, 0),
+  ('omt_whish',   'OMT/Whish',   'Send',          '/services',      6,  1, 0, 0),
+  ('recharge',    'MTC/Alfa',     'Smartphone',    '/recharge',      7,  0, 0, 0),
+  ('expenses',    'Expenses',     'Banknote',      '/expenses',      8,  1, 0, 0),
+  ('maintenance', 'Maintenance',  'Wrench',        '/maintenance',   9,  1, 0, 0),
+  ('binance',     'Binance',      'Bitcoin',       '/recharge',     10,  0, 0, 0),
+  ('ipec_katch',  'IPEC/Katch',  'Zap',           '/recharge',     11,  0, 0, 0),
+  ('custom_services','Services', 'Briefcase',     '/custom-services',12, 1, 0, 0),
+  ('profits',        'Profits',  'TrendingUp',    '/profits',        13, 1, 1, 0);
 
 -- Currency–Module junction (which currencies are allowed in which modules)
 CREATE TABLE IF NOT EXISTS currency_modules (
@@ -671,12 +713,12 @@ CREATE TABLE IF NOT EXISTS payment_methods (
 );
 
 -- Seed default payment methods
-INSERT OR IGNORE INTO payment_methods (code, label, drawer_name, affects_drawer, sort_order, is_system) VALUES
-  ('CASH',    'Cash',          'General',    1, 0, 1),
-  ('OMT',     'OMT Wallet',    'OMT_App',    1, 1, 0),
-  ('WHISH',   'Whish Wallet',  'Whish_App',  1, 2, 0),
-  ('BINANCE', 'Binance',       'Binance',    1, 3, 0),
-  ('DEBT',    'Debt (On Tab)', 'General',    0, 4, 1);
+INSERT OR IGNORE INTO payment_methods (code, label, drawer_name, affects_drawer, sort_order, is_system, is_active) VALUES
+  ('CASH',    'Cash',          'General',    1, 0, 1, 1),
+  ('OMT',     'OMT Wallet',    'OMT_App',    1, 1, 0, 1),
+  ('WHISH',   'Whish Wallet',  'Whish_App',  1, 2, 0, 1),
+  ('BINANCE', 'Binance',       'Binance',    1, 3, 0, 1),
+  ('DEBT',    'Debt (On Tab)', 'General',    0, 4, 1, 0);
 
 -- Seed system suppliers (linked to modules)
 INSERT OR IGNORE INTO suppliers (name, module_key, provider, is_system) VALUES
@@ -697,18 +739,27 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
     applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- Mark all migrations as applied (schema is already at latest state)
+-- Mark all migrations as applied (schema is already at latest state for fresh installs)
 INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (9,  'add_payment_methods_table'),
-    (10, 'add_recharge_credits'),
-    (11, 'add_custom_services'),
-    (12, 'add_suppliers_module_key'),
-    (13, 'add_module_management'),
-    (14, 'add_dynamic_currencies'),
-    (15, 'standardize_activity_logs'),
-    (16, 'add_maintenance_payments'),
-    (17, 'add_transactions_table'),
-    (18, 'add_transaction_fk_columns'),
-    (19, 'drop_activity_logs_rebuild_ledgers'),
-    (20, 'soft_delete_and_constraints'),
-    (21, 'add_profits_module');
+    (10, 'seed_shop_name'),
+    (11, 'supplier_module_linking'),
+    (12, 'recharge_consolidation'),
+    (13, 'add_whish_app_supplier'),
+    (14, 'financial_services_cost_price_columns'),
+    (15, 'add_custom_services_module'),
+    (16, 'maintenance_paid_by_column'),
+    (17, 'unified_transactions_table'),
+    (18, 'debt_aging_support'),
+    (19, 'schema_cleanup'),
+    (20, 'soft_delete_support'),
+    (21, 'add_profits_module'),
+    (22, 'add_financial_service_phone_and_omt_type'),
+    (23, 'rename_legacy_drawer_names'),
+    (24, 'expand_recharges_table'),
+    (25, 'merge_binance_into_financial_services'),
+    (26, 'remove_bill_payment_add_western_union'),
+    (27, 'update_omt_service_types'),
+    (28, 'add_fee_calculation_fields'),
+    (29, 'remove_analytics_commissions_module'),
+    (30, 'exchange_rates_universal_formula_schema');

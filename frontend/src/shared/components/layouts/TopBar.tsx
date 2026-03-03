@@ -1,13 +1,5 @@
 import { useEffect, useState } from "react";
-
-type UINotification = {
-  id: string | number;
-  message: string;
-  type: "success" | "error" | "info" | "warning";
-  duration?: number;
-};
-
-import { appEvents, useApi } from "@liratek/ui";
+import { appEvents, useApi, type UINotification } from "@liratek/ui";
 import { LogOut, Bell, X, Search, Home } from "lucide-react";
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
@@ -227,30 +219,6 @@ export default function TopBar({
               </div>
               <div className="max-h-80 overflow-y-auto p-2">
                 <NotificationHistory />
-                {(window.notificationHistory || []).length === 0 ? (
-                  <div className="p-4 text-center text-slate-400 text-sm">
-                    No notifications yet
-                  </div>
-                ) : (
-                  <ul className="divide-y divide-slate-700">
-                    {(window.notificationHistory || [])
-                      .slice()
-                      .reverse()
-                      .map((n, idx) => (
-                        <li
-                          key={n.id + "_" + idx}
-                          className="p-3 text-sm text-slate-200"
-                        >
-                          <div className="flex items-center gap-2">
-                            <span
-                              className={`w-2 h-2 rounded-full ${n.type === "success" ? "bg-emerald-500" : n.type === "error" ? "bg-red-500" : n.type === "warning" ? "bg-amber-500" : "bg-blue-500"}`}
-                            ></span>
-                            <span>{n.message}</span>
-                          </div>
-                        </li>
-                      ))}
-                  </ul>
-                )}
               </div>
             </div>
           )}
@@ -271,7 +239,7 @@ export default function TopBar({
           <button
             onClick={() => {
               setAwaitingLogout(true);
-              appEvents.emit("openClosingModal");
+              appEvents.emit("closing:open");
             }}
             className="p-2 text-slate-400 hover:text-red-400 transition-colors"
             title="Logout"

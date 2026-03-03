@@ -1,6 +1,6 @@
 # Current Sprint (Feb 19–Feb 28, 2026)
 
-**Last Updated**: Feb 21, 2026
+**Last Updated**: Feb 22, 2026
 
 ## 📖 How to Read This Document
 
@@ -15,7 +15,12 @@
 
 ### ✅ Completed
 
-- [T-48]!! Profits Module — full-stack admin-only analytics (6 tabs: Overview, By Module, By Date, By Payment, By Cashier, By Client) (completed Feb 21)
+- [T-54]!!! Refund/Void Flow Rewrite — transaction wrapper, double-refund guard, drawer reversal, stock restoration, debt cancellation (completed Feb 22)
+- [T-53]!!! Profit Audit & Pending Profit — fully-paid filter, FIFO debt repayment, Pending Profit tab, 16 unit tests (completed Feb 22)
+- [T-52]!!! Binance Merge into Financial Services — migration v25, delete standalone module, BINANCE provider in financial_services (completed Feb 22)
+- [T-30]!!! Financial Services improvements — phone param, OMT service dropdown, bidirectional settlement view (completed Feb 22)
+- [T-48]!! Profits Module — full-stack admin-only analytics (7 tabs: Overview, By Module, By Date, By Payment, By Cashier, By Client, Pending Profit) (completed Feb 22)
+- [T-50]!! Reusable TableComponent — DataTable component replacing 22 inline tables (completed Feb 21)
 - [T-49]! Table Export — ExportBar component with Excel/PDF export on all 24 table instances (completed Feb 21)
 - [T-46]!!! Recharge Module Improvements — voucher images per item, full payment methods (CASH/OMT/WHISH/BINANCE/DEBT) for financial services, cost tracking with auto-save, mobileServices.json integration, Service Debt on Debts page (completed Feb 18)
 - [T-39]!!! Recharge Consolidation — merge MTC/Alfa + IPEC/Katch + Binance into one page (completed Feb 16)
@@ -50,12 +55,11 @@
 
 ### 🚧 In Progress
 
-- None currently
+(none — all sprint tasks complete)
 
 ### 🔜 Next Priority (MUST DO)
 
-- [T-50]!! Reusable TableComponent — embed ExportBar + `<table>` into a single shared component with export props
-- [T-30]!!! Financial Services (OMT/Whish) improvements: phone param + service dropdown + settlement visibility
+- [T-51]!! Consolidated Reports Page — checkbox-based module selector with multi-module Excel/PDF export
 
 ### 📋 Ready (Ordered by Priority)
 
@@ -63,12 +67,11 @@
 
 **High Priority (!!!)**
 
-- [T-30]!!! Financial Services (OMT/Whish) improvements: phone param + service dropdown + settlement visibility
-
 **Medium Priority (!!)**
 
-- [T-50]!! Reusable TableComponent — replace all 24 inline tables with a single `<DataTable>` component that handles ExportBar, thead/tbody rendering, empty states, and ref management
 - [T-51]!! Consolidated Reports Page — checkbox-based module selector with multi-module Excel/PDF export
+- [T-55]!! Payment Method Surcharge — 1% default fee on Binance/WHISH-to-WHISH/OMT-wallet payments
+- [T-56]!! Transaction History Page — cross-module transaction history filterable by drawer and module
 
 **Low Priority (!)**
 
@@ -86,7 +89,7 @@
 - [P0-1]!!! Installer QA
 - [P0-2]!!! Build Verification
 - [P0-3]!!! Code Signing
-- [TR-C0]!!! Complete Request Validation (9 remaining routes: activity, binance, currencies, dashboard, modules, paymentMethods, sessions, settings, suppliers)
+- [TR-C0]!!! Complete Request Validation (8 remaining routes: activity, currencies, dashboard, modules, paymentMethods, sessions, settings, suppliers)
 - [TR-C2]!!! Remove ReportService duplication in electron-app/services
 - [TR-C3]!!! Fix 98 `any` usages in backendApi.ts (type safety)
 
@@ -470,38 +473,101 @@ Files to KEEP:
 ### [T-30] Financial Services (OMT/Whish) improvements: phone param + service dropdown + settlement visibility !!!
 
 **Added**: Feb 12, 2026  
-**Status**: Ready  
+**Status**: ✅ Completed (Feb 22, 2026)  
 **Dependencies**: [T-27]  
 **Goal**: Make OMT/Whish transactions capture required phone number and improve clarity of who owes what.
 
-**Global requirement**:
+**Implementation Completed**:
 
-- These transactions depend on phone number → ensure a phone field exists and is passed as a parameter into transactions.
+- ✅ **Migration v22** — added `phone_number` and `omt_service_type` columns to `financial_services` table
+- ✅ **OMT service dropdown** — 7 service types: Bill Payment, Cash To Business, Ministry of Interior, Cash Out, Ministry of Finance, INTRA, Online Brokerage
+- ✅ **Phone number field** — stored on financial_services transactions
+- ✅ **Bidirectional settlement view** — shows per-provider USD/LBP owed amounts ("You owe them" vs "They owe you") using supplier balances
+- ✅ **Frontend Services page** — complete UI with phone input, OMT service type selector, settlement balance cards
+- ✅ **28 unit tests** in `backend/src/__tests__/financial_services_t30.test.ts` — validator (phone/OMT type/BINANCE/DEBT), addTransaction storage, getHistory retrieval, error handling
 
-**OMT specific**:
+**Acceptance Criteria** (All Met):
 
-- Show what OMT needs from user in USD/LBP and what user needs from OMT
-- Add dropdown service selection:
-  - Bill Payment
-  - Cash To Business
-  - Ministry of Interior Transactions (معاملات وزارة الداخلية)
-  - Cash Out
-  - Ministry of Finance Transactions (معاملات وزارة المالية)
-  - INTRA
-  - Online Brokerage
+- [x] OMT/Whish forms include phone number and it’s stored
+- [x] OMT supports selecting the service type from the list
+- [x] OMT UI shows the two-sided settlement view (USD+LBP)
+- [x] Whish “owe” view implemented via bidirectional supplier balance
 
-**Whish specific**:
+---
 
-- Show what you owe (requires technical discussion: exact accounting model)
+### [T-55] Payment Method Surcharge (Binance / WHISH-to-WHISH / OMT Wallet) !!
+
+**Added**: Feb 22, 2026  
+**Status**: Ready  
+**Dependencies**: [T-30]  
+**Goal**: Certain payment methods carry an extra commission fee that the customer pays. This fee creates a drawer transaction.
+
+**Business Rules**:
+
+- **Affected payment methods**: Binance, WHISH-to-WHISH, OMT Wallet
+- **Default surcharge**: 1% of the transaction amount
+- **Override per transaction**: The shop owner can change the fee % at time of payment (e.g. 0.5%, 2%), but this does **not** change the stored default — only the fee for that specific transaction
+- **Fee destination**: The surcharge amount creates a transaction in the drawer linked to the payment method (e.g. Binance surcharge → Binance drawer)
+- **Applies globally**: This surcharge applies in **any module** where these payment methods are used (POS, Financial Services, Exchange, etc.), not just OMT/WHISH
+
+**Implementation Tasks**:
+
+- [ ] Add `surcharge_percent` config per payment method (stored in DB or config, default 1% for Binance/WHISH/OMT-wallet, 0% for others)
+- [ ] Backend: when processing a payment with a surcharge-enabled method, auto-calculate fee = `amount × surcharge_percent`
+- [ ] Backend: create an additional drawer transaction for the surcharge amount in the payment method's drawer
+- [ ] Frontend: show the surcharge % field (pre-filled with default) when a surcharge-enabled payment method is selected
+- [ ] Frontend: allow editing the % per-transaction (does not persist as new default)
+- [ ] Frontend: display the calculated surcharge amount next to the % field (read-only, auto-calculated)
+- [ ] Ensure surcharge is visible in history/reports (separate column or line item)
+- [ ] Unit tests for surcharge calculation and drawer effect
 
 **Acceptance Criteria**:
 
-- [ ] OMT/Whish forms include phone number and it’s stored
-- [ ] OMT supports selecting the service type from the list
-- [ ] OMT UI shows the two-sided settlement view (USD+LBP)
-- [ ] Whish “owe” view implemented per agreed model
+- [ ] Selecting Binance/WHISH/OMT-wallet shows surcharge field defaulting to 1%
+- [ ] Changing surcharge % recalculates the fee amount in real-time
+- [ ] Surcharge creates a separate drawer transaction
+- [ ] Default remains 1% for subsequent transactions (override is per-transaction only)
+- [ ] Cash and other non-surcharge methods show no surcharge field
 
-**Estimate**: 2–4 days (depends on accounting decision for Whish)
+**Estimate**: 2–3 days
+
+---
+
+### [T-56] Transaction History Page — Cross-Module Filterable History !!
+
+**Added**: Feb 22, 2026  
+**Status**: Ready  
+**Dependencies**: None  
+**Goal**: A dedicated page to view transaction history across all modules, filterable by drawer and module.
+
+**Business Rules**:
+
+- Shows all transactions across the system in reverse chronological order
+- Filterable by **drawer** (General, OMT_System, Binance, Whish_System, Whish_App, OMT_App, etc.)
+- Filterable by **module** (POS, Financial Services, Exchange, Maintenance, Recharge, Expenses, etc.)
+- Supports date range filter
+- Each row shows: date, module name, drawer affected, amount (+/-), payment method, description/reference
+- Export to Excel and PDF
+
+**Implementation Tasks**:
+
+- [ ] Backend: create endpoint to query transactions across all modules with drawer/module filters
+- [ ] Backend: aggregate from all relevant tables (payments, financial_services, exchange, maintenance, etc.) into unified format
+- [ ] Frontend: new page with filter bar (drawer dropdown, module dropdown, date range)
+- [ ] Frontend: DataTable with sortable columns
+- [ ] Frontend: Excel + PDF export
+- [ ] Add to sidebar navigation
+
+**Acceptance Criteria**:
+
+- [ ] Page shows transactions from all modules in one unified list
+- [ ] Filtering by drawer shows only transactions affecting that drawer
+- [ ] Filtering by module shows only transactions from that module
+- [ ] Combined filters work (e.g. "Binance drawer" + "Financial Services")
+- [ ] Excel/PDF export respects active filters
+- [ ] Date range filter works
+
+**Estimate**: 3–4 days
 
 ---
 
@@ -1012,6 +1078,48 @@ Then run normally:
 
 ---
 
+## 📈 Recent Completions (Feb 22, 2026)
+
+### Profit Audit & Pending Profit (T-53) ✅
+
+- **Fully-paid filter** on all 5 sale profit queries in ProfitService + ClosingRepository — unpaid debt sales excluded from realized profit
+- **FIFO debt repayment** — `DebtRepository._markSalesPaidFIFO()` recognizes profit when debt is fully repaid (oldest unpaid sale first)
+- **Pending Profit tab** — 7th tab on Profits page showing unpaid sales with deferred revenue (3 summary cards + DataTable)
+- **Recharges & financial services** included in all profit analysis methods
+- **is_refunded filter** — refunded items excluded from profit
+- **Bug fix** — corrected `s.client_name`/`s.client_phone` → client table JOIN
+- **16 unit tests** for `getPendingProfit` (SQL correctness, aggregation, error handling)
+
+### Refund/Void Flow Rewrite (T-54) ✅
+
+- Complete transactional rewrite of `voidTransaction()` and `refundTransaction()` in `TransactionRepository`
+- **Double-refund guard** prevents duplicate reversals
+- **Drawer balance reversal** — cash/LBP removed from drawer on refund
+- **Stock restoration** — POS sale items restored to inventory
+- **Debt cancellation** — associated debts removed on void
+- **Admin auth** — void/refund routes require admin role
+
+### Binance Merge into Financial Services (T-52) ✅
+
+- **Migration v25** migrates `binance_transactions` → `financial_services` (provider = 'BINANCE'), drops old table
+- Deleted standalone `BinanceService.ts` and `BinanceRepository.ts`
+- BINANCE added to `FinancialServiceProvider` enum
+- New doc: `docs/FINANCIAL_SERVICES_ARCHITECTURE.md`
+
+### Financial Services T-30 Completed ✅
+
+- **Migration v22** — `phone_number` and `omt_service_type` columns on `financial_services`
+- **OMT service type dropdown** — 7 types (Bill Payment, Cash To Business, etc.)
+- **Bidirectional settlement view** — per-provider USD/LBP owed amounts
+
+### Other Fixes ✅
+
+- **CheckoutModal focus fix** — prevented focus-stealing bug on POS page
+- **Migrations v22–v25** — all idempotent with `IF NOT EXISTS` / `IF EXISTS` guards
+- **Test suite** — 326 backend tests passing (22 suites), up from 291
+
+---
+
 ## 📈 Recent Completions (Feb 16, 2026 — evening)
 
 ### WhatsApp Cloud API Integration (T-45) ✅
@@ -1199,17 +1307,28 @@ Created `@liratek/core` monorepo package to eliminate code duplication between e
 ### [T-48] Profits Module !!
 
 **Added**: Feb 21, 2026
-**Status**: ✅ Completed (Feb 21, 2026)
-**Goal**: Full-stack admin-only profits analytics module with 6 analysis tabs.
+**Status**: ✅ Completed (Feb 21–22, 2026)
+**Goal**: Full-stack admin-only profits analytics module with 7 analysis tabs + profit audit.
 
-**Implementation Completed**:
+**Implementation Completed (Feb 21)**:
 
 - ✅ **ProfitService** (`packages/core`) — queries sale_items, financial_services, custom_services, maintenance, expenses for margin calculations
-- ✅ **REST API** (`backend/src/api/profits.ts`) — 6 endpoints with `requireRole(["admin"])`
-- ✅ **Electron IPC** (`electron-app/handlers/profitHandlers.ts`) — 6 IPC channels
-- ✅ **Frontend** (`frontend/src/features/profits/pages/Profits.tsx`) — 6 tabs: Overview (KPI cards), By Module, By Date (bar chart + table), By Payment Method, By Cashier, By Client
+- ✅ **REST API** (`backend/src/api/profits.ts`) — 7 endpoints with `requireRole(["admin"])`
+- ✅ **Electron IPC** (`electron-app/handlers/profitHandlers.ts`) — 7 IPC channels
+- ✅ **Frontend** (`frontend/src/features/profits/pages/Profits.tsx`) — 7 tabs: Overview (KPI cards), By Module, By Date (bar chart + table), By Payment Method, By Cashier, By Client, **Pending Profit**
 - ✅ **Migration v21** — profits module registration in modules table
-- ✅ All typechecks clean, 291 tests passing
+
+**Profit Audit & Enhancements (Feb 22)**:
+
+- ✅ **Fully-paid filter** — all 5 sale profit queries in ProfitService + ClosingRepository exclude sales with outstanding debt from realized profit
+- ✅ **FIFO debt repayment** — `DebtRepository._markSalesPaidFIFO()` updates `sales.paid_usd` when debt is repaid, triggering profit recognition
+- ✅ **Pending Profit tab** — full-stack 7th tab showing unpaid sales with deferred profit (ProfitService.getPendingProfit → backend route → Electron IPC → frontend UI with 3 summary cards + DataTable)
+- ✅ **Recharges & financial services** — included in all 6 profit analysis methods
+- ✅ **is_refunded filter** — excludes refunded sale items from profit calculations
+- ✅ **Bug fix** — corrected non-existent `s.client_name`/`s.client_phone` column references to use client table joins
+- ✅ **16 unit tests** for `getPendingProfit` in `backend/src/__tests__/pending_profit.test.ts`
+- ✅ **28 unit tests** for T-30 Financial Services in `backend/src/__tests__/financial_services_t30.test.ts`
+- ✅ All typechecks clean, 326 tests passing (22 suites)
 
 ---
 
@@ -1231,26 +1350,34 @@ Created `@liratek/core` monorepo package to eliminate code duplication between e
 ### [T-50] Reusable TableComponent !!
 
 **Added**: Feb 21, 2026
-**Status**: Ready
+**Status**: ✅ Completed (Feb 21, 2026)
 **Goal**: Consolidate the ExportBar + inline `<table>` pattern into a single reusable `<DataTable>` component to reduce boilerplate across all 24 table instances.
 
-**Scope**:
+**Implementation Completed**:
 
-- Create `frontend/src/shared/components/DataTable.tsx` that wraps ExportBar + `<table>` + ref management
-- Props: `exportExcel`, `exportPdf`, `exportFilename`, `columns` (header definitions), `data` (row array), `renderRow` (custom row renderer), `emptyMessage`, `className`
-- Handles: table ref creation, ExportBar rendering, thead/tbody structure, empty state, sticky headers
-- Migrate all 24 table instances to use `<DataTable>` instead of inline `<table>` + `<ExportBar>`
-- Keep the TanStack Table in ActivityLogViewer separate (it has its own column/sorting model)
+- ✅ Created `frontend/src/shared/components/DataTable.tsx` — generic `<T>` component
+  - Props: `columns` (string | DataTableColumn with ReactNode headers), `data`, `renderRow`, `exportExcel`, `exportPdf`, `exportFilename`, `loading`, `emptyMessage`, `emptyContent`, `footerContent`, `className`, `theadClassName`, `thClassName`, `tbodyClassName`
+  - Manages `useRef<HTMLTableElement>` internally, renders ExportBar + table
+- ✅ Migrated 22 tables across 14 files:
+  - Simple (8): RatesManager, UsersManager, CommissionsDashboard, Exchange, Expenses, Maintenance, ClientList, ProductList
+  - Medium (4): Services, CustomServices, Binance, IKWServices
+  - Recharge (2): tableRef + cryptoTableRef
+  - Debts (3): debtTableRef, paymentTableRef, saleItemsTableRef (with interactive sort column headers)
+  - Reports (3): dailyTableRef (with expandable rows), revenueTableRef, overdueTableRef
+  - Profits (5): moduleTableRef, dateTableRef (with footer totals row), paymentTableRef, cashierTableRef, clientTableRef
+- ✅ Kept 2 files unmigrated by design: ModulesManager (multi-section tbody), ActivityLogViewer (TanStack Table)
+- ✅ Deleted unused `useTableExport.tsx` hook
+- ✅ All checks pass: typecheck clean, 81 frontend + 326 backend tests, lint 0 errors, build success
 
 **Acceptance Criteria**:
 
-- [ ] `<DataTable>` component created with full props API
-- [ ] All inline tables migrated to `<DataTable>`
-- [ ] ExportBar embedded inside DataTable (no separate ExportBar imports needed)
-- [ ] Typecheck clean, no visual regressions
-- [ ] TanStack table instance handled appropriately (either via adapter or kept separate)
+- [x] `<DataTable>` component created with full props API
+- [x] All inline tables migrated to `<DataTable>` (22/24, 2 excluded by design)
+- [x] ExportBar embedded inside DataTable (no separate ExportBar imports needed)
+- [x] Typecheck clean, no visual regressions
+- [x] TanStack table instance kept separate (ActivityLogViewer)
 
-**Estimate**: 1–2 days
+**Estimate**: 1–2 days (completed in 1 day)
 
 - Single source of truth for business logic
 - Production-ready builds working across all platforms
@@ -1273,18 +1400,18 @@ Created `@liratek/core` monorepo package to eliminate code duplication between e
 
 **Data Sources per Module**:
 
-| Module | API Call | Key Fields |
-|--------|----------|------------|
-| `recharge` | `getRechargeHistory()` | type, amount, commission, client, time |
-| `ipec_katch` | `getFinancialHistory()` | provider, type, amount, commission, client, time |
-| `binance` | `getBinanceTransactions()` | type, amount, client, time |
-| `exchange` | `getExchangeHistory()` | from, to, rate, amount_in, amount_out, time |
-| `omt_whish` | `getFinancialHistory()` | provider, type, amount, commission, time |
-| `expenses` | `getTodayExpenses()` | category, amount_usd, amount_lbp, description, time |
-| `debts` | `getDebts()` | client, amount_usd, amount_lbp, status |
-| `pos` | `getSales()` | items, total, payment_method, time |
-| `maintenance` | `getMaintenanceJobs()` | client, device, status, cost, time |
-| `custom_services` | `getCustomServiceHistory()` | description, amount, time |
+| Module            | API Call                    | Key Fields                                          |
+| ----------------- | --------------------------- | --------------------------------------------------- |
+| `recharge`        | `getRechargeHistory()`      | type, amount, commission, client, time              |
+| `ipec_katch`      | `getFinancialHistory()`     | provider, type, amount, commission, client, time    |
+| `binance`         | `getBinanceTransactions()`  | type, amount, client, time                          |
+| `exchange`        | `getExchangeHistory()`      | from, to, rate, amount_in, amount_out, time         |
+| `omt_whish`       | `getFinancialHistory()`     | provider, type, amount, commission, time            |
+| `expenses`        | `getTodayExpenses()`        | category, amount_usd, amount_lbp, description, time |
+| `debts`           | `getDebts()`                | client, amount_usd, amount_lbp, status              |
+| `pos`             | `getSales()`                | items, total, payment_method, time                  |
+| `maintenance`     | `getMaintenanceJobs()`      | client, device, status, cost, time                  |
+| `custom_services` | `getCustomServiceHistory()` | description, amount, time                           |
 
 **UI Layout**:
 
@@ -1304,3 +1431,56 @@ Created `@liratek/core` monorepo package to eliminate code duplication between e
 - [ ] Date range filter controls the query window
 
 **Estimate**: 2–3 days
+
+---
+
+### [T-52] Binance Merge into Financial Services !!
+
+**Added**: Feb 22, 2026
+**Status**: ✅ Completed (Feb 22, 2026)
+**Goal**: Eliminate standalone Binance module by merging it into the unified Financial Services architecture as a BINANCE provider.
+
+**Implementation Completed**:
+
+- ✅ **Migration v25** — migrates all `binance_transactions` data into `financial_services` table with `provider = 'BINANCE'`, then drops old table
+- ✅ **Deleted** `BinanceService.ts` and `BinanceRepository.ts` — all logic now handled by `FinancialServiceRepository` with BINANCE provider
+- ✅ **Updated validators** — added BINANCE to `FinancialServiceProvider` enum in `financialServiceValidators.ts`
+- ✅ **Frontend** — Binance transactions now appear under Services page alongside OMT/Whish
+- ✅ **Electron IPC** — removed standalone Binance IPC handlers, uses financial services channels
+- ✅ **Architecture doc** — `docs/FINANCIAL_SERVICES_ARCHITECTURE.md` documents the unified provider model
+
+---
+
+### [T-53] Profit Audit & Pending Profit !!
+
+**Added**: Feb 22, 2026
+**Status**: ✅ Completed (Feb 22, 2026)
+**Goal**: Ensure profit calculations are accurate by excluding unpaid sales and adding a Pending Profit view for deferred revenue.
+
+**Implementation Completed**:
+
+- ✅ **Fully-paid filter** on all 5 sale profit queries in `ProfitService` + `ClosingRepository` snapshot — sales with outstanding debt excluded from realized profit using formula: `(paid_usd + COALESCE(paid_lbp,0) / exchange_rate) >= final_amount_usd - 0.05`
+- ✅ **FIFO debt repayment** — `DebtRepository._markSalesPaidFIFO()` updates `sales.paid_usd` when debt payments are recorded, oldest unpaid sale first, triggering profit recognition when fully paid
+- ✅ **PendingProfitRow type** — `sale_id`, `sale_date`, `client_name`, `phone_number`, `final_amount_usd`, `paid_usd`, `outstanding_usd`, `pending_profit`
+- ✅ **getPendingProfit()** — new ProfitService method querying unpaid sales with their deferred margin
+- ✅ **Full-stack feature** — backend REST route, Electron IPC handler, preload bridge, API types, ElectronApiAdapter, frontend 7th tab with 3 SummaryCards (Unpaid Sales, Outstanding Amount, Pending Profit) + DataTable
+- ✅ **Bug fix** — corrected `s.client_name`/`s.client_phone` → `COALESCE(c.full_name, 'Unknown')` / `COALESCE(c.phone_number, '')` via client JOIN
+- ✅ **16 unit tests** in `backend/src/__tests__/pending_profit.test.ts` — SQL correctness, totals aggregation, error handling
+
+---
+
+### [T-54] Refund/Void Flow Rewrite !!!
+
+**Added**: Feb 22, 2026
+**Status**: ✅ Completed (Feb 22, 2026)
+**Goal**: Replace fragile refund/void logic with a robust transactional flow that properly reverses all side effects.
+
+**Implementation Completed**:
+
+- ✅ **Transaction wrapper** — both `voidTransaction()` and `refundTransaction()` in `TransactionRepository` run inside a single SQLite transaction for atomicity
+- ✅ **Double-refund guard** — checks `is_refunded` flag before processing, prevents duplicate reversals
+- ✅ **Drawer balance reversal** — refunds/voids reverse the original payment's drawer impact (cash removed from drawer, LBP removed from drawer)
+- ✅ **Stock restoration** — POS sale items restored to `inventory.quantity` on refund/void
+- ✅ **Debt cancellation** — `_cancelDebt()` removes associated debt records and resets `sales.paid_usd` when voiding a credit sale
+- ✅ **Admin auth** — void and refund routes require `requireRole(["admin"])`
+- ✅ **is_refunded flag** — set on both `sales` and `sale_items` tables to exclude from profit calculations

@@ -11,6 +11,7 @@ import {
   type FinancialServiceEntity,
   type CreateFinancialServiceData,
   type FinancialServiceAnalytics,
+  type UnsettledSummary,
 } from "../repositories/index.js";
 import { getItemCostService } from "./ItemCostService.js";
 import { financialLogger } from "../utils/logger.js";
@@ -117,6 +118,7 @@ export class FinancialService {
 
   /**
    * Get comprehensive analytics (today, month, by provider)
+   * commission = realized (settled); pending_commission = pending settlement
    */
   getAnalytics(): FinancialServiceAnalytics {
     try {
@@ -124,10 +126,53 @@ export class FinancialService {
     } catch (error) {
       financialLogger.error({ error }, "Failed to get analytics");
       return {
-        today: { commission: 0, count: 0, byCurrency: [] },
-        month: { commission: 0, count: 0, byCurrency: [] },
+        today: {
+          commission: 0,
+          pending_commission: 0,
+          count: 0,
+          byCurrency: [],
+        },
+        month: {
+          commission: 0,
+          pending_commission: 0,
+          count: 0,
+          byCurrency: [],
+        },
         byProvider: [],
       };
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Settlement Queries
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Get all unsettled transactions for a given provider (e.g. "OMT", "WHISH").
+   * These are RECEIVE rows where commission > 0 and is_settled = 0.
+   */
+  getUnsettledByProvider(provider: string): FinancialServiceEntity[] {
+    try {
+      return this.fsRepo.getUnsettledBySupplier(provider);
+    } catch (error) {
+      financialLogger.error(
+        { error, provider },
+        "Failed to get unsettled transactions",
+      );
+      return [];
+    }
+  }
+
+  /**
+   * Get a per-provider summary of unsettled commissions and amounts owed.
+   * Used by Dashboard pending note and Profits pending tab.
+   */
+  getUnsettledSummary(): UnsettledSummary[] {
+    try {
+      return this.fsRepo.getUnsettledSummaryByProvider();
+    } catch (error) {
+      financialLogger.error({ error }, "Failed to get unsettled summary");
+      return [];
     }
   }
 }

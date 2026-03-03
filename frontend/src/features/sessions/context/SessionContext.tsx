@@ -7,6 +7,7 @@ import React, {
 } from "react";
 import logger from "../../../utils/logger";
 import { useApi } from "@liratek/ui";
+import { useFeatureFlags } from "../../../contexts/FeatureFlagContext";
 
 interface CustomerSession {
   id: number;
@@ -80,6 +81,7 @@ export function useSession() {
 
 export function SessionProvider({ children }: { children: React.ReactNode }) {
   const api = useApi();
+  const { flags } = useFeatureFlags();
   const [activeSession, setActiveSession] = useState<CustomerSession | null>(
     null,
   );
@@ -93,10 +95,12 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [isFloatingWindowMinimized, setIsFloatingWindowMinimized] =
     useState(true); // Default to minimized
 
-  // Load active sessions on mount
+  // Load active sessions on mount (only when customer sessions feature is enabled)
   useEffect(() => {
-    refreshActiveSessions();
-  }, []);
+    if (flags.customerSessions) {
+      refreshActiveSessions();
+    }
+  }, [flags.customerSessions]);
 
   const refreshActiveSessions = useCallback(async () => {
     try {
