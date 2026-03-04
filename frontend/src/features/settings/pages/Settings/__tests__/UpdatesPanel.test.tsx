@@ -57,7 +57,7 @@ describe("UpdatesPanel", () => {
     expect(await screen.findByText("v1.0.1")).toBeInTheDocument();
   });
 
-  it("check shows packaged update info as JSON", async () => {
+  it("check shows packaged update info as JSON and shows Download button", async () => {
     (window as any).api.updater.getStatus.mockResolvedValue({
       packaged: true,
       platform: "win32",
@@ -70,10 +70,17 @@ describe("UpdatesPanel", () => {
 
     render(<UpdatesPanel />);
 
+    // Download button should NOT be visible before check
+    expect(screen.queryByText("Download")).not.toBeInTheDocument();
+
     // Must click to trigger check
     fireEvent.click(await screen.findByText("Check for Updates"));
 
     expect(await screen.findByText(/"version": "1\.0\.1"/)).toBeInTheDocument();
+    // Download button should now be visible
+    expect(screen.getByText("Download")).toBeInTheDocument();
+    // Install button should NOT be visible yet
+    expect(screen.queryByText("Install & Restart")).not.toBeInTheDocument();
   });
 
   it("check shows error notification on failure", async () => {
@@ -97,11 +104,16 @@ describe("UpdatesPanel", () => {
   });
 
   it("download shows error notification on failure", async () => {
-    // Packaged mode so Download button is visible
+    // Packaged mode so Download button can appear
     (window as any).api.updater.getStatus.mockResolvedValue({
       packaged: true,
       platform: "win32",
       version: "1.0.0",
+    });
+    // Check returns an update available
+    (window as any).api.updater.check.mockResolvedValue({
+      success: true,
+      updateInfo: { version: "1.0.1" },
     });
     (window as any).api.updater.download.mockResolvedValueOnce({
       success: false,
@@ -110,6 +122,9 @@ describe("UpdatesPanel", () => {
 
     render(<UpdatesPanel />);
 
+    // First check for updates to make Download button appear
+    fireEvent.click(await screen.findByText("Check for Updates"));
+    // Wait for Download button to appear
     fireEvent.click(await screen.findByText("Download"));
 
     await waitFor(() => {

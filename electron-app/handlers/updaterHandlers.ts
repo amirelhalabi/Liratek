@@ -243,6 +243,13 @@ export function registerUpdaterHandlers(): void {
 
     try {
       const { autoUpdater } = esmRequire("electron-updater");
+      // Guard: ensure a check has been performed first
+      if (!autoUpdater.updateInfoAndProvider) {
+        return {
+          success: false,
+          error: "Please check for updates first before downloading.",
+        };
+      }
       ensureUpdateToken();
       wireAutoUpdaterEvents();
       const res = await autoUpdater.downloadUpdate();
