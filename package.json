@@ -166,6 +166,9 @@
           ]
         }
       ],
+      "publisherName": "LiraTek",
+      "requestedExecutionLevel": "asInvoker",
+      "verifyUpdateCodeSignature": false,
       "artifactName": "${productName}-Setup-${version}.${ext}"
     },
     "nsis": {

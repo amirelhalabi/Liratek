@@ -29,14 +29,29 @@ export default function ProductSearch({
 
   // Track whether the current search was user-initiated (not the initial empty load)
   const isUserSearch = useRef(false);
+  // Timer for delayed barcode auto-add (gives time to keep typing)
+  const barcodeAutoAddTimer = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
 
   // A barcode is a purely numeric string with 6+ digits (barcode scanners input digits rapidly)
   const isBarcodeScan = (value: string) => /^\d{6,}$/.test(value.trim());
+
+  // Cancel any pending barcode auto-add (called when user types more)
+  const cancelBarcodeAutoAdd = () => {
+    if (barcodeAutoAddTimer.current) {
+      clearTimeout(barcodeAutoAddTimer.current);
+      barcodeAutoAddTimer.current = null;
+    }
+  };
 
   // Auto-focus search input on mount
   useEffect(() => {
     searchInputRef.current?.focus();
   }, []);
+
+  // Cancel pending auto-add on unmount
+  useEffect(() => () => cancelBarcodeAutoAdd(), []);
 
   // Listen for setting changes from ShopConfig
   useEffect(() => {
@@ -52,16 +67,23 @@ export default function ProductSearch({
       const results = data as unknown as Product[];
       setProducts(results);
 
-      // Auto-add when scanning a barcode that matches exactly 1 product
+      // Auto-add when scanning a barcode that matches exactly 1 product.
+      // Delay 800ms so manual typers can keep entering digits.
+      // Barcode scanners input all digits within ~50ms so the 300ms search
+      // debounce + 800ms auto-add delay is still fast for scanners.
+      cancelBarcodeAutoAdd();
       if (
         isUserSearch.current &&
         isBarcodeScan(search) &&
         results.length === 1
       ) {
-        onAddToCart(results[0]);
-        setSearch("");
-        isUserSearch.current = false;
-        requestAnimationFrame(() => searchInputRef.current?.focus());
+        const product = results[0];
+        barcodeAutoAddTimer.current = setTimeout(() => {
+          onAddToCart(product);
+          setSearch("");
+          isUserSearch.current = false;
+          requestAnimationFrame(() => searchInputRef.current?.focus());
+        }, 800);
       }
     } catch (error) {
       logger.error("Error loading products:", error);
@@ -95,6 +117,7 @@ export default function ProductSearch({
             value={search}
             onChange={(e) => {
               isUserSearch.current = true;
+              cancelBarcodeAutoAdd();
               setSearch(e.target.value);
             }}
             placeholder="Search products by name or barcode..."

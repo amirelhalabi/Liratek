@@ -1,9 +1,19 @@
 import { useEffect, useState } from "react";
 import logger from "../../../../utils/logger";
 import { appEvents, useApi } from "@liratek/ui";
-import { PanelLeft, LayoutGrid, Image, List } from "lucide-react";
+import { PanelLeft, LayoutGrid, Image, List, Monitor } from "lucide-react";
 import clsx from "clsx";
 import { useFeatureFlags } from "../../../../contexts/FeatureFlagContext";
+
+const UI_SCALE_OPTIONS = [
+  { value: 0.75, label: "75%" },
+  { value: 0.8, label: "80%" },
+  { value: 0.85, label: "85%" },
+  { value: 0.9, label: "90%" },
+  { value: 1.0, label: "100%" },
+  { value: 1.1, label: "110%" },
+  { value: 1.25, label: "125%" },
+];
 
 export default function ShopConfig() {
   const api = useApi();
@@ -23,6 +33,10 @@ export default function ShopConfig() {
   const [posShowImages, setPosShowImages] = useState(
     () => localStorage.getItem("pos_show_images") !== "false",
   );
+  const [uiScale, setUiScale] = useState(() => {
+    const saved = localStorage.getItem("ui_scale");
+    return saved ? parseFloat(saved) : 1.0;
+  });
 
   const handleLayoutChange = (mode: "left-panel" | "page-view") => {
     setLayoutMode(mode);
@@ -41,6 +55,15 @@ export default function ShopConfig() {
     setPosShowImages(show);
     localStorage.setItem("pos_show_images", String(show));
     window.dispatchEvent(new Event("pos-display-changed"));
+  };
+
+  const handleUiScaleChange = (scale: number) => {
+    setUiScale(scale);
+    localStorage.setItem("ui_scale", String(scale));
+    // Apply zoom via Electron webFrame
+    if (window.api?.display?.setZoomFactor) {
+      window.api.display.setZoomFactor(scale);
+    }
   };
 
   const load = async () => {
@@ -380,6 +403,36 @@ export default function ShopConfig() {
             compact list with pagination.
           </p>
         </div>
+      </div>
+
+      {/* UI Scale */}
+      <div className="pt-6 border-t border-slate-700">
+        <span className="block text-sm text-slate-400 mb-3">UI Scale</span>
+        <div className="flex gap-4 items-start">
+          <div className="flex items-center gap-3">
+            <Monitor size={20} className="text-slate-400" />
+            <div className="flex gap-1">
+              {UI_SCALE_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => handleUiScaleChange(opt.value)}
+                  className={clsx(
+                    "px-3 py-2 rounded-lg text-sm font-medium transition-all",
+                    uiScale === opt.value
+                      ? "bg-violet-600 text-white shadow-lg shadow-violet-900/30"
+                      : "bg-slate-700 text-slate-400 hover:bg-slate-600 hover:text-white",
+                  )}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+        <p className="text-xs text-slate-500 mt-2">
+          Scale the entire app UI. Use a smaller scale on POS screens to fit
+          more content, or a larger scale for touch displays.
+        </p>
       </div>
     </div>
   );

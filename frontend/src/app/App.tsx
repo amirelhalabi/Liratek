@@ -1,4 +1,5 @@
 import { HashRouter, Routes, Route, Navigate } from "react-router-dom";
+import { useEffect } from "react";
 import { AuthProvider, useAuth } from "../features/auth/context/AuthContext";
 import { SessionProvider } from "../features/sessions/context/SessionContext";
 import { ModuleProvider } from "../contexts/ModuleContext";
@@ -200,6 +201,17 @@ function AppRoutes() {
 }
 
 function App() {
+  // Apply saved UI scale on startup
+  useEffect(() => {
+    const saved = localStorage.getItem("ui_scale");
+    if (saved && window.api?.display?.setZoomFactor) {
+      const factor = parseFloat(saved);
+      if (factor > 0 && isFinite(factor)) {
+        window.api.display.setZoomFactor(factor);
+      }
+    }
+  }, []);
+
   return (
     // HashRouter is recommended for Electron to avoid path issues in production
     <ApiProvider adapter={backendApiAdapter}>
