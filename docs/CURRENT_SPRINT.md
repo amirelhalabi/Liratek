@@ -2,7 +2,68 @@
 
 > **Last Updated**: 2026-03-04  
 > **Sprint Start**: 2026-03-01  
-> **Focus**: Setup Wizard, Module-Linked UI, UX Polish, CI/CD + Packaging
+> **Focus**: Setup Wizard, Module-Linked UI, UX Polish, CI/CD + Packaging, Auto-Update
+
+---
+
+## ✅ Done This Sprint (March 4, 2026 — Private Repo Auto-Update)
+
+### Auto-Update for Private GitHub Repo
+
+| Change                                | Details                                                                                                                                                                                                                       |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`private: true` in publish config** | Added `"private": true` to `build.publish` in `package.json` — tells `electron-updater` to use `PrivateGitHubProvider` which authenticates with GitHub API                                                                    |
+| **`updater-config.ts` token file**    | New file `electron-app/updater-config.ts` exports `UPDATE_TOKEN` constant. Contains `__UPDATE_TOKEN__` placeholder that CI replaces with a real fine-grained PAT before TypeScript compilation                                |
+| **`ensureUpdateToken()` helper**      | In `updaterHandlers.ts` — sets `process.env.GH_TOKEN` from the baked-in `UPDATE_TOKEN` if not already set by env. Called before every `autoUpdater` method (check, download, install)                                         |
+| **CI token injection**                | All 3 build jobs (Windows, macOS ARM, macOS Intel) now have an "Inject update token" step that replaces `__UPDATE_TOKEN__` in `updater-config.ts` with the `UPDATE_TOKEN` repo secret before `yarn build`                     |
+| **`getAppVersion()` path fix**        | Fixed dev-mode path from `../../package.json` to `../../../package.json` — at runtime `__dirname` is `electron-app/dist/handlers/` (3 levels from root, not 2). Diagnostics page now shows correct version instead of `1.0.0` |
+| **Dev-mode token fallback**           | `fetchLatestRelease()` now also checks `UPDATE_TOKEN` as fallback when `GH_TOKEN`/`GITHUB_TOKEN` env vars are not set                                                                                                         |
+| **Build passes**                      | `yarn build` succeeds with zero errors                                                                                                                                                                                        |
+
+**Setup required**: Create a fine-grained GitHub PAT with read-only Contents scope, then add it as `UPDATE_TOKEN` repo secret in GitHub Settings > Secrets.
+
+---
+
+## ✅ Done This Sprint (March 4, 2026 — Diagnostics & Updater Dev Preview)
+
+### Auto-Updater Dev Mode Preview
+
+| Change                         | Details                                                                                                                                                        |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Dev-mode GitHub API fetch**  | `updater:check` in dev mode fetches `https://api.github.com/repos/.../releases/latest` with `GH_TOKEN` Bearer auth instead of returning "disabled in dev mode" |
+| **Structured release display** | `UpdatesPanel.tsx` shows tag name, published date, asset list with file sizes, color-coded icons per file type, "Up to date" / "Newer than local" badges       |
+| **Dev-mode gating**            | Download/Install buttons hidden in dev mode; release info panel only shows in dev mode                                                                         |
+| **`.env.example` updated**     | Added `GH_TOKEN` documentation for dev-mode updater preview                                                                                                    |
+
+### Diagnostics Page Cleanup
+
+| Change                             | Details                                                                                                                    |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| **Removed all refresh buttons**    | Removed Refresh buttons from UpdatesPanel, Backups section, and Sync Errors section                                        |
+| **Auto-load on mount**             | UpdatesPanel auto-checks for updates on mount; Diagnostics loads sync errors and backups on mount                          |
+| **Notification toasts for errors** | All UpdatesPanel errors (check/download/install) use `appEvents.emit("notification:show", ...)` instead of inline red divs |
+
+### Additional Fixes
+
+| Change                               | Details                                                                                                                                                |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **ElectronApiAdapter `deleteDraft`** | Added missing `deleteDraft` wiring in `ElectronApiAdapter.ts` — was the reason draft cancellation silently failed despite full stack being implemented |
+| **POS search auto-focus on mount**   | `useEffect` focuses `searchInputRef` when POS component mounts — barcode scanner ready immediately                                                     |
+
+---
+
+## ✅ Done This Sprint (March 4, 2026 — POS UX Improvements)
+
+### POS Receipt Printing, Auto-Add, Create-from-POS
+
+| Change                                  | Details                                                                                                                                                                                                                                                |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Receipt print styling fix**           | `handlePrintReceipt()` now writes a full HTML document with `@page { size: 58mm auto; margin: 0 }` and zeroed body margins. Receipt prints at exact thermal receipt width with no browser chrome instead of filling 400px window                       |
+| **Barcode scan auto-add to cart**       | When POS search is a barcode (6+ digit numeric string) and returns exactly 1 product, it is automatically added to cart. Search bar clears and re-focuses for rapid scanning. Text searches show results normally (no auto-add)                        |
+| **"Create Item" button in empty state** | When POS search returns 0 results and the user has typed something, a "Create Item" button appears below "No products found". Clicking it opens `ProductForm` with the search text pre-filled as the product name                                      |
+| **Create-from-POS flow**                | After saving a new product via the POS-embedded `ProductForm`, the product is automatically fetched and added to cart. `ProductForm` now accepts optional `prefillName` prop                                                                           |
+| **Draft cancellation deletes from DB**  | Cancel button on CheckoutModal now deletes the draft from DB (not just closes the modal). New `deleteDraft` API added through full stack: Repository → Service → IPC Handler → Preload → Types → backendApi. Cart and `currentDraftId` reset on cancel |
+| **Build passes**                        | `tsc --noEmit` + `yarn build` both succeed with zero errors                                                                                                                                                                                            |
 
 ---
 

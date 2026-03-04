@@ -173,6 +173,9 @@ export type ApiAdapter = {
   // Sales
   // ---------------------------------------------------------------------------
   getDrafts: () => Promise<any[]>;
+  deleteDraft: (
+    saleId: number,
+  ) => Promise<{ success: boolean; error?: string }>;
   processSale: (payload: any) => Promise<ProcessSaleResult>;
   getSale: (saleId: number) => Promise<any>;
   getSaleItems: (saleId: number) => Promise<any[]>;

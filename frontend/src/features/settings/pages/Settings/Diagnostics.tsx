@@ -318,22 +318,13 @@ export default function Diagnostics() {
               );
             })()}
           </div>
-          <div className="flex gap-2">
-            <button
-              onClick={loadBackups}
-              disabled={backupLoading}
-              className="px-3 py-1 bg-slate-700 rounded text-white text-sm"
-            >
-              Refresh
-            </button>
-            <button
-              onClick={backupNow}
-              disabled={backupLoading}
-              className="px-3 py-1 bg-violet-600 rounded text-white text-sm"
-            >
-              Backup Now
-            </button>
-          </div>
+          <button
+            onClick={backupNow}
+            disabled={backupLoading}
+            className="px-3 py-1 bg-violet-600 rounded text-white text-sm"
+          >
+            Backup Now
+          </button>
         </div>
 
         {backupError && (
@@ -388,15 +379,7 @@ export default function Diagnostics() {
 
       {/* Sync Errors */}
       <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-white font-semibold">Sync Errors</h3>
-          <button
-            onClick={load}
-            className="px-3 py-1 bg-slate-700 rounded text-white text-sm"
-          >
-            Refresh
-          </button>
-        </div>
+        <h3 className="text-white font-semibold">Sync Errors</h3>
         <div className="border border-slate-700 rounded overflow-hidden">
           <table className="w-full text-left">
             <thead className="bg-slate-900 text-slate-400 text-xs uppercase">

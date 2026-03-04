@@ -92,6 +92,19 @@ export class SalesService {
   }
 
   /**
+   * Delete a draft sale and its items
+   */
+  deleteDraft(saleId: number) {
+    try {
+      salesLogger.info({ saleId }, "Deleting draft");
+      return this.salesRepo.deleteDraft(saleId);
+    } catch (error) {
+      salesLogger.error({ error, saleId }, "Failed to delete draft");
+      return { success: false, error: "Failed to delete draft" };
+    }
+  }
+
+  /**
    * Get a single sale by ID
    */
   getSale(saleId: number) {

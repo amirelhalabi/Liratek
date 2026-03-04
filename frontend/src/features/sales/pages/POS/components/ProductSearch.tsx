@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import logger from "../../../../../utils/logger";
-import { Search, ShoppingCart } from "lucide-react";
+import { Search, ShoppingCart, Plus } from "lucide-react";
 import type { Product } from "@liratek/ui";
 import { useApi } from "@liratek/ui";
 import { DataTable } from "@/shared/components/DataTable";
@@ -13,14 +13,30 @@ function getPosShowImages(): boolean {
 
 interface ProductSearchProps {
   onAddToCart: (product: Product) => void;
+  onCreateProduct?: (prefillName: string) => void;
 }
 
-export default function ProductSearch({ onAddToCart }: ProductSearchProps) {
+export default function ProductSearch({
+  onAddToCart,
+  onCreateProduct,
+}: ProductSearchProps) {
   const api = useApi();
   const [search, setSearch] = useState("");
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(false);
   const [showImages, setShowImages] = useState(getPosShowImages);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Track whether the current search was user-initiated (not the initial empty load)
+  const isUserSearch = useRef(false);
+
+  // A barcode is a purely numeric string with 6+ digits (barcode scanners input digits rapidly)
+  const isBarcodeScan = (value: string) => /^\d{6,}$/.test(value.trim());
+
+  // Auto-focus search input on mount
+  useEffect(() => {
+    searchInputRef.current?.focus();
+  }, []);
 
   // Listen for setting changes from ShopConfig
   useEffect(() => {
@@ -33,13 +49,26 @@ export default function ProductSearch({ onAddToCart }: ProductSearchProps) {
     setLoading(true);
     try {
       const data = await api.getProducts(search);
-      setProducts(data as unknown as Product[]);
+      const results = data as unknown as Product[];
+      setProducts(results);
+
+      // Auto-add when scanning a barcode that matches exactly 1 product
+      if (
+        isUserSearch.current &&
+        isBarcodeScan(search) &&
+        results.length === 1
+      ) {
+        onAddToCart(results[0]);
+        setSearch("");
+        isUserSearch.current = false;
+        requestAnimationFrame(() => searchInputRef.current?.focus());
+      }
     } catch (error) {
       logger.error("Error loading products:", error);
     } finally {
       setLoading(false);
     }
-  }, [search]);
+  }, [search, onAddToCart]);
 
   // Initial load
   useEffect(() => {
@@ -61,9 +90,13 @@ export default function ProductSearch({ onAddToCart }: ProductSearchProps) {
         <div className="relative">
           <Search className="absolute left-4 top-3.5 text-slate-500 h-5 w-5" />
           <input
+            ref={searchInputRef}
             type="text"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => {
+              isUserSearch.current = true;
+              setSearch(e.target.value);
+            }}
             placeholder="Search products by name or barcode..."
             className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-12 pr-4 py-3 text-white focus:ring-2 focus:ring-violet-600 shadow-inner"
           />
@@ -80,6 +113,15 @@ export default function ProductSearch({ onAddToCart }: ProductSearchProps) {
           <div className="flex flex-col items-center justify-center h-64 text-slate-500">
             <ShoppingCart size={48} className="mb-4 opacity-50" />
             <p>No products found</p>
+            {search.trim().length > 0 && onCreateProduct && (
+              <button
+                onClick={() => onCreateProduct(search.trim())}
+                className="mt-4 flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg font-medium transition-colors"
+              >
+                <Plus size={18} />
+                Create Item
+              </button>
+            )}
           </div>
         ) : showImages ? (
           /* ── Image Grid View ── */

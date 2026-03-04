@@ -614,6 +614,27 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
   }
 
   /**
+   * Delete a draft sale and its items
+   */
+  deleteDraft(saleId: number): { success: boolean; error?: string } {
+    try {
+      // Only allow deleting drafts, not completed/cancelled sales
+      const sale = this.findById(saleId);
+      if (!sale) {
+        return { success: false, error: "Draft not found" };
+      }
+      if (sale.status !== "draft") {
+        return { success: false, error: "Only draft sales can be deleted" };
+      }
+      this.execute("DELETE FROM sale_items WHERE sale_id = ?", saleId);
+      this.execute("DELETE FROM sales WHERE id = ?", saleId);
+      return { success: true };
+    } catch (error) {
+      throw new DatabaseError("Failed to delete draft", { cause: error });
+    }
+  }
+
+  /**
    * Add an item to a sale
    */
   addSaleItem(

@@ -37,6 +37,7 @@ export class ElectronApiAdapter implements ApiAdapter {
   // Sales
   // ---------------------------------------------------------------------------
   getDrafts = () => api.getDrafts();
+  deleteDraft = (saleId: number) => api.deleteDraft(saleId);
   processSale = (payload: any) => api.processSale(payload);
   getSale = (saleId: number) => api.getSale(saleId);
   getSaleItems = (saleId: number) => api.getSaleItems(saleId);

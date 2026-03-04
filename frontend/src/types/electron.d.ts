@@ -158,6 +158,9 @@ export interface ElectronAPI {
         import("@liratek/core").SaleRequest & { id: number; status: "draft" }
       >
     >;
+    deleteDraft: (
+      saleId: number,
+    ) => Promise<{ success: boolean; error?: string }>;
     getTodaysSales: () => Promise<
       Array<{
         id: number;
@@ -573,6 +576,7 @@ export interface ElectronAPI {
     check: () => Promise<{
       success: boolean;
       updateInfo?: unknown;
+      devMode?: boolean;
       error?: string;
     }>;
     download: () => Promise<{

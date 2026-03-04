@@ -8,6 +8,7 @@ import CheckoutModal, {
   type PaymentData,
   type CheckoutDraftData,
 } from "./components/CheckoutModal";
+import ProductForm from "../../../inventory/pages/Inventory/ProductForm";
 import { appEvents, useApi } from "@liratek/ui";
 import type { Product, CartItem, SaleRequest } from "@liratek/ui";
 import { useExchangeRate } from "../../../../hooks/useExchangeRate";
@@ -19,6 +20,10 @@ export default function POS() {
   const { rate: defaultExchangeRate } = useExchangeRate("USD", "LBP");
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
+
+  // Create-product-from-POS state
+  const [showProductForm, setShowProductForm] = useState(false);
+  const [productFormPrefill, setProductFormPrefill] = useState("");
 
   // Drafts State
   const [currentDraftId, setCurrentDraftId] = useState<number | undefined>(
@@ -108,6 +113,32 @@ export default function POS() {
       setCartItems([]);
       setCurrentDraftId(undefined); // Clear active draft
     }
+  };
+
+  // Open ProductForm from POS with pre-filled name
+  const handleCreateProduct = (prefillName: string) => {
+    setProductFormPrefill(prefillName);
+    setShowProductForm(true);
+  };
+
+  // Called when ProductForm saves successfully — fetch the product, add to cart
+  const handleProductCreated = async () => {
+    setShowProductForm(false);
+    // Find the newly created product by fetching all and taking the latest
+    // (createProduct returns { success, id } but ProductForm doesn't expose the id)
+    // Instead, re-search with the prefill name to find it
+    try {
+      const all = (await api.getProducts(
+        productFormPrefill,
+      )) as unknown as Product[];
+      if (all.length > 0) {
+        // Pick the first match (most likely the just-created product)
+        handleAddToCart(all[0]);
+      }
+    } catch (err) {
+      logger.error("Failed to fetch newly created product", err);
+    }
+    setProductFormPrefill("");
   };
 
   const handleSaveDraft = async (paymentData: PaymentData) => {
@@ -238,7 +269,10 @@ export default function POS() {
       <div className="flex h-full min-h-0 gap-4 overflow-hidden relative">
         {/* Left: Product Selection */}
         <div className="flex-1 min-w-0">
-          <ProductSearch onAddToCart={handleAddToCart} />
+          <ProductSearch
+            onAddToCart={handleAddToCart}
+            onCreateProduct={handleCreateProduct}
+          />
         </div>
 
         {/* Right: Cart */}
@@ -270,11 +304,36 @@ export default function POS() {
             (acc, item) => acc + item.retail_price * item.quantity,
             0,
           )}
-          onClose={() => setIsCheckoutOpen(false)}
+          onClose={async () => {
+            // If we're editing a resumed draft, delete it on cancel
+            if (currentDraftId) {
+              try {
+                await api.deleteDraft(currentDraftId);
+              } catch (err) {
+                logger.error("Failed to delete draft on cancel:", err);
+              }
+            }
+            setIsCheckoutOpen(false);
+            setCartItems([]);
+            setCurrentDraftId(undefined);
+            setCheckoutDraftData(undefined);
+          }}
           onComplete={handleCompleteSale}
           onSaveDraft={handleSaveDraft}
           {...(checkoutDraftData ? { draftData: checkoutDraftData } : {})}
           onRestoreDraftComplete={() => setCheckoutDraftData(undefined)}
+        />
+      )}
+
+      {/* Create Product from POS */}
+      {showProductForm && (
+        <ProductForm
+          onClose={() => {
+            setShowProductForm(false);
+            setProductFormPrefill("");
+          }}
+          onSave={handleProductCreated}
+          prefillName={productFormPrefill}
         />
       )}
 

@@ -83,6 +83,8 @@ contextBridge.exposeInMainWorld("api", {
     get: (saleId: number) => ipcRenderer.invoke("sales:get", saleId),
     getItems: (saleId: number) => ipcRenderer.invoke("sales:get-items", saleId),
     getDrafts: () => ipcRenderer.invoke("sales:get-drafts"),
+    deleteDraft: (saleId: number) =>
+      ipcRenderer.invoke("sales:delete-draft", saleId),
     getTodaysSales: () => ipcRenderer.invoke("sales:get-todays-sales"),
     getTopProducts: () => ipcRenderer.invoke("sales:get-top-products"),
   },

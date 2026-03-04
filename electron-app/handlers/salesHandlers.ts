@@ -24,6 +24,12 @@ export function registerSalesHandlers(): void {
     return salesService.getDrafts();
   });
 
+  // Delete Draft
+  ipcMain.handle("sales:delete-draft", (_event, saleId: number) => {
+    salesLogger.debug({ saleId }, "Deleting draft");
+    return salesService.deleteDraft(saleId);
+  });
+
   // Dashboard Stats
   ipcMain.handle("sales:get-dashboard-stats", () => {
     return salesService.getDashboardStats();

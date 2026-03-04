@@ -357,14 +357,27 @@ export default function CheckoutModal({
   };
 
   const handlePrintReceipt = () => {
-    // For now, open system print dialog
     if (receiptPreview) {
       const printWindow = window.open("", "", "width=400,height=600");
       if (printWindow) {
-        printWindow.document.write(
-          `<pre style="font-family: monospace; font-size: 12px;">${receiptPreview}</pre>`,
-        );
+        printWindow.document.write(`<!DOCTYPE html>
+<html>
+<head>
+<title>Receipt</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { width: 58mm; margin: 0 auto; }
+  pre { font-family: 'Courier New', monospace; font-size: 12px; white-space: pre-wrap; word-break: break-all; line-height: 1.4; }
+  @media print {
+    @page { size: 58mm auto; margin: 0; }
+    html, body { width: 58mm; margin: 0; padding: 0; }
+  }
+</style>
+</head>
+<body><pre>${receiptPreview}</pre></body>
+</html>`);
         printWindow.document.close();
+        printWindow.focus();
         printWindow.print();
         printWindow.close();
       }

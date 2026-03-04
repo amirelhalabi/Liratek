@@ -190,6 +190,18 @@ export async function getDrafts() {
   return res.drafts;
 }
 
+export async function deleteDraft(
+  saleId: number,
+): Promise<{ success: boolean; error?: string }> {
+  if (isElectron()) {
+    return (window as any).api.sales.deleteDraft(saleId);
+  }
+  return requestJson<{ success: boolean; error?: string }>(
+    `/api/sales/drafts/${saleId}`,
+    { method: "DELETE" },
+  );
+}
+
 export type ProcessSaleResult = {
   success: boolean;
   id?: number;

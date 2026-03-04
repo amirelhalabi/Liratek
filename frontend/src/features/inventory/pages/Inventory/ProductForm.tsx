@@ -8,12 +8,14 @@ interface ProductFormProps {
   onClose: () => void;
   onSave: () => void;
   product?: Product | null;
+  prefillName?: string;
 }
 
 export default function ProductForm({
   onClose,
   onSave,
   product,
+  prefillName,
 }: ProductFormProps) {
   const api = useApi();
   const [isLoading, setIsLoading] = useState(false);
@@ -25,7 +27,7 @@ export default function ProductForm({
   }>(null);
   const [formData, setFormData] = useState({
     barcode: "",
-    name: "",
+    name: prefillName || "",
     category: "Accessories",
     cost_price: 0,
     retail_price: 0,

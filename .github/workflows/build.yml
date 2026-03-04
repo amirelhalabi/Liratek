@@ -79,6 +79,11 @@ jobs:
         with:
           install: "true"
 
+      - name: Inject update token
+        run: node -e "const f='electron-app/updater-config.ts';const c=require('fs').readFileSync(f,'utf8');require('fs').writeFileSync(f,c.replace('__UPDATE_TOKEN__',process.env.UPDATE_TOKEN||''))"
+        env:
+          UPDATE_TOKEN: ${{ secrets.UPDATE_TOKEN }}
+
       - name: Build application
         run: yarn build
 
@@ -97,6 +102,11 @@ jobs:
         with:
           install: "true"
 
+      - name: Inject update token
+        run: node -e "const f='electron-app/updater-config.ts';const c=require('fs').readFileSync(f,'utf8');require('fs').writeFileSync(f,c.replace('__UPDATE_TOKEN__',process.env.UPDATE_TOKEN||''))"
+        env:
+          UPDATE_TOKEN: ${{ secrets.UPDATE_TOKEN }}
+
       - name: Build application
         run: yarn build
 
@@ -114,6 +124,11 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           install: "true"
+
+      - name: Inject update token
+        run: node -e "const f='electron-app/updater-config.ts';const c=require('fs').readFileSync(f,'utf8');require('fs').writeFileSync(f,c.replace('__UPDATE_TOKEN__',process.env.UPDATE_TOKEN||''))"
+        env:
+          UPDATE_TOKEN: ${{ secrets.UPDATE_TOKEN }}
 
       - name: Build application
         run: yarn build
