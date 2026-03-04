@@ -6,6 +6,41 @@
 
 ---
 
+## ✅ Done This Sprint (March 4, 2026 — Product Suppliers System)
+
+### Normalized Product Suppliers (`product_suppliers` table)
+
+| Change                                    | Details                                                                                                                                                                                                 |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Migration v40**                         | Creates `product_suppliers` table (`id, name UNIQUE COLLATE NOCASE, sort_order, is_active, created_at`). Auto-imports existing unique supplier names from `products.supplier` column                    |
+| **`ProductSupplierRepository`**           | New repository with `getAll()`, `getAllWithProductCount()`, `create()`, `update()`, `delete()`, `getOrCreate()`, `getNames()`. Singleton via `getProductSupplierRepository()`                           |
+| **5 IPC handlers**                        | `inventory:get-product-suppliers`, `get-product-suppliers-full`, `create-product-supplier`, `update-product-supplier`, `delete-product-supplier` in `inventoryHandlers.ts`                              |
+| **Auto-register on product save**         | `create-product` and `update-product` handlers call `supplierRepo.getOrCreate()` when a supplier name is provided — new suppliers are auto-added to `product_suppliers`                                 |
+| **Preload + TypeScript types**            | 5 new IPC channel bindings in `preload.ts` + full types in `electron.d.ts`                                                                                                                              |
+| **`create_db.sql` updated**               | `product_suppliers` table definition + migration marker `(40, 'create_product_suppliers')`                                                                                                              |
+| **CategoriesManager — Suppliers section** | Second DataTable below categories showing Supplier Name + Products (count). Full CRUD: add, inline edit, delete, batch delete. Sky-blue accent to distinguish from categories                           |
+| **Settings tab renamed**                  | "Categories" tab → "Categories & Suppliers"                                                                                                                                                             |
+| **ProductForm — supplier combobox**       | Plain text input replaced with `<input>` + `<datalist>` combo. Loads supplier names from `getProductSuppliers()`. User can select existing or type new (auto-created on save via backend `getOrCreate`) |
+| **`.toon` import fix**                    | `handleImportFile` in ProductList now passes `supplier: rec.supplier ?? null` to `createProduct()` — was omitted despite `parseToonFile` correctly parsing it                                           |
+| **Build passes**                          | `yarn build` succeeds with zero errors                                                                                                                                                                  |
+
+---
+
+## ✅ Done This Sprint (March 4, 2026 — UI Scale / Zoom)
+
+### Global UI Scale Feature
+
+| Change                             | Details                                                                                                                                                                                        |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`webFrame` in preload.ts**       | Imported `webFrame` from `electron`. Exposed `display.setZoomFactor(factor)` and `display.getZoomFactor()` via `contextBridge` — synchronous calls, no IPC needed                              |
+| **`electron.d.ts` types**          | Added `display: { setZoomFactor: (factor: number) => void; getZoomFactor: () => number }` to `ElectronAPI` interface                                                                           |
+| **UI Scale setting in ShopConfig** | New "UI Scale" section below Navigation Style / POS Display. Preset buttons: 75%, 80%, 85%, 90%, 100%, 110%, 125%. Active scale highlighted in violet. Persisted to `localStorage("ui_scale")` |
+| **Zoom applied on app startup**    | `App.tsx` reads `localStorage("ui_scale")` in `useEffect` on mount and calls `window.api.display.setZoomFactor()`. Scale persists across sessions and app restarts                             |
+| **Non-Electron fallback**          | All `setZoomFactor` calls guarded with `window.api?.display?.setZoomFactor` — safe in browser dev mode                                                                                         |
+| **Build passes**                   | `yarn build` succeeds with zero errors                                                                                                                                                         |
+
+---
+
 ## ✅ Done This Sprint (March 4, 2026 — Private Repo Auto-Update)
 
 ### Auto-Update for Private GitHub Repo

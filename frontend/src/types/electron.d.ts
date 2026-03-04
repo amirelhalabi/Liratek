@@ -131,6 +131,26 @@ export interface ElectronAPI {
     deleteCategory: (
       id: number,
     ) => Promise<{ success: boolean; error?: string }>;
+    getProductSuppliers: () => Promise<string[]>;
+    getProductSuppliersFull: () => Promise<
+      Array<{
+        id: number;
+        name: string;
+        sort_order: number;
+        is_active: number;
+        product_count: number;
+      }>
+    >;
+    createProductSupplier: (
+      name: string,
+    ) => Promise<{ success: boolean; id?: number; error?: string }>;
+    updateProductSupplier: (
+      id: number,
+      name: string,
+    ) => Promise<{ success: boolean; error?: string }>;
+    deleteProductSupplier: (
+      id: number,
+    ) => Promise<{ success: boolean; error?: string }>;
   };
 
   // Clients
@@ -1104,6 +1124,12 @@ export interface ElectronAPI {
       whatsapp_api_key?: string;
     }) => Promise<{ success: boolean; error?: string }>;
     reset: () => Promise<{ success: boolean; error?: string }>;
+  };
+
+  // Display / Zoom
+  display: {
+    setZoomFactor: (factor: number) => void;
+    getZoomFactor: () => number;
   };
 
   // Custom Services

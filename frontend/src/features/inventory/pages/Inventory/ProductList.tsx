@@ -366,6 +366,7 @@ export default function ProductList() {
             stock_quantity: rec.stockQuantity ?? 0,
             min_stock_level: 5,
             unit: rec.unit ?? null,
+            supplier: rec.supplier ?? null,
           } as any);
           const importResult: ImportResult = {
             name: rec.name,

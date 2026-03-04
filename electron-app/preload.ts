@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webFrame } from "electron";
 
 console.log("[PRELOAD] Starting preload script...");
 
@@ -65,6 +65,16 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("inventory:update-category", id, name),
     deleteCategory: (id: number) =>
       ipcRenderer.invoke("inventory:delete-category", id),
+    getProductSuppliers: () =>
+      ipcRenderer.invoke("inventory:get-product-suppliers"),
+    getProductSuppliersFull: () =>
+      ipcRenderer.invoke("inventory:get-product-suppliers-full"),
+    createProductSupplier: (name: string) =>
+      ipcRenderer.invoke("inventory:create-product-supplier", name),
+    updateProductSupplier: (id: number, name: string) =>
+      ipcRenderer.invoke("inventory:update-product-supplier", id, name),
+    deleteProductSupplier: (id: number) =>
+      ipcRenderer.invoke("inventory:delete-product-supplier", id),
   },
 
   // Clients
@@ -551,6 +561,12 @@ contextBridge.exposeInMainWorld("api", {
     complete: (payload: unknown) =>
       ipcRenderer.invoke("setup:complete", payload),
     reset: () => ipcRenderer.invoke("setup:reset"),
+  },
+
+  // Display / Zoom
+  display: {
+    setZoomFactor: (factor: number) => webFrame.setZoomFactor(factor),
+    getZoomFactor: () => webFrame.getZoomFactor(),
   },
 });
 

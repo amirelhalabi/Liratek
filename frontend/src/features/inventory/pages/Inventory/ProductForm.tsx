@@ -21,6 +21,7 @@ export default function ProductForm({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [categories, setCategories] = useState<string[]>([]);
+  const [supplierNames, setSupplierNames] = useState<string[]>([]);
   const [duplicateInfo, setDuplicateInfo] = useState<null | {
     attempted: string;
     suggested: string;
@@ -78,6 +79,19 @@ export default function ProductForm({
     };
     loadCategories();
   }, [api]);
+
+  useEffect(() => {
+    const loadSuppliers = async () => {
+      try {
+        const data =
+          (await window.api?.inventory?.getProductSuppliers?.()) || [];
+        setSupplierNames(Array.isArray(data) ? data : []);
+      } catch {
+        setSupplierNames([]);
+      }
+    };
+    loadSuppliers();
+  }, []);
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
@@ -242,26 +256,22 @@ export default function ProductForm({
               >
                 Category
               </label>
-              <select
+              <input
                 id="product-category"
+                type="text"
+                list="category-options"
                 value={formData.category}
                 onChange={(e) =>
                   setFormData((prev) => ({ ...prev, category: e.target.value }))
                 }
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-violet-500"
-              >
+                placeholder="Select or type category name"
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white text-sm focus:ring-2 focus:ring-violet-600 focus:outline-none"
+              />
+              <datalist id="category-options">
                 {categories.map((cat) => (
-                  <option key={cat} value={cat}>
-                    {cat}
-                  </option>
+                  <option key={cat} value={cat} />
                 ))}
-                {!categories.includes(formData.category) &&
-                  formData.category && (
-                    <option value={formData.category}>
-                      {formData.category}
-                    </option>
-                  )}
-              </select>
+              </datalist>
             </div>
 
             {/* Row 3: Supplier | Quantity */}
@@ -271,13 +281,19 @@ export default function ProductForm({
               </label>
               <input
                 type="text"
+                list="supplier-options"
                 value={formData.supplier ?? ""}
                 onChange={(e) =>
                   setFormData((prev) => ({ ...prev, supplier: e.target.value }))
                 }
-                placeholder="Supplier name (optional)"
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-violet-500"
+                placeholder="Select or type supplier name"
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white text-sm focus:ring-2 focus:ring-violet-600 focus:outline-none"
               />
+              <datalist id="supplier-options">
+                {supplierNames.map((name) => (
+                  <option key={name} value={name} />
+                ))}
+              </datalist>
             </div>
 
             {/* Row 4: Cost Price | Retail Price */}

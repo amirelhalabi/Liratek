@@ -198,6 +198,15 @@ INSERT OR IGNORE INTO product_categories (name, sort_order) VALUES
     ('Parts', 4),
     ('Services', 5);
 
+-- Product Suppliers (normalised inventory supplier names)
+CREATE TABLE IF NOT EXISTS product_suppliers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 -- =============================================================================
 -- 3. Transactional Tables
 -- =============================================================================
@@ -762,4 +771,5 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (27, 'update_omt_service_types'),
     (28, 'add_fee_calculation_fields'),
     (29, 'remove_analytics_commissions_module'),
-    (30, 'exchange_rates_universal_formula_schema');
+    (30, 'exchange_rates_universal_formula_schema'),
+    (40, 'create_product_suppliers');

@@ -1520,6 +1520,40 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  // =========================================================================
+  // v40 — Create product_suppliers table for inventory supplier tracking
+  // =========================================================================
+  {
+    version: 40,
+    name: "create_product_suppliers",
+    description:
+      "Create product_suppliers table (normalised inventory suppliers). " +
+      "Import unique supplier names from existing products.",
+    type: "typescript",
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS product_suppliers (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          is_active INTEGER NOT NULL DEFAULT 1,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+
+      // Import any existing supplier names from the products table
+      db.exec(`
+        INSERT OR IGNORE INTO product_suppliers (name, sort_order)
+        SELECT DISTINCT supplier, 50
+        FROM products
+        WHERE supplier IS NOT NULL AND supplier != ''
+          AND LOWER(supplier) NOT IN (SELECT LOWER(name) FROM product_suppliers);
+      `);
+    },
+    down(db) {
+      db.exec(`DROP TABLE IF EXISTS product_suppliers;`);
+    },
+  },
 ];
 
 // =============================================================================

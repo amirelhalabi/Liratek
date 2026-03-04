@@ -39,7 +39,7 @@ export default function Settings() {
           {(
             [
               { key: "shop", label: "Shop Config" },
-              { key: "categories", label: "Categories", icon: Tag },
+              { key: "categories", label: "Categories & Suppliers", icon: Tag },
               { key: "suppliers", label: "Suppliers" },
               { key: "notifications", label: "Notifications" },
               { key: "activity", label: "Activity Logs" },

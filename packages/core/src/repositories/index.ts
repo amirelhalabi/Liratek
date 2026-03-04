@@ -297,3 +297,13 @@ export {
   getCategoryRepository,
 } from "./CategoryRepository.js";
 export type { ProductCategory } from "./CategoryRepository.js";
+
+// Product Supplier Repository
+export {
+  ProductSupplierRepository,
+  getProductSupplierRepository,
+} from "./ProductSupplierRepository.js";
+export type {
+  ProductSupplier,
+  ProductSupplierWithCount,
+} from "./ProductSupplierRepository.js";

@@ -10,6 +10,7 @@ import {
   getInventoryService,
   inventoryLogger,
   getCategoryRepository,
+  getProductSupplierRepository,
 } from "@liratek/core";
 import { requireRole } from "../session.js";
 
@@ -84,6 +85,11 @@ export function registerInventoryHandlers(): void {
     const categoryName = product.category || "General";
     const categoryId = catRepo.getOrCreate(categoryName);
 
+    // Auto-register product supplier if provided
+    if (product.supplier) {
+      supplierRepo.getOrCreate(product.supplier);
+    }
+
     return service.createProduct({
       barcode: product.barcode,
       name: product.name,
@@ -117,6 +123,11 @@ export function registerInventoryHandlers(): void {
     // Resolve category_id for the updated category
     const updCategoryName = product.category || "General";
     const updCategoryId = catRepo.getOrCreate(updCategoryName);
+
+    // Auto-register product supplier if provided
+    if (product.supplier) {
+      supplierRepo.getOrCreate(product.supplier);
+    }
 
     return service.updateProduct(product.id, {
       barcode: product.barcode,
@@ -208,6 +219,7 @@ export function registerInventoryHandlers(): void {
   // ---------------------------------------------------------------------------
 
   const catRepo = getCategoryRepository();
+  const supplierRepo = getProductSupplierRepository();
 
   ipcMain.handle("inventory:get-categories", () => catRepo.getNames());
   ipcMain.handle("inventory:create-category", (_e, name: string) => {
@@ -235,4 +247,39 @@ export function registerInventoryHandlers(): void {
     }
   });
   ipcMain.handle("inventory:get-categories-full", () => catRepo.getAll());
+
+  // ---------------------------------------------------------------------------
+  // Product Supplier Management
+  // ---------------------------------------------------------------------------
+
+  ipcMain.handle("inventory:get-product-suppliers", () =>
+    supplierRepo.getNames(),
+  );
+  ipcMain.handle("inventory:get-product-suppliers-full", () =>
+    supplierRepo.getAllWithProductCount(),
+  );
+  ipcMain.handle("inventory:create-product-supplier", (_e, name: string) => {
+    try {
+      return { success: true, ...supplierRepo.create(name) };
+    } catch (e) {
+      return { success: false, error: String(e) };
+    }
+  });
+  ipcMain.handle(
+    "inventory:update-product-supplier",
+    (_e, id: number, name: string) => {
+      try {
+        return { success: true, updated: supplierRepo.update(id, name) };
+      } catch (e) {
+        return { success: false, error: String(e) };
+      }
+    },
+  );
+  ipcMain.handle("inventory:delete-product-supplier", (_e, id: number) => {
+    try {
+      return { success: true, deleted: supplierRepo.delete(id) };
+    } catch (e) {
+      return { success: false, error: String(e) };
+    }
+  });
 }
