@@ -2,6 +2,10 @@ import { ipcMain } from "electron";
 import { ReportService } from "../services/ReportService.js";
 import { dbLogger } from "@liratek/core";
 import { requireRole } from "../session.js";
+import { createRequire } from "module";
+
+// ESM does not provide require(); create one so we can load CJS-only packages
+const esmRequire = createRequire(import.meta.url);
 
 export function registerReportHandlers(): void {
   const service = new ReportService();
@@ -30,7 +34,7 @@ export function registerReportHandlers(): void {
     const res = await service.backupDatabase();
     if (res.success) {
       try {
-        const { SettingsService } = require("../services/SettingsService");
+        const { SettingsService } = esmRequire("../services/SettingsService");
         const settings = new SettingsService();
         settings.updateSetting("last_backup_at", new Date().toISOString());
 
@@ -85,12 +89,12 @@ export function registerReportHandlers(): void {
     try {
       // Close DB connection if open
 
-      const { closeDatabase } = require("../db");
+      const { closeDatabase } = esmRequire("../db");
       closeDatabase();
     } catch {}
 
     try {
-      const { app } = require("electron");
+      const { app } = esmRequire("electron");
       app.relaunch();
       app.exit(0);
     } catch {}

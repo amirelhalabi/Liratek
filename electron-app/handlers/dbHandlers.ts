@@ -10,6 +10,10 @@ import {
   expenseLogger,
   closingLogger,
 } from "@liratek/core";
+import { createRequire } from "module";
+
+// ESM does not provide require(); create one so we can load CJS-only packages
+const esmRequire = createRequire(import.meta.url);
 
 export function registerDatabaseHandlers(): void {
   const settingsService = getSettingsService();
@@ -275,7 +279,7 @@ export function registerDatabaseHandlers(): void {
     } catch {}
 
     try {
-      const { getDatabase } = require("../db");
+      const { getDatabase } = esmRequire("../db");
       const db = getDatabase();
       const rows = db.pragma("foreign_key_check");
       return { success: true, rows };

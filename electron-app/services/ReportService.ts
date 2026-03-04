@@ -2,6 +2,10 @@ import { BrowserWindow, app } from "electron";
 import path from "path";
 import fs from "fs";
 import { resolveDatabasePath, toErrorString } from "@liratek/core";
+import { createRequire } from "module";
+
+// ESM does not provide require(); create one so we can load CJS-only packages
+const esmRequire = createRequire(import.meta.url);
 
 export interface GeneratePdfResult {
   success: boolean;
@@ -189,9 +193,9 @@ export class ReportService {
       }
 
       // Dynamic import to avoid bundling issues in some environments
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const Database =
-        require("better-sqlite3") as typeof import("better-sqlite3");
+      const Database = esmRequire(
+        "better-sqlite3",
+      ) as typeof import("better-sqlite3");
       const db = new Database(resolved, { readonly: true });
       try {
         const row = db.prepare("PRAGMA integrity_check").get() as

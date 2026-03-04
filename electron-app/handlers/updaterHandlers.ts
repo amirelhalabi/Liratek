@@ -4,9 +4,13 @@ import { UPDATE_TOKEN } from "../updater-config.js";
 import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
+import { createRequire } from "module";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// ESM does not provide require(); create one so we can load CJS-only packages
+const esmRequire = createRequire(import.meta.url);
 
 const GH_OWNER = "amirelhalabi";
 const GH_REPO = "Liratek";
@@ -126,7 +130,7 @@ export function registerUpdaterHandlers(): void {
     }
 
     try {
-      const { autoUpdater } = require("electron-updater");
+      const { autoUpdater } = esmRequire("electron-updater");
       ensureUpdateToken();
       const res = await autoUpdater.checkForUpdates();
       return { success: true, updateInfo: res?.updateInfo };
@@ -149,7 +153,7 @@ export function registerUpdaterHandlers(): void {
     }
 
     try {
-      const { autoUpdater } = require("electron-updater");
+      const { autoUpdater } = esmRequire("electron-updater");
       ensureUpdateToken();
       const res = await autoUpdater.downloadUpdate();
       return { success: true, result: res };
@@ -172,7 +176,7 @@ export function registerUpdaterHandlers(): void {
     }
 
     try {
-      const { autoUpdater } = require("electron-updater");
+      const { autoUpdater } = esmRequire("electron-updater");
       ensureUpdateToken();
       autoUpdater.quitAndInstall();
       return { success: true };
