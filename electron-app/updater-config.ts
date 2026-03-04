@@ -7,5 +7,4 @@
  * empty and the updater falls back to process.env.GH_TOKEN
  * (loaded from electron-app/.env).
  */
-// __UPDATE_TOKEN__ is replaced by CI — do NOT rename this marker
 export const UPDATE_TOKEN: string = "__UPDATE_TOKEN__";
