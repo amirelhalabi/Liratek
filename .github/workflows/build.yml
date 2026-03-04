@@ -80,7 +80,7 @@ jobs:
           install: "true"
 
       - name: Inject update token
-        run: node -e "const f='electron-app/updater-config.ts';const c=require('fs').readFileSync(f,'utf8');require('fs').writeFileSync(f,c.replace('\"__UPDATE_TOKEN__\"','\"'+(process.env.UPDATE_TOKEN||'')+'\"'))"
+        run: node scripts/inject-update-token.cjs
         env:
           UPDATE_TOKEN: ${{ secrets.UPDATE_TOKEN }}
 
@@ -103,7 +103,7 @@ jobs:
           install: "true"
 
       - name: Inject update token
-        run: node -e "const f='electron-app/updater-config.ts';const c=require('fs').readFileSync(f,'utf8');require('fs').writeFileSync(f,c.replace('\"__UPDATE_TOKEN__\"','\"'+(process.env.UPDATE_TOKEN||'')+'\"'))"
+        run: node scripts/inject-update-token.cjs
         env:
           UPDATE_TOKEN: ${{ secrets.UPDATE_TOKEN }}
 
@@ -126,7 +126,7 @@ jobs:
           install: "true"
 
       - name: Inject update token
-        run: node -e "const f='electron-app/updater-config.ts';const c=require('fs').readFileSync(f,'utf8');require('fs').writeFileSync(f,c.replace('\"__UPDATE_TOKEN__\"','\"'+(process.env.UPDATE_TOKEN||'')+'\"'))"
+        run: node scripts/inject-update-token.cjs
         env:
           UPDATE_TOKEN: ${{ secrets.UPDATE_TOKEN }}
 
