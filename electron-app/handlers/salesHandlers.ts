@@ -6,8 +6,13 @@
  */
 
 import { ipcMain } from "electron";
-import { getSalesService, salesLogger } from "@liratek/core";
+import {
+  getSalesService,
+  getTransactionService,
+  salesLogger,
+} from "@liratek/core";
 import type { SaleRequest } from "@liratek/core";
+import { requireRole } from "../session.js";
 
 export function registerSalesHandlers(): void {
   const salesService = getSalesService();
@@ -69,5 +74,22 @@ export function registerSalesHandlers(): void {
   ipcMain.handle("sales:get-items", (_event, saleId: number) => {
     salesLogger.debug({ saleId }, "Getting sale items");
     return salesService.getSaleItems(saleId);
+  });
+
+  // Refund a sale by sale ID (admin only)
+  ipcMain.handle("sales:refund", (e, saleId: number) => {
+    try {
+      const auth = requireRole(e.sender.id, ["admin"]);
+      if (!auth.ok) throw new Error(auth.error ?? "Admin access required");
+      const userId = auth.userId ?? 1;
+      const txnService = getTransactionService();
+      const refundId = txnService.refundBySaleId(saleId, userId);
+      return { success: true, refundId };
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
   });
 }

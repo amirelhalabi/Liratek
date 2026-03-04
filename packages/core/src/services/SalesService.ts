@@ -171,10 +171,10 @@ export class SalesService {
   }
 
   /**
-   * Get today's recent sales (last 5)
+   * Get today's sales (up to 50 for POS view)
    */
   getTodaysSales(): RecentSale[] {
-    return this.salesRepo.getTodaysSales(5);
+    return this.salesRepo.getTodaysSales(50);
   }
 
   /**

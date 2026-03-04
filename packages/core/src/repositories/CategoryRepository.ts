@@ -48,7 +48,12 @@ export class CategoryRepository {
   }
 
   delete(id: number): boolean {
-    // Hard delete — CASCADE will delete all products in this category
+    // Nullify category_id on products first, then remove the category
+    this.db
+      .prepare(
+        `UPDATE products SET category_id = NULL, category = 'General' WHERE category_id = ?`,
+      )
+      .run(id);
     const result = this.db
       .prepare(`DELETE FROM product_categories WHERE id = ?`)
       .run(id);

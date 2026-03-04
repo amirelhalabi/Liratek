@@ -51,7 +51,9 @@ describe("UpdatesPanel", () => {
 
     render(<UpdatesPanel />);
 
-    // Auto-check on mount fetches release info
+    // No auto-check on mount — user must click "Check for Updates"
+    fireEvent.click(await screen.findByText("Check for Updates"));
+
     expect(await screen.findByText("v1.0.1")).toBeInTheDocument();
   });
 
@@ -68,6 +70,9 @@ describe("UpdatesPanel", () => {
 
     render(<UpdatesPanel />);
 
+    // Must click to trigger check
+    fireEvent.click(await screen.findByText("Check for Updates"));
+
     expect(await screen.findByText(/"version": "1\.0\.1"/)).toBeInTheDocument();
   });
 
@@ -79,7 +84,9 @@ describe("UpdatesPanel", () => {
 
     render(<UpdatesPanel />);
 
-    // Auto-check on mount triggers the error
+    // No auto-check — user must click button
+    fireEvent.click(await screen.findByText("Check for Updates"));
+
     await waitFor(() => {
       expect(emitMock).toHaveBeenCalledWith(
         "notification:show",

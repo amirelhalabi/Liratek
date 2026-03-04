@@ -166,7 +166,7 @@ CREATE TABLE IF NOT EXISTS products (
     name TEXT NOT NULL,
     item_type TEXT NOT NULL,
     category TEXT DEFAULT 'General',
-    category_id INTEGER DEFAULT NULL REFERENCES product_categories(id) ON DELETE CASCADE,
+    category_id INTEGER DEFAULT NULL REFERENCES product_categories(id) ON DELETE SET NULL,
     description TEXT,
     supplier TEXT DEFAULT NULL,
     cost_price_usd DECIMAL(10, 2) DEFAULT 0,
@@ -295,7 +295,7 @@ CREATE INDEX IF NOT EXISTS idx_customer_session_transactions_session ON customer
 CREATE TABLE IF NOT EXISTS supplier_ledger (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   supplier_id INTEGER NOT NULL,
-  entry_type TEXT NOT NULL CHECK(entry_type IN ('TOP_UP', 'PAYMENT', 'ADJUSTMENT')),
+  entry_type TEXT NOT NULL CHECK(entry_type IN ('TOP_UP', 'PAYMENT', 'ADJUSTMENT', 'SETTLEMENT')),
   amount_usd REAL NOT NULL DEFAULT 0,
   amount_lbp REAL NOT NULL DEFAULT 0,
   note TEXT,
@@ -408,9 +408,17 @@ CREATE TABLE IF NOT EXISTS financial_services (
     pay_fee INTEGER DEFAULT 0,
     item_key TEXT,
     note TEXT,
+    is_settled INTEGER NOT NULL DEFAULT 1,
+    settled_at TEXT,
+    settlement_id INTEGER,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     created_by INTEGER
 );
+
+CREATE INDEX IF NOT EXISTS idx_financial_services_is_settled
+  ON financial_services(is_settled);
+CREATE INDEX IF NOT EXISTS idx_financial_services_provider_settled
+  ON financial_services(provider, is_settled);
 
 -- Custom Services (standalone ad-hoc services with cost/price/profit tracking)
 CREATE TABLE IF NOT EXISTS custom_services (
@@ -772,4 +780,6 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (28, 'add_fee_calculation_fields'),
     (29, 'remove_analytics_commissions_module'),
     (30, 'exchange_rates_universal_formula_schema'),
-    (40, 'create_product_suppliers');
+    (31, 'add_settlement_tracking_to_financial_services'),
+    (40, 'create_product_suppliers'),
+    (41, 'fix_category_cascade_to_set_null');

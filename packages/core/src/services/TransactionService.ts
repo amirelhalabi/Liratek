@@ -137,6 +137,21 @@ export class TransactionService {
   }
 
   /**
+   * Refund a sale by its sale ID. Resolves the transaction internally.
+   */
+  refundBySaleId(saleId: number, userId: number): number {
+    try {
+      return this.repo.refundBySaleId(saleId, userId);
+    } catch (error) {
+      logger.error(
+        { error, saleId, userId },
+        "TransactionService.refundBySaleId error",
+      );
+      throw error;
+    }
+  }
+
+  /**
    * Create a refund for a transaction. Original stays ACTIVE.
    * Returns the refund transaction ID.
    */

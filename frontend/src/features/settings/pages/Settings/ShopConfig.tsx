@@ -22,6 +22,7 @@ export default function ShopConfig() {
   const [receiptHeaderText, setReceiptHeaderText] = useState("");
   const [sessionMgmt, setSessionMgmt] = useState(true);
   const [customerSessions, setCustomerSessions] = useState(true);
+  const [autoCheckUpdates, setAutoCheckUpdates] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [layoutMode, setLayoutMode] = useState(
@@ -75,6 +76,7 @@ export default function ShopConfig() {
       setReceiptHeaderText((map.get("receipt_header_text") as string) || "");
       setSessionMgmt(map.get("feature_session_management") !== "disabled");
       setCustomerSessions(map.get("feature_customer_sessions") !== "disabled");
+      setAutoCheckUpdates(map.get("auto_check_updates") !== "0");
     } finally {
       setIsLoading(false);
     }
@@ -97,6 +99,7 @@ export default function ShopConfig() {
           "feature_customer_sessions",
           customerSessions ? "enabled" : "disabled",
         ),
+        api.updateSetting("auto_check_updates", autoCheckUpdates ? "1" : "0"),
       ]);
       // Notify feature flag context to refresh
       window.dispatchEvent(new Event("feature-flags-changed"));
@@ -154,6 +157,82 @@ export default function ShopConfig() {
           className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white"
         />
       </div>
+
+      {/* Feature Toggles */}
+      <div className="space-y-4">
+        <span className="block text-sm text-slate-400">Features</span>
+
+        <label className="flex items-center justify-between cursor-pointer group">
+          <div>
+            <span className="text-sm text-white">Opening & Closing</span>
+            <p className="text-xs text-slate-500">
+              Show session management (open/close day) in the sidebar and home
+              screen
+            </p>
+          </div>
+          <div
+            className={clsx(
+              "relative w-10 h-5 rounded-full transition-colors",
+              sessionMgmt ? "bg-violet-600" : "bg-slate-600",
+            )}
+            onClick={() => setSessionMgmt(!sessionMgmt)}
+          >
+            <div
+              className={clsx(
+                "absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform",
+                sessionMgmt ? "translate-x-5" : "translate-x-0.5",
+              )}
+            />
+          </div>
+        </label>
+
+        <label className="flex items-center justify-between cursor-pointer group">
+          <div>
+            <span className="text-sm text-white">Customer Sessions</span>
+            <p className="text-xs text-slate-500">
+              Show the floating customer session button in the app
+            </p>
+          </div>
+          <div
+            className={clsx(
+              "relative w-10 h-5 rounded-full transition-colors",
+              customerSessions ? "bg-violet-600" : "bg-slate-600",
+            )}
+            onClick={() => setCustomerSessions(!customerSessions)}
+          >
+            <div
+              className={clsx(
+                "absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform",
+                customerSessions ? "translate-x-5" : "translate-x-0.5",
+              )}
+            />
+          </div>
+        </label>
+
+        <label className="flex items-center justify-between cursor-pointer group">
+          <div>
+            <span className="text-sm text-white">Auto-check for Updates</span>
+            <p className="text-xs text-slate-500">
+              Automatically check for app updates when the app starts
+            </p>
+          </div>
+          <div
+            className={clsx(
+              "relative w-10 h-5 rounded-full transition-colors",
+              autoCheckUpdates ? "bg-violet-600" : "bg-slate-600",
+            )}
+            onClick={() => setAutoCheckUpdates(!autoCheckUpdates)}
+          >
+            <div
+              className={clsx(
+                "absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform",
+                autoCheckUpdates ? "translate-x-5" : "translate-x-0.5",
+              )}
+            />
+          </div>
+        </label>
+      </div>
+
       <div className="flex gap-2 justify-end">
         <button
           onClick={load}

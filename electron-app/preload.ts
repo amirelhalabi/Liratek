@@ -51,6 +51,8 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("inventory:batch-update", payload),
     deleteProduct: (id: number) =>
       ipcRenderer.invoke("inventory:delete-product", id),
+    batchDelete: (ids: number[]) =>
+      ipcRenderer.invoke("inventory:batch-delete", ids),
     adjustStock: (id: number, quantity: number) =>
       ipcRenderer.invoke("inventory:adjust-stock", id, quantity),
     getLowStockProducts: () =>
@@ -97,6 +99,7 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("sales:delete-draft", saleId),
     getTodaysSales: () => ipcRenderer.invoke("sales:get-todays-sales"),
     getTopProducts: () => ipcRenderer.invoke("sales:get-top-products"),
+    refund: (saleId: number) => ipcRenderer.invoke("sales:refund", saleId),
   },
 
   // Dashboard
@@ -312,6 +315,28 @@ contextBridge.exposeInMainWorld("api", {
     check: () => ipcRenderer.invoke("updater:check"),
     download: () => ipcRenderer.invoke("updater:download"),
     quitAndInstall: () => ipcRenderer.invoke("updater:quit-and-install"),
+    // Push events from main process
+    onUpdateAvailable: (cb: (_event: unknown, info: any) => void) => {
+      ipcRenderer.on("updater:update-available", cb);
+      return () => ipcRenderer.removeListener("updater:update-available", cb);
+    },
+    onDownloadProgress: (cb: (_event: unknown, progress: any) => void) => {
+      ipcRenderer.on("updater:download-progress", cb);
+      return () => ipcRenderer.removeListener("updater:download-progress", cb);
+    },
+    onUpdateDownloaded: (cb: (_event: unknown, info: any) => void) => {
+      ipcRenderer.on("updater:update-downloaded", cb);
+      return () => ipcRenderer.removeListener("updater:update-downloaded", cb);
+    },
+    onUpdateNotAvailable: (cb: (_event: unknown) => void) => {
+      ipcRenderer.on("updater:update-not-available", cb);
+      return () =>
+        ipcRenderer.removeListener("updater:update-not-available", cb);
+    },
+    onError: (cb: (_event: unknown, message: string) => void) => {
+      ipcRenderer.on("updater:error", cb);
+      return () => ipcRenderer.removeListener("updater:error", cb);
+    },
   },
 
   // Reports

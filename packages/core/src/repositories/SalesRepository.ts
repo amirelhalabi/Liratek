@@ -132,6 +132,10 @@ export interface RecentSale {
   client_name: string | null;
   paid_usd: number;
   paid_lbp: number;
+  final_amount_usd: number;
+  discount_usd: number;
+  status: string;
+  item_count: number;
   created_at: string;
 }
 
@@ -848,10 +852,14 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           c.full_name as client_name,
           s.paid_usd,
           s.paid_lbp,
+          s.final_amount_usd,
+          s.discount_usd,
+          s.status,
+          (SELECT COUNT(*) FROM sale_items si WHERE si.sale_id = s.id) as item_count,
           s.created_at
         FROM ${this.tableName} s
         LEFT JOIN clients c ON s.client_id = c.id
-        WHERE s.status = 'completed' AND DATE(s.created_at, 'localtime') = DATE('now', 'localtime')
+        WHERE s.status IN ('completed', 'refunded') AND DATE(s.created_at, 'localtime') = DATE('now', 'localtime')
         ORDER BY s.created_at DESC
         LIMIT ?
       `,

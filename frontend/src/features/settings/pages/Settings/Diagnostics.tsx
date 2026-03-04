@@ -10,14 +10,6 @@ export default function Diagnostics() {
 
   const [fkCheckLoading, setFkCheckLoading] = useState(false);
   const [fkCheckError, setFkCheckError] = useState<string | null>(null);
-  type ForeignKeyRow = {
-    table?: string;
-    rowid?: string | number;
-    parent?: string;
-    fkid?: string | number;
-    [key: string]: unknown;
-  };
-  const [fkRows, setFkRows] = useState<ForeignKeyRow[] | null>(null);
 
   const [backups, setBackups] = useState<
     Array<{ path: string; filename: string; createdAtMs: number }>
@@ -67,8 +59,8 @@ export default function Diagnostics() {
     try {
       const res = await window.api.diagnostics.foreignKeyCheck();
       if (!res.success) throw new Error(res.error || "FK check failed");
-      setFkRows(res.rows || []);
-      if ((res.rows || []).length === 0) {
+      const rows = res.rows || [];
+      if (rows.length === 0) {
         appEvents.emit(
           "notification:show",
           "No foreign key violations found",
@@ -77,7 +69,7 @@ export default function Diagnostics() {
       } else {
         appEvents.emit(
           "notification:show",
-          `Found ${(res.rows || []).length} FK violation(s)`,
+          `Found ${rows.length} FK violation(s)`,
           "warning",
         );
       }
@@ -242,55 +234,6 @@ export default function Diagnostics() {
         {fkCheckError && (
           <div className="bg-red-500/10 border border-red-500/30 rounded p-3 text-red-200 text-sm">
             {fkCheckError}
-          </div>
-        )}
-
-        {fkRows && (
-          <div className="text-sm text-slate-300">
-            {fkRows.length === 0 ? (
-              <div className="bg-emerald-500/10 border border-emerald-500/30 rounded p-3">
-                OK — No foreign key violations found.
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded p-3">
-                  Found {fkRows.length} foreign key violation(s).
-                </div>
-                <div className="border border-slate-700 rounded overflow-auto max-h-64">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-900 text-slate-400 uppercase">
-                      <tr>
-                        <th className="p-2">Table</th>
-                        <th className="p-2">RowId</th>
-                        <th className="p-2">Parent</th>
-                        <th className="p-2">FK Index</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {fkRows.map((r) => (
-                        <tr
-                          key={`${r.table}-${r.rowid}-${r.fkid}`}
-                          className="border-t border-slate-800"
-                        >
-                          <td className="p-2 font-mono">
-                            {String(r.table ?? "")}
-                          </td>
-                          <td className="p-2 font-mono">
-                            {String(r.rowid ?? "")}
-                          </td>
-                          <td className="p-2 font-mono">
-                            {String(r.parent ?? "")}
-                          </td>
-                          <td className="p-2 font-mono">
-                            {String(r.fkid ?? "")}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
           </div>
         )}
       </div>

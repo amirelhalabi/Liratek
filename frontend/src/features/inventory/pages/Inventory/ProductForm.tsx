@@ -1,14 +1,16 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import logger from "../../../../utils/logger";
-import { X, Save } from "lucide-react";
+import { X, Save, Printer } from "lucide-react";
 import { useApi } from "@liratek/ui";
 import type { Product } from "@liratek/ui";
+import JsBarcode from "jsbarcode";
 
 interface ProductFormProps {
   onClose: () => void;
   onSave: () => void;
   product?: Product | null;
-  prefillName?: string;
+  prefillName?: string | undefined;
+  prefillBarcode?: string | undefined;
 }
 
 export default function ProductForm({
@@ -16,6 +18,7 @@ export default function ProductForm({
   onSave,
   product,
   prefillName,
+  prefillBarcode,
 }: ProductFormProps) {
   const api = useApi();
   const [isLoading, setIsLoading] = useState(false);
@@ -27,7 +30,7 @@ export default function ProductForm({
     suggested: string;
   }>(null);
   const [formData, setFormData] = useState({
-    barcode: "",
+    barcode: prefillBarcode || "",
     name: prefillName || "",
     category: "Accessories",
     cost_price: 0,
@@ -102,6 +105,61 @@ export default function ProductForm({
       [name]: type === "number" ? parseFloat(value) : value,
     }));
   };
+
+  const handlePrintBarcode = useCallback(() => {
+    const barcode = formData.barcode?.trim();
+    if (!barcode) return;
+
+    // Create an offscreen canvas, render the barcode, export as data URL
+    const canvas = document.createElement("canvas");
+    try {
+      JsBarcode(canvas, barcode, {
+        format: "CODE128",
+        width: 2,
+        height: 60,
+        displayValue: true,
+        fontSize: 14,
+        margin: 4,
+      });
+    } catch {
+      logger.error("Failed to generate barcode", { barcode });
+      return;
+    }
+
+    const dataUrl = canvas.toDataURL("image/png");
+    const productName = formData.name || "";
+
+    const printWindow = window.open("", "", "width=420,height=350");
+    if (!printWindow) return;
+
+    printWindow.document.write(`<!DOCTYPE html>
+<html>
+<head>
+<title>Barcode</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; font-family: Arial, sans-serif; }
+  .label { text-align: center; padding: 8px; }
+  .product-name { font-size: 12px; font-weight: bold; margin-bottom: 4px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  img { max-width: 100%; height: auto; }
+  @media print {
+    @page { size: 50mm 30mm; margin: 0; }
+    body { width: 50mm; height: 30mm; }
+  }
+</style>
+</head>
+<body>
+  <div class="label">
+    <div class="product-name">${productName.replace(/[<>&"]/g, "")}</div>
+    <img src="${dataUrl}" alt="barcode" />
+  </div>
+</body>
+</html>`);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+    printWindow.close();
+  }, [formData.barcode, formData.name]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -370,22 +428,36 @@ export default function ProductForm({
             </div>
           </div>
 
-          <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-700">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="flex items-center gap-2 px-6 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
-            >
-              <Save size={18} />
-              {isLoading ? "Saving..." : "Save Product"}
-            </button>
+          <div className="flex justify-between items-center gap-3 mt-6 pt-4 border-t border-slate-700">
+            <div>
+              {formData.barcode?.trim() && (
+                <button
+                  type="button"
+                  onClick={handlePrintBarcode}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
+                >
+                  <Printer size={18} />
+                  Print Barcode
+                </button>
+              )}
+            </div>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="flex items-center gap-2 px-6 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
+              >
+                <Save size={18} />
+                {isLoading ? "Saving..." : "Save Product"}
+              </button>
+            </div>
           </div>
         </form>
       </div>

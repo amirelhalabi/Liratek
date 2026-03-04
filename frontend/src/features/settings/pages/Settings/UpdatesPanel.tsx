@@ -123,7 +123,7 @@ export default function UpdatesPanel() {
     }
   };
 
-  // Load status and auto-check on mount
+  // Load status on mount (no auto-check — user clicks "Check for Updates")
   useEffect(() => {
     (async () => {
       try {
@@ -132,9 +132,8 @@ export default function UpdatesPanel() {
       } catch {
         setStatus(null);
       }
-      check();
     })();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   const isDevMode = status && !status.packaged;
 

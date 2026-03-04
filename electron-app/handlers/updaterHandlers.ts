@@ -1,4 +1,4 @@
-import { app, ipcMain, net } from "electron";
+import { app, BrowserWindow, ipcMain, net } from "electron";
 import { requireRole } from "../session.js";
 import { UPDATE_TOKEN } from "../updater-config.js";
 import * as fs from "fs";
@@ -14,6 +14,9 @@ const esmRequire = createRequire(import.meta.url);
 
 const GH_OWNER = "amirelhalabi";
 const GH_REPO = "Liratek";
+
+/** Whether we've already wired autoUpdater event listeners (only do once) */
+let updaterEventsWired = false;
 
 /**
  * Ensure process.env.GH_TOKEN is set for electron-updater's
@@ -101,6 +104,89 @@ async function fetchLatestRelease(): Promise<{
   });
 }
 
+/** Send an event to all renderer windows (safe if none exist yet). */
+function sendToRenderers(channel: string, ...args: unknown[]): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send(channel, ...args);
+    }
+  }
+}
+
+/**
+ * Wire autoUpdater event listeners so that update-available, download-progress,
+ * and update-downloaded events are pushed to the renderer. Only wires once.
+ */
+function wireAutoUpdaterEvents(): void {
+  if (updaterEventsWired) return;
+  updaterEventsWired = true;
+
+  try {
+    const { autoUpdater } = esmRequire("electron-updater");
+
+    autoUpdater.on("update-available", (info: any) => {
+      sendToRenderers("updater:update-available", {
+        version: info?.version,
+        releaseDate: info?.releaseDate,
+        releaseName: info?.releaseName,
+      });
+    });
+
+    autoUpdater.on("download-progress", (progress: any) => {
+      sendToRenderers("updater:download-progress", {
+        percent: progress?.percent ?? 0,
+        bytesPerSecond: progress?.bytesPerSecond ?? 0,
+        transferred: progress?.transferred ?? 0,
+        total: progress?.total ?? 0,
+      });
+    });
+
+    autoUpdater.on("update-downloaded", (info: any) => {
+      sendToRenderers("updater:update-downloaded", {
+        version: info?.version,
+        releaseDate: info?.releaseDate,
+        releaseName: info?.releaseName,
+      });
+    });
+
+    autoUpdater.on("update-not-available", () => {
+      sendToRenderers("updater:update-not-available");
+    });
+
+    autoUpdater.on("error", (err: Error) => {
+      sendToRenderers("updater:error", err?.message || "Unknown updater error");
+    });
+  } catch {
+    // electron-updater not available (e.g. dev mode) — silently skip
+  }
+}
+
+/**
+ * Auto-check for updates on app launch (called from main.ts).
+ * Only runs in packaged mode and when the `auto_check_updates` setting is enabled.
+ * @param getSetting - function that reads a setting from the DB
+ */
+export async function autoCheckForUpdates(
+  getSetting?: (key: string) => string | undefined,
+): Promise<void> {
+  if (!app.isPackaged) return;
+
+  // Check if auto-check is enabled (default: enabled)
+  const autoCheckVal = getSetting?.("auto_check_updates");
+  if (autoCheckVal === "0" || autoCheckVal === "disabled") return;
+
+  try {
+    const { autoUpdater } = esmRequire("electron-updater");
+    ensureUpdateToken();
+    wireAutoUpdaterEvents();
+    autoUpdater.autoDownload = false;
+    autoUpdater.autoInstallOnAppQuit = false;
+    await autoUpdater.checkForUpdates();
+  } catch {
+    // Silently fail on auto-check — user can always check manually
+  }
+}
+
 export function registerUpdaterHandlers(): void {
   ipcMain.handle("updater:get-status", () => {
     return {
@@ -132,6 +218,9 @@ export function registerUpdaterHandlers(): void {
     try {
       const { autoUpdater } = esmRequire("electron-updater");
       ensureUpdateToken();
+      wireAutoUpdaterEvents();
+      autoUpdater.autoDownload = false;
+      autoUpdater.autoInstallOnAppQuit = false;
       const res = await autoUpdater.checkForUpdates();
       return { success: true, updateInfo: res?.updateInfo };
     } catch (err) {
@@ -155,6 +244,7 @@ export function registerUpdaterHandlers(): void {
     try {
       const { autoUpdater } = esmRequire("electron-updater");
       ensureUpdateToken();
+      wireAutoUpdaterEvents();
       const res = await autoUpdater.downloadUpdate();
       return { success: true, result: res };
     } catch (err) {

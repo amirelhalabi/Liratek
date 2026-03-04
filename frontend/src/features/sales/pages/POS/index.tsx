@@ -9,6 +9,7 @@ import CheckoutModal, {
   type CheckoutDraftData,
 } from "./components/CheckoutModal";
 import ProductForm from "../../../inventory/pages/Inventory/ProductForm";
+import SaleDetailModal from "./components/SaleDetailModal";
 import { appEvents, useApi } from "@liratek/ui";
 import type { Product, CartItem, SaleRequest } from "@liratek/ui";
 import { useExchangeRate } from "../../../../hooks/useExchangeRate";
@@ -21,9 +22,16 @@ export default function POS() {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
 
+  // Sale detail modal state
+  const [selectedSaleId, setSelectedSaleId] = useState<number | null>(null);
+  const [refreshSalesKey, setRefreshSalesKey] = useState(0);
+
   // Create-product-from-POS state
   const [showProductForm, setShowProductForm] = useState(false);
-  const [productFormPrefill, setProductFormPrefill] = useState("");
+  const [productFormPrefill, setProductFormPrefill] = useState<{
+    name?: string;
+    barcode?: string;
+  }>({});
 
   // Drafts State
   const [currentDraftId, setCurrentDraftId] = useState<number | undefined>(
@@ -115,9 +123,12 @@ export default function POS() {
     }
   };
 
-  // Open ProductForm from POS with pre-filled name
-  const handleCreateProduct = (prefillName: string) => {
-    setProductFormPrefill(prefillName);
+  // Open ProductForm from POS with pre-filled name or barcode
+  const handleCreateProduct = (prefill: {
+    name?: string;
+    barcode?: string;
+  }) => {
+    setProductFormPrefill(prefill);
     setShowProductForm(true);
   };
 
@@ -126,11 +137,11 @@ export default function POS() {
     setShowProductForm(false);
     // Find the newly created product by fetching all and taking the latest
     // (createProduct returns { success, id } but ProductForm doesn't expose the id)
-    // Instead, re-search with the prefill name to find it
+    // Instead, re-search with the prefill name/barcode to find it
     try {
-      const all = (await api.getProducts(
-        productFormPrefill,
-      )) as unknown as Product[];
+      const searchTerm =
+        productFormPrefill.barcode || productFormPrefill.name || "";
+      const all = (await api.getProducts(searchTerm)) as unknown as Product[];
       if (all.length > 0) {
         // Pick the first match (most likely the just-created product)
         handleAddToCart(all[0]);
@@ -138,7 +149,7 @@ export default function POS() {
     } catch (err) {
       logger.error("Failed to fetch newly created product", err);
     }
-    setProductFormPrefill("");
+    setProductFormPrefill({});
   };
 
   const handleSaveDraft = async (paymentData: PaymentData) => {
@@ -249,6 +260,7 @@ export default function POS() {
         setIsCheckoutOpen(false);
         setCartItems([]);
         setCurrentDraftId(undefined);
+        setRefreshSalesKey((k) => k + 1);
         alert("Sale completed successfully!");
         // Emit event to refresh dashboard immediately
         appEvents.emit("sale:completed", result);
@@ -272,6 +284,8 @@ export default function POS() {
           <ProductSearch
             onAddToCart={handleAddToCart}
             onCreateProduct={handleCreateProduct}
+            onSaleClick={(id) => setSelectedSaleId(id)}
+            refreshSalesKey={refreshSalesKey}
           />
         </div>
 
@@ -330,10 +344,11 @@ export default function POS() {
         <ProductForm
           onClose={() => {
             setShowProductForm(false);
-            setProductFormPrefill("");
+            setProductFormPrefill({});
           }}
           onSave={handleProductCreated}
-          prefillName={productFormPrefill}
+          prefillName={productFormPrefill.name}
+          prefillBarcode={productFormPrefill.barcode}
         />
       )}
 
@@ -409,6 +424,14 @@ export default function POS() {
             </div>
           </div>
         </div>
+      )}
+      {/* Sale Detail Modal */}
+      {selectedSaleId !== null && (
+        <SaleDetailModal
+          saleId={selectedSaleId}
+          onClose={() => setSelectedSaleId(null)}
+          onRefunded={() => setRefreshSalesKey((k) => k + 1)}
+        />
       )}
     </div>
   );

@@ -36,7 +36,7 @@ export interface ReceiptData {
  * Format receipt for 58mm thermal printer (default)
  */
 export function formatReceipt58mm(data: ReceiptData): string {
-  const width = 40; // 58mm width in characters (approx 40 chars)
+  const width = 32; // 58mm width — compact fit
   const sym = data.currency_symbol ?? "$";
 
   const padCenter = (text: string, char = " "): string => {
@@ -46,127 +46,91 @@ export function formatReceipt58mm(data: ReceiptData): string {
     return char.repeat(left) + text + char.repeat(right);
   };
 
-  const padRight = (text: string, width: number, char = " "): string => {
-    return (text + char.repeat(width)).slice(0, width);
-  };
-
   let receipt = "";
 
   // Header
   receipt += padCenter("=".repeat(width)) + "\n";
   receipt += padCenter(data.shop_name) + "\n";
-  receipt += padCenter("RECEIPT") + "\n";
   receipt += padCenter("=".repeat(width)) + "\n";
-  receipt += "\n";
 
-  // Receipt Info
-  receipt += `Receipt #: ${data.receipt_number}\n`;
-  receipt += `Date: ${new Date(data.timestamp).toLocaleDateString()}\n`;
-  receipt += `Time: ${new Date(data.timestamp).toLocaleTimeString()}\n`;
-  receipt += "\n";
+  // Receipt Info — date+time on one line
+  const dt = new Date(data.timestamp);
+  receipt += `#${data.receipt_number}\n`;
+  receipt += `${dt.toLocaleDateString()} ${dt.toLocaleTimeString()}\n`;
 
   // Client Info (if available)
   if (data.client_name) {
-    receipt += `Client: ${data.client_name}\n`;
-    if (data.client_phone) {
-      receipt += `Phone: ${data.client_phone}\n`;
-    }
+    receipt += `${data.client_name}`;
+    if (data.client_phone) receipt += ` ${data.client_phone}`;
     receipt += "\n";
   }
 
-  // Items
-  receipt += "ITEMS\n";
-  receipt += "-".repeat(width) + "\n";
-  // Align "Price" header so "P" aligns with "$" in amounts below
-  receipt +=
-    padRight("Item", 20) + padRight("Qty", 6) + " ".repeat(6) + "Price\n";
+  // Items — single line per item: name  qty x price
   receipt += "-".repeat(width) + "\n";
 
   data.items.forEach((item) => {
-    // Item name (wrap if too long)
-    const itemName = item.name.substring(0, 20);
-    const priceStr = `${sym}${item.price.toFixed(2)}`;
-    const subtotalStr = `${sym}${item.subtotal.toFixed(2)}`;
+    const priceStr = `${sym}${item.subtotal.toFixed(2)}`;
+    const qtyPrice = `${item.quantity}x${sym}${item.price.toFixed(2)}`;
+    // Available space for name = width - priceStr.length - 1 (space)
+    const nameWidth = Math.max(8, width - priceStr.length - 1);
+    const itemName =
+      item.name.length > nameWidth
+        ? item.name.substring(0, nameWidth)
+        : item.name;
 
-    receipt += padRight(itemName, 20);
-    receipt += padRight(item.quantity.toString(), 6);
-    receipt += priceStr.padStart(14, " ") + "\n";
+    // First line: name left-aligned, subtotal right-aligned
+    receipt += itemName;
+    receipt += " ".repeat(
+      Math.max(1, width - itemName.length - priceStr.length),
+    );
+    receipt += priceStr + "\n";
+
+    // Qty x unit-price on same or next mini-line if needed
+    if (item.quantity > 1) {
+      receipt += `  ${qtyPrice}\n`;
+    }
 
     if (item.imei) {
       receipt += `  IMEI: ${item.imei}\n`;
     }
-
-    receipt += padRight("", 26); // 20 + 6 for item name and qty columns
-    receipt += subtotalStr.padStart(14, " ") + "\n";
   });
 
   receipt += "-".repeat(width) + "\n";
 
-  // Totals (right-align amounts to width of 40)
-  const subtotalStr = `${sym}${data.subtotal.toFixed(2)}`;
-  const totalStr = `${sym}${data.total.toFixed(2)}`;
-  const lbpStr = `≈ ${(data.total * data.exchange_rate).toLocaleString()} LBP`;
+  // Totals
+  const fmtLine = (label: string, value: string) => {
+    const gap = Math.max(1, width - label.length - value.length);
+    return label + " ".repeat(gap) + value + "\n";
+  };
 
-  receipt +=
-    "Subtotal:" +
-    " ".repeat(width - 9 - subtotalStr.length) +
-    subtotalStr +
-    "\n";
   if (data.discount > 0) {
-    const discountStr = `-${sym}${data.discount.toFixed(2)}`;
-    receipt +=
-      "Discount:" +
-      " ".repeat(width - 9 - discountStr.length) +
-      discountStr +
-      "\n";
+    receipt += fmtLine("Subtotal:", `${sym}${data.subtotal.toFixed(2)}`);
+    receipt += fmtLine("Discount:", `-${sym}${data.discount.toFixed(2)}`);
   }
-  receipt +=
-    "TOTAL:" + " ".repeat(width - 6 - totalStr.length) + totalStr + "\n";
-  receipt += lbpStr.padStart(width, " ") + "\n";
-  receipt += "\n";
+  receipt += fmtLine("TOTAL:", `${sym}${data.total.toFixed(2)}`);
+
+  const lbpTotal = data.total * data.exchange_rate;
+  if (lbpTotal > 0) {
+    const lbpStr = `${lbpTotal.toLocaleString()} LBP`;
+    receipt += lbpStr.padStart(width, " ") + "\n";
+  }
 
   // Payment
-  receipt += "PAYMENT\n";
   receipt += "-".repeat(width) + "\n";
-
-  const paidUsdStr = `${sym}${data.payment_usd.toFixed(2)}`;
-  const changeUsdStr = `${sym}${data.change_usd.toFixed(2)}`;
-
-  receipt +=
-    "Paid USD:" + " ".repeat(width - 9 - paidUsdStr.length) + paidUsdStr + "\n";
+  receipt += fmtLine("Paid USD:", `${sym}${data.payment_usd.toFixed(2)}`);
 
   if (data.payment_lbp > 0) {
-    const paidLbpStr = `${data.payment_lbp.toLocaleString()}`;
-    receipt +=
-      "Paid LBP:" +
-      " ".repeat(width - 9 - paidLbpStr.length) +
-      paidLbpStr +
-      "\n";
-
-    const rateUsdStr = `${sym}${(data.payment_lbp / data.exchange_rate).toFixed(2)}`;
-    receipt +=
-      "(@ Rate):" +
-      " ".repeat(width - 9 - rateUsdStr.length) +
-      rateUsdStr +
-      "\n";
+    receipt += fmtLine("Paid LBP:", `${data.payment_lbp.toLocaleString()}`);
   }
 
-  receipt +=
-    "Change USD:" +
-    " ".repeat(width - 11 - changeUsdStr.length) +
-    changeUsdStr +
-    "\n";
-
+  if (data.change_usd > 0) {
+    receipt += fmtLine("Change:", `${sym}${data.change_usd.toFixed(2)}`);
+  }
   if (data.change_lbp > 0) {
-    const changeLbpStr = `${data.change_lbp.toLocaleString()} LBP`;
-    receipt +=
-      "Change LBP:" +
-      " ".repeat(width - 11 - changeLbpStr.length) +
-      changeLbpStr +
-      "\n";
+    receipt += fmtLine("Change LBP:", `${data.change_lbp.toLocaleString()}`);
   }
 
-  receipt += "\n" + padCenter("=".repeat(width)) + "\n";
+  receipt += padCenter("=".repeat(width)) + "\n";
   if (data.note) {
     receipt += padCenter(data.note) + "\n";
   }

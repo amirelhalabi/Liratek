@@ -272,6 +272,26 @@ export class InventoryService {
     }
   }
 
+  /**
+   * Soft delete multiple products in a single operation.
+   * Returns `{ success, deleted }` with the count of affected rows.
+   */
+  batchDeleteProducts(ids: number[]): {
+    success: boolean;
+    deleted?: number;
+    error?: string;
+  } {
+    if (!ids || ids.length === 0) {
+      return { success: false, error: "No product IDs provided" };
+    }
+    try {
+      const deleted = this.productRepo.batchSoftDelete(ids);
+      return { success: true, deleted };
+    } catch (error) {
+      return { success: false, error: toErrorString(error) };
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Stock Management
   // ---------------------------------------------------------------------------

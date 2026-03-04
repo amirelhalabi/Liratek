@@ -288,17 +288,33 @@ export default function ProductList() {
       )
     )
       return;
-    let failed = 0;
-    for (const id of selectedIds) {
-      try {
-        await api.deleteProduct(id);
-      } catch {
-        failed++;
+
+    try {
+      const ids = Array.from(selectedIds);
+      const result = window.api
+        ? await (window.api as any).inventory.batchDelete(ids)
+        : null;
+
+      if (result && !result.success) {
+        appEvents.emit(
+          "notification:show",
+          result.error || "Failed to delete products",
+          "error",
+        );
+        return;
       }
+
+      const deleted = result?.deleted ?? ids.length;
+      appEvents.emit(
+        "notification:show",
+        `${deleted} product${deleted !== 1 ? "s" : ""} deleted`,
+        "success",
+      );
+    } catch (error) {
+      appEvents.emit("notification:show", "Failed to delete products", "error");
+      logger.error("Batch delete failed:", error);
     }
-    if (failed > 0) {
-      logger.error(`${failed} product(s) failed to delete.`);
-    }
+
     setSelectedIds(new Set());
     loadProducts();
   };

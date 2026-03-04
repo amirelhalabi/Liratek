@@ -1554,6 +1554,113 @@ export const MIGRATIONS: Migration[] = [
       db.exec(`DROP TABLE IF EXISTS product_suppliers;`);
     },
   },
+
+  // =========================================================================
+  // v41 — Fix category cascade: ON DELETE CASCADE → ON DELETE SET NULL
+  //        Prevents category deletion from destroying all linked products.
+  // =========================================================================
+  {
+    version: 41,
+    name: "fix_category_cascade_to_set_null",
+    description:
+      "Rebuild products table so that category_id FK uses ON DELETE SET NULL " +
+      "instead of ON DELETE CASCADE. Prevents accidental product deletion.",
+    type: "typescript",
+    up(db) {
+      // SQLite cannot ALTER FK constraints — full table rebuild required.
+      // 1. Get column list from existing table
+      const cols = db.prepare("PRAGMA table_info(products)").all() as {
+        name: string;
+      }[];
+      const colNames = cols.map((c) => c.name).join(", ");
+
+      // 2. Recreate the table with the corrected FK
+      db.exec(`
+        CREATE TABLE products_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          barcode TEXT UNIQUE,
+          name TEXT NOT NULL,
+          item_type TEXT NOT NULL,
+          category TEXT DEFAULT 'General',
+          category_id INTEGER DEFAULT NULL REFERENCES product_categories(id) ON DELETE SET NULL,
+          description TEXT,
+          supplier TEXT DEFAULT NULL,
+          cost_price_usd DECIMAL(10, 2) DEFAULT 0,
+          selling_price_usd DECIMAL(10, 2) DEFAULT 0,
+          min_stock_level INTEGER DEFAULT 5,
+          stock_quantity INTEGER DEFAULT 0,
+          imei TEXT,
+          color TEXT,
+          image_url TEXT,
+          warranty_expiry DATE,
+          status TEXT DEFAULT 'Active',
+          is_active BOOLEAN DEFAULT 1,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+
+      // 3. Copy all data
+      db.exec(`
+        INSERT INTO products_new (${colNames})
+        SELECT ${colNames} FROM products;
+      `);
+
+      // 4. Swap tables
+      db.exec(`DROP TABLE products;`);
+      db.exec(`ALTER TABLE products_new RENAME TO products;`);
+
+      // 5. Recreate indexes that may have existed
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode);
+        CREATE INDEX IF NOT EXISTS idx_products_category_id ON products(category_id);
+        CREATE INDEX IF NOT EXISTS idx_products_is_active ON products(is_active);
+      `);
+    },
+    down(db) {
+      // Revert to ON DELETE CASCADE (original schema)
+      const cols = db.prepare("PRAGMA table_info(products)").all() as {
+        name: string;
+      }[];
+      const colNames = cols.map((c) => c.name).join(", ");
+
+      db.exec(`
+        CREATE TABLE products_old (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          barcode TEXT UNIQUE,
+          name TEXT NOT NULL,
+          item_type TEXT NOT NULL,
+          category TEXT DEFAULT 'General',
+          category_id INTEGER DEFAULT NULL REFERENCES product_categories(id) ON DELETE CASCADE,
+          description TEXT,
+          supplier TEXT DEFAULT NULL,
+          cost_price_usd DECIMAL(10, 2) DEFAULT 0,
+          selling_price_usd DECIMAL(10, 2) DEFAULT 0,
+          min_stock_level INTEGER DEFAULT 5,
+          stock_quantity INTEGER DEFAULT 0,
+          imei TEXT,
+          color TEXT,
+          image_url TEXT,
+          warranty_expiry DATE,
+          status TEXT DEFAULT 'Active',
+          is_active BOOLEAN DEFAULT 1,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+
+      db.exec(`
+        INSERT INTO products_old (${colNames})
+        SELECT ${colNames} FROM products;
+      `);
+
+      db.exec(`DROP TABLE products;`);
+      db.exec(`ALTER TABLE products_old RENAME TO products;`);
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode);
+        CREATE INDEX IF NOT EXISTS idx_products_category_id ON products(category_id);
+        CREATE INDEX IF NOT EXISTS idx_products_is_active ON products(is_active);
+      `);
+    },
+  },
 ];
 
 // =============================================================================
@@ -1601,25 +1708,44 @@ export function getAppliedMigrations(db: Database.Database): MigrationRecord[] {
 }
 
 /**
- * Get pending migrations
+ * Get pending migrations (includes any gaps — versions not in schema_migrations)
  */
 export function getPendingMigrations(db: Database.Database): Migration[] {
-  const currentVersion = getCurrentVersion(db);
-  return MIGRATIONS.filter((m) => m.version > currentVersion);
+  ensureMigrationsTable(db);
+  const applied = new Set(
+    (
+      db.prepare("SELECT version FROM schema_migrations").all() as {
+        version: number;
+      }[]
+    ).map((r) => r.version),
+  );
+  return MIGRATIONS.filter((m) => !applied.has(m.version)).sort(
+    (a, b) => a.version - b.version,
+  );
 }
 
 /**
- * Run all pending migrations
+ * Run all pending migrations (fills gaps too — not just versions above MAX)
  */
 export function runMigrations(db: Database.Database): void {
   ensureMigrationsTable(db);
 
-  const currentVersion = getCurrentVersion(db);
-  const pending = MIGRATIONS.filter((m) => m.version > currentVersion);
+  const applied = new Set(
+    (
+      db.prepare("SELECT version FROM schema_migrations").all() as {
+        version: number;
+      }[]
+    ).map((r) => r.version),
+  );
+  const pending = MIGRATIONS.filter((m) => !applied.has(m.version)).sort(
+    (a, b) => a.version - b.version,
+  );
 
   if (pending.length === 0) {
     console.log(
-      "[MIGRATIONS] Database is up to date (version " + currentVersion + ")",
+      "[MIGRATIONS] Database is up to date (version " +
+        getCurrentVersion(db) +
+        ")",
     );
     return;
   }

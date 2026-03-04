@@ -172,6 +172,15 @@ export function registerInventoryHandlers(): void {
     return service.deleteProduct(id);
   });
 
+  ipcMain.handle("inventory:batch-delete", (e, ids: number[]) => {
+    try {
+      const auth = requireRole(e.sender.id, ["admin"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+    } catch {}
+
+    return service.batchDeleteProducts(ids);
+  });
+
   // ---------------------------------------------------------------------------
   // Stock Management (Admin only)
   // ---------------------------------------------------------------------------

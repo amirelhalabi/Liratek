@@ -108,6 +108,9 @@ export interface ElectronAPI {
     deleteProduct: (
       id: number,
     ) => Promise<{ success: boolean; error?: string }>;
+    batchDelete: (
+      ids: number[],
+    ) => Promise<{ success: boolean; deleted?: number; error?: string }>;
     adjustStock: (
       id: number,
       quantity: number,
@@ -187,12 +190,21 @@ export interface ElectronAPI {
         client_name: string | null;
         paid_usd: number;
         paid_lbp: number;
+        final_amount_usd: number;
+        discount_usd: number;
+        status: string;
+        item_count: number;
         created_at: string;
       }>
     >;
     getTopProducts: () => Promise<
       { name: string; total_quantity: number; total_revenue: number }[]
     >;
+    refund: (saleId: number) => Promise<{
+      success: boolean;
+      refundId?: number;
+      error?: string;
+    }>;
   };
 
   // Dashboard
@@ -605,6 +617,32 @@ export interface ElectronAPI {
       error?: string;
     }>;
     quitAndInstall: () => Promise<{ success: boolean; error?: string }>;
+    // Push events from main process (returns unsubscribe fn)
+    onUpdateAvailable: (
+      cb: (
+        event: unknown,
+        info: { version: string; releaseDate?: string; releaseName?: string },
+      ) => void,
+    ) => () => void;
+    onDownloadProgress: (
+      cb: (
+        event: unknown,
+        progress: {
+          percent: number;
+          bytesPerSecond: number;
+          transferred: number;
+          total: number;
+        },
+      ) => void,
+    ) => () => void;
+    onUpdateDownloaded: (
+      cb: (
+        event: unknown,
+        info: { version: string; releaseDate?: string; releaseName?: string },
+      ) => void,
+    ) => () => void;
+    onUpdateNotAvailable: (cb: (event: unknown) => void) => () => void;
+    onError: (cb: (event: unknown, message: string) => void) => () => void;
   };
 
   // Reports

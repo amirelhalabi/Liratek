@@ -379,6 +379,25 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
    *
    * Returns the refund transaction's ID.
    */
+  /**
+   * Refund a sale by its sale ID (looks up the corresponding transaction).
+   * This is the entry point from the POS / SaleDetailModal.
+   */
+  refundBySaleId(saleId: number, userId: number): number {
+    const txn = this.queryOne<{ id: number }>(
+      `SELECT id FROM transactions
+       WHERE source_table = 'sales' AND source_id = ? AND type = 'SALE'
+       ORDER BY id DESC LIMIT 1`,
+      saleId,
+    );
+    if (!txn) {
+      throw new DatabaseError(`No SALE transaction found for sale #${saleId}`, {
+        entityId: saleId,
+      });
+    }
+    return this.refundTransaction(txn.id, userId);
+  }
+
   refundTransaction(id: number, userId: number): number {
     const original = this.findById(id);
     if (!original) {

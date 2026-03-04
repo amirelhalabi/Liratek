@@ -115,6 +115,26 @@ app.whenReady().then(async () => {
 
   createWindow();
 
+  // Auto-check for updates in background (packaged builds only, setting-gated)
+  try {
+    const { autoCheckForUpdates } =
+      await import("./handlers/updaterHandlers.js");
+    autoCheckForUpdates((key: string) => {
+      try {
+        const row = db
+          .prepare(
+            "SELECT value FROM system_settings WHERE key_name = ? LIMIT 1",
+          )
+          .get(key) as { value?: string } | undefined;
+        return row?.value;
+      } catch {
+        return undefined;
+      }
+    });
+  } catch {
+    // Non-fatal: auto-check is a convenience feature
+  }
+
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();

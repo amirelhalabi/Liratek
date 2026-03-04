@@ -356,32 +356,66 @@ export default function CheckoutModal({
     setShowReceiptPreview(true);
   };
 
-  const handlePrintReceipt = () => {
-    if (receiptPreview) {
-      const printWindow = window.open("", "", "width=400,height=600");
-      if (printWindow) {
-        printWindow.document.write(`<!DOCTYPE html>
-<html>
-<head>
-<title>Receipt</title>
-<style>
+  const receiptPrintCSS = `
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { width: 58mm; margin: 0 auto; }
-  pre { font-family: 'Courier New', monospace; font-size: 12px; white-space: pre-wrap; word-break: break-all; line-height: 1.4; }
+  pre { font-family: 'Courier New', monospace; font-size: 10px; white-space: pre-wrap; word-break: break-all; line-height: 1.3; }
   @media print {
     @page { size: 58mm auto; margin: 0; }
     html, body { width: 58mm; margin: 0; padding: 0; }
-  }
-</style>
-</head>
-<body><pre>${receiptPreview}</pre></body>
+  }`;
+
+  const printReceiptContent = (content: string) => {
+    const printWindow = window.open("", "", "width=400,height=600");
+    if (printWindow) {
+      printWindow.document.write(`<!DOCTYPE html>
+<html>
+<head><title>Receipt</title><style>${receiptPrintCSS}</style></head>
+<body><pre>${content}</pre></body>
 </html>`);
-        printWindow.document.close();
-        printWindow.focus();
-        printWindow.print();
-        printWindow.close();
-      }
+      printWindow.document.close();
+      printWindow.focus();
+      printWindow.print();
+      printWindow.close();
     }
+  };
+
+  const handlePrintReceipt = () => {
+    if (receiptPreview) {
+      printReceiptContent(receiptPreview);
+    }
+  };
+
+  const handleDirectPrint = () => {
+    if (!receiptNumber) {
+      setReceiptNumber(generateReceiptNumber());
+    }
+    const receipt: ReceiptData = {
+      shop_name: shopName,
+      receipt_number: receiptNumber || generateReceiptNumber(),
+      client_name:
+        selectedClient?.full_name || clientSearch || "Walk-in Customer",
+      client_phone: selectedClient?.phone_number || secondaryInput,
+      items: (items || []).map((item) => ({
+        name: item.name,
+        quantity: item.quantity,
+        price: item.retail_price,
+        subtotal: item.retail_price * item.quantity,
+        imei: item.imei || null,
+      })),
+      subtotal: totalAmount,
+      discount: discount,
+      total: finalAmount,
+      payment_usd: paidUSD,
+      payment_lbp: paidLBP,
+      change_usd: changeGivenUSD,
+      change_lbp: changeGivenLBP,
+      exchange_rate: effectiveExchangeRate,
+      timestamp: new Date().toISOString(),
+      operator: "Staff",
+    };
+    const formatted = formatReceipt58mm(receipt);
+    printReceiptContent(formatted);
   };
 
   const drawerNameDisplay = String(DRAWER_B).replace(/_/g, " ");
@@ -1026,12 +1060,6 @@ export default function CheckoutModal({
 
             <div className="mt-4 flex gap-3">
               <button
-                onClick={onClose}
-                className="px-6 py-4 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800 transition-colors font-medium"
-              >
-                Cancel
-              </button>
-              <button
                 onClick={handleSaveDraft}
                 disabled={isLoading}
                 className="px-6 py-4 rounded-xl text-violet-300 hover:text-violet-100 hover:bg-violet-900/30 transition-colors font-medium border border-violet-500/30"
@@ -1045,6 +1073,14 @@ export default function CheckoutModal({
               >
                 <Printer size={18} />
                 Preview
+              </button>
+              <button
+                onClick={handleDirectPrint}
+                disabled={isLoading}
+                className="px-4 py-4 rounded-xl text-emerald-300 hover:text-emerald-100 hover:bg-emerald-900/30 transition-colors font-medium border border-emerald-500/30 flex items-center gap-2"
+              >
+                <Printer size={18} />
+                Print
               </button>
               <button
                 onClick={handleComplete}

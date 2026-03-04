@@ -67,6 +67,20 @@ export class ProductSupplierRepository {
   }
 
   delete(id: number): boolean {
+    // Look up the supplier name so we can clear matching products
+    const row = this.db
+      .prepare(`SELECT name FROM product_suppliers WHERE id = ?`)
+      .get(id) as { name: string } | undefined;
+
+    if (row) {
+      // Clear supplier text on products that reference this supplier (case-insensitive)
+      this.db
+        .prepare(
+          `UPDATE products SET supplier = NULL WHERE LOWER(supplier) = LOWER(?)`,
+        )
+        .run(row.name);
+    }
+
     const result = this.db
       .prepare(`DELETE FROM product_suppliers WHERE id = ?`)
       .run(id);

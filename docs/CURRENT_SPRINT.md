@@ -1,8 +1,162 @@
 # Current Sprint — March 2026
 
-> **Last Updated**: 2026-03-04  
+> **Last Updated**: 2026-03-05  
 > **Sprint Start**: 2026-03-01  
 > **Focus**: Setup Wizard, Module-Linked UI, UX Polish, CI/CD + Packaging, Auto-Update
+
+---
+
+## ✅ Done This Sprint (March 5, 2026 — Diagnostics/Settings Fixes + Auto-Update System)
+
+### Diagnostics Quick Fixes
+
+| Change                                        | Details                                                                                                                                                                                                                                       |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **UpdatesPanel: removed auto-check on mount** | `useEffect` now only calls `getStatus()` — no longer triggers `check()` on page load. Users must click "Check for Updates" manually                                                                                                           |
+| **FK check: removed inline result div**       | Removed the green "OK" div and violations table from `Diagnostics.tsx`. FK check results now only show via notification center (success/warning/error). Startup violation banner (yellow) retained for persistent visibility                  |
+| **Feature toggle switches in ShopConfig**     | Added visible toggle switches for "Opening & Closing" (`sessionMgmt`) and "Customer Sessions" (`customerSessions`). State was already loaded/saved but had no UI controls. Toggles use violet/slate pill style consistent with other settings |
+
+### Auto-Update Push Event System
+
+| Change                                              | Details                                                                                                                                                                                                                                                                     |
+| --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`wireAutoUpdaterEvents()` in updaterHandlers.ts** | Wires `autoUpdater` event listeners (`update-available`, `download-progress`, `update-downloaded`, `update-not-available`, `error`) that push to renderer via `BrowserWindow.getAllWindows().webContents.send()`. Only wires once (idempotent flag)                         |
+| **`autoCheckForUpdates()` exported**                | Called from `main.ts` after `createWindow()`. Only runs in packaged mode. Gated by `auto_check_updates` DB setting (default: enabled). Sets `autoDownload = false` to prevent silent downloads                                                                              |
+| **main.ts launch integration**                      | After `createWindow()`, dynamically imports and calls `autoCheckForUpdates()` with a DB setting reader function. Non-fatal — silently catches errors                                                                                                                        |
+| **Preload push event listeners**                    | Added `onUpdateAvailable`, `onDownloadProgress`, `onUpdateDownloaded`, `onUpdateNotAvailable`, `onError` to `updater` namespace in `preload.ts`. Each returns an unsubscribe function for cleanup                                                                           |
+| **TypeScript types**                                | Full types for all 5 push event callbacks in `electron.d.ts` — includes version, releaseDate, progress percent/bytes/total                                                                                                                                                  |
+| **`UpdateNotifier` component**                      | New component in `App.tsx` — listens for push events, shows persistent top-of-screen action bar: "Update available v1.x.x [Download]" → "Downloading... N%" → "Update ready [Restart Now]". Dismissable with X button. Also emits notification center toasts for key events |
+| **Auto-check for updates toggle**                   | New toggle in ShopConfig "Features" section: "Auto-check for Updates". Persists as `auto_check_updates` in `system_settings` (value `1`/`0`, default enabled). Read by backend on launch to gate auto-check behavior                                                        |
+
+### Files Modified
+
+| File                                                             | Change                                                                           |
+| ---------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `frontend/src/features/settings/pages/Settings/UpdatesPanel.tsx` | Removed `check()` from `useEffect`                                               |
+| `frontend/src/features/settings/pages/Settings/Diagnostics.tsx`  | Removed `fkRows` state + inline result divs                                      |
+| `frontend/src/features/settings/pages/Settings/ShopConfig.tsx`   | Added 3 feature toggles (Opening/Closing, Customer Sessions, Auto-check Updates) |
+| `electron-app/handlers/updaterHandlers.ts`                       | Added `wireAutoUpdaterEvents()`, `autoCheckForUpdates()`, push event wiring      |
+| `electron-app/main.ts`                                           | Added auto-check call after `createWindow()`                                     |
+| `electron-app/preload.ts`                                        | Added 5 `onXxx` push event listeners to updater namespace                        |
+| `frontend/src/types/electron.d.ts`                               | Added types for 5 push event callbacks                                           |
+| `frontend/src/app/App.tsx`                                       | Added `UpdateNotifier` component with persistent action bar                      |
+
+---
+
+## ✅ Done This Sprint (March 4, 2026 — Refund Fix, Cancel Button Removal)
+
+### Refund System — ID Mismatch Fix
+
+| Change                              | Details                                                                                                                                                                                                                              |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Root cause**                      | `SaleDetailModal` passed `saleId` (from `sales` table) to `transactions.refund()`, but `TransactionRepository.refundTransaction()` expects a `transactions.id`. These are different IDs — refund silently failed or hit wrong record |
+| **`refundBySaleId()` — Repository** | New method on `TransactionRepository`. Looks up `SELECT id FROM transactions WHERE source_table='sales' AND source_id=? AND type='SALE'`, then delegates to existing `refundTransaction(txnId)`                                      |
+| **`refundBySaleId()` — Service**    | New pass-through on `TransactionService` with error logging                                                                                                                                                                          |
+| **`sales:refund` IPC handler**      | New handler in `salesHandlers.ts` — admin-only, calls `txnService.refundBySaleId(saleId, userId)`. Returns `{ success, refundId }` or `{ success: false, error }`                                                                    |
+| **Preload + types**                 | `sales.refund(saleId)` bridge in `preload.ts` + typed in `electron.d.ts`                                                                                                                                                             |
+| **`SaleDetailModal` updated**       | Changed from `window.api.transactions.refund(saleId)` to `window.api.sales.refund(saleId)` — now correctly routes through sale-aware refund path                                                                                     |
+
+### Cancel Button Removed from CheckoutModal
+
+| Change                          | Details                                                                                                                |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| **Cancel button removed**       | Removed from footer buttons row. Click-outside-modal (`onMouseDown` on backdrop → `onClose()`) is the cancel mechanism |
+| **`onClose` handler unchanged** | POS `onClose` already handles draft deletion + cart clearing — no behavior change, just UI simplification              |
+
+---
+
+## ✅ Done This Sprint (March 4, 2026 — POS Improvements: Sale Detail, Refund, Print, Receipt Layout)
+
+### Sale Detail Modal + Refund from POS
+
+| Change                    | Details                                                                                                                                                                           |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`SaleDetailModal.tsx`** | New component in `POS/components/`. Fetches sale + items via `window.api.sales.get()` and `window.api.sales.getItems()`. Displays customer info, itemized list, payment breakdown |
+| **Refund button**         | Calls `window.api.sales.refund(saleId)` — backend resolves transaction ID internally, restores stock, reverses payments, marks sale refunded. Confirm dialog before execution     |
+| **Print from detail**     | Print button generates receipt from sale data and opens print dialog directly                                                                                                     |
+| **Refunded sale styling** | Items show line-through red text, total shows line-through, "Refunded" badge in header                                                                                            |
+| **Wired into POS**        | `selectedSaleId` state + `onSaleClick` handler in `POS/index.tsx`. Clicking any sale card/row in today's sales opens the detail modal                                             |
+| **Sales list refresh**    | `refreshSalesKey` counter incremented after sale completion and after refund — triggers ProductSearch to reload today's sales                                                     |
+| **Notification system**   | Refund success/error uses `appEvents.emit("notification:show", ...)` instead of `alert()`                                                                                         |
+
+### Direct Print Button in CheckoutModal
+
+| Change                             | Details                                                                                                                    |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| **New "Print" button**             | Added alongside existing "Preview" button in CheckoutModal footer. Green accent (emerald) to distinguish from blue Preview |
+| **`handleDirectPrint()`**          | Generates receipt data and immediately opens print dialog — skips the preview modal entirely                               |
+| **`printReceiptContent()` helper** | Extracted shared print-window logic used by both Preview-then-Print and Direct Print flows                                 |
+| **Unified print CSS**              | Single `receiptPrintCSS` string used by all print paths — font-size reduced from 12px to 10px, line-height from 1.4 to 1.3 |
+
+### Receipt Layout Overhaul (58mm)
+
+| Change                       | Details                                                                                                                    |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| **Width reduced**            | 40 → 32 characters — better fit for actual 58mm thermal printers                                                           |
+| **Date + time combined**     | Single line instead of separate Date: and Time: lines                                                                      |
+| **1 line per item**          | Item name left-aligned, subtotal right-aligned on same line. Qty×price shown only when quantity > 1 (as indented sub-line) |
+| **Removed "RECEIPT" header** | Shop name alone between `===` dividers — saves vertical space                                                              |
+| **Receipt number compact**   | `#RCP-...` instead of `Receipt #: RCP-...`                                                                                 |
+| **Conditional sections**     | Subtotal line only shown when there's a discount. Change lines only shown when > 0. LBP total only shown when > 0          |
+| **Print CSS tightened**      | Font 12px → 10px, line-height 1.4 → 1.3 in all print windows (CheckoutModal + SaleDetailModal)                             |
+
+### Batch Delete Fix (from earlier this session)
+
+| Change                                    | Details                                                                                          |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| **`ProductRepository.batchSoftDelete()`** | Single SQL `UPDATE ... SET is_active = 0 WHERE id IN (...)` — replaces 4010 sequential IPC calls |
+| **`inventory:batch-delete` IPC handler**  | Admin auth check, returns `{ success, deleted }`                                                 |
+| **Preload + types**                       | `batchDelete(ids)` bridge + `electron.d.ts` type                                                 |
+| **ProductList rewrite**                   | `handleBatchDelete` uses bulk endpoint, checks `result.success`, shows notifications             |
+
+### Search Prefill (from earlier this session)
+
+| Change                             | Details                                                                                                                                           |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Numeric → barcode, text → name** | `ProductSearch` detects if search term is numeric (routes to `prefillBarcode`) or text (routes to `prefillName`) when creating a product from POS |
+
+### Migration Runner Gap-Fill Fix
+
+| Change                       | Details                                                                                            |
+| ---------------------------- | -------------------------------------------------------------------------------------------------- |
+| **`getPendingMigrations()`** | Now checks ALL unapplied versions (not just `version > MAX`). Handles gaps from skipped migrations |
+| **`runMigrations()` log**    | Fixed `currentVersion` reference error in log message                                              |
+
+---
+
+## ✅ Done This Sprint (March 4, 2026 — Schema Safety, Barcode Printing, Supplier Cleanup)
+
+### Fix `is_settled` Missing from `create_db.sql`
+
+| Change                           | Details                                                                                                                                                          |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`financial_services` columns** | Added `is_settled INTEGER NOT NULL DEFAULT 1`, `settled_at TEXT`, `settlement_id INTEGER` to table definition — matches what migration v31 adds for existing DBs |
+| **Indexes**                      | Added `idx_financial_services_is_settled` and `idx_financial_services_provider_settled` indexes                                                                  |
+| **`supplier_ledger` CHECK**      | Added `'SETTLEMENT'` to `entry_type` CHECK constraint — was missing despite v31 adding it for existing DBs                                                       |
+| **Migration seed**               | Added `(31, 'add_settlement_tracking_to_financial_services')` to `schema_migrations` INSERT seed                                                                 |
+
+### Fix Category Deletion Cascade (was destroying products)
+
+| Change                            | Details                                                                                                                           |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| **`create_db.sql` FK**            | Changed `products.category_id` from `ON DELETE CASCADE` to `ON DELETE SET NULL` — prevents accidental product deletion            |
+| **Migration v41**                 | Full products table rebuild to change FK constraint from CASCADE to SET NULL. Recreates indexes. Includes `down()` rollback       |
+| **`CategoryRepository.delete()`** | Now explicitly nullifies `category_id` and resets `category` to `'General'` on affected products before deleting the category row |
+| **Migration seed**                | Added `(41, 'fix_category_cascade_to_set_null')` to `schema_migrations` INSERT seed                                               |
+
+### Print Barcode Button in ProductForm
+
+| Change                    | Details                                                                                                                                                                                 |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`jsbarcode` installed** | Added `jsbarcode@3.12.3` to `frontend/package.json` — CODE128 barcode generation                                                                                                        |
+| **Print Barcode button**  | Appears in ProductForm footer (left side) when barcode field is non-empty. Generates CODE128 barcode on canvas, opens print window with 50mm x 30mm label layout including product name |
+| **Print pattern**         | Uses same `window.open()` + `window.print()` pattern as CheckoutModal receipt printing                                                                                                  |
+
+### Supplier Deletion Cleanup
+
+| Change                                   | Details                                                                                                                                                                          |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`ProductSupplierRepository.delete()`** | Now looks up supplier name before deletion, then clears `products.supplier = NULL` for all products matching that supplier (case-insensitive). Prevents orphaned text references |
 
 ---
 

@@ -335,6 +335,23 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
     return result.changes;
   }
 
+  /**
+   * Soft-delete multiple products in a single SQL statement.
+   * Returns the number of rows affected.
+   */
+  batchSoftDelete(ids: number[]): number {
+    if (ids.length === 0) return 0;
+
+    const placeholders = ids.map(() => "?").join(", ");
+    const result = this.db
+      .prepare(
+        `UPDATE ${this.tableName} SET is_active = 0 WHERE id IN (${placeholders})`,
+      )
+      .run(...(ids as any[]));
+
+    return result.changes;
+  }
+
   updateProductFull(
     id: number,
     data: {
