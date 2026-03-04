@@ -1,10 +1,17 @@
 /** @jest-environment jsdom */
 
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import UpdatesPanel from "../UpdatesPanel";
+
+// Mock appEvents so we can assert notification calls
+const emitMock = jest.fn();
+jest.mock("@liratek/ui", () => ({
+  appEvents: { emit: (...args: unknown[]) => emitMock(...args) },
+}));
 
 describe("UpdatesPanel", () => {
   beforeEach(() => {
+    emitMock.mockClear();
     (window as any).api = {
       updater: {
         getStatus: jest.fn().mockResolvedValue({
@@ -27,51 +34,83 @@ describe("UpdatesPanel", () => {
     render(<UpdatesPanel />);
 
     expect(await screen.findByText(/Updater:/)).toBeInTheDocument();
-    expect(screen.getByText(/Disabled \(dev mode\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Dev mode/)).toBeInTheDocument();
   });
 
-  it("check calls updater.check and shows update info", async () => {
-    (window as any).api.updater.check.mockResolvedValueOnce({
+  it("check calls updater.check and shows dev release info", async () => {
+    (window as any).api.updater.check.mockResolvedValue({
+      success: true,
+      devMode: true,
+      updateInfo: {
+        tag: "v1.0.1",
+        name: "LiraTek v1.0.1",
+        published_at: "2026-03-04T00:00:00Z",
+        assets: [],
+      },
+    });
+
+    render(<UpdatesPanel />);
+
+    // Auto-check on mount fetches release info
+    expect(await screen.findByText("v1.0.1")).toBeInTheDocument();
+  });
+
+  it("check shows packaged update info as JSON", async () => {
+    (window as any).api.updater.getStatus.mockResolvedValue({
+      packaged: true,
+      platform: "win32",
+      version: "1.0.0",
+    });
+    (window as any).api.updater.check.mockResolvedValue({
       success: true,
       updateInfo: { version: "1.0.1" },
     });
 
-    const { fireEvent } = await import("@testing-library/react");
-
     render(<UpdatesPanel />);
-
-    fireEvent.click(await screen.findByText("Check for Updates"));
 
     expect(await screen.findByText(/"version": "1\.0\.1"/)).toBeInTheDocument();
   });
 
-  it("check shows error on failure", async () => {
-    (window as any).api.updater.check.mockResolvedValueOnce({
+  it("check shows error notification on failure", async () => {
+    (window as any).api.updater.check.mockResolvedValue({
       success: false,
       error: "boom",
     });
 
-    const { fireEvent } = await import("@testing-library/react");
-
     render(<UpdatesPanel />);
 
-    fireEvent.click(await screen.findByText("Check for Updates"));
-
-    expect(await screen.findByText("boom")).toBeInTheDocument();
+    // Auto-check on mount triggers the error
+    await waitFor(() => {
+      expect(emitMock).toHaveBeenCalledWith(
+        "notification:show",
+        "boom",
+        "error",
+      );
+    });
   });
 
-  it("download shows error on failure", async () => {
+  it("download shows error notification on failure", async () => {
+    // Packaged mode so Download button is visible
+    (window as any).api.updater.getStatus.mockResolvedValue({
+      packaged: true,
+      platform: "win32",
+      version: "1.0.0",
+    });
     (window as any).api.updater.download.mockResolvedValueOnce({
       success: false,
       error: "download failed",
     });
 
-    const { fireEvent } = await import("@testing-library/react");
-
     render(<UpdatesPanel />);
 
     fireEvent.click(await screen.findByText("Download"));
 
-    expect(await screen.findByText(/download failed/i)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(emitMock).toHaveBeenCalledWith(
+        "notification:show",
+        "download failed",
+        "error",
+      );
+    });
   });
 });
