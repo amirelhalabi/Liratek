@@ -72,12 +72,20 @@ export default function UpdatesPanel() {
       } else if (res.updateInfo) {
         const ver =
           (res.updateInfo as any).version ||
-          (res.updateInfo as any).tag ||
+          (res.updateInfo as any).tag?.replace(/^v/, "") ||
           null;
-        setAvailableVersion(ver);
-        setInfo(JSON.stringify(res.updateInfo, null, 2));
-        setDevRelease(null);
-        setUpdateState("update-available");
+        // Compare remote version to current — same version means up-to-date
+        const currentVer = status?.version;
+        if (ver && currentVer && ver === currentVer) {
+          setInfo(null);
+          setDevRelease(null);
+          setUpdateState("up-to-date");
+        } else {
+          setAvailableVersion(ver);
+          setInfo(JSON.stringify(res.updateInfo, null, 2));
+          setDevRelease(null);
+          setUpdateState("update-available");
+        }
       } else {
         setInfo(null);
         setDevRelease(null);
