@@ -181,6 +181,8 @@ export async function autoCheckForUpdates(
     wireAutoUpdaterEvents();
     autoUpdater.autoDownload = false;
     autoUpdater.autoInstallOnAppQuit = false;
+    autoUpdater.disableWebInstaller = true;
+    autoUpdater.disableDifferentialDownload = true;
     await autoUpdater.checkForUpdates();
   } catch {
     // Silently fail on auto-check — user can always check manually
@@ -221,6 +223,8 @@ export function registerUpdaterHandlers(): void {
       wireAutoUpdaterEvents();
       autoUpdater.autoDownload = false;
       autoUpdater.autoInstallOnAppQuit = false;
+      autoUpdater.disableWebInstaller = true;
+      autoUpdater.disableDifferentialDownload = true;
       const res = await autoUpdater.checkForUpdates();
       return { success: true, updateInfo: res?.updateInfo };
     } catch (err) {
@@ -252,6 +256,8 @@ export function registerUpdaterHandlers(): void {
       }
       ensureUpdateToken();
       wireAutoUpdaterEvents();
+      autoUpdater.disableWebInstaller = true;
+      autoUpdater.disableDifferentialDownload = true;
       const res = await autoUpdater.downloadUpdate();
       return { success: true, result: res };
     } catch (err) {
