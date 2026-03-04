@@ -227,7 +227,7 @@ describe("SalesService", () => {
 
       const result = service.getTodaysSales();
 
-      expect(mockRepo.getTodaysSales).toHaveBeenCalledWith(5);
+      expect(mockRepo.getTodaysSales).toHaveBeenCalledWith(50);
       expect(result).toEqual(mockSales);
     });
   });
