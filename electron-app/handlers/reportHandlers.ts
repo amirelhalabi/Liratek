@@ -1,11 +1,7 @@
-import { ipcMain } from "electron";
+import { app, ipcMain } from "electron";
 import { ReportService } from "../services/ReportService.js";
-import { dbLogger } from "@liratek/core";
+import { dbLogger, getSettingsService } from "@liratek/core";
 import { requireRole } from "../session.js";
-import { createRequire } from "module";
-
-// ESM does not provide require(); create one so we can load CJS-only packages
-const esmRequire = createRequire(import.meta.url);
 
 export function registerReportHandlers(): void {
   const service = new ReportService();
@@ -34,8 +30,7 @@ export function registerReportHandlers(): void {
     const res = await service.backupDatabase();
     if (res.success) {
       try {
-        const { SettingsService } = esmRequire("../services/SettingsService");
-        const settings = new SettingsService();
+        const settings = getSettingsService();
         settings.updateSetting("last_backup_at", new Date().toISOString());
 
         const verifyEnabled =
@@ -88,16 +83,12 @@ export function registerReportHandlers(): void {
 
     try {
       // Close DB connection if open
-
-      const { closeDatabase } = esmRequire("../db");
-      closeDatabase();
+      const { getDatabase } = await import("../db.js");
+      getDatabase().close();
     } catch {}
 
-    try {
-      const { app } = esmRequire("electron");
-      app.relaunch();
-      app.exit(0);
-    } catch {}
+    app.relaunch();
+    app.exit(0);
 
     return { success: true };
   });

@@ -10,10 +10,6 @@ import {
   expenseLogger,
   closingLogger,
 } from "@liratek/core";
-import { createRequire } from "module";
-
-// ESM does not provide require(); create one so we can load CJS-only packages
-const esmRequire = createRequire(import.meta.url);
 
 export function registerDatabaseHandlers(): void {
   const settingsService = getSettingsService();
@@ -272,14 +268,14 @@ export function registerDatabaseHandlers(): void {
   });
 
   // Diagnostics: run PRAGMA foreign_key_check
-  ipcMain.handle("diagnostics:foreign-key-check", (e) => {
+  ipcMain.handle("diagnostics:foreign-key-check", async (e) => {
     try {
       const auth = requireRole(e.sender.id, ["admin"]);
       if (!auth.ok) return { success: false, error: auth.error };
     } catch {}
 
     try {
-      const { getDatabase } = esmRequire("../db");
+      const { getDatabase } = await import("../db.js");
       const db = getDatabase();
       const rows = db.pragma("foreign_key_check");
       return { success: true, rows };

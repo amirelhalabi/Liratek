@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import UpdatesPanel from "./UpdatesPanel";
-import { Select } from "@liratek/ui";
+import { appEvents, Select } from "@liratek/ui";
 
 export default function Diagnostics() {
   const [errors, setErrors] = useState<
@@ -68,8 +68,23 @@ export default function Diagnostics() {
       const res = await window.api.diagnostics.foreignKeyCheck();
       if (!res.success) throw new Error(res.error || "FK check failed");
       setFkRows(res.rows || []);
+      if ((res.rows || []).length === 0) {
+        appEvents.emit(
+          "notification:show",
+          "No foreign key violations found",
+          "success",
+        );
+      } else {
+        appEvents.emit(
+          "notification:show",
+          `Found ${(res.rows || []).length} FK violation(s)`,
+          "warning",
+        );
+      }
     } catch (e) {
-      setFkCheckError(e instanceof Error ? e.message : "FK check failed");
+      const msg = e instanceof Error ? e.message : "FK check failed";
+      setFkCheckError(msg);
+      appEvents.emit("notification:show", msg, "error");
     } finally {
       setFkCheckLoading(false);
     }
@@ -126,9 +141,16 @@ export default function Diagnostics() {
     try {
       const res = await window.api.report.backupDatabase();
       if (!res.success) throw new Error(res.error || "Backup failed");
+      appEvents.emit(
+        "notification:show",
+        "Backup created successfully",
+        "success",
+      );
       await loadBackups();
     } catch (e) {
-      setBackupError(e instanceof Error ? e.message : "Backup failed");
+      const msg = e instanceof Error ? e.message : "Backup failed";
+      setBackupError(msg);
+      appEvents.emit("notification:show", msg, "error");
     } finally {
       setBackupLoading(false);
     }
@@ -143,8 +165,17 @@ export default function Diagnostics() {
       const res = await window.api.report.verifyBackup(selectedBackupPath);
       if (!res.success) throw new Error(res.error || "Verify failed");
       setVerifyResult(res.ok ? "OK" : "FAILED");
+      appEvents.emit(
+        "notification:show",
+        res.ok
+          ? "Backup integrity check passed"
+          : "Backup integrity check FAILED",
+        res.ok ? "success" : "error",
+      );
     } catch (e) {
-      setBackupError(e instanceof Error ? e.message : "Verify failed");
+      const msg = e instanceof Error ? e.message : "Verify failed";
+      setBackupError(msg);
+      appEvents.emit("notification:show", msg, "error");
     } finally {
       setBackupLoading(false);
     }
@@ -165,9 +196,16 @@ export default function Diagnostics() {
     try {
       const res = await window.api.report.restoreDatabase(selectedBackupPath);
       if (!res.success) throw new Error(res.error || "Restore failed");
+      appEvents.emit(
+        "notification:show",
+        "Restore successful — restarting app...",
+        "success",
+      );
       // If successful, the main process will relaunch and exit.
     } catch (e) {
-      setBackupError(e instanceof Error ? e.message : "Restore failed");
+      const msg = e instanceof Error ? e.message : "Restore failed";
+      setBackupError(msg);
+      appEvents.emit("notification:show", msg, "error");
       setBackupLoading(false);
     }
   };
