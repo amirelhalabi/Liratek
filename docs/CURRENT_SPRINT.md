@@ -6,6 +6,35 @@
 
 ---
 
+## ✅ Done This Sprint (March 5, 2026 — Updater Version Fix, Menu Bar Removal)
+
+### Updater Version Comparison Fix (Showing "Update Available" When Already on Latest)
+
+| Change                                     | Details                                                                                                                                                                                      |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Root cause**                             | `electron-updater` fires `update-available` even when remote version equals local version. Combined with stale closure in `useCallback`, the frontend always saw `status?.version` as `null` |
+| **`UpdatesPanel.tsx` — stale closure fix** | Added `status?.version` to `useCallback` dependency array for `check()` — version comparison at line 79 now uses fresh state instead of always-null stale value                              |
+| **`App.tsx` — `UpdateNotifier` guard**     | Fetches `currentVersion` from `updater.getStatus()` on mount. `onUpdateAvailable` listener skips notification if `info.version === currentVersion`                                           |
+| **`updaterHandlers.ts` — backend guard**   | After `autoUpdater.checkForUpdates()`, compares `remoteVersion === localVersion`. Returns `{ updateInfo: null, upToDate: true }` when versions match — prevents unnecessary frontend events  |
+
+### Hide Default Electron Menu Bar
+
+| Change                              | Details                                                                                                                                                |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **`autoHideMenuBar: true`**         | Added to `BrowserWindow` options in `createWindow()` — menu bar hidden by default (can still be toggled with Alt key on Windows)                       |
+| **`Menu.setApplicationMenu(null)`** | Called in `app.whenReady()` for production builds only — completely removes File/Edit/View/Window/Help menu. Dev mode retains menu for DevTools access |
+
+### Files Modified
+
+| File                                                             | Change                                                                                |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `electron-app/main.ts`                                           | `Menu` import, `autoHideMenuBar: true`, `Menu.setApplicationMenu(null)` in production |
+| `electron-app/handlers/updaterHandlers.ts`                       | Version comparison guard in `updater:check` handler                                   |
+| `frontend/src/app/App.tsx`                                       | `UpdateNotifier` fetches currentVersion, filters same-version updates                 |
+| `frontend/src/features/settings/pages/Settings/UpdatesPanel.tsx` | Fixed `useCallback` dependency for `check()`                                          |
+
+---
+
 ## ✅ Done This Sprint (March 5, 2026 — Three Bug Fixes: Updater, Barcode Print, Receipt Print)
 
 ### Download Progress Bar Fix

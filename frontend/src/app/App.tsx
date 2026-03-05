@@ -214,6 +214,17 @@ function UpdateNotifier() {
     | null
   >(null);
   const [dismissed, setDismissed] = useState(false);
+  const [currentVersion, setCurrentVersion] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Fetch current app version so we can filter same-version "updates"
+    window.api?.updater
+      ?.getStatus?.()
+      .then((s: any) => {
+        if (s?.version) setCurrentVersion(s.version);
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     const updater = window.api?.updater;
@@ -223,6 +234,8 @@ function UpdateNotifier() {
 
     unsubs.push(
       updater.onUpdateAvailable((_e, info) => {
+        // Skip if the "update" version matches our current version
+        if (currentVersion && info.version === currentVersion) return;
         setState({ phase: "available", version: info.version });
         setDismissed(false);
         appEvents.emit(
@@ -268,7 +281,7 @@ function UpdateNotifier() {
     );
 
     return () => unsubs.forEach((fn) => fn());
-  }, []);
+  }, [currentVersion]);
 
   const handleDownload = useCallback(async () => {
     // Immediately show downloading state — progress events may be sparse

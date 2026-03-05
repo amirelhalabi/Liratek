@@ -226,6 +226,12 @@ export function registerUpdaterHandlers(): void {
       autoUpdater.disableWebInstaller = true;
       autoUpdater.disableDifferentialDownload = true;
       const res = await autoUpdater.checkForUpdates();
+      const remoteVersion = res?.updateInfo?.version;
+      const localVersion = getAppVersion();
+      // If remote version matches local, report up-to-date
+      if (remoteVersion && localVersion && remoteVersion === localVersion) {
+        return { success: true, updateInfo: null, upToDate: true };
+      }
       return { success: true, updateInfo: res?.updateInfo };
     } catch (err) {
       return {

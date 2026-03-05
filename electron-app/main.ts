@@ -3,7 +3,7 @@
  * Uses backend services directly (no REST API in Electron mode)
  */
 
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, ipcMain, Menu } from "electron";
 import {
   ELECTRON_RENDERER_URL,
   resolveDatabasePath,
@@ -66,6 +66,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
@@ -106,6 +107,11 @@ loadDotEnvFile(path.join(__dirname, "../.env"));
 
 app.whenReady().then(async () => {
   logger.info("App ready, creating window...");
+
+  // Remove default menu bar in production (keep in dev for DevTools access)
+  if (!ELECTRON_RENDERER_URL) {
+    Menu.setApplicationMenu(null);
+  }
 
   // Initialize database and services
   initializeBackend();

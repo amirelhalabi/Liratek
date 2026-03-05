@@ -99,7 +99,7 @@ export default function UpdatesPanel() {
       );
       setUpdateState("idle");
     }
-  }, []);
+  }, [status?.version]);
 
   const download = useCallback(async () => {
     setUpdateState("downloading");
