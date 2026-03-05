@@ -50,9 +50,13 @@ const NotificationCenter: React.FC = () => {
         notifications[notifications.length - 1],
       ].slice(-20);
       appEvents.emit("notification:history", window.notificationHistory);
-      const timer = setTimeout(() => {
-        setNotifications((prev) => prev.slice(1)); // Remove the oldest notification
-      }, notifications[0].duration || 5000);
+      const timer = setTimeout(
+        () => {
+          setNotifications((prev) => prev.slice(1)); // Remove the oldest notification
+        },
+        notifications[0].duration ||
+          (notifications[0].type === "error" ? 3000 : 5000),
+      );
       return () => clearTimeout(timer);
     }
   }, [notifications]);
@@ -87,9 +91,18 @@ const NotificationCenter: React.FC = () => {
     }
   };
 
+  const MAX_VISIBLE = 5;
+  const hiddenCount = Math.max(0, notifications.length - MAX_VISIBLE);
+  const visible = notifications.slice(-MAX_VISIBLE);
+
   return (
     <div className="fixed bottom-4 right-4 z-[1000] space-y-3">
-      {notifications.map((notification) => (
+      {hiddenCount > 0 && (
+        <div className="flex items-center justify-center px-3 py-1.5 rounded-lg bg-slate-800/90 border border-slate-600 text-slate-300 text-xs backdrop-blur-md">
+          +{hiddenCount} more notification{hiddenCount > 1 ? "s" : ""}
+        </div>
+      )}
+      {visible.map((notification) => (
         <div
           key={notification.id}
           className={`flex items-center gap-3 p-4 rounded-lg shadow-lg backdrop-blur-md border ${getBgColorClass(notification.type)} animate-in slide-in-from-right-full fade-in duration-300`}

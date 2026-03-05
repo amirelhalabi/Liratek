@@ -6,6 +6,63 @@
 
 ---
 
+## ✅ Done This Sprint (March 5, 2026 — Bug Fixes, POS UX, .toon Import Fix)
+
+### Test Fix After PageHeader Standardization
+
+| Change                                     | Details                                                                                                                                                |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **`CustomServices.test.tsx` mock updated** | Added `PageHeader` to `@liratek/ui` mock, changed assertion from `"Custom Services"` to `"Services"` to match new PageHeader title. All 431 tests pass |
+
+### POS Search Bar — Clear on Checkout Close
+
+| Change                           | Details                                                                                                                 |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| **`checkout:closed` event**      | New `appEvent` emitted from all 3 close paths in `POS/index.tsx`: complete sale, save draft, cancel                     |
+| **`ProductSearch.tsx` listener** | Listens for `checkout:closed` and calls `setSearch("")` — clears the search bar when checkout modal closes by any means |
+
+### Product Stock Quantity Update Fix
+
+| Change                                 | Details                                                                                                              |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| **Root cause**                         | `stock_quantity` was sent by the frontend but silently dropped at 3 backend layers: handler, service, and repository |
+| **`UpdateProductData` interface**      | Added `stock_quantity?: number` to `ProductRepository.ts`                                                            |
+| **`updateProductFull()` SQL**          | Added `stock_quantity = COALESCE(?, stock_quantity)` — `undefined` preserves existing value, `0` sets to zero        |
+| **`InventoryService.updateProduct()`** | Added `stock_quantity` to type signature and forwarded to repo                                                       |
+| **`inventoryHandlers.ts`**             | Added `stock_quantity: product.stock_quantity` to service call                                                       |
+
+### .toon File Corruption Fix (21 Products)
+
+| Change                             | Details                                                                                                                                                                                              |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Root cause**                     | `extract_items.py` encoder wrapped comma-containing fields in `"..."` but did not escape `"` (inch marks) inside values. Product names like `10"` produced `"10\" Tainbow..."` — breaking the parser |
+| **`parseCsvLine` fix**             | Added `\"` (backslash-quote) handling in `ProductList.tsx` for forward compatibility with escaped quotes                                                                                             |
+| **`extract_items.py` encoder fix** | `escape()` now escapes `"` → `\"` inside values, and wraps in double quotes if value contains commas or had quote chars — prevents future corruption                                                 |
+| **Sanitize script**                | Created `scripts/sanitize_toon.py` — replaces `\"` with `'` inside quoted fields, unwraps quotes if no commas remain. Produced `item.sanitized.toon` with all 21 corrupted lines fixed               |
+
+### Version Bump
+
+| Change              | Details                                                                                                         |
+| ------------------- | --------------------------------------------------------------------------------------------------------------- |
+| **1.18.6 → 1.18.7** | Bumped in `package.json`. Committed as `ff340f7` but push failed (cached credential auth issue — needs re-auth) |
+
+### Files Modified
+
+| File                                                                                           | Change                                                |
+| ---------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| `package.json`                                                                                 | Version bump to 1.18.7                                |
+| `frontend/src/features/custom-services/pages/CustomServices/__tests__/CustomServices.test.tsx` | Added PageHeader mock, fixed assertion                |
+| `frontend/src/features/sales/pages/POS/index.tsx`                                              | Emit `checkout:closed` from 3 close paths             |
+| `frontend/src/features/sales/pages/POS/components/ProductSearch.tsx`                           | Listen `checkout:closed` → clear search               |
+| `packages/core/src/repositories/ProductRepository.ts`                                          | Added `stock_quantity` to `UpdateProductData` and SQL |
+| `packages/core/src/services/InventoryService.ts`                                               | Added `stock_quantity` to `updateProduct`             |
+| `electron-app/handlers/inventoryHandlers.ts`                                                   | Pass `stock_quantity` to service                      |
+| `frontend/src/features/inventory/pages/Inventory/ProductList.tsx`                              | `parseCsvLine` handles `\"` escaping                  |
+| `scripts/extract_items.py`                                                                     | Fixed `escape()` to handle `"` in values              |
+| `scripts/sanitize_toon.py`                                                                     | **NEW** — One-off toon file sanitizer                 |
+
+---
+
 ## ✅ Done This Sprint (March 5, 2026 — PageHeader Standardization)
 
 ### Unified Page Headings with `PageHeader` Component

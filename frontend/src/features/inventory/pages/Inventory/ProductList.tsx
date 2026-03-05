@@ -43,6 +43,13 @@ function parseCsvLine(line: string): string[] {
   for (let index = 0; index < line.length; index += 1) {
     const char = line[index];
 
+    // Handle backslash-escaped quote (\") inside quoted fields
+    if (inQuotes && char === "\\" && line[index + 1] === '"') {
+      current += '"';
+      index += 1;
+      continue;
+    }
+
     if (char === '"') {
       if (inQuotes && line[index + 1] === '"') {
         current += '"';

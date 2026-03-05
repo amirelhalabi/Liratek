@@ -49,6 +49,8 @@ export default function UpdatesPanel() {
   const [downloadPercent, setDownloadPercent] = useState(0);
   const [availableVersion, setAvailableVersion] = useState<string | null>(null);
 
+  const currentVersion = status?.version ?? null;
+
   const check = useCallback(async () => {
     setUpdateState("checking");
     setDevRelease(null);
@@ -75,8 +77,7 @@ export default function UpdatesPanel() {
           (res.updateInfo as any).tag?.replace(/^v/, "") ||
           null;
         // Compare remote version to current — same version means up-to-date
-        const currentVer = status?.version;
-        if (ver && currentVer && ver === currentVer) {
+        if (ver && currentVersion && ver === currentVersion) {
           setInfo(null);
           setDevRelease(null);
           setUpdateState("up-to-date");
@@ -99,7 +100,7 @@ export default function UpdatesPanel() {
       );
       setUpdateState("idle");
     }
-  }, [status?.version]);
+  }, [currentVersion]);
 
   const download = useCallback(async () => {
     // Immediately show downloading state — progress events may be sparse

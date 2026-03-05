@@ -77,6 +77,7 @@ export interface UpdateProductData {
   min_stock_level?: number;
   image_url?: string;
   supplier?: string | null;
+  stock_quantity?: number;
 }
 
 export interface StockStats {
@@ -397,6 +398,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
       min_stock_level: number;
       image_url?: string | null;
       supplier?: string | null;
+      stock_quantity?: number;
     },
   ): boolean {
     try {
@@ -404,7 +406,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
         UPDATE ${this.tableName} SET
           barcode = ?, name = ?, category = ?, category_id = ?, cost_price_usd = ?, 
           selling_price_usd = ?, min_stock_level = ?, image_url = ?,
-          supplier = ?
+          supplier = ?, stock_quantity = COALESCE(?, stock_quantity)
         WHERE id = ?
       `);
 
@@ -418,6 +420,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
         data.min_stock_level,
         data.image_url ?? null,
         data.supplier ?? null,
+        data.stock_quantity ?? null,
         id,
       );
 

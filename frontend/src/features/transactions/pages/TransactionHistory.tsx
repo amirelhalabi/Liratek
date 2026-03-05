@@ -178,10 +178,7 @@ export default function TransactionHistory() {
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6">
       <div className="max-w-[1800px] mx-auto space-y-6">
         {/* Header */}
-        <PageHeader
-          icon={ClipboardList}
-          title="Transactions"
-        />
+        <PageHeader icon={ClipboardList} title="Transactions" />
 
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

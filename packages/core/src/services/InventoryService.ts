@@ -210,6 +210,7 @@ export class InventoryService {
       min_stock_level: number;
       image_url?: string | null;
       supplier?: string | null;
+      stock_quantity?: number;
     },
   ): ProductResult {
     if (!id) {
@@ -245,6 +246,7 @@ export class InventoryService {
         min_stock_level: data.min_stock_level,
         ...(data.image_url != null ? { image_url: data.image_url } : {}),
         supplier: data.supplier ?? null,
+        stock_quantity: data.stock_quantity,
       });
       return { success: true };
     } catch (error) {

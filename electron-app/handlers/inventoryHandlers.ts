@@ -139,6 +139,7 @@ export function registerInventoryHandlers(): void {
       min_stock_level: product.min_stock_level ?? 5,
       ...(product.image_url != null ? { image_url: product.image_url } : {}),
       supplier: product.supplier ?? null,
+      stock_quantity: product.stock_quantity,
     });
   });
 
