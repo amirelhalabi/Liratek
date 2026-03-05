@@ -92,55 +92,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  build-mac-arm:
-    name: Build macOS ARM
-    needs: create-draft
-    runs-on: macos-15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup
-        with:
-          install: "true"
-
-      - name: Inject update token
-        run: node scripts/inject-update-token.cjs
-        env:
-          UPDATE_TOKEN: ${{ secrets.UPDATE_TOKEN }}
-
-      - name: Build application
-        run: yarn build
-
-      - name: Build & Publish macOS ARM
-        run: yarn ci:build:mac:arm
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  build-mac-intel:
-    name: Build macOS Intel
-    needs: create-draft
-    runs-on: macos-15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup
-        with:
-          install: "true"
-
-      - name: Inject update token
-        run: node scripts/inject-update-token.cjs
-        env:
-          UPDATE_TOKEN: ${{ secrets.UPDATE_TOKEN }}
-
-      - name: Build application
-        run: yarn build
-
-      - name: Build & Publish macOS Intel
-        run: yarn ci:build:mac:intel
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
   publish-release:
     name: Publish Release
-    needs: [create-draft, build-windows, build-mac-arm, build-mac-intel]
+    needs: [create-draft, build-windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

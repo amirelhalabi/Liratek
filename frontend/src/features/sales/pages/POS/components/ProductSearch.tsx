@@ -69,9 +69,16 @@ export default function ProductSearch({
     }
   };
 
-  // Auto-focus search input on mount
+  // Auto-focus search input on mount (with delay to ensure layout is ready)
   useEffect(() => {
+    // Immediate attempt
     searchInputRef.current?.focus();
+    // Delayed retry — covers cases where navigation or animation
+    // temporarily prevents focus (e.g. sidebar still holds focus)
+    const timer = setTimeout(() => {
+      searchInputRef.current?.focus();
+    }, 100);
+    return () => clearTimeout(timer);
   }, []);
 
   // Cancel pending auto-add on unmount
@@ -173,6 +180,7 @@ export default function ProductSearch({
           <Search className="absolute left-4 top-3.5 text-slate-500 h-5 w-5" />
           <input
             ref={searchInputRef}
+            autoFocus
             type="text"
             value={search}
             onChange={(e) => {
