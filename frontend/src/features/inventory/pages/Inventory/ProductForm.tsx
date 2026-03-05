@@ -151,24 +151,17 @@ export default function ProductForm({
 <body>
   <div class="label">
     <div class="product-name">${productName.replace(/[<>&"]/g, "")}</div>
-    <img src="${dataUrl}" alt="barcode" onload="window._barcodeReady=true" />
+    <img src="${dataUrl}" alt="barcode" />
   </div>
+  <script>
+    var img = document.querySelector('img');
+    function doPrint() { window.focus(); window.print(); }
+    if (img.complete) { setTimeout(doPrint, 100); }
+    else { img.onload = function() { setTimeout(doPrint, 100); }; }
+  </script>
 </body>
 </html>`);
     printWindow.document.close();
-    printWindow.focus();
-
-    // Wait for barcode image to load before printing
-    const tryPrint = () => {
-      if ((printWindow as any)._barcodeReady) {
-        printWindow.print();
-        // Let the user close the window — calling close() immediately
-        // can cancel the print dialog in Electron before it renders
-      } else {
-        setTimeout(tryPrint, 50);
-      }
-    };
-    setTimeout(tryPrint, 100);
   }, [formData.barcode, formData.name]);
 
   const handleSubmit = async (e: React.FormEvent) => {
