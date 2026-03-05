@@ -5,8 +5,6 @@
  * Extracted from Profits.tsx and Reports.tsx to eliminate duplication.
  */
 
-import React from "react";
-
 // ---------------------------------------------------------------------------
 // Helpers (exported so consumers can set sensible defaults)
 // ---------------------------------------------------------------------------
