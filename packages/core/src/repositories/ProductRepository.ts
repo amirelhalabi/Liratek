@@ -227,7 +227,38 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
       return { id: result.lastInsertRowid as number };
     } catch (error) {
       const code = (error as { code?: string })?.code;
-      if (code === "SQLITE_CONSTRAINT_UNIQUE") {
+      if (code === "SQLITE_CONSTRAINT_UNIQUE" && data.barcode) {
+        // Check if the collision is with a soft-deleted product — reactivate it
+        const deleted = this.queryOne<ProductEntity>(
+          `SELECT id FROM ${this.tableName} WHERE barcode = ? AND is_active = 0`,
+          data.barcode,
+        );
+        if (deleted) {
+          this.db
+            .prepare(
+              `UPDATE ${this.tableName} SET
+                name = ?, category = COALESCE(?, category), category_id = COALESCE(?, category_id),
+                cost_price_usd = ?, selling_price_usd = ?,
+                stock_quantity = ?, min_stock_level = ?,
+                image_url = COALESCE(?, image_url), item_type = COALESCE(?, item_type),
+                supplier = COALESCE(?, supplier), is_active = 1
+              WHERE id = ?`,
+            )
+            .run(
+              data.name,
+              data.category,
+              data.category_id ?? null,
+              data.cost_price,
+              data.retail_price,
+              data.stock_quantity ?? 0,
+              data.min_stock_level ?? 5,
+              data.image_url ?? null,
+              data.item_type ?? "Product",
+              data.supplier ?? null,
+              deleted.id,
+            );
+          return { id: deleted.id };
+        }
         throw new DatabaseError("Barcode already exists", {
           cause: error,
           code: "DUPLICATE_BARCODE",
