@@ -143,6 +143,7 @@ export function formatReceipt58mm(data: ReceiptData): string {
     receipt += padCenter(data.note) + "\n";
   }
   receipt += padCenter("Thank You!") + "\n";
+  receipt += padCenter("Powered by LiraTek • 81077357") + "\n";
   receipt += padCenter("=".repeat(width)) + "\n";
 
   return receipt;
@@ -253,6 +254,7 @@ export function formatReceipt80mm(data: ReceiptData): string {
     receipt += padCenter(data.note) + "\n";
   }
   receipt += padCenter("✓ THANK YOU FOR YOUR BUSINESS ✓") + "\n";
+  receipt += padCenter("Powered by LiraTek • 81077357") + "\n";
   receipt += padCenter("═".repeat(width)) + "\n";
 
   return receipt;

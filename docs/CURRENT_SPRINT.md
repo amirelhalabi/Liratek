@@ -6,6 +6,39 @@
 
 ---
 
+## ✅ Done This Sprint (March 5, 2026 — Receipt Branding, Barcode Print Overhaul)
+
+### Receipt Branding Footer
+
+| Change                                              | Details                                                                                                                     |
+| --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| **`Powered by LiraTek • 81077357` on all receipts** | Added centered branding line after "Thank You!" (58mm) and "THANK YOU FOR YOUR BUSINESS" (80mm), before the final `===` row |
+
+### Barcode Print Overhaul
+
+| Change                      | Details                                                                                                                                                                    |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Product name removed**    | Barcode label no longer shows the product name — only the barcode image with `displayValue: true` rendering the number below the bars                                      |
+| **Direct print pattern**    | Replaced inline `<script>` polling with direct `document.write → close → focus → print()` — same proven pattern as receipt printing                                        |
+| **Multi-copy printing**     | New copy count input (number field) next to "Print Barcode" button. Each copy renders as a separate `<div>` with `page-break-after: always` CSS — printer outputs N labels |
+| **Auto-fill from quantity** | Copy count auto-fills from `product.stock_quantity` when editing an existing product. Defaults to 1 for new products. Clamped to 1–999                                     |
+
+### Version Bump
+
+| Change               | Details                  |
+| -------------------- | ------------------------ |
+| **1.18.9 → 1.18.10** | Bumped in `package.json` |
+
+### Files Modified
+
+| File                                                              | Change                                                                         |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `package.json`                                                    | Version bump to 1.18.10                                                        |
+| `frontend/src/features/sales/utils/receiptFormatter.ts`           | Added branding footer to both `formatReceipt58mm()` and `formatReceipt80mm()`  |
+| `frontend/src/features/inventory/pages/Inventory/ProductForm.tsx` | Barcode print: removed product name, direct print, multi-copy with count input |
+
+---
+
 ## ✅ Done This Sprint (March 5, 2026 — Bug Fixes, POS UX, .toon Import Fix)
 
 ### Test Fix After PageHeader Standardization

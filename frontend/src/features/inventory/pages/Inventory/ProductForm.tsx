@@ -106,9 +106,19 @@ export default function ProductForm({
     }));
   };
 
+  const [printCopies, setPrintCopies] = useState(1);
+
+  // Autofill print copies from stock quantity when product loads
+  useEffect(() => {
+    const qty = product?.stock_quantity ?? formData.stock_quantity;
+    if (qty > 0) setPrintCopies(qty);
+  }, [product?.stock_quantity]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handlePrintBarcode = useCallback(() => {
     const barcode = formData.barcode?.trim();
     if (!barcode) return;
+
+    const copies = Math.max(1, Math.min(printCopies, 999));
 
     // Create an offscreen canvas, render the barcode, export as data URL
     const canvas = document.createElement("canvas");
@@ -127,7 +137,14 @@ export default function ProductForm({
     }
 
     const dataUrl = canvas.toDataURL("image/png");
-    const productName = formData.name || "";
+
+    // Build label HTML — one per copy, each on its own page
+    const labels = Array.from({ length: copies })
+      .map(
+        (_, i) =>
+          `<div class="label${i < copies - 1 ? " break" : ""}"><img src="${dataUrl}" alt="barcode" /></div>`,
+      )
+      .join("\n");
 
     const printWindow = window.open("", "", "width=420,height=350");
     if (!printWindow) return;
@@ -138,31 +155,25 @@ export default function ProductForm({
 <title>Barcode</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; font-family: Arial, sans-serif; }
+  body { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; }
   .label { text-align: center; padding: 8px; }
-  .product-name { font-size: 12px; font-weight: bold; margin-bottom: 4px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   img { max-width: 100%; height: auto; }
   @media print {
     @page { size: 50mm 30mm; margin: 0; }
-    body { width: 50mm; height: 30mm; min-height: 30mm; overflow: hidden; }
+    body { width: 50mm; min-height: 30mm; }
+    .label { width: 50mm; height: 30mm; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    .break { page-break-after: always; }
   }
 </style>
 </head>
 <body>
-  <div class="label">
-    <div class="product-name">${productName.replace(/[<>&"]/g, "")}</div>
-    <img src="${dataUrl}" alt="barcode" />
-  </div>
-  <script>
-    var img = document.querySelector('img');
-    function doPrint() { window.focus(); window.print(); }
-    if (img.complete) { setTimeout(doPrint, 100); }
-    else { img.onload = function() { setTimeout(doPrint, 100); }; }
-  </script>
+${labels}
 </body>
 </html>`);
     printWindow.document.close();
-  }, [formData.barcode, formData.name]);
+    printWindow.focus();
+    printWindow.print();
+  }, [formData.barcode, printCopies]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -432,16 +443,31 @@ export default function ProductForm({
           </div>
 
           <div className="flex justify-between items-center gap-3 mt-6 pt-4 border-t border-slate-700">
-            <div>
+            <div className="flex items-center gap-2">
               {formData.barcode?.trim() && (
-                <button
-                  type="button"
-                  onClick={handlePrintBarcode}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
-                >
-                  <Printer size={18} />
-                  Print Barcode
-                </button>
+                <>
+                  <input
+                    type="number"
+                    min={1}
+                    max={999}
+                    value={printCopies}
+                    onChange={(e) =>
+                      setPrintCopies(
+                        Math.max(1, parseInt(e.target.value, 10) || 1),
+                      )
+                    }
+                    className="w-16 bg-slate-950 border border-slate-700 rounded-lg px-2 py-2 text-white text-center text-sm focus:ring-2 focus:ring-violet-600"
+                    title="Number of copies to print"
+                  />
+                  <button
+                    type="button"
+                    onClick={handlePrintBarcode}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
+                  >
+                    <Printer size={18} />
+                    Print Barcode
+                  </button>
+                </>
               )}
             </div>
             <div className="flex gap-3">

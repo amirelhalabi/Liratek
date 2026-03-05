@@ -1,10 +1,10 @@
 {
   "name": "liratek",
   "productName": "LiraTek",
-  "description": "Point of Sale system for Lebanese phone shops with multi-currency support",
+  "description": "Electron",
   "author": "Amir <amir@liratek.com>",
   "private": true,
-  "version": "1.18.9",
+  "version": "1.18.10",
   "type": "module",
   "main": "dist-electron/main.js",
   "workspaces": [
