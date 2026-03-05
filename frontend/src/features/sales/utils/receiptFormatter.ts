@@ -36,7 +36,7 @@ export interface ReceiptData {
  * Format receipt for 58mm thermal printer (default)
  */
 export function formatReceipt58mm(data: ReceiptData): string {
-  const width = 32; // 58mm width — compact fit
+  const width = 38; // wider fit for bolder, more readable receipts
   const sym = data.currency_symbol ?? "$";
 
   const padCenter = (text: string, char = " "): string => {

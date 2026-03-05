@@ -271,9 +271,17 @@ function UpdateNotifier() {
   }, []);
 
   const handleDownload = useCallback(async () => {
+    // Immediately show downloading state — progress events may be sparse
+    setState({ phase: "downloading", percent: 0 });
     try {
       const res = await window.api.updater.download();
       if (!res.success) {
+        // Download failed — revert to available state if we still have version info
+        setState((prev) =>
+          prev?.phase === "downloading"
+            ? { phase: "available", version: "unknown" }
+            : prev,
+        );
         appEvents.emit(
           "notification:show",
           res.error || "Download failed",
@@ -281,6 +289,11 @@ function UpdateNotifier() {
         );
       }
     } catch (e) {
+      setState((prev) =>
+        prev?.phase === "downloading"
+          ? { phase: "available", version: "unknown" }
+          : prev,
+      );
       appEvents.emit(
         "notification:show",
         e instanceof Error ? e.message : "Download failed",
@@ -314,7 +327,21 @@ function UpdateNotifier() {
         </>
       )}
       {state.phase === "downloading" && (
-        <span>Downloading update... {state.percent}%</span>
+        <>
+          <span>
+            Downloading update... {state.percent > 0 ? `${state.percent}%` : ""}
+          </span>
+          <div className="w-32 h-1.5 bg-white/20 rounded-full overflow-hidden">
+            {state.percent > 0 ? (
+              <div
+                className="h-full bg-white rounded-full transition-all duration-300"
+                style={{ width: `${state.percent}%` }}
+              />
+            ) : (
+              <div className="h-full w-1/3 bg-white/60 rounded-full animate-pulse" />
+            )}
+          </div>
+        </>
       )}
       {state.phase === "ready" && (
         <>

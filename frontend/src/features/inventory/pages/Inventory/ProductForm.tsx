@@ -144,21 +144,30 @@ export default function ProductForm({
   img { max-width: 100%; height: auto; }
   @media print {
     @page { size: 50mm 30mm; margin: 0; }
-    body { width: 50mm; height: 30mm; }
+    body { width: 50mm; height: 30mm; min-height: 30mm; overflow: hidden; }
   }
 </style>
 </head>
 <body>
   <div class="label">
     <div class="product-name">${productName.replace(/[<>&"]/g, "")}</div>
-    <img src="${dataUrl}" alt="barcode" />
+    <img src="${dataUrl}" alt="barcode" onload="window._barcodeReady=true" />
   </div>
 </body>
 </html>`);
     printWindow.document.close();
     printWindow.focus();
-    printWindow.print();
-    printWindow.close();
+
+    // Wait for barcode image to load before printing
+    const tryPrint = () => {
+      if ((printWindow as any)._barcodeReady) {
+        printWindow.print();
+        printWindow.close();
+      } else {
+        setTimeout(tryPrint, 50);
+      }
+    };
+    setTimeout(tryPrint, 50);
   }, [formData.barcode, formData.name]);
 
   const handleSubmit = async (e: React.FormEvent) => {

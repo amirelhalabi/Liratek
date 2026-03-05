@@ -6,6 +6,45 @@
 
 ---
 
+## ✅ Done This Sprint (March 5, 2026 — Three Bug Fixes: Updater, Barcode Print, Receipt Print)
+
+### Download Progress Bar Fix
+
+| Change                          | Details                                                                                                                                                                                                  |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Immediate downloading state** | `handleDownload()` now sets `phase: "downloading"` immediately on click, before awaiting the IPC response. Previously relied solely on `download-progress` events which may not fire with full downloads |
+| **Visual progress bar**         | Added a 32px-wide progress bar in the update notification banner. Shows animated fill when percent > 0, or a pulsing indeterminate state when no progress events received yet                            |
+| **Error recovery**              | On download failure, state reverts to "available" instead of staying stuck on "downloading 0%"                                                                                                           |
+
+### Barcode Printing Fix (5 Empty Pages)
+
+| Change                                  | Details                                                                                                                                                                               |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Wait for image load before printing** | `printWindow.print()` was called synchronously before the barcode `<img>` data URL loaded. Now waits for `onload` event via polling (`setTimeout` loop checking `_barcodeReady` flag) |
+| **Fixed `min-height: 100vh` in print**  | Print `@media` block now sets `min-height: 30mm; overflow: hidden` — prevents the 100vh body from creating multiple pages at the tiny 50mm x 30mm label page size                     |
+
+### Receipt Printing — Bolder & Wider
+
+| Change                                | Details                                                                                                                                               |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Font weight: bold**                 | Added `font-weight: bold` to `pre` element in both `CheckoutModal` and `SaleDetailModal` print CSS — text is now clearly readable on thermal receipts |
+| **Paper width: 58mm -> 72mm**         | Increased `@page size` and `body width` from `58mm` to `72mm` in both print locations — fills more of the thermal paper width                         |
+| **Font size: 10px -> 11px**           | Slightly larger font for better readability on thermal paper                                                                                          |
+| **Line height: 1.3 -> 1.4**           | Increased line spacing for clearer separation                                                                                                         |
+| **Receipt formatter width: 32 -> 38** | `formatReceipt58mm()` char width increased from 32 to 38 characters — utilizes the wider paper properly                                               |
+
+### Files Modified
+
+| File                                                                   | Change                                                   |
+| ---------------------------------------------------------------------- | -------------------------------------------------------- |
+| `frontend/src/app/App.tsx`                                             | Download progress: immediate state + visual progress bar |
+| `frontend/src/features/inventory/pages/Inventory/ProductForm.tsx`      | Barcode print: wait for img load + fix min-height        |
+| `frontend/src/features/sales/pages/POS/components/CheckoutModal.tsx`   | Receipt CSS: bold, wider, larger font                    |
+| `frontend/src/features/sales/pages/POS/components/SaleDetailModal.tsx` | Receipt CSS: bold, wider, larger font (duplicated)       |
+| `frontend/src/features/sales/utils/receiptFormatter.ts`                | Receipt width: 32 -> 38 characters                       |
+
+---
+
 ## ✅ Done This Sprint (March 5, 2026 — Sales Reporting Tab + Shared DateRangeFilter)
 
 ### Shared DateRangeFilter Component

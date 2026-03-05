@@ -154,11 +154,11 @@ export default function SaleDetailModal({
 <title>Receipt</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { width: 58mm; margin: 0 auto; }
-  pre { font-family: 'Courier New', monospace; font-size: 10px; white-space: pre-wrap; word-break: break-all; line-height: 1.3; }
+  body { width: 72mm; margin: 0 auto; }
+  pre { font-family: 'Courier New', monospace; font-size: 11px; font-weight: bold; white-space: pre-wrap; word-break: break-all; line-height: 1.4; }
   @media print {
-    @page { size: 58mm auto; margin: 0; }
-    html, body { width: 58mm; margin: 0; padding: 0; }
+    @page { size: 72mm auto; margin: 0; }
+    html, body { width: 72mm; margin: 0; padding: 0; }
   }
 </style>
 </head>
