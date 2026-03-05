@@ -181,13 +181,15 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
   }
 
   /**
-   * Check if barcode already exists
+   * Check if a barcode exists among active products.
+   * Soft-deleted products are excluded so that re-importing a barcode
+   * falls through to createProduct(), which reactivates the deleted row.
    */
   barcodeExists(barcode: string, excludeId?: number): boolean {
     try {
       const query = excludeId
-        ? `SELECT 1 FROM ${this.tableName} WHERE barcode = ? AND id != ?`
-        : `SELECT 1 FROM ${this.tableName} WHERE barcode = ?`;
+        ? `SELECT 1 FROM ${this.tableName} WHERE barcode = ? AND id != ? AND is_active = 1`
+        : `SELECT 1 FROM ${this.tableName} WHERE barcode = ? AND is_active = 1`;
 
       const params = excludeId ? [barcode, excludeId] : [barcode];
       return this.queryOne<{ 1: number }>(query, ...params) !== null;

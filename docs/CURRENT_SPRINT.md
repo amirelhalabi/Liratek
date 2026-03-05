@@ -38,19 +38,28 @@
 | **Preload binding**                              | `sales.getByDateRange(startDate, endDate)` added to `preload.ts` sales namespace                                             |
 | **TypeScript types**                             | Full return type in `electron.d.ts` — includes all `SaleEntity` fields + `client_name`, `client_phone`, `item_count`         |
 
+### Soft-Delete Barcode Reactivation Fix
+
+| Change                                          | Details                                                                                                                                                                                                                  |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Root cause**                                  | `products.barcode` has a `UNIQUE` constraint. Soft-deleted products (`is_active = 0`) still hold their barcodes, so re-importing the same barcode (e.g. via `.toon` file after batch delete) fails with UNIQUE violation |
+| **`ProductRepository.createProduct()` updated** | Catches `SQLITE_CONSTRAINT_UNIQUE` errors. When the collision is with a soft-deleted product, **reactivates** it (`is_active = 1`) and updates all fields instead of failing                                             |
+| **`barcodeExists()` fixed**                     | Now filters by `AND is_active = 1` — soft-deleted barcodes fall through to `createProduct()` which handles reactivation. The DB-level UNIQUE constraint remains the real guard                                           |
+
 ### Files Modified
 
-| File                                                | Change                                                   |
-| --------------------------------------------------- | -------------------------------------------------------- |
-| `packages/ui/src/components/ui/DateRangeFilter.tsx` | **NEW** — Shared date range filter component             |
-| `packages/ui/src/components/ui/index.ts`            | Added DateRangeFilter exports                            |
-| `frontend/src/features/profits/pages/Profits.tsx`   | Uses shared DateRangeFilter from `@liratek/ui`           |
-| `frontend/src/features/reports/pages/Reports.tsx`   | Added Sales tab + uses shared DateRangeFilter            |
-| `packages/core/src/repositories/SalesRepository.ts` | Enhanced `findByDateRange()` — all statuses + item_count |
-| `packages/core/src/services/SalesService.ts`        | Added `findByDateRange()` pass-through                   |
-| `electron-app/handlers/salesHandlers.ts`            | Added `sales:get-by-date-range` IPC handler              |
-| `electron-app/preload.ts`                           | Added `getByDateRange` to sales namespace                |
-| `frontend/src/types/electron.d.ts`                  | Added `getByDateRange` type definition                   |
+| File                                                  | Change                                                                   |
+| ----------------------------------------------------- | ------------------------------------------------------------------------ |
+| `packages/core/src/repositories/ProductRepository.ts` | `createProduct()` reactivates soft-deleted products on barcode collision |
+| `packages/ui/src/components/ui/DateRangeFilter.tsx`   | **NEW** — Shared date range filter component                             |
+| `packages/ui/src/components/ui/index.ts`              | Added DateRangeFilter exports                                            |
+| `frontend/src/features/profits/pages/Profits.tsx`     | Uses shared DateRangeFilter from `@liratek/ui`                           |
+| `frontend/src/features/reports/pages/Reports.tsx`     | Added Sales tab + uses shared DateRangeFilter                            |
+| `packages/core/src/repositories/SalesRepository.ts`   | Enhanced `findByDateRange()` — all statuses + item_count                 |
+| `packages/core/src/services/SalesService.ts`          | Added `findByDateRange()` pass-through                                   |
+| `electron-app/handlers/salesHandlers.ts`              | Added `sales:get-by-date-range` IPC handler                              |
+| `electron-app/preload.ts`                             | Added `getByDateRange` to sales namespace                                |
+| `frontend/src/types/electron.d.ts`                    | Added `getByDateRange` type definition                                   |
 
 ---
 
