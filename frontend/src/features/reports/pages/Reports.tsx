@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Fragment } from "react";
 import {
   PageHeader,
   useApi,
@@ -207,8 +207,8 @@ export default function Reports() {
   // ---------- Render ----------
 
   return (
-    <div className="p-6 space-y-6">
-      <PageHeader icon={TrendingUp} title="Reports" />
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 space-y-6">
+      <PageHeader icon={BarChart2} title="Reports" />
 
       {/* Tab bar + date range */}
       <div className="flex flex-wrap items-center gap-4">
@@ -268,7 +268,7 @@ export default function Reports() {
             tbodyClassName="divide-y divide-gray-700/60"
             emptyMessage="No data for this period"
             renderRow={(d) => (
-              <>
+              <Fragment key={d.date}>
                 <tr
                   key={d.date}
                   className="hover:bg-gray-700/30 cursor-pointer"
@@ -328,7 +328,7 @@ export default function Reports() {
                     </td>
                   </tr>
                 )}
-              </>
+              </Fragment>
             )}
           />
         </div>

@@ -6,7 +6,7 @@ import {
   ArrowDownLeft,
   ChevronDown,
   ChevronUp,
-  Receipt,
+  BookOpen,
   Eye,
   Briefcase,
   Clock,
@@ -436,8 +436,8 @@ export default function Debts() {
   }, [filteredDebtors, selectedClient]);
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
-      <PageHeader icon={Receipt} title="Debts" />
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 space-y-6 animate-in fade-in duration-500">
+      <PageHeader icon={BookOpen} title="Debts" />
 
       <div className="flex h-full min-h-0 gap-6 overflow-hidden">
         {/* Left: Debtors List */}

@@ -1661,6 +1661,26 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 42,
+    name: "add_reports_and_transactions_modules",
+    description:
+      "Add Reports and Transactions modules to the sidebar for existing databases.",
+    type: "typescript",
+    up(db) {
+      db.exec(`
+        INSERT OR IGNORE INTO modules (key, label, icon, route, sort_order, is_enabled, admin_only, is_system)
+        VALUES
+          ('reports',      'Reports',      'BarChart2',      '/reports',       14, 1, 1, 0),
+          ('transactions', 'Transactions', 'ClipboardList', '/transactions', 15, 1, 1, 0);
+      `);
+    },
+    down(db) {
+      db.exec(`
+        DELETE FROM modules WHERE key IN ('reports', 'transactions');
+      `);
+    },
+  },
 ];
 
 // =============================================================================

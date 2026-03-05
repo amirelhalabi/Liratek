@@ -173,6 +173,7 @@ export default function POS() {
         setCartItems([]);
         setCurrentDraftId(undefined);
         alert("Draft saved successfully!");
+        appEvents.emit("checkout:closed");
       } else {
         alert("Failed to save draft: " + result.error);
       }
@@ -264,6 +265,7 @@ export default function POS() {
         alert("Sale completed successfully!");
         // Emit event to refresh dashboard immediately
         appEvents.emit("sale:completed", result);
+        appEvents.emit("checkout:closed");
       } else {
         alert("Sale failed: " + result.error);
       }
@@ -275,7 +277,7 @@ export default function POS() {
 
   // ... inside return ...
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 space-y-6 animate-in fade-in duration-500">
       <PageHeader icon={ShoppingCart} title="Point of Sale" />
 
       <div className="flex h-full min-h-0 gap-4 overflow-hidden relative">
@@ -331,6 +333,7 @@ export default function POS() {
             setCartItems([]);
             setCurrentDraftId(undefined);
             setCheckoutDraftData(undefined);
+            appEvents.emit("checkout:closed");
           }}
           onComplete={handleCompleteSale}
           onSaveDraft={handleSaveDraft}

@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import logger from "../../../../utils/logger";
-import { Plus, Ban, Calendar, DollarSign } from "lucide-react";
-import { Select, useApi } from "@liratek/ui";
+import { Plus, Ban, Calendar, Banknote } from "lucide-react";
+import { PageHeader, Select, useApi } from "@liratek/ui";
 import { DataTable } from "@/shared/components/DataTable";
 
 interface Expense {
@@ -98,14 +98,9 @@ export default function Expenses() {
   const totalLBP = expenses.reduce((sum, e) => sum + (e.amount_lbp || 0), 0);
 
   return (
-    <div className="h-full min-h-0 flex flex-col gap-6 animate-in fade-in duration-500">
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 h-full min-h-0 flex flex-col gap-6 animate-in fade-in duration-500">
       {/* Header */}
-      <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-white flex items-center gap-3">
-          <DollarSign className="text-orange-400" size={24} />
-          Expenses & Losses
-        </h1>
-      </div>
+      <PageHeader icon={Banknote} title="Expenses" />
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

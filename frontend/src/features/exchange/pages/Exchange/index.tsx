@@ -7,7 +7,7 @@ import {
   ArrowRight,
   AlertCircle,
 } from "lucide-react";
-import { useApi } from "@liratek/ui";
+import { PageHeader, useApi } from "@liratek/ui";
 import { useSession } from "../../../sessions/context/SessionContext";
 import { useCurrencyContext } from "../../../../contexts/CurrencyContext";
 import { DataTable } from "@/shared/components/DataTable";
@@ -419,11 +419,8 @@ export default function Exchange() {
     toCurrency !== "USD";
 
   return (
-    <div className="flex flex-col h-full min-h-0 gap-6 overflow-hidden animate-in fade-in duration-500">
-      <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-        <RefreshCw className="text-violet-500" />
-        Currency Exchange
-      </h1>
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col h-full min-h-0 gap-6 overflow-hidden animate-in fade-in duration-500">
+      <PageHeader icon={RefreshCw} title="Exchange" />
 
       <div className="flex-1 min-h-0 flex gap-6">
         {/* ── Left: Calculator ── */}

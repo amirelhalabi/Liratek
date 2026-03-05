@@ -2148,7 +2148,7 @@ export default function MobileRecharge() {
   const isMTC = activeProvider === "MTC";
 
   return (
-    <div className="h-full min-h-0 flex flex-col gap-5 animate-in fade-in duration-500">
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 h-full min-h-0 flex flex-col gap-5 animate-in fade-in duration-500">
       {/* ─── Provider Tabs ─── */}
       <div className="flex gap-1.5 p-1 bg-slate-800/80 rounded-xl border border-slate-700/50">
         {enabledProviders.map((p) => {

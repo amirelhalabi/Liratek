@@ -9,6 +9,7 @@ import {
   Wallet,
   TrendingUp,
   AlertTriangle,
+  LayoutDashboard,
 } from "lucide-react";
 import { useCurrencyContext } from "../../../contexts/CurrencyContext";
 import { useModules } from "../../../contexts/ModuleContext";
@@ -324,8 +325,8 @@ export default function Dashboard() {
 
   return (
     <>
-      <div className="space-y-6 animate-in fade-in duration-500">
-        <PageHeader icon={BarChart2} title="Dashboard" />
+      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 space-y-6 animate-in fade-in duration-500">
+        <PageHeader icon={LayoutDashboard} title="Dashboard" />
 
         {/* Financial Metrics */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

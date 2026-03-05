@@ -6,6 +6,100 @@
 
 ---
 
+## ✅ Done This Sprint (March 5, 2026 — PageHeader Standardization)
+
+### Unified Page Headings with `PageHeader` Component
+
+All pages now use the shared `PageHeader` component from `@liratek/ui` with the correct icon and label matching the sidebar module entries.
+
+| Page            | Old Heading                                 | New `PageHeader`                                                          | Icon Change             | Has Actions?          |
+| --------------- | ------------------------------------------- | ------------------------------------------------------------------------- | ----------------------- | --------------------- |
+| Exchange        | Raw `<h1>` "Currency Exchange"              | `<PageHeader icon={RefreshCw} title="Exchange" />`                        | — (already RefreshCw)   | No                    |
+| OMT/Whish       | `<PageHeader title="Financial Services">`   | `<PageHeader icon={Send} title="OMT/Whish" />`                            | — (already Send)        | No                    |
+| Maintenance     | Raw `<h1>` "Maintenance & Repairs"          | `<PageHeader icon={Wrench} title="Maintenance" actions={...} />`          | Wrench (kept)           | Yes: "New Job" button |
+| Custom Services | Raw `<h1>` "Custom Services"                | `<PageHeader icon={Briefcase} title="Services" actions={...} />`          | Briefcase (kept)        | Yes: refresh button   |
+| Expenses        | Raw `<h1>` "Expenses & Losses"              | `<PageHeader icon={Banknote} title="Expenses" />`                         | DollarSign → Banknote   | No                    |
+| Settings        | Raw `<h1>` "Application Settings"           | `<PageHeader icon={SettingsIcon} title="Settings" />`                     | Settings (kept)         | No                    |
+| Transactions    | Inline custom heading "Transaction History" | `<PageHeader icon={ClipboardList} title="Transactions" subtitle="..." />` | History → ClipboardList | No (has subtitle)     |
+
+Previously completed in same session: Dashboard (LayoutDashboard), Debts (BookOpen), Reports (BarChart2).
+
+### Files Modified
+
+| File                                                                   | Change                                                                          |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `frontend/src/features/exchange/pages/Exchange/index.tsx`              | Added `PageHeader` import, replaced raw `<h1>`                                  |
+| `frontend/src/features/services/pages/Services/index.tsx`              | Changed title "Financial Services" → "OMT/Whish"                                |
+| `frontend/src/features/maintenance/pages/Maintenance/index.tsx`        | Added `PageHeader` import, replaced heading block with `PageHeader` + `actions` |
+| `frontend/src/features/custom-services/pages/CustomServices/index.tsx` | Added `PageHeader` import, replaced heading block with `PageHeader` + `actions` |
+| `frontend/src/features/expenses/pages/Expenses/index.tsx`              | Added `PageHeader` + `Banknote` imports, replaced `DollarSign` heading          |
+| `frontend/src/features/settings/pages/Settings/index.tsx`              | Added `PageHeader` import, replaced raw `<h1>`                                  |
+| `frontend/src/features/transactions/pages/TransactionHistory.tsx`      | Added `PageHeader` + `ClipboardList` imports, replaced inline heading block     |
+
+---
+
+## ✅ Done This Sprint (March 5, 2026 — Gradient Background on All Pages)
+
+### Unified Page Background — Gradient Theme
+
+| Change                               | Details                                                                                                                                                                                    |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **`<main>` wrapper simplified**      | Removed `p-6` and `bg-slate-950` from `<main>` in both `LeftPanelLayout` and `HomeViewLayout`. Each page now owns its own padding and background                                           |
+| **Gradient background on all pages** | All 15 page components now use `min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6` as part of their outermost wrapper — consistent dark gradient across the app |
+| **TransactionHistory unchanged**     | Already had the target gradient styling — served as the reference for all other pages                                                                                                      |
+
+### Files Modified
+
+| File                                                                   | Change                                   |
+| ---------------------------------------------------------------------- | ---------------------------------------- |
+| `frontend/src/shared/components/layouts/LeftPanelLayout.tsx`           | Removed `p-6 bg-slate-950` from `<main>` |
+| `frontend/src/shared/components/layouts/HomeViewLayout.tsx`            | Removed `p-6 bg-slate-950` from `<main>` |
+| `frontend/src/features/dashboard/pages/Dashboard.tsx`                  | Added gradient bg + p-6                  |
+| `frontend/src/shared/components/layouts/HomeGrid.tsx`                  | Added gradient bg + p-6                  |
+| `frontend/src/features/inventory/pages/Inventory/ProductList.tsx`      | Added gradient bg + p-6                  |
+| `frontend/src/features/clients/pages/Clients/ClientList.tsx`           | Added gradient bg + p-6                  |
+| `frontend/src/features/sales/pages/POS/index.tsx`                      | Added gradient bg + p-6                  |
+| `frontend/src/features/debts/pages/Debts/index.tsx`                    | Added gradient bg + p-6                  |
+| `frontend/src/features/exchange/pages/Exchange/index.tsx`              | Added gradient bg + p-6                  |
+| `frontend/src/features/services/pages/Services/index.tsx`              | Added gradient bg + p-6                  |
+| `frontend/src/features/recharge/pages/Recharge/index.tsx`              | Added gradient bg + p-6                  |
+| `frontend/src/features/maintenance/pages/Maintenance/index.tsx`        | Added gradient bg + p-6                  |
+| `frontend/src/features/custom-services/pages/CustomServices/index.tsx` | Added gradient bg + p-6                  |
+| `frontend/src/features/expenses/pages/Expenses/index.tsx`              | Added gradient bg + p-6                  |
+| `frontend/src/features/settings/pages/Settings/index.tsx`              | Added gradient bg + p-6                  |
+| `frontend/src/features/reports/pages/Reports.tsx`                      | Replaced `p-6` with gradient bg          |
+| `frontend/src/features/profits/pages/Profits.tsx`                      | Replaced `p-6` with gradient bg          |
+
+---
+
+## ✅ Done This Sprint (March 5, 2026 — Barcode Print Fix, Reports & Transactions Sidebar)
+
+### Barcode Print Dialog Fix
+
+| Change                                 | Details                                                                                                                                                                                                                                            |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Removed `printWindow.close()` call** | `handlePrintBarcode` in `ProductForm.tsx` was calling `printWindow.close()` immediately after `printWindow.print()`. In Electron, this cancels the print dialog before it renders. Now the window stays open and the user closes it after printing |
+
+### Reports & Transactions Added to Sidebar
+
+| Change                                       | Details                                                                                                                                                        |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`reports` module in `create_db.sql`**      | `INSERT OR IGNORE INTO modules` — key `reports`, label "Reports", icon `BarChart2`, route `/reports`, sort_order 14, admin-only. Fresh installs now include it |
+| **`transactions` module in `create_db.sql`** | Key `transactions`, label "Transactions", icon `ClipboardList`, route `/transactions`, sort_order 15, admin-only                                               |
+| **Migration v42**                            | `add_reports_and_transactions_modules` — inserts both modules for existing databases via `INSERT OR IGNORE`. Includes `down()` rollback                        |
+| **Sidebar icon map**                         | Added `ClipboardList` import and iconMap entry in `Sidebar.tsx` (`BarChart2` was already present)                                                              |
+
+### Files Modified
+
+| File                                                              | Change                                                         |
+| ----------------------------------------------------------------- | -------------------------------------------------------------- |
+| `frontend/src/features/inventory/pages/Inventory/ProductForm.tsx` | Removed `printWindow.close()` after `printWindow.print()`      |
+| `electron-app/create_db.sql`                                      | Added `reports` and `transactions` module rows + migration v42 |
+| `packages/core/src/db/migrations/index.ts`                        | Added migration v42 (insert reports + transactions modules)    |
+| `frontend/src/shared/components/layouts/Sidebar.tsx`              | Added `ClipboardList` icon import and iconMap entry            |
+
+---
+
 ## ✅ Done This Sprint (March 5, 2026 — Shop Info on Receipts, Update UX Cleanup)
 
 ### Shop Phone & Location in Settings and Receipts

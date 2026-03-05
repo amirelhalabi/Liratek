@@ -162,12 +162,13 @@ export default function ProductForm({
     const tryPrint = () => {
       if ((printWindow as any)._barcodeReady) {
         printWindow.print();
-        printWindow.close();
+        // Let the user close the window — calling close() immediately
+        // can cancel the print dialog in Electron before it renders
       } else {
         setTimeout(tryPrint, 50);
       }
     };
-    setTimeout(tryPrint, 50);
+    setTimeout(tryPrint, 100);
   }, [formData.barcode, formData.name]);
 
   const handleSubmit = async (e: React.FormEvent) => {

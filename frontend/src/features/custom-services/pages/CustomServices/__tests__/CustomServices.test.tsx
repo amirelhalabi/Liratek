@@ -20,6 +20,22 @@ jest.mock("@liratek/ui", () => ({
     deleteCustomService: mockDeleteCustomService,
     getClients: mockGetClients,
   }),
+  PageHeader: ({
+    title,
+    subtitle,
+    actions,
+  }: {
+    title: string;
+    subtitle?: string;
+    icon?: unknown;
+    actions?: React.ReactNode;
+  }) => (
+    <div data-testid="page-header">
+      <h1>{title}</h1>
+      {subtitle && <p>{subtitle}</p>}
+      {actions}
+    </div>
+  ),
   Select: ({
     value,
     onChange,
@@ -102,7 +118,7 @@ describe("CustomServices Page", () => {
   it("should render the page header and stats cards", () => {
     render(<CustomServices />);
 
-    expect(screen.getByText("Custom Services")).toBeInTheDocument();
+    expect(screen.getByText("Services")).toBeInTheDocument();
     expect(screen.getByText("Today's Services")).toBeInTheDocument();
     expect(screen.getByText("Today's Revenue")).toBeInTheDocument();
     expect(screen.getByText("Today's Profit")).toBeInTheDocument();

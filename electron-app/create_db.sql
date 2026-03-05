@@ -660,7 +660,9 @@ INSERT OR IGNORE INTO modules (key, label, icon, route, sort_order, is_enabled, 
   ('binance',     'Binance',      'Bitcoin',       '/recharge',     10,  0, 0, 0),
   ('ipec_katch',  'IPEC/Katch',  'Zap',           '/recharge',     11,  0, 0, 0),
   ('custom_services','Services', 'Briefcase',     '/custom-services',12, 1, 0, 0),
-  ('profits',        'Profits',  'TrendingUp',    '/profits',        13, 1, 1, 0);
+  ('profits',        'Profits',  'TrendingUp',    '/profits',        13, 1, 1, 0),
+  ('reports',        'Reports',  'BarChart2',     '/reports',        14, 1, 1, 0),
+  ('transactions',   'Transactions','ClipboardList','/transactions', 15, 1, 1, 0);
 
 -- Currency–Module junction (which currencies are allowed in which modules)
 CREATE TABLE IF NOT EXISTS currency_modules (
@@ -782,4 +784,5 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (30, 'exchange_rates_universal_formula_schema'),
     (31, 'add_settlement_tracking_to_financial_services'),
     (40, 'create_product_suppliers'),
-    (41, 'fix_category_cascade_to_set_null');
+    (41, 'fix_category_cascade_to_set_null'),
+    (42, 'add_reports_and_transactions_modules');

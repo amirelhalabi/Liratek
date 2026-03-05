@@ -22,7 +22,7 @@ import {
   Ban,
   UserPlus,
 } from "lucide-react";
-import { Select, useApi } from "@liratek/ui";
+import { PageHeader, Select, useApi } from "@liratek/ui";
 import { usePaymentMethods } from "../../../../hooks/usePaymentMethods";
 import { useSession } from "../../../sessions/context/SessionContext";
 import {
@@ -280,21 +280,21 @@ export default function CustomServices() {
 
   // ─── Render ───
   return (
-    <div className="h-full min-h-0 flex flex-col gap-6 animate-in fade-in duration-500">
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 h-full min-h-0 flex flex-col gap-6 animate-in fade-in duration-500">
       {/* Header */}
-      <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-white flex items-center gap-3">
-          <Briefcase className="text-teal-400" size={24} />
-          Custom Services
-        </h1>
-        <button
-          onClick={reload}
-          className="text-slate-400 hover:text-white transition-colors p-2 rounded-lg hover:bg-slate-800"
-          title="Refresh"
-        >
-          <RefreshCw size={18} />
-        </button>
-      </div>
+      <PageHeader
+        icon={Briefcase}
+        title="Services"
+        actions={
+          <button
+            onClick={reload}
+            className="text-slate-400 hover:text-white transition-colors p-2 rounded-lg hover:bg-slate-800"
+            title="Refresh"
+          >
+            <RefreshCw size={18} />
+          </button>
+        }
+      />
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

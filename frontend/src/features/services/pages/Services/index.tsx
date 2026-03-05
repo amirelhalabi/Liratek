@@ -671,8 +671,8 @@ export default function Services() {
   );
 
   return (
-    <div className="h-full min-h-0 flex flex-col gap-4 animate-in fade-in duration-300">
-      <PageHeader icon={Send} title="Financial Services" />
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 h-full min-h-0 flex flex-col gap-4 animate-in fade-in duration-300">
+      <PageHeader icon={Send} title="OMT/Whish" />
 
       <div className="flex-1 min-h-0 overflow-auto">
         <div className="w-full flex flex-col gap-4 pb-1">

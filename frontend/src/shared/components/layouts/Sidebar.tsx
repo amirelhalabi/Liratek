@@ -22,6 +22,7 @@ import {
   Briefcase,
   Circle,
   BarChart2,
+  ClipboardList,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import clsx from "clsx";
@@ -50,6 +51,7 @@ const iconMap: Record<string, LucideIcon> = {
   Settings,
   SquareActivity,
   BarChart2,
+  ClipboardList,
 };
 
 interface SidebarProps {

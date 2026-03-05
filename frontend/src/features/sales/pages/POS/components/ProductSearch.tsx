@@ -118,6 +118,11 @@ export default function ProductSearch({
     return unsub;
   }, []);
 
+  // Clear search bar when checkout modal closes (cancel, draft, or complete)
+  useEffect(() => {
+    return appEvents.on("checkout:closed", () => setSearch(""));
+  }, []);
+
   const loadProducts = useCallback(async () => {
     if (!search.trim()) {
       setProducts([]);

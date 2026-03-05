@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Settings as SettingsIcon, Tag } from "lucide-react";
+import { PageHeader } from "@liratek/ui";
 import UsersManager from "./UsersManager";
 import Diagnostics from "./Diagnostics";
 import CurrencyManager from "./CurrencyManager";
@@ -27,11 +28,8 @@ export default function Settings() {
   const [active, setActive] = useState<TabKey>("shop");
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
-      <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-        <SettingsIcon className="text-violet-500" />
-        Application Settings
-      </h1>
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 space-y-6 animate-in fade-in duration-500">
+      <PageHeader icon={SettingsIcon} title="Settings" />
 
       {/* Tab Navigation Section */}
       <div className="bg-slate-800 p-2 rounded-xl border border-slate-700 shadow-lg">

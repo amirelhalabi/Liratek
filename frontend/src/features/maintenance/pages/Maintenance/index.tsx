@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import logger from "../../../../utils/logger";
 import { Wrench, Plus, DollarSign, Ban } from "lucide-react";
 import CheckoutModal from "../../../sales/pages/POS/components/CheckoutModal";
-import { useApi } from "@liratek/ui";
+import { PageHeader, useApi } from "@liratek/ui";
 import { useSession } from "../../../sessions/context/SessionContext";
 import { DataTable } from "@/shared/components/DataTable";
 
@@ -197,20 +197,20 @@ export default function Maintenance() {
   };
 
   return (
-    <div className="h-full min-h-0 flex flex-col gap-6 animate-in fade-in duration-500">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-          <Wrench className="text-amber-500" />
-          Maintenance & Repairs
-        </h1>
-        <button
-          onClick={handleNewJob}
-          className="bg-violet-600 hover:bg-violet-500 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors"
-        >
-          <Plus size={18} />
-          New Job
-        </button>
-      </div>
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 h-full min-h-0 flex flex-col gap-6 animate-in fade-in duration-500">
+      <PageHeader
+        icon={Wrench}
+        title="Maintenance"
+        actions={
+          <button
+            onClick={handleNewJob}
+            className="bg-violet-600 hover:bg-violet-500 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors"
+          >
+            <Plus size={18} />
+            New Job
+          </button>
+        }
+      />
 
       {/* Filters */}
       <div className="flex gap-2 overflow-x-auto pb-2">

@@ -18,9 +18,7 @@ export default function LeftPanelLayout({
       <Sidebar isCollapsed={isSidebarCollapsed} toggleSidebar={toggleSidebar} />
       <div className="flex-1 flex flex-col overflow-hidden transition-all duration-300">
         <TopBar />
-        <main className="flex-1 overflow-auto p-6 bg-slate-950">
-          {children}
-        </main>
+        <main className="flex-1 overflow-auto bg-slate-950">{children}</main>
       </div>
     </div>
   );

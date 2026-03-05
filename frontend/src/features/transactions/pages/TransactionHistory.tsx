@@ -1,7 +1,14 @@
 import { useState, useEffect, useCallback } from "react";
-import { useApi } from "@liratek/ui";
+import { PageHeader, useApi } from "@liratek/ui";
 import { useModules } from "../../../contexts/ModuleContext";
-import { History, Filter, DollarSign, RefreshCw, X } from "lucide-react";
+import {
+  ClipboardList,
+  History,
+  Filter,
+  DollarSign,
+  RefreshCw,
+  X,
+} from "lucide-react";
 import { useCurrencyContext } from "../../../contexts/CurrencyContext";
 import { DataTable } from "@/shared/components/DataTable";
 
@@ -171,19 +178,10 @@ export default function TransactionHistory() {
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6">
       <div className="max-w-[1800px] mx-auto space-y-6">
         {/* Header */}
-        <div className="flex items-center gap-4 mb-6">
-          <div className="p-3 rounded-xl bg-violet-500/10 border border-violet-500/30">
-            <History className="w-8 h-8 text-violet-400" />
-          </div>
-          <div>
-            <h1 className="text-3xl font-bold text-white">
-              Transaction History
-            </h1>
-            <p className="text-slate-400 mt-1">
-              Unified view of all transactions across modules
-            </p>
-          </div>
-        </div>
+        <PageHeader
+          icon={ClipboardList}
+          title="Transactions"
+        />
 
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
