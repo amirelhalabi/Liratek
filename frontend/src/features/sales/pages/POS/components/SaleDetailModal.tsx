@@ -13,7 +13,7 @@ import {
   formatReceipt58mm,
   type ReceiptData,
 } from "../../../utils/receiptFormatter";
-import { useShopName } from "../../../../../hooks/useShopName";
+import { useShopInfo } from "../../../../../hooks/useShopName";
 
 interface SaleItem {
   id: number;
@@ -54,7 +54,7 @@ export default function SaleDetailModal({
   onClose,
   onRefunded,
 }: SaleDetailModalProps) {
-  const shopName = useShopName();
+  const shopInfo = useShopInfo();
   const [sale, setSale] = useState<SaleDetail | null>(null);
   const [items, setItems] = useState<SaleItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -123,7 +123,9 @@ export default function SaleDetailModal({
     if (!sale) return;
 
     const receipt: ReceiptData = {
-      shop_name: shopName,
+      shop_name: shopInfo.name,
+      shop_phone: shopInfo.phone,
+      shop_location: shopInfo.location,
       receipt_number: `RCP-${sale.id}`,
       client_name: sale.client_name || "Walk-in Customer",
       client_phone: sale.client_phone || "",

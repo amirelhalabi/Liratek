@@ -4,6 +4,7 @@ import { appEvents, useApi } from "@liratek/ui";
 import { PanelLeft, LayoutGrid, Image, List, Monitor } from "lucide-react";
 import clsx from "clsx";
 import { useFeatureFlags } from "../../../../contexts/FeatureFlagContext";
+import { invalidateShopInfo } from "../../../../hooks/useShopName";
 
 const UI_SCALE_OPTIONS = [
   { value: 0.75, label: "75%" },
@@ -19,6 +20,8 @@ export default function ShopConfig() {
   const api = useApi();
   const { refreshFlags } = useFeatureFlags();
   const [shopName, setShopName] = useState("");
+  const [shopPhone, setShopPhone] = useState("");
+  const [shopLocation, setShopLocation] = useState("");
   const [receiptHeaderText, setReceiptHeaderText] = useState("");
   const [sessionMgmt, setSessionMgmt] = useState(true);
   const [customerSessions, setCustomerSessions] = useState(true);
@@ -73,6 +76,8 @@ export default function ShopConfig() {
       const settings = await api.getAllSettings();
       const map = new Map(settings.map((s: any) => [s.key_name, s.value]));
       setShopName((map.get("shop_name") as string) || "");
+      setShopPhone((map.get("shop_phone") as string) || "");
+      setShopLocation((map.get("shop_location") as string) || "");
       setReceiptHeaderText((map.get("receipt_header_text") as string) || "");
       setSessionMgmt(map.get("feature_session_management") !== "disabled");
       setCustomerSessions(map.get("feature_customer_sessions") !== "disabled");
@@ -90,6 +95,8 @@ export default function ShopConfig() {
 
       await Promise.all([
         api.updateSetting("shop_name", shopName),
+        api.updateSetting("shop_phone", shopPhone),
+        api.updateSetting("shop_location", shopLocation),
         api.updateSetting("receipt_header_text", receiptHeaderText),
         api.updateSetting(
           "feature_session_management",
@@ -101,6 +108,8 @@ export default function ShopConfig() {
         ),
         api.updateSetting("auto_check_updates", autoCheckUpdates ? "1" : "0"),
       ]);
+      // Invalidate cached shop info so receipts pick up new values
+      invalidateShopInfo();
       // Notify feature flag context to refresh
       window.dispatchEvent(new Event("feature-flags-changed"));
       await refreshFlags();
@@ -142,6 +151,38 @@ export default function ShopConfig() {
           onChange={(e) => setShopName(e.target.value)}
           className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white"
         />
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label
+            htmlFor="shop-phone"
+            className="block text-sm text-slate-400 mb-2"
+          >
+            Phone Number
+          </label>
+          <input
+            id="shop-phone"
+            value={shopPhone}
+            onChange={(e) => setShopPhone(e.target.value)}
+            placeholder="e.g. +961 71 123 456"
+            className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white placeholder:text-slate-600"
+          />
+        </div>
+        <div>
+          <label
+            htmlFor="shop-location"
+            className="block text-sm text-slate-400 mb-2"
+          >
+            Location
+          </label>
+          <input
+            id="shop-location"
+            value={shopLocation}
+            onChange={(e) => setShopLocation(e.target.value)}
+            placeholder="e.g. Beirut, Lebanon"
+            className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white placeholder:text-slate-600"
+          />
+        </div>
       </div>
       <div>
         <label

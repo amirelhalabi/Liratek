@@ -3,43 +3,74 @@ import { useApi } from "@liratek/ui";
 
 const DEFAULT_SHOP_NAME = "Corner Tech";
 
-let cachedName: string | null = null;
-const listeners = new Set<(name: string) => void>();
-
-function notify(name: string) {
-  cachedName = name;
-  listeners.forEach((fn) => fn(name));
+export interface ShopInfo {
+  name: string;
+  phone: string;
+  location: string;
 }
 
-/** Load shop name once and share across all consumers */
-export function useShopName(): string {
+let cachedInfo: ShopInfo | null = null;
+const listeners = new Set<(info: ShopInfo) => void>();
+
+function notify(info: ShopInfo) {
+  cachedInfo = info;
+  listeners.forEach((fn) => fn(info));
+}
+
+const defaultInfo: ShopInfo = {
+  name: DEFAULT_SHOP_NAME,
+  phone: "",
+  location: "",
+};
+
+/** Load shop info once and share across all consumers */
+export function useShopInfo(): ShopInfo {
   const api = useApi();
-  const [name, setName] = useState(cachedName ?? DEFAULT_SHOP_NAME);
+  const [info, setInfo] = useState<ShopInfo>(cachedInfo ?? defaultInfo);
 
   useEffect(() => {
-    listeners.add(setName);
+    listeners.add(setInfo);
 
     // Only fetch if not yet cached
-    if (cachedName === null) {
+    if (cachedInfo === null) {
       api
-        .getSetting("shop_name")
-        .then((s: any) => {
-          const value = s?.value;
-          const resolved =
-            typeof value === "string" && value.trim()
-              ? value.trim()
+        .getAllSettings()
+        .then((settings: any[]) => {
+          const map = new Map(settings.map((s: any) => [s.key_name, s.value]));
+          const name =
+            typeof map.get("shop_name") === "string" &&
+            (map.get("shop_name") as string).trim()
+              ? (map.get("shop_name") as string).trim()
               : DEFAULT_SHOP_NAME;
-          notify(resolved);
+          const phone =
+            typeof map.get("shop_phone") === "string"
+              ? (map.get("shop_phone") as string).trim()
+              : "";
+          const location =
+            typeof map.get("shop_location") === "string"
+              ? (map.get("shop_location") as string).trim()
+              : "";
+          notify({ name, phone, location });
         })
         .catch(() => {
-          notify(DEFAULT_SHOP_NAME);
+          notify(defaultInfo);
         });
     }
 
     return () => {
-      listeners.delete(setName);
+      listeners.delete(setInfo);
     };
   }, []);
 
-  return name;
+  return info;
+}
+
+/** Convenience wrapper — returns just the shop name string */
+export function useShopName(): string {
+  return useShopInfo().name;
+}
+
+/** Invalidate cached shop info so next consumer re-fetches */
+export function invalidateShopInfo() {
+  cachedInfo = null;
 }

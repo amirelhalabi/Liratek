@@ -102,6 +102,7 @@ export default function UpdatesPanel() {
   }, [status?.version]);
 
   const download = useCallback(async () => {
+    // Immediately show downloading state — progress events may be sparse
     setUpdateState("downloading");
     setDownloadPercent(0);
     try {
@@ -115,12 +116,16 @@ export default function UpdatesPanel() {
         setUpdateState("update-available"); // revert — can retry
         return;
       }
-      setUpdateState("downloaded");
-      appEvents.emit(
-        "notification:show",
-        "Update downloaded — ready to install",
-        "success",
-      );
+      // If download completed instantly (no progress events fired),
+      // jump straight to downloaded state
+      setUpdateState((prev) => (prev === "downloading" ? "downloaded" : prev));
+      if (updateState !== "downloaded") {
+        appEvents.emit(
+          "notification:show",
+          "Update downloaded — ready to install",
+          "success",
+        );
+      }
     } catch (_e) {
       appEvents.emit(
         "notification:show",
@@ -129,7 +134,7 @@ export default function UpdatesPanel() {
       );
       setUpdateState("update-available");
     }
-  }, []);
+  }, [updateState]);
 
   const install = useCallback(async () => {
     try {
@@ -150,7 +155,7 @@ export default function UpdatesPanel() {
     }
   }, []);
 
-  // Load status on mount + listen for push events from auto-check
+  // Load status on mount
   useEffect(() => {
     (async () => {
       try {
@@ -160,21 +165,26 @@ export default function UpdatesPanel() {
         setStatus(null);
       }
     })();
+  }, []);
 
-    // Listen for push events from main process (auto-check on launch)
+  // Listen for push events from main process (auto-check on launch)
+  useEffect(() => {
     const cleanups: (() => void)[] = [];
 
     if (window.api.updater.onUpdateAvailable) {
       cleanups.push(
-        window.api.updater.onUpdateAvailable((data: any) => {
-          setAvailableVersion(data?.version || null);
+        window.api.updater.onUpdateAvailable((_event: any, data: any) => {
+          // Skip if "update" version matches current version
+          const ver = data?.version;
+          if (ver && status?.version && ver === status.version) return;
+          setAvailableVersion(ver || null);
           setUpdateState("update-available");
         }),
       );
     }
     if (window.api.updater.onDownloadProgress) {
       cleanups.push(
-        window.api.updater.onDownloadProgress((data: any) => {
+        window.api.updater.onDownloadProgress((_event: any, data: any) => {
           setUpdateState("downloading");
           setDownloadPercent(Math.round(data?.percent ?? 0));
         }),
@@ -182,14 +192,14 @@ export default function UpdatesPanel() {
     }
     if (window.api.updater.onUpdateDownloaded) {
       cleanups.push(
-        window.api.updater.onUpdateDownloaded(() => {
+        window.api.updater.onUpdateDownloaded((_event: any) => {
           setUpdateState("downloaded");
         }),
       );
     }
     if (window.api.updater.onUpdateNotAvailable) {
       cleanups.push(
-        window.api.updater.onUpdateNotAvailable(() => {
+        window.api.updater.onUpdateNotAvailable((_event: any) => {
           setUpdateState("up-to-date");
         }),
       );
@@ -198,7 +208,7 @@ export default function UpdatesPanel() {
     return () => {
       cleanups.forEach((fn) => fn());
     };
-  }, []);
+  }, [status?.version]);
 
   const isPackaged = status && status.packaged;
   const loading = updateState === "checking" || updateState === "downloading";
@@ -243,13 +253,18 @@ export default function UpdatesPanel() {
         <div className="space-y-1">
           <div className="flex items-center gap-2 text-sm text-violet-400">
             <RefreshCw size={14} className="animate-spin" />
-            Downloading update... {downloadPercent}%
+            Downloading update...{" "}
+            {downloadPercent > 0 ? `${downloadPercent}%` : ""}
           </div>
-          <div className="w-full bg-slate-700 rounded-full h-1.5">
-            <div
-              className="bg-violet-500 h-1.5 rounded-full transition-all"
-              style={{ width: `${downloadPercent}%` }}
-            />
+          <div className="w-full bg-slate-700 rounded-full h-1.5 overflow-hidden">
+            {downloadPercent > 0 ? (
+              <div
+                className="bg-violet-500 h-1.5 rounded-full transition-all duration-300"
+                style={{ width: `${downloadPercent}%` }}
+              />
+            ) : (
+              <div className="bg-violet-400/60 h-1.5 w-1/3 rounded-full animate-pulse" />
+            )}
           </div>
         </div>
       )}

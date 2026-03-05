@@ -13,6 +13,8 @@ export interface ReceiptItem {
 
 export interface ReceiptData {
   shop_name: string;
+  shop_phone?: string;
+  shop_location?: string;
   receipt_number: string;
   client_name?: string;
   client_phone?: string;
@@ -51,6 +53,12 @@ export function formatReceipt58mm(data: ReceiptData): string {
   // Header
   receipt += padCenter("=".repeat(width)) + "\n";
   receipt += padCenter(data.shop_name) + "\n";
+  if (data.shop_location) {
+    receipt += padCenter(data.shop_location) + "\n";
+  }
+  if (data.shop_phone) {
+    receipt += padCenter(data.shop_phone) + "\n";
+  }
   receipt += padCenter("=".repeat(width)) + "\n";
 
   // Receipt Info — date+time on one line
@@ -163,6 +171,12 @@ export function formatReceipt80mm(data: ReceiptData): string {
   // Header
   receipt += padCenter("═".repeat(width)) + "\n";
   receipt += padCenter(data.shop_name) + "\n";
+  if (data.shop_location) {
+    receipt += padCenter(data.shop_location) + "\n";
+  }
+  if (data.shop_phone) {
+    receipt += padCenter(data.shop_phone) + "\n";
+  }
   receipt += padCenter("═ RECEIPT ═") + "\n";
   receipt += padCenter("═".repeat(width)) + "\n";
   receipt += "\n";

@@ -4,7 +4,7 @@ import { X, User, Printer, Inbox } from "lucide-react";
 import { DRAWER_B, roundLBPUp, useApi } from "@liratek/ui";
 import { useDynamicExchangeRate } from "../../../../../hooks/useDynamicExchangeRate";
 import { usePaymentMethods } from "../../../../../hooks/usePaymentMethods";
-import { useShopName } from "../../../../../hooks/useShopName";
+import { useShopInfo } from "../../../../../hooks/useShopName";
 import {
   formatReceipt58mm,
   type ReceiptData,
@@ -70,7 +70,7 @@ export default function CheckoutModal({
   };
 
   const { allMethods: paymentMethodOptions } = usePaymentMethods();
-  const shopName = useShopName();
+  const shopInfo = useShopInfo();
 
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([
     {
@@ -327,7 +327,9 @@ export default function CheckoutModal({
       setReceiptNumber(generateReceiptNumber());
     }
     const receipt: ReceiptData = {
-      shop_name: shopName,
+      shop_name: shopInfo.name,
+      shop_phone: shopInfo.phone,
+      shop_location: shopInfo.location,
       receipt_number: receiptNumber || generateReceiptNumber(),
       client_name:
         selectedClient?.full_name || clientSearch || "Walk-in Customer",
@@ -391,7 +393,9 @@ export default function CheckoutModal({
       setReceiptNumber(generateReceiptNumber());
     }
     const receipt: ReceiptData = {
-      shop_name: shopName,
+      shop_name: shopInfo.name,
+      shop_phone: shopInfo.phone,
+      shop_location: shopInfo.location,
       receipt_number: receiptNumber || generateReceiptNumber(),
       client_name:
         selectedClient?.full_name || clientSearch || "Walk-in Customer",

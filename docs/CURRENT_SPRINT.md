@@ -6,6 +6,40 @@
 
 ---
 
+## ✅ Done This Sprint (March 5, 2026 — Shop Info on Receipts, Update UX Cleanup)
+
+### Shop Phone & Location in Settings and Receipts
+
+| Change                                  | Details                                                                                                                                                                                    |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **ShopConfig: phone & location fields** | Two new fields in Settings > Shop Config: "Phone Number" and "Location", side by side below Shop Name. Saved as `shop_phone` and `shop_location` in `system_settings`. Empty by default    |
+| **Receipt header: phone & location**    | `formatReceipt58mm()` and `formatReceipt80mm()` now print location and phone centered below the shop name in the header (only if non-empty)                                                |
+| **`useShopInfo` hook**                  | New `useShopInfo()` hook returns `{ name, phone, location }`. Fetches all three from `system_settings` with global cache. `useShopName()` is now a thin wrapper for backward compatibility |
+| **Cache invalidation on save**          | `invalidateShopInfo()` called after saving ShopConfig — receipts immediately pick up new values                                                                                            |
+
+### Update Notification Bar Removed
+
+| Change                           | Details                                                                                                                                                                                                                   |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`UpdateNotifier` removed**     | Deleted the violet top-of-screen notification bar from `App.tsx`. Update status is now only visible in Settings > Diagnostics > Updates                                                                                   |
+| **`UpdatesPanel` fixes**         | Fixed push event listener signatures (was `(data)`, now `(_event, data)`) — download progress now updates correctly. Added immediate downloading state on click and indeterminate pulsing bar before first progress event |
+| **Version guard in push events** | `onUpdateAvailable` listener in `UpdatesPanel` now skips if remote version matches current — prevents false "update available" notifications                                                                              |
+
+### Files Modified
+
+| File                                                                   | Change                                                                    |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `package.json`                                                         | Version bump 1.18.5 -> 1.18.6                                             |
+| `frontend/src/hooks/useShopName.ts`                                    | New `useShopInfo()` hook, `invalidateShopInfo()`, `useShopName()` wrapper |
+| `frontend/src/features/settings/pages/Settings/ShopConfig.tsx`         | Added phone/location fields, save/load, cache invalidation                |
+| `frontend/src/features/sales/utils/receiptFormatter.ts`                | `ReceiptData` + header: shop_phone, shop_location (58mm & 80mm)           |
+| `frontend/src/features/sales/pages/POS/components/CheckoutModal.tsx`   | Pass shopInfo phone/location to receipt                                   |
+| `frontend/src/features/sales/pages/POS/components/SaleDetailModal.tsx` | Pass shopInfo phone/location to receipt                                   |
+| `frontend/src/app/App.tsx`                                             | Removed `UpdateNotifier` component entirely                               |
+| `frontend/src/features/settings/pages/Settings/UpdatesPanel.tsx`       | Fixed event signatures, immediate download state, version guard           |
+
+---
+
 ## ✅ Done This Sprint (March 5, 2026 — Updater Version Fix, Menu Bar Removal)
 
 ### Updater Version Comparison Fix (Showing "Update Available" When Already on Latest)
