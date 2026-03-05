@@ -2,7 +2,55 @@
 
 > **Last Updated**: 2026-03-05  
 > **Sprint Start**: 2026-03-01  
-> **Focus**: Setup Wizard, Module-Linked UI, UX Polish, CI/CD + Packaging, Auto-Update
+> **Focus**: Setup Wizard, Module-Linked UI, UX Polish, CI/CD + Packaging, Auto-Update, Sales Reporting
+
+---
+
+## ✅ Done This Sprint (March 5, 2026 — Sales Reporting Tab + Shared DateRangeFilter)
+
+### Shared DateRangeFilter Component
+
+| Change                                    | Details                                                                                                                                             |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`DateRangeFilter` in `@liratek/ui`**    | New reusable component: two date inputs (From/To) in a compact row. Props: `from`, `to`, `onFromChange`, `onToChange`, `className`                  |
+| **`todayISO()` / `daysAgoISO()` helpers** | Exported from `@liratek/ui` — returns YYYY-MM-DD strings for today and N days ago. Replaces duplicate local implementations                         |
+| **Profits page updated**                  | Removed local `todayISO()` and `daysAgoISO()` functions, replaced inline date inputs with `<DateRangeFilter>` component imported from `@liratek/ui` |
+| **Reports page updated**                  | Same treatment — uses shared `DateRangeFilter` instead of inline date inputs for all report tabs                                                    |
+
+### Sales Tab in Reports Page
+
+| Change                         | Details                                                                                                                                             |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Sales tab added to Reports** | New "Sales" tab (ShoppingCart icon) alongside existing Daily Summaries, Revenue by Module, Overdue Debts tabs                                       |
+| **4 summary cards**            | Total Sales (count), Total Revenue ($), Avg Sale Value ($), Total Discounts ($) — computed from fetched data                                        |
+| **DataTable with 11 columns**  | Date/Time, Sale #, Client, Items, Total, Discount, Final, Paid USD, Paid LBP, Status, Drawer — with sorting, pagination (20/page), Excel/PDF export |
+| **Status badges**              | Color-coded: green "completed", red "refunded" — consistent with POS styling                                                                        |
+| **Footer totals row**          | Sums for Total, Discount, Final, Paid USD, Paid LBP across ALL data (not just current page)                                                         |
+| **Date range filtering**       | Uses shared `DateRangeFilter`, defaults to last 30 days. Fetches via `window.api.sales.getByDateRange(from, to)`                                    |
+
+### Backend: Sales by Date Range API
+
+| Change                                           | Details                                                                                                                      |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| **`SalesRepository.findByDateRange()` enhanced** | Now returns completed + refunded sales (was completed-only). Added `item_count` subquery (`SUM(quantity)` from `sale_items`) |
+| **`SalesService.findByDateRange()` added**       | New pass-through method with error logging, returns empty array on failure                                                   |
+| **`sales:get-by-date-range` IPC handler**        | New handler in `salesHandlers.ts` — delegates to `salesService.findByDateRange(startDate, endDate)`                          |
+| **Preload binding**                              | `sales.getByDateRange(startDate, endDate)` added to `preload.ts` sales namespace                                             |
+| **TypeScript types**                             | Full return type in `electron.d.ts` — includes all `SaleEntity` fields + `client_name`, `client_phone`, `item_count`         |
+
+### Files Modified
+
+| File                                                | Change                                                   |
+| --------------------------------------------------- | -------------------------------------------------------- |
+| `packages/ui/src/components/ui/DateRangeFilter.tsx` | **NEW** — Shared date range filter component             |
+| `packages/ui/src/components/ui/index.ts`            | Added DateRangeFilter exports                            |
+| `frontend/src/features/profits/pages/Profits.tsx`   | Uses shared DateRangeFilter from `@liratek/ui`           |
+| `frontend/src/features/reports/pages/Reports.tsx`   | Added Sales tab + uses shared DateRangeFilter            |
+| `packages/core/src/repositories/SalesRepository.ts` | Enhanced `findByDateRange()` — all statuses + item_count |
+| `packages/core/src/services/SalesService.ts`        | Added `findByDateRange()` pass-through                   |
+| `electron-app/handlers/salesHandlers.ts`            | Added `sales:get-by-date-range` IPC handler              |
+| `electron-app/preload.ts`                           | Added `getByDateRange` to sales namespace                |
+| `frontend/src/types/electron.d.ts`                  | Added `getByDateRange` type definition                   |
 
 ---
 

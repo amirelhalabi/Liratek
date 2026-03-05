@@ -92,4 +92,13 @@ export function registerSalesHandlers(): void {
       };
     }
   });
+
+  // Get sales by date range (for reports)
+  ipcMain.handle(
+    "sales:get-by-date-range",
+    (_event, startDate: string, endDate: string) => {
+      salesLogger.debug({ startDate, endDate }, "Getting sales by date range");
+      return salesService.findByDateRange(startDate, endDate);
+    },
+  );
 }

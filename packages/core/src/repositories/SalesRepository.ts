@@ -993,16 +993,21 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
   }
 
   /**
-   * Get sales by date range
+   * Get sales by date range (completed + refunded, with item count)
    */
-  findByDateRange(startDate: string, endDate: string): SaleWithClient[] {
+  findByDateRange(
+    startDate: string,
+    endDate: string,
+  ): (SaleWithClient & { item_count: number })[] {
     try {
-      return this.query<SaleWithClient>(
+      return this.query<SaleWithClient & { item_count: number }>(
         `
-        SELECT s.*, c.full_name as client_name, c.phone_number as client_phone
+        SELECT s.*, c.full_name as client_name, c.phone_number as client_phone,
+               (SELECT COALESCE(SUM(si.quantity), 0) FROM sale_items si WHERE si.sale_id = s.id) as item_count
         FROM ${this.tableName} s
         LEFT JOIN clients c ON s.client_id = c.id
-        WHERE DATE(s.created_at) BETWEEN ? AND ? AND s.status = 'completed'
+        WHERE DATE(s.created_at) BETWEEN ? AND ?
+          AND s.status IN ('completed', 'refunded')
         ORDER BY s.created_at DESC
       `,
         startDate,

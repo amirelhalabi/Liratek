@@ -205,6 +205,30 @@ export interface ElectronAPI {
       refundId?: number;
       error?: string;
     }>;
+    getByDateRange: (
+      startDate: string,
+      endDate: string,
+    ) => Promise<
+      Array<{
+        id: number;
+        client_id: number | null;
+        client_name: string | null;
+        client_phone: string | null;
+        total_amount_usd: number;
+        discount_usd: number;
+        final_amount_usd: number;
+        paid_usd: number;
+        paid_lbp: number;
+        change_given_usd: number;
+        change_given_lbp: number;
+        exchange_rate_snapshot: number;
+        drawer_name: string;
+        status: string;
+        note: string | null;
+        created_at: string;
+        item_count: number;
+      }>
+    >;
   };
 
   // Dashboard

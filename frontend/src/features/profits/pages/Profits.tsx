@@ -1,5 +1,11 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from "react";
-import { PageHeader, useApi } from "@liratek/ui";
+import {
+  PageHeader,
+  useApi,
+  DateRangeFilter,
+  daysAgoISO,
+  todayISO,
+} from "@liratek/ui";
 import { useModules } from "../../../contexts/ModuleContext";
 import {
   TrendingUp,
@@ -162,16 +168,6 @@ interface UnsettledProviderSummary {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function todayISO(): string {
-  return new Date().toISOString().split("T")[0];
-}
-
-function daysAgoISO(n: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return d.toISOString().split("T")[0];
-}
 
 function formatPct(value: number, total: number): string {
   if (total === 0) return "0%";
@@ -468,22 +464,13 @@ export default function Profits() {
           ))}
         </div>
 
-        <div className="flex items-center gap-2 ml-auto">
-          <label className="text-xs text-gray-400">From</label>
-          <input
-            type="date"
-            value={from}
-            onChange={(e) => setFrom(e.target.value)}
-            className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-white"
-          />
-          <label className="text-xs text-gray-400">To</label>
-          <input
-            type="date"
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-            className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-white"
-          />
-        </div>
+        <DateRangeFilter
+          from={from}
+          to={to}
+          onFromChange={setFrom}
+          onToChange={setTo}
+          className="ml-auto"
+        />
       </div>
 
       {/* Loading */}

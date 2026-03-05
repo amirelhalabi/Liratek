@@ -100,6 +100,8 @@ contextBridge.exposeInMainWorld("api", {
     getTodaysSales: () => ipcRenderer.invoke("sales:get-todays-sales"),
     getTopProducts: () => ipcRenderer.invoke("sales:get-top-products"),
     refund: (saleId: number) => ipcRenderer.invoke("sales:refund", saleId),
+    getByDateRange: (startDate: string, endDate: string) =>
+      ipcRenderer.invoke("sales:get-by-date-range", startDate, endDate),
   },
 
   // Dashboard

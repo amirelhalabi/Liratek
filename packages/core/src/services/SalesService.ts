@@ -129,6 +129,25 @@ export class SalesService {
   }
 
   // ---------------------------------------------------------------------------
+  // Reports
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Get sales by date range (completed + refunded, with item count)
+   */
+  findByDateRange(startDate: string, endDate: string) {
+    try {
+      return this.salesRepo.findByDateRange(startDate, endDate);
+    } catch (error) {
+      salesLogger.error(
+        { error, startDate, endDate },
+        "Failed to get sales by date range",
+      );
+      return [];
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Dashboard Statistics
   // ---------------------------------------------------------------------------
 
