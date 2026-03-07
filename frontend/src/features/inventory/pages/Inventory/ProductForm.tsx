@@ -125,11 +125,12 @@ export default function ProductForm({
     try {
       JsBarcode(canvas, barcode, {
         format: "CODE128",
-        width: 2,
-        height: 60,
+        width: 1.5,
+        height: 30,
         displayValue: true,
-        fontSize: 14,
-        margin: 4,
+        fontSize: 10,
+        margin: 0,
+        textMargin: 1,
       });
     } catch {
       logger.error("Failed to generate barcode", { barcode });
@@ -137,16 +138,17 @@ export default function ProductForm({
     }
 
     const dataUrl = canvas.toDataURL("image/png");
+    const productName = formData.name || "";
 
     // Build label HTML — one per copy, each on its own page
     const labels = Array.from({ length: copies })
       .map(
-        (_, i) =>
-          `<div class="label${i < copies - 1 ? " break" : ""}"><img src="${dataUrl}" alt="barcode" /></div>`,
+        () =>
+          `<div class="label">${productName ? `<div class="name">${productName}</div>` : ""}<img src="${dataUrl}" alt="barcode" /></div>`,
       )
       .join("\n");
 
-    const printWindow = window.open("", "", "width=420,height=350");
+    const printWindow = window.open("", "", "width=340,height=260");
     if (!printWindow) return;
 
     printWindow.document.write(`<!DOCTYPE html>
@@ -155,25 +157,54 @@ export default function ProductForm({
 <title>Barcode</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { display: block; width: 100%; }
-  .label { text-align: center; padding: 4px; page-break-inside: avoid; }
-  img { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+  html, body { width: 58mm; margin: 0; padding: 0; }
+  .label {
+    width: 58mm;
+    height: 30mm;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    padding: 1mm 2mm;
+  }
+  .name {
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 7pt;
+    font-weight: bold;
+    text-align: center;
+    max-width: 54mm;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin-bottom: 0.5mm;
+  }
+  img { max-width: 54mm; max-height: 20mm; display: block; }
   @media print {
-    @page { size: auto; margin: 0; }
-    body { margin: 0; padding: 0; }
-    .label { width: 100%; height: auto; display: block; overflow: hidden; }
-    .break { page-break-after: always; }
+    @page { size: 58mm 30mm; margin: 0; }
+    html, body { width: 58mm; margin: 0; padding: 0; }
+    .label { page-break-after: always; }
+    .label:last-child { page-break-after: auto; }
   }
 </style>
 </head>
 <body>
 ${labels}
+<script>
+  // Wait for barcode images to decode before printing
+  Promise.all(
+    Array.from(document.images).map(function(img) {
+      return img.complete ? Promise.resolve() : img.decode().catch(function() {});
+    })
+  ).then(function() {
+    window.print();
+    window.close();
+  });
+</script>
 </body>
 </html>`);
     printWindow.document.close();
-    printWindow.focus();
-    printWindow.print();
-  }, [formData.barcode, printCopies]);
+  }, [formData.barcode, formData.name, printCopies]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
