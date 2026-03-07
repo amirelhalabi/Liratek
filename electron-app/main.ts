@@ -3,7 +3,7 @@
  * Uses backend services directly (no REST API in Electron mode)
  */
 
-import { app, BrowserWindow, ipcMain, Menu } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, dialog } from "electron";
 import {
   ELECTRON_RENDERER_URL,
   resolveDatabasePath,
@@ -297,9 +297,16 @@ function initializeBackend() {
     runMigrations(db);
     logger.info("Database migrations applied");
   } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    const errStack = err instanceof Error ? err.stack : undefined;
     logger.error(
-      { error: err instanceof Error ? err.message : String(err) },
-      "Migration error (non-fatal)",
+      { error: errMsg, stack: errStack },
+      "CRITICAL: Database migration failed — some features may not work correctly",
+    );
+    // Show user-facing warning so migration failures are not silently ignored
+    dialog.showErrorBox(
+      "Database Migration Warning",
+      `A database migration failed. Some features (e.g. inventory) may not work correctly.\n\nError: ${errMsg}\n\nPlease contact support.`,
     );
   }
 

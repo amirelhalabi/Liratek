@@ -179,6 +179,8 @@ CREATE TABLE IF NOT EXISTS products (
     warranty_expiry DATE,
     status TEXT DEFAULT 'Active',
     is_active BOOLEAN DEFAULT 1,
+    is_deleted BOOLEAN DEFAULT 0,
+    updated_at DATETIME DEFAULT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -785,4 +787,5 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (31, 'add_settlement_tracking_to_financial_services'),
     (40, 'create_product_suppliers'),
     (41, 'fix_category_cascade_to_set_null'),
-    (42, 'add_reports_and_transactions_modules');
+    (42, 'add_reports_and_transactions_modules'),
+    (43, 'add_soft_delete_to_products');
