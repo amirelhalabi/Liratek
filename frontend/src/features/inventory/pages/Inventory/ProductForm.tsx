@@ -138,13 +138,11 @@ export default function ProductForm({
     }
 
     const dataUrl = canvas.toDataURL("image/png");
-    const productName = formData.name || "";
 
     // Build label HTML — one per copy, each on its own page
     const labels = Array.from({ length: copies })
       .map(
-        () =>
-          `<div class="label">${productName ? `<div class="name">${productName}</div>` : ""}<img src="${dataUrl}" alt="barcode" /></div>`,
+        () => `<div class="label"><img src="${dataUrl}" alt="barcode" /></div>`,
       )
       .join("\n");
 
@@ -162,24 +160,12 @@ export default function ProductForm({
     width: 58mm;
     height: 30mm;
     display: flex;
-    flex-direction: column;
     align-items: center;
     justify-content: center;
     overflow: hidden;
     padding: 1mm 2mm;
   }
-  .name {
-    font-family: Arial, Helvetica, sans-serif;
-    font-size: 7pt;
-    font-weight: bold;
-    text-align: center;
-    max-width: 54mm;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    margin-bottom: 0.5mm;
-  }
-  img { max-width: 54mm; max-height: 20mm; display: block; }
+  img { max-width: 54mm; max-height: 28mm; display: block; }
   @media print {
     @page { size: 58mm 30mm; margin: 0; }
     html, body { width: 58mm; margin: 0; padding: 0; }
@@ -190,21 +176,27 @@ export default function ProductForm({
 </head>
 <body>
 ${labels}
-<script>
-  // Wait for barcode images to decode before printing
-  Promise.all(
-    Array.from(document.images).map(function(img) {
-      return img.complete ? Promise.resolve() : img.decode().catch(function() {});
-    })
-  ).then(function() {
-    window.print();
-    window.close();
-  });
-</script>
 </body>
 </html>`);
     printWindow.document.close();
-  }, [formData.barcode, formData.name, printCopies]);
+
+    // Wait for barcode images to load, then trigger print from parent context
+    const images = Array.from(printWindow.document.images);
+    Promise.all(
+      images.map((img) =>
+        img.complete
+          ? Promise.resolve()
+          : new Promise<void>((r) => {
+              img.onload = () => r();
+              img.onerror = () => r();
+            }),
+      ),
+    ).then(() => {
+      printWindow.focus();
+      printWindow.print();
+      printWindow.close();
+    });
+  }, [formData.barcode, printCopies]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
