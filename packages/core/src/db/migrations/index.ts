@@ -1568,36 +1568,39 @@ export const MIGRATIONS: Migration[] = [
     type: "typescript",
     up(db) {
       // SQLite cannot ALTER FK constraints — full table rebuild required.
-      // 1. Get column list from existing table
+      // 1. Get column definitions from the existing table
       const cols = db.prepare("PRAGMA table_info(products)").all() as {
+        cid: number;
         name: string;
+        type: string;
+        notnull: number;
+        dflt_value: string | null;
+        pk: number;
       }[];
       const colNames = cols.map((c) => c.name).join(", ");
 
+      // 2. Build column definitions dynamically so we preserve ALL columns
+      //    (including any added by earlier migrations like supplier_id, unit, etc.)
+      const colDefs = cols
+        .map((c) => {
+          // Primary key
+          if (c.pk) return `${c.name} INTEGER PRIMARY KEY AUTOINCREMENT`;
+          // Fix the FK on category_id: change to ON DELETE SET NULL
+          if (c.name === "category_id") {
+            return `category_id INTEGER DEFAULT NULL REFERENCES product_categories(id) ON DELETE SET NULL`;
+          }
+          // Barcode has UNIQUE constraint
+          if (c.name === "barcode") return `barcode TEXT UNIQUE`;
+          // Build standard column def
+          let def = `${c.name} ${c.type || "TEXT"}`;
+          if (c.notnull) def += " NOT NULL";
+          if (c.dflt_value !== null) def += ` DEFAULT ${c.dflt_value}`;
+          return def;
+        })
+        .join(",\n          ");
+
       // 2. Recreate the table with the corrected FK
-      db.exec(`
-        CREATE TABLE products_new (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          barcode TEXT UNIQUE,
-          name TEXT NOT NULL,
-          item_type TEXT NOT NULL,
-          category TEXT DEFAULT 'General',
-          category_id INTEGER DEFAULT NULL REFERENCES product_categories(id) ON DELETE SET NULL,
-          description TEXT,
-          supplier TEXT DEFAULT NULL,
-          cost_price_usd DECIMAL(10, 2) DEFAULT 0,
-          selling_price_usd DECIMAL(10, 2) DEFAULT 0,
-          min_stock_level INTEGER DEFAULT 5,
-          stock_quantity INTEGER DEFAULT 0,
-          imei TEXT,
-          color TEXT,
-          image_url TEXT,
-          warranty_expiry DATE,
-          status TEXT DEFAULT 'Active',
-          is_active BOOLEAN DEFAULT 1,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-      `);
+      db.exec(`CREATE TABLE products_new (\n          ${colDefs}\n        );`);
 
       // 3. Copy all data
       db.exec(`
@@ -1619,33 +1622,31 @@ export const MIGRATIONS: Migration[] = [
     down(db) {
       // Revert to ON DELETE CASCADE (original schema)
       const cols = db.prepare("PRAGMA table_info(products)").all() as {
+        cid: number;
         name: string;
+        type: string;
+        notnull: number;
+        dflt_value: string | null;
+        pk: number;
       }[];
       const colNames = cols.map((c) => c.name).join(", ");
 
-      db.exec(`
-        CREATE TABLE products_old (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          barcode TEXT UNIQUE,
-          name TEXT NOT NULL,
-          item_type TEXT NOT NULL,
-          category TEXT DEFAULT 'General',
-          category_id INTEGER DEFAULT NULL REFERENCES product_categories(id) ON DELETE CASCADE,
-          description TEXT,
-          supplier TEXT DEFAULT NULL,
-          cost_price_usd DECIMAL(10, 2) DEFAULT 0,
-          selling_price_usd DECIMAL(10, 2) DEFAULT 0,
-          min_stock_level INTEGER DEFAULT 5,
-          stock_quantity INTEGER DEFAULT 0,
-          imei TEXT,
-          color TEXT,
-          image_url TEXT,
-          warranty_expiry DATE,
-          status TEXT DEFAULT 'Active',
-          is_active BOOLEAN DEFAULT 1,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-      `);
+      // Build column definitions dynamically, reverting category_id FK to CASCADE
+      const colDefs = cols
+        .map((c) => {
+          if (c.pk) return `${c.name} INTEGER PRIMARY KEY AUTOINCREMENT`;
+          if (c.name === "category_id") {
+            return `category_id INTEGER DEFAULT NULL REFERENCES product_categories(id) ON DELETE CASCADE`;
+          }
+          if (c.name === "barcode") return `barcode TEXT UNIQUE`;
+          let def = `${c.name} ${c.type || "TEXT"}`;
+          if (c.notnull) def += " NOT NULL";
+          if (c.dflt_value !== null) def += ` DEFAULT ${c.dflt_value}`;
+          return def;
+        })
+        .join(",\n          ");
+
+      db.exec(`CREATE TABLE products_old (\n          ${colDefs}\n        );`);
 
       db.exec(`
         INSERT INTO products_old (${colNames})
