@@ -1815,30 +1815,41 @@ export function runMigrations(db: Database.Database): void {
 
   console.log(`[MIGRATIONS] Running ${pending.length} migration(s)...`);
 
-  for (const migration of pending) {
-    console.log(
-      `[MIGRATIONS] → Applying ${migration.version}: ${migration.name}`,
-    );
+  // Disable FK constraints during migrations — required for table rebuilds
+  // (e.g. DROP TABLE + RENAME) that would otherwise trigger FK violations.
+  // PRAGMA foreign_keys cannot be changed inside a transaction, so we set
+  // it here, outside individual migration transactions.
+  db.pragma("foreign_keys = OFF");
 
-    db.transaction(() => {
-      try {
-        // Run the migration
-        migration.up(db);
+  try {
+    for (const migration of pending) {
+      console.log(
+        `[MIGRATIONS] → Applying ${migration.version}: ${migration.name}`,
+      );
 
-        // Record it
-        db.prepare(
-          "INSERT INTO schema_migrations (version, name) VALUES (?, ?)",
-        ).run(migration.version, migration.name);
+      db.transaction(() => {
+        try {
+          // Run the migration
+          migration.up(db);
 
-        console.log(`[MIGRATIONS] ✅ ${migration.name} applied successfully`);
-      } catch (error) {
-        console.error(
-          `[MIGRATIONS] ❌ Failed to apply ${migration.name}:`,
-          error,
-        );
-        throw error;
-      }
-    })();
+          // Record it
+          db.prepare(
+            "INSERT INTO schema_migrations (version, name) VALUES (?, ?)",
+          ).run(migration.version, migration.name);
+
+          console.log(`[MIGRATIONS] ✅ ${migration.name} applied successfully`);
+        } catch (error) {
+          console.error(
+            `[MIGRATIONS] ❌ Failed to apply ${migration.name}:`,
+            error,
+          );
+          throw error;
+        }
+      })();
+    }
+  } finally {
+    // Always re-enable FK constraints, even if a migration fails
+    db.pragma("foreign_keys = ON");
   }
 
   console.log(
