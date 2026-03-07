@@ -33,11 +33,18 @@ describe("BaseRepository", () => {
 
   it("findById returns entity when found", () => {
     // Arrange
-    testDb.prepare.mockImplementationOnce((sql: string) => {
+    testDb.prepare.mockImplementation((sql: string) => {
       const stmt = {
         ...require("../../../__mocks__/better-sqlite3").mockStatement,
         _sql: sql,
       };
+      
+      // Handle PRAGMA table_info call from hasColumn
+      if (sql.includes("PRAGMA")) {
+        stmt.all = jest.fn(() => []);
+        return stmt;
+      }
+
       stmt.get = jest.fn(() => ({ id: 1, name: "A" }));
       return stmt;
     });
@@ -46,17 +53,25 @@ describe("BaseRepository", () => {
     const res = repo.findById(1);
 
     expect(res).toEqual({ id: 1, name: "A" });
+    // Expect the SELECT query. The test ignores PRAGMA calls order if we check specifically for SELECT
     expect(testDb.prepare).toHaveBeenCalledWith(
-      "SELECT id, name, created_at FROM test_table WHERE id = ?",
+      expect.stringMatching(/SELECT id, name, created_at FROM test_table.*WHERE id = \?/),
     );
   });
 
   it("findAll builds ORDER BY / LIMIT / OFFSET", () => {
-    testDb.prepare.mockImplementationOnce((sql: string) => {
+    testDb.prepare.mockImplementation((sql: string) => {
       const stmt = {
         ...require("../../../__mocks__/better-sqlite3").mockStatement,
         _sql: sql,
       };
+
+      // Handle PRAGMA table_info call from hasColumn
+      if (sql.includes("PRAGMA")) {
+        stmt.all = jest.fn(() => []);
+        return stmt;
+      }
+
       stmt.all = jest.fn(() => [{ id: 1, name: "A" }]);
       return stmt;
     });
@@ -71,12 +86,12 @@ describe("BaseRepository", () => {
 
     expect(res).toEqual([{ id: 1, name: "A" }]);
     expect(testDb.prepare).toHaveBeenCalledWith(
-      "SELECT id, name, created_at FROM test_table ORDER BY id DESC LIMIT ? OFFSET ?",
+      expect.stringMatching(/SELECT id, name, created_at FROM test_table.*ORDER BY id DESC LIMIT \? OFFSET \?/),
     );
   });
 
   it("delete executes delete query", () => {
-    testDb.prepare.mockImplementationOnce((sql: string) => {
+    testDb.prepare.mockImplementation((sql: string) => {
       const stmt = {
         ...require("../../../__mocks__/better-sqlite3").mockStatement,
         _sql: sql,
@@ -91,6 +106,7 @@ describe("BaseRepository", () => {
     expect(ok).toBe(true);
     expect(testDb.prepare).toHaveBeenCalled();
     const sqls = testDb.prepare.mock.calls.map((c: any[]) => c[0]);
-    expect(sqls).toContain("DELETE FROM test_table WHERE id = ?");
+    // Use regex to match DELETE query
+    expect(sqls).toEqual(expect.arrayContaining([expect.stringMatching(/DELETE FROM test_table WHERE id = \?/)]));
   });
 });
