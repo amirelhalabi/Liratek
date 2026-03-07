@@ -4,10 +4,12 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { Smartphone, Lock, User, AlertCircle } from "lucide-react";
 import clsx from "clsx";
+import { useShopName } from "../../../hooks/useShopName";
 
 export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
+  const shopName = useShopName();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(false);
@@ -44,7 +46,7 @@ export default function Login() {
             <Smartphone className="w-8 h-8 text-white" />
           </div>
           <h1 className="text-3xl font-bold text-white mb-2">
-            Corner Tech POS
+            {shopName}
           </h1>
           <p className="text-violet-200">Management System</p>
         </div>
@@ -136,7 +138,7 @@ export default function Login() {
           </form>
 
           <div className="mt-6 text-center text-xs text-slate-500">
-            <p>Version 1.0.0 • Licensed to Corner Tech</p>
+            <p>Version {import.meta.env.VITE_APP_VERSION || "1.0.0"} • Licensed to {shopName}</p>
           </div>
         </div>
       </div>
