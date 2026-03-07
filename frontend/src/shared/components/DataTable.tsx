@@ -538,7 +538,6 @@ export function DataTable<T>({
                     ...(
                       rendered.props as React.HTMLAttributes<HTMLTableRowElement>
                     ).style,
-                    userSelect: "none",
                   },
                 },
               );

@@ -43,7 +43,9 @@ export interface UpdateUserData {
 
 export class UserRepository extends BaseRepository<UserEntity> {
   constructor() {
-    super("users", { softDelete: true });
+    // Disable automatic softDelete (is_deleted check) since users table uses is_active
+    // BaseRepository will still filter by is_active=1 automatically because the column exists
+    super("users", { softDelete: false });
   }
 
   // Override getColumns() to use explicit columns instead of SELECT *

@@ -4,7 +4,7 @@
   "description": "Electron",
   "author": "Amir <amir@liratek.com>",
   "private": true,
-  "version": "1.18.10",
+  "version": "1.18.11",
   "type": "module",
   "main": "dist-electron/main.js",
   "workspaces": [

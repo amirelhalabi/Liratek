@@ -280,9 +280,25 @@ export default function ProductList() {
   const handleDelete = async (id: number) => {
     if (!confirm("Are you sure you want to delete this product?")) return;
     try {
-      await api.deleteProduct(id);
+      const result = await api.deleteProduct(id);
+      
+      if (result && !result.success) {
+        appEvents.emit(
+          "notification:show",
+          result.error || "Failed to delete product",
+          "error",
+        );
+        return;
+      }
+
+      appEvents.emit(
+        "notification:show",
+        "Product deleted successfully",
+        "success",
+      );
       loadProducts(); // Refresh list
     } catch (error) {
+      appEvents.emit("notification:show", "Failed to delete product", "error");
       logger.error("Failed to delete:", error);
     }
   };
@@ -702,17 +718,22 @@ export default function ProductList() {
                 </td>
                 <td
                   className="p-4 text-right"
-                  onClick={(e) => e.stopPropagation()}
                 >
                   <div className="flex items-center justify-end gap-2">
                     <button
-                      onClick={() => handleEdit(product)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleEdit(product);
+                      }}
                       className="p-2 text-slate-400 hover:text-blue-400 hover:bg-blue-400/10 rounded transition-colors"
                     >
                       <Edit2 size={16} />
                     </button>
                     <button
-                      onClick={() => handleDelete(product.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDelete(product.id);
+                      }}
                       className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-400/10 rounded transition-colors"
                     >
                       <Trash2 size={16} />

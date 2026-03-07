@@ -198,14 +198,14 @@ export function registerAuthHandlers(): void {
     "auth:restore-session",
     async (event, sessionToken?: string) => {
       try {
-        authLogger.info(
+        authLogger.debug(
           { hasToken: !!sessionToken },
           "🔍 [SESSION-RESTORE] Starting session restoration",
         );
 
         // Try to restore from provided token first
         if (sessionToken) {
-          authLogger.info(
+          authLogger.debug(
             { tokenPrefix: sessionToken.substring(0, 10) },
             "🔍 [SESSION-RESTORE] Validating provided session token from localStorage",
           );
@@ -240,19 +240,19 @@ export function registerAuthHandlers(): void {
             );
           }
         } else {
-          authLogger.info(
+          authLogger.debug(
             "🔍 [SESSION-RESTORE] No session token in localStorage",
           );
         }
 
         // Fallback: try encrypted session file (persists across refreshes)
-        authLogger.info(
+        authLogger.debug(
           "🔍 [SESSION-RESTORE] Checking for session token in encrypted file",
         );
         const stored = getEncryptedSession();
 
         if (stored && stored.token) {
-          authLogger.info(
+          authLogger.debug(
             { tokenPrefix: stored.token.substring(0, 10) },
             "🔍 [SESSION-RESTORE] Found token in encrypted file, validating against database",
           );
@@ -290,7 +290,7 @@ export function registerAuthHandlers(): void {
         }
 
         // Legacy fallback: try old encrypted session for migration (userId-based)
-        authLogger.info(
+        authLogger.debug(
           "🔍 [SESSION-RESTORE] Checking for old encrypted session (legacy migration)",
         );
         const storedLegacy = getEncryptedSession();
@@ -352,12 +352,12 @@ export function registerAuthHandlers(): void {
             "🗑️ [SESSION-RESTORE] Cleared invalid encrypted session",
           );
         } else {
-          authLogger.info(
+          authLogger.debug(
             "ℹ️ [SESSION-RESTORE] No legacy encrypted session found",
           );
         }
 
-        authLogger.info(
+        authLogger.warn(
           "❌ [SESSION-RESTORE] No valid session found, user needs to login",
         );
         return { success: false, error: "No session" };

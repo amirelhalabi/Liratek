@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import logger from "../../../../../utils/logger";
 import { X, User, Printer, Inbox } from "lucide-react";
 import { DRAWER_B, roundLBPUp, useApi } from "@liratek/ui";
@@ -40,6 +40,30 @@ export type CheckoutDraftData = {
 
 const generateReceiptNumber = () => `RCP-${Date.now()}`;
 
+const receiptPrintCSS = `
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { width: 72mm; margin: 0 auto; }
+  pre { font-family: 'Courier New', monospace; font-size: 11px; font-weight: bold; white-space: pre-wrap; word-break: break-all; line-height: 1.4; }
+  @media print {
+    @page { size: 72mm auto; margin: 0; }
+    html, body { width: 72mm; margin: 0; padding: 0; }
+  }`;
+
+const printReceiptContent = (content: string) => {
+  const printWindow = window.open("", "", "width=400,height=600");
+  if (printWindow) {
+    printWindow.document.write(`<!DOCTYPE html>
+<html>
+<head><title>Receipt</title><style>\${receiptPrintCSS}</style></head>
+<body><pre>\${content}</pre></body>
+</html>`);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+    printWindow.close();
+  }
+};
+
 export default function CheckoutModal({
   items,
   totalAmount,
@@ -56,7 +80,6 @@ export default function CheckoutModal({
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [clientSearch, setClientSearch] = useState("");
   const [showReceiptPreview, setShowReceiptPreview] = useState(false);
-  const [receiptPreview, setReceiptPreview] = useState("");
 
   // Payment State
   const [discount, setDiscount] = useState(0);
@@ -247,7 +270,7 @@ export default function CheckoutModal({
     } else if (!selectedClient && clientSearch.trim()) {
       if (isSearchPhone) {
         finalClientPhone = clientSearch.trim();
-        finalClientName = secondaryInput.trim() || `Client ${finalClientPhone}`;
+        finalClientName = secondaryInput.trim() || `Client \${finalClientPhone}`;
       } else {
         finalClientName = clientSearch.trim();
         finalClientPhone = secondaryInput.trim();
@@ -321,15 +344,11 @@ export default function CheckoutModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const generateReceiptPreview = () => {
-    // Generate and store receipt number if not already set
-    if (!receiptNumber) {
-      setReceiptNumber(generateReceiptNumber());
-    }
-    const receipt: ReceiptData = {
-      shop_name: shopInfo.name,
-      shop_phone: shopInfo.phone,
-      shop_location: shopInfo.location,
+  const getReceiptData = (): ReceiptData => {
+    return {
+      shop_name: shopInfo.name || "Corner Tech",
+      shop_phone: shopInfo.phone || "",
+      shop_location: shopInfo.location || "",
       receipt_number: receiptNumber || generateReceiptNumber(),
       client_name:
         selectedClient?.full_name || clientSearch || "Walk-in Customer",
@@ -352,77 +371,27 @@ export default function CheckoutModal({
       timestamp: new Date().toISOString(),
       operator: "Staff",
     };
-
-    const formattedReceipt = formatReceipt58mm(receipt);
-    setReceiptPreview(formattedReceipt);
-    setShowReceiptPreview(true);
-  };
-
-  const receiptPrintCSS = `
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { width: 72mm; margin: 0 auto; }
-  pre { font-family: 'Courier New', monospace; font-size: 11px; font-weight: bold; white-space: pre-wrap; word-break: break-all; line-height: 1.4; }
-  @media print {
-    @page { size: 72mm auto; margin: 0; }
-    html, body { width: 72mm; margin: 0; padding: 0; }
-  }`;
-
-  const printReceiptContent = (content: string) => {
-    const printWindow = window.open("", "", "width=400,height=600");
-    if (printWindow) {
-      printWindow.document.write(`<!DOCTYPE html>
-<html>
-<head><title>Receipt</title><style>${receiptPrintCSS}</style></head>
-<body><pre>${content}</pre></body>
-</html>`);
-      printWindow.document.close();
-      printWindow.focus();
-      printWindow.print();
-      printWindow.close();
-    }
   };
 
   const handlePrintReceipt = () => {
-    if (receiptPreview) {
-      printReceiptContent(receiptPreview);
-    }
+    const receipt = getReceiptData();
+    const formatted = formatReceipt58mm(receipt);
+    printReceiptContent(formatted);
   };
 
   const handleDirectPrint = () => {
-    if (!receiptNumber) {
-      setReceiptNumber(generateReceiptNumber());
-    }
-    const receipt: ReceiptData = {
-      shop_name: shopInfo.name,
-      shop_phone: shopInfo.phone,
-      shop_location: shopInfo.location,
-      receipt_number: receiptNumber || generateReceiptNumber(),
-      client_name:
-        selectedClient?.full_name || clientSearch || "Walk-in Customer",
-      client_phone: selectedClient?.phone_number || secondaryInput,
-      items: (items || []).map((item) => ({
-        name: item.name,
-        quantity: item.quantity,
-        price: item.retail_price,
-        subtotal: item.retail_price * item.quantity,
-        imei: item.imei || null,
-      })),
-      subtotal: totalAmount,
-      discount: discount,
-      total: finalAmount,
-      payment_usd: paidUSD,
-      payment_lbp: paidLBP,
-      change_usd: changeGivenUSD,
-      change_lbp: changeGivenLBP,
-      exchange_rate: effectiveExchangeRate,
-      timestamp: new Date().toISOString(),
-      operator: "Staff",
-    };
+    const receipt = getReceiptData();
     const formatted = formatReceipt58mm(receipt);
     printReceiptContent(formatted);
   };
 
   const drawerNameDisplay = String(DRAWER_B).replace(/_/g, " ");
+
+  // Memoize receipt content to ensure it updates when shopInfo or other data changes
+  const receiptContent = useMemo(() => {
+    if (!showReceiptPreview) return "";
+    return formatReceipt58mm(getReceiptData());
+  }, [showReceiptPreview, shopInfo, items, totalAmount, discount, paidUSD, paidLBP, changeGivenUSD, changeGivenLBP, effectiveExchangeRate, receiptNumber]);
 
   return (
     <>
@@ -526,7 +495,7 @@ export default function CheckoutModal({
                 {/* Secondary Input */}
                 <div>
                   <div
-                    className={`flex items-center bg-slate-900 border border-slate-700 rounded-xl p-1 focus-within:ring-2 focus-within:ring-violet-600 transition-all h-[52px] ${!clientSearch ? "opacity-50 cursor-not-allowed" : ""}`}
+                    className={`flex items-center bg-slate-900 border border-slate-700 rounded-xl p-1 focus-within:ring-2 focus-within:ring-violet-600 transition-all h-[52px] \${!clientSearch ? "opacity-50 cursor-not-allowed" : ""}`}
                   >
                     <input
                       type="text"
@@ -579,11 +548,11 @@ export default function CheckoutModal({
                           {item.name}
                         </p>
                         <p className="text-xs text-slate-500">
-                          {item.quantity} × ${item.retail_price.toFixed(2)}
+                          {item.quantity} × \${item.retail_price.toFixed(2)}
                         </p>
                       </div>
                       <span className="text-sm font-mono text-slate-300 shrink-0">
-                        ${(item.quantity * item.retail_price).toFixed(2)}
+                        \${(item.quantity * item.retail_price).toFixed(2)}
                       </span>
                     </div>
                   ))}
@@ -596,7 +565,7 @@ export default function CheckoutModal({
               <div className="space-y-3">
                 <div className="flex justify-between text-slate-400">
                   <span>Subtotal</span>
-                  <span>${totalAmount.toFixed(2)}</span>
+                  <span>\${totalAmount.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between items-center text-slate-400">
                   <span>Discount</span>
@@ -620,7 +589,7 @@ export default function CheckoutModal({
                     Net Total
                   </span>
                   <span className="text-2xl font-bold text-violet-400">
-                    ${finalAmount.toFixed(2)}
+                    \${finalAmount.toFixed(2)}
                   </span>
                 </div>
                 <div className="text-right text-xs text-slate-500">
@@ -736,8 +705,8 @@ export default function CheckoutModal({
                       <div className="text-xs text-slate-500 text-right">
                         Paid:{" "}
                         <span className="font-mono text-slate-300">
-                          ${paidUSD.toFixed(2)} USD
-                          {paidLBP > 0 && ` + ${paidLBP.toLocaleString()} LBP`}
+                          \${paidUSD.toFixed(2)} USD
+                          {paidLBP > 0 && ` + \${paidLBP.toLocaleString()} LBP`}
                         </span>
                       </div>
                     </div>
@@ -865,7 +834,7 @@ export default function CheckoutModal({
 
                   <div className="mt-3 text-xs text-slate-400">
                     Totals:{" "}
-                    <span className="font-mono">${paidUSD.toFixed(2)}</span> USD
+                    <span className="font-mono">\${paidUSD.toFixed(2)}</span> USD
                     +{" "}
                     <span className="font-mono">
                       {paidLBP.toLocaleString()}
@@ -881,7 +850,7 @@ export default function CheckoutModal({
               <div className="flex justify-between text-sm">
                 <span className="text-slate-400">Total Paid (Converted)</span>
                 <span className="text-white font-mono">
-                  ${totalPaidInUSD.toFixed(2)}
+                  \${totalPaidInUSD.toFixed(2)}
                 </span>
               </div>
 
@@ -889,7 +858,7 @@ export default function CheckoutModal({
                 <>
                   <div className="flex justify-between items-center pt-2 border-t border-slate-700">
                     <span
-                      className={`font-medium ${debtPaymentEnabled ? "text-red-400" : "text-orange-400"}`}
+                      className={`font-medium \${debtPaymentEnabled ? "text-red-400" : "text-orange-400"}`}
                     >
                       {debtPaymentEnabled
                         ? "Remaining (Debt)"
@@ -897,12 +866,12 @@ export default function CheckoutModal({
                     </span>
                     <div className="text-right">
                       <div
-                        className={`font-bold text-xl ${debtPaymentEnabled ? "text-red-400" : "text-orange-400"}`}
+                        className={`font-bold text-xl \${debtPaymentEnabled ? "text-red-400" : "text-orange-400"}`}
                       >
-                        ${remaining.toFixed(2)}
+                        \${remaining.toFixed(2)}
                       </div>
                       <div
-                        className={`text-xs ${debtPaymentEnabled ? "text-red-500/70" : "text-orange-500/70"}`}
+                        className={`text-xs \${debtPaymentEnabled ? "text-red-500/70" : "text-orange-500/70"}`}
                       >
                         ≈ {(remaining * effectiveExchangeRate).toLocaleString()}{" "}
                         LBP
@@ -924,7 +893,7 @@ export default function CheckoutModal({
                     </span>
                     <div className="text-right">
                       <div className="text-emerald-400 font-bold text-xl">
-                        ${change.toFixed(2)}
+                        \${change.toFixed(2)}
                       </div>
                       <div className="text-xs text-emerald-500/70">
                         ≈ {(change * effectiveExchangeRate).toLocaleString()}{" "}
@@ -1011,7 +980,7 @@ export default function CheckoutModal({
                           return (
                             <div className="text-center text-xs text-red-400 font-medium bg-red-500/10 py-2 rounded flex items-center justify-center gap-2">
                               <span>
-                                Remaining change to give: ${absDiff.toFixed(2)}{" "}
+                                Remaining change to give: \${absDiff.toFixed(2)}{" "}
                                 ≈{" "}
                                 {(
                                   absDiff * effectiveExchangeRate
@@ -1071,7 +1040,7 @@ export default function CheckoutModal({
                 Save Draft
               </button>
               <button
-                onClick={generateReceiptPreview}
+                onClick={() => setShowReceiptPreview(true)}
                 disabled={isLoading}
                 className="px-4 py-4 rounded-xl text-blue-300 hover:text-blue-100 hover:bg-blue-900/30 transition-colors font-medium border border-blue-500/30 flex items-center gap-2"
               >
@@ -1127,10 +1096,23 @@ export default function CheckoutModal({
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6 flex justify-center">
-              <pre className="font-mono text-xs text-slate-300 bg-slate-800/50 p-4 rounded-lg">
-                {receiptPreview}
-              </pre>
+            <div className="flex-1 overflow-y-auto p-6 flex justify-center bg-slate-950">
+              <div className="bg-white p-8 shadow-2xl rounded-sm">
+                <pre 
+                  className="text-slate-900"
+                  style={{ 
+                    fontFamily: "'Courier New', monospace", 
+                    fontSize: "13px", 
+                    fontWeight: "bold", 
+                    whiteSpace: "pre", // Use exact spacing, no wrapping
+                    lineHeight: "1.4",
+                    width: "auto",
+                    minWidth: "38ch"
+                  }}
+                >
+                  {receiptContent}
+                </pre>
+              </div>
             </div>
 
             <div className="p-6 border-t border-slate-700 flex gap-3">

@@ -1681,8 +1681,50 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
-];
+  {
+    version: 43,
+    name: "add_soft_delete_to_products",
+    description:
+      "Add is_deleted and updated_at columns to products table for soft delete support",
+    type: "typescript",
+    up(db) {
+      const cols = db.prepare("PRAGMA table_info(products)").all() as {
+        name: string;
+      }[];
+      const colNames = new Set(cols.map((c) => c.name));
 
+      if (!colNames.has("is_deleted")) {
+        db.exec(
+          "ALTER TABLE products ADD COLUMN is_deleted BOOLEAN DEFAULT 0;",
+        );
+      }
+      if (!colNames.has("updated_at")) {
+        db.exec(
+          "ALTER TABLE products ADD COLUMN updated_at DATETIME DEFAULT NULL;",
+        );
+      }
+    },
+    down(db) {
+      // Table rebuild required to remove columns in SQLite
+      const cols = db.prepare("PRAGMA table_info(products)").all() as {
+        name: string;
+      }[];
+      const remainingCols = cols
+        .map((c) => c.name)
+        .filter((name) => name !== "is_deleted" && name !== "updated_at")
+        .join(", ");
+
+      db.exec(`
+        CREATE TABLE products_v43_rb AS SELECT ${remainingCols} FROM products;
+        DROP TABLE products;
+        ALTER TABLE products_v43_rb RENAME TO products;
+        CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode);
+        CREATE INDEX IF NOT EXISTS idx_products_category_id ON products(category_id);
+        CREATE INDEX IF NOT EXISTS idx_products_is_active ON products(is_active);
+      `);
+    },
+  },
+];
 // =============================================================================
 // Migration Runner
 // =============================================================================

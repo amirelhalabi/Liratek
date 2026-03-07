@@ -86,6 +86,25 @@ export abstract class BaseRepository<T extends BaseEntity> {
    */
   protected abstract getColumns(): string;
 
+  /**
+   * Internal helper to build WHERE clause for soft delete and active status
+   */
+  protected getBaseWhere(prefix: "WHERE" | "AND" = "WHERE"): string {
+    let clauses = [];
+    
+    if (this.softDelete) {
+      clauses.push("is_deleted = 0");
+    }
+
+    // Safely check for is_active column
+    if (this.hasColumn("is_active")) {
+      clauses.push("is_active = 1");
+    }
+
+    if (clauses.length === 0) return "";
+    return `${prefix} ${clauses.join(" AND ")}`;
+  }
+
   // ---------------------------------------------------------------------------
   // Core CRUD Operations
   // ---------------------------------------------------------------------------
@@ -95,9 +114,8 @@ export abstract class BaseRepository<T extends BaseEntity> {
    */
   findById(id: number): T | null {
     try {
-      const query = this.softDelete
-        ? `SELECT ${this.getColumns()} FROM ${this.tableName} WHERE id = ? AND is_active = 1`
-        : `SELECT ${this.getColumns()} FROM ${this.tableName} WHERE id = ?`;
+      const where = this.getBaseWhere("AND");
+      const query = `SELECT ${this.getColumns()} FROM ${this.tableName} WHERE id = ? ${where}`;
 
       return (this.db.prepare(query).get(id) as T | undefined) ?? null;
     } catch (error) {
@@ -131,9 +149,8 @@ export abstract class BaseRepository<T extends BaseEntity> {
         orderDirection = "DESC",
       } = options;
 
-      let query = this.softDelete
-        ? `SELECT ${this.getColumns()} FROM ${this.tableName} WHERE is_active = 1`
-        : `SELECT ${this.getColumns()} FROM ${this.tableName}`;
+      const where = this.getBaseWhere("WHERE");
+      let query = `SELECT ${this.getColumns()} FROM ${this.tableName} ${where}`;
 
       query += ` ORDER BY ${orderBy} ${orderDirection}`;
 
@@ -173,9 +190,8 @@ export abstract class BaseRepository<T extends BaseEntity> {
    */
   count(): number {
     try {
-      const query = this.softDelete
-        ? `SELECT COUNT(*) as count FROM ${this.tableName} WHERE is_active = 1`
-        : `SELECT COUNT(*) as count FROM ${this.tableName}`;
+      const where = this.getBaseWhere("WHERE");
+      const query = `SELECT COUNT(*) as count FROM ${this.tableName} ${where}`;
 
       const result = this.db.prepare(query).get() as { count: number };
       return result.count;
@@ -191,9 +207,8 @@ export abstract class BaseRepository<T extends BaseEntity> {
    */
   exists(id: number): boolean {
     try {
-      const query = this.softDelete
-        ? `SELECT 1 FROM ${this.tableName} WHERE id = ? AND is_active = 1`
-        : `SELECT 1 FROM ${this.tableName} WHERE id = ?`;
+      const where = this.getBaseWhere("AND");
+      const query = `SELECT 1 FROM ${this.tableName} WHERE id = ? ${where}`;
 
       return this.db.prepare(query).get(id) !== undefined;
     } catch (error) {
@@ -284,11 +299,17 @@ export abstract class BaseRepository<T extends BaseEntity> {
   }
 
   /**
-   * Soft delete an entity by ID (sets is_active = 0)
+   * Soft delete an entity by ID (sets is_deleted = 1)
    */
   softDeleteById(id: number, options: UpdateOptions = {}): boolean {
     try {
-      const query = `UPDATE ${this.tableName} SET is_active = 0, updated_at = datetime('now') WHERE id = ?`;
+      // Check if updated_at exists in this table
+      const hasUpdatedAt = this.hasColumn("updated_at");
+
+      const query = hasUpdatedAt
+        ? `UPDATE ${this.tableName} SET is_deleted = 1, updated_at = datetime('now') WHERE id = ?`
+        : `UPDATE ${this.tableName} SET is_deleted = 1 WHERE id = ?`;
+        
       const result = this.db.prepare(query).run(id);
 
       if (result.changes === 0 && options.throwOnNotFound) {
@@ -298,7 +319,8 @@ export abstract class BaseRepository<T extends BaseEntity> {
       return result.changes > 0;
     } catch (error) {
       if (error instanceof NotFoundError) throw error;
-      throw new DatabaseError(`Failed to soft delete ${this.tableName}`, {
+      const originalMessage = error instanceof Error ? error.message : String(error);
+      throw new DatabaseError(`Failed to soft delete ${this.tableName}: ${originalMessage}`, {
         cause: error,
         entityId: id,
       });
@@ -306,11 +328,17 @@ export abstract class BaseRepository<T extends BaseEntity> {
   }
 
   /**
-   * Restore a soft-deleted entity
+   * Restore a soft-deleted entity (sets is_deleted = 0)
    */
   restore(id: number, options: UpdateOptions = {}): boolean {
     try {
-      const query = `UPDATE ${this.tableName} SET is_active = 1, updated_at = datetime('now') WHERE id = ?`;
+      // Check if updated_at exists in this table
+      const hasUpdatedAt = this.hasColumn("updated_at");
+
+      const query = hasUpdatedAt
+        ? `UPDATE ${this.tableName} SET is_deleted = 0, updated_at = datetime('now') WHERE id = ?`
+        : `UPDATE ${this.tableName} SET is_deleted = 0 WHERE id = ?`;
+        
       const result = this.db.prepare(query).run(id);
 
       if (result.changes === 0 && options.throwOnNotFound) {
@@ -341,6 +369,18 @@ export abstract class BaseRepository<T extends BaseEntity> {
   // ---------------------------------------------------------------------------
   // Utility Methods
   // ---------------------------------------------------------------------------
+
+  /**
+   * Check if a column exists in the current table
+   */
+  protected hasColumn(columnName: string): boolean {
+    try {
+      const info = this.db.prepare(`PRAGMA table_info(${this.tableName})`).all() as any[];
+      return info.some(col => col.name === columnName);
+    } catch {
+      return false;
+    }
+  }
 
   /**
    * Execute a raw query (use with caution)

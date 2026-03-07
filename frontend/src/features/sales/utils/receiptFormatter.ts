@@ -42,24 +42,31 @@ export function formatReceipt58mm(data: ReceiptData): string {
   const sym = data.currency_symbol ?? "$";
 
   const padCenter = (text: string, char = " "): string => {
-    const padding = Math.max(0, width - text.length);
+
+    const cleanText = (text || "").trim();
+    if (!cleanText) return "";
+    const padding = Math.max(0, width - cleanText.length);
     const left = Math.floor(padding / 2);
     const right = padding - left;
-    return char.repeat(left) + text + char.repeat(right);
+    return char.repeat(left) + cleanText + char.repeat(right);
   };
 
   let receipt = "";
 
   // Header
-  receipt += padCenter("=".repeat(width)) + "\n";
-  receipt += padCenter(data.shop_name) + "\n";
-  if (data.shop_location) {
-    receipt += padCenter(data.shop_location) + "\n";
-  }
-  if (data.shop_phone) {
-    receipt += padCenter(data.shop_phone) + "\n";
-  }
-  receipt += padCenter("=".repeat(width)) + "\n";
+  const border = "=".repeat(width);
+  receipt += border + "\n";
+  
+  const name = padCenter(data.shop_name);
+  if (name) receipt += name + "\n";
+  
+  const location = padCenter(data.shop_location || "");
+  if (location) receipt += location + "\n";
+  
+  const phone = padCenter(data.shop_phone || "");
+  if (phone) receipt += phone + "\n";
+  
+  receipt += border + "\n";
 
   // Receipt Info — date+time on one line
   const dt = new Date(data.timestamp);
@@ -67,9 +74,9 @@ export function formatReceipt58mm(data: ReceiptData): string {
   receipt += `${dt.toLocaleDateString()} ${dt.toLocaleTimeString()}\n`;
 
   // Client Info (if available)
-  if (data.client_name) {
-    receipt += `${data.client_name}`;
-    if (data.client_phone) receipt += ` ${data.client_phone}`;
+  if (data.client_name?.trim()) {
+    receipt += `${data.client_name.trim()}`;
+    if (data.client_phone?.trim()) receipt += ` ${data.client_phone.trim()}`;
     receipt += "\n";
   }
 
@@ -138,13 +145,14 @@ export function formatReceipt58mm(data: ReceiptData): string {
     receipt += fmtLine("Change LBP:", `${data.change_lbp.toLocaleString()}`);
   }
 
-  receipt += padCenter("=".repeat(width)) + "\n";
-  if (data.note) {
-    receipt += padCenter(data.note) + "\n";
+  receipt += border + "\n";
+  if (data.note?.trim()) {
+    const note = padCenter(data.note);
+    if (note) receipt += note + "\n";
   }
   receipt += padCenter("Thank You!") + "\n";
   receipt += padCenter("Powered by LiraTek • 81077357") + "\n";
-  receipt += padCenter("=".repeat(width)) + "\n";
+  receipt += border + "\n";
 
   return receipt;
 }
@@ -157,10 +165,12 @@ export function formatReceipt80mm(data: ReceiptData): string {
   const sym = data.currency_symbol ?? "$";
 
   const padCenter = (text: string): string => {
-    const padding = Math.max(0, width - text.length);
+    const cleanText = (text || "").trim();
+    if (!cleanText) return "";
+    const padding = Math.max(0, width - cleanText.length);
     const left = Math.floor(padding / 2);
     const right = padding - left;
-    return " ".repeat(left) + text + " ".repeat(right);
+    return " ".repeat(left) + cleanText + " ".repeat(right);
   };
 
   const padRight = (text: string, w: number): string => {
@@ -170,16 +180,20 @@ export function formatReceipt80mm(data: ReceiptData): string {
   let receipt = "";
 
   // Header
-  receipt += padCenter("═".repeat(width)) + "\n";
-  receipt += padCenter(data.shop_name) + "\n";
-  if (data.shop_location) {
-    receipt += padCenter(data.shop_location) + "\n";
-  }
-  if (data.shop_phone) {
-    receipt += padCenter(data.shop_phone) + "\n";
-  }
+  const border = "═".repeat(width);
+  receipt += padCenter(border) + "\n";
+  
+  const name = padCenter(data.shop_name);
+  if (name) receipt += name + "\n";
+  
+  const location = padCenter(data.shop_location || "");
+  if (location) receipt += location + "\n";
+  
+  const phone = padCenter(data.shop_phone || "");
+  if (phone) receipt += phone + "\n";
+  
   receipt += padCenter("═ RECEIPT ═") + "\n";
-  receipt += padCenter("═".repeat(width)) + "\n";
+  receipt += padCenter(border) + "\n";
   receipt += "\n";
 
   // Receipt Info
@@ -191,10 +205,10 @@ export function formatReceipt80mm(data: ReceiptData): string {
   receipt += "\n";
 
   // Client Info
-  if (data.client_name) {
-    receipt += `Client: ${data.client_name}`.padEnd(width) + "\n";
-    if (data.client_phone) {
-      receipt += `Phone: ${data.client_phone}`.padEnd(width) + "\n";
+  if (data.client_name?.trim()) {
+    receipt += `Client: ${data.client_name.trim()}`.padEnd(width) + "\n";
+    if (data.client_phone?.trim()) {
+      receipt += `Phone: ${data.client_phone.trim()}`.padEnd(width) + "\n";
     }
     receipt += "\n";
   }
@@ -250,8 +264,9 @@ export function formatReceipt80mm(data: ReceiptData): string {
   }
 
   receipt += "\n" + padCenter("═".repeat(width)) + "\n";
-  if (data.note) {
-    receipt += padCenter(data.note) + "\n";
+  if (data.note?.trim()) {
+    const note = padCenter(data.note);
+    if (note) receipt += note + "\n";
   }
   receipt += padCenter("✓ THANK YOU FOR YOUR BUSINESS ✓") + "\n";
   receipt += padCenter("Powered by LiraTek • 81077357") + "\n";
@@ -287,6 +302,6 @@ export function getReceiptJSON(data: ReceiptData): Record<string, unknown> {
       exchange_rate: data.exchange_rate,
     },
     note: data.note || null,
-    operator: data.operator || "System",
+    operator: data.operator || "Staff",
   };
 }

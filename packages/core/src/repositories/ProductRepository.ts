@@ -33,8 +33,10 @@ export interface ProductEntity {
   warranty_expiry: string | null;
   status: string;
   is_active: number; // SQLite boolean (0 or 1)
+  is_deleted: number;
   supplier: string | null;
   created_at: string;
+  updated_at: string;
 }
 
 /** Product as returned to the frontend (with aliased price fields) */
@@ -49,6 +51,7 @@ export interface ProductDTO {
   min_stock_level: number;
   image_url: string | null;
   is_active: number;
+  is_deleted: number;
   supplier: string | null;
   created_at: string;
 }
@@ -103,7 +106,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
 
   // Override getColumns() from BaseRepository
   protected getColumns(): string {
-    return "id, barcode, name, item_type, category, description, cost_price_usd, selling_price_usd, min_stock_level, stock_quantity, imei, color, image_url, warranty_expiry, status, is_active, supplier, created_at, is_deleted, updated_at";
+    return "id, barcode, name, item_type, category, description, cost_price_usd, selling_price_usd, min_stock_level, stock_quantity, imei, color, image_url, warranty_expiry, status, is_active, is_deleted, supplier, created_at, updated_at";
   }
 
   // ---------------------------------------------------------------------------
@@ -118,7 +121,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
       let query = `
         SELECT 
           p.id, p.barcode, p.name, p.stock_quantity, p.min_stock_level, 
-          p.image_url, p.is_active, p.created_at,
+          p.image_url, p.is_active, p.is_deleted, p.created_at,
           p.cost_price_usd as cost_price, 
           p.selling_price_usd as retail_price,
           p.supplier,
@@ -126,7 +129,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
           COALESCE(pc.name, p.category) as category
         FROM ${this.tableName} p
         LEFT JOIN product_categories pc ON pc.id = p.category_id
-        WHERE p.is_active = 1
+        WHERE p.is_active = 1 AND p.is_deleted = 0
           AND p.item_type NOT IN ('Virtual_MTC', 'Virtual_Alfa')
       `;
       const params: (string | number)[] = [];
@@ -172,7 +175,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
    */
   findByBarcode(barcode: string): ProductEntity | null {
     try {
-      const query = `SELECT ${this.getColumns()} FROM ${this.tableName} WHERE barcode = ? AND is_active = 1`;
+      const query = `SELECT ${this.getColumns()} FROM ${this.tableName} WHERE barcode = ? AND is_active = 1 AND is_deleted = 0`;
       return this.queryOne<ProductEntity>(query, barcode);
     } catch (error) {
       throw new DatabaseError("Failed to find product by barcode", {
@@ -189,8 +192,8 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
   barcodeExists(barcode: string, excludeId?: number): boolean {
     try {
       const query = excludeId
-        ? `SELECT 1 FROM ${this.tableName} WHERE barcode = ? AND id != ? AND is_active = 1`
-        : `SELECT 1 FROM ${this.tableName} WHERE barcode = ? AND is_active = 1`;
+        ? `SELECT 1 FROM ${this.tableName} WHERE barcode = ? AND id != ? AND is_active = 1 AND is_deleted = 0`
+        : `SELECT 1 FROM ${this.tableName} WHERE barcode = ? AND is_active = 1 AND is_deleted = 0`;
 
       const params = excludeId ? [barcode, excludeId] : [barcode];
       return this.queryOne<{ 1: number }>(query, ...params) !== null;
@@ -232,8 +235,9 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
       const code = (error as { code?: string })?.code;
       if (code === "SQLITE_CONSTRAINT_UNIQUE" && data.barcode) {
         // Check if the collision is with a soft-deleted product — reactivate it
+        // Check both is_active=0 OR is_deleted=1
         const deleted = this.queryOne<ProductEntity>(
-          `SELECT id FROM ${this.tableName} WHERE barcode = ? AND is_active = 0`,
+          `SELECT id FROM ${this.tableName} WHERE barcode = ? AND (is_active = 0 OR is_deleted = 1)`,
           data.barcode,
         );
         if (deleted) {
@@ -244,7 +248,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
                 cost_price_usd = ?, selling_price_usd = ?,
                 stock_quantity = ?, min_stock_level = ?,
                 image_url = COALESCE(?, image_url), item_type = COALESCE(?, item_type),
-                supplier = COALESCE(?, supplier), is_active = 1
+                supplier = COALESCE(?, supplier), is_active = 1, is_deleted = 0, updated_at = datetime('now')
               WHERE id = ?`,
             )
             .run(
@@ -284,7 +288,8 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
           cost_price_usd = COALESCE(?, cost_price_usd),
           selling_price_usd = COALESCE(?, selling_price_usd),
           min_stock_level = COALESCE(?, min_stock_level),
-          image_url = COALESCE(?, image_url)
+          image_url = COALESCE(?, image_url),
+          updated_at = datetime('now')
         WHERE id = ?
       `);
 
@@ -356,6 +361,8 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
     }
 
     if (setClauses.length === 0) return 0;
+    
+    setClauses.push("updated_at = datetime('now')");
 
     const placeholders = ids.map(() => "?").join(", ");
     params.push(...ids);
@@ -379,7 +386,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
     const placeholders = ids.map(() => "?").join(", ");
     const result = this.db
       .prepare(
-        `UPDATE ${this.tableName} SET is_active = 0 WHERE id IN (${placeholders})`,
+        `UPDATE ${this.tableName} SET is_deleted = 1, updated_at = datetime('now') WHERE id IN (${placeholders})`,
       )
       .run(...(ids as any[]));
 
@@ -406,7 +413,8 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
         UPDATE ${this.tableName} SET
           barcode = ?, name = ?, category = ?, category_id = ?, cost_price_usd = ?, 
           selling_price_usd = ?, min_stock_level = ?, image_url = ?,
-          supplier = ?, stock_quantity = COALESCE(?, stock_quantity)
+          supplier = ?, stock_quantity = COALESCE(?, stock_quantity),
+          updated_at = datetime('now')
         WHERE id = ?
       `);
 
@@ -446,7 +454,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
   adjustStock(id: number, newQuantity: number): boolean {
     try {
       const result = this.execute(
-        `UPDATE ${this.tableName} SET stock_quantity = ? WHERE id = ?`,
+        `UPDATE ${this.tableName} SET stock_quantity = ?, updated_at = datetime('now') WHERE id = ?`,
         newQuantity,
         id,
       );
@@ -465,7 +473,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
   adjustStockDelta(id: number, delta: number): boolean {
     try {
       const result = this.execute(
-        `UPDATE ${this.tableName} SET stock_quantity = stock_quantity + ? WHERE id = ? AND is_active = 1`,
+        `UPDATE ${this.tableName} SET stock_quantity = stock_quantity + ?, updated_at = datetime('now') WHERE id = ? AND is_active = 1 AND is_deleted = 0`,
         delta,
         id,
       );
@@ -490,7 +498,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
           SELECT quantity 
           FROM sale_items 
           WHERE sale_items.product_id = products.id AND sale_items.sale_id = ?
-        )
+        ), updated_at = datetime('now')
         WHERE id IN (SELECT product_id FROM sale_items WHERE sale_id = ?)
       `,
         saleId,
@@ -513,7 +521,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
           COALESCE(SUM(cost_price_usd * stock_quantity), 0) AS stock_budget_usd,
           COALESCE(SUM(stock_quantity), 0) AS stock_count
         FROM ${this.tableName}
-        WHERE is_active = 1
+        WHERE is_active = 1 AND is_deleted = 0
           AND item_type NOT IN ('Virtual_MTC', 'Virtual_Alfa')
       `);
       return result ?? { stock_budget_usd: 0, stock_count: 0 };
@@ -531,7 +539,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
       return this.query<LowStockProduct>(`
         SELECT id, name, stock_quantity, min_stock_level
         FROM ${this.tableName}
-        WHERE stock_quantity <= min_stock_level AND is_active = 1
+        WHERE stock_quantity <= min_stock_level AND is_active = 1 AND is_deleted = 0
           AND item_type NOT IN ('Virtual_MTC', 'Virtual_Alfa')
         ORDER BY name ASC
       `);
@@ -556,11 +564,11 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
       let query = `
         SELECT 
           id, barcode, name, category, stock_quantity, min_stock_level, 
-          image_url, is_active, created_at,
+          image_url, is_active, is_deleted, created_at,
           cost_price_usd as cost_price, 
           selling_price_usd as retail_price
         FROM ${this.tableName} 
-        WHERE is_active = 1 AND (name LIKE ? OR barcode LIKE ?)
+        WHERE is_active = 1 AND is_deleted = 0 AND (name LIKE ? OR barcode LIKE ?)
       `;
       const params: (string | number)[] = [searchTerm, searchTerm];
 
@@ -585,7 +593,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
     try {
       const results = this.query<{ category: string }>(`
         SELECT DISTINCT category FROM ${this.tableName} 
-        WHERE is_active = 1 AND category IS NOT NULL AND category != ''
+        WHERE is_active = 1 AND is_deleted = 0 AND category IS NOT NULL AND category != ''
         ORDER BY category ASC
       `);
       return results.map((r) => r.category);

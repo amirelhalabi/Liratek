@@ -155,13 +155,13 @@ export default function ProductForm({
 <title>Barcode</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; }
-  .label { text-align: center; padding: 8px; }
-  img { max-width: 100%; height: auto; }
+  body { display: block; width: 100%; }
+  .label { text-align: center; padding: 4px; page-break-inside: avoid; }
+  img { max-width: 100%; height: auto; display: block; margin: 0 auto; }
   @media print {
-    @page { size: 50mm 30mm; margin: 0; }
-    body { width: 50mm; min-height: 30mm; }
-    .label { width: 50mm; height: 30mm; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    @page { size: auto; margin: 0; }
+    body { margin: 0; padding: 0; }
+    .label { width: 100%; height: auto; display: block; overflow: hidden; }
     .break { page-break-after: always; }
   }
 </style>
@@ -318,6 +318,11 @@ ${labels}
                 type="text"
                 value={formData.barcode}
                 onChange={handleChange}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                  }
+                }}
                 className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
               />
             </div>
