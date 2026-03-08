@@ -635,6 +635,15 @@ export default function ProductList() {
               className: "p-4 border-b border-slate-700",
               width: "90px",
             },
+            ...(isAdmin
+              ? [
+                  {
+                    header: "Profit %",
+                    sortKey: "profit_percent",
+                    className: "p-4 border-b border-slate-700",
+                  },
+                ]
+              : []),
             {
               header: "Stock",
               sortKey: "stock_quantity",
@@ -661,6 +670,11 @@ export default function ProductList() {
               return product.created_at
                 ? new Date(product.created_at).getTime()
                 : 0;
+            if (key === "profit_percent") {
+              const cp = product.cost_price || 0;
+              const rp = product.retail_price || 0;
+              return cp > 0 ? ((rp - cp) / cp) * 100 : rp > 0 ? 999999 : 0;
+            }
             return (product as any)[key] ?? "";
           }}
           paginate
@@ -739,6 +753,16 @@ export default function ProductList() {
                 <td className="p-4 text-green-400 font-medium">
                   ${(product.retail_price ?? 0).toFixed(2)}
                 </td>
+                {isAdmin && (
+                  <td className="p-4 text-violet-400 font-medium">
+                    {(() => {
+                      const cp = product.cost_price || 0;
+                      const rp = product.retail_price || 0;
+                      if (cp <= 0) return rp > 0 ? "100%" : "0%";
+                      return `${(((rp - cp) / cp) * 100).toFixed(1)}%`;
+                    })()}
+                  </td>
+                )}
                 <td className="p-4">
                   <div
                     className={`font-medium ${(product.stock_quantity ?? 0) <= (product.min_stock_level ?? 5) ? "text-red-400" : "text-slate-300"}`}
