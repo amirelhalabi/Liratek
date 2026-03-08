@@ -12,6 +12,9 @@
     "build": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit"
   },
+  "dependencies": {
+    "@liratek/core": "workspace:*"
+  },
   "peerDependencies": {
     "@headlessui/react": "^2.2.9",
     "lucide-react": "^0.561.0",
