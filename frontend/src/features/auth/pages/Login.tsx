@@ -1,10 +1,11 @@
 import React, { useState } from "react";
-import logger from "../../../utils/logger";
+import logger from "@/utils/logger";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { Smartphone, Lock, User, AlertCircle } from "lucide-react";
 import clsx from "clsx";
-import { useShopName } from "../../../hooks/useShopName";
+import { useShopName } from "@/hooks/useShopName";
+import { useCapsLock } from "@/hooks/useCapsLock";
 
 export default function Login() {
   const { login } = useAuth();
@@ -15,6 +16,7 @@ export default function Login() {
   const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const { capsLock, capsLockProps } = useCapsLock();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -45,9 +47,7 @@ export default function Login() {
           <div className="mx-auto w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mb-4 backdrop-blur-sm">
             <Smartphone className="w-8 h-8 text-white" />
           </div>
-          <h1 className="text-3xl font-bold text-white mb-2">
-            {shopName}
-          </h1>
+          <h1 className="text-3xl font-bold text-white mb-2">{shopName}</h1>
           <p className="text-violet-200">Management System</p>
         </div>
 
@@ -103,8 +103,15 @@ export default function Login() {
                   className="w-full pl-10 pr-4 py-3 bg-slate-900 border border-slate-700 rounded-lg focus:ring-2 focus:ring-violet-500 focus:border-transparent text-white placeholder-slate-500 transition-all"
                   placeholder="••••••••"
                   required
+                  {...capsLockProps}
                 />
               </div>
+              {capsLock && (
+                <p className="text-xs text-amber-400 mt-1.5 flex items-center gap-1">
+                  <AlertCircle size={12} />
+                  Caps Lock is on
+                </p>
+              )}
             </div>
 
             <div className="flex items-center">
@@ -138,7 +145,10 @@ export default function Login() {
           </form>
 
           <div className="mt-6 text-center text-xs text-slate-500">
-            <p>Version {import.meta.env.VITE_APP_VERSION || "1.0.0"} • Licensed to {shopName}</p>
+            <p>
+              Version {import.meta.env.VITE_APP_VERSION || "1.0.0"} • Licensed
+              to {shopName}
+            </p>
           </div>
         </div>
       </div>

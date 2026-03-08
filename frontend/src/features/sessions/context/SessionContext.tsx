@@ -5,9 +5,9 @@ import React, {
   useCallback,
   useEffect,
 } from "react";
-import logger from "../../../utils/logger";
+import logger from "@/utils/logger";
 import { useApi } from "@liratek/ui";
-import { useFeatureFlags } from "../../../contexts/FeatureFlagContext";
+import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
 
 interface CustomerSession {
   id: number;

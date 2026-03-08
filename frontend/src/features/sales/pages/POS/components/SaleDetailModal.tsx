@@ -12,8 +12,9 @@ import { appEvents } from "@liratek/ui";
 import {
   formatReceipt58mm,
   type ReceiptData,
-} from "../../../utils/receiptFormatter";
-import { useShopInfo } from "../../../../../hooks/useShopName";
+} from "@/features/sales/utils/receiptFormatter";
+import { useShopInfo } from "@/hooks/useShopName";
+import { ConfirmModal } from "@/shared/components/ConfirmModal";
 
 interface SaleItem {
   id: number;
@@ -59,6 +60,7 @@ export default function SaleDetailModal({
   const [items, setItems] = useState<SaleItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refunding, setRefunding] = useState(false);
+  const [showRefundConfirm, setShowRefundConfirm] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -82,13 +84,6 @@ export default function SaleDetailModal({
 
   const handleRefund = async () => {
     if (!sale) return;
-    if (
-      !confirm(
-        "Are you sure you want to refund this sale? This will restore stock and reverse payments.",
-      )
-    )
-      return;
-
     setRefunding(true);
     try {
       const result = await window.api.sales.refund(saleId);
@@ -101,6 +96,8 @@ export default function SaleDetailModal({
         appEvents.emit("sale:completed", { refunded: true, saleId });
         onRefunded?.();
         onClose();
+        // Windows focus fix
+        (window as any).api?.display?.fixFocus?.();
       } else {
         appEvents.emit(
           "notification:show",
@@ -116,6 +113,7 @@ export default function SaleDetailModal({
       );
     } finally {
       setRefunding(false);
+      setShowRefundConfirm(false);
     }
   };
 
@@ -170,6 +168,10 @@ export default function SaleDetailModal({
       printWindow.focus();
       printWindow.print();
       printWindow.close();
+      // Windows focus fix
+      setTimeout(() => {
+        (window as any).api?.display?.fixFocus?.();
+      }, 100);
     }
   };
 
@@ -367,7 +369,7 @@ export default function SaleDetailModal({
               </button>
               {!isRefunded && (
                 <button
-                  onClick={handleRefund}
+                  onClick={() => setShowRefundConfirm(true)}
                   disabled={refunding}
                   className="ml-auto px-4 py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-lg font-medium flex items-center gap-2 transition-colors disabled:opacity-50"
                 >
@@ -379,6 +381,15 @@ export default function SaleDetailModal({
           </>
         )}
       </div>
+
+      <ConfirmModal
+        isOpen={showRefundConfirm}
+        title="Refund Sale"
+        message="Are you sure you want to refund this sale? This will restore stock and reverse payments. This action cannot be undone."
+        onConfirm={handleRefund}
+        onCancel={() => setShowRefundConfirm(false)}
+        variant="danger"
+      />
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import logger from "../../../../utils/logger";
+import logger from "@/utils/logger";
 import { X, Save, MessageCircle } from "lucide-react";
 import type { Client } from "@liratek/ui";
 

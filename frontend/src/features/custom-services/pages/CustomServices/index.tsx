@@ -23,13 +23,13 @@ import {
   UserPlus,
 } from "lucide-react";
 import { PageHeader, Select, useApi } from "@liratek/ui";
-import { usePaymentMethods } from "../../../../hooks/usePaymentMethods";
-import { useSession } from "../../../sessions/context/SessionContext";
+import { usePaymentMethods } from "@/hooks/usePaymentMethods";
+import { useSession } from "@/features/sessions/context/SessionContext";
 import {
   useCustomServices,
   type CustomServiceEntry,
 } from "../../hooks/useCustomServices";
-import logger from "../../../../utils/logger";
+import logger from "@/utils/logger";
 import { DataTable } from "@/shared/components/DataTable";
 import {
   MultiPaymentInput,

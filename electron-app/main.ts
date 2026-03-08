@@ -396,6 +396,15 @@ async function registerHandlers() {
     profitHandlers.registerProfitHandlers();
     setupHandlers.registerSetupHandlers();
 
+    // Windows focus fix handler
+    ipcMain.on("display:fix-focus", (event) => {
+      const win = BrowserWindow.fromWebContents(event.sender);
+      if (win) {
+        win.blur();
+        win.focus();
+      }
+    });
+
     logger.info("All IPC handlers registered");
 
     // Start periodic session cleanup

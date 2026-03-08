@@ -4,7 +4,7 @@ import {
   voidTransaction,
   refundTransaction,
   type TransactionFiltersParam,
-} from "../../../../api/backendApi";
+} from "@/api/backendApi";
 import { DataTable } from "@/shared/components/DataTable";
 
 type TransactionRow = {

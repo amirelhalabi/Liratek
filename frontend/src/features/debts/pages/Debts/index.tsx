@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import logger from "../../../../utils/logger";
+import logger from "@/utils/logger";
 import {
   Search,
   User,
@@ -21,7 +21,7 @@ import {
   type DebtLedgerEntity,
 } from "@liratek/ui";
 import { useAuth } from "@/features/auth/context/AuthContext";
-import { useExchangeRate } from "../../../../hooks/useExchangeRate";
+import { useExchangeRate } from "@/hooks/useExchangeRate";
 import { DataTable } from "@/shared/components/DataTable";
 import {
   MultiPaymentInput,
@@ -32,7 +32,7 @@ import {
   type FinancialServiceData,
   type PaymentRowData,
 } from "../../components/ServiceDebtDetailModal";
-import { getDebtAging } from "../../../../api/backendApi";
+import { getDebtAging } from "@/api/backendApi";
 
 type DebtAgingBuckets = {
   client_id: number;

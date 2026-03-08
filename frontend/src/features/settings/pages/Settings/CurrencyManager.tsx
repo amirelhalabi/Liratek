@@ -9,7 +9,7 @@ import {
   X,
 } from "lucide-react";
 import { useApi } from "@liratek/ui";
-import { calculateProfitSpread } from "../../../../utils/currencyUtils";
+import { calculateProfitSpread } from "@/utils/currencyUtils";
 
 interface CurrencyRow {
   id: number;

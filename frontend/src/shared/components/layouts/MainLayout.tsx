@@ -2,13 +2,13 @@ import { useState, useEffect, type ReactNode } from "react";
 import LeftPanelLayout from "./LeftPanelLayout";
 import HomeViewLayout from "./HomeViewLayout";
 import { NotificationCenter, appEvents } from "@liratek/ui";
-import { SessionFloatingWindow } from "../../../features/sessions/components/SessionFloatingWindow";
-import { MessengerStyleSessionButton } from "../../../features/sessions/components/MessengerStyleSessionButton";
+import { SessionFloatingWindow } from "@/features/sessions/components/SessionFloatingWindow";
+import { MessengerStyleSessionButton } from "@/features/sessions/components/MessengerStyleSessionButton";
 
-import Closing from "../../../features/closing/pages/Closing";
-import Opening from "../../../features/closing/pages/Opening";
-import { useAuth } from "../../../features/auth/context/AuthContext";
-import { useFeatureFlags } from "../../../contexts/FeatureFlagContext";
+import Closing from "@/features/closing/pages/Closing";
+import Opening from "@/features/closing/pages/Opening";
+import { useAuth } from "@/features/auth/context/AuthContext";
+import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
 
 interface MainLayoutProps {
   children: ReactNode;

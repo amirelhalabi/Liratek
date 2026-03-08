@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import logger from "../../../../utils/logger";
+import logger from "@/utils/logger";
 import {
   Signal,
   Wifi,
@@ -28,11 +28,11 @@ import {
   X,
 } from "lucide-react";
 import { Select, useApi } from "@liratek/ui";
-import { useCurrencyContext } from "../../../../contexts/CurrencyContext";
-import CurrencySelect from "../../../../components/CurrencySelect";
-import { useSession } from "../../../sessions/context/SessionContext";
-import { usePaymentMethods } from "../../../../hooks/usePaymentMethods";
-import { useModules } from "../../../../contexts/ModuleContext";
+import { useCurrencyContext } from "@/contexts/CurrencyContext";
+import CurrencySelect from "@/components/CurrencySelect";
+import { useSession } from "@/features/sessions/context/SessionContext";
+import { usePaymentMethods } from "@/hooks/usePaymentMethods";
+import { useModules } from "@/contexts/ModuleContext";
 import { DataTable } from "@/shared/components/DataTable";
 import {
   useMobileServiceItems,

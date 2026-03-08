@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect } from "react";
-import logger from "../../../utils/logger";
+import logger from "@/utils/logger";
 import type { ReactNode } from "react";
 import { useApi } from "@liratek/ui";
 

@@ -6,7 +6,7 @@ import {
   daysAgoISO,
   todayISO,
 } from "@liratek/ui";
-import { useModules } from "../../../contexts/ModuleContext";
+import { useModules } from "@/contexts/ModuleContext";
 import {
   TrendingUp,
   DollarSign,
@@ -22,7 +22,7 @@ import {
   PieChart as PieChartIcon,
   Activity,
 } from "lucide-react";
-import { useCurrencyContext } from "../../../contexts/CurrencyContext";
+import { useCurrencyContext } from "@/contexts/CurrencyContext";
 import { DataTable } from "@/shared/components/DataTable";
 
 const CommissionsChart = lazy(

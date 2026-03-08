@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import logger from "../../../../utils/logger";
+import logger from "@/utils/logger";
 import { appEvents, useApi } from "@liratek/ui";
 import { PanelLeft, LayoutGrid, Image, List, Monitor } from "lucide-react";
 import clsx from "clsx";
-import { useFeatureFlags } from "../../../../contexts/FeatureFlagContext";
-import { invalidateShopInfo } from "../../../../hooks/useShopName";
+import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
+import { invalidateShopInfo } from "@/hooks/useShopName";
 
 const UI_SCALE_OPTIONS = [
   { value: 0.75, label: "75%" },

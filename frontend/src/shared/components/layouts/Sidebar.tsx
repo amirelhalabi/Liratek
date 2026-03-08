@@ -27,10 +27,10 @@ import {
 import type { LucideIcon } from "lucide-react";
 import clsx from "clsx";
 import { appEvents } from "@liratek/ui";
-import { useAuth } from "../../../features/auth/context/AuthContext";
-import { useModules } from "../../../contexts/ModuleContext";
-import { useShopName } from "../../../hooks/useShopName";
-import { useFeatureFlags } from "../../../contexts/FeatureFlagContext";
+import { useAuth } from "@/features/auth/context/AuthContext";
+import { useModules } from "@/contexts/ModuleContext";
+import { useShopName } from "@/hooks/useShopName";
+import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
 
 // Map Lucide icon names (stored in DB) to actual icon components
 const iconMap: Record<string, LucideIcon> = {

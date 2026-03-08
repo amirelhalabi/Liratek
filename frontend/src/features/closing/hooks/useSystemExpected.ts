@@ -4,7 +4,7 @@
  */
 
 import { useState, useCallback } from "react";
-import logger from "../../../utils/logger";
+import logger from "@/utils/logger";
 import { useApi } from "@liratek/ui";
 
 /** Dynamic balances: Record<drawerName, Record<currencyCode, balance>> */

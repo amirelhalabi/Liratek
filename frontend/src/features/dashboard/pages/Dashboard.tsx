@@ -11,8 +11,8 @@ import {
   AlertTriangle,
   LayoutDashboard,
 } from "lucide-react";
-import { useCurrencyContext } from "../../../contexts/CurrencyContext";
-import { useModules } from "../../../contexts/ModuleContext";
+import { useCurrencyContext } from "@/contexts/CurrencyContext";
+import { useModules } from "@/contexts/ModuleContext";
 
 const DashboardChart = lazy(() => import("../components/DashboardChart"));
 

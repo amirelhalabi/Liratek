@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { PageHeader, useApi } from "@liratek/ui";
-import { useModules } from "../../../contexts/ModuleContext";
+import { useModules } from "@/contexts/ModuleContext";
 import {
   ClipboardList,
   History,
@@ -9,7 +9,7 @@ import {
   RefreshCw,
   X,
 } from "lucide-react";
-import { useCurrencyContext } from "../../../contexts/CurrencyContext";
+import { useCurrencyContext } from "@/contexts/CurrencyContext";
 import { DataTable } from "@/shared/components/DataTable";
 
 // ---------------------------------------------------------------------------

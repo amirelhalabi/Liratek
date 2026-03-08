@@ -27,7 +27,7 @@ import {
   getRateForTransaction,
   type TransactionType,
   type RateInfo,
-} from "../utils/exchangeRates";
+} from "@/utils/exchangeRates";
 
 interface UseDynamicExchangeRateOptions {
   /** The currency selected for payment/transaction (e.g., "LBP", "USD", "EUR") */

@@ -6,7 +6,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useApi } from "@liratek/ui";
-import logger from "../../../utils/logger";
+import logger from "@/utils/logger";
 
 export interface CustomServiceEntry {
   id: number;

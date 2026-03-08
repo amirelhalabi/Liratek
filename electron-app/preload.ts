@@ -594,6 +594,7 @@ contextBridge.exposeInMainWorld("api", {
   display: {
     setZoomFactor: (factor: number) => webFrame.setZoomFactor(factor),
     getZoomFactor: () => webFrame.getZoomFactor(),
+    fixFocus: () => ipcRenderer.send("display:fix-focus"),
   },
 });
 

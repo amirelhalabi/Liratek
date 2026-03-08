@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useSetup } from "../context/SetupContext";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, AlertCircle } from "lucide-react";
+import { useCapsLock } from "@/hooks/useCapsLock";
 
 export default function Step4Users() {
   const { payload, updatePayload, setStep } = useSetup();
@@ -9,6 +10,7 @@ export default function Step4Users() {
     password: "",
     role: "staff",
   });
+  const { capsLock, capsLockProps } = useCapsLock();
 
   const addUser = () => {
     if (!newUser.username.trim() || !newUser.password) return;
@@ -91,6 +93,7 @@ export default function Step4Users() {
               setNewUser((p) => ({ ...p, password: e.target.value }))
             }
             className={inputCls}
+            {...capsLockProps}
           />
           <div className="flex gap-2">
             <select
@@ -111,6 +114,12 @@ export default function Step4Users() {
             </button>
           </div>
         </div>
+        {capsLock && (
+          <p className="text-xs text-amber-400 flex items-center gap-1">
+            <AlertCircle size={12} />
+            Caps Lock is on
+          </p>
+        )}
       </div>
 
       {/* WhatsApp */}

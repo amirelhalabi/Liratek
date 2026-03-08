@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import logger from "../../../../utils/logger";
+import logger from "@/utils/logger";
 import {
   Plus,
   Search,
@@ -10,11 +10,12 @@ import {
   X,
   Layers,
 } from "lucide-react";
-import { useAuth } from "../../../auth/context/AuthContext";
+import { useAuth } from "@/features/auth/context/AuthContext";
 import { PageHeader, useApi, appEvents } from "@liratek/ui";
 import ProductForm from "./ProductForm";
 import type { Product } from "@liratek/ui";
 import { DataTable } from "@/shared/components/DataTable";
+import { ConfirmModal } from "@/shared/components/ConfirmModal";
 
 interface BatchUpdateFields {
   category?: string;
@@ -171,6 +172,12 @@ export default function ProductList() {
   const [batchFields, setBatchFields] = useState<BatchUpdateFields>({});
   const [batchSaving, setBatchSaving] = useState(false);
 
+  // Confirmation states
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<{
+    id: number;
+  } | null>(null);
+  const [showBatchDeleteConfirm, setShowBatchDeleteConfirm] = useState(false);
+
   const allSelected =
     products.length > 0 && selectedIds.size === products.length;
   const someSelected = selectedIds.size > 0 && !allSelected;
@@ -242,11 +249,22 @@ export default function ProductList() {
         setBatchFields({});
         setSelectedIds(new Set());
         loadProducts();
+        appEvents.emit(
+          "notification:show",
+          "Batch update successful",
+          "success",
+        );
+        // Windows focus fix
+        window.api?.display?.fixFocus();
       } else {
-        alert("Batch update failed: " + (result?.error ?? "Unknown error"));
+        appEvents.emit(
+          "notification:show",
+          "Batch update failed: " + (result?.error ?? "Unknown error"),
+          "error",
+        );
       }
     } catch (err) {
-      alert("Error: " + String(err));
+      appEvents.emit("notification:show", "Error: " + String(err), "error");
     } finally {
       setBatchSaving(false);
     }
@@ -278,10 +296,9 @@ export default function ProductList() {
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm("Are you sure you want to delete this product?")) return;
     try {
       const result = await api.deleteProduct(id);
-      
+
       if (result && !result.success) {
         appEvents.emit(
           "notification:show",
@@ -297,6 +314,9 @@ export default function ProductList() {
         "success",
       );
       loadProducts(); // Refresh list
+      setShowDeleteConfirm(null);
+      // Windows focus fix
+      window.api?.display?.fixFocus();
     } catch (error) {
       appEvents.emit("notification:show", "Failed to delete product", "error");
       logger.error("Failed to delete:", error);
@@ -305,12 +325,6 @@ export default function ProductList() {
 
   const handleBatchDelete = async () => {
     if (selectedIds.size === 0) return;
-    if (
-      !confirm(
-        `Delete ${selectedIds.size} selected product${selectedIds.size !== 1 ? "s" : ""}? This cannot be undone.`,
-      )
-    )
-      return;
 
     try {
       const ids = Array.from(selectedIds);
@@ -333,6 +347,9 @@ export default function ProductList() {
         `${deleted} product${deleted !== 1 ? "s" : ""} deleted`,
         "success",
       );
+      setShowBatchDeleteConfirm(false);
+      // Windows focus fix
+      window.api?.display?.fixFocus();
     } catch (error) {
       appEvents.emit("notification:show", "Failed to delete products", "error");
       logger.error("Batch delete failed:", error);
@@ -346,11 +363,22 @@ export default function ProductList() {
     setIsFormOpen(false);
     setEditingProduct(null);
     loadProducts();
+    appEvents.emit(
+      "notification:show",
+      editingProduct
+        ? "Product updated successfully"
+        : "Product created successfully",
+      "success",
+    );
+    // Windows focus fix
+    window.api?.display?.fixFocus();
   };
 
   const handleClose = () => {
     setIsFormOpen(false);
     setEditingProduct(null);
+    // Windows focus fix
+    window.api?.display?.fixFocus();
   };
 
   const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -451,6 +479,8 @@ export default function ProductList() {
       }
 
       loadProducts();
+      // Windows focus fix
+      window.api?.display?.fixFocus();
     } catch (err) {
       logger.error("Import failed", { error: err });
       appEvents.emit(
@@ -541,7 +571,7 @@ export default function ProductList() {
                   Batch Edit ({selectedIds.size})
                 </button>
                 <button
-                  onClick={handleBatchDelete}
+                  onClick={() => setShowBatchDeleteConfirm(true)}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-red-600/20 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-600/30 transition-colors cursor-pointer"
                 >
                   <Trash2 size={14} />
@@ -716,9 +746,7 @@ export default function ProductList() {
                     {product.stock_quantity ?? 0} units
                   </div>
                 </td>
-                <td
-                  className="p-4 text-right"
-                >
+                <td className="p-4 text-right">
                   <div className="flex items-center justify-end gap-2">
                     <button
                       onClick={(e) => {
@@ -732,7 +760,7 @@ export default function ProductList() {
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleDelete(product.id);
+                        setShowDeleteConfirm({ id: product.id });
                       }}
                       className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-400/10 rounded transition-colors"
                     >
@@ -877,6 +905,27 @@ export default function ProductList() {
           product={editingProduct}
         />
       )}
+
+      {/* Confirmation Modals */}
+      <ConfirmModal
+        isOpen={showDeleteConfirm !== null}
+        title="Delete Product"
+        message="Are you sure you want to delete this product? This action cannot be undone."
+        onConfirm={() =>
+          showDeleteConfirm && handleDelete(showDeleteConfirm.id)
+        }
+        onCancel={() => setShowDeleteConfirm(null)}
+        variant="danger"
+      />
+
+      <ConfirmModal
+        isOpen={showBatchDeleteConfirm}
+        title="Batch Delete Products"
+        message={`Are you sure you want to delete ${selectedIds.size} selected products? This action cannot be undone.`}
+        onConfirm={handleBatchDelete}
+        onCancel={() => setShowBatchDeleteConfirm(false)}
+        variant="danger"
+      />
     </div>
   );
 }

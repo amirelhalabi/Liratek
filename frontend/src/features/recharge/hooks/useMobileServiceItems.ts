@@ -7,7 +7,7 @@
 
 import { useMemo, useEffect, useState, useCallback } from "react";
 import { useApi } from "@liratek/ui";
-import mobileServices from "../../../data/mobileServices";
+import mobileServices from "@/data/mobileServices";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 

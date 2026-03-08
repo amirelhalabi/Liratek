@@ -4,7 +4,7 @@
  * Reusable currency dropdown component that sources data from CurrencyContext.
  */
 
-import { useCurrencyContext } from "../contexts/CurrencyContext";
+import { useCurrencyContext } from "@/contexts/CurrencyContext";
 
 interface CurrencySelectProps {
   value: string;

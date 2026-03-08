@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Lock, Save, Send, CheckCircle, AlertCircle } from "lucide-react";
-import logger from "../../../../utils/logger";
+import logger from "@/utils/logger";
 import { useApi } from "@liratek/ui";
 
 export default function IntegrationsConfig() {

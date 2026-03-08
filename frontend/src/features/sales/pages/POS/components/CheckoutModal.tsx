@@ -1,16 +1,16 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import logger from "../../../../../utils/logger";
+import logger from "@/utils/logger";
 import { X, User, Printer, Inbox } from "lucide-react";
-import { DRAWER_B, roundLBPUp, useApi } from "@liratek/ui";
-import { useDynamicExchangeRate } from "../../../../../hooks/useDynamicExchangeRate";
-import { usePaymentMethods } from "../../../../../hooks/usePaymentMethods";
-import { useShopInfo } from "../../../../../hooks/useShopName";
+import { DRAWER_B, roundLBPUp, useApi, appEvents } from "@liratek/ui";
+import { useDynamicExchangeRate } from "@/hooks/useDynamicExchangeRate";
+import { usePaymentMethods } from "@/hooks/usePaymentMethods";
+import { useShopInfo } from "@/hooks/useShopName";
 import {
   formatReceipt58mm,
   type ReceiptData,
-} from "../../../utils/receiptFormatter";
+} from "@/features/sales/utils/receiptFormatter";
 import type { Client, CartItem, SaleRequest } from "@liratek/ui";
-import { useSession } from "../../../../sessions/context/SessionContext";
+import { useSession } from "@/features/sessions/context/SessionContext";
 
 export type PaymentData = Omit<SaleRequest, "items" | "status" | "id"> & {
   cart?: CartItem[];
@@ -54,13 +54,17 @@ const printReceiptContent = (content: string) => {
   if (printWindow) {
     printWindow.document.write(`<!DOCTYPE html>
 <html>
-<head><title>Receipt</title><style>\${receiptPrintCSS}</style></head>
-<body><pre>\${content}</pre></body>
+<head><title>Receipt</title><style>${receiptPrintCSS}</style></head>
+<body><pre>${content}</pre></body>
 </html>`);
     printWindow.document.close();
     printWindow.focus();
     printWindow.print();
     printWindow.close();
+    // Windows focus fix
+    setTimeout(() => {
+      (window as any).api?.display?.fixFocus?.();
+    }, 100);
   }
 };
 
@@ -270,7 +274,7 @@ export default function CheckoutModal({
     } else if (!selectedClient && clientSearch.trim()) {
       if (isSearchPhone) {
         finalClientPhone = clientSearch.trim();
-        finalClientName = secondaryInput.trim() || `Client \${finalClientPhone}`;
+        finalClientName = secondaryInput.trim() || `Client ${finalClientPhone}`;
       } else {
         finalClientName = clientSearch.trim();
         finalClientPhone = secondaryInput.trim();
@@ -301,16 +305,20 @@ export default function CheckoutModal({
   const handleComplete = async () => {
     // Block debt creation when DEBT payment method is disabled
     if (remaining > 0.05 && !debtPaymentEnabled) {
-      alert(
+      appEvents.emit(
+        "notification:show",
         "Debt payment method is disabled. The full amount must be paid before completing the sale.",
+        "warning",
       );
       return;
     }
 
     // Validation: Debt requires a complete profile for new debts
     if (remaining > 0.05 && !canCreateDebt) {
-      alert(
+      appEvents.emit(
+        "notification:show",
         "To create or leave a debt, please ensure the client has a phone number (existing client) or provide both name and phone (new client).",
+        "warning",
       );
       return;
     }
@@ -391,7 +399,19 @@ export default function CheckoutModal({
   const receiptContent = useMemo(() => {
     if (!showReceiptPreview) return "";
     return formatReceipt58mm(getReceiptData());
-  }, [showReceiptPreview, shopInfo, items, totalAmount, discount, paidUSD, paidLBP, changeGivenUSD, changeGivenLBP, effectiveExchangeRate, receiptNumber]);
+  }, [
+    showReceiptPreview,
+    shopInfo,
+    items,
+    totalAmount,
+    discount,
+    paidUSD,
+    paidLBP,
+    changeGivenUSD,
+    changeGivenLBP,
+    effectiveExchangeRate,
+    receiptNumber,
+  ]);
 
   return (
     <>
@@ -495,7 +515,7 @@ export default function CheckoutModal({
                 {/* Secondary Input */}
                 <div>
                   <div
-                    className={`flex items-center bg-slate-900 border border-slate-700 rounded-xl p-1 focus-within:ring-2 focus-within:ring-violet-600 transition-all h-[52px] \${!clientSearch ? "opacity-50 cursor-not-allowed" : ""}`}
+                    className={`flex items-center bg-slate-900 border border-slate-700 rounded-xl p-1 focus-within:ring-2 focus-within:ring-violet-600 transition-all h-[52px] ${!clientSearch ? "opacity-50 cursor-not-allowed" : ""}`}
                   >
                     <input
                       type="text"
@@ -548,11 +568,11 @@ export default function CheckoutModal({
                           {item.name}
                         </p>
                         <p className="text-xs text-slate-500">
-                          {item.quantity} × \${item.retail_price.toFixed(2)}
+                          {item.quantity} × ${item.retail_price.toFixed(2)}
                         </p>
                       </div>
                       <span className="text-sm font-mono text-slate-300 shrink-0">
-                        \${(item.quantity * item.retail_price).toFixed(2)}
+                        ${(item.quantity * item.retail_price).toFixed(2)}
                       </span>
                     </div>
                   ))}
@@ -565,7 +585,7 @@ export default function CheckoutModal({
               <div className="space-y-3">
                 <div className="flex justify-between text-slate-400">
                   <span>Subtotal</span>
-                  <span>\${totalAmount.toFixed(2)}</span>
+                  <span>${totalAmount.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between items-center text-slate-400">
                   <span>Discount</span>
@@ -589,7 +609,7 @@ export default function CheckoutModal({
                     Net Total
                   </span>
                   <span className="text-2xl font-bold text-violet-400">
-                    \${finalAmount.toFixed(2)}
+                    ${finalAmount.toFixed(2)}
                   </span>
                 </div>
                 <div className="text-right text-xs text-slate-500">
@@ -705,8 +725,8 @@ export default function CheckoutModal({
                       <div className="text-xs text-slate-500 text-right">
                         Paid:{" "}
                         <span className="font-mono text-slate-300">
-                          \${paidUSD.toFixed(2)} USD
-                          {paidLBP > 0 && ` + \${paidLBP.toLocaleString()} LBP`}
+                          ${paidUSD.toFixed(2)} USD
+                          {paidLBP > 0 && ` + ${paidLBP.toLocaleString()} LBP`}
                         </span>
                       </div>
                     </div>
@@ -834,7 +854,7 @@ export default function CheckoutModal({
 
                   <div className="mt-3 text-xs text-slate-400">
                     Totals:{" "}
-                    <span className="font-mono">\${paidUSD.toFixed(2)}</span> USD
+                    <span className="font-mono">${paidUSD.toFixed(2)}</span> USD
                     +{" "}
                     <span className="font-mono">
                       {paidLBP.toLocaleString()}
@@ -850,7 +870,7 @@ export default function CheckoutModal({
               <div className="flex justify-between text-sm">
                 <span className="text-slate-400">Total Paid (Converted)</span>
                 <span className="text-white font-mono">
-                  \${totalPaidInUSD.toFixed(2)}
+                  ${totalPaidInUSD.toFixed(2)}
                 </span>
               </div>
 
@@ -858,7 +878,7 @@ export default function CheckoutModal({
                 <>
                   <div className="flex justify-between items-center pt-2 border-t border-slate-700">
                     <span
-                      className={`font-medium \${debtPaymentEnabled ? "text-red-400" : "text-orange-400"}`}
+                      className={`font-medium ${debtPaymentEnabled ? "text-red-400" : "text-orange-400"}`}
                     >
                       {debtPaymentEnabled
                         ? "Remaining (Debt)"
@@ -866,12 +886,12 @@ export default function CheckoutModal({
                     </span>
                     <div className="text-right">
                       <div
-                        className={`font-bold text-xl \${debtPaymentEnabled ? "text-red-400" : "text-orange-400"}`}
+                        className={`font-bold text-xl ${debtPaymentEnabled ? "text-red-400" : "text-orange-400"}`}
                       >
-                        \${remaining.toFixed(2)}
+                        ${remaining.toFixed(2)}
                       </div>
                       <div
-                        className={`text-xs \${debtPaymentEnabled ? "text-red-500/70" : "text-orange-500/70"}`}
+                        className={`text-xs ${debtPaymentEnabled ? "text-red-500/70" : "text-orange-500/70"}`}
                       >
                         ≈ {(remaining * effectiveExchangeRate).toLocaleString()}{" "}
                         LBP
@@ -893,7 +913,7 @@ export default function CheckoutModal({
                     </span>
                     <div className="text-right">
                       <div className="text-emerald-400 font-bold text-xl">
-                        \${change.toFixed(2)}
+                        ${change.toFixed(2)}
                       </div>
                       <div className="text-xs text-emerald-500/70">
                         ≈ {(change * effectiveExchangeRate).toLocaleString()}{" "}
@@ -980,7 +1000,7 @@ export default function CheckoutModal({
                           return (
                             <div className="text-center text-xs text-red-400 font-medium bg-red-500/10 py-2 rounded flex items-center justify-center gap-2">
                               <span>
-                                Remaining change to give: \${absDiff.toFixed(2)}{" "}
+                                Remaining change to give: ${absDiff.toFixed(2)}{" "}
                                 ≈{" "}
                                 {(
                                   absDiff * effectiveExchangeRate
@@ -1098,16 +1118,16 @@ export default function CheckoutModal({
 
             <div className="flex-1 overflow-y-auto p-6 flex justify-center bg-slate-950">
               <div className="bg-white p-8 shadow-2xl rounded-sm">
-                <pre 
+                <pre
                   className="text-slate-900"
-                  style={{ 
-                    fontFamily: "'Courier New', monospace", 
-                    fontSize: "13px", 
-                    fontWeight: "bold", 
+                  style={{
+                    fontFamily: "'Courier New', monospace",
+                    fontSize: "13px",
+                    fontWeight: "bold",
                     whiteSpace: "pre", // Use exact spacing, no wrapping
                     lineHeight: "1.4",
                     width: "auto",
-                    minWidth: "38ch"
+                    minWidth: "38ch",
                   }}
                 >
                   {receiptContent}

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import logger from "../../../../utils/logger";
+import logger from "@/utils/logger";
 import {
   RefreshCw,
   ArrowRightLeft,
@@ -8,8 +8,8 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { PageHeader, useApi } from "@liratek/ui";
-import { useSession } from "../../../sessions/context/SessionContext";
-import { useCurrencyContext } from "../../../../contexts/CurrencyContext";
+import { useSession } from "@/features/sessions/context/SessionContext";
+import { useCurrencyContext } from "@/contexts/CurrencyContext";
 import { DataTable } from "@/shared/components/DataTable";
 import {
   calculateExchange,

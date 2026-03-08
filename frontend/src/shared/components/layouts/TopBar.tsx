@@ -3,8 +3,8 @@ import { appEvents, useApi, type UINotification } from "@liratek/ui";
 import { LogOut, Bell, X, Search, Home } from "lucide-react";
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "../../../features/auth/context/AuthContext";
-import { useShopName } from "../../../hooks/useShopName";
+import { useAuth } from "@/features/auth/context/AuthContext";
+import { useShopName } from "@/hooks/useShopName";
 
 interface TopBarProps {
   showHomeButton?: boolean;

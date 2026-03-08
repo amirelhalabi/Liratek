@@ -4,14 +4,14 @@
  */
 
 import { useEffect, useState } from "react";
-import logger from "../../../../utils/logger";
-import { useAuth } from "../../../auth/context/AuthContext";
+import logger from "@/utils/logger";
+import { useAuth } from "@/features/auth/context/AuthContext";
 import type { DrawerType } from "../../types";
 import { DRAWER_ORDER } from "../../config/drawers";
 import { useCurrencies } from "../../hooks/useCurrencies";
 import { useApi } from "@liratek/ui";
 import { useDrawerAmounts } from "../../hooks/useDrawerAmounts";
-import { useModules } from "../../../../contexts/ModuleContext";
+import { useModules } from "@/contexts/ModuleContext";
 import { DrawerCard } from "../../components/DrawerCard";
 import { X } from "lucide-react";
 

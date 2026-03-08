@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import logger from "../../../../utils/logger";
+import logger from "@/utils/logger";
 import { FileText, X, ShoppingCart } from "lucide-react";
 import { PageHeader } from "@liratek/ui";
 import ProductSearch from "./components/ProductSearch";
@@ -8,12 +8,13 @@ import CheckoutModal, {
   type PaymentData,
   type CheckoutDraftData,
 } from "./components/CheckoutModal";
-import ProductForm from "../../../inventory/pages/Inventory/ProductForm";
+import ProductForm from "@/features/inventory/pages/Inventory/ProductForm";
 import SaleDetailModal from "./components/SaleDetailModal";
 import { appEvents, useApi } from "@liratek/ui";
 import type { Product, CartItem, SaleRequest } from "@liratek/ui";
-import { useExchangeRate } from "../../../../hooks/useExchangeRate";
-import { useSession } from "../../../sessions/context/SessionContext";
+import { useExchangeRate } from "@/hooks/useExchangeRate";
+import { useSession } from "@/features/sessions/context/SessionContext";
+import { ConfirmModal } from "@/shared/components/ConfirmModal";
 
 export default function POS() {
   const api = useApi();
@@ -38,6 +39,9 @@ export default function POS() {
     undefined,
   );
   const [isDraftsOpen, setIsDraftsOpen] = useState(false);
+  // Confirmation states
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+
   type DraftItem = {
     product_id: number;
     quantity: number;
@@ -117,10 +121,9 @@ export default function POS() {
   };
 
   const handleClearCart = () => {
-    if (confirm("Clear current cart?")) {
-      setCartItems([]);
-      setCurrentDraftId(undefined); // Clear active draft
-    }
+    setCartItems([]);
+    setCurrentDraftId(undefined); // Clear active draft
+    setShowClearConfirm(false);
   };
 
   // Open ProductForm from POS with pre-filled name or barcode
@@ -172,14 +175,28 @@ export default function POS() {
         setIsCheckoutOpen(false);
         setCartItems([]);
         setCurrentDraftId(undefined);
-        alert("Draft saved successfully!");
+        appEvents.emit(
+          "notification:show",
+          "Draft saved successfully!",
+          "success",
+        );
         appEvents.emit("checkout:closed");
+        // Windows focus fix
+        window.api?.display?.fixFocus();
       } else {
-        alert("Failed to save draft: " + result.error);
+        appEvents.emit(
+          "notification:show",
+          "Failed to save draft: " + result.error,
+          "error",
+        );
       }
     } catch (error) {
       logger.error("Save draft error:", error);
-      alert("An unexpected error occurred saving the draft.");
+      appEvents.emit(
+        "notification:show",
+        "An unexpected error occurred saving the draft.",
+        "error",
+      );
     }
   };
 
@@ -262,20 +279,33 @@ export default function POS() {
         setCartItems([]);
         setCurrentDraftId(undefined);
         setRefreshSalesKey((k) => k + 1);
-        alert("Sale completed successfully!");
+        appEvents.emit(
+          "notification:show",
+          "Sale completed successfully!",
+          "success",
+        );
         // Emit event to refresh dashboard immediately
         appEvents.emit("sale:completed", result);
         appEvents.emit("checkout:closed");
+        // Windows focus fix
+        window.api?.display?.fixFocus();
       } else {
-        alert("Sale failed: " + result.error);
+        appEvents.emit(
+          "notification:show",
+          "Sale failed: " + result.error,
+          "error",
+        );
       }
     } catch (error) {
       logger.error("Checkout error:", error);
-      alert("An unexpected error occurred processing the sale.");
+      appEvents.emit(
+        "notification:show",
+        "An unexpected error occurred processing the sale.",
+        "error",
+      );
     }
   };
 
-  // ... inside return ...
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 space-y-6 animate-in fade-in duration-500">
       <PageHeader icon={ShoppingCart} title="Point of Sale" />
@@ -298,7 +328,7 @@ export default function POS() {
             onUpdateQuantity={handleUpdateQuantity}
             onRemoveItem={handleRemoveItem}
             onUpdateIMEI={handleUpdateIMEI}
-            onClearCart={handleClearCart}
+            onClearCart={() => setShowClearConfirm(true)}
             onCheckout={() => setIsCheckoutOpen(true)}
             onOpenDrafts={() => setIsDraftsOpen(true)}
             draftCount={drafts.length}
@@ -334,6 +364,8 @@ export default function POS() {
             setCurrentDraftId(undefined);
             setCheckoutDraftData(undefined);
             appEvents.emit("checkout:closed");
+            // Windows focus fix
+            window.api?.display?.fixFocus();
           }}
           onComplete={handleCompleteSale}
           onSaveDraft={handleSaveDraft}
@@ -436,6 +468,17 @@ export default function POS() {
           onRefunded={() => setRefreshSalesKey((k) => k + 1)}
         />
       )}
+
+      {/* Confirmation Modals */}
+      <ConfirmModal
+        isOpen={showClearConfirm}
+        title="Clear Cart"
+        message="Are you sure you want to clear all items from the current cart? This action cannot be undone."
+        confirmLabel="Clear Cart"
+        onConfirm={handleClearCart}
+        onCancel={() => setShowClearConfirm(false)}
+        variant="danger"
+      />
     </div>
   );
 }

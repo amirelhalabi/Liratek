@@ -1192,6 +1192,7 @@ export interface ElectronAPI {
   display: {
     setZoomFactor: (factor: number) => void;
     getZoomFactor: () => number;
+    fixFocus: () => void;
   };
 
   // Custom Services

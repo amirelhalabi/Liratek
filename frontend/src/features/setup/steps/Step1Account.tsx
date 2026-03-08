@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useSetup } from "../context/SetupContext";
-import { Store, User, Lock, Eye, EyeOff } from "lucide-react";
+import { Store, User, Lock, Eye, EyeOff, AlertCircle } from "lucide-react";
+import { useCapsLock } from "@/hooks/useCapsLock";
 
 export default function Step1Account() {
   const { payload, updatePayload, setStep } = useSetup();
@@ -8,6 +9,7 @@ export default function Step1Account() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [confirmPassword, setConfirmPassword] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const { capsLock, capsLockProps } = useCapsLock();
 
   const validate = () => {
     const e: Record<string, string> = {};
@@ -103,6 +105,7 @@ export default function Step1Account() {
               }
               className={inputCls + " pr-10"}
               autoComplete="new-password"
+              {...capsLockProps}
             />
             <button
               type="button"
@@ -127,6 +130,7 @@ export default function Step1Account() {
               onChange={(e) => setConfirmPassword(e.target.value)}
               className={inputCls + " pr-10"}
               autoComplete="new-password"
+              {...capsLockProps}
             />
             <button
               type="button"
@@ -139,6 +143,13 @@ export default function Step1Account() {
           {errors.confirm && <p className={errorCls}>{errors.confirm}</p>}
         </div>
       </div>
+
+      {capsLock && (
+        <p className="text-xs text-amber-400 flex items-center gap-1">
+          <AlertCircle size={12} />
+          Caps Lock is on
+        </p>
+      )}
 
       {/* Password hints */}
       <div className="bg-slate-900/50 rounded-lg px-4 py-3 text-xs text-slate-500 space-y-1">

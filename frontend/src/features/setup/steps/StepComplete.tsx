@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useSetup } from "../context/SetupContext";
-import { useAuth } from "../../auth/context/AuthContext";
+import { useAuth } from "@/features/auth/context/AuthContext";
 import { CheckCircle, Loader2 } from "lucide-react";
 import { appEvents } from "@liratek/ui";
 

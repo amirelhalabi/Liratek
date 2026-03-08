@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
 import { X } from "lucide-react";
-import { usePaymentMethods } from "../../hooks/usePaymentMethods";
-import { useDynamicExchangeRate } from "../../hooks/useDynamicExchangeRate";
-import { useCurrencyContext } from "../../contexts/CurrencyContext";
-import type { TransactionType } from "../../utils/exchangeRates";
+import { usePaymentMethods } from "@/hooks/usePaymentMethods";
+import { useDynamicExchangeRate } from "@/hooks/useDynamicExchangeRate";
+import { useCurrencyContext } from "@/contexts/CurrencyContext";
+import type { TransactionType } from "@/utils/exchangeRates";
 
 export type PaymentLine = {
   id: string;

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import logger from "../../../../utils/logger";
+import logger from "@/utils/logger";
 import { Plus, Ban, Calendar, Banknote } from "lucide-react";
 import { PageHeader, Select, useApi } from "@liratek/ui";
 import { DataTable } from "@/shared/components/DataTable";

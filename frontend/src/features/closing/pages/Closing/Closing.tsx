@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useState } from "react";
-import logger from "../../../../utils/logger";
+import logger from "@/utils/logger";
 import type { DrawerType } from "../../types";
 import { DRAWER_ORDER } from "../../config/drawers";
 import { useCurrencies } from "../../hooks/useCurrencies";
@@ -14,8 +14,8 @@ import { DrawerCard } from "../../components/DrawerCard";
 import { VarianceCard } from "../../components/VarianceCard";
 import { AlertBanner } from "../../components/AlertBanner";
 import { appEvents, useApi } from "@liratek/ui";
-import { useAuth } from "../../../auth/context/AuthContext";
-import { useModules } from "../../../../contexts/ModuleContext";
+import { useAuth } from "@/features/auth/context/AuthContext";
+import { useModules } from "@/contexts/ModuleContext";
 import { generateClosingReport } from "../../utils/closingReportGenerator";
 import { X, ChevronLeft, ChevronRight } from "lucide-react";
 

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import logger from "../../../../utils/logger";
+import logger from "@/utils/logger";
 import { X, Save, Printer } from "lucide-react";
 import { useApi } from "@liratek/ui";
 import type { Product } from "@liratek/ui";
@@ -195,6 +195,10 @@ ${labels}
       printWindow.focus();
       printWindow.print();
       printWindow.close();
+      // Windows focus fix
+      setTimeout(() => {
+        window.api?.display?.fixFocus?.();
+      }, 100);
     });
   }, [formData.barcode, printCopies]);
 

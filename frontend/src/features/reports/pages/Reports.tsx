@@ -17,7 +17,7 @@ import {
   ChevronUp,
   ShoppingCart,
 } from "lucide-react";
-import { useCurrencyContext } from "../../../contexts/CurrencyContext";
+import { useCurrencyContext } from "@/contexts/CurrencyContext";
 import { DataTable } from "@/shared/components/DataTable";
 
 // ---------------------------------------------------------------------------

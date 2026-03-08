@@ -4,7 +4,7 @@ import {
   exportToExcel,
   exportToPdf,
   type TableData,
-} from "../../shared/utils/tableExport";
+} from "@/shared/utils/tableExport";
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                              */

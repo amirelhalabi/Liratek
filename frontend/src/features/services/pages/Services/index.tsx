@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
-import logger from "../../../../utils/logger";
+import logger from "@/utils/logger";
 import {
   Send,
   ArrowDownToLine,
@@ -13,8 +13,8 @@ import {
   AlertTriangle,
   X,
 } from "lucide-react";
-import { useSession } from "../../../sessions/context/SessionContext";
-import { usePaymentMethods } from "../../../../hooks/usePaymentMethods";
+import { useSession } from "@/features/sessions/context/SessionContext";
+import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { PageHeader, Select, useApi, appEvents } from "@liratek/ui";
 import { DataTable } from "@/shared/components/DataTable";
 import {

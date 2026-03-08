@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
-import logger from "../../../../utils/logger";
+import logger from "@/utils/logger";
 import { Wrench, Plus, DollarSign, Ban } from "lucide-react";
-import CheckoutModal from "../../../sales/pages/POS/components/CheckoutModal";
+import CheckoutModal from "@/features/sales/pages/POS/components/CheckoutModal";
 import { PageHeader, useApi } from "@liratek/ui";
-import { useSession } from "../../../sessions/context/SessionContext";
+import { useSession } from "@/features/sessions/context/SessionContext";
 import { DataTable } from "@/shared/components/DataTable";
 
 type MaintenanceJob = {

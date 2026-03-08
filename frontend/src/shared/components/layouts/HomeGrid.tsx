@@ -23,9 +23,9 @@ import {
 import type { LucideIcon } from "lucide-react";
 import clsx from "clsx";
 import { appEvents } from "@liratek/ui";
-import { useAuth } from "../../../features/auth/context/AuthContext";
-import { useModules } from "../../../contexts/ModuleContext";
-import { useFeatureFlags } from "../../../contexts/FeatureFlagContext";
+import { useAuth } from "@/features/auth/context/AuthContext";
+import { useModules } from "@/contexts/ModuleContext";
+import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
 
 const iconMap: Record<string, LucideIcon> = {
   LayoutDashboard,
