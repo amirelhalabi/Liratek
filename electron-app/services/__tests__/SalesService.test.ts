@@ -4,8 +4,12 @@
  * Tests all business logic in SalesService with mocked repository.
  */
 
-import { SalesService, resetSalesService } from "../SalesService";
-import { SalesRepository, getSalesRepository } from "@liratek/core";
+import {
+  SalesService,
+  resetSalesService,
+  SalesRepository,
+  getSalesRepository,
+} from "@liratek/core";
 
 // Mock the repository module
 jest.mock("@liratek/core", () => ({
@@ -230,7 +234,7 @@ describe("SalesService", () => {
 
       const result = service.getTodaysSales();
 
-      expect(mockRepo.getTodaysSales).toHaveBeenCalledWith(5);
+      expect(mockRepo.getTodaysSales).toHaveBeenCalledWith(50, undefined);
       expect(result).toEqual(mockSales);
     });
   });
