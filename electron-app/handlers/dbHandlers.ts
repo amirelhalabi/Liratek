@@ -1,6 +1,5 @@
 import { ipcMain } from "electron";
 import { z } from "zod";
-import { requireRole } from "../session.js";
 import {
   getSettingsService,
   getExpenseService,
@@ -10,6 +9,8 @@ import {
   expenseLogger,
   closingLogger,
 } from "@liratek/core";
+import { requireRole } from "../session.js";
+import { AddExpenseSchema, validatePayload } from "../schemas/index.js";
 
 export function registerDatabaseHandlers(): void {
   const settingsService = getSettingsService();
@@ -74,11 +75,20 @@ export function registerDatabaseHandlers(): void {
         const auth = requireRole(e.sender.id, ["admin"]);
         if (!auth.ok) return { success: false, error: auth.error };
       } catch {}
+
+      // Validation
+      const v = validatePayload(AddExpenseSchema, data);
+      if (!v.ok) return { success: false, error: v.error };
+      const validatedData = v.data;
+
       expenseLogger.info(
-        { category: data.category, amountUSD: data.amount_usd },
+        {
+          category: validatedData.category,
+          amountUSD: validatedData.amount_usd,
+        },
         "Adding expense",
       );
-      return expenseService.addExpense(data);
+      return expenseService.addExpense(validatedData);
     },
   );
 

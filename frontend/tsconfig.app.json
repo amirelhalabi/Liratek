@@ -42,10 +42,5 @@
     "exactOptionalPropertyTypes": true
   },
   "include": ["src"],
-  "exclude": [
-    "src/**/*.test.ts",
-    "src/**/*.test.tsx",
-    "src/**/__tests__/**",
-    "src/types/electron.d.ts"
-  ]
+  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx", "src/**/__tests__/**"]
 }

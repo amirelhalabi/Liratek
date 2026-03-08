@@ -184,7 +184,7 @@ export interface ElectronAPI {
     deleteDraft: (
       saleId: number,
     ) => Promise<{ success: boolean; error?: string }>;
-    getTodaysSales: () => Promise<
+    getTodaysSales: (date?: string) => Promise<
       Array<{
         id: number;
         client_name: string | null;
@@ -289,6 +289,11 @@ export interface ElectronAPI {
       note?: string;
       userId?: number;
       paidByMethod?: string;
+      payments?: Array<{
+        method: string;
+        currencyCode: string;
+        amount: number;
+      }>;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     getClientTotal: (clientId: number) => Promise<number>;
   };

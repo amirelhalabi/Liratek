@@ -368,7 +368,7 @@ export default function Debts() {
             payments: paymentLegs,
             note: repayNote,
             ...(user?.id != null ? { userId: user.id } : {}),
-          } as any)
+          })
         : await api.addRepayment({
             client_id: selectedClient.id,
             amount_usd: debtReductionUSD,

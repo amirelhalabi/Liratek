@@ -190,10 +190,10 @@ export class SalesService {
   }
 
   /**
-   * Get today's sales (up to 50 for POS view)
+   * Get recent sales for a specific date (defaults to today)
    */
-  getTodaysSales(): RecentSale[] {
-    return this.salesRepo.getTodaysSales(50);
+  getTodaysSales(date?: string): RecentSale[] {
+    return this.salesRepo.getTodaysSales(50, date);
   }
 
   /**

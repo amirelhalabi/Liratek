@@ -9,6 +9,8 @@ import { getRechargeService, rechargeLogger } from "@liratek/core";
 import { requireRole } from "../session.js";
 import type { RechargeData } from "@liratek/core";
 
+import { RechargeSchema, validatePayload } from "../schemas/index.js";
+
 export function registerRechargeHandlers(): void {
   const rechargeService = getRechargeService();
 
@@ -24,11 +26,18 @@ export function registerRechargeHandlers(): void {
       const auth = requireRole(event.sender.id, ["admin"]);
       if (!auth.ok) return { success: false, error: auth.error };
 
+      const v = validatePayload(RechargeSchema, data);
+      if (!v.ok) return { success: false, error: v.error };
+
       rechargeLogger.info(
-        { provider: data.provider, type: data.type, amount: data.amount },
+        {
+          provider: v.data.provider,
+          type: v.data.type,
+          amount: v.data.amount,
+        },
         "Processing recharge",
       );
-      return rechargeService.processRecharge(data);
+      return rechargeService.processRecharge(v.data as RechargeData);
     },
   );
 

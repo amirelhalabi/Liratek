@@ -13,6 +13,12 @@ import {
   getProductSupplierRepository,
 } from "@liratek/core";
 import { requireRole } from "../session.js";
+import {
+  ProductInputSchema,
+  BatchUpdateSchema,
+  StockAdjustSchema,
+  validatePayload,
+} from "../schemas/index.js";
 
 // =============================================================================
 // Types
@@ -77,34 +83,41 @@ export function registerInventoryHandlers(): void {
       if (!auth.ok) return { success: false, error: auth.error };
     } catch {}
 
+    // Validation
+    const v = validatePayload(ProductInputSchema, product);
+    if (!v.ok) return { success: false, error: v.error };
+    const validatedProduct = v.data;
+
     inventoryLogger.debug(
-      { barcode: product.barcode, name: product.name },
+      { barcode: validatedProduct.barcode, name: validatedProduct.name },
       "Creating product",
     );
     // Auto-create category if needed and get its ID
-    const categoryName = product.category || "General";
+    const categoryName = validatedProduct.category || "General";
     const categoryId = catRepo.getOrCreate(categoryName);
 
     // Auto-register product supplier if provided
-    if (product.supplier) {
-      supplierRepo.getOrCreate(product.supplier);
+    if (validatedProduct.supplier) {
+      supplierRepo.getOrCreate(validatedProduct.supplier);
     }
 
     return service.createProduct({
-      barcode: product.barcode,
-      name: product.name,
+      barcode: validatedProduct.barcode,
+      name: validatedProduct.name,
       category: categoryName,
       category_id: categoryId,
-      cost_price: product.cost_price,
-      retail_price: product.retail_price,
-      ...(product.stock_quantity != null
-        ? { stock_quantity: product.stock_quantity }
+      cost_price: validatedProduct.cost_price,
+      retail_price: validatedProduct.retail_price,
+      ...(validatedProduct.stock_quantity != null
+        ? { stock_quantity: validatedProduct.stock_quantity }
         : {}),
-      ...(product.min_stock_level != null
-        ? { min_stock_level: product.min_stock_level }
+      ...(validatedProduct.min_stock_level != null
+        ? { min_stock_level: validatedProduct.min_stock_level }
         : {}),
-      ...(product.image_url != null ? { image_url: product.image_url } : {}),
-      supplier: product.supplier ?? null,
+      ...(validatedProduct.image_url != null
+        ? { image_url: validatedProduct.image_url }
+        : {}),
+      supplier: validatedProduct.supplier ?? null,
     });
   });
 
@@ -116,30 +129,37 @@ export function registerInventoryHandlers(): void {
       if (!auth.ok) return { success: false, error: auth.error };
     } catch {}
 
-    if (!product.id) {
+    // Validation
+    const v = validatePayload(ProductInputSchema, product);
+    if (!v.ok) return { success: false, error: v.error };
+    const validatedProduct = v.data;
+
+    if (!validatedProduct.id) {
       return { success: false, error: "Product ID required" };
     }
 
     // Resolve category_id for the updated category
-    const updCategoryName = product.category || "General";
+    const updCategoryName = validatedProduct.category || "General";
     const updCategoryId = catRepo.getOrCreate(updCategoryName);
 
     // Auto-register product supplier if provided
-    if (product.supplier) {
-      supplierRepo.getOrCreate(product.supplier);
+    if (validatedProduct.supplier) {
+      supplierRepo.getOrCreate(validatedProduct.supplier);
     }
 
-    return service.updateProduct(product.id, {
-      barcode: product.barcode,
-      name: product.name,
+    return service.updateProduct(validatedProduct.id, {
+      barcode: validatedProduct.barcode,
+      name: validatedProduct.name,
       category: updCategoryName,
       category_id: updCategoryId,
-      cost_price: product.cost_price,
-      retail_price: product.retail_price,
-      min_stock_level: product.min_stock_level ?? 5,
-      ...(product.image_url != null ? { image_url: product.image_url } : {}),
-      supplier: product.supplier ?? null,
-      stock_quantity: product.stock_quantity,
+      cost_price: validatedProduct.cost_price,
+      retail_price: validatedProduct.retail_price,
+      min_stock_level: validatedProduct.min_stock_level ?? 5,
+      ...(validatedProduct.image_url != null
+        ? { image_url: validatedProduct.image_url }
+        : {}),
+      supplier: validatedProduct.supplier ?? null,
+      stock_quantity: validatedProduct.stock_quantity,
     });
   });
 
@@ -155,10 +175,15 @@ export function registerInventoryHandlers(): void {
         supplier?: string | null;
       },
     ) => {
-      return service.batchUpdateProducts(payload.ids, {
-        category: payload.category,
-        min_stock_level: payload.min_stock_level,
-        supplier: payload.supplier,
+      // Validation
+      const v = validatePayload(BatchUpdateSchema, payload);
+      if (!v.ok) return { success: false, error: v.error };
+      const validatedPayload = v.data;
+
+      return service.batchUpdateProducts(validatedPayload.ids, {
+        category: validatedPayload.category,
+        min_stock_level: validatedPayload.min_stock_level,
+        supplier: validatedPayload.supplier,
       });
     },
   );
@@ -196,7 +221,11 @@ export function registerInventoryHandlers(): void {
         if (!auth.ok) return { success: false, error: auth.error };
       } catch {}
 
-      return service.adjustStock(id, newQuantity);
+      // Validation
+      const v = validatePayload(StockAdjustSchema, { id, newQuantity });
+      if (!v.ok) return { success: false, error: v.error };
+
+      return service.adjustStock(v.data.id, v.data.newQuantity);
     },
   );
 

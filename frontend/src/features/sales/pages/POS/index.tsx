@@ -85,7 +85,7 @@ export default function POS() {
     return () => clearTimeout(t);
   }, [isCheckoutOpen, isDraftsOpen, fetchDrafts]);
 
-  const handleAddToCart = (product: Product) => {
+  const handleAddToCart = useCallback((product: Product) => {
     setCartItems((prev) => {
       const existing = prev.find((p) => p.id === product.id);
       if (existing) {
@@ -97,9 +97,9 @@ export default function POS() {
       }
       return [...prev, { ...product, quantity: 1 } as any] as any;
     });
-  };
+  }, []);
 
-  const handleUpdateQuantity = (id: number, delta: number) => {
+  const handleUpdateQuantity = useCallback((id: number, delta: number) => {
     setCartItems((prev) =>
       prev.map((item) => {
         if (item.id === id) {
@@ -108,32 +108,32 @@ export default function POS() {
         return item;
       }),
     );
-  };
+  }, []);
 
-  const handleRemoveItem = (id: number) => {
+  const handleRemoveItem = useCallback((id: number) => {
     setCartItems((prev) => prev.filter((item) => item.id !== id));
-  };
+  }, []);
 
-  const handleUpdateIMEI = (id: number, imei: string) => {
+  const handleUpdateIMEI = useCallback((id: number, imei: string) => {
     setCartItems((prev) =>
       prev.map((item) => (item.id === id ? { ...item, imei } : item)),
     );
-  };
+  }, []);
 
-  const handleClearCart = () => {
+  const handleClearCart = useCallback(() => {
     setCartItems([]);
     setCurrentDraftId(undefined); // Clear active draft
     setShowClearConfirm(false);
-  };
+  }, []);
 
   // Open ProductForm from POS with pre-filled name or barcode
-  const handleCreateProduct = (prefill: {
-    name?: string;
-    barcode?: string;
-  }) => {
-    setProductFormPrefill(prefill);
-    setShowProductForm(true);
-  };
+  const handleCreateProduct = useCallback(
+    (prefill: { name?: string; barcode?: string }) => {
+      setProductFormPrefill(prefill);
+      setShowProductForm(true);
+    },
+    [],
+  );
 
   // Called when ProductForm saves successfully — fetch the product, add to cart
   const handleProductCreated = async () => {

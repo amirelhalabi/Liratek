@@ -29,6 +29,13 @@ import {
   clearEncryptedSession,
   storeSessionTokenToFile,
 } from "../session.js";
+import {
+  CreateUserSchema,
+  SetPasswordSchema,
+  SetUserActiveSchema,
+  SetUserRoleSchema,
+  validatePayload,
+} from "../schemas/index.js";
 
 // =============================================================================
 // Handler Registration
@@ -404,12 +411,18 @@ export function registerAuthHandlers(): void {
       const authCheck = requireAdminRole(e.sender.id);
       if (!authCheck.ok) return { success: false, error: authCheck.error };
 
+      // Validation
+      const v = validatePayload(CreateUserSchema, data);
+      if (!v.ok) return { success: false, error: v.error };
+      const validatedData = v.data;
+
       try {
         const result = await authService.createUser(
           {
-            username: data.username,
-            password: data.password,
-            role: data.role === "staff" ? "cashier" : data.role,
+            username: validatedData.username,
+            password: validatedData.password,
+            role:
+              validatedData.role === "staff" ? "cashier" : validatedData.role,
           },
           "admin",
         );
@@ -423,7 +436,7 @@ export function registerAuthHandlers(): void {
         };
       } catch (error) {
         authLogger.error(
-          { error, username: data.username },
+          { error, username: validatedData.username },
           "Create user error",
         );
         return {
@@ -443,10 +456,14 @@ export function registerAuthHandlers(): void {
       const authCheck = requireAdminRole(e.sender.id);
       if (!authCheck.ok) return { success: false, error: authCheck.error };
 
+      // Validation
+      const v = validatePayload(SetPasswordSchema, data);
+      if (!v.ok) return { success: false, error: v.error };
+
       try {
         const result = await authService.resetPassword(
-          data.id,
-          data.password,
+          v.data.id,
+          v.data.password,
           "admin",
         );
         return { success: result.success, error: result.error };
@@ -454,7 +471,7 @@ export function registerAuthHandlers(): void {
         authLogger.error(
           {
             error: error instanceof Error ? error.message : String(error),
-            userId: data.id,
+            userId: v.data.id,
           },
           "Set password error",
         );
@@ -495,19 +512,23 @@ export function registerAuthHandlers(): void {
       const authCheck = requireAdminRole(e.sender.id);
       if (!authCheck.ok) return { success: false, error: authCheck.error };
 
+      // Validation
+      const v = validatePayload(SetUserActiveSchema, data);
+      if (!v.ok) return { success: false, error: v.error };
+
       try {
-        if (data.is_active === 0) {
+        if (v.data.is_active === 0) {
           // Deactivate
           const session = getSessionInfo(e.sender.id);
-          authService.deactivateUser(data.id, session?.userId || 0, "admin");
+          authService.deactivateUser(v.data.id, session?.userId || 0, "admin");
         } else {
           // Reactivate
-          authService.reactivateUser(data.id, "admin");
+          authService.reactivateUser(v.data.id, "admin");
         }
         return { success: true };
       } catch (error) {
         authLogger.error(
-          { error, userId: data.id, is_active: data.is_active },
+          { error, userId: v.data.id, is_active: v.data.is_active },
           "Set active error",
         );
         return {
@@ -529,15 +550,22 @@ export function registerAuthHandlers(): void {
       const authCheck = requireAdminRole(e.sender.id);
       if (!authCheck.ok) return { success: false, error: authCheck.error };
 
+      // Validation
+      const v = validatePayload(SetUserRoleSchema, data);
+      if (!v.ok) return { success: false, error: v.error };
+
       try {
         // Direct database update for role change (not in AuthService yet)
         const db = getDatabase();
-        const role = data.role === "staff" ? "cashier" : data.role;
-        db.prepare(`UPDATE users SET role = ? WHERE id = ?`).run(role, data.id);
+        const role = v.data.role === "staff" ? "cashier" : v.data.role;
+        db.prepare(`UPDATE users SET role = ? WHERE id = ?`).run(
+          role,
+          v.data.id,
+        );
         return { success: true };
       } catch (error) {
         authLogger.error(
-          { error, userId: data.id, role: data.role },
+          { error, userId: v.data.id, role: v.data.role },
           "Set role error",
         );
         return {

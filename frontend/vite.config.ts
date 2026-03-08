@@ -25,7 +25,17 @@ export default defineConfig({
     strictPort: true,
   },
   build: {
-    // Electron loads local files - chunk size warning not relevant for desktop apps
+    // Electron loads local files — chunk size warning not relevant for desktop apps
     chunkSizeWarningLimit: 1200,
+    minify: "esbuild",
+    sourcemap: false,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ["react", "react-dom"],
+          ui: ["lucide-react"],
+        },
+      },
+    },
   },
 });

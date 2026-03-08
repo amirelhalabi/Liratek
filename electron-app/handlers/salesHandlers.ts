@@ -13,14 +13,20 @@ import {
 } from "@liratek/core";
 import type { SaleRequest } from "@liratek/core";
 import { requireRole } from "../session.js";
+import { SaleProcessSchema, validatePayload } from "../schemas/index.js";
 
 export function registerSalesHandlers(): void {
   const salesService = getSalesService();
 
   // Process a sale (create or update)
   ipcMain.handle("sales:process", (_event, sale: SaleRequest) => {
-    salesLogger.debug({ id: sale.id, status: sale.status }, "Processing sale");
-    return salesService.processSale(sale);
+    const v = validatePayload(SaleProcessSchema, sale);
+    if (!v.ok) return { success: false, error: v.error };
+    salesLogger.debug(
+      { id: v.data.id, status: v.data.status },
+      "Processing sale",
+    );
+    return salesService.processSale(v.data as SaleRequest);
   });
 
   // Get Drafts
@@ -54,9 +60,9 @@ export function registerSalesHandlers(): void {
     return salesService.getDrawerBalances();
   });
 
-  // Today's Sales for Dashboard card
-  ipcMain.handle("sales:get-todays-sales", () => {
-    return salesService.getTodaysSales();
+  // Today's Sales or specific date sales
+  ipcMain.handle("sales:get-todays-sales", (_event, date?: string) => {
+    return salesService.getTodaysSales(date);
   });
 
   // Top Products
@@ -78,6 +84,9 @@ export function registerSalesHandlers(): void {
 
   // Refund a sale by sale ID (admin only)
   ipcMain.handle("sales:refund", (e, saleId: number) => {
+    if (typeof saleId !== "number" || saleId < 1 || !Number.isInteger(saleId)) {
+      return { success: false, error: "Invalid sale ID" };
+    }
     try {
       const auth = requireRole(e.sender.id, ["admin"]);
       if (!auth.ok) throw new Error(auth.error ?? "Admin access required");

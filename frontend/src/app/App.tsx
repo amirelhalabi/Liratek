@@ -1,32 +1,45 @@
 import { HashRouter, Routes, Route, Navigate } from "react-router-dom";
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { AuthProvider, useAuth } from "@/features/auth/context/AuthContext";
 import { SessionProvider } from "@/features/sessions/context/SessionContext";
 import { ModuleProvider } from "@/contexts/ModuleContext";
 import { CurrencyProvider } from "@/contexts/CurrencyContext";
 import Login from "@/features/auth/pages/Login";
 import Dashboard from "@/features/dashboard/pages/Dashboard";
-import ProductList from "@/features/inventory/pages/Inventory/ProductList";
-import ClientList from "@/features/clients/pages/Clients/ClientList";
-import POS from "@/features/sales/pages/POS";
-import Debts from "@/features/debts/pages/Debts";
-import Exchange from "@/features/exchange/pages/Exchange";
-import Services from "@/features/services/pages/Services";
-import Recharge from "@/features/recharge/pages/Recharge";
-import Expenses from "@/features/expenses/pages/Expenses";
-import Maintenance from "@/features/maintenance/pages/Maintenance";
-import CustomServices from "@/features/custom-services/pages/CustomServices";
-import Settings from "@/features/settings/pages/Settings";
-import Reports from "@/features/reports/pages/Reports";
-import TransactionHistory from "@/features/transactions/pages/TransactionHistory";
-import Profits from "@/features/profits/pages/Profits";
+
+// Lazy-loaded routes
+const ProductList = lazy(
+  () => import("@/features/inventory/pages/Inventory/ProductList"),
+);
+const ClientList = lazy(
+  () => import("@/features/clients/pages/Clients/ClientList"),
+);
+const POS = lazy(() => import("@/features/sales/pages/POS"));
+const Debts = lazy(() => import("@/features/debts/pages/Debts"));
+const Exchange = lazy(() => import("@/features/exchange/pages/Exchange"));
+const Services = lazy(() => import("@/features/services/pages/Services"));
+const Recharge = lazy(() => import("@/features/recharge/pages/Recharge"));
+const Expenses = lazy(() => import("@/features/expenses/pages/Expenses"));
+const Maintenance = lazy(
+  () => import("@/features/maintenance/pages/Maintenance"),
+);
+const CustomServices = lazy(
+  () => import("@/features/custom-services/pages/CustomServices"),
+);
+const Settings = lazy(() => import("@/features/settings/pages/Settings"));
+const Reports = lazy(() => import("@/features/reports/pages/Reports"));
+const TransactionHistory = lazy(
+  () => import("@/features/transactions/pages/TransactionHistory"),
+);
+const Profits = lazy(() => import("@/features/profits/pages/Profits"));
+const SetupWizard = lazy(() => import("@/features/setup/SetupWizard"));
 import MainLayout from "@/shared/components/layouts/MainLayout";
 import HomeGrid from "@/shared/components/layouts/HomeGrid";
 import "@/index.css";
 import { ApiProvider } from "@liratek/ui";
 import { backendApiAdapter } from "@/api/adapter";
 import { FeatureFlagProvider } from "@/contexts/FeatureFlagContext";
-import SetupWizard from "@/features/setup/SetupWizard";
+import { ErrorBoundary } from "@/shared/components/ErrorBoundary";
 
 // Wrapper for protected routes
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -57,146 +70,158 @@ function HomeRoute() {
   return mode === "page-view" ? <HomeGrid /> : <Dashboard />;
 }
 
+/** Fallback loader for Suspense */
+function PageLoader() {
+  return (
+    <div className="min-h-[400px] w-full flex flex-col items-center justify-center gap-4 text-slate-400">
+      <div className="w-12 h-12 border-4 border-slate-700 border-t-violet-500 rounded-full animate-spin"></div>
+      <p className="text-sm font-medium animate-pulse">Loading experience...</p>
+    </div>
+  );
+}
+
 function AppRoutes() {
   const { isSetupRequired } = useAuth();
   return (
-    <Routes>
-      <Route
-        path="/setup"
-        element={isSetupRequired ? <SetupWizard /> : <Navigate to="/" />}
-      />
-      <Route path="/login" element={<Login />} />
-      <Route
-        path="/"
-        element={
-          <ProtectedRoute>
-            <HomeRoute />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/dashboard"
-        element={
-          <ProtectedRoute>
-            <Dashboard />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/products"
-        element={
-          <ProtectedRoute>
-            <ProductList />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/clients"
-        element={
-          <ProtectedRoute>
-            <ClientList />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/pos"
-        element={
-          <ProtectedRoute>
-            <POS />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/debts"
-        element={
-          <ProtectedRoute>
-            <Debts />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/exchange"
-        element={
-          <ProtectedRoute>
-            <Exchange />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/services"
-        element={
-          <ProtectedRoute>
-            <Services />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/recharge"
-        element={
-          <ProtectedRoute>
-            <Recharge />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/maintenance"
-        element={
-          <ProtectedRoute>
-            <Maintenance />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/custom-services"
-        element={
-          <ProtectedRoute>
-            <CustomServices />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/expenses"
-        element={
-          <ProtectedRoute>
-            <Expenses />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/settings"
-        element={
-          <ProtectedRoute>
-            <Settings />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/reports"
-        element={
-          <ProtectedRoute>
-            <Reports />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/transactions"
-        element={
-          <ProtectedRoute>
-            <TransactionHistory />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/profits"
-        element={
-          <ProtectedRoute>
-            <Profits />
-          </ProtectedRoute>
-        }
-      />
-      {/* 404 Redirect */}
-      <Route path="*" element={<Navigate to="/" />} />
-    </Routes>
+    <Suspense fallback={<PageLoader />}>
+      <Routes>
+        <Route
+          path="/setup"
+          element={isSetupRequired ? <SetupWizard /> : <Navigate to="/" />}
+        />
+        <Route path="/login" element={<Login />} />
+        <Route
+          path="/"
+          element={
+            <ProtectedRoute>
+              <HomeRoute />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/dashboard"
+          element={
+            <ProtectedRoute>
+              <Dashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/products"
+          element={
+            <ProtectedRoute>
+              <ProductList />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/clients"
+          element={
+            <ProtectedRoute>
+              <ClientList />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/pos"
+          element={
+            <ProtectedRoute>
+              <POS />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/debts"
+          element={
+            <ProtectedRoute>
+              <Debts />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/exchange"
+          element={
+            <ProtectedRoute>
+              <Exchange />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/services"
+          element={
+            <ProtectedRoute>
+              <Services />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/recharge"
+          element={
+            <ProtectedRoute>
+              <Recharge />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/maintenance"
+          element={
+            <ProtectedRoute>
+              <Maintenance />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/custom-services"
+          element={
+            <ProtectedRoute>
+              <CustomServices />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/expenses"
+          element={
+            <ProtectedRoute>
+              <Expenses />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/settings"
+          element={
+            <ProtectedRoute>
+              <Settings />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/reports"
+          element={
+            <ProtectedRoute>
+              <Reports />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/transactions"
+          element={
+            <ProtectedRoute>
+              <TransactionHistory />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/profits"
+          element={
+            <ProtectedRoute>
+              <Profits />
+            </ProtectedRoute>
+          }
+        />
+        {/* Redirect all other paths to home */}
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </Suspense>
   );
 }
 
@@ -213,22 +238,25 @@ function App() {
   }, []);
 
   return (
-    // HashRouter is recommended for Electron to avoid path issues in production
-    <ApiProvider adapter={backendApiAdapter}>
-      <ModuleProvider>
-        <CurrencyProvider>
-          <FeatureFlagProvider>
-            <HashRouter>
-              <AuthProvider>
-                <SessionProvider>
-                  <AppRoutes />
-                </SessionProvider>
-              </AuthProvider>
-            </HashRouter>
-          </FeatureFlagProvider>
-        </CurrencyProvider>
-      </ModuleProvider>
-    </ApiProvider>
+    // ErrorBoundary catches any unhandled render crash and shows a recovery screen
+    <ErrorBoundary>
+      {/* HashRouter is recommended for Electron to avoid path issues in production */}
+      <ApiProvider adapter={backendApiAdapter}>
+        <ModuleProvider>
+          <CurrencyProvider>
+            <FeatureFlagProvider>
+              <HashRouter>
+                <AuthProvider>
+                  <SessionProvider>
+                    <AppRoutes />
+                  </SessionProvider>
+                </AuthProvider>
+              </HashRouter>
+            </FeatureFlagProvider>
+          </CurrencyProvider>
+        </ModuleProvider>
+      </ApiProvider>
+    </ErrorBoundary>
   );
 }
 

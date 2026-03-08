@@ -49,6 +49,36 @@ const __dirname = path.dirname(__filename);
 let mainWindow: BrowserWindow | null = null;
 let db: Database.Database;
 
+// ── Global error handlers ──────────────────────────────────────────────────
+// Catch any unhandled error in the main process before it silently crashes.
+process.on("uncaughtException", (err) => {
+  logger.fatal({ err }, "Uncaught exception in main process");
+  dialog
+    .showMessageBox({
+      type: "error",
+      title: "Unexpected Error",
+      message: "An unexpected error occurred.",
+      detail: err?.message ?? String(err),
+      buttons: ["Restart App", "Quit"],
+      defaultId: 0,
+      cancelId: 1,
+    })
+    .then(({ response }) => {
+      if (response === 0) {
+        app.relaunch();
+      }
+      app.quit();
+    })
+    .catch(() => {
+      app.quit();
+    });
+});
+
+process.on("unhandledRejection", (reason) => {
+  logger.error({ reason }, "Unhandled promise rejection in main process");
+});
+// ──────────────────────────────────────────────────────────────────────────
+
 // Single instance lock
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
@@ -71,7 +101,7 @@ function createWindow() {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
     },
   });
 
@@ -178,6 +208,7 @@ function initializeDatabase() {
     const keyResult = applySqlCipherKey(db, resolvedKey.key);
 
     db.pragma("journal_mode = WAL");
+    db.pragma("synchronous = NORMAL");
     db.pragma("foreign_keys = ON");
 
     logger.info(

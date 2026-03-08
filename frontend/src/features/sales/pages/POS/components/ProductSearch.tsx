@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, memo } from "react";
 import logger from "@/utils/logger";
 import {
   Search,
@@ -39,7 +39,7 @@ interface ProductSearchProps {
   refreshSalesKey?: number;
 }
 
-export default function ProductSearch({
+function ProductSearch({
   onAddToCart,
   onCreateProduct,
   onSaleClick,
@@ -106,9 +106,7 @@ export default function ProductSearch({
   useEffect(() => {
     const loadSales = async () => {
       try {
-        const data = await (window.api?.sales?.getTodaysSales as any)?.(
-          selectedDate,
-        );
+        const data = await window.api?.sales?.getTodaysSales(selectedDate);
         setTodaysSales(Array.isArray(data) ? data : []);
       } catch {
         setTodaysSales([]);
@@ -545,3 +543,5 @@ export default function ProductSearch({
     </div>
   );
 }
+
+export default memo(ProductSearch);

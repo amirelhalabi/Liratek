@@ -142,7 +142,7 @@ interface ProxyRow<T> {
 
 const columnResizeMode: ColumnResizeMode = "onChange";
 
-export function DataTable<T>({
+function DataTableInner<T>({
   columns: colDefs,
   data,
   renderRow,
@@ -583,3 +583,11 @@ export function DataTable<T>({
     </>
   );
 }
+
+/**
+ * Memoized export — prevents re-renders when parent state changes but
+ * props haven't. Cast preserves the generic type parameter since
+ * React.memo() does not support generics natively.
+ */
+const MemoizedDataTable = React.memo(DataTableInner) as typeof DataTableInner;
+export { MemoizedDataTable as DataTable };

@@ -841,10 +841,13 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
   }
 
   /**
-   * Get today's recent sales for dashboard
+   * Get recent sales for a specific date (defaults to today)
    */
-  getTodaysSales(limit: number = 5): RecentSale[] {
+  getTodaysSales(limit: number = 50, date?: string): RecentSale[] {
     try {
+      const targetDate = date ? date : "now";
+      const dateFunc = date ? "?" : "DATE('now', 'localtime')";
+
       return this.query<RecentSale>(
         `
         SELECT 
@@ -859,14 +862,14 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           s.created_at
         FROM ${this.tableName} s
         LEFT JOIN clients c ON s.client_id = c.id
-        WHERE s.status IN ('completed', 'refunded') AND DATE(s.created_at, 'localtime') = DATE('now', 'localtime')
+        WHERE s.status IN ('completed', 'refunded') AND DATE(s.created_at, 'localtime') = ${dateFunc}
         ORDER BY s.created_at DESC
         LIMIT ?
       `,
-        limit,
+        ...(date ? [targetDate, limit] : [limit]),
       );
     } catch (error) {
-      throw new DatabaseError("Failed to get today's sales", { cause: error });
+      throw new DatabaseError("Failed to get recent sales", { cause: error });
     }
   }
 

@@ -1604,12 +1604,27 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@liratek/electron-app@workspace:electron-app":
+  version: 0.0.0-use.local
+  resolution: "@liratek/electron-app@workspace:electron-app"
+  dependencies:
+    "@liratek/core": "workspace:*"
+    "@types/better-sqlite3": "npm:^7.6.12"
+    "@types/node": "npm:^25.0.2"
+    better-sqlite3: "npm:^11.10.0"
+    electron: "npm:^31.0.0"
+    electron-squirrel-startup: "npm:^1.0.1"
+    typescript: "npm:~5.9.3"
+  languageName: unknown
+  linkType: soft
+
 "@liratek/frontend@workspace:frontend":
   version: 0.0.0-use.local
   resolution: "@liratek/frontend@workspace:frontend"
   dependencies:
     "@eslint/js": "npm:^9.39.1"
     "@headlessui/react": "npm:^2.2.9"
+    "@liratek/core": "workspace:*"
     "@liratek/ui": "workspace:*"
     "@playwright/test": "npm:^1.58.0"
     "@tailwindcss/postcss": "npm:^4.1.18"
@@ -2549,7 +2564,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/better-sqlite3@npm:^7.6.13, @types/better-sqlite3@npm:^7.6.9":
+"@types/better-sqlite3@npm:^7.6.12, @types/better-sqlite3@npm:^7.6.13, @types/better-sqlite3@npm:^7.6.9":
   version: 7.6.13
   resolution: "@types/better-sqlite3@npm:7.6.13"
   dependencies:
@@ -3984,6 +3999,17 @@ __metadata:
     "@mapbox/node-pre-gyp": "npm:^1.0.11"
     node-addon-api: "npm:^5.0.0"
   checksum: 10c0/743231158c866bddc46f25eb8e9617fe38bc1a6f5f3052aba35e361d349b7f8fb80e96b45c48a4c23c45c29967ccd11c81cf31166454fc0ab019801c336cab40
+  languageName: node
+  linkType: hard
+
+"better-sqlite3@npm:^11.10.0":
+  version: 11.10.0
+  resolution: "better-sqlite3@npm:11.10.0"
+  dependencies:
+    bindings: "npm:^1.5.0"
+    node-gyp: "npm:latest"
+    prebuild-install: "npm:^7.1.1"
+  checksum: 10c0/1fffbf9e5fc9d24847a3ecf09491bceab1c294b46ba41df1c449dc20b6f5c5d9d94ff24becd0b1632ee282bd21278b7fea53a5a6215bb99209ded0ae05eda3b0
   languageName: node
   linkType: hard
 

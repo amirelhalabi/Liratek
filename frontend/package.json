@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@headlessui/react": "^2.2.9",
+    "@liratek/core": "workspace:*",
     "@liratek/ui": "workspace:*",
     "@tanstack/react-table": "^8.21.3",
     "clsx": "^2.1.1",

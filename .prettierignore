@@ -5,3 +5,13 @@ coverage
 .git
 .vscode
 *.log
+*.sqlite
+*.db
+*.html
+*.pdf
+public/
+releases/
+release/
+docs/code-audit.md
+docs/improvements-plan.md
+docs/electron-vite-react-best-practices.md
