@@ -42,7 +42,6 @@ export function formatReceipt58mm(data: ReceiptData): string {
   const sym = data.currency_symbol ?? "$";
 
   const padCenter = (text: string, char = " "): string => {
-
     const cleanText = (text || "").trim();
     if (!cleanText) return "";
     const padding = Math.max(0, width - cleanText.length);
@@ -56,16 +55,16 @@ export function formatReceipt58mm(data: ReceiptData): string {
   // Header
   const border = "=".repeat(width);
   receipt += border + "\n";
-  
+
   const name = padCenter(data.shop_name);
   if (name) receipt += name + "\n";
-  
+
   const location = padCenter(data.shop_location || "");
   if (location) receipt += location + "\n";
-  
+
   const phone = padCenter(data.shop_phone || "");
   if (phone) receipt += phone + "\n";
-  
+
   receipt += border + "\n";
 
   // Receipt Info — date+time on one line
@@ -182,16 +181,16 @@ export function formatReceipt80mm(data: ReceiptData): string {
   // Header
   const border = "═".repeat(width);
   receipt += padCenter(border) + "\n";
-  
+
   const name = padCenter(data.shop_name);
   if (name) receipt += name + "\n";
-  
+
   const location = padCenter(data.shop_location || "");
   if (location) receipt += location + "\n";
-  
+
   const phone = padCenter(data.shop_phone || "");
   if (phone) receipt += phone + "\n";
-  
+
   receipt += padCenter("═ RECEIPT ═") + "\n";
   receipt += padCenter(border) + "\n";
   receipt += "\n";

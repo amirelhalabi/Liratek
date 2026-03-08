@@ -1,7 +1,14 @@
 import { useEffect, useState } from "react";
 import logger from "@/utils/logger";
 import { appEvents, useApi } from "@liratek/ui";
-import { PanelLeft, LayoutGrid, Image, List, Monitor } from "lucide-react";
+import {
+  PanelLeft,
+  LayoutGrid,
+  Image,
+  List,
+  Monitor,
+  Printer,
+} from "lucide-react";
 import clsx from "clsx";
 import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
 import { invalidateShopInfo } from "@/hooks/useShopName";
@@ -26,6 +33,14 @@ export default function ShopConfig() {
   const [sessionMgmt, setSessionMgmt] = useState(true);
   const [customerSessions, setCustomerSessions] = useState(true);
   const [autoCheckUpdates, setAutoCheckUpdates] = useState(true);
+
+  // Print settings
+  const [printers, setPrinters] = useState<
+    { name: string; displayName: string }[]
+  >([]);
+  const [receiptPrinter, setReceiptPrinter] = useState("");
+  const [barcodePrinter, setBarcodePrinter] = useState("");
+
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [layoutMode, setLayoutMode] = useState(
@@ -82,6 +97,18 @@ export default function ShopConfig() {
       setSessionMgmt(map.get("feature_session_management") !== "disabled");
       setCustomerSessions(map.get("feature_customer_sessions") !== "disabled");
       setAutoCheckUpdates(map.get("auto_check_updates") !== "0");
+      setReceiptPrinter((map.get("receipt_printer") as string) || "");
+      setBarcodePrinter((map.get("barcode_printer") as string) || "");
+
+      // Load available printers if running in Electron
+      if (window.api?.print?.getPrinters) {
+        try {
+          const sysPrinters = await window.api.print.getPrinters();
+          setPrinters(sysPrinters);
+        } catch (e) {
+          logger.error("Failed to fetch system printers", { error: e });
+        }
+      }
     } finally {
       setIsLoading(false);
     }
@@ -107,6 +134,8 @@ export default function ShopConfig() {
           customerSessions ? "enabled" : "disabled",
         ),
         api.updateSetting("auto_check_updates", autoCheckUpdates ? "1" : "0"),
+        api.updateSetting("receipt_printer", receiptPrinter),
+        api.updateSetting("barcode_printer", barcodePrinter),
       ]);
       // Invalidate cached shop info so receipts pick up new values
       invalidateShopInfo();
@@ -197,6 +226,54 @@ export default function ShopConfig() {
           onChange={(e) => setReceiptHeaderText(e.target.value)}
           className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white"
         />
+      </div>
+
+      <div className="pt-6 border-t border-slate-700">
+        <span className="flex items-center gap-2 block text-sm text-slate-400 mb-4">
+          <Printer size={16} /> Print Settings
+        </span>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm text-slate-400 mb-2">
+              Receipt Printer
+            </label>
+            <select
+              value={receiptPrinter}
+              onChange={(e) => setReceiptPrinter(e.target.value)}
+              className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white"
+            >
+              <option value="">Default (System Print Dialog)</option>
+              {printers.map((p) => (
+                <option key={p.name} value={p.name}>
+                  {p.displayName || p.name}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-slate-500 mt-1">
+              Leave empty to show the print dialog every time.
+            </p>
+          </div>
+          <div>
+            <label className="block text-sm text-slate-400 mb-2">
+              Barcode Printer
+            </label>
+            <select
+              value={barcodePrinter}
+              onChange={(e) => setBarcodePrinter(e.target.value)}
+              className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white"
+            >
+              <option value="">Default (System Print Dialog)</option>
+              {printers.map((p) => (
+                <option key={p.name} value={p.name}>
+                  {p.displayName || p.name}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-slate-500 mt-1">
+              Leave empty to show the print dialog every time.
+            </p>
+          </div>
+        </div>
       </div>
 
       {/* Feature Toggles */}

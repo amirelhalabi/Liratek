@@ -49,22 +49,36 @@ const receiptPrintCSS = `
     html, body { width: 72mm; margin: 0; padding: 0; }
   }`;
 
-const printReceiptContent = (content: string) => {
-  const printWindow = window.open("", "", "width=400,height=600");
-  if (printWindow) {
-    printWindow.document.write(`<!DOCTYPE html>
-<html>
-<head><title>Receipt</title><style>${receiptPrintCSS}</style></head>
-<body><pre>${content}</pre></body>
-</html>`);
-    printWindow.document.close();
-    printWindow.focus();
-    printWindow.print();
-    printWindow.close();
-    // Windows focus fix
-    setTimeout(() => {
-      (window as any).api?.display?.fixFocus?.();
-    }, 100);
+const printReceiptContent = async (content: string, targetPrinter?: string) => {
+  if (targetPrinter && window.api?.print?.silentPrint) {
+    logger.info(`Sending receipt to silent printer: ${targetPrinter}`);
+    const result = await window.api.print.silentPrint(content, targetPrinter);
+    if (!result?.success) {
+      logger.error(`Silent receipt print failed: ${result?.error}`);
+      appEvents.emit(
+        "notification:show",
+        "Receipt printing failed: " + (result?.error || "Unknown error"),
+        "error",
+      );
+    }
+  } else {
+    // Fallback if not configured or not running in electron
+    const printWindow = window.open("", "", "width=400,height=600");
+    if (printWindow) {
+      printWindow.document.write(`<!DOCTYPE html>
+  <html>
+  <head><title>Receipt</title><style>${receiptPrintCSS}</style></head>
+  <body><pre>${content}</pre></body>
+  </html>`);
+      printWindow.document.close();
+      printWindow.focus();
+      printWindow.print();
+      printWindow.close();
+      // Windows focus fix
+      setTimeout(() => {
+        (window as any).api?.display?.fixFocus?.();
+      }, 100);
+    }
   }
 };
 
@@ -381,16 +395,44 @@ export default function CheckoutModal({
     };
   };
 
-  const handlePrintReceipt = () => {
+  const handlePrintReceipt = async () => {
     const receipt = getReceiptData();
     const formatted = formatReceipt58mm(receipt);
-    printReceiptContent(formatted);
+
+    let targetPrinter = "";
+    try {
+      const settings = await api.getAllSettings();
+      const printerSetting = settings.find(
+        (s: any) => s.key_name === "receipt_printer",
+      );
+      if (printerSetting && printerSetting.value) {
+        targetPrinter = printerSetting.value;
+      }
+    } catch (e) {
+      logger.warn("Failed to get printer setting", { error: e });
+    }
+
+    await printReceiptContent(formatted, targetPrinter);
   };
 
-  const handleDirectPrint = () => {
+  const handleDirectPrint = async () => {
     const receipt = getReceiptData();
     const formatted = formatReceipt58mm(receipt);
-    printReceiptContent(formatted);
+
+    let targetPrinter = "";
+    try {
+      const settings = await api.getAllSettings();
+      const printerSetting = settings.find(
+        (s: any) => s.key_name === "receipt_printer",
+      );
+      if (printerSetting && printerSetting.value) {
+        targetPrinter = printerSetting.value;
+      }
+    } catch (e) {
+      logger.warn("Failed to get printer setting", { error: e });
+    }
+
+    await printReceiptContent(formatted, targetPrinter);
   };
 
   const drawerNameDisplay = String(DRAWER_B).replace(/_/g, " ");

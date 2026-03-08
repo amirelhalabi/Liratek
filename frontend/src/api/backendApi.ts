@@ -386,12 +386,13 @@ export async function getProfitSalesChart(type: "Sales" | "Profit") {
   );
 }
 
-export async function getTodaysSales() {
+export async function getTodaysSales(date?: string) {
   return ipcOrHttp(
-    async () => getElectronApi().sales.getTodaysSales(),
+    async () => getElectronApi().sales.getTodaysSales(date),
     async () => {
+      const qs = date ? `?date=${encodeURIComponent(date)}` : "";
       const res = await requestJson<{ success: boolean; sales: any[] }>(
-        `/api/dashboard/todays-sales`,
+        `/api/dashboard/todays-sales${qs}`,
       );
       return res.sales;
     },

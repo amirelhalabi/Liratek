@@ -7,6 +7,8 @@ import {
   Clock,
   User,
   RotateCcw,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import type { Product } from "@liratek/ui";
 import { useApi, appEvents } from "@liratek/ui";
@@ -46,7 +48,6 @@ export default function ProductSearch({
   const api = useApi();
   const [search, setSearch] = useState("");
   const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(false);
   const [showImages, setShowImages] = useState(getPosShowImages);
   const [todaysSales, setTodaysSales] = useState<TodaySale[]>([]);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -57,6 +58,16 @@ export default function ProductSearch({
   const barcodeAutoAddTimer = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+
+  // Date state for searching past sales, defaults to today
+  const [selectedDate, setSelectedDate] = useState(() => {
+    const today = new Date();
+    // Return YYYY-MM-DD
+    return today.toISOString().split("T")[0];
+  });
+
+  const getTodayStr = () => new Date().toISOString().split("T")[0];
+  const isToday = selectedDate === getTodayStr();
 
   // A barcode is a purely numeric string with 6+ digits (barcode scanners input digits rapidly)
   const isBarcodeScan = (value: string) => /^\d{6,}$/.test(value.trim());
@@ -91,32 +102,35 @@ export default function ProductSearch({
     return () => window.removeEventListener("pos-display-changed", handler);
   }, []);
 
-  // Load today's sales on mount and when refreshSalesKey changes
+  // Load sales on mount, when refreshSalesKey changes, or when selectedDate changes
   useEffect(() => {
     const loadSales = async () => {
       try {
-        const data = await window.api?.sales?.getTodaysSales?.();
+        const data = await (window.api?.sales?.getTodaysSales as any)?.(
+          selectedDate,
+        );
         setTodaysSales(Array.isArray(data) ? data : []);
       } catch {
         setTodaysSales([]);
       }
     };
     loadSales();
-  }, [refreshSalesKey]);
+  }, [refreshSalesKey, selectedDate]);
 
-  // Listen for sale:completed events to refresh today's sales
+  // Listen for sale:completed events to refresh sales (only if looking at today)
   useEffect(() => {
     const handler = () => {
-      window.api?.sales
-        ?.getTodaysSales?.()
-        .then((data: TodaySale[]) => {
-          setTodaysSales(Array.isArray(data) ? data : []);
-        })
-        .catch(() => {});
+      if (isToday) {
+        (window.api?.sales?.getTodaysSales as any)?.(selectedDate)
+          .then((data: TodaySale[]) => {
+            setTodaysSales(Array.isArray(data) ? data : []);
+          })
+          .catch(() => {});
+      }
     };
     const unsub = appEvents.on("sale:completed", handler);
     return unsub;
-  }, []);
+  }, [isToday, selectedDate]);
 
   // Clear search bar when checkout modal closes (cancel, draft, or complete)
   useEffect(() => {
@@ -124,12 +138,12 @@ export default function ProductSearch({
   }, []);
 
   const loadProducts = useCallback(async () => {
-    if (!search.trim()) {
+    const searchTerm = search.trim();
+    if (!searchTerm) {
       setProducts([]);
-      setLoading(false);
       return;
     }
-    setLoading(true);
+
     try {
       const data = await api.getProducts(search);
       const results = data as unknown as Product[];
@@ -150,12 +164,10 @@ export default function ProductSearch({
           requestAnimationFrame(() => searchInputRef.current?.focus());
         }, 800);
       }
-    } catch (error) {
-      logger.error("Error loading products:", error);
-    } finally {
-      setLoading(false);
+    } catch (err) {
+      logger.error("Error loading products:", err);
     }
-  }, [search, onAddToCart]);
+  }, [search, onAddToCart, api]);
 
   // Initial load
   useEffect(() => {
@@ -175,6 +187,18 @@ export default function ProductSearch({
   const formatTime = (dateStr: string) => {
     const d = new Date(dateStr);
     return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  };
+
+  const shiftDate = (days: number) => {
+    const d = new Date(selectedDate);
+    d.setDate(d.getDate() + days);
+    setSelectedDate(d.toISOString().split("T")[0]);
+  };
+
+  const displayDateStr = () => {
+    if (isToday) return "Today's Sales";
+    const [year, month, day] = selectedDate.split("-");
+    return `${day}/${month}/${year}`;
   };
 
   return (
@@ -202,146 +226,174 @@ export default function ProductSearch({
       {/* Content Area */}
       <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
         {isSearchEmpty ? (
-          /* ── Today's Sales View ── */
-          todaysSales.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-64 text-slate-500">
-              <ShoppingCart size={48} className="mb-4 opacity-50" />
-              <p>No sales yet today</p>
-            </div>
-          ) : (
-            <>
-              <div className="flex items-center gap-2 mb-4">
+          /* ── Sales View ── */
+          <>
+            <div className="flex items-center justify-between mb-4 bg-slate-800/50 p-3 rounded-xl border border-slate-700/50">
+              <div className="flex items-center gap-3">
                 <Clock size={16} className="text-slate-400" />
-                <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider">
-                  Today's Sales
+                <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider min-w-[110px]">
+                  {displayDateStr()}
                 </h3>
                 <span className="text-xs bg-slate-700 text-slate-300 px-2 py-0.5 rounded-full">
                   {todaysSales.length}
                 </span>
               </div>
-              {showImages ? (
-                /* ── Sales Card Grid ── */
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                  {todaysSales.map((sale) => (
-                    <button
-                      key={sale.id}
-                      onClick={() => onSaleClick?.(sale.id)}
-                      className={`group relative flex flex-col p-4 rounded-xl border transition-all text-left ${
-                        sale.status === "refunded"
-                          ? "bg-red-950/30 border-red-800/50 hover:border-red-600"
-                          : "bg-slate-800 border-slate-700 hover:border-violet-500 hover:bg-slate-750"
-                      }`}
-                    >
-                      {sale.status === "refunded" && (
-                        <div className="absolute top-2 right-2">
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 font-medium flex items-center gap-1">
-                            <RotateCcw size={10} />
-                            Refunded
-                          </span>
-                        </div>
-                      )}
-                      <div className="text-xs text-slate-500 mb-2">
-                        {formatTime(sale.created_at)}
-                      </div>
-                      <div className="flex items-center gap-1.5 mb-2">
-                        <User size={12} className="text-slate-500 shrink-0" />
-                        <span className="text-sm text-slate-300 truncate">
-                          {sale.client_name || "Walk-in"}
-                        </span>
-                      </div>
-                      <div className="text-xs text-slate-500 mb-2">
-                        {sale.item_count} item{sale.item_count !== 1 ? "s" : ""}
-                      </div>
-                      <div className="mt-auto">
-                        <span
-                          className={`font-bold text-lg ${sale.status === "refunded" ? "text-red-400 line-through" : "text-emerald-400"}`}
-                        >
-                          ${sale.final_amount_usd.toFixed(2)}
-                        </span>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                /* ── Sales Table View ── */
-                <DataTable<TodaySale>
-                  columns={[
-                    {
-                      header: "Time",
-                      sortKey: "created_at" as any,
-                      className:
-                        "px-3 py-2 text-left text-xs font-semibold uppercase text-slate-400",
-                      width: "80px",
-                    },
-                    {
-                      header: "Customer",
-                      sortKey: "client_name" as any,
-                      className:
-                        "px-3 py-2 text-left text-xs font-semibold uppercase text-slate-400",
-                    },
-                    {
-                      header: "Items",
-                      sortKey: "item_count" as any,
-                      className:
-                        "px-3 py-2 text-center text-xs font-semibold uppercase text-slate-400",
-                      width: "60px",
-                    },
-                    {
-                      header: "Total",
-                      sortKey: "final_amount_usd" as any,
-                      className:
-                        "px-3 py-2 text-right text-xs font-semibold uppercase text-slate-400",
-                      width: "90px",
-                    },
-                  ]}
-                  data={todaysSales}
-                  paginate
-                  pageSize={PAGE_SIZE}
-                  pageLabel="sales"
-                  defaultSortKey={"created_at" as any}
-                  defaultSortDirection="desc"
-                  className="w-full text-sm"
-                  theadClassName="border-b border-slate-700"
-                  tbodyClassName="divide-y divide-slate-700/50"
-                  renderRow={(sale) => (
-                    <tr
-                      key={sale.id}
-                      onClick={() => onSaleClick?.(sale.id)}
-                      className="hover:bg-slate-700/50 cursor-pointer transition-colors group"
-                    >
-                      <td className="px-3 py-2.5 text-slate-400 text-xs">
-                        {formatTime(sale.created_at)}
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <span className="text-slate-200">
-                          {sale.client_name || "Walk-in"}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2.5 text-center text-slate-400 text-xs">
-                        {sale.item_count}
-                      </td>
-                      <td className="px-3 py-2.5 text-right">
-                        <span
-                          className={`font-bold ${sale.status === "refunded" ? "text-red-400 line-through" : "text-emerald-400"}`}
-                        >
-                          ${sale.final_amount_usd.toFixed(2)}
-                        </span>
-                        {sale.status === "refunded" && (
-                          <span className="ml-1 text-[10px] text-red-400">
-                            refunded
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  )}
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => shiftDate(-1)}
+                  className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded border border-slate-700 transition-colors"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                <input
+                  type="date"
+                  value={selectedDate}
+                  max={getTodayStr()}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-sm text-slate-300 focus:outline-none focus:border-violet-500"
                 />
-              )}
-            </>
-          )
-        ) : loading ? (
-          <div className="flex items-center justify-center h-64 text-slate-500">
-            Loading...
-          </div>
+                <button
+                  onClick={() => shiftDate(1)}
+                  disabled={isToday}
+                  className="p-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 disabled:hover:bg-slate-800 text-slate-400 hover:text-white disabled:hover:text-slate-400 rounded border border-slate-700 transition-colors"
+                >
+                  <ChevronRight size={16} />
+                </button>
+                {!isToday && (
+                  <button
+                    onClick={() => setSelectedDate(getTodayStr())}
+                    className="ml-2 text-xs text-violet-400 hover:text-violet-300 font-medium"
+                  >
+                    Today
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {todaysSales.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-64 text-slate-500">
+                <ShoppingCart size={48} className="mb-4 opacity-50" />
+                <p>No sales found for this date</p>
+              </div>
+            ) : showImages ? (
+              /* ── Sales Card Grid ── */
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                {todaysSales.map((sale) => (
+                  <button
+                    key={sale.id}
+                    onClick={() => onSaleClick?.(sale.id)}
+                    className={`group relative flex flex-col p-4 rounded-xl border transition-all text-left ${
+                      sale.status === "refunded"
+                        ? "bg-red-950/30 border-red-800/50 hover:border-red-600"
+                        : "bg-slate-800 border-slate-700 hover:border-violet-500 hover:bg-slate-750"
+                    }`}
+                  >
+                    {sale.status === "refunded" && (
+                      <div className="absolute top-2 right-2">
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 font-medium flex items-center gap-1">
+                          <RotateCcw size={10} />
+                          Refunded
+                        </span>
+                      </div>
+                    )}
+                    <div className="text-xs text-slate-500 mb-2">
+                      {formatTime(sale.created_at)}
+                    </div>
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <User size={12} className="text-slate-500 shrink-0" />
+                      <span className="text-sm text-slate-300 truncate">
+                        {sale.client_name || "Walk-in"}
+                      </span>
+                    </div>
+                    <div className="text-xs text-slate-500 mb-2">
+                      {sale.item_count} item{sale.item_count !== 1 ? "s" : ""}
+                    </div>
+                    <div className="mt-auto">
+                      <span
+                        className={`font-bold text-lg ${sale.status === "refunded" ? "text-red-400 line-through" : "text-emerald-400"}`}
+                      >
+                        ${sale.final_amount_usd.toFixed(2)}
+                      </span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              /* ── Sales Table View ── */
+              <DataTable<TodaySale>
+                columns={[
+                  {
+                    header: "Time",
+                    sortKey: "created_at" as any,
+                    className:
+                      "px-3 py-2 text-left text-xs font-semibold uppercase text-slate-400",
+                    width: "80px",
+                  },
+                  {
+                    header: "Customer",
+                    sortKey: "client_name" as any,
+                    className:
+                      "px-3 py-2 text-left text-xs font-semibold uppercase text-slate-400",
+                  },
+                  {
+                    header: "Items",
+                    sortKey: "item_count" as any,
+                    className:
+                      "px-3 py-2 text-center text-xs font-semibold uppercase text-slate-400",
+                    width: "60px",
+                  },
+                  {
+                    header: "Total",
+                    sortKey: "final_amount_usd" as any,
+                    className:
+                      "px-3 py-2 text-right text-xs font-semibold uppercase text-slate-400",
+                    width: "90px",
+                  },
+                ]}
+                data={todaysSales}
+                paginate
+                pageSize={PAGE_SIZE}
+                pageLabel="sales"
+                defaultSortKey={"created_at" as any}
+                defaultSortDirection="desc"
+                className="w-full text-sm"
+                theadClassName="border-b border-slate-700"
+                tbodyClassName="divide-y divide-slate-700/50"
+                renderRow={(sale) => (
+                  <tr
+                    key={sale.id}
+                    onClick={() => onSaleClick?.(sale.id)}
+                    className="hover:bg-slate-700/50 cursor-pointer transition-colors group"
+                  >
+                    <td className="px-3 py-2.5 text-slate-400 text-xs">
+                      {formatTime(sale.created_at)}
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <span className="text-slate-200">
+                        {sale.client_name || "Walk-in"}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2.5 text-center text-slate-400 text-xs">
+                      {sale.item_count}
+                    </td>
+                    <td className="px-3 py-2.5 text-right">
+                      <span
+                        className={`font-bold ${sale.status === "refunded" ? "text-red-400 line-through" : "text-emerald-400"}`}
+                      >
+                        ${sale.final_amount_usd.toFixed(2)}
+                      </span>
+                      {sale.status === "refunded" && (
+                        <span className="ml-1 text-[10px] text-red-400">
+                          refunded
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                )}
+              />
+            )}
+          </>
         ) : products.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-slate-500">
             <ShoppingCart size={48} className="mb-4 opacity-50" />

@@ -361,7 +361,7 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
     }
 
     if (setClauses.length === 0) return 0;
-    
+
     setClauses.push("updated_at = datetime('now')");
 
     const placeholders = ids.map(() => "?").join(", ");

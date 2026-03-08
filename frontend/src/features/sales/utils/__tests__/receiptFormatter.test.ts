@@ -1,4 +1,8 @@
-import { formatReceipt58mm, formatReceipt80mm, type ReceiptData } from "../receiptFormatter";
+import {
+  formatReceipt58mm,
+  formatReceipt80mm,
+  type ReceiptData,
+} from "../receiptFormatter";
 
 describe("Receipt Formatter", () => {
   const mockReceiptData: ReceiptData = {

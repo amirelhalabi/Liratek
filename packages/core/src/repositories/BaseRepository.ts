@@ -91,7 +91,7 @@ export abstract class BaseRepository<T extends BaseEntity> {
    */
   protected getBaseWhere(prefix: "WHERE" | "AND" = "WHERE"): string {
     let clauses = [];
-    
+
     if (this.softDelete) {
       clauses.push("is_deleted = 0");
     }
@@ -309,7 +309,7 @@ export abstract class BaseRepository<T extends BaseEntity> {
       const query = hasUpdatedAt
         ? `UPDATE ${this.tableName} SET is_deleted = 1, updated_at = datetime('now') WHERE id = ?`
         : `UPDATE ${this.tableName} SET is_deleted = 1 WHERE id = ?`;
-        
+
       const result = this.db.prepare(query).run(id);
 
       if (result.changes === 0 && options.throwOnNotFound) {
@@ -319,11 +319,15 @@ export abstract class BaseRepository<T extends BaseEntity> {
       return result.changes > 0;
     } catch (error) {
       if (error instanceof NotFoundError) throw error;
-      const originalMessage = error instanceof Error ? error.message : String(error);
-      throw new DatabaseError(`Failed to soft delete ${this.tableName}: ${originalMessage}`, {
-        cause: error,
-        entityId: id,
-      });
+      const originalMessage =
+        error instanceof Error ? error.message : String(error);
+      throw new DatabaseError(
+        `Failed to soft delete ${this.tableName}: ${originalMessage}`,
+        {
+          cause: error,
+          entityId: id,
+        },
+      );
     }
   }
 
@@ -338,7 +342,7 @@ export abstract class BaseRepository<T extends BaseEntity> {
       const query = hasUpdatedAt
         ? `UPDATE ${this.tableName} SET is_deleted = 0, updated_at = datetime('now') WHERE id = ?`
         : `UPDATE ${this.tableName} SET is_deleted = 0 WHERE id = ?`;
-        
+
       const result = this.db.prepare(query).run(id);
 
       if (result.changes === 0 && options.throwOnNotFound) {
@@ -375,8 +379,10 @@ export abstract class BaseRepository<T extends BaseEntity> {
    */
   protected hasColumn(columnName: string): boolean {
     try {
-      const info = this.db.prepare(`PRAGMA table_info(${this.tableName})`).all() as any[];
-      return info.some(col => col.name === columnName);
+      const info = this.db
+        .prepare(`PRAGMA table_info(${this.tableName})`)
+        .all() as any[];
+      return info.some((col) => col.name === columnName);
     } catch {
       return false;
     }

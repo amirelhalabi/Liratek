@@ -1195,6 +1195,17 @@ export interface ElectronAPI {
     fixFocus: () => void;
   };
 
+  print: {
+    getPrinters: () => Promise<
+      { name: string; displayName: string; description: string }[]
+    >;
+    silentPrint: (
+      html: string,
+      printerName: string,
+      options?: any,
+    ) => Promise<{ success: boolean; error?: string }>;
+  };
+
   // Custom Services
   customServices: {
     list: (filter?: { date?: string }) => Promise<

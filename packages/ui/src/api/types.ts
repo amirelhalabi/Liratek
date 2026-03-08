@@ -221,7 +221,7 @@ export type ApiAdapter = {
   // ---------------------------------------------------------------------------
   getDashboardStats: () => Promise<DashboardStats>;
   getProfitSalesChart: (type: "Sales" | "Profit") => Promise<ChartDataPoint[]>;
-  getTodaysSales: () => Promise<RecentSale[]>;
+  getTodaysSales: (date?: string) => Promise<RecentSale[]>;
   getDrawerBalances: () => Promise<DrawerBalances>;
   getDebtSummary: () => Promise<any>;
   getInventoryStockStats: () => Promise<StockStats>;

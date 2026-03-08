@@ -38,7 +38,7 @@ describe("BaseRepository", () => {
         ...require("../../../__mocks__/better-sqlite3").mockStatement,
         _sql: sql,
       };
-      
+
       // Handle PRAGMA table_info call from hasColumn
       if (sql.includes("PRAGMA")) {
         stmt.all = jest.fn(() => []);
@@ -55,7 +55,9 @@ describe("BaseRepository", () => {
     expect(res).toEqual({ id: 1, name: "A" });
     // Expect the SELECT query. The test ignores PRAGMA calls order if we check specifically for SELECT
     expect(testDb.prepare).toHaveBeenCalledWith(
-      expect.stringMatching(/SELECT id, name, created_at FROM test_table.*WHERE id = \?/),
+      expect.stringMatching(
+        /SELECT id, name, created_at FROM test_table.*WHERE id = \?/,
+      ),
     );
   });
 
@@ -86,7 +88,9 @@ describe("BaseRepository", () => {
 
     expect(res).toEqual([{ id: 1, name: "A" }]);
     expect(testDb.prepare).toHaveBeenCalledWith(
-      expect.stringMatching(/SELECT id, name, created_at FROM test_table.*ORDER BY id DESC LIMIT \? OFFSET \?/),
+      expect.stringMatching(
+        /SELECT id, name, created_at FROM test_table.*ORDER BY id DESC LIMIT \? OFFSET \?/,
+      ),
     );
   });
 
@@ -107,6 +111,10 @@ describe("BaseRepository", () => {
     expect(testDb.prepare).toHaveBeenCalled();
     const sqls = testDb.prepare.mock.calls.map((c: any[]) => c[0]);
     // Use regex to match DELETE query
-    expect(sqls).toEqual(expect.arrayContaining([expect.stringMatching(/DELETE FROM test_table WHERE id = \?/)]));
+    expect(sqls).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/DELETE FROM test_table WHERE id = \?/),
+      ]),
+    );
   });
 });

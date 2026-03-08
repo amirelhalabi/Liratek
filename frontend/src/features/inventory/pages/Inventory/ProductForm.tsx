@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import logger from "@/utils/logger";
 import { X, Save, Printer } from "lucide-react";
-import { useApi } from "@liratek/ui";
+import { useApi, appEvents } from "@liratek/ui";
 import type { Product } from "@liratek/ui";
 import JsBarcode from "jsbarcode";
 
@@ -114,7 +114,7 @@ export default function ProductForm({
     if (qty > 0) setPrintCopies(qty);
   }, [product?.stock_quantity]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handlePrintBarcode = useCallback(() => {
+  const handlePrintBarcode = useCallback(async () => {
     const barcode = formData.barcode?.trim();
     if (!barcode) return;
 
@@ -126,7 +126,7 @@ export default function ProductForm({
       JsBarcode(canvas, barcode, {
         format: "CODE128",
         width: 1.5,
-        height: 30,
+        height: 30, // rendered height before rotation
         displayValue: true,
         fontSize: 10,
         margin: 0,
@@ -140,22 +140,22 @@ export default function ProductForm({
     const dataUrl = canvas.toDataURL("image/png");
 
     // Build label HTML — one per copy, each on its own page
+    // Using a flex layout with 90deg rotation to make it print along the 58mm length.
     const labels = Array.from({ length: copies })
       .map(
         () => `<div class="label"><img src="${dataUrl}" alt="barcode" /></div>`,
       )
       .join("\n");
 
-    const printWindow = window.open("", "", "width=340,height=260");
-    if (!printWindow) return;
-
-    printWindow.document.write(`<!DOCTYPE html>
+    const htmlContent = `<!DOCTYPE html>
 <html>
 <head>
 <title>Barcode</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { width: 58mm; margin: 0; padding: 0; }
+  html, body { width: 58mm; height: 30mm; margin: 0; padding: 0; }
+  
+  /* The container is 58mm wide and 30mm high */
   .label {
     width: 58mm;
     height: 30mm;
@@ -163,12 +163,22 @@ export default function ProductForm({
     align-items: center;
     justify-content: center;
     overflow: hidden;
-    padding: 1mm 2mm;
+    padding: 1mm;
   }
-  img { max-width: 54mm; max-height: 28mm; display: block; }
+  
+  /* The image naturally draws horizontally, so we rotate it so the bars run parallel to the 30mm side, 
+     making the whole barcode stretch across the 58mm width. */
+  img { 
+    max-width: 28mm; /* fits within the 30mm height when rotated */
+    max-height: 54mm; /* fits within the 58mm width when rotated */
+    display: block; 
+    transform: rotate(90deg);
+  }
+  
   @media print {
+    /* Set page dimension to match the label tape */
     @page { size: 58mm 30mm; margin: 0; }
-    html, body { width: 58mm; margin: 0; padding: 0; }
+    html, body { width: 58mm; height: 30mm; margin: 0; padding: 0; }
     .label { page-break-after: always; }
     .label:last-child { page-break-after: auto; }
   }
@@ -177,30 +187,77 @@ export default function ProductForm({
 <body>
 ${labels}
 </body>
-</html>`);
-    printWindow.document.close();
+</html>`;
 
-    // Wait for barcode images to load, then trigger print from parent context
-    const images = Array.from(printWindow.document.images);
-    Promise.all(
-      images.map((img) =>
-        img.complete
-          ? Promise.resolve()
-          : new Promise<void>((r) => {
-              img.onload = () => r();
-              img.onerror = () => r();
-            }),
-      ),
-    ).then(() => {
-      printWindow.focus();
-      printWindow.print();
-      printWindow.close();
-      // Windows focus fix
-      setTimeout(() => {
-        window.api?.display?.fixFocus?.();
-      }, 100);
-    });
-  }, [formData.barcode, printCopies]);
+    // Fetch the target barcode printer from settings
+    let targetPrinter = "";
+    try {
+      const settings = await api.getAllSettings();
+      const barcodeSetting = settings.find(
+        (s: any) => s.key_name === "barcode_printer",
+      );
+      if (barcodeSetting && barcodeSetting.value) {
+        targetPrinter = barcodeSetting.value;
+      }
+    } catch (e) {
+      logger.warn("Failed to get printer setting", { error: e });
+    }
+
+    if (targetPrinter && window.api?.print?.silentPrint) {
+      logger.info(
+        `Sending barcode to silent printer: ${targetPrinter} (${copies} copies)`,
+      );
+      const result = await window.api.print.silentPrint(
+        htmlContent,
+        targetPrinter,
+      );
+      if (!result?.success) {
+        logger.error(`Silent print failed: ${result?.error}`);
+        appEvents.emit(
+          "notification:show",
+          "Barcode printing failed: " + (result?.error || "Unknown error"),
+          "error",
+        );
+      }
+    } else {
+      // Fallback to traditional browser window print (with the new CSS fixes)
+      logger.info(
+        "Silent printing unavailable or no designated printer, falling back to window.print",
+      );
+      const printWindow = window.open("", "", "width=340,height=260");
+      if (!printWindow) {
+        appEvents.emit(
+          "notification:show",
+          "Popup blocked. Please allow popups to print barcodes.",
+          "error",
+        );
+        return;
+      }
+
+      printWindow.document.write(htmlContent);
+      printWindow.document.close();
+
+      const images = Array.from(printWindow.document.images);
+      Promise.all(
+        images.map((img) =>
+          img.complete
+            ? Promise.resolve()
+            : new Promise<void>((r) => {
+                img.onload = () => r();
+                img.onerror = () => r();
+              }),
+        ),
+      ).then(() => {
+        printWindow.focus();
+        printWindow.print();
+        printWindow.close();
+        // Windows focus fix
+        setTimeout(() => {
+          window.api?.display?.fixFocus?.();
+        }, 100);
+      });
+    }
+  }, [formData.barcode, printCopies, api]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

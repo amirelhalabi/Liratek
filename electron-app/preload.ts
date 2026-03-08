@@ -596,6 +596,13 @@ contextBridge.exposeInMainWorld("api", {
     getZoomFactor: () => webFrame.getZoomFactor(),
     fixFocus: () => ipcRenderer.send("display:fix-focus"),
   },
+
+  // Printing
+  print: {
+    getPrinters: () => ipcRenderer.invoke("print:get-printers"),
+    silentPrint: (html: string, printerName: string, options?: any) =>
+      ipcRenderer.invoke("print:silent", html, printerName, options),
+  },
 });
 
 console.log("[PRELOAD] window.api exposed successfully");
