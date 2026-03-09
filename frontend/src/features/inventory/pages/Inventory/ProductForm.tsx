@@ -108,12 +108,6 @@ export default function ProductForm({
 
   const [printCopies, setPrintCopies] = useState(1);
 
-  // Autofill print copies from stock quantity when product loads
-  useEffect(() => {
-    const qty = product?.stock_quantity ?? formData.stock_quantity;
-    if (qty > 0) setPrintCopies(qty);
-  }, [product?.stock_quantity]); // eslint-disable-line react-hooks/exhaustive-deps
-
   const handlePrintBarcode = useCallback(async () => {
     const barcode = formData.barcode?.trim();
     if (!barcode) return;
@@ -210,6 +204,10 @@ ${labels}
       const result = await window.api.print.silentPrint(
         htmlContent,
         targetPrinter,
+        {
+          pageSize: { width: 58000, height: 30000 },
+          margins: { marginType: "none" },
+        },
       );
       if (!result?.success) {
         logger.error(`Silent print failed: ${result?.error}`);

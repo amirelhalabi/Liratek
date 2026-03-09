@@ -52,7 +52,12 @@ const receiptPrintCSS = `
 const printReceiptContent = async (content: string, targetPrinter?: string) => {
   if (targetPrinter && window.api?.print?.silentPrint) {
     logger.info(`Sending receipt to silent printer: ${targetPrinter}`);
-    const result = await window.api.print.silentPrint(content, targetPrinter);
+    const fullHtml = `<!DOCTYPE html>
+<html>
+<head><title>Receipt</title><style>${receiptPrintCSS}</style></head>
+<body><pre>${content}</pre></body>
+</html>`;
+    const result = await window.api.print.silentPrint(fullHtml, targetPrinter);
     if (!result?.success) {
       logger.error(`Silent receipt print failed: ${result?.error}`);
       appEvents.emit(
