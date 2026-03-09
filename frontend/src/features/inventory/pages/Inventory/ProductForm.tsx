@@ -122,8 +122,9 @@ export default function ProductForm({
         width: 2,
         height: 50,
         displayValue: true,
-        fontSize: 14,
-        margin: 2,
+        fontSize: 18,
+        fontOptions: "bold",
+        margin: 0,
         textMargin: 2,
       });
     } catch {
@@ -164,7 +165,8 @@ export default function ProductForm({
   img { 
     max-width: 58mm;
     max-height: 30mm;
-    display: block; 
+    display: block;
+    margin: 0 auto;
   }
   
   @media print {
