@@ -119,12 +119,12 @@ export default function ProductForm({
     try {
       JsBarcode(canvas, barcode, {
         format: "CODE128",
-        width: 1.5,
-        height: 30, // rendered height before rotation
+        width: 2,
+        height: 50,
         displayValue: true,
-        fontSize: 10,
-        margin: 0,
-        textMargin: 1,
+        fontSize: 14,
+        margin: 2,
+        textMargin: 2,
       });
     } catch {
       logger.error("Failed to generate barcode", { barcode });
@@ -157,13 +157,13 @@ export default function ProductForm({
     align-items: center;
     justify-content: center;
     overflow: hidden;
-    padding: 1mm;
+    padding: 0;
   }
   
-  /* Barcode prints landscape — no rotation needed, image fits naturally in 58mm x 30mm */
+  /* Barcode prints landscape — fills the 58mm x 30mm label */
   img { 
-    max-width: 54mm;
-    max-height: 26mm;
+    max-width: 58mm;
+    max-height: 30mm;
     display: block; 
   }
   
