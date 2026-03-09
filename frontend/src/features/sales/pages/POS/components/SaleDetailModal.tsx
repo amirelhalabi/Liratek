@@ -117,7 +117,7 @@ export default function SaleDetailModal({
     }
   };
 
-  const handlePrintReceipt = () => {
+  const handlePrintReceipt = async () => {
     if (!sale) return;
 
     const receipt: ReceiptData = {
@@ -145,33 +145,59 @@ export default function SaleDetailModal({
       timestamp: sale.created_at,
     };
 
-    const formatted = formatReceipt58mm(receipt);
-    const printWindow = window.open("", "", "width=400,height=600");
-    if (printWindow) {
-      printWindow.document.write(`<!DOCTYPE html>
-<html>
-<head>
-<title>Receipt</title>
-<style>
+    const receiptCSS = `
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { width: 72mm; margin: 0 auto; }
   pre { font-family: 'Courier New', monospace; font-size: 11px; font-weight: bold; white-space: pre-wrap; word-break: break-all; line-height: 1.4; }
   @media print {
     @page { size: 72mm auto; margin: 0; }
     html, body { width: 72mm; margin: 0; padding: 0; }
-  }
-</style>
-</head>
+  }`;
+
+    const formatted = formatReceipt58mm(receipt);
+    const fullHtml = `<!DOCTYPE html>
+<html>
+<head><title>Receipt</title><style>${receiptCSS}</style></head>
 <body><pre>${formatted}</pre></body>
-</html>`);
-      printWindow.document.close();
-      printWindow.focus();
-      printWindow.print();
-      printWindow.close();
-      // Windows focus fix
-      setTimeout(() => {
-        (window as any).api?.display?.fixFocus?.();
-      }, 100);
+</html>`;
+
+    // Try silent print to configured receipt printer
+    let targetPrinter = "";
+    try {
+      const settings = await window.api?.settings?.getAll?.();
+      if (settings) {
+        const printerSetting = settings.find(
+          (s: any) => s.key_name === "receipt_printer",
+        );
+        if (printerSetting?.value) {
+          targetPrinter = printerSetting.value;
+        }
+      }
+    } catch {
+      // ignore — fall through to popup
+    }
+
+    if (targetPrinter && window.api?.print?.silentPrint) {
+      const result = await window.api.print.silentPrint(fullHtml, targetPrinter);
+      if (!result?.success) {
+        appEvents.emit(
+          "notification:show",
+          "Receipt printing failed: " + (result?.error || "Unknown error"),
+          "error",
+        );
+      }
+    } else {
+      const printWindow = window.open("", "", "width=400,height=600");
+      if (printWindow) {
+        printWindow.document.write(fullHtml);
+        printWindow.document.close();
+        printWindow.focus();
+        printWindow.print();
+        printWindow.close();
+        setTimeout(() => {
+          (window as any).api?.display?.fixFocus?.();
+        }, 100);
+      }
     }
   };
 

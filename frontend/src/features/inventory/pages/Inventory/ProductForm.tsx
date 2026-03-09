@@ -160,13 +160,11 @@ export default function ProductForm({
     padding: 1mm;
   }
   
-  /* The image naturally draws horizontally, so we rotate it so the bars run parallel to the 30mm side, 
-     making the whole barcode stretch across the 58mm width. */
+  /* Barcode prints landscape — no rotation needed, image fits naturally in 58mm x 30mm */
   img { 
-    max-width: 28mm; /* fits within the 30mm height when rotated */
-    max-height: 54mm; /* fits within the 58mm width when rotated */
+    max-width: 54mm;
+    max-height: 26mm;
     display: block; 
-    transform: rotate(90deg);
   }
   
   @media print {
