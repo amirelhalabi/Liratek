@@ -52,8 +52,7 @@ export const SaleRefundSchema = z.number().int().positive();
 // Inventory
 // =============================================================================
 
-export const ProductInputSchema = z.object({
-  id: z.number().int().positive().optional(),
+const ProductBaseSchema = z.object({
   barcode: z.string().min(1, "Barcode is required"),
   name: z.string().min(1, "Product name is required"),
   category: z.string().min(1),
@@ -64,6 +63,19 @@ export const ProductInputSchema = z.object({
   min_stock_level: z.number().int().nonnegative().optional(),
   image_url: z.string().optional().nullable(),
   supplier: z.string().optional().nullable(),
+});
+
+/** Create: id must NOT be sent — the database auto-generates it. */
+export const ProductCreateSchema = ProductBaseSchema;
+
+/** Update: id is required to identify the row to modify. */
+export const ProductUpdateSchema = ProductBaseSchema.extend({
+  id: z.number().int().positive("Product ID is required for updates"),
+});
+
+/** @deprecated Use ProductCreateSchema or ProductUpdateSchema instead. */
+export const ProductInputSchema = ProductBaseSchema.extend({
+  id: z.number().int().positive().optional(),
 });
 
 export const BatchUpdateSchema = z.object({

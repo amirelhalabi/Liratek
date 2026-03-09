@@ -119,8 +119,8 @@ export default function ProductForm({
     try {
       JsBarcode(canvas, barcode, {
         format: "CODE128",
-        width: 2,
-        height: 50,
+        width: 1.5,
+        height: 40,
         displayValue: true,
         fontSize: 18,
         fontOptions: "bold",
@@ -264,17 +264,22 @@ ${labels}
     setIsLoading(true);
 
     try {
-      const payload = {
-        ...formData,
-        id: product?.id ?? 0,
-        supplier: formData.supplier || null,
-      } as any;
-
       let result;
       if (product) {
-        result = await api.updateProduct(product.id, payload);
+        // Update: include the existing id for the database to locate the row
+        const updatePayload = {
+          ...formData,
+          id: product.id,
+          supplier: formData.supplier || null,
+        };
+        result = await api.updateProduct(product.id, updatePayload);
       } else {
-        result = await api.createProduct(payload);
+        // Create: never send id — the database auto-generates it
+        const createPayload = {
+          ...formData,
+          supplier: formData.supplier || null,
+        };
+        result = await api.createProduct(createPayload);
       }
 
       if (result.success) {
