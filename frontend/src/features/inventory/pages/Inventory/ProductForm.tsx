@@ -114,32 +114,30 @@ export default function ProductForm({
 
     const copies = Math.max(1, Math.min(printCopies, 999));
 
-    // Create an offscreen canvas, render the barcode, export as data URL
-    const canvas = document.createElement("canvas");
+    // Create an offscreen SVG, render the barcode as vector for crisp printing
+    const svgNs = "http://www.w3.org/2000/svg";
+    const svgEl = document.createElementNS(svgNs, "svg");
     try {
-      JsBarcode(canvas, barcode, {
+      JsBarcode(svgEl, barcode, {
         format: "CODE128",
-        width: 4,
-        height: 120,
+        width: 2,
+        height: 80,
         displayValue: true,
-        fontSize: 36,
+        fontSize: 16,
         fontOptions: "bold",
         margin: 4,
-        textMargin: 4,
+        textMargin: 2,
       });
     } catch {
       logger.error("Failed to generate barcode", { barcode });
       return;
     }
 
-    const dataUrl = canvas.toDataURL("image/png");
+    const svgString = new XMLSerializer().serializeToString(svgEl);
 
     // Build label HTML — one per copy, each on its own page
-    // Using a flex layout with 90deg rotation to make it print along the 58mm length.
     const labels = Array.from({ length: copies })
-      .map(
-        () => `<div class="label"><img src="${dataUrl}" alt="barcode" /></div>`,
-      )
+      .map(() => `<div class="label">${svgString}</div>`)
       .join("\n");
 
     const htmlContent = `<!DOCTYPE html>
@@ -161,8 +159,10 @@ export default function ProductForm({
     padding: 0;
   }
   
-  /* Barcode prints landscape — fills the 58mm x 30mm label */
-  img { 
+  /* Barcode SVG scales to fill the label without pixelation */
+  svg { 
+    width: 100%;
+    height: auto;
     max-width: 58mm;
     max-height: 30mm;
     display: block;
