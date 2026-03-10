@@ -322,7 +322,7 @@ export default function POS() {
         </div>
 
         {/* Right: Cart */}
-        <div className="w-[44rem] flex-shrink-0">
+        <div className="w-[44rem] flex-shrink-0 h-full">
           <Cart
             items={cartItems}
             onUpdateQuantity={handleUpdateQuantity}
