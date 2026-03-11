@@ -10,6 +10,7 @@ concurrency:
 
 # Shared cache paths for yarn install
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   CI_CACHE_PATHS: |
     .yarn/cache
     node_modules
