@@ -584,6 +584,46 @@ export interface ElectronAPI {
     ) => Promise<{ success: boolean; messageId?: string; error?: string }>;
   };
 
+  // Voice Bot
+  voicebot: {
+    parse: (
+      text: string,
+      currentModule: string,
+    ) => Promise<{
+      success: boolean;
+      command?: {
+        module: string;
+        action: string;
+        entities: {
+          amount?: number;
+          phone?: string;
+          name?: string;
+          product?: string;
+          quantity?: number;
+          serviceType?: "SEND" | "RECEIVE";
+        };
+      };
+      error?: string;
+    }>;
+    execute: (command: {
+      module: string;
+      action: string;
+      entities: {
+        amount?: number;
+        phone?: string;
+        name?: string;
+        product?: string;
+        quantity?: number;
+        serviceType?: "SEND" | "RECEIVE";
+      };
+    }) => Promise<{
+      success: boolean;
+      message?: string;
+      entities?: any;
+      error?: string;
+    }>;
+  };
+
   // Closing
   closing: {
     getSystemExpectedBalancesDynamic: () => Promise<
@@ -664,6 +704,164 @@ export interface ElectronAPI {
       }>;
       error?: string;
     }>;
+  };
+
+  // Session
+  session: {
+    start: (data: {
+      customer_name?: string;
+      customer_phone?: string;
+      customer_notes?: string;
+    }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    close: (sessionId: number) => Promise<{ success: boolean; error?: string }>;
+    update: (
+      sessionId: number,
+      data: {
+        customer_name?: string;
+        customer_phone?: string;
+        customer_notes?: string;
+      },
+    ) => Promise<{ success: boolean; error?: string }>;
+    list: () => Promise<{ success: boolean; sessions?: any[]; error?: string }>;
+    linkTransaction: (data: {
+      sessionId?: number;
+      transactionType: string;
+      transactionId: number;
+      amountUsd: number;
+      amountLbp: number;
+    }) => Promise<{ success: boolean; linked: boolean; error?: string }>;
+    getTransactions: (sessionId: number) => Promise<{
+      success: boolean;
+      transactions?: any[];
+      error?: string;
+    }>;
+    getByCustomer: (data: {
+      customerName: string;
+      customerPhone?: string | undefined;
+    }) => Promise<{ success: boolean; sessions?: any[]; error?: string }>;
+  };
+
+  // Currencies
+  currencies: {
+    list: () => Promise<
+      Array<{ code: string; name: string; is_active: number }>
+    >;
+    get: (
+      code: string,
+    ) => Promise<{ code: string; name: string; is_active: number } | null>;
+    allDrawerCurrencies: () => Promise<Record<string, string[]>>;
+  };
+
+  // Transactions
+  transactions: {
+    list: (filter?: { date?: string; type?: string }) => Promise<any[]>;
+    get: (id: number) => Promise<any | null>;
+    getById: (id: number) => Promise<any | null>;
+  };
+
+  // Profits
+  profits: {
+    summary: (
+      startDate: string,
+      endDate: string,
+    ) => Promise<{
+      totalRevenueUsd: number;
+      totalRevenueLbp: number;
+      totalCostUsd: number;
+      totalCostLbp: number;
+      totalProfitUsd: number;
+      totalProfitLbp: number;
+    }>;
+    byModule: (startDate: string, endDate: string) => Promise<any[]>;
+    byDate: (startDate: string, endDate: string) => Promise<any[]>;
+    byPaymentMethod: (startDate: string, endDate: string) => Promise<any[]>;
+    byUser: (startDate: string, endDate: string) => Promise<any[]>;
+    byClient: (
+      startDate: string,
+      endDate: string,
+      clientId?: number,
+    ) => Promise<any[]>;
+    pending: (startDate: string, endDate: string) => Promise<any[]>;
+  };
+
+  // Diagnostics
+  diagnostics: {
+    getSyncErrors: () => Promise<any[]>;
+    foreignKeyCheck: () => Promise<{
+      success: boolean;
+      rows?: any[];
+      error?: string;
+    }>;
+  };
+
+  // Report
+  report: {
+    generateDaily: (
+      date: string,
+    ) => Promise<{ success: boolean; path?: string; error?: string }>;
+    generateWeekly: (
+      startDate: string,
+      endDate: string,
+    ) => Promise<{ success: boolean; path?: string; error?: string }>;
+    generateMonthly: (
+      year: number,
+      month: number,
+    ) => Promise<{ success: boolean; path?: string; error?: string }>;
+    listBackups: () => Promise<{
+      success: boolean;
+      backups?: any[];
+      error?: string;
+    }>;
+    backupDatabase: () => Promise<{
+      success: boolean;
+      path?: string;
+      error?: string;
+    }>;
+    verifyBackup: (
+      backupPath: string,
+    ) => Promise<{ ok: boolean; success?: boolean; error?: string }>;
+    restoreDatabase: (
+      backupPath: string,
+    ) => Promise<{ success: boolean; error?: string }>;
+    deleteBackup: (
+      backupPath: string,
+    ) => Promise<{ success: boolean; error?: string }>;
+  };
+
+  // Updater
+  updater: {
+    getStatus: () => Promise<{
+      status: string;
+      version?: string;
+      updateAvailable?: boolean;
+      downloadProgress?: number;
+      devMode?: boolean;
+      updateInfo?: {
+        version: string;
+        releaseDate: string;
+        releaseNotes: string;
+      };
+    }>;
+    check: () => Promise<{
+      success: boolean;
+      updateAvailable?: boolean;
+      devMode?: boolean;
+      updateInfo?: {
+        version: string;
+        releaseDate: string;
+        releaseNotes: string;
+      };
+      error?: string;
+    }>;
+    download: () => Promise<{ success: boolean; error?: string }>;
+    quitAndInstall: () => void;
+    onUpdateAvailable: (cb: (_event: any, info: any) => void) => () => void;
+    onUpdateNotAvailable: (cb: (_event: any) => void) => () => void;
+    onDownloadProgress: (
+      cb: (_event: any, progress: any) => void,
+    ) => () => void;
+    onUpdateDownloaded: (cb: (info: any) => void) => () => void;
+    onError: (cb: (error: any) => void) => () => void;
   };
 
   // Setup Wizard
