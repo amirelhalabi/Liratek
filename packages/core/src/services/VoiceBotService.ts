@@ -268,6 +268,17 @@ export class VoiceBotService {
         const fromDate = this.extractDate(lowerText, "from");
         const toDate = this.extractDate(lowerText, "to");
 
+        // Extract status filter if mentioned
+        let status: string | undefined;
+        if (lowerText.includes("paid") && !lowerText.includes("unpaid")) {
+          status = "paid";
+        } else if (
+          lowerText.includes("unpaid") ||
+          lowerText.includes("pending")
+        ) {
+          status = "unpaid";
+        }
+
         return {
           module: "navigation",
           action: "navigate",
@@ -275,6 +286,7 @@ export class VoiceBotService {
             targetPage: route,
             fromDate,
             toDate,
+            status,
           },
         };
       }
@@ -536,7 +548,7 @@ export class VoiceBotService {
 
       if (isSend) {
         const entities = this.extractSendEntities(text);
-        if (entities.amount && entities.receiverPhone) {
+        if (entities.amount) {
           return {
             module: "omt_whish",
             action: "send",
