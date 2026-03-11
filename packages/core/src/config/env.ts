@@ -37,6 +37,12 @@ const envSchema = z
 
     // Electron-specific (only needed when running electron app)
     ELECTRON_RENDERER_URL: z.string().url().optional(),
+
+    // Voice Transcription (Qwen-ASR)
+    DASHSCOPE_API_KEY: z.string().optional(),
+    QWEN_ASR_MODEL: z.string().default("qwen3-asr-flash-realtime"),
+    QWEN_ASR_REGION: z.string().default("singapore"),
+    QWEN_ASR_LANGUAGE: z.string().default("en"),
   })
   .transform((data) => {
     // Auto-adjust log level based on environment if not explicitly set
@@ -84,6 +90,10 @@ function parseEnv(): EnvConfig {
     JWT_SECRET: process.env.JWT_SECRET,
     JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN,
     ELECTRON_RENDERER_URL: process.env.ELECTRON_RENDERER_URL,
+    DASHSCOPE_API_KEY: process.env.DASHSCOPE_API_KEY,
+    QWEN_ASR_MODEL: process.env.QWEN_ASR_MODEL,
+    QWEN_ASR_REGION: process.env.QWEN_ASR_REGION,
+    QWEN_ASR_LANGUAGE: process.env.QWEN_ASR_LANGUAGE,
   });
 
   if (!result.success) {
@@ -125,6 +135,10 @@ export const {
   JWT_SECRET,
   JWT_EXPIRES_IN,
   ELECTRON_RENDERER_URL,
+  DASHSCOPE_API_KEY,
+  QWEN_ASR_MODEL,
+  QWEN_ASR_REGION,
+  QWEN_ASR_LANGUAGE,
 } = env;
 
 /**
