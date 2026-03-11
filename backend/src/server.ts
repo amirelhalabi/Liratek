@@ -84,7 +84,7 @@ import itemCostsRoutes from "./api/item-costs.js";
 import voucherImagesRoutes from "./api/voucher-images.js";
 import customServicesRoutes from "./api/customServices.js";
 import profitsRoutes from "./api/profits.js";
-import voiceRoutes from "./api/voice.js";
+import voiceRoutes, { initVoiceWebSocketServer } from "./api/voice.js";
 
 // Health checks (no /api prefix for easier monitoring)
 app.use("/health", healthRoutes);
@@ -119,6 +119,9 @@ app.use("/api/voucher-images", voucherImagesRoutes);
 app.use("/api/custom-services", customServicesRoutes);
 app.use("/api/profits", profitsRoutes);
 app.use("/api/voice", voiceRoutes);
+
+// Initialize WebSocket server for voice transcription
+initVoiceWebSocketServer(httpServer);
 
 app.get("/api", (_req, res) => {
   res.json({ message: "LiraTek API Server", version: "1.0.0" });
