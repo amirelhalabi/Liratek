@@ -23,6 +23,7 @@ import {
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { useExchangeRate } from "@/hooks/useExchangeRate";
 import { DataTable } from "@/shared/components/DataTable";
+import { VoiceBotButton } from "@/components/VoiceBotButton";
 import {
   MultiPaymentInput,
   type PaymentLine,
@@ -1147,6 +1148,9 @@ export default function Debts() {
           </div>
         </div>
       )}
+
+      {/* Voice Bot Button */}
+      <VoiceBotButton position="bottom-right" />
     </div>
   );
 }

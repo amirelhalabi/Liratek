@@ -21,6 +21,7 @@ import {
   MultiPaymentInput,
   type PaymentLine,
 } from "@/shared/components/MultiPaymentInput";
+import { VoiceBotButton } from "@/components/VoiceBotButton";
 
 type Provider = "OMT" | "WHISH";
 type ServiceType = "SEND" | "RECEIVE";
@@ -263,9 +264,12 @@ export default function Services() {
   const [paidByMethod, setPaidByMethod] = useState("CASH");
   const [serviceType, setServiceType] = useState<ServiceType>("SEND");
   const [amount, setAmount] = useState<string>("");
-  const [clientName, setClientName] = useState("");
+  // Sender/Receiver fields (Phase 2)
+  const [senderName, setSenderName] = useState("");
+  const [senderPhone, setSenderPhone] = useState("");
+  const [receiverName, setReceiverName] = useState("");
+  const [receiverPhone, setReceiverPhone] = useState("");
   const [referenceNumber, setReferenceNumber] = useState("");
-  const [phoneNumber, setPhoneNumber] = useState("");
   const [omtServiceType, setOmtServiceType] = useState<OmtServiceType | null>(
     "INTRA", // Default to INTRA for OMT — most common service type
   );
@@ -385,29 +389,129 @@ export default function Services() {
   useEffect(() => {
     loadData();
 
-    // Auto-fill customer from active session
-    if (activeSession?.customer_name) {
-      setClientName(activeSession.customer_name);
+    // Auto-fill sender/receiver from active session based on service type
+    if (activeSession) {
+      if (serviceType === "SEND") {
+        // Session customer is the sender
+        setSenderName(activeSession.customer_name || "");
+        setSenderPhone(activeSession.customer_phone || "");
+      } else {
+        // Session customer is the receiver
+        setReceiverName(activeSession.customer_name || "");
+        setReceiverPhone(activeSession.customer_phone || "");
+      }
     }
-  }, [activeSession, loadData]);
+  }, [activeSession, serviceType, loadData]);
+
+  // Handle voice/text commands from VoiceBot
+  useEffect(() => {
+    const handleVoiceCommand = async (event: Event) => {
+      const customEvent = event as CustomEvent;
+      const { command, entities } = customEvent.detail;
+
+      console.log("🎤 [SERVICES] VOICE COMMAND RECEIVED!", {
+        action: command.action,
+        hasReceiverPhone: !!entities.receiverPhone,
+        hasSenderPhone: !!entities.senderPhone,
+      });
+
+      // Only handle OMT/WHISH commands
+      if (command.module !== "omt_whish") {
+        console.log(
+          "[Services] Ignoring non-omt_whish module:",
+          command.module,
+        );
+        return;
+      }
+
+      try {
+        console.log("[Services] Checking conditions:", {
+          action: command.action,
+          receiverPhone: entities.receiverPhone,
+          hasReceiverPhone: !!entities.receiverPhone,
+        });
+
+        // For SEND: session customer is sender, voice provides receiver
+        if (command.action === "send" && entities.receiverPhone) {
+          console.log("[Services] SEND condition met! Processing...");
+
+          // Update form fields for visual feedback
+          setAmount(entities.amount.toString());
+          setReceiverName(entities.receiverName || "");
+          setReceiverPhone(entities.receiverPhone);
+
+          // Session customer should already be auto-filled as sender from useEffect
+          console.log("[Services] Form fields updated:", {
+            amount: entities.amount,
+            receiverName: entities.receiverName,
+            receiverPhone: entities.receiverPhone,
+          });
+
+          // Auto-submit the transaction
+          setTimeout(() => {
+            handleSubmit();
+          }, 200);
+        }
+
+        // For RECEIVE: session customer is receiver, voice provides sender
+        if (command.action === "receive" && entities.senderPhone) {
+          console.log("[Services] RECEIVE condition met! Processing...");
+
+          // Update form fields for visual feedback
+          setAmount(entities.amount.toString());
+          setSenderName(entities.senderName || "");
+          setSenderPhone(entities.senderPhone);
+
+          // Session customer should already be auto-filled as receiver from useEffect
+          console.log("[Services] Form fields updated:", {
+            amount: entities.amount,
+            senderName: entities.senderName,
+            senderPhone: entities.senderPhone,
+          });
+
+          // Auto-submit the transaction
+          setTimeout(() => {
+            handleSubmit();
+          }, 200);
+        }
+      } catch (err) {
+        logger.error("[VoiceBot] Error handling command:", err);
+        console.error("[Services] Voice command error:", err);
+        appEvents.emit(
+          "notification:show",
+          err instanceof Error ? err.message : "Voice command failed",
+          "error",
+        );
+      }
+    };
+
+    window.addEventListener("voicebot:command", handleVoiceCommand);
+    return () => {
+      window.removeEventListener("voicebot:command", handleVoiceCommand);
+    };
+  }, [provider, activeSession, api, loadData]);
 
   const handleSubmit = useCallback(async () => {
     // Validate: client name + phone required when debt is used (single or split)
     const hasDebtLeg =
       (!useMultiPayment && paidByMethod === "DEBT") ||
       (useMultiPayment && paymentLines.some((p) => p.method === "DEBT"));
-    if (hasDebtLeg && !clientName.trim()) {
+    // For SEND: check sender; for RECEIVE: check receiver
+    const primaryName = serviceType === "SEND" ? senderName : receiverName;
+    const primaryPhone = serviceType === "SEND" ? senderPhone : receiverPhone;
+
+    if (hasDebtLeg && !primaryName.trim()) {
       appEvents.emit(
         "notification:show",
-        "Client name is required when paying by debt.",
+        `${serviceType === "SEND" ? "Sender" : "Receiver"} name is required when paying by debt.`,
         "warning",
       );
       return;
     }
-    if (hasDebtLeg && !phoneNumber.trim()) {
+    if (hasDebtLeg && !primaryPhone.trim()) {
       appEvents.emit(
         "notification:show",
-        "Phone number is required when paying by debt.",
+        `${serviceType === "SEND" ? "Sender" : "Receiver"} phone is required when paying by debt.`,
         "warning",
       );
       return;
@@ -522,9 +626,16 @@ export default function Services() {
         serviceType,
         amount: sentAmount,
         currency: "USD",
-        ...(clientName ? { clientName } : {}),
+        // For backward compatibility: set primary client based on service type
+        ...(serviceType === "SEND"
+          ? { clientName: senderName, phoneNumber: senderPhone }
+          : { clientName: receiverName, phoneNumber: receiverPhone }),
         ...(referenceNumber ? { referenceNumber } : {}),
-        ...(phoneNumber ? { phoneNumber } : {}),
+        // New sender/receiver fields
+        senderName,
+        senderPhone,
+        receiverName,
+        receiverPhone,
         ...(provider === "OMT" && omtServiceType ? { omtServiceType } : {}),
         // Always pass the resolved fee so backend can record it correctly
         ...(resolvedOmtFee ? { omtFee: resolvedOmtFee } : {}),
@@ -590,9 +701,11 @@ export default function Services() {
 
         // Reset form
         setAmount("");
-        setClientName("");
+        setSenderName("");
+        setSenderPhone("");
+        setReceiverName("");
+        setReceiverPhone("");
         setReferenceNumber("");
-        setPhoneNumber("");
         setOmtServiceType("INTRA" as OmtServiceType);
         setOmtFee("");
         setWhishFee("");
@@ -631,9 +744,11 @@ export default function Services() {
     omtFee,
     whishFee,
     profitRate,
-    clientName,
+    senderName,
+    senderPhone,
+    receiverName,
+    receiverPhone,
     referenceNumber,
-    phoneNumber,
     paidByMethod,
     payFee,
     binanceSupplier,
@@ -1271,7 +1386,10 @@ export default function Services() {
                     currency="USD"
                     onChange={setPaymentLines}
                     requiresClientForDebt={true}
-                    hasClient={!!clientName || !!phoneNumber}
+                    hasClient={
+                      !!(serviceType === "SEND" ? senderName : receiverName) ||
+                      !!(serviceType === "SEND" ? senderPhone : receiverPhone)
+                    }
                     transactionType="SERVICE_PAYMENT"
                     showPmFee={multiPmFeeApplies}
                     pmFeeRate={PM_FEE_DEFAULT_RATE}
@@ -1318,56 +1436,181 @@ export default function Services() {
                 </div>
               )}
 
-              {/* Client Info */}
-              <div className="grid grid-cols-3 gap-2">
-                <div>
-                  <label
-                    htmlFor="service-client-name"
-                    className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
-                  >
-                    <User size={12} /> Client Name
-                  </label>
-                  <input
-                    id="service-client-name"
-                    type="text"
-                    value={clientName}
-                    onChange={(e) => setClientName(e.target.value)}
-                    className={INPUT_CLASS}
-                    placeholder="Optional"
-                  />
-                </div>
-                <div>
-                  <label
-                    htmlFor="service-phone"
-                    className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
-                  >
-                    <Phone size={12} /> Phone #
-                  </label>
-                  <input
-                    id="service-phone"
-                    type="tel"
-                    value={phoneNumber}
-                    onChange={(e) => setPhoneNumber(e.target.value)}
-                    className={INPUT_CLASS}
-                    placeholder="Optional"
-                  />
-                </div>
-                <div>
-                  <label
-                    htmlFor="service-reference"
-                    className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
-                  >
-                    <Hash size={12} /> Reference #
-                  </label>
-                  <input
-                    id="service-reference"
-                    type="text"
-                    value={referenceNumber}
-                    onChange={(e) => setReferenceNumber(e.target.value)}
-                    className={INPUT_CLASS}
-                    placeholder="Optional"
-                  />
-                </div>
+              {/* Sender/Receiver Info - changes based on service type */}
+              {serviceType === "SEND" ? (
+                <>
+                  {/* Sender Fields (auto-filled from session) */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label
+                        htmlFor="service-sender-name"
+                        className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+                      >
+                        <User size={12} /> Sender{" "}
+                        {activeSession && "• From Session"}
+                      </label>
+                      <input
+                        id="service-sender-name"
+                        type="text"
+                        value={senderName}
+                        onChange={(e) => setSenderName(e.target.value)}
+                        className={INPUT_CLASS}
+                        placeholder={
+                          activeSession ? "From session" : "Sender name"
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="service-sender-phone"
+                        className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+                      >
+                        <Phone size={12} /> Sender Phone
+                      </label>
+                      <input
+                        id="service-sender-phone"
+                        type="tel"
+                        value={senderPhone}
+                        onChange={(e) => setSenderPhone(e.target.value)}
+                        className={INPUT_CLASS}
+                        placeholder={
+                          activeSession ? "From session" : "Sender phone"
+                        }
+                      />
+                    </div>
+                  </div>
+                  {/* Receiver Fields */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label
+                        htmlFor="service-receiver-name"
+                        className="block text-xs font-medium text-emerald-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+                      >
+                        <User size={12} /> Receiver
+                      </label>
+                      <input
+                        id="service-receiver-name"
+                        type="text"
+                        value={receiverName}
+                        onChange={(e) => setReceiverName(e.target.value)}
+                        className={INPUT_CLASS}
+                        placeholder="Receiver name"
+                      />
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="service-receiver-phone"
+                        className="block text-xs font-medium text-emerald-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+                      >
+                        <Phone size={12} /> Receiver Phone
+                      </label>
+                      <input
+                        id="service-receiver-phone"
+                        type="tel"
+                        value={receiverPhone}
+                        onChange={(e) => setReceiverPhone(e.target.value)}
+                        className={INPUT_CLASS}
+                        placeholder="Receiver phone"
+                      />
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* Sender Fields (for RECEIVE) */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label
+                        htmlFor="service-sender-name-receive"
+                        className="block text-xs font-medium text-emerald-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+                      >
+                        <User size={12} /> Sender
+                      </label>
+                      <input
+                        id="service-sender-name-receive"
+                        type="text"
+                        value={senderName}
+                        onChange={(e) => setSenderName(e.target.value)}
+                        className={INPUT_CLASS}
+                        placeholder="Sender name"
+                      />
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="service-sender-phone-receive"
+                        className="block text-xs font-medium text-emerald-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+                      >
+                        <Phone size={12} /> Sender Phone
+                      </label>
+                      <input
+                        id="service-sender-phone-receive"
+                        type="tel"
+                        value={senderPhone}
+                        onChange={(e) => setSenderPhone(e.target.value)}
+                        className={INPUT_CLASS}
+                        placeholder="Sender phone"
+                      />
+                    </div>
+                  </div>
+                  {/* Receiver Fields (auto-filled from session) */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label
+                        htmlFor="service-receiver-name-receive"
+                        className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+                      >
+                        <User size={12} /> Receiver{" "}
+                        {activeSession && "• From Session"}
+                      </label>
+                      <input
+                        id="service-receiver-name-receive"
+                        type="text"
+                        value={receiverName}
+                        onChange={(e) => setReceiverName(e.target.value)}
+                        className={INPUT_CLASS}
+                        placeholder={
+                          activeSession ? "From session" : "Receiver name"
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="service-receiver-phone-receive"
+                        className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+                      >
+                        <Phone size={12} /> Receiver Phone
+                      </label>
+                      <input
+                        id="service-receiver-phone-receive"
+                        type="tel"
+                        value={receiverPhone}
+                        onChange={(e) => setReceiverPhone(e.target.value)}
+                        className={INPUT_CLASS}
+                        placeholder={
+                          activeSession ? "From session" : "Receiver phone"
+                        }
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Reference Number */}
+              <div>
+                <label
+                  htmlFor="service-reference"
+                  className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+                >
+                  <Hash size={12} /> Reference #
+                </label>
+                <input
+                  id="service-reference"
+                  type="text"
+                  value={referenceNumber}
+                  onChange={(e) => setReferenceNumber(e.target.value)}
+                  className={INPUT_CLASS}
+                  placeholder="Optional"
+                />
               </div>
 
               {/* BINANCE-specific fields */}
@@ -1642,6 +1885,9 @@ export default function Services() {
           </div>
         </div>
       )}
+
+      {/* Voice Bot Button */}
+      <VoiceBotButton position="bottom-right" />
     </div>
   );
 }

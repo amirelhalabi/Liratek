@@ -69,15 +69,18 @@
 ## ❌ What's Missing
 
 ### 1. Customer Session Summary View
+
 **Location**: Should be in `/features/clients/pages/Clients/` or new `/features/sessions/pages/`
 
 **What to Build:**
+
 - View all sessions for a specific customer
 - Show total spent per session
 - Show transaction history per session
 - Session date range, notes
 
 **UI Mock:**
+
 ```
 Customer: John Doe (81077357)
 ┌─────────────────────────────────────────┐
@@ -94,18 +97,22 @@ Customer: John Doe (81077357)
 ```
 
 ### 2. Sessions List Page
+
 **Location**: `/sessions` route (if not hidden)
 
 **What to Build:**
+
 - List all sessions (active + closed)
 - Filter by date, customer
 - Search by customer name/phone
 - View session details
 
 ### 3. Session Module in Sidebar
+
 **Status**: May already exist but could be hidden
 
 **Check:**
+
 - Is `sessions` module in `modules` table?
 - Is it visible in sidebar?
 - Should it be admin-only or visible to all?
@@ -131,17 +138,20 @@ Customer: John Doe (81077357)
 ## 📋 Remaining Tasks
 
 ### High Priority
+
 - [ ] **Customer Session Summary in Client Details**
   - Add "Sessions" tab to ClientForm or ClientList
   - Show all sessions for selected customer
   - Click to view session transactions
 
 ### Medium Priority
+
 - [ ] **Sessions List Page** (if needed)
   - Only if users need to browse all sessions
   - May be redundant with Client view
 
 ### Low Priority
+
 - [ ] **Session Analytics**
   - Average session value
   - Sessions per day/week
@@ -152,6 +162,7 @@ Customer: John Doe (81077357)
 ## ✅ Conclusion
 
 **The core session infrastructure is COMPLETE:**
+
 - ✅ Database schema
 - ✅ Repository + Service
 - ✅ IPC handlers
@@ -159,6 +170,7 @@ Customer: John Doe (81077357)
 - ✅ Integration in all major modules (POS, Services, Recharge, etc.)
 
 **What's missing is the VIEW layer:**
+
 - ❌ No way to view session history per customer
 - ❌ No sessions list page (may not be needed)
 - ❌ No analytics/summary
@@ -172,6 +184,7 @@ Customer: John Doe (81077357)
 **Build: Customer Session Summary in Client Details**
 
 Add a "Sessions" section to the client view that shows:
+
 1. All sessions for this customer
 2. Click to expand and see transactions
 3. Total spent per session

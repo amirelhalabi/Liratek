@@ -15,6 +15,7 @@ import type { Product, CartItem, SaleRequest } from "@liratek/ui";
 import { useExchangeRate } from "@/hooks/useExchangeRate";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { ConfirmModal } from "@/shared/components/ConfirmModal";
+import { VoiceBotButton } from "@/components/VoiceBotButton";
 
 export default function POS() {
   const api = useApi();
@@ -479,6 +480,9 @@ export default function POS() {
         onCancel={() => setShowClearConfirm(false)}
         variant="danger"
       />
+
+      {/* Voice Bot Button */}
+      <VoiceBotButton position="bottom-right" />
     </div>
   );
 }

@@ -1,5 +1,13 @@
 import { useState, useEffect } from "react";
-import { X, Clock, DollarSign, ShoppingCart, Send, Smartphone, Wrench } from "lucide-react";
+import {
+  X,
+  Clock,
+  DollarSign,
+  ShoppingCart,
+  Send,
+  Smartphone,
+  Wrench,
+} from "lucide-react";
 
 interface SessionTransaction {
   id: number;
@@ -131,9 +139,7 @@ export default function CustomerSessionsView({
         {/* Header */}
         <div className="p-6 border-b border-slate-700 flex items-center justify-between">
           <div>
-            <h2 className="text-xl font-bold text-white">
-              Customer Sessions
-            </h2>
+            <h2 className="text-xl font-bold text-white">Customer Sessions</h2>
             <p className="text-sm text-slate-400 mt-1">
               {customerName} {customerPhone && `• ${customerPhone}`}
             </p>
@@ -181,7 +187,10 @@ export default function CustomerSessionsView({
                           <p className="text-sm text-slate-400">
                             {formatDate(sessionData.session.started_at)}
                             {sessionData.session.closed_at && (
-                              <span> - {formatDate(sessionData.session.closed_at)}</span>
+                              <span>
+                                {" "}
+                                - {formatDate(sessionData.session.closed_at)}
+                              </span>
                             )}
                           </p>
                         </div>

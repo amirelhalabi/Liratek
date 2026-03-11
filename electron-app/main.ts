@@ -399,6 +399,7 @@ async function registerHandlers() {
     const profitHandlers = await import("./handlers/profitHandlers.js");
     const setupHandlers = await import("./handlers/setupHandlers.js");
     const printHandlers = await import("./handlers/printHandlers.js");
+    const voiceBotHandlers = await import("./handlers/voiceBotHandlers.js");
 
     // Register all handlers (they auto-register with ipcMain)
     authHandlers.registerAuthHandlers();
@@ -428,6 +429,7 @@ async function registerHandlers() {
     profitHandlers.registerProfitHandlers();
     setupHandlers.registerSetupHandlers();
     printHandlers.registerPrintHandlers();
+    voiceBotHandlers.registerVoiceBotHandlers();
 
     // Windows focus fix handler
     ipcMain.on("display:fix-focus", (event) => {

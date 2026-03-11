@@ -11,10 +11,12 @@ export const removeReportsTransactionsMigration = {
   up(db: any) {
     // Remove modules
     db.exec(`DELETE FROM modules WHERE key IN ('reports', 'transactions')`);
-    
+
     // Remove from currency_modules junction
-    db.exec(`DELETE FROM currency_modules WHERE module_key IN ('reports', 'transactions')`);
-    
+    db.exec(
+      `DELETE FROM currency_modules WHERE module_key IN ('reports', 'transactions')`,
+    );
+
     console.log("Removed Reports and Transactions modules");
   },
   down(db: any) {
@@ -25,7 +27,7 @@ export const removeReportsTransactionsMigration = {
         ('reports', 'Reports', 'BarChart2', '/reports', 14, 1, 1, 0),
         ('transactions', 'Transactions', 'ClipboardList', '/transactions', 15, 1, 1, 0)
     `);
-    
+
     // Re-add currency modules
     db.exec(`
       INSERT OR IGNORE INTO currency_modules (currency_code, module_key)
@@ -33,7 +35,7 @@ export const removeReportsTransactionsMigration = {
         ('USD', 'reports'), ('USD', 'transactions'),
         ('LBP', 'reports'), ('LBP', 'transactions')
     `);
-    
+
     console.log("Restored Reports and Transactions modules");
   },
 };

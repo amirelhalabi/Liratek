@@ -53,6 +53,12 @@ export interface FinancialServiceEntity {
   client_name: string | null;
   reference_number: string | null;
   phone_number: string | null;
+  sender_name: string | null;
+  sender_phone: string | null;
+  receiver_name: string | null;
+  receiver_phone: string | null;
+  sender_client_id: number | null;
+  receiver_client_id: number | null;
   omt_service_type: string | null;
   omt_fee: number | null;
   whish_fee: number | null;
@@ -109,6 +115,12 @@ export interface CreateFinancialServiceData {
   clientName?: string;
   referenceNumber?: string;
   phoneNumber?: string;
+  senderName?: string;
+  senderPhone?: string;
+  receiverName?: string;
+  receiverPhone?: string;
+  senderClientId?: number;
+  receiverClientId?: number;
   omtServiceType?: string;
   omtFee?: number;
   /** WHISH fee (user-entered or auto-looked-up from WHISH_FEE_TIERS) */
@@ -177,7 +189,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
 
   // Override getColumns() to use explicit columns instead of SELECT *
   protected getColumns(): string {
-    return "id, provider, service_type, amount, currency, commission, cost, price, paid_by, client_id, client_name, reference_number, phone_number, omt_service_type, omt_fee, whish_fee, profit_rate, pay_fee, item_key, note, is_settled, settled_at, settlement_id, payment_method_fee, payment_method_fee_rate, created_at, created_by";
+    return "id, provider, service_type, amount, currency, commission, cost, price, paid_by, client_id, client_name, reference_number, phone_number, sender_name, sender_phone, receiver_name, receiver_phone, sender_client_id, receiver_client_id, omt_service_type, omt_fee, whish_fee, profit_rate, pay_fee, item_key, note, is_settled, settled_at, settlement_id, payment_method_fee, payment_method_fee_rate, created_at, created_by";
   }
 
   // ---------------------------------------------------------------------------
@@ -334,15 +346,32 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       const pmFee = data.paymentMethodFee ?? 0;
       const pmFeeRate = data.paymentMethodFeeRate ?? null;
 
+      // Determine primary client info for backward compatibility
+      // For SEND: primary client is sender; for RECEIVE: primary client is receiver
+      const primaryClientId =
+        data.serviceType === "SEND"
+          ? data.senderClientId || data.clientId
+          : data.receiverClientId || data.clientId;
+      const primaryClientName =
+        data.serviceType === "SEND"
+          ? data.senderName || data.clientName
+          : data.receiverName || data.clientName;
+      const primaryClientPhone =
+        data.serviceType === "SEND"
+          ? data.senderPhone || data.phoneNumber
+          : data.receiverPhone || data.phoneNumber;
+
       const stmt = this.db.prepare(`
         INSERT INTO financial_services (
           provider, service_type, amount, currency,
           commission, cost, price, paid_by, client_id,
           client_name, reference_number, phone_number,
+          sender_name, sender_phone, receiver_name, receiver_phone,
+          sender_client_id, receiver_client_id,
           omt_service_type, omt_fee, whish_fee, profit_rate, pay_fee,
           item_key, note, is_settled, settled_at,
           payment_method_fee, payment_method_fee_rate
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       const result = stmt.run(
@@ -354,10 +383,16 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         cost,
         price,
         useCostPriceFlow ? paidBy : null,
-        data.clientId || null,
-        data.clientName || null,
+        primaryClientId || null,
+        primaryClientName || null,
         data.referenceNumber || null,
-        data.phoneNumber || null,
+        primaryClientPhone || null,
+        data.senderName || null,
+        data.senderPhone || null,
+        data.receiverName || null,
+        data.receiverPhone || null,
+        data.senderClientId || null,
+        data.receiverClientId || null,
         data.omtServiceType || null,
         data.omtFee || null,
         storedWhishFee,
@@ -374,6 +409,40 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       const id = Number(result.lastInsertRowid);
       const createdBy = 1;
       const note = data.note || null;
+
+      // Resolve primary client ID: look up by phone number if not provided
+      let resolvedPrimaryClientId = primaryClientId;
+      const primaryPhone =
+        data.serviceType === "SEND"
+          ? data.senderPhone || data.phoneNumber
+          : data.receiverPhone || data.phoneNumber;
+      const primaryName =
+        data.serviceType === "SEND"
+          ? data.senderName || data.clientName
+          : data.receiverName || data.clientName;
+
+      if (!resolvedPrimaryClientId && primaryPhone && primaryName) {
+        // Try to find existing client by phone number
+        const existing = this.db
+          .prepare(`SELECT id FROM clients WHERE phone_number = ? LIMIT 1`)
+          .get(primaryPhone) as { id: number } | undefined;
+        if (existing) {
+          resolvedPrimaryClientId = existing.id;
+        } else {
+          // Auto-create client
+          const insertResult = this.db
+            .prepare(
+              `INSERT INTO clients (full_name, phone_number, notes)
+                      VALUES (?, ?, ?)`,
+            )
+            .run(
+              primaryName,
+              primaryPhone,
+              "Auto-created from OMT/WHISH service",
+            );
+          resolvedPrimaryClientId = Number(insertResult.lastInsertRowid);
+        }
+      }
 
       // Create unified transaction row
       const txnId = getTransactionRepository().createTransaction({
@@ -395,7 +464,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           : currency === "LBP"
             ? data.amount
             : 0,
-        client_id: data.clientId ?? null,
+        client_id: resolvedPrimaryClientId ?? null,
         summary: `${data.provider} ${data.serviceType}: ${data.amount} ${currency}`,
         metadata_json: {
           provider: data.provider,

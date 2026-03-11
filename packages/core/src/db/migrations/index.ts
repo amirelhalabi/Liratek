@@ -6,6 +6,7 @@
  */
 
 import type Database from "better-sqlite3";
+import { addSenderReceiverFieldsMigration } from "./add_sender_receiver_fields.js";
 
 // =============================================================================
 // Types
@@ -1797,6 +1798,7 @@ export const MIGRATIONS: Migration[] = [
       console.log("Restored Reports and Transactions modules");
     },
   },
+  addSenderReceiverFieldsMigration,
 ];
 // =============================================================================
 // Migration Runner

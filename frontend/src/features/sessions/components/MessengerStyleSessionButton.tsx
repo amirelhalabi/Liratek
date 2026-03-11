@@ -62,7 +62,7 @@ export function MessengerStyleSessionButton() {
       )}
 
       {/* Speed Dial Container */}
-      <div className="fixed bottom-6 right-6 z-50 flex flex-col items-center gap-3">
+      <div className="fixed top-6 right-6 z-50 flex flex-col items-center gap-3">
         {/* Expanded Session Avatars - Vertical Stack */}
         {isExpanded && allActiveSessions.length > 0 && (
           <div className="flex flex-col items-center gap-3 mb-2">
@@ -113,7 +113,7 @@ export function MessengerStyleSessionButton() {
             <>
               <UserPlus size={32} />
               {allActiveSessions.length > 0 && (
-                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center border-2 border-slate-900 shadow-lg">
+                <span className="absolute -bottom-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center border-2 border-slate-900 shadow-lg">
                   {allActiveSessions.length}
                 </span>
               )}

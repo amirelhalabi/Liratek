@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { PageHeader, useApi, DateRangeFilter } from "@liratek/ui";
+import { PageHeader } from "@liratek/ui";
 import { Clock, TrendingUp, TrendingDown } from "lucide-react";
 import { DataTable } from "@/shared/components/DataTable";
 
@@ -14,7 +14,7 @@ interface CheckpointRecord {
   id: number;
   closing_date: string;
   drawer_name: string;
-  checkpoint_type: 'OPENING' | 'CLOSING';
+  checkpoint_type: "OPENING" | "CLOSING";
   created_at: string;
   created_by: number;
   user_name: string;
@@ -23,23 +23,23 @@ interface CheckpointRecord {
 }
 
 interface CheckpointFilters {
-  date?: string;
-  type?: 'OPENING' | 'CLOSING' | 'ALL';
-  drawer_name?: string;
+  date: string;
+  type: "OPENING" | "CLOSING" | "ALL";
+  drawer_name: string;
   user_id?: number;
 }
 
 function todayISO(): string {
-  return new Date().toISOString().split('T')[0];
+  return new Date().toISOString().split("T")[0];
 }
 
 export default function CheckpointTimeline() {
-  const api = useApi();
   const [checkpoints, setCheckpoints] = useState<CheckpointRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState<CheckpointFilters>({
     date: todayISO(),
-    type: 'ALL',
+    type: "ALL",
+    drawer_name: "",
   });
 
   useEffect(() => {
@@ -49,7 +49,7 @@ export default function CheckpointTimeline() {
   const loadCheckpoints = async () => {
     setLoading(true);
     try {
-      const result = await api.closing.getCheckpointTimeline(filters);
+      const result = await window.api.closing.getCheckpointTimeline(filters);
       if (result.success && result.checkpoints) {
         setCheckpoints(result.checkpoints);
       }
@@ -69,14 +69,14 @@ export default function CheckpointTimeline() {
   };
 
   const formatCurrency = (amount: number, code: string) => {
-    if (code === 'USD') return `$${amount.toFixed(2)}`;
-    if (code === 'EUR') return `€${amount.toFixed(2)}`;
-    if (code === 'LBP') return `${amount.toLocaleString()} LBP`;
+    if (code === "USD") return `$${amount.toFixed(2)}`;
+    if (code === "EUR") return `€${amount.toFixed(2)}`;
+    if (code === "LBP") return `${amount.toLocaleString()} LBP`;
     return `${amount.toFixed(2)} ${code}`;
   };
 
   const getTypeBadgeClass = (type: string) => {
-    return type === 'OPENING'
+    return type === "OPENING"
       ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
       : "bg-amber-500/10 text-amber-400 border-amber-500/30";
   };
@@ -84,15 +84,19 @@ export default function CheckpointTimeline() {
   // Determine which currencies to show based on all checkpoints
   const allCurrencies = useMemo(() => {
     const currencySet = new Set<string>();
-    checkpoints.forEach(cp => {
-      cp.currencies.forEach(c => currencySet.add(c.currency_code));
+    checkpoints.forEach((cp) => {
+      cp.currencies.forEach((c) => currencySet.add(c.currency_code));
     });
     return Array.from(currencySet).sort();
   }, [checkpoints]);
 
   // Get currencies for a specific drawer
-  const getDrawerCurrencies = (checkpoint: CheckpointRecord): CheckpointCurrency[] => {
-    return checkpoint.currencies.sort((a, b) => a.currency_code.localeCompare(b.currency_code));
+  const getDrawerCurrencies = (
+    checkpoint: CheckpointRecord,
+  ): CheckpointCurrency[] => {
+    return checkpoint.currencies.sort((a, b) =>
+      a.currency_code.localeCompare(b.currency_code),
+    );
   };
 
   return (
@@ -105,17 +109,24 @@ export default function CheckpointTimeline() {
 
       {/* Filters */}
       <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 flex gap-4 flex-wrap">
-        <DateRangeFilter
-          startDate={filters.date || ''}
-          endDate={filters.date || ''}
-          onStartDateChange={(date) => setFilters({ ...filters, date: date || undefined })}
-          onEndDateChange={(date) => setFilters({ ...filters, date: date || undefined })}
-          label="Date"
-        />
+        <div className="flex items-center gap-2">
+          <label className="text-sm text-slate-400">Date:</label>
+          <input
+            type="date"
+            value={filters.date}
+            onChange={(e) => setFilters({ ...filters, date: e.target.value })}
+            className="bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
+          />
+        </div>
 
         <select
-          value={filters.type || 'ALL'}
-          onChange={(e) => setFilters({ ...filters, type: e.target.value as any })}
+          value={filters.type}
+          onChange={(e) =>
+            setFilters({
+              ...filters,
+              type: e.target.value as "OPENING" | "CLOSING" | "ALL",
+            })
+          }
           className="bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
         >
           <option value="ALL">All Types</option>
@@ -124,8 +135,10 @@ export default function CheckpointTimeline() {
         </select>
 
         <select
-          value={filters.drawer_name || ''}
-          onChange={(e) => setFilters({ ...filters, drawer_name: e.target.value || undefined })}
+          value={filters.drawer_name}
+          onChange={(e) =>
+            setFilters({ ...filters, drawer_name: e.target.value })
+          }
           className="bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
         >
           <option value="">All Drawers</option>
@@ -145,7 +158,9 @@ export default function CheckpointTimeline() {
       {/* Timeline */}
       <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
         {loading ? (
-          <div className="p-8 text-center text-slate-400 animate-pulse">Loading checkpoints...</div>
+          <div className="p-8 text-center text-slate-400 animate-pulse">
+            Loading checkpoints...
+          </div>
         ) : checkpoints.length === 0 ? (
           <div className="p-8 text-center text-slate-400">
             <Clock size={48} className="mx-auto mb-4 opacity-50" />
@@ -154,10 +169,16 @@ export default function CheckpointTimeline() {
         ) : (
           <DataTable
             columns={[
-              { header: "Time", className: "p-4 border-b border-slate-700 w-24" },
-              { header: "Type", className: "p-4 border-b border-slate-700 w-32" },
+              {
+                header: "Time",
+                className: "p-4 border-b border-slate-700 w-24",
+              },
+              {
+                header: "Type",
+                className: "p-4 border-b border-slate-700 w-32",
+              },
               { header: "Drawer", className: "p-4 border-b border-slate-700" },
-              ...allCurrencies.map(code => ({
+              ...allCurrencies.map((code) => ({
                 header: code,
                 className: "p-4 border-b border-slate-700 text-right w-40",
               })),
@@ -170,13 +191,18 @@ export default function CheckpointTimeline() {
             renderRow={(checkpoint) => {
               const drawerCurrencies = getDrawerCurrencies(checkpoint);
               return (
-                <tr key={checkpoint.id} className="hover:bg-slate-700/50 transition-colors">
+                <tr
+                  key={checkpoint.id}
+                  className="hover:bg-slate-700/50 transition-colors"
+                >
                   <td className="p-4 text-slate-300 font-mono">
                     {formatTime(checkpoint.created_at)}
                   </td>
                   <td className="p-4">
-                    <span className={`px-3 py-1 rounded-full text-xs font-medium border inline-flex items-center gap-1 ${getTypeBadgeClass(checkpoint.checkpoint_type)}`}>
-                      {checkpoint.checkpoint_type === 'OPENING' ? (
+                    <span
+                      className={`px-3 py-1 rounded-full text-xs font-medium border inline-flex items-center gap-1 ${getTypeBadgeClass(checkpoint.checkpoint_type)}`}
+                    >
+                      {checkpoint.checkpoint_type === "OPENING" ? (
                         <TrendingUp size={12} />
                       ) : (
                         <TrendingDown size={12} />
@@ -187,11 +213,16 @@ export default function CheckpointTimeline() {
                   <td className="p-4 text-white font-medium">
                     {checkpoint.drawer_name}
                   </td>
-                  {allCurrencies.map(code => {
-                    const currency = drawerCurrencies.find(c => c.currency_code === code);
+                  {allCurrencies.map((code) => {
+                    const currency = drawerCurrencies.find(
+                      (c) => c.currency_code === code,
+                    );
                     if (!currency) {
                       return (
-                        <td key={code} className="p-4 text-right text-slate-600">
+                        <td
+                          key={code}
+                          className="p-4 text-right text-slate-600"
+                        >
                           -
                         </td>
                       );
@@ -204,13 +235,19 @@ export default function CheckpointTimeline() {
                         {currency.physical_amount !== undefined && (
                           <>
                             <div className="text-xs text-slate-400">
-                              Physical: {formatCurrency(currency.physical_amount, code)}
+                              Physical:{" "}
+                              {formatCurrency(currency.physical_amount, code)}
                             </div>
                             {currency.variance !== undefined && (
-                              <div className={`text-xs font-medium ${
-                                currency.variance >= 0 ? "text-emerald-400" : "text-red-400"
-                              }`}>
-                                {currency.variance >= 0 ? '+' : ''}{formatCurrency(currency.variance, code)}
+                              <div
+                                className={`text-xs font-medium ${
+                                  currency.variance >= 0
+                                    ? "text-emerald-400"
+                                    : "text-red-400"
+                                }`}
+                              >
+                                {currency.variance >= 0 ? "+" : ""}
+                                {formatCurrency(currency.variance, code)}
                               </div>
                             )}
                           </>
@@ -218,9 +255,7 @@ export default function CheckpointTimeline() {
                       </td>
                     );
                   })}
-                  <td className="p-4 text-slate-300">
-                    {checkpoint.user_name}
-                  </td>
+                  <td className="p-4 text-slate-300">{checkpoint.user_name}</td>
                   <td className="p-4 text-slate-400 italic max-w-xs truncate">
                     {checkpoint.notes || "-"}
                   </td>

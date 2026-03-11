@@ -13,6 +13,7 @@ Create a **Checkpoint Timeline** page that shows all opening and closing checkpo
 ### Current State
 
 **Database Schema** (`daily_closings` table):
+
 - `created_at DATETIME` - Timestamp exists ✅
 - `created_by INTEGER` - User who set checkpoint
 - `opening_balance_usd/lbp` - Amounts set
@@ -20,12 +21,14 @@ Create a **Checkpoint Timeline** page that shows all opening and closing checkpo
 - `variance_usd` - Difference (for closings)
 
 **Transaction Tracking**:
+
 - Opening balances create `transactions` entries with `type = 'OPENING'`
 - Closing creates `transactions` entries with `type = 'CLOSING'`
 - Both have `created_at` timestamps
 - Linked via `source_table = 'daily_closings'` and `source_id`
 
 **Current UI**:
+
 - Opening modal - Sets opening balances
 - Closing page - Creates daily closing report
 - **Missing**: Timeline/history view of checkpoints
@@ -61,19 +64,23 @@ Create a **Checkpoint Timeline** page that shows all opening and closing checkpo
 ### Backend (1 hour)
 
 **1. ClosingRepository.ts** - Add method:
+
 ```typescript
 getCheckpointTimeline(filters: CheckpointFilters): CheckpointRecord[]
 ```
+
 - Query `daily_closings` JOIN `transactions` JOIN `users`
 - Filter by date, type, drawer_name, user_id
 - Load currency breakdown from `daily_closing_amounts`
 
 **2. ClosingService.ts** - Add service method:
+
 ```typescript
 getCheckpointTimeline(filters): Promise<{success, checkpoints?, error?}>
 ```
 
 **3. closingHandlers.ts** - Add IPC:
+
 ```typescript
 ipcMain.handle("closing:getCheckpointTimeline", ...)
 ```
@@ -81,6 +88,7 @@ ipcMain.handle("closing:getCheckpointTimeline", ...)
 ### Frontend (1.5 hours)
 
 **4. Create CheckpointTimeline/index.tsx**
+
 - Date filter (default today)
 - Type filter dropdown
 - Drawer filter dropdown
@@ -89,11 +97,13 @@ ipcMain.handle("closing:getCheckpointTimeline", ...)
 - Loading and empty states
 
 **5. Add route to App.tsx**
+
 ```typescript
 <Route path="/checkpoint-timeline" element={<CheckpointTimeline />} />
 ```
 
 **6. Add to Sidebar navigation**
+
 - Icon: Clock
 - Label: "Checkpoint Timeline"
 - Path: /checkpoint-timeline
@@ -129,10 +139,12 @@ ipcMain.handle("closing:getCheckpointTimeline", ...)
 ## 📁 Files to Modify
 
 ### Create:
+
 1. `frontend/src/features/closing/pages/CheckpointTimeline/index.tsx`
 2. `frontend/src/features/closing/pages/CheckpointTimeline/__tests__/`
 
 ### Modify:
+
 1. `packages/core/src/repositories/ClosingRepository.ts`
 2. `packages/core/src/services/ClosingService.ts`
 3. `electron-app/handlers/closingHandlers.ts`

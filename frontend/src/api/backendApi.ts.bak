@@ -680,21 +680,6 @@ export async function recalculateDrawerBalances(): Promise<{
   );
 }
 
-export async function getCheckpointTimeline(filters?: {
-  date?: string;
-  type?: "OPENING" | "CLOSING" | "ALL";
-  drawer_name?: string;
-  user_id?: number;
-}) {
-  if (isElectron()) {
-    return (window as any).api.closing.getCheckpointTimeline(filters);
-  }
-  return requestJson<{ success: boolean; checkpoints?: any[]; error?: string }>(
-    "/api/closing/checkpoint-timeline",
-    { method: "POST", body: filters },
-  );
-}
-
 export async function setOpeningBalances(data: {
   closing_date: string;
   amounts: any[];

@@ -8,6 +8,7 @@
 ## Infrastructure (✅ Complete)
 
 ### Backend
+
 - ✅ `WhatsAppService.ts` - Full WhatsApp Cloud API integration
   - `sendMessage()` - Send custom text messages
   - `sendTemplate()` - Send template messages (for business-initiated conversations)
@@ -24,6 +25,7 @@
   - `whatsapp_phone_number_id` - Sender phone number ID
 
 ### Frontend
+
 - ✅ TypeScript types (`electron.d.ts`)
   - `whatsapp.sendTest()`
   - `whatsapp.sendMessage()`
@@ -48,14 +50,17 @@
 ## What's Missing
 
 ### 1. Send Receipt After Sale (Medium Priority)
+
 **Location**: `frontend/src/features/sales/pages/POS/components/CheckoutModal.tsx`
 
 **Implementation**:
+
 - Add "Send Receipt via WhatsApp" checkbox/button
 - After sale completion, if customer has phone + opted in
 - Send formatted receipt via `whatsapp.sendMessage()`
 
 **Message Format**:
+
 ```
 Thank you for your purchase at {shopName}!
 
@@ -71,14 +76,17 @@ Visit us again! 🛍️
 ```
 
 ### 2. Debt Reminder Button (Medium Priority)
+
 **Location**: `frontend/src/features/debts/pages/Debts/index.tsx`
 
 **Implementation**:
+
 - Add WhatsApp icon button in debt row
 - Click opens confirmation modal
 - Send payment reminder message
 
 **Message Format**:
+
 ```
 Hello {clientName},
 
@@ -90,9 +98,11 @@ Thank you! 🙏
 ```
 
 ### 3. SaleDetailModal WhatsApp Button (Low Priority)
+
 **Location**: `frontend/src/features/sales/pages/POS/components/SaleDetailModal.tsx`
 
 **Implementation**:
+
 - Add "Send Receipt" button alongside Print button
 - Re-send receipt for past sales
 

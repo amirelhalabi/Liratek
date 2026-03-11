@@ -7,10 +7,18 @@ interface QwenASRConfig {
   language: string;
 }
 
+interface QwenASREvent {
+  event_id: string;
+  type: string;
+  [key: string]: any;
+}
+
 export class VoiceTranscriptionService {
   private ws: WebSocket | null = null;
   private config: QwenASRConfig;
   private isConnecting = false;
+
+  private listeners: Record<string, Function[]> = {};
 
   isConnected(): boolean {
     return this.ws?.readyState === WebSocket.OPEN || false;
@@ -32,11 +40,17 @@ export class VoiceTranscriptionService {
     this.isConnecting = true;
 
     const url = this.buildWebSocketUrl();
-    this.ws = new WebSocket(url);
+    this.ws = new WebSocket(url, {
+      headers: {
+        Authorization: `Bearer ${this.config.apiKey}`,
+        "OpenAI-Beta": "realtime=v1",
+      },
+    });
 
     this.ws.on("open", () => {
       this.isConnecting = false;
       this.emit("connected");
+      this.sendSessionUpdate();
     });
 
     this.ws.on("message", (data: WebSocket.Data) => {
@@ -50,14 +64,31 @@ export class VoiceTranscriptionService {
 
     this.ws.on("close", (code: number, reason: string) => {
       this.isConnecting = false;
-      this.emit("closed", { code, reason: reason?.toString() });
+      this.emit("closed", { code, reason });
     });
   }
 
   async disconnect(): Promise<void> {
     if (this.ws) {
-      this.ws.close(1000, "Client disconnecting");
-      this.ws = null;
+      this.sendSessionFinish();
+      setTimeout(() => {
+        if (this.ws?.readyState === WebSocket.OPEN) {
+          this.ws.close(1000, "Client disconnecting");
+        }
+        this.ws = null;
+      }, 1000);
+    }
+  }
+
+  async startListening(): Promise<void> {
+    if (this.ws?.readyState !== WebSocket.OPEN) {
+      await this.connect();
+    }
+  }
+
+  async stopListening(): Promise<void> {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.sendSessionFinish();
     }
   }
 
@@ -68,39 +99,69 @@ export class VoiceTranscriptionService {
 
     const base64Audio = chunk.toString("base64");
 
-    this.ws.send(
-      JSON.stringify({
-        type: "audio_data",
-        audio_data: base64Audio,
-        format: "pcm",
-        sample_rate: 16000,
-        channels: 1,
-        bit_depth: 16,
-      }),
-    );
+    const event: QwenASREvent = {
+      event_id: `event_${Date.now()}`,
+      type: "input_audio_buffer.append",
+      audio: base64Audio,
+    };
+
+    this.ws.send(JSON.stringify(event));
   }
 
-  async startListening(): Promise<void> {
+  async commitAudio(): Promise<void> {
     if (this.ws?.readyState !== WebSocket.OPEN) {
-      await this.connect();
+      throw new Error("WebSocket not connected");
     }
 
-    this.ws?.send(
-      JSON.stringify({
-        type: "start_listening",
-        language: this.config.language,
-        enable_intermediate_results: true,
-        enable_punctuation: true,
-      }),
-    );
+    const event: QwenASREvent = {
+      event_id: `event_${Date.now()}`,
+      type: "input_audio_buffer.commit",
+    };
+
+    this.ws.send(JSON.stringify(event));
   }
 
-  async stopListening(): Promise<void> {
-    this.ws?.send(
-      JSON.stringify({
-        type: "stop_listening",
-      }),
-    );
+  private sendSessionUpdate(): void {
+    const event: QwenASREvent = {
+      event_id: `event_${Date.now()}`,
+      type: "session.update",
+      session: {
+        modalities: ["text"],
+        input_audio_format: "pcm",
+        sample_rate: 16000,
+        input_audio_transcription: {
+          language: this.config.language,
+          corpus: {
+            text: this.getContextText(),
+          },
+        },
+        turn_detection: {
+          type: "server_vad",
+          threshold: 0.2,
+          silence_duration_ms: 800,
+        },
+      },
+    };
+
+    this.ws?.send(JSON.stringify(event));
+  }
+
+  private sendSessionFinish(): void {
+    const event: QwenASREvent = {
+      event_id: `event_${Date.now()}`,
+      type: "session.finish",
+    };
+
+    this.ws?.send(JSON.stringify(event));
+  }
+
+  private getContextText(): string {
+    return `
+      LiraTek POS System
+      Modules: pos, recharge, omt_whish, debts
+      Commands: check balance, send, receive, recharge, add product, remove product, complete sale, apply discount, add debt, record payment
+      Common terms: liratek, omt, whish, recharge, debt, payment, product, service
+    `;
   }
 
   private handleMessage(data: WebSocket.Data): void {
@@ -108,25 +169,46 @@ export class VoiceTranscriptionService {
       const message = JSON.parse(data.toString());
 
       switch (message.type) {
-        case "transcription_result":
+        case "session.updated":
+          this.emit("sessionUpdated", message);
+          break;
+
+        case "input_audio_buffer.committed":
+          this.emit("audioCommitted", message);
+          break;
+
+        case "input_audio_buffer.speech_started":
+          this.emit("speechStarted", message);
+          break;
+
+        case "input_audio_buffer.speech_stopped":
+          this.emit("speechStopped", message);
+          break;
+
+        case "conversation.item.input_audio_transcription.completed":
           this.emit("transcription", {
-            text: message.text,
+            text: message.transcript,
             language: this.config.language,
-            confidence: message.confidence || 0.95,
             timestamp: new Date().toISOString(),
           });
           break;
 
-        case "session_started":
-          this.emit("sessionStarted", message);
-          break;
-
-        case "session_stopped":
-          this.emit("sessionStopped", message);
+        case "session.finished":
+          this.emit("sessionFinished", message);
+          if (message.transcript) {
+            this.emit("transcription", {
+              text: message.transcript,
+              language: this.config.language,
+              timestamp: new Date().toISOString(),
+            });
+          }
           break;
 
         case "error":
-          this.emit("error", new Error(message.message));
+          this.emit(
+            "error",
+            new Error(message.error?.message || "Qwen-ASR error"),
+          );
           break;
       }
     } catch (error) {
@@ -135,16 +217,9 @@ export class VoiceTranscriptionService {
   }
 
   private buildWebSocketUrl(): string {
-    const params = new URLSearchParams({
-      "api-key": this.config.apiKey,
-      model: this.config.model,
-      region: this.config.region,
-    });
-
-    return `wss://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-asr/service?${params.toString()}`;
+    const model = this.config.model;
+    return `wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime?model=${model}`;
   }
-
-  private listeners: Record<string, Function[]> = {};
 
   on(event: string, callback: Function): () => void {
     if (!this.listeners[event]) {

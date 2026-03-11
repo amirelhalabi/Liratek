@@ -231,3 +231,11 @@ export type {
   ProfitByClient,
   PendingProfitRow,
 } from "./ProfitService.js";
+
+// Voice Bot Service
+export {
+  VoiceBotService,
+  getVoiceBotService,
+  resetVoiceBotService,
+} from "./VoiceBotService.js";
+export type { VoiceCommand, VoiceCommandPattern } from "./VoiceBotService.js";

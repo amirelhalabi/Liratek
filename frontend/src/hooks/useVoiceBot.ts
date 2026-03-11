@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { useActiveModule } from "@/contexts/ActiveModuleContext";
 import logger from "@/utils/logger";
 import { audioCaptureService } from "@/services/AudioCaptureService";
+import { qwenASRClient } from "@/services/QwenASRClient";
 
 interface VoiceCommand {
   module: string;
@@ -27,10 +28,6 @@ interface UseVoiceBotReturn {
   audioLevel: number;
 }
 
-const isSpeechSupported =
-  typeof window !== "undefined" &&
-  ("webkitSpeechRecognition" in window || "SpeechRecognition" in window);
-
 export function useVoiceBot(): UseVoiceBotReturn {
   const { activeModule } = useActiveModule();
   const [listening, setListening] = useState(false);
@@ -39,18 +36,17 @@ export function useVoiceBot(): UseVoiceBotReturn {
   const [result, setResult] = useState<string | null>(null);
   const [audioLevel, setAudioLevel] = useState(0);
 
-  const wsRef = useRef<WebSocket | null>(null);
   const recognitionRef = useRef<any>(null);
 
   const initRecognition = useCallback(() => {
-    if (!isSpeechSupported) {
-      setError("Speech recognition is not supported in this browser");
-      return null;
-    }
-
     const SpeechRecognition =
       (window as any).SpeechRecognition ||
       (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      setError("Speech recognition is not supported in this browser");
+      return null;
+    }
 
     const recognitionInstance = new SpeechRecognition();
     recognitionInstance.continuous = false;
@@ -154,36 +150,87 @@ export function useVoiceBot(): UseVoiceBotReturn {
       return;
     }
 
-    // Use Web Speech API for now (Qwen-ASR backend not yet connected)
-    const recognitionInstance = recognitionRef.current || initRecognition();
-    if (!recognitionInstance) {
-      return;
-    }
-
-    recognitionRef.current = recognitionInstance;
     setError(null);
     setResult(null);
     setTranscript("");
+    setListening(true);
 
+    // Try Qwen-ASR first
     try {
-      recognitionInstance.start();
-      setListening(true);
-    } catch (err) {
-      logger.error("[VoiceBot] Failed to start recognition:", err);
-      setError("Failed to start voice recognition");
+      await qwenASRClient.connect();
+      await qwenASRClient.startListening();
+
+      audioCaptureService.onChunk(async (chunk: Uint8Array) => {
+        try {
+          await qwenASRClient.sendAudio(chunk);
+        } catch (err) {
+          console.error("[VoiceBot] Failed to send audio:", err);
+        }
+      });
+
+      audioCaptureService.onStatus((status) => {
+        if (status === "recording") {
+          setAudioLevel(1);
+        } else if (status === "stopped") {
+          setAudioLevel(0);
+        }
+      });
+
+      qwenASRClient.on("transcription", (result: any) => {
+        setTranscript(result.text);
+      });
+
+      qwenASRClient.on("error", (err: Error) => {
+        console.error("[VoiceBot] Qwen-ASR error:", err);
+        setError(err.message);
+        setListening(false);
+      });
+
+      await audioCaptureService.startRecording();
+    } catch (qwenError) {
+      console.warn(
+        "[VoiceBot] Qwen-ASR failed, falling back to Web Speech API:",
+        qwenError,
+      );
+
+      const recognitionInstance = recognitionRef.current || initRecognition();
+      if (!recognitionInstance) {
+        setListening(false);
+        return;
+      }
+
+      recognitionRef.current = recognitionInstance;
+      setError(null);
+      setResult(null);
+      setTranscript("");
+
+      try {
+        recognitionInstance.start();
+        setListening(true);
+      } catch (err) {
+        logger.error("[VoiceBot] Failed to start recognition:", err);
+        setError("Failed to start voice recognition");
+        setListening(false);
+      }
     }
   }, [activeModule, initRecognition]);
 
   const stopListening = useCallback(async () => {
-    if (wsRef.current) {
-      wsRef.current.send(JSON.stringify({ type: "stop_listening" }));
-      wsRef.current.close();
-      wsRef.current = null;
-    }
-
-    await audioCaptureService.stopRecording();
     setListening(false);
     setAudioLevel(0);
+
+    try {
+      await qwenASRClient.stopListening();
+      await qwenASRClient.disconnect();
+    } catch (err) {
+      console.error("[VoiceBot] Failed to stop Qwen-ASR:", err);
+    }
+
+    try {
+      await audioCaptureService.stopRecording();
+    } catch (err) {
+      console.error("[VoiceBot] Failed to stop audio capture:", err);
+    }
   }, []);
 
   const reset = useCallback(() => {
@@ -194,12 +241,9 @@ export function useVoiceBot(): UseVoiceBotReturn {
 
   useEffect(() => {
     return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
-      audioCaptureService.stopRecording();
+      stopListening();
     };
-  }, []);
+  }, [stopListening]);
 
   return {
     listening,

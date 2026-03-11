@@ -10,7 +10,7 @@ export class AudioCaptureService {
   private audioContext: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
   private microphone: MediaStreamAudioSourceNode | null = null;
-  private mediaRecorder: MediaRecorder | null = null;
+  private scriptProcessor: ScriptProcessorNode | null = null;
   private config: AudioStreamConfig;
 
   private onChunkCallback: ((chunk: Uint8Array) => void) | null = null;
@@ -50,31 +50,32 @@ export class AudioCaptureService {
       );
       this.microphone.connect(this.analyser);
 
-      this.mediaRecorder = new MediaRecorder(this.mediaStream, {
-        mimeType: "audio/webm;codecs=opus",
-        audioBitsPerSecond: 128000,
-      });
+      const bufferSize = this.config.bufferSize;
+      this.scriptProcessor = this.audioContext.createScriptProcessor(
+        bufferSize,
+        this.config.channels,
+        this.config.channels,
+      );
 
-      this.mediaRecorder.ondataavailable = (event: BlobEvent) => {
-        if (event.data.size > 0) {
-          this.handleAudioData(event.data);
+      this.scriptProcessor.onaudioprocess = (event) => {
+        if (this.onChunkCallback) {
+          const input = event.inputBuffer.getChannelData(0);
+          const pcmBuffer = new ArrayBuffer(input.length * 2);
+          const pcmView = new DataView(pcmBuffer);
+
+          for (let i = 0; i < input.length; i++) {
+            const int16Value = Math.max(-1, Math.min(1, input[i])) * 0x7fff;
+            pcmView.setInt16(i * 2, int16Value, true);
+          }
+
+          this.onChunkCallback(new Uint8Array(pcmBuffer));
         }
       };
 
-      this.mediaRecorder.onstart = () => {
-        this.onStatusCallback?.("recording");
-      };
+      this.microphone.connect(this.scriptProcessor);
+      this.scriptProcessor.connect(this.audioContext.destination);
 
-      this.mediaRecorder.onstop = () => {
-        this.onStatusCallback?.("stopped");
-      };
-
-      this.mediaRecorder.onerror = (error) => {
-        console.error("[AudioCapture] Recorder error:", error);
-        this.onStatusCallback?.("error");
-      };
-
-      this.mediaRecorder.start(100);
+      this.onStatusCallback?.("recording");
     } catch (error) {
       console.error("[AudioCapture] Failed to start recording:", error);
       this.onStatusCallback?.("error");
@@ -83,8 +84,9 @@ export class AudioCaptureService {
   }
 
   async stopRecording(): Promise<void> {
-    if (this.mediaRecorder && this.mediaRecorder.state !== "inactive") {
-      this.mediaRecorder.stop();
+    if (this.scriptProcessor) {
+      this.scriptProcessor.disconnect();
+      this.scriptProcessor = null;
     }
 
     if (this.mediaStream) {
@@ -99,37 +101,7 @@ export class AudioCaptureService {
     this.audioContext = null;
     this.microphone = null;
     this.analyser = null;
-    this.mediaRecorder = null;
-  }
-
-  async processWebmToPcm(blob: Blob): Promise<Uint8Array> {
-    const arrayBuffer = await blob.arrayBuffer();
-    const audioBuffer = await this.audioContext?.decodeAudioData(arrayBuffer);
-
-    if (!audioBuffer) {
-      throw new Error("Failed to decode audio data");
-    }
-
-    const channelData = audioBuffer.getChannelData(0);
-    const pcmBuffer = new ArrayBuffer(audioBuffer.length * 2);
-    const pcmView = new DataView(pcmBuffer);
-
-    for (let i = 0; i < audioBuffer.length; i++) {
-      const int16Value = Math.max(-1, Math.min(1, channelData[i])) * 0x7fff;
-      pcmView.setInt16(i * 2, int16Value, true);
-    }
-
-    return new Uint8Array(pcmBuffer);
-  }
-
-  private handleAudioData(blob: Blob): void {
-    this.processWebmToPcm(blob)
-      .then((pcmData) => {
-        this.onChunkCallback?.(pcmData);
-      })
-      .catch((error) => {
-        console.error("[AudioCapture] Error processing audio:", error);
-      });
+    this.onStatusCallback?.("stopped");
   }
 
   onChunk(callback: (chunk: Uint8Array) => void): void {
@@ -143,7 +115,7 @@ export class AudioCaptureService {
   }
 
   isRecording(): boolean {
-    return this.mediaRecorder?.state === "recording" || false;
+    return this.scriptProcessor !== null;
   }
 
   getAudioLevel(): number {

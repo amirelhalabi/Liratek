@@ -1024,36 +1024,41 @@ Once `[T-60] OMT Settlement System` is complete, the natural progression is:
 ### Completed Today
 
 #### Item-Level Refunds with Partial Quantity
+
 - ✅ Full implementation with partial quantity support
 - ✅ All 440 tests passing
 - ✅ See: `.opencode/plans/item-level-refund.md` (archived)
 
 #### Dashboard Accumulated Drawer Balances
+
 - ✅ Now reads from drawer_balances table (not date-filtered)
 - ✅ Balances verified correct ($3.00 General USD)
 - ✅ Matches Opening/Closing page amounts
 
 #### Code Quality Audit
+
 - ✅ All improvements from `improvements-plan.md` verified as already implemented
 - ✅ Plan file deleted (no action needed)
 
 #### [T-27] Payment Methods Audit
+
 - ✅ All modules have appropriate payment support
 - ✅ Multi-payment where needed, single-payment where appropriate
 - ✅ **Status: COMPLETE**
 
 #### [T-45] WhatsApp Integration
+
 - ✅ ClientForm send button added
 - ✅ **Status: PARTIALLY COMPLETE (deferred for later)**
 
 ### Backlog Items
 
-| Task | Priority | Estimated Time | Status |
-|------|----------|----------------|--------|
-| [T-45] WhatsApp receipt sending | Medium | 2-3 hours | Deferred |
-| [T-45] WhatsApp debt reminder | Medium | 1 hour | Deferred |
-| [T-28] Customer Visit Sessions | Low | TBD | Not started |
-| [T-22] E2E Test Coverage | Low | TBD | Not started |
+| Task                            | Priority | Estimated Time | Status      |
+| ------------------------------- | -------- | -------------- | ----------- |
+| [T-45] WhatsApp receipt sending | Medium   | 2-3 hours      | Deferred    |
+| [T-45] WhatsApp debt reminder   | Medium   | 1 hour         | Deferred    |
+| [T-28] Customer Visit Sessions  | Low      | TBD            | Not started |
+| [T-22] E2E Test Coverage        | Low      | TBD            | Not started |
 
 ---
 

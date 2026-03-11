@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from "@/features/auth/context/AuthContext";
 import { SessionProvider } from "@/features/sessions/context/SessionContext";
 import { ModuleProvider } from "@/contexts/ModuleContext";
 import { CurrencyProvider } from "@/contexts/CurrencyContext";
+import { ActiveModuleProvider } from "@/contexts/ActiveModuleContext";
 import Login from "@/features/auth/pages/Login";
 import Dashboard from "@/features/dashboard/pages/Dashboard";
 
@@ -237,11 +238,13 @@ function App() {
           <CurrencyProvider>
             <FeatureFlagProvider>
               <HashRouter>
-                <AuthProvider>
-                  <SessionProvider>
-                    <AppRoutes />
-                  </SessionProvider>
-                </AuthProvider>
+                <ActiveModuleProvider>
+                  <AuthProvider>
+                    <SessionProvider>
+                      <AppRoutes />
+                    </SessionProvider>
+                  </AuthProvider>
+                </ActiveModuleProvider>
               </HashRouter>
             </FeatureFlagProvider>
           </CurrencyProvider>
