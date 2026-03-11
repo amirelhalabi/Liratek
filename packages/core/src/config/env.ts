@@ -6,6 +6,11 @@
  */
 
 import { z } from "zod";
+import dotenv from "dotenv";
+
+// Load environment variables from root directory
+dotenv.config({ path: new URL("../.env", import.meta.url).pathname });
+dotenv.config();
 
 // =============================================================================
 // Environment Variables Schema (with Zod)

@@ -4,6 +4,11 @@ import { Server as SocketIOServer } from "socket.io";
 import cors from "cors";
 import helmet from "helmet";
 import dotenv from "dotenv";
+
+// Load environment variables from root directory first
+dotenv.config({ path: new URL("../.env", import.meta.url).pathname });
+dotenv.config();
+
 import { getDatabase } from "./database/connection.js";
 import {
   CORS_ORIGIN,
@@ -12,9 +17,6 @@ import {
   logger,
   validateProductionEnv,
 } from "@liratek/core";
-
-// Load environment variables
-dotenv.config();
 
 // Validate production environment (will throw if required vars are missing)
 validateProductionEnv();
