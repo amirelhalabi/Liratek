@@ -15,7 +15,6 @@ import type { Product, CartItem, SaleRequest } from "@liratek/ui";
 import { useExchangeRate } from "@/hooks/useExchangeRate";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { ConfirmModal } from "@/shared/components/ConfirmModal";
-import { VoiceBotButton } from "@/components/VoiceBotButton";
 
 export default function POS() {
   const api = useApi();
@@ -42,6 +41,19 @@ export default function POS() {
   const [isDraftsOpen, setIsDraftsOpen] = useState(false);
   // Confirmation states
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  // Store checkout modal state for edit flow
+  const [pendingCheckoutData, setPendingCheckoutData] =
+    useState<CheckoutDraftData | null>(null);
+
+  // Minimized orders state
+  type MinimizedOrder = {
+    id: string;
+    cartItems: CartItem[];
+    checkoutData: CheckoutDraftData;
+    draftId?: number | undefined;
+    createdAt: Date;
+  };
+  const [minimizedOrders, setMinimizedOrders] = useState<MinimizedOrder[]>([]);
 
   type DraftItem = {
     product_id: number;
@@ -69,9 +81,6 @@ export default function POS() {
     paid_lbp?: number;
   };
   const [drafts, setDrafts] = useState<Draft[]>([]);
-  const [checkoutDraftData, setCheckoutDraftData] = useState<
-    CheckoutDraftData | undefined
-  >(undefined);
 
   const fetchDrafts = useCallback(async () => {
     const data = await api.getDrafts();
@@ -123,9 +132,50 @@ export default function POS() {
 
   const handleClearCart = useCallback(() => {
     setCartItems([]);
-    setCurrentDraftId(undefined); // Clear active draft
+    setCurrentDraftId(undefined);
     setShowClearConfirm(false);
   }, []);
+
+  // Minimize current order
+  const handleMinimizeOrder = useCallback(
+    (checkoutData: CheckoutDraftData) => {
+      if (cartItems.length === 0) return;
+
+      const orderId = `order-${Date.now()}`;
+
+      const minimizedOrder: MinimizedOrder = {
+        id: orderId,
+        cartItems: [...cartItems],
+        checkoutData: checkoutData,
+        draftId: currentDraftId,
+        createdAt: new Date(),
+      };
+
+      setMinimizedOrders((prev) => [...prev, minimizedOrder]);
+      setIsCheckoutOpen(false);
+      setCartItems([]);
+      setCurrentDraftId(undefined);
+      setPendingCheckoutData(null);
+    },
+    [cartItems, currentDraftId],
+  );
+
+  // Restore minimized order
+  const handleRestoreOrder = useCallback(
+    (orderId: string) => {
+      const order = minimizedOrders.find((o) => o.id === orderId);
+      if (!order) return;
+
+      setCartItems(order.cartItems);
+      setPendingCheckoutData(order.checkoutData);
+      setCurrentDraftId(order.draftId);
+      setIsCheckoutOpen(true);
+
+      // Remove from minimized orders
+      setMinimizedOrders((prev) => prev.filter((o) => o.id !== orderId));
+    },
+    [minimizedOrders],
+  );
 
   // Open ProductForm from POS with pre-filled name or barcode
   const handleCreateProduct = useCallback(
@@ -156,7 +206,11 @@ export default function POS() {
     setProductFormPrefill({});
   };
 
-  const handleSaveDraft = async (paymentData: PaymentData) => {
+  const handleSaveDraft = async (
+    paymentData: PaymentData,
+    options?: { clearCart?: boolean; closeModal?: boolean },
+  ) => {
+    const { clearCart = true, closeModal = true } = options || {};
     try {
       const saleRequest: SaleRequest = {
         ...paymentData,
@@ -173,9 +227,13 @@ export default function POS() {
       const result = await api.processSale(saleRequest);
 
       if (result.success) {
-        setIsCheckoutOpen(false);
-        setCartItems([]);
-        setCurrentDraftId(undefined);
+        if (closeModal) {
+          setIsCheckoutOpen(false);
+        }
+        if (clearCart) {
+          setCartItems([]);
+          setCurrentDraftId(undefined);
+        }
         appEvents.emit(
           "notification:show",
           "Draft saved successfully!",
@@ -220,8 +278,8 @@ export default function POS() {
     setCartItems(items);
     setCurrentDraftId(draft.id);
 
-    // Restore payment fields to CheckoutModal
-    setCheckoutDraftData({
+    // Store payment fields for when checkout is opened
+    setPendingCheckoutData({
       selectedClient: (draft.client_id
         ? {
             id: draft.client_id,
@@ -241,7 +299,7 @@ export default function POS() {
     });
 
     setIsDraftsOpen(false);
-    setIsCheckoutOpen(true);
+    // Don't open checkout modal - let user edit cart first
   };
 
   const handleCompleteSale = async (paymentData: PaymentData) => {
@@ -276,9 +334,19 @@ export default function POS() {
           }
         }
 
+        // Delete draft after successful completion
+        if (currentDraftId) {
+          try {
+            await api.deleteDraft(currentDraftId);
+          } catch (err) {
+            logger.error("Failed to delete draft after completion:", err);
+          }
+        }
+
         setIsCheckoutOpen(false);
         setCartItems([]);
         setCurrentDraftId(undefined);
+        setPendingCheckoutData(null);
         setRefreshSalesKey((k) => k + 1);
         appEvents.emit(
           "notification:show",
@@ -308,7 +376,9 @@ export default function POS() {
   };
 
   return (
-    <div className="h-screen overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col gap-6 animate-in fade-in duration-500">
+    <div
+      className={`h-screen overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col gap-6 animate-in fade-in duration-500 ${minimizedOrders.length > 0 ? "pb-32" : ""}`}
+    >
       <PageHeader icon={ShoppingCart} title="Point of Sale" />
 
       <div className="flex flex-1 min-h-0 gap-4 overflow-hidden relative">
@@ -351,27 +421,23 @@ export default function POS() {
             (acc, item) => acc + item.retail_price * item.quantity,
             0,
           )}
-          onClose={async () => {
-            // If we're editing a resumed draft, delete it on cancel
-            if (currentDraftId) {
-              try {
-                await api.deleteDraft(currentDraftId);
-              } catch (err) {
-                logger.error("Failed to delete draft on cancel:", err);
-              }
-            }
+          onMinimize={handleMinimizeOrder}
+          onEdit={(checkoutData) => {
+            // Store checkout state and close modal without clearing cart
+            setPendingCheckoutData(checkoutData);
             setIsCheckoutOpen(false);
-            setCartItems([]);
-            setCurrentDraftId(undefined);
-            setCheckoutDraftData(undefined);
-            appEvents.emit("checkout:closed");
-            // Windows focus fix
-            window.api?.display?.fixFocus();
+            appEvents.emit(
+              "notification:show",
+              "You can now edit your cart. Click checkout to restore your payment details.",
+              "info",
+            );
           }}
           onComplete={handleCompleteSale}
           onSaveDraft={handleSaveDraft}
-          {...(checkoutDraftData ? { draftData: checkoutDraftData } : {})}
-          onRestoreDraftComplete={() => setCheckoutDraftData(undefined)}
+          {...(pendingCheckoutData ? { draftData: pendingCheckoutData } : {})}
+          onRestoreDraftComplete={() => {
+            setPendingCheckoutData(null);
+          }}
         />
       )}
 
@@ -481,8 +547,49 @@ export default function POS() {
         variant="danger"
       />
 
+      {/* Minimized Orders Bar */}
+      {minimizedOrders.length > 0 && (
+        <div className="fixed bottom-0 left-0 right-0 bg-slate-900/95 backdrop-blur-md border-t border-slate-700 shadow-2xl z-40">
+          <div className="flex items-center gap-2 px-4 py-2 overflow-x-auto">
+            {/* Minimized orders - most recent on the right */}
+            {minimizedOrders.map((order, index) => {
+              const totalAmount = order.cartItems.reduce(
+                (sum, item) => sum + item.retail_price * item.quantity,
+                0,
+              );
+              const itemCount = order.cartItems.reduce(
+                (sum, item) => sum + item.quantity,
+                0,
+              );
+              const customerName =
+                order.checkoutData.clientSearchInput || "Walk-in Customer";
+
+              return (
+                <button
+                  key={order.id}
+                  onClick={() => handleRestoreOrder(order.id)}
+                  className="flex items-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-600 hover:border-violet-500 rounded-lg transition-all shrink-0 group min-w-[200px]"
+                >
+                  <ShoppingCart size={16} className="text-violet-400" />
+                  <div className="flex-1 text-left min-w-0">
+                    <div className="text-xs font-medium text-white truncate">
+                      {customerName}
+                    </div>
+                    <div className="text-[10px] text-slate-400">
+                      {itemCount} items • ${totalAmount.toFixed(2)}
+                    </div>
+                  </div>
+                  {index === minimizedOrders.length - 1 && (
+                    <div className="w-2 h-2 bg-violet-500 rounded-full animate-pulse" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Voice Bot Button */}
-      <VoiceBotButton position="bottom-right" />
     </div>
   );
 }

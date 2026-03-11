@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
 import logger from "@/utils/logger";
-import { VoiceBotButton } from "@/components/VoiceBotButton";
 import {
   Signal,
   Wifi,
@@ -2304,7 +2303,6 @@ export default function MobileRecharge() {
       </div>
 
       {/* Voice Bot Button */}
-      <VoiceBotButton position="bottom-right" />
     </div>
   );
 }

@@ -1110,6 +1110,30 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@huggingface/inference@npm:^4.13.15":
+  version: 4.13.15
+  resolution: "@huggingface/inference@npm:4.13.15"
+  dependencies:
+    "@huggingface/jinja": "npm:^0.5.5"
+    "@huggingface/tasks": "npm:^0.19.90"
+  checksum: 10c0/50ac7d76df0b9fb954be4dfbeab99913abfc55df2e6c48d003d9449210ee97db341b7937ffe796006b8bba13cdb3666c7c8537d44ebd5baf93e0a866ecbb597e
+  languageName: node
+  linkType: hard
+
+"@huggingface/jinja@npm:^0.5.5":
+  version: 0.5.6
+  resolution: "@huggingface/jinja@npm:0.5.6"
+  checksum: 10c0/46de4c70ed887454f0958d4acd0513104358a52d07b3e909016354876b3717626d5cf4145e5799454593051e9c60dd7667c8487370cfecf59d2fbb746515b4ad
+  languageName: node
+  linkType: hard
+
+"@huggingface/tasks@npm:^0.19.90":
+  version: 0.19.90
+  resolution: "@huggingface/tasks@npm:0.19.90"
+  checksum: 10c0/d2fdda9c1950563869ed3e5dbc8c6cb966196555c5c68d7d226bb6c065f4bb48129d8c96f036eba9c56f14e1c6d3dfef2e7121f38cfc365ab4e15ee9aec74c38
+  languageName: node
+  linkType: hard
+
 "@humanfs/core@npm:^0.19.1":
   version: 0.19.1
   resolution: "@humanfs/core@npm:0.19.1"
@@ -1563,6 +1587,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@liratek/backend@workspace:backend"
   dependencies:
+    "@huggingface/inference": "npm:^4.13.15"
     "@liratek/core": "workspace:*"
     "@types/bcrypt": "npm:^5.0.2"
     "@types/better-sqlite3": "npm:^7.6.13"
@@ -1625,6 +1650,7 @@ __metadata:
   dependencies:
     "@eslint/js": "npm:^9.39.1"
     "@headlessui/react": "npm:^2.2.9"
+    "@huggingface/inference": "npm:^4.13.15"
     "@liratek/core": "workspace:*"
     "@liratek/ui": "workspace:*"
     "@playwright/test": "npm:^1.58.0"

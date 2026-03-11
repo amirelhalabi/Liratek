@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import logger from "@/utils/logger";
-import { X, User, Printer, Inbox } from "lucide-react";
-import { DRAWER_B, roundLBPUp, useApi, appEvents } from "@liratek/ui";
+import { X, User, Printer, Inbox, Pencil, Minus } from "lucide-react";
+import { roundLBPUp, useApi, appEvents } from "@liratek/ui";
 import { useDynamicExchangeRate } from "@/hooks/useDynamicExchangeRate";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useShopInfo } from "@/hooks/useShopName";
@@ -11,6 +11,17 @@ import {
 } from "@/features/sales/utils/receiptFormatter";
 import type { Client, CartItem, SaleRequest } from "@liratek/ui";
 import { useSession } from "@/features/sessions/context/SessionContext";
+import {
+  PAYMENT_TOLERANCE,
+  RECEIPT_NUMBER_PREFIX,
+  DEFAULT_DRAWER_NAME as DRAWER_B,
+} from "@/constants/checkout";
+import {
+  calculateChange,
+  calculateRemaining,
+  isPaymentComplete,
+  convertLBPToUSD,
+} from "@/utils/paymentUtils";
 
 export type PaymentData = Omit<SaleRequest, "items" | "status" | "id"> & {
   cart?: CartItem[];
@@ -19,9 +30,11 @@ export type PaymentData = Omit<SaleRequest, "items" | "status" | "id"> & {
 interface CheckoutModalProps {
   items?: CartItem[];
   totalAmount: number;
-  onClose: () => void;
+  onClose?: () => void;
   onComplete: (paymentData: PaymentData) => Promise<void>;
   onSaveDraft: (paymentData: PaymentData) => Promise<void>;
+  onMinimize?: (checkoutData: CheckoutDraftData) => void;
+  onEdit?: (checkoutData: CheckoutDraftData) => void;
   draftData?: CheckoutDraftData; // optional: only provided when restoring a draft
   onRestoreDraftComplete?: () => void;
 }
@@ -38,7 +51,7 @@ export type CheckoutDraftData = {
   exchangeRate: number;
 };
 
-const generateReceiptNumber = () => `RCP-${Date.now()}`;
+const generateReceiptNumber = () => `${RECEIPT_NUMBER_PREFIX}${Date.now()}`;
 
 const receiptPrintCSS = `
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -93,6 +106,8 @@ export default function CheckoutModal({
   onClose,
   onComplete,
   onSaveDraft,
+  onMinimize,
+  onEdit,
   draftData,
   onRestoreDraftComplete,
 }: CheckoutModalProps) {
@@ -175,15 +190,21 @@ export default function CheckoutModal({
     };
     fetchClients();
 
-    // Auto-fill customer from active session
-    if (activeSession && !draftData) {
+    // Auto-fill customer from active session ONLY if:
+    // 1. No draft data exists, OR draft data has no customer
+    // 2. AND no customer is currently set
+    const draftHasCustomer =
+      draftData?.clientSearchInput &&
+      draftData.clientSearchInput.trim().length > 0;
+
+    if (activeSession && !draftHasCustomer && !clientSearch) {
       setClientSearch(activeSession.customer_name || "");
       if (activeSession.customer_phone) {
         setSecondaryInput(activeSession.customer_phone);
       }
       setIsAutoFilledFromSession(true);
     }
-  }, [activeSession, draftData]);
+  }, [activeSession, draftData, clientSearch]);
 
   // Restore draft data when it's provided
   useEffect(() => {
@@ -274,11 +295,12 @@ export default function CheckoutModal({
       )
     : isNewClientInfoComplete;
 
-  const finalAmount = Math.max(0, totalAmount - discount);
+  const finalAmount = Math.max(0, totalAmount - (discount ?? 0));
   const effectiveExchangeRate = parseFloat(customExchangeRate) || exchangeRate;
-  const totalPaidInUSD = paidUSD + paidLBP / effectiveExchangeRate;
-  const remaining = finalAmount - totalPaidInUSD;
-  const change = remaining < 0 ? Math.abs(remaining) : 0;
+  const totalPaidInUSD =
+    paidUSD + convertLBPToUSD(paidLBP, effectiveExchangeRate);
+  const remaining = calculateRemaining(totalPaidInUSD, finalAmount);
+  const change = calculateChange(totalPaidInUSD, finalAmount);
 
   const getPaymentData = () => {
     // Determine effective client details
@@ -323,7 +345,10 @@ export default function CheckoutModal({
 
   const handleComplete = async () => {
     // Block debt creation when DEBT payment method is disabled
-    if (remaining > 0.05 && !debtPaymentEnabled) {
+    if (
+      !isPaymentComplete(totalPaidInUSD, finalAmount) &&
+      !debtPaymentEnabled
+    ) {
       appEvents.emit(
         "notification:show",
         "Debt payment method is disabled. The full amount must be paid before completing the sale.",
@@ -333,7 +358,7 @@ export default function CheckoutModal({
     }
 
     // Validation: Debt requires a complete profile for new debts
-    if (remaining > 0.05 && !canCreateDebt) {
+    if (!isPaymentComplete(totalPaidInUSD, finalAmount) && !canCreateDebt) {
       appEvents.emit(
         "notification:show",
         "To create or leave a debt, please ensure the client has a phone number (existing client) or provide both name and phone (new client).",
@@ -466,7 +491,7 @@ export default function CheckoutModal({
         className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-in fade-in duration-200"
         role="presentation"
         onMouseDown={(e) => {
-          if (e.target === e.currentTarget) {
+          if (e.target === e.currentTarget && onClose) {
             onClose();
           }
         }}
@@ -478,7 +503,18 @@ export default function CheckoutModal({
         >
           {/* Left: Summary & Client */}
           <div className="w-1/2 bg-slate-800 p-8 border-r border-slate-700 flex flex-col">
-            <h2 className="text-2xl font-bold text-white mb-6">Checkout</h2>
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-white">Checkout</h2>
+              {onClose && (
+                <button
+                  onClick={onClose}
+                  className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
+                  title="Close"
+                >
+                  <X size={20} />
+                </button>
+              )}
+            </div>
 
             {/* ── Customer inputs (fixed height at top) ── */}
             <div className="shrink-0">
@@ -591,20 +627,47 @@ export default function CheckoutModal({
                         Add {secondaryLabel.toLowerCase()} to enable debt.
                       </span>
                     </div>
-                    {remaining > 0.05 && !canCreateDebt && (
-                      <div className="text-sm text-red-400 mt-1 ml-1">
-                        Debts require a valid client phone. Provide both name
-                        and phone for new clients.
-                      </div>
-                    )}
+                    {!isPaymentComplete(totalPaidInUSD, finalAmount) &&
+                      !canCreateDebt && (
+                        <div className="text-sm text-red-400 mt-1 ml-1">
+                          Debts require a valid client phone. Provide both name
+                          and phone for new clients.
+                        </div>
+                      )}
                   </div>
                 )}
             </div>
 
             {/* ── Cart Items List (fills available space, scrolls when needed) ── */}
             {items && items.length > 0 && (
-              <div className="flex-1 min-h-0 my-4 bg-slate-900/50 rounded-xl border border-slate-700/50 overflow-hidden">
-                <div className="h-full overflow-y-auto divide-y divide-slate-700/50">
+              <div className="flex-1 min-h-0 my-4 bg-slate-900/50 rounded-xl border border-slate-700/50 overflow-hidden flex flex-col">
+                <div className="flex items-center justify-between px-4 py-2 border-b border-slate-700/50 bg-slate-800/30">
+                  <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">
+                    Items ({items.length})
+                  </span>
+                  {onEdit && (
+                    <button
+                      onClick={() =>
+                        onEdit({
+                          selectedClient,
+                          clientSearchInput: clientSearch,
+                          clientSearchSecondary: secondaryInput,
+                          discount,
+                          paidUSD,
+                          paidLBP,
+                          changeGivenUSD,
+                          changeGivenLBP,
+                          exchangeRate: effectiveExchangeRate,
+                        })
+                      }
+                      className="p-1.5 text-slate-400 hover:text-violet-400 hover:bg-violet-500/10 rounded-lg transition-colors"
+                      title="Edit Order"
+                    >
+                      <Pencil size={14} />
+                    </button>
+                  )}
+                </div>
+                <div className="flex-1 h-full overflow-y-auto divide-y divide-slate-700/50">
                   {items.map((item, idx) => (
                     <div
                       key={idx}
@@ -672,16 +735,39 @@ export default function CheckoutModal({
               <h3 className="text-lg font-semibold text-slate-300">
                 Payment Details
               </h3>
-              <div className="flex items-center gap-2">
-                <label className="text-xs text-slate-500">1 USD =</label>
-                <input
-                  type="number"
-                  value={customExchangeRate}
-                  onChange={(e) => setCustomExchangeRate(e.target.value)}
-                  className="w-28 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1 text-white font-mono text-xs focus:outline-none focus:border-violet-500"
-                  placeholder={exchangeRate.toString()}
-                />
-                <label className="text-xs text-slate-500">LBP</label>
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <label className="text-xs text-slate-500">1 USD =</label>
+                  <input
+                    type="number"
+                    value={customExchangeRate}
+                    onChange={(e) => setCustomExchangeRate(e.target.value)}
+                    className="w-28 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1 text-white font-mono text-xs focus:outline-none focus:border-violet-500"
+                    placeholder={exchangeRate.toString()}
+                  />
+                  <label className="text-xs text-slate-500">LBP</label>
+                  {onMinimize && (
+                    <button
+                      onClick={() =>
+                        onMinimize({
+                          selectedClient,
+                          clientSearchInput: clientSearch,
+                          clientSearchSecondary: secondaryInput,
+                          discount,
+                          paidUSD,
+                          paidLBP,
+                          changeGivenUSD,
+                          changeGivenLBP,
+                          exchangeRate: effectiveExchangeRate,
+                        })
+                      }
+                      className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
+                      title="Minimize Order"
+                    >
+                      <Minus size={20} />
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -921,7 +1007,7 @@ export default function CheckoutModal({
                 </span>
               </div>
 
-              {remaining > 0.05 ? (
+              {!isPaymentComplete(totalPaidInUSD, finalAmount) ? (
                 <>
                   <div className="flex justify-between items-center pt-2 border-t border-slate-700">
                     <span
@@ -1042,7 +1128,7 @@ export default function CheckoutModal({
                           setChangeGivenLBP(roundedLBP);
                         };
 
-                        if (diff > 0.05) {
+                        if (diff > PAYMENT_TOLERANCE) {
                           // Underpaying change (Remaining to give)
                           return (
                             <div className="text-center text-xs text-red-400 font-medium bg-red-500/10 py-2 rounded flex items-center justify-center gap-2">
@@ -1062,7 +1148,7 @@ export default function CheckoutModal({
                               </button>
                             </div>
                           );
-                        } else if (diff < -0.05) {
+                        } else if (diff < -PAYMENT_TOLERANCE) {
                           // Overpaying change (Caution)
                           return (
                             <div className="text-center text-xs text-amber-400 font-medium bg-amber-500/10 py-2 rounded flex items-center justify-center gap-2">

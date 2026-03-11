@@ -8,6 +8,7 @@ import {
   List,
   Monitor,
   Printer,
+  Volume2,
 } from "lucide-react";
 import clsx from "clsx";
 import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
@@ -33,6 +34,7 @@ export default function ShopConfig() {
   const [sessionMgmt, setSessionMgmt] = useState(true);
   const [customerSessions, setCustomerSessions] = useState(true);
   const [autoCheckUpdates, setAutoCheckUpdates] = useState(true);
+  const [voiceBotEnabled, setVoiceBotEnabled] = useState(true);
 
   // Print settings
   const [printers, setPrinters] = useState<
@@ -100,6 +102,14 @@ export default function ShopConfig() {
       setReceiptPrinter((map.get("receipt_printer") as string) || "");
       setBarcodePrinter((map.get("barcode_printer") as string) || "");
 
+      // Load voice bot setting from localStorage
+      const voiceBotEnabledSetting = localStorage.getItem("voicebot_enabled");
+      setVoiceBotEnabled(
+        voiceBotEnabledSetting !== null
+          ? voiceBotEnabledSetting === "true"
+          : true,
+      );
+
       // Load available printers if running in Electron
       if (window.api?.print?.getPrinters) {
         try {
@@ -137,6 +147,10 @@ export default function ShopConfig() {
         api.updateSetting("receipt_printer", receiptPrinter),
         api.updateSetting("barcode_printer", barcodePrinter),
       ]);
+
+      // Save voice bot setting to localStorage
+      localStorage.setItem("voicebot_enabled", String(voiceBotEnabled));
+
       // Invalidate cached shop info so receipts pick up new values
       invalidateShopInfo();
       // Notify feature flag context to refresh
@@ -345,6 +359,34 @@ export default function ShopConfig() {
               className={clsx(
                 "absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform",
                 autoCheckUpdates ? "translate-x-5" : "translate-x-0.5",
+              )}
+            />
+          </div>
+        </label>
+
+        <label className="flex items-center justify-between cursor-pointer group">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-violet-600/20 rounded-lg">
+              <Volume2 size={16} className="text-violet-400" />
+            </div>
+            <div>
+              <span className="text-sm text-white">Voice Bot</span>
+              <p className="text-xs text-slate-500">
+                Show or hide the voice assistant button
+              </p>
+            </div>
+          </div>
+          <div
+            className={clsx(
+              "relative w-10 h-5 rounded-full transition-colors",
+              voiceBotEnabled ? "bg-violet-600" : "bg-slate-600",
+            )}
+            onClick={() => setVoiceBotEnabled(!voiceBotEnabled)}
+          >
+            <div
+              className={clsx(
+                "absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform",
+                voiceBotEnabled ? "translate-x-5" : "translate-x-0.5",
               )}
             />
           </div>

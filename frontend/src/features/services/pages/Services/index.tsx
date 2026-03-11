@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import logger from "@/utils/logger";
 import {
   Send,
@@ -21,7 +21,6 @@ import {
   MultiPaymentInput,
   type PaymentLine,
 } from "@/shared/components/MultiPaymentInput";
-import { VoiceBotButton } from "@/components/VoiceBotButton";
 
 type Provider = "OMT" | "WHISH";
 type ServiceType = "SEND" | "RECEIVE";
@@ -403,13 +402,33 @@ export default function Services() {
     }
   }, [activeSession, serviceType, loadData]);
 
+  // Ref to track if we should auto-submit after voice command
+  const shouldAutoSubmitRef = useRef(false);
+
+  // Auto-submit when form fields are populated by voice command
+  useEffect(() => {
+    if (
+      shouldAutoSubmitRef.current &&
+      amount &&
+      (receiverPhone || senderPhone)
+    ) {
+      console.warn("[Services] ✅ Form fields populated, auto-submitting...");
+      shouldAutoSubmitRef.current = false;
+
+      // Small delay to ensure UI is updated
+      setTimeout(() => {
+        handleSubmit();
+      }, 100);
+    }
+  }, [amount, receiverPhone, senderPhone]);
+
   // Handle voice/text commands from VoiceBot
   useEffect(() => {
     const handleVoiceCommand = async (event: Event) => {
       const customEvent = event as CustomEvent;
       const { command, entities } = customEvent.detail;
 
-      console.log("🎤 [SERVICES] VOICE COMMAND RECEIVED!", {
+      console.warn("🎤 [SERVICES] VOICE COMMAND RECEIVED!", {
         action: command.action,
         hasReceiverPhone: !!entities.receiverPhone,
         hasSenderPhone: !!entities.senderPhone,
@@ -417,7 +436,7 @@ export default function Services() {
 
       // Only handle OMT/WHISH commands
       if (command.module !== "omt_whish") {
-        console.log(
+        console.warn(
           "[Services] Ignoring non-omt_whish module:",
           command.module,
         );
@@ -425,7 +444,7 @@ export default function Services() {
       }
 
       try {
-        console.log("[Services] Checking conditions:", {
+        console.warn("[Services] Checking conditions:", {
           action: command.action,
           receiverPhone: entities.receiverPhone,
           hasReceiverPhone: !!entities.receiverPhone,
@@ -433,46 +452,42 @@ export default function Services() {
 
         // For SEND: session customer is sender, voice provides receiver
         if (command.action === "send" && entities.receiverPhone) {
-          console.log("[Services] SEND condition met! Processing...");
+          console.warn("[Services] SEND condition met! Processing...");
 
           // Update form fields for visual feedback
           setAmount(entities.amount.toString());
           setReceiverName(entities.receiverName || "");
           setReceiverPhone(entities.receiverPhone);
 
+          // Mark that we should auto-submit when fields are updated
+          shouldAutoSubmitRef.current = true;
+
           // Session customer should already be auto-filled as sender from useEffect
-          console.log("[Services] Form fields updated:", {
+          console.warn("[Services] Form fields updated:", {
             amount: entities.amount,
             receiverName: entities.receiverName,
             receiverPhone: entities.receiverPhone,
           });
-
-          // Auto-submit the transaction
-          setTimeout(() => {
-            handleSubmit();
-          }, 200);
         }
 
         // For RECEIVE: session customer is receiver, voice provides sender
         if (command.action === "receive" && entities.senderPhone) {
-          console.log("[Services] RECEIVE condition met! Processing...");
+          console.warn("[Services] RECEIVE condition met! Processing...");
 
           // Update form fields for visual feedback
           setAmount(entities.amount.toString());
           setSenderName(entities.senderName || "");
           setSenderPhone(entities.senderPhone);
 
+          // Mark that we should auto-submit when fields are updated
+          shouldAutoSubmitRef.current = true;
+
           // Session customer should already be auto-filled as receiver from useEffect
-          console.log("[Services] Form fields updated:", {
+          console.warn("[Services] Form fields updated:", {
             amount: entities.amount,
             senderName: entities.senderName,
             senderPhone: entities.senderPhone,
           });
-
-          // Auto-submit the transaction
-          setTimeout(() => {
-            handleSubmit();
-          }, 200);
         }
       } catch (err) {
         logger.error("[VoiceBot] Error handling command:", err);
@@ -1887,7 +1902,6 @@ export default function Services() {
       )}
 
       {/* Voice Bot Button */}
-      <VoiceBotButton position="bottom-right" />
     </div>
   );
 }

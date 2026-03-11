@@ -81,7 +81,7 @@ export function initVoiceWebSocketServer(httpServer: Server): WebSocketServer {
   });
 
   wss.on("connection", (ws) => {
-    console.log("[VoiceBot] Client connected to voice WebSocket");
+    console.warn("[VoiceBot] Client connected to voice WebSocket");
 
     let isListening = false;
 
@@ -124,7 +124,7 @@ export function initVoiceWebSocketServer(httpServer: Server): WebSocketServer {
     });
 
     ws.on("close", () => {
-      console.log("[VoiceBot] Client disconnected from voice WebSocket");
+      console.warn("[VoiceBot] Client disconnected from voice WebSocket");
       if (isListening) {
         voiceTranscriptionService.stopListening();
       }

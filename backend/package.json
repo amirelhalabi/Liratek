@@ -17,6 +17,7 @@
     "env:prod": "cp .env.prod .env"
   },
   "dependencies": {
+    "@huggingface/inference": "^4.13.15",
     "@liratek/core": "workspace:*",
     "bcrypt": "^5.1.1",
     "better-sqlite3": "^12.6.2",

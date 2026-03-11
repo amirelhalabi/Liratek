@@ -11,7 +11,7 @@ export class QwenASRClient {
   private config: QwenASRConfig;
   private isConnecting = false;
 
-  private listeners: Record<string, Function[]> = {};
+  private listeners: Record<string, ((...args: unknown[]) => void)[]> = {};
 
   constructor(config: Partial<QwenASRConfig> = {}) {
     this.config = {
@@ -93,7 +93,9 @@ export class QwenASRClient {
 
   private handleMessage(data: string | ArrayBuffer): void {
     try {
-      const message = JSON.parse(typeof data === "string" ? data : new TextDecoder().decode(data));
+      const message = JSON.parse(
+        typeof data === "string" ? data : new TextDecoder().decode(data),
+      );
 
       switch (message.type) {
         case "started":
@@ -132,7 +134,7 @@ export class QwenASRClient {
     }
   }
 
-  on(event: string, callback: Function): () => void {
+  on(event: string, callback: (...args: unknown[]) => void): () => void {
     if (!this.listeners[event]) {
       this.listeners[event] = [];
     }

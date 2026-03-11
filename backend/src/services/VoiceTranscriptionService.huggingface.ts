@@ -1,4 +1,4 @@
-import { InferenceClient } from "@huggingface/inference";
+import * as https from "https";
 
 interface HuggingFaceConfig {
   apiKey: string;
@@ -13,7 +13,6 @@ type ConnectionState =
   | "listening";
 
 export class VoiceTranscriptionService {
-  private client: InferenceClient;
   private config: HuggingFaceConfig;
   private connectionState: ConnectionState = "disconnected";
   private audioBuffer: Buffer[] = [];
@@ -34,10 +33,8 @@ export class VoiceTranscriptionService {
   constructor() {
     this.config = {
       apiKey: process.env.HUGGINGFACE_API_KEY || "",
-      model: process.env.HUGGINGFACE_MODEL || "openai/whisper-large-v3",
+      model: "openai/whisper-large-v3",
     };
-
-    this.client = new InferenceClient(this.config.apiKey);
   }
 
   async connect(): Promise<void> {
@@ -45,19 +42,16 @@ export class VoiceTranscriptionService {
       this.connectionState === "ready" ||
       this.connectionState === "listening"
     ) {
-      // Already connected
+      console.warn("[VoiceTranscription] Already connected");
       return;
     }
 
     if (this.connectionState === "connecting") {
-      // Connection in progress
+      console.warn("[VoiceTranscription] Connection in progress");
       return;
     }
 
     if (!this.config.apiKey) {
-      console.error(
-        "[VoiceTranscription] HUGGINGFACE_API_KEY is not configured",
-      );
       throw new Error("HUGGINGFACE_API_KEY is not configured");
     }
 
@@ -85,7 +79,7 @@ export class VoiceTranscriptionService {
 
   async startListening(): Promise<void> {
     if (this.connectionState === "listening") {
-      // Already listening
+      console.warn("[VoiceTranscription] Already listening");
       return;
     }
 
@@ -100,7 +94,7 @@ export class VoiceTranscriptionService {
 
   async stopListening(): Promise<void> {
     if (this.connectionState !== "listening") {
-      // Not currently listening
+      console.warn("[VoiceTranscription] Not currently listening");
       return;
     }
 
@@ -115,9 +109,6 @@ export class VoiceTranscriptionService {
 
   async sendAudio(chunk: Buffer): Promise<void> {
     if (this.connectionState !== "listening") {
-      console.error(
-        `[VoiceTranscription] Cannot send audio: connection state is ${this.connectionState}`,
-      );
       throw new Error(
         `Cannot send audio: connection state is ${this.connectionState}`,
       );
@@ -168,27 +159,76 @@ export class VoiceTranscriptionService {
   private async transcribeWithHuggingFace(
     audioBuffer: Buffer,
   ): Promise<string> {
-    try {
-      const arrayBuffer = audioBuffer.buffer.slice(
-        audioBuffer.byteOffset,
-        audioBuffer.byteOffset + audioBuffer.byteLength,
-      ) as ArrayBuffer;
+    return new Promise((resolve, reject) => {
+      const data = audioBuffer.toString("base64");
 
-      const output = await this.client.automaticSpeechRecognition({
-        data: arrayBuffer,
-        model: this.config.model,
+      const postData = JSON.stringify({
+        inputs: data,
+        parameters: {
+          return_timestamps: false,
+          language: "en",
+        },
       });
 
-      const transcript = output.text || "";
-      console.warn("[VoiceTranscription] Transcription result:", transcript);
-      return transcript;
-    } catch (error: any) {
-      if (error.message?.includes("loading")) {
-        console.warn("[VoiceTranscription] Model is loading, please wait...");
-        return "";
-      }
-      throw error;
-    }
+      const options = {
+        hostname: "api-inference.huggingface.co",
+        port: 443,
+        path: `/models/${this.config.model}`,
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.config.apiKey}`,
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(postData),
+        },
+      };
+
+      const req = https.request(options, (res) => {
+        let responseData = "";
+
+        res.on("data", (chunk) => {
+          responseData += chunk;
+        });
+
+        res.on("end", () => {
+          try {
+            const result = JSON.parse(responseData);
+
+            if (result.error) {
+              if (result.error.includes("loading")) {
+                console.warn(
+                  "[VoiceTranscription] Model is loading, please wait...",
+                );
+                resolve("");
+                return;
+              }
+              reject(new Error(result.error));
+              return;
+            }
+
+            const transcript = Array.isArray(result)
+              ? result[0]?.text || ""
+              : result.text || "";
+
+            console.warn(
+              "[VoiceTranscription] Transcription result:",
+              transcript,
+            );
+            resolve(transcript);
+          } catch (error) {
+            console.error("[VoiceTranscription] Parse error:", error);
+            reject(error);
+          }
+        });
+      });
+
+      req.on("error", (error) => {
+        console.error("[VoiceTranscription] Request error:", error);
+        reject(error);
+      });
+
+      req.write(postData);
+      req.end();
+    });
   }
 
   async commitAudio(): Promise<void> {

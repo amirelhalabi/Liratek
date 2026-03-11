@@ -2,8 +2,6 @@ import { useState, useEffect, type ReactNode } from "react";
 import LeftPanelLayout from "./LeftPanelLayout";
 import HomeViewLayout from "./HomeViewLayout";
 import { NotificationCenter, appEvents } from "@liratek/ui";
-import { SessionFloatingWindow } from "@/features/sessions/components/SessionFloatingWindow";
-import { MessengerStyleSessionButton } from "@/features/sessions/components/MessengerStyleSessionButton";
 
 import Closing from "@/features/closing/pages/Closing";
 import Opening from "@/features/closing/pages/Opening";
@@ -90,9 +88,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
     <>
       {layoutContent}
       <NotificationCenter />
-      {/* Session Components — only when customer sessions feature is enabled */}
-      {flags.customerSessions && <MessengerStyleSessionButton />}
-      {flags.customerSessions && <SessionFloatingWindow />}
+      {/* Session Components — moved to TopBar as embedded button */}
       {isAdmin && isOpeningModalOpen && (
         <Opening
           isOpen={isOpeningModalOpen}

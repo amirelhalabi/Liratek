@@ -1,6 +1,32 @@
 import { ipcMain, BrowserWindow } from "electron";
-import { getVoiceBotService } from "@liratek/core";
+import { getVoiceBotService, type VoiceCommand } from "@liratek/core";
 import WebSocket from "ws";
+import type {
+  ParseResult,
+  ExecuteResult,
+  OmtWhishExecuteResult,
+  RechargeExecuteResult,
+  PosExecuteResult,
+  DebtsExecuteResult,
+  NavigationExecuteResult,
+} from "./voiceBotTypes";
+
+const isDev = process.env.NODE_ENV === "development" || !process.env.NODE_ENV;
+
+const voiceBotLogger = {
+  info: (msg: string, data?: unknown) => {
+    if (isDev) console.log(`[VoiceBot] ${msg}`, data || "");
+  },
+  warn: (msg: string, data?: unknown) => {
+    if (isDev) console.warn(`[VoiceBot] ${msg}`, data || "");
+  },
+  error: (msg: string, err?: unknown) => {
+    console.error(`[VoiceBot] ${msg}`, err || "");
+  },
+  debug: (msg: string, data?: unknown) => {
+    if (isDev) console.log(`[VoiceBot] ${msg}`, data || "");
+  },
+};
 
 let qwenWs: WebSocket | null = null;
 let activeTranscriptionWindow: BrowserWindow | null = null;
@@ -45,9 +71,11 @@ export function registerVoiceBotHandlers() {
   );
 
   // Execute voice command
-  ipcMain.handle("voicebot:execute", async (_event, command: any) => {
+  ipcMain.handle("voicebot:execute", async (_event, command: VoiceCommand) => {
     try {
       switch (command.module) {
+        case "navigation":
+          return executeNavigation(command);
         case "omt_whish":
           return executeOmtWhish(command);
         case "recharge":
@@ -56,6 +84,18 @@ export function registerVoiceBotHandlers() {
           return executePos(command);
         case "debts":
           return executeDebts(command);
+        case "profits":
+          return {
+            success: true,
+            message: "Profits filter applied",
+            filters: command.entities,
+          };
+        case "expenses":
+          return {
+            success: true,
+            message: "Expenses filter applied",
+            filters: command.entities,
+          };
         default:
           return {
             success: false,
@@ -70,18 +110,44 @@ export function registerVoiceBotHandlers() {
     }
   });
 
+  /**
+   * Execute navigation command
+   */
+  async function executeNavigation(
+    command: VoiceCommand,
+  ): Promise<NavigationExecuteResult> {
+    const { action, entities } = command;
+
+    if (action === "navigate") {
+      const filters: any = {};
+      if (entities.fromDate) filters.fromDate = entities.fromDate;
+      if (entities.toDate) filters.toDate = entities.toDate;
+      if (entities.status) filters.status = entities.status;
+
+      // Return route info for frontend to handle navigation
+      return {
+        success: true,
+        message: `Navigating to ${entities.targetPage}`,
+        route: entities.targetPage,
+        filters,
+      };
+    }
+
+    return {
+      success: false,
+      error: "Unknown navigation action",
+    };
+  }
+
   registerQwenASRHandlers();
 }
 
 /**
  * Execute OMT/WHISH command
  */
-async function executeOmtWhish(command: any): Promise<{
-  success: boolean;
-  message?: string;
-  error?: string;
-  entities?: any;
-}> {
+async function executeOmtWhish(
+  command: VoiceCommand,
+): Promise<OmtWhishExecuteResult> {
   const { action, entities } = command;
 
   if (action === "check_balance") {
@@ -103,7 +169,11 @@ async function executeOmtWhish(command: any): Promise<{
     return {
       success: true,
       message: `Ready to send $${entities.amount} to ${entities.receiverName || entities.receiverPhone}`,
-      entities,
+      entities: {
+        amount: entities.amount,
+        receiverPhone: entities.receiverPhone,
+        receiverName: entities.receiverName,
+      },
     };
   }
 
@@ -119,7 +189,11 @@ async function executeOmtWhish(command: any): Promise<{
     return {
       success: true,
       message: `Ready to receive $${entities.amount} from ${entities.senderName || entities.senderPhone}`,
-      entities,
+      entities: {
+        amount: entities.amount,
+        senderPhone: entities.senderPhone,
+        senderName: entities.senderName,
+      },
     };
   }
 
@@ -132,12 +206,9 @@ async function executeOmtWhish(command: any): Promise<{
 /**
  * Execute Recharge command
  */
-async function executeRecharge(command: any): Promise<{
-  success: boolean;
-  message?: string;
-  error?: string;
-  entities?: any;
-}> {
+async function executeRecharge(
+  command: VoiceCommand,
+): Promise<RechargeExecuteResult> {
   const { entities } = command;
 
   if (!entities?.phone || !entities?.amount) {
@@ -150,19 +221,17 @@ async function executeRecharge(command: any): Promise<{
   return {
     success: true,
     message: `Ready to recharge $${entities.amount} for ${entities.phone}`,
-    entities,
+    entities: {
+      phone: entities.phone,
+      amount: entities.amount,
+    },
   };
 }
 
 /**
  * Execute POS command
  */
-async function executePos(command: any): Promise<{
-  success: boolean;
-  message?: string;
-  error?: string;
-  entities?: any;
-}> {
+async function executePos(command: VoiceCommand): Promise<PosExecuteResult> {
   const { action, entities } = command;
 
   switch (action) {
@@ -213,17 +282,24 @@ function registerQwenASRHandlers() {
       activeTranscriptionWindow = BrowserWindow.fromId(windowId);
 
       if (qwenWs && qwenWs.readyState === WebSocket.OPEN) {
-        return { success: true, message: "Already connected" };
+        return {
+          success: true,
+          message: "Already connected",
+          readyState: qwenWs.readyState,
+        };
       }
 
       const apiKey = process.env.DASHSCOPE_API_KEY;
       if (!apiKey) {
-        throw new Error("DASHSCOPE_API_KEY not configured");
+        throw new Error(
+          "DASHSCOPE_API_KEY not configured. Please set it in your .env file.",
+        );
       }
 
-      // Use correct Qwen-ASR WebSocket URL
       const model = process.env.QWEN_ASR_MODEL || "qwen3-asr-flash-realtime";
       const url = `wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime?model=${model}`;
+
+      console.log("[VoiceBot] Connecting to Qwen-ASR:", url);
 
       qwenWs = new WebSocket(url, {
         headers: {
@@ -232,49 +308,37 @@ function registerQwenASRHandlers() {
         },
       });
 
-      qwenWs.on("open", () => {
-        console.log("[VoiceBot] Qwen-ASR connected");
-        // Send session.update event to configure session
-        qwenWs?.send(
-          JSON.stringify({
-            event_id: `event_${Date.now()}`,
-            type: "session.update",
-            session: {
-              modalities: ["text"],
-              input_audio_format: "pcm",
-              sample_rate: 16000,
-              input_audio_transcription: {
-                language: process.env.QWEN_ASR_LANGUAGE || "en",
-                corpus: {
-                  text: "LiraTek POS System pos recharge omt_whish debts",
-                },
-              },
-              turn_detection: {
-                type: "server_vad",
-                threshold: 0.2,
-                silence_duration_ms: 800,
-              },
-            },
-          }),
-        );
-      });
+      return await new Promise((resolve, reject) => {
+        const connectionTimeout = setTimeout(() => {
+          qwenWs?.terminate();
+          qwenWs = null;
+          reject(new Error("Connection timeout after 10 seconds"));
+        }, 10000);
 
-      qwenWs.on("message", (data: WebSocket.Data) => {
-        handleQwenMessage(data);
-      });
+        qwenWs?.once("open", () => {
+          clearTimeout(connectionTimeout);
+          console.log("[VoiceBot] Qwen-ASR connected");
 
-      qwenWs.on("error", (error) => {
-        console.error("[VoiceBot] Qwen-ASR error:", error);
-        broadcastTranscriptionError(error.message);
-      });
+          setTimeout(() => {
+            sendSessionUpdate();
+          }, 500);
 
-      qwenWs.on("close", (code, reason) => {
-        console.log("[VoiceBot] Qwen-ASR closed:", code, reason?.toString());
-        qwenWs = null;
-      });
+          resolve({
+            success: true,
+            message: "Connected to Qwen-ASR",
+            readyState: qwenWs?.readyState,
+          });
+        });
 
-      return { success: true, message: "Connected to Qwen-ASR" };
+        qwenWs?.once("error", (error) => {
+          clearTimeout(connectionTimeout);
+          console.error("[VoiceBot] Connection error:", error.message);
+          qwenWs = null;
+          reject(error);
+        });
+      });
     } catch (error) {
+      console.error("[VoiceBot] Connection error:", error);
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error),
@@ -282,13 +346,62 @@ function registerQwenASRHandlers() {
     }
   });
 
+  function sendSessionUpdate() {
+    if (!qwenWs || qwenWs.readyState !== WebSocket.OPEN) return;
+
+    console.log("[VoiceBot] Sending session update");
+    qwenWs.send(
+      JSON.stringify({
+        event_id: `event_${Date.now()}`,
+        type: "session.update",
+        session: {
+          modalities: ["text"],
+          input_audio_format: "pcm",
+          sample_rate: 16000,
+          input_audio_transcription: {
+            language: process.env.QWEN_ASR_LANGUAGE || "en",
+            corpus: {
+              text: `
+                LiraTek POS System
+                Modules: pos, recharge, omt_whish, debts
+                Commands: check balance, send, receive, recharge, add product, remove product, complete sale, apply discount, add debt, record payment
+                Common terms: liratek, omt, whish, recharge, debt, payment, product, service, dollar, dollars
+              `,
+            },
+          },
+          turn_detection: {
+            type: "server_vad",
+            threshold: 0.2,
+            silence_duration_ms: 800,
+          },
+        },
+      }),
+    );
+  }
+
   ipcMain.handle("voicebot:qwen:disconnect", async () => {
     try {
       if (qwenWs) {
-        qwenWs.close(1000, "Client disconnecting");
-        qwenWs = null;
+        console.log("[VoiceBot] Disconnecting from Qwen-ASR");
+
+        qwenWs.send(
+          JSON.stringify({
+            event_id: `event_${Date.now()}`,
+            type: "session.finish",
+          }),
+        );
+
+        setTimeout(() => {
+          if (qwenWs && qwenWs.readyState === WebSocket.OPEN) {
+            qwenWs.close(1000, "Client disconnecting");
+          }
+          qwenWs = null;
+          activeTranscriptionWindow = null;
+        }, 1000);
+
+        return { success: true, message: "Disconnecting" };
       }
-      return { success: true, message: "Disconnected" };
+      return { success: true, message: "Not connected" };
     } catch (error) {
       return {
         success: false,
@@ -302,10 +415,12 @@ function registerQwenASRHandlers() {
     async (_event, audioData: string, format: string = "base64") => {
       try {
         if (!qwenWs || qwenWs.readyState !== WebSocket.OPEN) {
-          throw new Error("Not connected to Qwen-ASR");
+          return {
+            success: false,
+            error: "Not connected to Qwen-ASR. Please connect first.",
+          };
         }
 
-        // Use correct Qwen-ASR event format
         qwenWs.send(
           JSON.stringify({
             event_id: `event_${Date.now()}`,
@@ -316,6 +431,7 @@ function registerQwenASRHandlers() {
 
         return { success: true };
       } catch (error) {
+        console.error("[VoiceBot] Send audio error:", error);
         return {
           success: false,
           error: error instanceof Error ? error.message : String(error),
@@ -327,10 +443,13 @@ function registerQwenASRHandlers() {
   ipcMain.handle("voicebot:qwen:stop", async () => {
     try {
       if (!qwenWs || qwenWs.readyState !== WebSocket.OPEN) {
-        throw new Error("Not connected to Qwen-ASR");
+        return {
+          success: false,
+          error: "Not connected to Qwen-ASR",
+        };
       }
 
-      // Send session.finish to end session
+      console.log("[VoiceBot] Stopping listening");
       qwenWs.send(
         JSON.stringify({
           event_id: `event_${Date.now()}`,
@@ -340,6 +459,7 @@ function registerQwenASRHandlers() {
 
       return { success: true, message: "Listening stopped" };
     } catch (error) {
+      console.error("[VoiceBot] Stop error:", error);
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error),
@@ -352,10 +472,31 @@ function handleQwenMessage(data: WebSocket.Data) {
   try {
     const message = JSON.parse(data.toString());
 
-    // Handle Qwen-ASR response events
+    console.log("[VoiceBot] Received message:", message.type);
+
     switch (message.type) {
+      case "session.created":
+        console.log("[VoiceBot] Session created:", message.session?.id);
+        if (activeTranscriptionWindow) {
+          activeTranscriptionWindow.webContents.send(
+            "voicebot:session-created",
+            {
+              sessionId: message.session?.id,
+            },
+          );
+        }
+        break;
+
       case "session.updated":
         console.log("[VoiceBot] Session updated");
+        if (activeTranscriptionWindow) {
+          activeTranscriptionWindow.webContents.send(
+            "voicebot:session-updated",
+            {
+              success: true,
+            },
+          );
+        }
         break;
 
       case "input_audio_buffer.committed":
@@ -364,44 +505,74 @@ function handleQwenMessage(data: WebSocket.Data) {
 
       case "input_audio_buffer.speech_started":
         console.log("[VoiceBot] Speech started");
+        if (activeTranscriptionWindow) {
+          activeTranscriptionWindow.webContents.send(
+            "voicebot:speech-started",
+            {
+              isListening: true,
+            },
+          );
+        }
         break;
 
       case "input_audio_buffer.speech_stopped":
         console.log("[VoiceBot] Speech stopped");
+        if (activeTranscriptionWindow) {
+          activeTranscriptionWindow.webContents.send(
+            "voicebot:speech-stopped",
+            {
+              isListening: false,
+            },
+          );
+        }
         break;
 
       case "conversation.item.input_audio_transcription.completed":
+        console.log("[VoiceBot] Transcription completed:", message.transcript);
         if (activeTranscriptionWindow) {
           activeTranscriptionWindow.webContents.send("voicebot:transcription", {
             text: message.transcript,
-            confidence: 0.95,
+            language: message.language || "en",
+            confidence: message.confidence || 0.95,
             isFinal: true,
+            timestamp: new Date().toISOString(),
           });
         }
         break;
 
       case "session.finished":
+        console.log("[VoiceBot] Session finished:", message.transcript || "");
         if (activeTranscriptionWindow) {
           activeTranscriptionWindow.webContents.send("voicebot:transcription", {
             text: message.transcript || "",
+            language: message.language || "en",
             confidence: 0.95,
             isFinal: true,
+            timestamp: new Date().toISOString(),
           });
           activeTranscriptionWindow.webContents.send(
             "voicebot:session-finished",
             {
               transcript: message.transcript || "",
+              success: true,
             },
           );
         }
         break;
 
       case "error":
-        broadcastTranscriptionError(message.error?.message || message.message);
+        console.error("[VoiceBot] ASR error:", message.error);
+        broadcastTranscriptionError(
+          message.error?.message || "Unknown ASR error",
+        );
         break;
+
+      default:
+        console.log("[VoiceBot] Unhandled message type:", message.type);
     }
   } catch (error) {
     console.error("[VoiceBot] Failed to parse Qwen message:", error);
+    broadcastTranscriptionError("Failed to process server response");
   }
 }
 
@@ -416,12 +587,9 @@ function broadcastTranscriptionError(errorMessage: string) {
 /**
  * Execute Debts command
  */
-async function executeDebts(command: any): Promise<{
-  success: boolean;
-  message?: string;
-  error?: string;
-  entities?: any;
-}> {
+async function executeDebts(
+  command: VoiceCommand,
+): Promise<DebtsExecuteResult> {
   const { action, entities } = command;
 
   if (action === "add_debt") {

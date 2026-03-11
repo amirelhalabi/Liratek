@@ -5,6 +5,8 @@ import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { useShopName } from "@/hooks/useShopName";
+import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
+import { CustomerSessionButton } from "@/features/sessions/components/CustomerSessionButton";
 
 interface TopBarProps {
   showHomeButton?: boolean;
@@ -77,6 +79,7 @@ export default function TopBar({
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const shopName = useShopName();
+  const { flags } = useFeatureFlags();
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [awaitingLogout, setAwaitingLogout] = useState(false);
 
@@ -165,6 +168,9 @@ export default function TopBar({
             {shopName}
           </span>
         )}
+
+        {/* Customer Session Button (embedded in topbar) */}
+        {flags.customerSessions && <CustomerSessionButton />}
 
         {/* Search Bar (Global) */}
         <div className="relative w-96">

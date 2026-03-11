@@ -40,6 +40,8 @@ import { ApiProvider } from "@liratek/ui";
 import { backendApiAdapter } from "@/api/adapter";
 import { FeatureFlagProvider } from "@/contexts/FeatureFlagContext";
 import { ErrorBoundary } from "@/shared/components/ErrorBoundary";
+import { VoiceBotButton } from "@/components/VoiceBotButton";
+import { useVoiceBotSettings } from "@/hooks/useVoiceBotSettings";
 
 // Wrapper for protected routes
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -218,6 +220,8 @@ function AppRoutes() {
 }
 
 function App() {
+  const { config, isLoaded } = useVoiceBotSettings();
+
   // Apply saved UI scale on startup
   useEffect(() => {
     const saved = localStorage.getItem("ui_scale");
@@ -228,6 +232,15 @@ function App() {
       }
     }
   }, []);
+
+  // Don't render until settings are loaded
+  if (!isLoaded) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center text-white">
+        Loading...
+      </div>
+    );
+  }
 
   return (
     // ErrorBoundary catches any unhandled render crash and shows a recovery screen
@@ -242,6 +255,7 @@ function App() {
                   <AuthProvider>
                     <SessionProvider>
                       <AppRoutes />
+                      {config.enabled && <VoiceBotButton />}
                     </SessionProvider>
                   </AuthProvider>
                 </ActiveModuleProvider>

@@ -9,8 +9,7 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "build": "tsc -p tsconfig.json --noEmit",
-    "lint": "tsc -p tsconfig.json --noEmit"
+    "lint": "node scripts/lint.js"
   },
   "dependencies": {
     "@liratek/core": "workspace:*"

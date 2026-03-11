@@ -9,7 +9,11 @@ import { z } from "zod";
 import dotenv from "dotenv";
 
 // Load environment variables from root directory
-dotenv.config({ path: new URL("../.env", import.meta.url).pathname });
+// Use process.cwd() for better Jest and Node.js compatibility
+import path from "path";
+
+const envPath = path.join(process.cwd(), ".env");
+dotenv.config({ path: envPath });
 dotenv.config();
 
 // =============================================================================

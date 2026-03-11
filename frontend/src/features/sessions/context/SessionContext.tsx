@@ -46,6 +46,7 @@ interface SessionContextValue {
   }) => Promise<void>;
   switchToSession: (sessionId: number) => Promise<void>;
   closeCurrentSession: () => Promise<void>;
+  closeSession: (sessionId: number) => Promise<void>;
   updateSessionInfo: (data: {
     customer_name?: string;
     customer_phone?: string;
@@ -218,6 +219,28 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     }
   }, [activeSession, refreshActiveSessions]);
 
+  const closeSession = useCallback(
+    async (sessionId: number) => {
+      try {
+        const result = await api.closeSession(sessionId);
+        if (result.success) {
+          await refreshActiveSessions();
+          // If we closed the active session, clear it
+          if (activeSession?.id === sessionId) {
+            setActiveSession(null);
+            setSessionTransactions([]);
+          }
+        } else if (result.error) {
+          throw new Error(result.error);
+        }
+      } catch (err) {
+        logger.error("Failed to close session:", err);
+        throw err;
+      }
+    },
+    [activeSession, refreshActiveSessions],
+  );
+
   const updateSessionInfo = useCallback(
     async (data: {
       customer_name?: string;
@@ -278,6 +301,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     startSession,
     switchToSession,
     closeCurrentSession,
+    closeSession,
     updateSessionInfo,
     linkTransaction,
 

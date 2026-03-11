@@ -621,6 +621,7 @@ export interface ElectronAPI {
       message?: string;
       entities?: any;
       error?: string;
+      route?: string;
     }>;
   };
 

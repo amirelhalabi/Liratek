@@ -1,33 +1,26 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useCallback, useState, useEffect } from "react";
 import { useActiveModule } from "@/contexts/ActiveModuleContext";
-import logger from "@/utils/logger";
-import { audioCaptureService } from "@/services/AudioCaptureService";
-import { qwenASRClient } from "@/services/QwenASRClient";
-
-interface VoiceCommand {
-  module: string;
-  action: string;
-  entities: {
-    amount?: number;
-    phone?: string;
-    name?: string;
-    product?: string;
-    quantity?: number;
-    serviceType?: "SEND" | "RECEIVE";
-  };
-}
+import {
+  huggingFaceASRClient,
+  type TranscriptionResult,
+} from "@/services/HuggingFaceASRClient";
+import { voiceBotLogger } from "@/utils/voiceBotLogger";
 
 interface UseVoiceBotReturn {
   listening: boolean;
   transcript: string;
   error: string | null;
   result: string | null;
-  startListening: () => void;
-  stopListening: () => void;
+  startListening: () => Promise<void>;
+  stopListening: () => Promise<void>;
   reset: () => void;
   audioLevel: number;
 }
 
+/**
+ * Custom hook for managing voice bot state and interactions
+ * Properly manages event listeners to prevent leaks
+ */
 export function useVoiceBot(): UseVoiceBotReturn {
   const { activeModule } = useActiveModule();
   const [listening, setListening] = useState(false);
@@ -36,214 +29,99 @@ export function useVoiceBot(): UseVoiceBotReturn {
   const [result, setResult] = useState<string | null>(null);
   const [audioLevel, setAudioLevel] = useState(0);
 
-  const recognitionRef = useRef<any>(null);
+  // Register event listeners for this component instance
+  useEffect(() => {
+    voiceBotLogger.debug("Registering event listeners");
 
-  const initRecognition = useCallback(() => {
-    const SpeechRecognition =
-      (window as any).SpeechRecognition ||
-      (window as any).webkitSpeechRecognition;
+    const unsubscribeTranscription = huggingFaceASRClient.on(
+      "transcription",
+      (result: unknown) => {
+        const transcriptionResult = result as TranscriptionResult;
+        voiceBotLogger.debug("Received transcription", {
+          text: transcriptionResult.text,
+        });
+        setTranscript(transcriptionResult.text);
+      },
+    );
 
-    if (!SpeechRecognition) {
-      setError("Speech recognition is not supported in this browser");
-      return null;
-    }
-
-    const recognitionInstance = new SpeechRecognition();
-    recognitionInstance.continuous = false;
-    recognitionInstance.interimResults = true;
-    recognitionInstance.lang = "en-US";
-
-    recognitionInstance.onresult = async (event: any) => {
-      const currentTranscript = Array.from(event.results)
-        .map((result: any) => result[0].transcript)
-        .join("");
-
-      setTranscript(currentTranscript);
-
-      if (event.results[0].isFinal) {
-        await processCommand(currentTranscript);
-      }
-    };
-
-    recognitionInstance.onerror = (event: any) => {
-      logger.error("[VoiceBot] Recognition error:", event.error);
-
-      let errorMessage = "Speech recognition error: ";
-      switch (event.error) {
-        case "network":
-          errorMessage +=
-            "Network error. Voice recognition requires an internet connection. Please check your connection and try again.";
-          break;
-        case "not-allowed":
-          errorMessage +=
-            "Permission denied. Please allow microphone access in your browser settings.";
-          break;
-        case "no-speech":
-          errorMessage += "No speech detected. Please try speaking again.";
-          break;
-        case "audio-capture":
-          errorMessage +=
-            "No microphone found. Please connect a microphone and try again.";
-          break;
-        case "aborted":
-          errorMessage += "Recognition was cancelled.";
-          break;
-        default:
-          errorMessage += event.error;
-      }
-
-      setError(errorMessage);
+    const unsubscribeError = huggingFaceASRClient.on("error", (err) => {
+      voiceBotLogger.error("ASR error received", err);
+      setError(err instanceof Error ? err.message : String(err));
       setListening(false);
-    };
+    });
 
-    recognitionInstance.onend = () => {
-      setListening(false);
-    };
+    const unsubscribeStarted = huggingFaceASRClient.on("started", () => {
+      voiceBotLogger.debug("ASR started");
+      setAudioLevel(1);
+    });
 
-    return recognitionInstance;
+    const unsubscribeStopped = huggingFaceASRClient.on("stopped", () => {
+      voiceBotLogger.debug("ASR stopped");
+      setAudioLevel(0);
+    });
+
+    // Cleanup: unsubscribe all listeners on unmount
+    return () => {
+      voiceBotLogger.debug("Cleaning up event listeners");
+      unsubscribeTranscription();
+      unsubscribeError();
+      unsubscribeStarted();
+      unsubscribeStopped();
+    };
   }, []);
 
-  const processCommand = async (text: string) => {
-    if (!activeModule) {
-      setError("No active module. Please navigate to a module first.");
-      return;
-    }
-
-    try {
-      setError(null);
-      setResult(null);
-
-      const parseResult = await window.api.voicebot.parse(text, activeModule);
-
-      if (!parseResult.success) {
-        setError(parseResult.error || "Failed to parse command");
-        return;
+  // Cleanup: stop listening on unmount
+  useEffect(() => {
+    return () => {
+      if (listening) {
+        voiceBotLogger.debug("Stopping listening on unmount");
+        stopListening();
       }
-
-      const command = parseResult.command as VoiceCommand;
-      logger.info("[VoiceBot] Parsed command:", {
-        module: command.module,
-        action: command.action,
-      });
-
-      const executeResult = await window.api.voicebot.execute(command);
-
-      if (executeResult.success) {
-        setResult(executeResult.message || "Command executed successfully");
-        window.dispatchEvent(
-          new CustomEvent("voicebot:command", {
-            detail: { command, entities: executeResult.entities },
-          }),
-        );
-      } else {
-        setError(executeResult.error || "Failed to execute command");
-      }
-    } catch (err) {
-      logger.error("[VoiceBot] Error processing command:", err);
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  };
+    };
+  }, [listening]);
 
   const startListening = useCallback(async () => {
-    if (!activeModule) {
-      setError("No active module. Please navigate to a module first.");
-      return;
-    }
-
+    voiceBotLogger.info("Starting voice listening");
     setError(null);
     setResult(null);
     setTranscript("");
     setListening(true);
 
-    // Try Qwen-ASR first
     try {
-      await qwenASRClient.connect();
-      await qwenASRClient.startListening();
-
-      audioCaptureService.onChunk(async (chunk: Uint8Array) => {
-        try {
-          await qwenASRClient.sendAudio(chunk);
-        } catch (err) {
-          console.error("[VoiceBot] Failed to send audio:", err);
-        }
-      });
-
-      audioCaptureService.onStatus((status) => {
-        if (status === "recording") {
-          setAudioLevel(1);
-        } else if (status === "stopped") {
-          setAudioLevel(0);
-        }
-      });
-
-      qwenASRClient.on("transcription", (result: any) => {
-        setTranscript(result.text);
-      });
-
-      qwenASRClient.on("error", (err: Error) => {
-        console.error("[VoiceBot] Qwen-ASR error:", err);
-        setError(err.message);
-        setListening(false);
-      });
-
-      await audioCaptureService.startRecording();
-    } catch (qwenError) {
-      console.warn(
-        "[VoiceBot] Qwen-ASR failed, falling back to Web Speech API:",
-        qwenError,
-      );
-
-      const recognitionInstance = recognitionRef.current || initRecognition();
-      if (!recognitionInstance) {
-        setListening(false);
-        return;
-      }
-
-      recognitionRef.current = recognitionInstance;
-      setError(null);
-      setResult(null);
-      setTranscript("");
-
-      try {
-        recognitionInstance.start();
-        setListening(true);
-      } catch (err) {
-        logger.error("[VoiceBot] Failed to start recognition:", err);
-        setError("Failed to start voice recognition");
-        setListening(false);
-      }
+      await huggingFaceASRClient.connect();
+      await huggingFaceASRClient.startListening();
+      voiceBotLogger.info("Voice listening started successfully");
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error
+          ? error.message
+          : "Failed to start voice recognition";
+      voiceBotLogger.error("Failed to start listening", error);
+      setError(errorMessage);
+      setListening(false);
     }
-  }, [activeModule, initRecognition]);
+  }, [activeModule]);
 
   const stopListening = useCallback(async () => {
+    voiceBotLogger.debug("Stopping voice listening");
     setListening(false);
     setAudioLevel(0);
 
     try {
-      await qwenASRClient.stopListening();
-      await qwenASRClient.disconnect();
-    } catch (err) {
-      console.error("[VoiceBot] Failed to stop Qwen-ASR:", err);
-    }
-
-    try {
-      await audioCaptureService.stopRecording();
-    } catch (err) {
-      console.error("[VoiceBot] Failed to stop audio capture:", err);
+      await huggingFaceASRClient.stopListening();
+      voiceBotLogger.debug("Voice listening stopped");
+    } catch (error) {
+      voiceBotLogger.error("Failed to stop listening", error);
+      throw error;
     }
   }, []);
 
   const reset = useCallback(() => {
+    voiceBotLogger.debug("Resetting voice bot state");
     setTranscript("");
     setError(null);
     setResult(null);
   }, []);
-
-  useEffect(() => {
-    return () => {
-      stopListening();
-    };
-  }, [stopListening]);
 
   return {
     listening,
