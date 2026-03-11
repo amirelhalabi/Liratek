@@ -1570,6 +1570,7 @@ __metadata:
     "@types/express": "npm:^4.17.21"
     "@types/jsonwebtoken": "npm:^9.0.5"
     "@types/node": "npm:^20.11.16"
+    "@types/ws": "npm:^8.18.1"
     "@typescript-eslint/eslint-plugin": "npm:^6.20.0"
     "@typescript-eslint/parser": "npm:^6.20.0"
     bcrypt: "npm:^5.1.1"
@@ -3030,6 +3031,15 @@ __metadata:
   version: 1.10.11
   resolution: "@types/verror@npm:1.10.11"
   checksum: 10c0/6d815cb2b76501f976cf9fa0feaf572e83b2ec3043eff92507c9976e52b7844453bd47c84f1298bf583f8e6568f39063a2541f80656f4af8e179072a711f9ab5
+  languageName: node
+  linkType: hard
+
+"@types/ws@npm:^8.18.1":
+  version: 8.18.1
+  resolution: "@types/ws@npm:8.18.1"
+  dependencies:
+    "@types/node": "npm:*"
+  checksum: 10c0/61aff1129143fcc4312f083bc9e9e168aa3026b7dd6e70796276dcfb2c8211c4292603f9c4864fae702f2ed86e4abd4d38aa421831c2fd7f856c931a481afbab
   languageName: node
   linkType: hard
 
