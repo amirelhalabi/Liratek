@@ -221,16 +221,40 @@ function registerQwenASRHandlers() {
         throw new Error("DASHSCOPE_API_KEY not configured");
       }
 
-      const url = `wss://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-asr/service?api-key=${apiKey}&model=qwen3-asr-flash-realtime&region=singapore`;
+      // Use correct Qwen-ASR WebSocket URL
+      const model = process.env.QWEN_ASR_MODEL || "qwen3-asr-flash-realtime";
+      const url = `wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime?model=${model}`;
 
-      qwenWs = new WebSocket(url);
+      qwenWs = new WebSocket(url, {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "OpenAI-Beta": "realtime=v1",
+        },
+      });
 
       qwenWs.on("open", () => {
         console.log("[VoiceBot] Qwen-ASR connected");
+        // Send session.update event to configure session
         qwenWs?.send(
           JSON.stringify({
-            type: "start_listening",
-            language: process.env.QWEN_ASR_LANGUAGE || "en",
+            event_id: `event_${Date.now()}`,
+            type: "session.update",
+            session: {
+              modalities: ["text"],
+              input_audio_format: "pcm",
+              sample_rate: 16000,
+              input_audio_transcription: {
+                language: process.env.QWEN_ASR_LANGUAGE || "en",
+                corpus: {
+                  text: "LiraTek POS System pos recharge omt_whish debts",
+                },
+              },
+              turn_detection: {
+                type: "server_vad",
+                threshold: 0.2,
+                silence_duration_ms: 800,
+              },
+            },
           }),
         );
       });
@@ -281,14 +305,12 @@ function registerQwenASRHandlers() {
           throw new Error("Not connected to Qwen-ASR");
         }
 
+        // Use correct Qwen-ASR event format
         qwenWs.send(
           JSON.stringify({
-            type: "audio_data",
-            audio_data: audioData,
-            format: "pcm",
-            sample_rate: 16000,
-            channels: 1,
-            bit_depth: 16,
+            event_id: `event_${Date.now()}`,
+            type: "input_audio_buffer.append",
+            audio: audioData,
           }),
         );
 
@@ -308,9 +330,11 @@ function registerQwenASRHandlers() {
         throw new Error("Not connected to Qwen-ASR");
       }
 
+      // Send session.finish to end session
       qwenWs.send(
         JSON.stringify({
-          type: "stop_listening",
+          event_id: `event_${Date.now()}`,
+          type: "session.finish",
         }),
       );
 
@@ -328,14 +352,53 @@ function handleQwenMessage(data: WebSocket.Data) {
   try {
     const message = JSON.parse(data.toString());
 
-    if (message.type === "transcription_result" && activeTranscriptionWindow) {
-      activeTranscriptionWindow.webContents.send("voicebot:transcription", {
-        text: message.text,
-        confidence: message.confidence || 0.95,
-        isFinal: message.is_final || false,
-      });
-    } else if (message.type === "error") {
-      broadcastTranscriptionError(message.message);
+    // Handle Qwen-ASR response events
+    switch (message.type) {
+      case "session.updated":
+        console.log("[VoiceBot] Session updated");
+        break;
+
+      case "input_audio_buffer.committed":
+        console.log("[VoiceBot] Audio committed");
+        break;
+
+      case "input_audio_buffer.speech_started":
+        console.log("[VoiceBot] Speech started");
+        break;
+
+      case "input_audio_buffer.speech_stopped":
+        console.log("[VoiceBot] Speech stopped");
+        break;
+
+      case "conversation.item.input_audio_transcription.completed":
+        if (activeTranscriptionWindow) {
+          activeTranscriptionWindow.webContents.send("voicebot:transcription", {
+            text: message.transcript,
+            confidence: 0.95,
+            isFinal: true,
+          });
+        }
+        break;
+
+      case "session.finished":
+        if (activeTranscriptionWindow) {
+          activeTranscriptionWindow.webContents.send("voicebot:transcription", {
+            text: message.transcript || "",
+            confidence: 0.95,
+            isFinal: true,
+          });
+          activeTranscriptionWindow.webContents.send(
+            "voicebot:session-finished",
+            {
+              transcript: message.transcript || "",
+            },
+          );
+        }
+        break;
+
+      case "error":
+        broadcastTranscriptionError(message.error?.message || message.message);
+        break;
     }
   } catch (error) {
     console.error("[VoiceBot] Failed to parse Qwen message:", error);
