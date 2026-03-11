@@ -154,59 +154,23 @@ export function useVoiceBot(): UseVoiceBotReturn {
       return;
     }
 
+    // Use Web Speech API for now (Qwen-ASR backend not yet connected)
+    const recognitionInstance = recognitionRef.current || initRecognition();
+    if (!recognitionInstance) {
+      return;
+    }
+
+    recognitionRef.current = recognitionInstance;
+    setError(null);
+    setResult(null);
+    setTranscript("");
+
     try {
-      await connectToQwenASR(setTranscript, wsRef);
-      await audioCaptureService.startRecording();
+      recognitionInstance.start();
       setListening(true);
-      setError(null);
-      setResult(null);
-      setTranscript("");
-
-      audioCaptureService.onChunk(async (chunk: Uint8Array) => {
-        if (wsRef.current?.readyState === WebSocket.OPEN) {
-          const base64Audio = Buffer.from(chunk).toString("base64");
-          wsRef.current.send(
-            JSON.stringify({
-              type: "audio_data",
-              audio_data: base64Audio,
-            }),
-          );
-        }
-      });
-
-      audioCaptureService.onStatus((status) => {
-        if (status === "error") {
-          setError("Audio capture error. Please check microphone permissions.");
-          setListening(false);
-        } else if (status === "recording") {
-          setAudioLevel(1);
-        } else if (status === "stopped") {
-          setAudioLevel(0);
-        }
-      });
-    } catch (qwenError) {
-      console.warn(
-        "[VoiceBot] Qwen-ASR failed, falling back to Web Speech API:",
-        qwenError,
-      );
-
-      const recognitionInstance = recognitionRef.current || initRecognition();
-      if (!recognitionInstance) {
-        return;
-      }
-
-      recognitionRef.current = recognitionInstance;
-      setError(null);
-      setResult(null);
-      setTranscript("");
-
-      try {
-        recognitionInstance.start();
-        setListening(true);
-      } catch (err) {
-        logger.error("[VoiceBot] Failed to start recognition:", err);
-        setError("Failed to start voice recognition");
-      }
+    } catch (err) {
+      logger.error("[VoiceBot] Failed to start recognition:", err);
+      setError("Failed to start voice recognition");
     }
   }, [activeModule, initRecognition]);
 
@@ -247,46 +211,4 @@ export function useVoiceBot(): UseVoiceBotReturn {
     reset,
     audioLevel,
   };
-}
-
-async function connectToQwenASR(
-  setTranscript: (text: string) => void,
-  wsRef: React.MutableRefObject<WebSocket | null>,
-): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket("ws://localhost:3000/api/voice/ws");
-
-    ws.onopen = () => {
-      console.log("[VoiceBot] Connected to Qwen-ASR");
-      ws.send(
-        JSON.stringify({
-          type: "start_listening",
-          language: "en",
-        }),
-      );
-      wsRef.current = ws;
-      resolve();
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data);
-
-        if (message.type === "transcription_result") {
-          setTranscript(message.text);
-        }
-      } catch (e) {
-        console.error("[VoiceBot] Failed to parse message:", e);
-      }
-    };
-
-    ws.onerror = (error) => {
-      console.error("[VoiceBot] WebSocket error:", error);
-      reject(new Error("Failed to connect to voice service"));
-    };
-
-    ws.onclose = () => {
-      wsRef.current = null;
-    };
-  });
 }
