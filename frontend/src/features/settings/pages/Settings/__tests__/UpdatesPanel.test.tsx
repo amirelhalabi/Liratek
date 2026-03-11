@@ -18,6 +18,7 @@ describe("UpdatesPanel", () => {
           packaged: false,
           platform: "darwin",
           version: "1.0.0",
+          devMode: true,
         }),
         check: jest.fn().mockResolvedValue({ success: true, updateInfo: null }),
         download: jest.fn().mockResolvedValue({ success: true }),
@@ -42,10 +43,8 @@ describe("UpdatesPanel", () => {
       success: true,
       devMode: true,
       updateInfo: {
-        tag: "v1.0.1",
-        name: "LiraTek v1.0.1",
-        published_at: "2026-03-04T00:00:00Z",
-        assets: [],
+        version: "1.0.1",
+        releaseDate: "2026-03-04T00:00:00Z",
       },
     });
 

@@ -68,14 +68,18 @@ export default function UpdatesPanel() {
       }
 
       if (res.devMode && res.updateInfo) {
-        setDevRelease(res.updateInfo as DevReleaseInfo);
+        setDevRelease({
+          tag: `v${res.updateInfo.version}`,
+          name: res.updateInfo.version,
+          published_at: res.updateInfo.releaseDate,
+          assets: [],
+        });
         setInfo(null);
         setUpdateState("idle"); // dev mode — no download/install flow
       } else if (res.updateInfo) {
+        const updateInfo = res.updateInfo as { version?: string; tag?: string };
         const ver =
-          (res.updateInfo as any).version ||
-          (res.updateInfo as any).tag?.replace(/^v/, "") ||
-          null;
+          updateInfo.version || updateInfo.tag?.replace(/^v/, "") || null;
         // Compare remote version to current — same version means up-to-date
         if (ver && currentVersion && ver === currentVersion) {
           setInfo(null);
@@ -139,14 +143,7 @@ export default function UpdatesPanel() {
 
   const install = useCallback(async () => {
     try {
-      const res = await window.api.updater.quitAndInstall();
-      if (!res.success) {
-        appEvents.emit(
-          "notification:show",
-          res.error || "Install failed",
-          "error",
-        );
-      }
+      window.api.updater.quitAndInstall();
     } catch (_e) {
       appEvents.emit(
         "notification:show",
@@ -161,7 +158,11 @@ export default function UpdatesPanel() {
     (async () => {
       try {
         const res = await window.api.updater.getStatus();
-        setStatus(res);
+        setStatus({
+          packaged: !res.devMode,
+          platform: res.status || "unknown",
+          version: res.version || "0.0.0",
+        });
       } catch {
         setStatus(null);
       }
