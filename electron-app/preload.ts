@@ -312,6 +312,32 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("whatsapp:send-message", { recipientPhone, message }),
   },
 
+  // Voice Bot
+  voicebot: {
+    parse: (text: string, currentModule: string) =>
+      ipcRenderer.invoke("voicebot:parse", text, currentModule),
+    execute: (command: any) => ipcRenderer.invoke("voicebot:execute", command),
+
+    // Qwen-ASR WebSocket methods
+    qwenConnect: (windowId: number) =>
+      ipcRenderer.invoke("voicebot:qwen:connect", windowId),
+    qwenDisconnect: () => ipcRenderer.invoke("voicebot:qwen:disconnect"),
+    qwenSendAudio: (audioData: string, format?: string) =>
+      ipcRenderer.invoke("voicebot:qwen:send-audio", audioData, format),
+    qwenStop: () => ipcRenderer.invoke("voicebot:qwen:stop"),
+
+    // Listen for transcription events
+    onTranscription: (cb: (_event: unknown, data: any) => void) => {
+      ipcRenderer.on("voicebot:transcription", cb);
+      return () => ipcRenderer.removeListener("voicebot:transcription", cb);
+    },
+    onTranscriptionError: (cb: (_event: unknown, data: any) => void) => {
+      ipcRenderer.on("voicebot:transcription-error", cb);
+      return () =>
+        ipcRenderer.removeListener("voicebot:transcription-error", cb);
+    },
+  },
+
   // Diagnostics
   diagnostics: {
     getSyncErrors: () => ipcRenderer.invoke("diagnostics:get-sync-errors"),
