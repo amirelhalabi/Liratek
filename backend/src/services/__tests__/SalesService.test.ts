@@ -198,13 +198,12 @@ describe("SalesService", () => {
   });
 
   describe("getDrawerBalances", () => {
-    it("returns drawer balances from repository", () => {
+    it("returns accumulated drawer balances from repository", () => {
       const mockBalances = {
-        usd: 1000,
-        lbp: 5000000,
-        eur: 200,
+        generalDrawer: { usd: 5000, lbp: 4500000 },
+        omtDrawer: { usd: 250, lbp: 225000 },
       };
-      mockRepo.getDrawerBalances.mockReturnValue(mockBalances as any);
+      mockRepo.getDrawerBalances.mockReturnValue(mockBalances);
 
       const result = service.getDrawerBalances();
 

@@ -102,6 +102,52 @@ export function registerSalesHandlers(): void {
     }
   });
 
+  // Refund a specific item from a sale (admin only)
+  ipcMain.handle(
+    "sales:refund-item",
+    (
+      e,
+      params: { saleId: number; saleItemId: number; refundQuantity: number },
+    ) => {
+      // Validation
+      if (typeof params.saleId !== "number" || params.saleId < 1) {
+        return { success: false, error: "Invalid sale ID" };
+      }
+      if (typeof params.saleItemId !== "number" || params.saleItemId < 1) {
+        return { success: false, error: "Invalid sale item ID" };
+      }
+      if (
+        typeof params.refundQuantity !== "number" ||
+        params.refundQuantity < 1
+      ) {
+        return { success: false, error: "Invalid refund quantity" };
+      }
+
+      try {
+        const auth = requireRole(e.sender.id, ["admin"]);
+        if (!auth.ok) {
+          throw new Error(auth.error ?? "Admin access required");
+        }
+        const userId = auth.userId ?? 1;
+
+        const salesService = getSalesService();
+        const result = salesService.refundSaleItem({
+          saleId: params.saleId,
+          saleItemId: params.saleItemId,
+          refundQuantity: params.refundQuantity,
+          userId,
+        });
+
+        return result;
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    },
+  );
+
   // Get sales by date range (for reports)
   ipcMain.handle(
     "sales:get-by-date-range",

@@ -128,6 +128,36 @@ export class SalesService {
     }
   }
 
+  /**
+   * Refund a specific item from a sale (partial or full quantity)
+   */
+  refundSaleItem(params: {
+    saleId: number;
+    saleItemId: number;
+    refundQuantity: number;
+    userId: number;
+  }): { success: boolean; refundId?: number; error?: string } {
+    try {
+      const refundTxnId = this.salesRepo.refundSaleItem(params);
+      salesLogger.info(
+        {
+          saleId: params.saleId,
+          saleItemId: params.saleItemId,
+          refundQuantity: params.refundQuantity,
+          refundTxnId,
+        },
+        `Item refund processed - ${params.refundQuantity} units refunded`,
+      );
+      return { success: true, refundId: refundTxnId };
+    } catch (error) {
+      salesLogger.error({ error, params }, "Item refund failed");
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Reports
   // ---------------------------------------------------------------------------

@@ -277,6 +277,30 @@ export function registerDatabaseHandlers(): void {
     return closingService.recalculateDrawerBalances();
   });
 
+  // Get checkpoint timeline
+  ipcMain.handle(
+    "closing:getCheckpointTimeline",
+    async (
+      _event,
+      filters: {
+        date?: string;
+        type?: "OPENING" | "CLOSING" | "ALL";
+        drawer_name?: string;
+        user_id?: number;
+      },
+    ) => {
+      try {
+        const closingService = getClosingService();
+        return closingService.getCheckpointTimeline(filters);
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    },
+  );
+
   // Diagnostics: run PRAGMA foreign_key_check
   ipcMain.handle("diagnostics:foreign-key-check", async (e) => {
     try {

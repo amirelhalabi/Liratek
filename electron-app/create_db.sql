@@ -243,6 +243,7 @@ CREATE TABLE IF NOT EXISTS sale_items (
     sold_price_usd DECIMAL(10, 2),
     cost_price_snapshot_usd DECIMAL(10, 2),
     is_refunded BOOLEAN DEFAULT 0,
+    refunded_quantity INTEGER DEFAULT 0,
     imei TEXT,
     FOREIGN KEY (sale_id) REFERENCES sales(id),
     FOREIGN KEY (product_id) REFERENCES products(id)
@@ -664,9 +665,8 @@ INSERT OR IGNORE INTO modules (key, label, icon, route, sort_order, is_enabled, 
   ('binance',     'Binance',      'Bitcoin',       '/recharge',     10,  0, 0, 0),
   ('ipec_katch',  'IPEC/Katch',  'Zap',           '/recharge',     11,  0, 0, 0),
   ('custom_services','Services', 'Briefcase',     '/custom-services',12, 1, 0, 0),
-  ('profits',        'Profits',  'TrendingUp',    '/profits',        13, 1, 1, 0),
-  ('reports',        'Reports',  'BarChart2',     '/reports',        14, 1, 1, 0),
-  ('transactions',   'Transactions','ClipboardList','/transactions', 15, 1, 1, 0);
+  ('profits',        'Profits',  'TrendingUp',    '/profits',        13, 1, 1, 0);
+  -- REMOVED: reports, transactions (redundant with Dashboard & Profits)
 
 -- Currency–Module junction (which currencies are allowed in which modules)
 CREATE TABLE IF NOT EXISTS currency_modules (

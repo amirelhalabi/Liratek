@@ -7,9 +7,11 @@ import {
   Edit2,
   Trash2,
   MessageCircle,
+  Clock,
 } from "lucide-react";
 import { PageHeader, useApi } from "@liratek/ui";
 import ClientForm from "./ClientForm";
+import CustomerSessionsView from "./CustomerSessionsView";
 import type { Client } from "@liratek/ui";
 import { DataTable } from "@/shared/components/DataTable";
 
@@ -20,6 +22,8 @@ export default function ClientList() {
   const [loading, setLoading] = useState(true);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
+  const [viewingSessionsClient, setViewingSessionsClient] =
+    useState<Client | null>(null);
 
   const loadClients = useCallback(async () => {
     setLoading(true);
@@ -88,6 +92,10 @@ export default function ClientList() {
   const handleClose = () => {
     setIsFormOpen(false);
     setEditingClient(null);
+  };
+
+  const handleViewSessions = (client: Client) => {
+    setViewingSessionsClient(client);
   };
 
   return (
@@ -177,6 +185,13 @@ export default function ClientList() {
               <td className="p-4 text-right">
                 <div className="flex items-center justify-end gap-2">
                   <button
+                    onClick={() => handleViewSessions(client)}
+                    className="p-2 text-slate-400 hover:text-violet-400 hover:bg-violet-400/10 rounded transition-colors"
+                    title="View customer sessions"
+                  >
+                    <Clock size={16} />
+                  </button>
+                  <button
                     onClick={() => handleEdit(client)}
                     className="p-2 text-slate-400 hover:text-blue-400 hover:bg-blue-400/10 rounded transition-colors"
                   >
@@ -200,6 +215,14 @@ export default function ClientList() {
           onClose={handleClose}
           onSave={handleSave}
           client={editingClient}
+        />
+      )}
+
+      {viewingSessionsClient && (
+        <CustomerSessionsView
+          customerName={viewingSessionsClient.full_name}
+          customerPhone={viewingSessionsClient.phone_number}
+          onClose={() => setViewingSessionsClient(null)}
         />
       )}
     </div>

@@ -1725,6 +1725,78 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 44,
+    name: "add_refunded_quantity_to_sale_items",
+    description:
+      "Add refunded_quantity column to sale_items for partial item refunds",
+    type: "typescript",
+    up(db) {
+      const cols = db.prepare("PRAGMA table_info(sale_items)").all() as {
+        name: string;
+      }[];
+      const colNames = new Set(cols.map((c) => c.name));
+
+      if (!colNames.has("refunded_quantity")) {
+        db.exec(
+          "ALTER TABLE sale_items ADD COLUMN refunded_quantity INTEGER DEFAULT 0;",
+        );
+      }
+    },
+    down(db) {
+      const cols = db.prepare("PRAGMA table_info(sale_items)").all() as {
+        name: string;
+      }[];
+      const remainingCols = cols
+        .map((c) => c.name)
+        .filter((name) => name !== "refunded_quantity")
+        .join(", ");
+
+      db.exec(`
+        CREATE TABLE sale_items_v44_rb AS SELECT ${remainingCols} FROM sale_items;
+        DROP TABLE sale_items;
+        ALTER TABLE sale_items_v44_rb RENAME TO sale_items;
+        CREATE INDEX IF NOT EXISTS idx_sale_items_sale_id ON sale_items(sale_id);
+        CREATE INDEX IF NOT EXISTS idx_sale_items_product_id ON sale_items(product_id);
+      `);
+    },
+  },
+  {
+    version: 45,
+    name: "remove_reports_transactions_modules",
+    description: "Remove redundant Reports and Transactions modules",
+    type: "typescript",
+    up(db) {
+      // Remove modules
+      db.exec(`DELETE FROM modules WHERE key IN ('reports', 'transactions')`);
+
+      // Remove from currency_modules junction
+      db.exec(
+        `DELETE FROM currency_modules WHERE module_key IN ('reports', 'transactions')`,
+      );
+
+      console.log("Removed Reports and Transactions modules");
+    },
+    down(db) {
+      // Re-add modules (if needed for rollback)
+      db.exec(`
+        INSERT OR IGNORE INTO modules (key, label, icon, route, sort_order, is_enabled, admin_only, is_system)
+        VALUES 
+          ('reports', 'Reports', 'BarChart2', '/reports', 14, 1, 1, 0),
+          ('transactions', 'Transactions', 'ClipboardList', '/transactions', 15, 1, 1, 0)
+      `);
+
+      // Re-add currency modules
+      db.exec(`
+        INSERT OR IGNORE INTO currency_modules (currency_code, module_key)
+        VALUES 
+          ('USD', 'reports'), ('USD', 'transactions'),
+          ('LBP', 'reports'), ('LBP', 'transactions')
+      `);
+
+      console.log("Restored Reports and Transactions modules");
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

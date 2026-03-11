@@ -64,6 +64,32 @@ export interface ClosingAmount {
   opening_amount?: number;
 }
 
+export interface CheckpointCurrency {
+  currency_code: string;
+  opening_amount: number;
+  physical_amount?: number;
+  variance?: number;
+}
+
+export interface CheckpointRecord {
+  id: number;
+  closing_date: string;
+  drawer_name: string;
+  checkpoint_type: "OPENING" | "CLOSING";
+  created_at: string;
+  created_by: number;
+  user_name: string;
+  notes?: string;
+  currencies: CheckpointCurrency[];
+}
+
+export interface CheckpointFilters {
+  date?: string;
+  type?: "OPENING" | "CLOSING" | "ALL";
+  drawer_name?: string;
+  user_id?: number;
+}
+
 export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
   constructor() {
     super("daily_closings");
@@ -485,6 +511,82 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
       totalExpensesLBP: expensesStats?.total_expenses_lbp || 0,
       totalProfitUSD,
     };
+  }
+
+  /**
+   * Get checkpoint timeline for a date
+   */
+  getCheckpointTimeline(filters: CheckpointFilters = {}): CheckpointRecord[] {
+    const {
+      date = new Date().toISOString().split("T")[0],
+      type = "ALL",
+      drawer_name,
+      user_id,
+    } = filters;
+
+    let sql = `
+      SELECT 
+        dc.id,
+        dc.closing_date,
+        dc.drawer_name,
+        dc.notes,
+        dc.created_at,
+        dc.created_by,
+        u.full_name as user_name,
+        t.type as checkpoint_type
+      FROM daily_closings dc
+      LEFT JOIN users u ON u.id = dc.created_by
+      LEFT JOIN transactions t ON t.source_table = 'daily_closings' AND t.source_id = dc.id
+      WHERE DATE(dc.created_at) = ?
+    `;
+
+    const params: any[] = [date];
+
+    if (type !== "ALL") {
+      sql += ` AND t.type = ?`;
+      params.push(type);
+    }
+
+    if (drawer_name) {
+      sql += ` AND dc.drawer_name = ?`;
+      params.push(drawer_name);
+    }
+
+    if (user_id) {
+      sql += ` AND dc.created_by = ?`;
+      params.push(user_id);
+    }
+
+    sql += ` ORDER BY dc.created_at DESC`;
+
+    const checkpoints = this.query<CheckpointRecord>(sql, ...params);
+
+    // Load currency breakdown for each checkpoint
+    for (const checkpoint of checkpoints) {
+      const currencies = this.query<{
+        currency_code: string;
+        opening_amount: number;
+        physical_amount: number;
+      }>(
+        `SELECT currency_code, opening_amount, physical_amount 
+         FROM daily_closing_amounts 
+         WHERE closing_id = ?
+         ORDER BY currency_code`,
+        checkpoint.id,
+      );
+
+      checkpoint.currencies = currencies.map((c: any) => ({
+        currency_code: c.currency_code,
+        opening_amount: c.opening_amount,
+        physical_amount: c.physical_amount > 0 ? c.physical_amount : undefined,
+        variance:
+          c.physical_amount > 0
+            ? c.physical_amount - c.opening_amount
+            : undefined,
+      }));
+    }
+
+    return checkpoints;
   }
 }
 

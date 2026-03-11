@@ -190,6 +190,57 @@ export class CustomerSessionRepository {
     `);
     return query.all(limit, offset) as CustomerSession[];
   }
+
+  /**
+   * Get all sessions for a specific customer (by name or phone)
+   */
+  getSessionsByCustomer(
+    customerName: string,
+    customerPhone?: string,
+  ): CustomerSession[] {
+    let sql = `
+      SELECT ${this.columns} FROM ${this.tableName}
+      WHERE customer_name = ?
+    `;
+    const params: any[] = [customerName];
+
+    if (customerPhone) {
+      sql += ` OR customer_phone = ?`;
+      params.push(customerPhone);
+    }
+
+    sql += ` ORDER BY started_at DESC`;
+
+    const query = this.db.prepare(sql);
+    return query.all(...params) as CustomerSession[];
+  }
+
+  /**
+   * Get session with its transactions
+   */
+  getSessionWithTransactions(sessionId: number): {
+    session: CustomerSession;
+    transactions: SessionTransaction[];
+    total_usd: number;
+    total_lbp: number;
+  } {
+    const session = this.getSessionById(sessionId);
+    if (!session) {
+      throw new Error(`Session ${sessionId} not found`);
+    }
+
+    const transactions = this.getSessionTransactions(sessionId);
+    const total_usd = transactions.reduce(
+      (sum, t) => sum + Math.abs(t.amount_usd),
+      0,
+    );
+    const total_lbp = transactions.reduce(
+      (sum, t) => sum + Math.abs(t.amount_lbp),
+      0,
+    );
+
+    return { session, transactions, total_usd, total_lbp };
+  }
 }
 
 export function getCustomerSessionRepository(

@@ -6,7 +6,7 @@
  */
 
 import { BaseRepository } from "./BaseRepository.js";
-import { DatabaseError } from "../utils/errors.js";
+import { DatabaseError, NotFoundError } from "../utils/errors.js";
 import { salesLogger } from "../utils/logger.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
@@ -41,6 +41,7 @@ export interface SaleItemEntity {
   sold_price_usd: number;
   cost_price_snapshot_usd: number;
   is_refunded: number;
+  refunded_quantity: number;
   imei: string | null;
 }
 
@@ -688,6 +689,213 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
     }
   }
 
+  /**
+   * Refund a specific item from a sale (partial or full quantity)
+   * Returns the refund transaction ID
+   */
+  refundSaleItem(params: {
+    saleId: number;
+    saleItemId: number;
+    refundQuantity: number;
+    userId: number;
+  }): number {
+    const db = this.db;
+
+    return this.transaction(() => {
+      // 1. Get the sale item
+      const item = db
+        .prepare(`SELECT * FROM sale_items WHERE id = ? AND sale_id = ?`)
+        .get(params.saleItemId, params.saleId) as SaleItemEntity | undefined;
+
+      if (!item) {
+        throw new NotFoundError("sale_item", params.saleItemId);
+      }
+
+      // 2. Validate quantity
+      const alreadyRefunded = item.refunded_quantity ?? 0;
+      const availableToRefund = item.quantity - alreadyRefunded;
+
+      if (params.refundQuantity <= 0) {
+        throw new DatabaseError("Refund quantity must be greater than 0");
+      }
+      if (params.refundQuantity > availableToRefund) {
+        throw new DatabaseError(
+          `Cannot refund ${params.refundQuantity} - only ${availableToRefund} available (already refunded ${alreadyRefunded})`,
+        );
+      }
+
+      // 3. Get the parent sale
+      const sale = db
+        .prepare(`SELECT * FROM sales WHERE id = ?`)
+        .get(params.saleId) as SaleEntity | undefined;
+
+      if (!sale) {
+        throw new NotFoundError("sale", params.saleId);
+      }
+
+      if (sale.status === "refunded") {
+        throw new DatabaseError(
+          "Cannot refund items from a fully refunded sale",
+        );
+      }
+
+      // 4. Calculate refund amount (proportional)
+      const refundAmount = item.sold_price_usd * params.refundQuantity;
+
+      // 5. Get the original SALE transaction
+      const originalTxn = db
+        .prepare(
+          `SELECT id, source_table, source_id, amount_usd, amount_lbp, exchange_rate, client_id, device_id 
+           FROM transactions 
+           WHERE source_table = 'sales' AND source_id = ? AND type = 'SALE'`,
+        )
+        .get(params.saleId) as
+        | {
+            id: number;
+            source_table: string;
+            source_id: number;
+            amount_usd: number;
+            amount_lbp: number;
+            exchange_rate: number;
+            client_id: number | null;
+            device_id: string | null;
+          }
+        | undefined;
+
+      if (!originalTxn) {
+        throw new DatabaseError("No SALE transaction found for this sale");
+      }
+
+      // 6. Create REFUND transaction for this item
+      const refundTxnResult = db
+        .prepare(
+          `INSERT INTO transactions
+            (type, status, source_table, source_id, user_id,
+             amount_usd, amount_lbp, exchange_rate,
+             client_id, reverses_id, summary, metadata_json, device_id)
+            VALUES ('REFUND', 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          originalTxn.source_table,
+          originalTxn.source_id,
+          params.userId,
+          -refundAmount,
+          -(refundAmount * originalTxn.exchange_rate),
+          originalTxn.exchange_rate,
+          originalTxn.client_id,
+          null,
+          `ITEM REFUND: ${params.refundQuantity}x product ${item.product_id} from Sale #${params.saleId}`,
+          JSON.stringify({
+            refundType: "item",
+            saleItemId: params.saleItemId,
+            refundQuantity: params.refundQuantity,
+            originalSaleId: params.saleId,
+          }),
+          originalTxn.device_id,
+        );
+
+      const refundTxnId = refundTxnResult.lastInsertRowid as number;
+
+      // 7. Reverse payments proportionally
+      const originalPayments = db
+        .prepare(
+          `SELECT method, drawer_name, currency_code, amount FROM payments WHERE transaction_id = ?`,
+        )
+        .all(originalTxn.id) as {
+        method: string;
+        drawer_name: string;
+        currency_code: string;
+        amount: number;
+      }[];
+
+      const refundRatio = refundAmount / originalTxn.amount_usd;
+
+      const insertPayment = db.prepare(`
+        INSERT INTO payments (transaction_id, method, drawer_name, currency_code, amount, note, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      const upsertBalance = db.prepare(`
+        INSERT INTO drawer_balances (drawer_name, currency_code, balance)
+        VALUES (?, ?, ?)
+        ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+          balance = drawer_balances.balance + excluded.balance,
+          updated_at = CURRENT_TIMESTAMP
+      `);
+
+      for (const payment of originalPayments) {
+        const negatedAmount = -(payment.amount * refundRatio);
+        insertPayment.run(
+          refundTxnId,
+          payment.method,
+          payment.drawer_name,
+          payment.currency_code,
+          negatedAmount,
+          `Item refund - ${params.refundQuantity}x product ${item.product_id}`,
+          params.userId,
+        );
+        upsertBalance.run(
+          payment.drawer_name,
+          payment.currency_code,
+          negatedAmount,
+        );
+      }
+
+      // 8. Update sale_items.refunded_quantity
+      db.prepare(
+        `UPDATE sale_items SET refunded_quantity = refunded_quantity + ? WHERE id = ?`,
+      ).run(params.refundQuantity, params.saleItemId);
+
+      // 9. Restore stock for refunded quantity
+      db.prepare(
+        `UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ?`,
+      ).run(params.refundQuantity, item.product_id);
+
+      // 10. If sale was on debt, cancel proportional debt
+      if (originalTxn.client_id) {
+        const debts = db
+          .prepare(
+            `SELECT id, client_id, amount_usd FROM debt_ledger WHERE transaction_id = ? AND transaction_type = 'Sale Debt'`,
+          )
+          .all(originalTxn.id) as {
+          id: number;
+          client_id: number;
+          amount_usd: number;
+        }[];
+
+        const insertReversal = db.prepare(`
+          INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, transaction_id, note, created_by)
+          VALUES (?, 'Refund Reversal', ?, ?, 'Debt cancelled by item refund', ?)
+        `);
+
+        for (const debt of debts) {
+          insertReversal.run(
+            debt.client_id,
+            -(debt.amount_usd * refundRatio),
+            refundTxnId,
+            params.userId,
+          );
+        }
+      }
+
+      // 11. Check if ALL items are fully refunded - mark sale as refunded
+      const remainingItems = db
+        .prepare(
+          `SELECT COUNT(*) as count FROM sale_items 
+           WHERE sale_id = ? AND (quantity - refunded_quantity) > 0`,
+        )
+        .get(params.saleId) as { count: number } | undefined;
+
+      if (remainingItems?.count === 0) {
+        db.prepare(`UPDATE sales SET status = 'refunded' WHERE id = ?`).run(
+          params.saleId,
+        );
+      }
+
+      return refundTxnId;
+    });
+  }
+
   // ---------------------------------------------------------------------------
   // Dashboard & Reporting Queries
   // ---------------------------------------------------------------------------
@@ -755,84 +963,50 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
   }
 
   /**
-   * Get drawer balances for today
+   * Get accumulated drawer balances (not filtered by date)
+   * Reads from drawer_balances table which maintains running totals
    */
   getDrawerBalances(): DrawerBalances {
     try {
-      const today = new Date().toISOString().split("T")[0];
+      // Read from drawer_balances table (running totals)
+      const balances = this.query<{
+        drawer_name: string;
+        currency_code: string;
+        balance: number;
+      }>(`
+        SELECT drawer_name, currency_code, balance 
+        FROM drawer_balances 
+        WHERE drawer_name IN ('General', 'OMT_System', 'OMT_App', 'Whish_App', 'Whish_System', 'Binance', 'Alfa', 'MTC', 'IPEC', 'Katch')
+        ORDER BY drawer_name, currency_code
+      `);
 
-      // General Drawer B sales
-      const generalSales = this.queryOne<{
-        total_usd: number;
-        total_lbp: number;
-      }>(
-        `
-        SELECT 
-          SUM(paid_usd) as total_usd, 
-          SUM(paid_lbp) as total_lbp 
-        FROM ${this.tableName} 
-        WHERE DATE(created_at) = ? AND status = 'completed' AND drawer_name = 'General'
-      `,
-        today,
-      );
-
-      // General Drawer expenses
-      const generalExpenses = this.queryOne<{
-        total_usd: number;
-        total_lbp: number;
-      }>(
-        `
-        SELECT 
-          SUM(amount_usd) as total_usd, 
-          SUM(amount_lbp) as total_lbp 
-        FROM expenses 
-        WHERE DATE(expense_date) = ?
-      `,
-        today,
-      );
-
-      // OMT Drawer A inflows
-      const omtInflows = this.queryOne<{
-        total_usd: number;
-        total_lbp: number;
-      }>(
-        `
-        SELECT 
-          COALESCE(SUM(CASE WHEN currency = 'USD' THEN amount ELSE 0 END), 0) as total_usd, 
-          COALESCE(SUM(CASE WHEN currency = 'LBP' THEN amount ELSE 0 END), 0) as total_lbp 
-        FROM financial_services 
-        WHERE DATE(created_at) = ? AND provider = 'OMT' AND service_type = 'RECEIVE'
-      `,
-        today,
-      );
-
-      // OMT Drawer A outflows
-      const omtOutflows = this.queryOne<{
-        total_usd: number;
-        total_lbp: number;
-      }>(
-        `
-        SELECT 
-          COALESCE(SUM(CASE WHEN currency = 'USD' THEN amount ELSE 0 END), 0) as total_usd, 
-          COALESCE(SUM(CASE WHEN currency = 'LBP' THEN amount ELSE 0 END), 0) as total_lbp 
-        FROM financial_services 
-        WHERE DATE(created_at) = ? AND provider = 'OMT' AND service_type = 'SEND'
-      `,
-        today,
-      );
-
-      return {
-        generalDrawer: {
-          usd:
-            (generalSales?.total_usd ?? 0) - (generalExpenses?.total_usd ?? 0),
-          lbp:
-            (generalSales?.total_lbp ?? 0) - (generalExpenses?.total_lbp ?? 0),
-        },
-        omtDrawer: {
-          usd: (omtInflows?.total_usd ?? 0) - (omtOutflows?.total_usd ?? 0),
-          lbp: (omtInflows?.total_lbp ?? 0) - (omtOutflows?.total_lbp ?? 0),
-        },
+      // Transform to DrawerBalances format
+      const result: DrawerBalances = {
+        generalDrawer: { usd: 0, lbp: 0 },
+        omtDrawer: { usd: 0, lbp: 0 },
       };
+
+      for (const row of balances) {
+        // General drawer
+        if (row.drawer_name === "General") {
+          if (row.currency_code === "USD") {
+            result.generalDrawer.usd = row.balance;
+          } else if (row.currency_code === "LBP") {
+            result.generalDrawer.lbp = row.balance;
+          }
+        }
+        // OMT drawers (OMT_System and OMT_App)
+        else if (row.drawer_name.startsWith("OMT")) {
+          if (row.currency_code === "USD") {
+            result.omtDrawer.usd += row.balance;
+          } else if (row.currency_code === "LBP") {
+            result.omtDrawer.lbp += row.balance;
+          }
+        }
+        // Other drawers can be added here as needed
+      }
+
+      return result;
     } catch (error) {
       throw new DatabaseError("Failed to get drawer balances", {
         cause: error,

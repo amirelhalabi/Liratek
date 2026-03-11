@@ -92,4 +92,21 @@ export function registerSessionHandlers() {
       );
     },
   );
+
+  // Get sessions by customer (for client details view)
+  ipcMain.handle(
+    "session:getByCustomer",
+    async (
+      _event,
+      data: {
+        customerName: string;
+        customerPhone?: string;
+      },
+    ) => {
+      return sessionService.getSessionsByCustomer(
+        data.customerName,
+        data.customerPhone,
+      );
+    },
+  );
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { FormEvent } from "react";
 import { useSession } from "../context/SessionContext";
 import { User, X } from "lucide-react";
@@ -20,6 +20,14 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
   const [customerNotes, setCustomerNotes] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+
+  // Focus name input when modal opens
+  useEffect(() => {
+    if (isOpen && nameInputRef.current) {
+      nameInputRef.current.focus();
+    }
+  }, [isOpen]);
 
   // Fetch clients for search
   useEffect(() => {
@@ -149,9 +157,7 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
                 }}
                 className="bg-transparent border-none text-white w-full px-2 focus:outline-none"
                 placeholder="Search or enter customer name..."
-                ref={(el) => {
-                  el?.focus();
-                }}
+                ref={nameInputRef}
                 disabled={loading}
                 required
               />

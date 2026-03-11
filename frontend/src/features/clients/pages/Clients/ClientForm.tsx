@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import logger from "@/utils/logger";
-import { X, Save, MessageCircle } from "lucide-react";
+import { X, Save, MessageCircle, Send } from "lucide-react";
 import type { Client } from "@liratek/ui";
 
 interface ClientFormProps {
@@ -16,6 +16,7 @@ export default function ClientForm({
 }: ClientFormProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [isSending, setIsSending] = useState(false);
   const [formData, setFormData] = useState({
     full_name: "",
     phone_number: "",
@@ -91,6 +92,33 @@ export default function ClientForm({
     }
   };
 
+  const handleSendWhatsApp = async () => {
+    if (!formData.phone_number) {
+      setError("Please enter a phone number first");
+      return;
+    }
+
+    setIsSending(true);
+    try {
+      const message = `Hello ${formData.full_name}! This is a test message from LiraTek.`;
+      const result = await window.api.whatsapp.sendMessage(
+        formData.phone_number,
+        message,
+      );
+
+      if (result.success) {
+        alert("WhatsApp message sent successfully!");
+      } else {
+        setError(result.error || "Failed to send WhatsApp message");
+      }
+    } catch (err) {
+      logger.error("Failed to send WhatsApp message", { error: err });
+      setError("An unexpected error occurred");
+    } finally {
+      setIsSending(false);
+    }
+  };
+
   return (
     <div
       className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
@@ -141,23 +169,27 @@ export default function ClientForm({
             />
           </div>
 
-          <div>
-            <label
-              htmlFor="client-phone"
-              className="block text-sm font-medium text-slate-400 mb-1"
-            >
-              Phone Number
-            </label>
+          <div className="flex items-center gap-2">
             <input
               id="client-phone"
               name="phone_number"
               type="text"
               value={formData.phone_number}
               onChange={handleChange}
-              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
+              className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
               required
               placeholder="03 123 456"
             />
+            <button
+              type="button"
+              onClick={handleSendWhatsApp}
+              disabled={isSending || !formData.phone_number}
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-500 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Send test WhatsApp message"
+            >
+              <Send size={16} />
+              {isSending ? "Sending..." : "Send"}
+            </button>
           </div>
 
           <div className="flex items-center gap-3 py-2">

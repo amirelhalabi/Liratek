@@ -205,6 +205,15 @@ export interface ElectronAPI {
       refundId?: number;
       error?: string;
     }>;
+    refundItem: (
+      saleId: number,
+      saleItemId: number,
+      refundQuantity: number,
+    ) => Promise<{
+      success: boolean;
+      refundId?: number;
+      error?: string;
+    }>;
     getByDateRange: (
       startDate: string,
       endDate: string,
@@ -243,6 +252,7 @@ export interface ElectronAPI {
       lowStockCount: number;
     }>;
     getDrawerBalances: () => Promise<{
+      /** Accumulated drawer balances (not filtered by date) */
       generalDrawer: { usd: number; lbp: number };
       omtDrawer: { usd: number; lbp: number };
     }>;
@@ -562,6 +572,18 @@ export interface ElectronAPI {
     update: (key: string, value: string) => Promise<{ success: boolean }>;
   };
 
+  // WhatsApp
+  whatsapp: {
+    sendTest: (
+      recipientPhone: string,
+      shopName: string,
+    ) => Promise<{ success: boolean; messageId?: string; error?: string }>;
+    sendMessage: (
+      recipientPhone: string,
+      message: string,
+    ) => Promise<{ success: boolean; messageId?: string; error?: string }>;
+  };
+
   // Closing
   closing: {
     getSystemExpectedBalancesDynamic: () => Promise<
@@ -613,561 +635,35 @@ export interface ElectronAPI {
       totalExpensesLBP: number;
       totalProfitUSD: number;
     }>;
-  };
-
-  // Diagnostics
-  diagnostics: {
-    getSyncErrors: () => Promise<
-      Array<{ id: number; endpoint: string; error: string; created_at: string }>
-    >;
-    foreignKeyCheck: () => Promise<{
+    recalculateDrawerBalances: () => Promise<{
       success: boolean;
-      rows?: Array<Record<string, unknown>>;
       error?: string;
     }>;
-  };
-
-  // Updater
-  updater: {
-    getStatus: () => Promise<{
-      packaged: boolean;
-      platform: string;
-      version: string;
-    }>;
-    check: () => Promise<{
+    getCheckpointTimeline: (filters: {
+      date?: string;
+      type?: "OPENING" | "CLOSING" | "ALL";
+      drawer_name?: string;
+      user_id?: number;
+    }) => Promise<{
       success: boolean;
-      updateInfo?: unknown;
-      devMode?: boolean;
-      error?: string;
-    }>;
-    download: () => Promise<{
-      success: boolean;
-      result?: unknown;
-      error?: string;
-    }>;
-    quitAndInstall: () => Promise<{ success: boolean; error?: string }>;
-    // Push events from main process (returns unsubscribe fn)
-    onUpdateAvailable: (
-      cb: (
-        event: unknown,
-        info: { version: string; releaseDate?: string; releaseName?: string },
-      ) => void,
-    ) => () => void;
-    onDownloadProgress: (
-      cb: (
-        event: unknown,
-        progress: {
-          percent: number;
-          bytesPerSecond: number;
-          transferred: number;
-          total: number;
-        },
-      ) => void,
-    ) => () => void;
-    onUpdateDownloaded: (
-      cb: (
-        event: unknown,
-        info: { version: string; releaseDate?: string; releaseName?: string },
-      ) => void,
-    ) => () => void;
-    onUpdateNotAvailable: (cb: (event: unknown) => void) => () => void;
-    onError: (cb: (event: unknown, message: string) => void) => () => void;
-  };
-
-  // Reports
-  report: {
-    generatePDF: (
-      html: string,
-      filename?: string,
-    ) => Promise<{ success: boolean; path?: string; error?: string }>;
-    backupDatabase: () => Promise<{
-      success: boolean;
-      path?: string;
-      error?: string;
-    }>;
-    listBackups: () => Promise<{
-      success: boolean;
-      backups?: Array<{ path: string; filename: string; createdAtMs: number }>;
-      error?: string;
-    }>;
-    verifyBackup: (path: string) => Promise<{
-      success: boolean;
-      ok?: boolean;
-      error?: string;
-    }>;
-    restoreDatabase: (
-      path: string,
-    ) => Promise<{ success: boolean; error?: string }>;
-  };
-
-  // Activity
-  activity: {
-    getRecent: (limit?: number) => Promise<
-      Array<{
+      checkpoints?: Array<{
         id: number;
+        closing_date: string;
+        drawer_name: string;
+        checkpoint_type: "OPENING" | "CLOSING";
         created_at: string;
-        user_id: number | null;
-        action: string;
-        table_name: string;
-        record_id: number | null;
-        details_json?: string;
-      }>
-    >;
-  };
-
-  // Transactions (unified)
-  transactions: {
-    getRecent: (
-      limit?: number,
-      filters?: {
-        type?: string;
-        status?: string;
-        user_id?: number;
-        client_id?: number;
-        source_table?: string;
-        from?: string;
-        to?: string;
-      },
-    ) => Promise<
-      Array<{
-        id: number;
-        type: string;
-        status: string;
-        source_table: string;
-        source_id: number;
-        user_id: number;
-        amount_usd: number;
-        amount_lbp: number;
-        exchange_rate: number | null;
-        client_id: number | null;
-        reverses_id: number | null;
-        summary: string | null;
-        metadata_json: string | null;
-        device_id: string | null;
-        created_at: string;
-        username: string;
-        client_name: string | null;
-      }>
-    >;
-    getById: (id: number) => Promise<{
-      id: number;
-      type: string;
-      status: string;
-      source_table: string;
-      source_id: number;
-      user_id: number;
-      amount_usd: number;
-      amount_lbp: number;
-      exchange_rate: number | null;
-      client_id: number | null;
-      reverses_id: number | null;
-      summary: string | null;
-      metadata_json: string | null;
-      device_id: string | null;
-      created_at: string;
-    } | null>;
-    getByClient: (
-      clientId: number,
-      limit?: number,
-    ) => Promise<
-      Array<{
-        id: number;
-        type: string;
-        status: string;
-        amount_usd: number;
-        amount_lbp: number;
-        summary: string | null;
-        created_at: string;
-      }>
-    >;
-    getByDateRange: (
-      from: string,
-      to: string,
-      type?: string,
-    ) => Promise<
-      Array<{
-        id: number;
-        type: string;
-        status: string;
-        amount_usd: number;
-        amount_lbp: number;
-        summary: string | null;
-        created_at: string;
-      }>
-    >;
-    void: (id: number) => Promise<{
-      success: boolean;
-      reversalId?: number;
-      error?: string;
-    }>;
-    refund: (id: number) => Promise<{
-      success: boolean;
-      refundId?: number;
-      error?: string;
-    }>;
-    dailySummary: (date: string) => Promise<{
-      date: string;
-      total_usd: number;
-      total_lbp: number;
-      by_type: Array<{
-        type: string;
-        count: number;
-        total_usd: number;
-        total_lbp: number;
-      }>;
-      void_count: number;
-      void_usd: number;
-      void_lbp: number;
-    }>;
-    debtAging: (clientId: number) => Promise<{
-      client_id: number;
-      current: { usd: number; lbp: number };
-      days_31_60: { usd: number; lbp: number };
-      days_61_90: { usd: number; lbp: number };
-      over_90: { usd: number; lbp: number };
-    }>;
-    overdueDebts: () => Promise<
-      Array<{
-        client_id: number;
-        client_name: string;
-        phone_number: string | null;
-        total_usd: number;
-        total_lbp: number;
-        oldest_due_date: string;
-        max_days_overdue: number;
-        entry_count: number;
-      }>
-    >;
-    revenueByType: (
-      from: string,
-      to: string,
-    ) => Promise<
-      Array<{
-        type: string;
-        count: number;
-        total_usd: number;
-        total_lbp: number;
-      }>
-    >;
-    revenueByUser: (
-      from: string,
-      to: string,
-    ) => Promise<
-      Array<{
-        user_id: number;
-        username: string;
-        count: number;
-        total_usd: number;
-        total_lbp: number;
-      }>
-    >;
-  };
-
-  // Reporting (aggregated analytics)
-  reporting: {
-    dailySummaries: (
-      from: string,
-      to: string,
-    ) => Promise<
-      Array<{
-        date: string;
-        total_usd: number;
-        total_lbp: number;
-        by_type: Array<{
-          type: string;
-          count: number;
-          total_usd: number;
-          total_lbp: number;
+        created_by: number;
+        user_name: string;
+        notes?: string;
+        currencies: Array<{
+          currency_code: string;
+          opening_amount: number;
+          physical_amount?: number;
+          variance?: number;
         }>;
-        void_count: number;
-        void_usd: number;
-        void_lbp: number;
-      }>
-    >;
-    clientHistory: (
-      clientId: number,
-      limit?: number,
-    ) => Promise<{
-      client_id: number;
-      transactions: Array<{
-        id: number;
-        type: string;
-        status: string;
-        amount_usd: number;
-        amount_lbp: number;
-        summary: string | null;
-        created_at: string;
       }>;
-      debt_aging: {
-        client_id: number;
-        current: { usd: number; lbp: number };
-        days_31_60: { usd: number; lbp: number };
-        days_61_90: { usd: number; lbp: number };
-        over_90: { usd: number; lbp: number };
-      };
-      running_balance_usd: number;
-      running_balance_lbp: number;
-    }>;
-    revenueByModule: (
-      from: string,
-      to: string,
-    ) => Promise<
-      Array<{
-        type: string;
-        count: number;
-        total_usd: number;
-        total_lbp: number;
-      }>
-    >;
-    overdueDebts: () => Promise<
-      Array<{
-        client_id: number;
-        client_name: string;
-        phone_number: string | null;
-        total_usd: number;
-        total_lbp: number;
-        oldest_due_date: string;
-        max_days_overdue: number;
-        entry_count: number;
-      }>
-    >;
-  };
-
-  // Profits (admin analytics)
-  profits: {
-    summary: (from: string, to: string) => Promise<any>;
-    byModule: (from: string, to: string) => Promise<any[]>;
-    byDate: (from: string, to: string) => Promise<any[]>;
-    byPaymentMethod: (from: string, to: string) => Promise<any[]>;
-    byUser: (from: string, to: string) => Promise<any[]>;
-    byClient: (from: string, to: string, limit?: number) => Promise<any[]>;
-    pending: (from: string, to: string) => Promise<any>;
-  };
-
-  // Rates
-  rates: {
-    list: () => Promise<
-      Array<{
-        id: number;
-        from_code: string;
-        to_code: string;
-        rate: number;
-        updated_at: string;
-      }>
-    >;
-    set: (
-      from_code: string,
-      to_code: string,
-      rate: number,
-    ) => Promise<{ success: boolean; error?: string }>;
-    delete: (
-      from_code: string,
-      to_code: string,
-    ) => Promise<{ success: boolean; error?: string }>;
-  };
-
-  // Currencies
-  currencies: {
-    list: () => Promise<
-      Array<{
-        id: number;
-        code: string;
-        name: string;
-        symbol: string;
-        decimal_places: number;
-        is_active: number;
-      }>
-    >;
-    create: (
-      code: string,
-      name: string,
-      symbol?: string,
-      decimalPlaces?: number,
-    ) => Promise<{ success: boolean; id?: number; error?: string }>;
-    update: (data: {
-      id: number;
-      code?: string;
-      name?: string;
-      symbol?: string;
-      decimal_places?: number;
-      is_active?: number;
-    }) => Promise<{ success: boolean; error?: string }>;
-    delete: (id: number) => Promise<{ success: boolean; error?: string }>;
-    getModules: (code: string) => Promise<string[]>;
-    byModule: (moduleKey: string) => Promise<
-      Array<{
-        id: number;
-        code: string;
-        name: string;
-        symbol: string;
-        decimal_places: number;
-        is_active: number;
-      }>
-    >;
-    setModules: (
-      code: string,
-      modules: string[],
-    ) => Promise<{ success: boolean; error?: string }>;
-    allDrawerCurrencies: () => Promise<Record<string, string[]>>;
-    forDrawer: (drawerName: string) => Promise<string[]>;
-    getDrawers: (code: string) => Promise<string[]>;
-    setDrawerCurrencies: (
-      drawerName: string,
-      currencies: string[],
-    ) => Promise<{ success: boolean; error?: string }>;
-    configuredDrawers: () => Promise<string[]>;
-  };
-
-  // Modules
-  modules: {
-    list: () => Promise<
-      Array<{
-        key: string;
-        label: string;
-        icon: string;
-        route: string;
-        sort_order: number;
-        is_enabled: number;
-        admin_only: number;
-        is_system: number;
-      }>
-    >;
-    enabled: () => Promise<
-      Array<{
-        key: string;
-        label: string;
-        icon: string;
-        route: string;
-        sort_order: number;
-        is_enabled: number;
-        admin_only: number;
-        is_system: number;
-      }>
-    >;
-    toggleable: () => Promise<
-      Array<{
-        key: string;
-        label: string;
-        icon: string;
-        route: string;
-        sort_order: number;
-        is_enabled: number;
-        admin_only: number;
-        is_system: number;
-      }>
-    >;
-    setEnabled: (
-      key: string,
-      enabled: boolean,
-    ) => Promise<{ success: boolean; error?: string }>;
-    bulkSetEnabled: (
-      updates: { key: string; is_enabled: boolean }[],
-    ) => Promise<{ success: boolean; error?: string }>;
-  };
-
-  // Payment Methods
-  paymentMethods: {
-    list: () => Promise<
-      Array<{
-        id: number;
-        code: string;
-        label: string;
-        drawer_name: string;
-        affects_drawer: number;
-        sort_order: number;
-        is_active: number;
-        is_system: number;
-        created_at: string;
-      }>
-    >;
-    listActive: () => Promise<
-      Array<{
-        id: number;
-        code: string;
-        label: string;
-        drawer_name: string;
-        affects_drawer: number;
-        sort_order: number;
-        is_active: number;
-        is_system: number;
-        created_at: string;
-      }>
-    >;
-    create: (data: {
-      code: string;
-      label: string;
-      drawer_name: string;
-      affects_drawer?: number;
-    }) => Promise<{ success: boolean; id?: number; error?: string }>;
-    update: (
-      id: number,
-      data: {
-        label?: string;
-        drawer_name?: string;
-        affects_drawer?: number;
-        is_active?: number;
-        sort_order?: number;
-      },
-    ) => Promise<{ success: boolean; error?: string }>;
-    delete: (id: number) => Promise<{ success: boolean; error?: string }>;
-    reorder: (ids: number[]) => Promise<{ success: boolean; error?: string }>;
-  };
-
-  // Customer Sessions
-  session: {
-    start: (data: {
-      customer_name: string;
-      customer_phone?: string;
-      customer_notes?: string;
-      started_by: string;
-    }) => Promise<{ success: boolean; sessionId?: number; error?: string }>;
-    getActive: () => Promise<{
-      success: boolean;
-      session?: {
-        id: number;
-        customer_name?: string;
-        customer_phone?: string;
-        customer_notes?: string;
-        started_at: string;
-        closed_at?: string;
-        started_by: string;
-        closed_by?: string;
-        is_active: 1 | 0;
-      };
       error?: string;
     }>;
-    get: (sessionId: number) => Promise<{
-      success: boolean;
-      session?: any;
-      transactions?: any[];
-      error?: string;
-    }>;
-    update: (
-      sessionId: number,
-      data: {
-        customer_name?: string;
-        customer_phone?: string;
-        customer_notes?: string;
-      },
-    ) => Promise<{ success: boolean; error?: string }>;
-    close: (
-      sessionId: number,
-      closedBy: string,
-    ) => Promise<{ success: boolean; error?: string }>;
-    list: (
-      limit: number,
-      offset: number,
-    ) => Promise<{
-      success: boolean;
-      sessions?: any[];
-      error?: string;
-    }>;
-    linkTransaction: (data: {
-      transactionType: string;
-      transactionId: number;
-      amountUsd: number;
-      amountLbp: number;
-    }) => Promise<{ success: boolean; linked: boolean; error?: string }>;
   };
 
   // Setup Wizard

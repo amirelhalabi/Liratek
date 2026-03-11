@@ -161,6 +161,31 @@ export class ClosingService {
       };
     }
   }
+
+  /**
+   * Get checkpoint timeline for a date
+   */
+  async getCheckpointTimeline(
+    filters: import("../repositories/ClosingRepository.js").CheckpointFilters = {},
+  ): Promise<{
+    success: boolean;
+    checkpoints?: import("../repositories/ClosingRepository.js").CheckpointRecord[];
+    error?: string;
+  }> {
+    try {
+      const checkpoints = this.repo.getCheckpointTimeline(filters);
+      return { success: true, checkpoints };
+    } catch (error) {
+      closingLogger.error(
+        { error, filters },
+        "ClosingService.getCheckpointTimeline error",
+      );
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
 }
 
 // Singleton instance

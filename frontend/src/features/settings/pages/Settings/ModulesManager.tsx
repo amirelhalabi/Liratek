@@ -65,9 +65,14 @@ export default function ModulesManager() {
         api.getConfiguredDrawerNames(),
       ]);
 
+      // Filter out removed modules (reports, transactions)
+      const filteredMods = mods.filter(
+        (m: ModuleRow) => !["reports", "transactions"].includes(m.key),
+      );
+
       // Fetch currencies for ALL modules
       const withCurrencies = await Promise.all(
-        mods.map(async (m: ModuleRow) => ({
+        filteredMods.map(async (m: ModuleRow) => ({
           ...m,
           enabledCurrencies: await api
             .getCurrenciesByModule(m.key)

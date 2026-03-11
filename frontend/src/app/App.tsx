@@ -27,11 +27,10 @@ const CustomServices = lazy(
   () => import("@/features/custom-services/pages/CustomServices"),
 );
 const Settings = lazy(() => import("@/features/settings/pages/Settings"));
-const Reports = lazy(() => import("@/features/reports/pages/Reports"));
-const TransactionHistory = lazy(
-  () => import("@/features/transactions/pages/TransactionHistory"),
-);
 const Profits = lazy(() => import("@/features/profits/pages/Profits"));
+const CheckpointTimeline = lazy(
+  () => import("@/features/closing/pages/CheckpointTimeline"),
+);
 const SetupWizard = lazy(() => import("@/features/setup/SetupWizard"));
 import MainLayout from "@/shared/components/layouts/MainLayout";
 import HomeGrid from "@/shared/components/layouts/HomeGrid";
@@ -195,26 +194,18 @@ function AppRoutes() {
           }
         />
         <Route
-          path="/reports"
-          element={
-            <ProtectedRoute>
-              <Reports />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/transactions"
-          element={
-            <ProtectedRoute>
-              <TransactionHistory />
-            </ProtectedRoute>
-          }
-        />
-        <Route
           path="/profits"
           element={
             <ProtectedRoute>
               <Profits />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/checkpoint-timeline"
+          element={
+            <ProtectedRoute>
+              <CheckpointTimeline />
             </ProtectedRoute>
           }
         />

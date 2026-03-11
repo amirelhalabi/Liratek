@@ -18,11 +18,12 @@ import {
   Play,
   TrendingUp,
   Bitcoin,
-  Zap,
+  Clock,
   Briefcase,
-  Circle,
+  Zap,
   BarChart2,
   ClipboardList,
+  Circle,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import clsx from "clsx";
@@ -75,6 +76,7 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
     return enabledModules
       .filter((m) => !m.admin_only || isAdmin)
       .filter((m) => m.route !== "") // Exclude closing (no route — it's a button)
+      .filter((m) => !["reports", "transactions"].includes(m.key)) // Exclude removed modules
       .reduce<Array<{ to: string; icon: LucideIcon; label: string }>>(
         (acc, m) => {
           if (CONSOLIDATED_KEYS.has(m.key)) {
@@ -192,6 +194,28 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
               </span>
             )}
           </button>
+        )}
+        {isAdmin && flags.sessionManagement && (
+          <NavLink
+            to="/checkpoint-timeline"
+            className={({ isActive }) =>
+              clsx(
+                "flex items-center gap-3 px-3 py-3 rounded-xl transition-all font-medium whitespace-nowrap w-full",
+                isActive
+                  ? "bg-violet-600 text-white"
+                  : "text-slate-400 hover:bg-slate-800 hover:text-white",
+                isCollapsed ? "justify-center" : "",
+              )
+            }
+            title={isCollapsed ? "Checkpoint Timeline" : undefined}
+          >
+            <Clock size={20} className="min-w-[20px]" />
+            {!isCollapsed && (
+              <span className="opacity-100 transition-opacity duration-200">
+                Checkpoint Timeline
+              </span>
+            )}
+          </NavLink>
         )}
       </nav>
 

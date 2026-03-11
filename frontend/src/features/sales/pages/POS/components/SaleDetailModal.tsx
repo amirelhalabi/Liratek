@@ -26,6 +26,7 @@ interface SaleItem {
   barcode: string;
   imei?: string;
   is_refunded?: number;
+  refunded_quantity?: number;
 }
 
 interface SaleDetail {
@@ -61,6 +62,10 @@ export default function SaleDetailModal({
   const [loading, setLoading] = useState(true);
   const [refunding, setRefunding] = useState(false);
   const [showRefundConfirm, setShowRefundConfirm] = useState(false);
+  const [showRefundQuantity, setShowRefundQuantity] = useState(false);
+  const [selectedRefundItem, setSelectedRefundItem] = useState<SaleItem | null>(
+    null,
+  );
 
   useEffect(() => {
     const load = async () => {
@@ -114,6 +119,48 @@ export default function SaleDetailModal({
     } finally {
       setRefunding(false);
       setShowRefundConfirm(false);
+    }
+  };
+
+  const handleRefundItem = async (item: SaleItem, quantity: number) => {
+    if (!sale) return;
+
+    setRefunding(true);
+    try {
+      const result = await window.api.sales.refundItem(
+        saleId,
+        item.id,
+        quantity,
+      );
+
+      if (result.success) {
+        appEvents.emit(
+          "notification:show",
+          `Refunded ${quantity}x ${item.name}`,
+          "success",
+        );
+        appEvents.emit("sale:completed", { refunded: true, saleId });
+        onRefunded?.();
+        // Reload items to show updated refunded_quantity
+        const itemsData = await window.api.sales.getItems(saleId);
+        setItems(itemsData ?? []);
+      } else {
+        appEvents.emit(
+          "notification:show",
+          result.error || "Item refund failed",
+          "error",
+        );
+      }
+    } catch (_err) {
+      appEvents.emit(
+        "notification:show",
+        "Item refund failed unexpectedly",
+        "error",
+      );
+    } finally {
+      setRefunding(false);
+      setShowRefundQuantity(false);
+      setSelectedRefundItem(null);
     }
   };
 
@@ -178,7 +225,10 @@ export default function SaleDetailModal({
     }
 
     if (targetPrinter && window.api?.print?.silentPrint) {
-      const result = await window.api.print.silentPrint(fullHtml, targetPrinter);
+      const result = await window.api.print.silentPrint(
+        fullHtml,
+        targetPrinter,
+      );
       if (!result?.success) {
         appEvents.emit(
           "notification:show",
@@ -286,38 +336,66 @@ export default function SaleDetailModal({
                   </h3>
                 </div>
                 <div className="bg-slate-800/50 rounded-xl border border-slate-700/50 divide-y divide-slate-700/50">
-                  {items.map((item) => (
-                    <div
-                      key={item.id}
-                      className="flex items-center justify-between px-4 py-3"
-                    >
-                      <div className="flex-1 min-w-0 mr-3">
-                        <p
-                          className={`text-sm truncate ${item.is_refunded ? "text-red-400 line-through" : "text-slate-200"}`}
-                        >
-                          {item.name}
-                        </p>
-                        <div className="flex items-center gap-2 text-xs text-slate-500">
-                          <span>
-                            {item.quantity} x ${item.sold_price_usd.toFixed(2)}
-                          </span>
-                          {item.barcode && (
-                            <span className="font-mono">{item.barcode}</span>
-                          )}
-                          {item.imei && (
-                            <span className="font-mono text-slate-600">
-                              IMEI: {item.imei}
+                  {items.map((item) => {
+                    const alreadyRefunded = item.refunded_quantity ?? 0;
+                    const isFullyRefunded = alreadyRefunded >= item.quantity;
+
+                    return (
+                      <div
+                        key={item.id}
+                        className="flex items-center justify-between px-4 py-3"
+                      >
+                        <div className="flex-1 min-w-0 mr-3">
+                          <p
+                            className={`text-sm truncate ${isFullyRefunded ? "text-red-400 line-through" : "text-slate-200"}`}
+                          >
+                            {item.name}
+                          </p>
+                          <div className="flex items-center gap-2 text-xs text-slate-500">
+                            <span>
+                              Qty: {item.quantity}
+                              {alreadyRefunded > 0 && (
+                                <span className="text-red-400 ml-1">
+                                  ({alreadyRefunded} refunded)
+                                </span>
+                              )}
                             </span>
+                            <span>× ${item.sold_price_usd.toFixed(2)}</span>
+                            {item.barcode && (
+                              <span className="font-mono">{item.barcode}</span>
+                            )}
+                            {item.imei && (
+                              <span className="font-mono text-slate-600">
+                                IMEI: {item.imei}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`text-sm font-mono shrink-0 ${isFullyRefunded ? "text-red-400 line-through" : "text-slate-300"}`}
+                          >
+                            ${(item.quantity * item.sold_price_usd).toFixed(2)}
+                          </span>
+
+                          {!isFullyRefunded && !isRefunded && (
+                            <button
+                              onClick={() => {
+                                setSelectedRefundItem(item);
+                                setShowRefundQuantity(true);
+                              }}
+                              disabled={refunding}
+                              className="p-1.5 text-red-400 hover:text-red-300 hover:bg-red-900/30 rounded transition-colors disabled:opacity-50"
+                              title="Refund item"
+                            >
+                              <RotateCcw size={14} />
+                            </button>
                           )}
                         </div>
                       </div>
-                      <span
-                        className={`text-sm font-mono shrink-0 ${item.is_refunded ? "text-red-400 line-through" : "text-slate-300"}`}
-                      >
-                        ${(item.quantity * item.sold_price_usd).toFixed(2)}
-                      </span>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
 
@@ -416,6 +494,111 @@ export default function SaleDetailModal({
         onCancel={() => setShowRefundConfirm(false)}
         variant="danger"
       />
+
+      {showRefundQuantity && selectedRefundItem && (
+        <div
+          className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-[60] p-4"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowRefundQuantity(false);
+              setSelectedRefundItem(null);
+            }
+          }}
+        >
+          <RefundQuantityModal
+            itemName={selectedRefundItem.name}
+            availableQuantity={
+              selectedRefundItem.quantity -
+              (selectedRefundItem.refunded_quantity ?? 0)
+            }
+            onConfirm={(quantity) => {
+              handleRefundItem(selectedRefundItem, quantity);
+            }}
+            onCancel={() => {
+              setShowRefundQuantity(false);
+              setSelectedRefundItem(null);
+            }}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// =============================================================================
+// RefundQuantityModal Component
+// =============================================================================
+
+interface RefundQuantityModalProps {
+  itemName: string;
+  availableQuantity: number;
+  onConfirm: (quantity: number) => void;
+  onCancel: () => void;
+}
+
+function RefundQuantityModal({
+  itemName,
+  availableQuantity,
+  onConfirm,
+  onCancel,
+}: RefundQuantityModalProps) {
+  const [quantity, setQuantity] = useState(1);
+
+  useEffect(() => {
+    setQuantity(1);
+  }, [availableQuantity]);
+
+  return (
+    <div
+      className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden"
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      <div className="p-6 border-b border-slate-700">
+        <h3 className="text-lg font-bold text-white">Refund Item Quantity</h3>
+      </div>
+
+      <div className="p-6 space-y-4">
+        <p className="text-slate-300">
+          Refunding:{" "}
+          <span className="font-semibold text-white">{itemName}</span>
+        </p>
+
+        <div className="space-y-2">
+          <label className="text-sm text-slate-400">
+            Available to refund: {availableQuantity}
+          </label>
+          <input
+            type="number"
+            min={1}
+            max={availableQuantity}
+            value={quantity}
+            onChange={(e) =>
+              setQuantity(
+                Math.max(
+                  1,
+                  Math.min(availableQuantity, parseInt(e.target.value) || 1),
+                ),
+              )
+            }
+            className="w-full px-4 py-2 bg-slate-800 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-violet-500"
+          />
+        </div>
+      </div>
+
+      <div className="p-4 border-t border-slate-700 flex gap-3">
+        <button
+          onClick={onCancel}
+          className="flex-1 px-4 py-2.5 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg font-medium transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={() => onConfirm(quantity)}
+          className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-lg font-medium transition-colors"
+        >
+          Refund {quantity}x
+        </button>
+      </div>
     </div>
   );
 }

@@ -215,4 +215,49 @@ export class CustomerSessionService {
       return { success: false, error: err?.message ?? "Unknown error" };
     }
   }
+
+  /**
+   * Get all sessions for a specific customer
+   */
+  async getSessionsByCustomer(
+    customerName: string,
+    customerPhone?: string,
+  ): Promise<{
+    success: boolean;
+    sessions?: Array<{
+      session: CustomerSession;
+      transactions: SessionTransaction[];
+      total_usd: number;
+      total_lbp: number;
+    }>;
+    error?: string;
+  }> {
+    try {
+      const repo = getCustomerSessionRepository();
+      const sessions = repo.getSessionsByCustomer(customerName, customerPhone);
+
+      const sessionsWithDetails = sessions.map((session) => {
+        const transactions = repo.getSessionTransactions(session.id);
+        const total_usd = transactions.reduce(
+          (sum, t) => sum + Math.abs(t.amount_usd),
+          0,
+        );
+        const total_lbp = transactions.reduce(
+          (sum, t) => sum + Math.abs(t.amount_lbp),
+          0,
+        );
+
+        return {
+          session,
+          transactions,
+          total_usd,
+          total_lbp,
+        };
+      });
+
+      return { success: true, sessions: sessionsWithDetails };
+    } catch (err: any) {
+      return { success: false, error: err?.message ?? "Unknown error" };
+    }
+  }
 }
