@@ -97,6 +97,4 @@ export function closeDatabase(): void {
   }
 }
 
-// Graceful shutdown
-process.on("SIGTERM", closeDatabase);
-process.on("SIGINT", closeDatabase);
+// Note: shutdown is handled centrally in server.ts

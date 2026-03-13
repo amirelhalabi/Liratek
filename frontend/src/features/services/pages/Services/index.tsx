@@ -256,7 +256,6 @@ export default function Services() {
 
   // Loading / error state
   const [isLoading, setIsLoading] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Form State
   const [provider, setProvider] = useState<Provider>("OMT");
@@ -346,7 +345,6 @@ export default function Services() {
 
   const loadData = useCallback(async () => {
     setIsLoading(true);
-    setLoadError(null);
     try {
       const [history, stats, suppliers, balances] = await Promise.all([
         api.getOMTHistory(),
@@ -379,7 +377,6 @@ export default function Services() {
       setOwedByProvider(owed);
     } catch (error) {
       logger.error("Failed to load data:", error);
-      setLoadError("Failed to load data. Tap refresh to retry.");
     } finally {
       setIsLoading(false);
     }
@@ -806,20 +803,6 @@ export default function Services() {
 
       <div className="flex-1 min-h-0 overflow-auto">
         <div className="w-full flex flex-col gap-4 pb-1">
-          {/* Loading / Error banner */}
-          {loadError && (
-            <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 text-sm text-red-300">
-              <AlertTriangle size={16} className="text-red-400 flex-shrink-0" />
-              <span className="flex-1">{loadError}</span>
-              <button
-                onClick={loadData}
-                className="text-xs px-2 py-1 rounded bg-red-500/20 hover:bg-red-500/30 text-red-300 transition-colors"
-              >
-                Retry
-              </button>
-            </div>
-          )}
-
           {/* ── Stat cards row + History button ── */}
           <div
             className={`flex items-stretch gap-3 flex-wrap ${isLoading ? "animate-pulse" : ""}`}

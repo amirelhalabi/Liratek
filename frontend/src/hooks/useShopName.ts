@@ -1,8 +1,6 @@
 import { useEffect, useState } from "react";
 import { useApi } from "@liratek/ui";
 
-const DEFAULT_SHOP_NAME = "Corner Tech";
-
 export interface ShopInfo {
   name: string;
   phone: string;
@@ -18,7 +16,7 @@ function notify(info: ShopInfo) {
 }
 
 const defaultInfo: ShopInfo = {
-  name: DEFAULT_SHOP_NAME,
+  name: "",
   phone: "",
   location: "",
 };
@@ -36,12 +34,14 @@ export function useShopInfo(): ShopInfo {
       api
         .getAllSettings()
         .then((settings: any[]) => {
-          const map = new Map(settings.map((s: any) => [s.key_name, s.value]));
+          const map = new Map(
+            (settings || []).map((s: any) => [s.key_name, s.value]),
+          );
           const name =
             typeof map.get("shop_name") === "string" &&
             (map.get("shop_name") as string).trim()
               ? (map.get("shop_name") as string).trim()
-              : DEFAULT_SHOP_NAME;
+              : "";
           const phone =
             typeof map.get("shop_phone") === "string"
               ? (map.get("shop_phone") as string).trim()

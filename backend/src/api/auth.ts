@@ -10,8 +10,10 @@ import {
   JWT_EXPIRES_IN,
 } from "@liratek/core";
 import { validateRequest } from "../middleware/validation.js";
+import { authLimiter } from "../middleware/rateLimit.js";
 import { logger } from "../server.js";
 import jwt from "jsonwebtoken";
+import { validateSubscription } from "../services/SubscriptionValidationService.js";
 
 const router = express.Router();
 
@@ -28,6 +30,7 @@ const jwtExpiresIn: string = JWT_EXPIRES_IN;
 // POST /api/auth/login
 router.post(
   "/login",
+  authLimiter,
   validateRequest(loginSchema),
   async (req, res): Promise<void> => {
     try {
@@ -52,6 +55,44 @@ router.post(
             ),
           );
         return;
+      }
+
+      // Validate subscription from Google Sheets
+      try {
+        const shopName = result.user.username; // Use username as shop identifier
+        const subscription = await validateSubscription(shopName);
+
+        if (!subscription.isValid) {
+          logger.warn(
+            { userId: result.user.id, shopName, error: subscription.error },
+            "Login blocked - subscription invalid",
+          );
+          res.status(403).json(
+            createErrorResponse(
+              ErrorCodes.SUBSCRIPTION_INVALID,
+              subscription.error || "Subscription validation failed",
+              {
+                shopName: subscription.shopName,
+                plan: subscription.plan,
+                status: subscription.status,
+                gracePeriodEnds: subscription.gracePeriodEnds,
+              },
+            ),
+          );
+          return;
+        }
+
+        logger.info(
+          { userId: result.user.id, shopName, plan: subscription.plan },
+          "Subscription validated during login",
+        );
+      } catch (error: any) {
+        logger.error(
+          { userId: result.user.id, error: error.message },
+          "Subscription validation error - allowing login",
+        );
+        // Fail open - allow login even if subscription check fails
+        // This prevents Google Sheets downtime from blocking all logins
       }
 
       // Create JWT that includes the session token

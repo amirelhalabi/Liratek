@@ -154,7 +154,7 @@ export default function Dashboard() {
         monthlyNetProfitUSD: monthlyPL?.netProfitUSD || 0,
         monthlyNetProfitLBP: monthlyPL?.netProfitLBP || 0,
       });
-      const formattedChartData = profitChartData.map((d: any) => ({
+      const formattedChartData = (profitChartData || []).map((d: any) => ({
         ...d,
         date: new Date(d.date).toLocaleDateString("en-US", {
           month: "short",
@@ -162,7 +162,7 @@ export default function Dashboard() {
         }),
       }));
       setChartData(formattedChartData);
-      setTodaysSales(salesTodayData);
+      setTodaysSales(salesTodayData || []);
       if (drawerData) {
         setDrawerBalances(drawerData);
       }

@@ -1,4 +1,4 @@
-import { requestJson, setToken } from "./httpClient";
+import { requestJson, setToken, getToken } from "./httpClient";
 
 function isElectron(): boolean {
   return typeof window !== "undefined" && !!(window as any).api;
@@ -6,6 +6,20 @@ function isElectron(): boolean {
 
 function getElectronApi(): any {
   return (window as any).api;
+}
+
+function isJwtExpired(token: string | null): boolean {
+  if (!token) return true;
+
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    const exp = payload.exp;
+    if (!exp) return false; // No expiration claim
+    return Date.now() >= exp * 1000;
+  } catch (_e) {
+    // Invalid token format
+    return true;
+  }
 }
 
 async function ipcOrHttp<T>(
@@ -35,19 +49,67 @@ export async function login(
     return (window as any).api.auth.login(username, password, rememberMe);
   }
 
-  const res = await requestJson<{
-    success: boolean;
-    user?: ApiUser;
-    token?: string;
-    error?: string;
-  }>("/api/auth/login", {
-    method: "POST",
-    body: { username, password, rememberMe },
-    auth: false,
-  });
+  try {
+    const res = await requestJson<{
+      success: boolean;
+      data?: { user?: ApiUser; token?: string; sessionToken?: string };
+      user?: ApiUser;
+      token?: string;
+      sessionToken?: string;
+      error?: string;
+    }>("/api/auth/login", {
+      method: "POST",
+      body: { username, password, rememberMe },
+      auth: false,
+    });
 
-  if (res.success && res.token) setToken(res.token);
-  return res;
+    // Backend wraps response in { success, data: { user, token, sessionToken } }
+    const user = res.data?.user ?? res.user;
+    const token = res.data?.token ?? res.token;
+    const sessionToken = res.data?.sessionToken ?? res.sessionToken;
+
+    if (res.success && token) setToken(token);
+    return {
+      success: res.success,
+      user,
+      token,
+      sessionToken,
+      error: res.error,
+    };
+  } catch (error: any) {
+    // Handle API errors (like 403 subscription errors)
+    let errorMessage = "Login failed";
+
+    if (error && typeof error === "object") {
+      // Check if error.message is already a string
+      if (typeof error.message === "string") {
+        errorMessage = error.message;
+      }
+      // Check if error.message is an object with a message property (subscription error format)
+      else if (
+        error.message &&
+        typeof error.message === "object" &&
+        error.message.message
+      ) {
+        errorMessage = error.message.message;
+      }
+      // Check if error.details contains the error structure
+      else if (error.details && typeof error.details === "object") {
+        const details = error.details as any;
+        if (
+          details.error &&
+          typeof details.error === "object" &&
+          details.error.message
+        ) {
+          errorMessage = details.error.message;
+        } else if (details.message && typeof details.message === "string") {
+          errorMessage = details.message;
+        }
+      }
+    }
+
+    return { success: false, error: errorMessage };
+  }
 }
 
 export async function logout(): Promise<void> {
@@ -69,6 +131,15 @@ export async function me() {
 
   return ipcOrHttp<MeResult>(
     async () => {
+      // Check if JWT is expired first
+      const jwtToken = getToken();
+      if (isJwtExpired(jwtToken)) {
+        // JWT is expired, clear tokens and return failure
+        setToken(null);
+        localStorage.removeItem("sessionToken");
+        return { success: false, error: "JWT token expired" };
+      }
+
       const token = localStorage.getItem("sessionToken") || undefined;
       const res = await getElectronApi().auth.restoreSession(token);
       const out: MeResult = { success: !!res?.success };
@@ -87,10 +158,13 @@ export async function getClients(search: string) {
     async () => {
       const qs = new URLSearchParams();
       if (search) qs.set("search", search);
-      const res = await requestJson<{ success: boolean; clients: any[] }>(
-        `/api/clients?${qs.toString()}`,
-      );
-      return res.clients;
+      const res = await requestJson<{
+        success: boolean;
+        clients?: any[];
+        data?: { clients: any[] };
+      }>(`/api/clients?${qs.toString()}`);
+      // Handle both response formats: { clients: [...] } and { data: { clients: [...] } }
+      return res.clients || res.data?.clients || [];
     },
   );
 }
@@ -112,10 +186,13 @@ export async function getProducts(search: string = "") {
     async () => {
       const qs = new URLSearchParams();
       if (search) qs.set("search", search);
-      const res = await requestJson<{ success: boolean; products: any[] }>(
-        `/api/inventory/products?${qs.toString()}`,
-      );
-      return res.products;
+      const res = await requestJson<{
+        success: boolean;
+        products?: any[];
+        data?: { products: any[] };
+      }>(`/api/inventory/products?${qs.toString()}`);
+      // Handle both response formats: { products: [...] } and { data: { products: [...] } }
+      return res.products || res.data?.products || [];
     },
   );
 }
@@ -187,7 +264,7 @@ export async function getDrafts() {
   const res = await requestJson<{ success: boolean; drafts: any[] }>(
     `/api/sales/drafts`,
   );
-  return res.drafts;
+  return res.drafts || [];
 }
 
 export async function deleteDraft(
@@ -235,7 +312,7 @@ export async function getSaleItems(saleId: number) {
   const res = await requestJson<{ success: boolean; items: any[] }>(
     `/api/sales/${saleId}/items`,
   );
-  return res.items;
+  return res.items || [];
 }
 
 // Debts
@@ -246,7 +323,7 @@ export async function getDebtors() {
   const res = await requestJson<{ success: boolean; debtors: any[] }>(
     `/api/debts/debtors`,
   );
-  return res.debtors;
+  return res.debtors || [];
 }
 
 export async function getClientDebtHistory(clientId: number) {
@@ -256,7 +333,7 @@ export async function getClientDebtHistory(clientId: number) {
   const res = await requestJson<{ success: boolean; history: any[] }>(
     `/api/debts/clients/${clientId}/history`,
   );
-  return res.history;
+  return res.history || [];
 }
 
 export async function getClientDebtTotal(clientId: number) {
@@ -289,7 +366,7 @@ export async function getExchangeRates() {
       const res = await requestJson<{ success: boolean; rates: any[] }>(
         `/api/exchange/rates`,
       );
-      return res.rates;
+      return res.rates || [];
     },
   );
 }
@@ -301,7 +378,7 @@ export async function getCurrenciesList() {
       const res = await requestJson<{ success: boolean; currencies: any[] }>(
         `/api/exchange/currencies`,
       );
-      return res.currencies;
+      return res.currencies || [];
     },
   );
 }
@@ -316,7 +393,7 @@ export async function getExchangeHistory(limit?: number) {
   const res = await requestJson<{ success: boolean; history: any[] }>(
     `/api/exchange/history?${qs.toString()}`,
   );
-  return res.history;
+  return res.history || [];
 }
 
 export async function addExchangeTransaction(payload: any) {
@@ -337,7 +414,7 @@ export async function getTodayExpenses() {
   const res = await requestJson<{ success: boolean; expenses: any[] }>(
     `/api/expenses/today`,
   );
-  return res.expenses;
+  return res.expenses || [];
 }
 
 export async function addExpense(payload: any) {
@@ -381,7 +458,7 @@ export async function getProfitSalesChart(type: "Sales" | "Profit") {
       const res = await requestJson<{ success: boolean; chart: any[] }>(
         `/api/dashboard/chart?${qs.toString()}`,
       );
-      return res.chart;
+      return res.chart || [];
     },
   );
 }
@@ -394,7 +471,7 @@ export async function getTodaysSales(date?: string) {
       const res = await requestJson<{ success: boolean; sales: any[] }>(
         `/api/dashboard/todays-sales${qs}`,
       );
-      return res.sales;
+      return res.sales || [];
     },
   );
 }
@@ -469,7 +546,7 @@ export async function getAllSettings() {
       const res = await requestJson<{ success: boolean; settings: any[] }>(
         `/api/settings`,
       );
-      return res.settings;
+      return res.settings || [];
     },
   );
 }
@@ -554,7 +631,7 @@ export async function getOMTHistory(provider?: string) {
   const res = await requestJson<{ success: boolean; history: any[] }>(
     `/api/services/history?${qs.toString()}`,
   );
-  return res.history;
+  return res.history || [];
 }
 
 export async function getOMTAnalytics() {
@@ -590,7 +667,7 @@ export async function getMaintenanceJobs(statusFilter?: string) {
   const res = await requestJson<{ success: boolean; jobs: any[] }>(
     `/api/maintenance/jobs?${qs.toString()}`,
   );
-  return res.jobs;
+  return res.jobs || [];
 }
 
 export async function saveMaintenanceJob(payload: any) {
@@ -626,7 +703,7 @@ export async function getCurrencies() {
   const res = await requestJson<{ success: boolean; currencies: any[] }>(
     `/api/currencies`,
   );
-  return res.currencies;
+  return res.currencies || [];
 }
 
 // ==================== Closing API ====================
@@ -1392,7 +1469,7 @@ export async function getModules() {
       const res = await requestJson<{ success: boolean; modules: any[] }>(
         `/api/modules`,
       );
-      return res.modules;
+      return res.modules || [];
     },
   );
 }
@@ -1404,7 +1481,7 @@ export async function getEnabledModules() {
       const res = await requestJson<{ success: boolean; modules: any[] }>(
         `/api/modules/enabled`,
       );
-      return res.modules;
+      return res.modules || [];
     },
   );
 }
@@ -1416,7 +1493,7 @@ export async function getToggleableModules() {
       const res = await requestJson<{ success: boolean; modules: any[] }>(
         `/api/modules/toggleable`,
       );
-      return res.modules;
+      return res.modules || [];
     },
   );
 }
@@ -1457,7 +1534,7 @@ export async function getPaymentMethods(): Promise<PaymentMethodEntity[]> {
         success: boolean;
         methods: PaymentMethodEntity[];
       }>(`/api/payment-methods`);
-      return res.methods;
+      return res.methods || [];
     },
   );
 }
@@ -1472,7 +1549,7 @@ export async function getActivePaymentMethods(): Promise<
         success: boolean;
         methods: PaymentMethodEntity[];
       }>(`/api/payment-methods/active`);
-      return res.methods;
+      return res.methods || [];
     },
   );
 }
@@ -1555,7 +1632,7 @@ export async function getModulesForCurrency(code: string) {
       const res = await requestJson<{ success: boolean; modules: string[] }>(
         `/api/currencies/${code}/modules`,
       );
-      return res.modules;
+      return res.modules || [];
     },
   );
 }
@@ -1567,7 +1644,7 @@ export async function getCurrenciesByModule(moduleKey: string) {
       const res = await requestJson<{ success: boolean; currencies: any[] }>(
         `/api/currencies/by-module/${moduleKey}`,
       );
-      return res.currencies;
+      return res.currencies || [];
     },
   );
 }
@@ -1579,7 +1656,7 @@ export async function getFullCurrenciesByDrawer(drawerName: string) {
       const res = await requestJson<{ success: boolean; currencies: any[] }>(
         `/api/currencies/by-drawer/${drawerName}`,
       );
-      return res.currencies;
+      return res.currencies || [];
     },
   );
 }
@@ -1610,7 +1687,7 @@ export async function getAllDrawerCurrencies(): Promise<
         success: boolean;
         drawerCurrencies: Record<string, string[]>;
       }>(`/api/currencies/drawer-currencies`);
-      return res.drawerCurrencies;
+      return res.drawerCurrencies || {};
     },
   );
 }
@@ -1625,7 +1702,7 @@ export async function getCurrenciesForDrawer(
         success: boolean;
         currencies: string[];
       }>(`/api/currencies/drawers/${drawerName}/currencies`);
-      return res.currencies;
+      return res.currencies || [];
     },
   );
 }
@@ -1638,7 +1715,7 @@ export async function getDrawersForCurrency(code: string): Promise<string[]> {
         success: boolean;
         drawers: string[];
       }>(`/api/currencies/${code}/drawers`);
-      return res.drawers;
+      return res.drawers || [];
     },
   );
 }

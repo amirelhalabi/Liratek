@@ -101,7 +101,9 @@ export default function TopBar({
         const low = await api.getLowStockProducts();
         if (!mounted) return;
         const settings = await api.getAllSettings();
-        const map = new Map(settings.map((s: any) => [s.key_name, s.value]));
+        const map = new Map(
+          (settings || []).map((s: any) => [s.key_name, s.value]),
+        );
         const warnLow =
           Number(map.get("notifications_warn_low_stock") ?? 1) === 1;
         if (warnLow && Array.isArray(low) && low.length > 0)

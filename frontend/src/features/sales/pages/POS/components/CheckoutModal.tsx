@@ -398,7 +398,7 @@ export default function CheckoutModal({
 
   const getReceiptData = (): ReceiptData => {
     return {
-      shop_name: shopInfo.name || "Corner Tech",
+      shop_name: shopInfo.name || "",
       shop_phone: shopInfo.phone || "",
       shop_location: shopInfo.location || "",
       receipt_number: receiptNumber || generateReceiptNumber(),

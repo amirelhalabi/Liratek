@@ -2,6 +2,21 @@ import { createContext, useContext, useState, useEffect } from "react";
 import logger from "@/utils/logger";
 import type { ReactNode } from "react";
 import { useApi } from "@liratek/ui";
+import { getToken, requestJson, type ApiError } from "@/api/httpClient";
+
+function isJwtExpired(token: string | null): boolean {
+  if (!token) return true;
+
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    const exp = payload.exp;
+    if (!exp) return false; // No expiration claim
+    return Date.now() >= exp * 1000;
+  } catch (_e) {
+    // Invalid token format
+    return true;
+  }
+}
 
 interface User {
   id: number;
@@ -57,23 +72,71 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         // Try to restore from encrypted session first
         if (window.api) {
-          // Try to get stored session token from localStorage
-          const storedToken = localStorage.getItem("sessionToken");
+          // Check if JWT is expired first
+          const jwtToken = getToken();
+          if (isJwtExpired(jwtToken)) {
+            // JWT is expired, clear tokens and skip session restoration
+            localStorage.removeItem("liratek.jwt");
+            localStorage.removeItem("sessionToken");
+          } else {
+            // Try to get stored session token from localStorage
+            const storedToken = localStorage.getItem("sessionToken");
 
-          const result = await window.api.auth.restoreSession(
-            storedToken || undefined,
-          );
+            const result = await window.api.auth.restoreSession(
+              storedToken || undefined,
+            );
 
-          // Only update state if component is still mounted (prevents React.StrictMode double-call issues)
-          if (!isMounted) {
-            return;
-          }
+            // Only update state if component is still mounted (prevents React.StrictMode double-call issues)
+            if (!isMounted) {
+              return;
+            }
 
-          if (result.success && result.user) {
-            setUser(result.user);
-            if (result.sessionToken) {
-              setSessionToken(result.sessionToken);
-              localStorage.setItem("sessionToken", result.sessionToken);
+            if (result.success && result.user) {
+              // Validate subscription before setting user
+              try {
+                await requestJson("/api/subscription/validate-self", {
+                  method: "POST",
+                  body: { forceRefresh: false },
+                });
+
+                // Subscription valid - proceed with session restoration
+                setUser(result.user);
+                if (result.sessionToken) {
+                  setSessionToken(result.sessionToken);
+                  localStorage.setItem("sessionToken", result.sessionToken);
+                }
+              } catch (error) {
+                const apiError = error as ApiError;
+                if (apiError.status === 403) {
+                  // Subscription invalid - don't restore session
+                  logger.warn(
+                    "Session restoration blocked - subscription invalid",
+                  );
+                  localStorage.removeItem("liratek.jwt");
+                  localStorage.removeItem("sessionToken");
+                  return;
+                }
+
+                if (!navigator.onLine) {
+                  // Network error while offline - allow offline access
+                  logger.warn(
+                    "Subscription validation failed while offline - allowing offline access",
+                  );
+                  setUser(result.user);
+                  if (result.sessionToken) {
+                    setSessionToken(result.sessionToken);
+                    localStorage.setItem("sessionToken", result.sessionToken);
+                  }
+                } else {
+                  // Online but validation failed (401, 500, etc.) - don't restore session
+                  logger.warn(
+                    "Session restoration blocked - subscription validation error",
+                  );
+                  localStorage.removeItem("liratek.jwt");
+                  localStorage.removeItem("sessionToken");
+                  return;
+                }
+              }
             }
           }
         } else {
@@ -81,7 +144,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           try {
             const result = await api.me();
             if (result.success && result.user) {
-              setUser(result.user);
+              // Validate subscription before setting user
+              try {
+                await requestJson("/api/subscription/validate-self", {
+                  method: "POST",
+                  body: { forceRefresh: false },
+                });
+
+                // Subscription valid - proceed with session restoration
+                setUser(result.user);
+              } catch (error) {
+                const apiError = error as ApiError;
+                if (apiError.status === 403) {
+                  // Subscription invalid - don't restore session
+                  logger.warn(
+                    "Session restoration blocked - subscription invalid",
+                  );
+                  localStorage.removeItem("liratek.jwt");
+                  return;
+                }
+
+                if (!navigator.onLine) {
+                  // Network error while offline - allow offline access
+                  logger.warn(
+                    "Subscription validation failed while offline - allowing offline access",
+                  );
+                  setUser(result.user);
+                } else {
+                  // Online but validation failed (401, 500, etc.) - don't restore session
+                  logger.warn(
+                    "Session restoration blocked - subscription validation error",
+                  );
+                  localStorage.removeItem("liratek.jwt");
+                  return;
+                }
+              }
             }
           } catch {
             // ignore
@@ -98,9 +195,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     loadUser();
 
+    // Check JWT expiration periodically
+    const checkJwtExpiration = () => {
+      const jwtToken = getToken();
+      if (isJwtExpired(jwtToken)) {
+        // JWT is expired, clear tokens and log out
+        localStorage.removeItem("liratek.jwt");
+        localStorage.removeItem("sessionToken");
+        if (isMounted) {
+          setUser(null);
+          setSessionToken(null);
+        }
+      }
+    };
+
+    // Check every minute
+    const intervalId = setInterval(checkJwtExpiration, 60000);
+
     // Cleanup function to prevent state updates after unmount
     return () => {
       isMounted = false;
+      clearInterval(intervalId);
     };
   }, []);
 
@@ -148,6 +263,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSessionToken(null);
     setNeedsOpening(false);
     localStorage.removeItem("sessionToken");
+    localStorage.removeItem("liratek.jwt");
   };
 
   const clearOpeningFlag = () => {

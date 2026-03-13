@@ -10,6 +10,10 @@ import {
   CheckCircle,
 } from "lucide-react";
 
+function isElectron(): boolean {
+  return typeof window !== "undefined" && !!(window as any).api;
+}
+
 interface ReleaseAsset {
   name: string;
   size: number;
@@ -52,6 +56,11 @@ export default function UpdatesPanel() {
   const currentVersion = status?.version ?? null;
 
   const check = useCallback(async () => {
+    if (!isElectron()) {
+      setUpdateState("up-to-date");
+      setInfo("Updates are only available in desktop mode");
+      return;
+    }
     setUpdateState("checking");
     setDevRelease(null);
     setAvailableVersion(null);
@@ -107,6 +116,14 @@ export default function UpdatesPanel() {
   }, [currentVersion]);
 
   const download = useCallback(async () => {
+    if (!isElectron()) {
+      appEvents.emit(
+        "notification:show",
+        "Download is only available in desktop mode",
+        "error",
+      );
+      return;
+    }
     // Immediately show downloading state — progress events may be sparse
     setUpdateState("downloading");
     setDownloadPercent(0);
@@ -142,6 +159,14 @@ export default function UpdatesPanel() {
   }, [updateState]);
 
   const install = useCallback(async () => {
+    if (!isElectron()) {
+      appEvents.emit(
+        "notification:show",
+        "Install is only available in desktop mode",
+        "error",
+      );
+      return;
+    }
     try {
       window.api.updater.quitAndInstall();
     } catch (_e) {
@@ -156,6 +181,14 @@ export default function UpdatesPanel() {
   // Load status on mount
   useEffect(() => {
     (async () => {
+      if (!isElectron()) {
+        setStatus({
+          packaged: false,
+          platform: "web",
+          version: "web",
+        });
+        return;
+      }
       try {
         const res = await window.api.updater.getStatus();
         setStatus({
@@ -172,6 +205,10 @@ export default function UpdatesPanel() {
   // Listen for push events from main process (auto-check on launch)
   useEffect(() => {
     const cleanups: (() => void)[] = [];
+
+    if (!isElectron()) {
+      return () => {};
+    }
 
     if (window.api.updater.onUpdateAvailable) {
       cleanups.push(

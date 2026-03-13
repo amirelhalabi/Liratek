@@ -3,13 +3,8 @@ import { createServer } from "http";
 import { Server as SocketIOServer } from "socket.io";
 import cors from "cors";
 import helmet from "helmet";
-import dotenv from "dotenv";
 
-// Load environment variables from root directory first
-dotenv.config({ path: new URL("../.env", import.meta.url).pathname });
-dotenv.config();
-
-import { getDatabase } from "./database/connection.js";
+import { getDatabase, closeDatabase } from "./database/connection.js";
 import {
   CORS_ORIGIN,
   PORT,
@@ -52,9 +47,7 @@ app.use(express.urlencoded({ extended: true }));
 import { requestLogger } from "./middleware/requestLogger.js";
 app.use(requestLogger);
 
-// Rate limiting
-import { apiLimiter, authLimiter } from "./middleware/rateLimit.js";
-app.use("/api/", apiLimiter); // General API rate limiting
+// Rate limiting - only applied to specific endpoints as needed
 
 // Import routes
 import authRoutes from "./api/auth.js";
@@ -78,6 +71,10 @@ import usersRoutes from "./api/users.js";
 import activityRoutes from "./api/activity.js";
 import transactionsRoutes from "./api/transactions.js";
 import reportsRoutes from "./api/reports.js";
+import subscriptionRoutes, {
+  adminRouter as adminSubscriptionRouter,
+} from "./api/subscription.js";
+import { getSubscriptionSyncService } from "./services/SubscriptionSyncService.js";
 import sessionsRoutes from "./api/sessions.js";
 import modulesRoutes from "./api/modules.js";
 import paymentMethodsRoutes from "./api/paymentMethods.js";
@@ -92,7 +89,7 @@ import voiceRoutes, { initVoiceWebSocketServer } from "./api/voice.js";
 app.use("/health", healthRoutes);
 
 // API Routes
-app.use("/api/auth", authLimiter, authRoutes); // Strict rate limiting for auth
+app.use("/api/auth", authRoutes); // authLimiter applied per-route inside auth.ts
 app.use("/api/clients", clientsRoutes);
 app.use("/api/sales", salesRoutes);
 app.use("/api/inventory", inventoryRoutes);
@@ -113,6 +110,8 @@ app.use("/api/users", usersRoutes);
 app.use("/api/activity", activityRoutes);
 app.use("/api/transactions", transactionsRoutes);
 app.use("/api/reports", reportsRoutes);
+app.use("/api/subscription", subscriptionRoutes);
+app.use("/api/admin/subscriptions", adminSubscriptionRouter);
 app.use("/api/sessions", sessionsRoutes);
 app.use("/api/modules", modulesRoutes);
 app.use("/api/payment-methods", paymentMethodsRoutes);
@@ -154,6 +153,10 @@ app.use(
 // Initialize database
 getDatabase();
 
+// Start subscription sync service
+const syncService = getSubscriptionSyncService();
+syncService.start();
+
 // Start server
 httpServer.listen(PORT, HOST, () => {
   logger.info(
@@ -161,15 +164,41 @@ httpServer.listen(PORT, HOST, () => {
     `🚀 Server running on http://${HOST}:${PORT}`,
   );
   logger.info(`📡 WebSocket server ready`);
+  logger.info(`🔄 Subscription sync service started (12h interval)`);
 });
 
 // Graceful shutdown
-process.on("SIGTERM", () => {
-  logger.info("SIGTERM received, shutting down gracefully");
+let isShuttingDown = false;
+function shutdown(signal: string) {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+
+  logger.info(`${signal} received, shutting down gracefully`);
+
+  // Stop accepting new connections & disconnect Socket.IO clients
+  io.close(() => {
+    logger.info("Socket.IO closed");
+  });
+
+  // Stop subscription sync timer
+  syncService.stop();
+
+  // Close HTTP server (stops new connections, waits for in-flight requests)
   httpServer.close(() => {
     logger.info("Server closed");
-    process.exit(0);
   });
-});
+
+  // Close database
+  closeDatabase();
+
+  // Force exit after 3s — tsx watch gives us 5s before SIGKILL
+  setTimeout(() => {
+    logger.warn("Forcing exit after timeout");
+    process.exit(0);
+  }, 3000).unref();
+}
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
 
 export { app, io };

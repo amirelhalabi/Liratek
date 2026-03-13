@@ -243,3 +243,23 @@ export class ReportService {
     }
   }
 }
+
+// Singleton instance
+let instance: ReportService | null = null;
+
+/**
+ * Get or create the ReportService instance
+ */
+export function getReportService(): ReportService {
+  if (!instance) {
+    instance = new ReportService();
+  }
+  return instance;
+}
+
+/**
+ * Reset the singleton instance (for testing)
+ */
+export function resetReportService(): void {
+  instance = null;
+}

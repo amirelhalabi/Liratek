@@ -14,7 +14,7 @@ function getBaseUrl(): string {
   return (fromGlobal || "http://localhost:3000").replace(/\/$/, "");
 }
 
-function getToken(): string | null {
+export function getToken(): string | null {
   return localStorage.getItem("liratek.jwt");
 }
 

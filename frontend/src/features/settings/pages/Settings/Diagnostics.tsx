@@ -2,6 +2,10 @@ import { useEffect, useState } from "react";
 import UpdatesPanel from "./UpdatesPanel";
 import { appEvents, Select } from "@liratek/ui";
 
+function isElectron(): boolean {
+  return typeof window !== "undefined" && !!(window as any).api;
+}
+
 export default function Diagnostics() {
   const [errors, setErrors] = useState<
     Array<{ id: number; endpoint: string; error: string; created_at: string }>
@@ -44,6 +48,11 @@ export default function Diagnostics() {
   );
 
   const load = async () => {
+    if (!isElectron()) {
+      setErrors([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const rows = await window.api.diagnostics.getSyncErrors();
@@ -54,6 +63,10 @@ export default function Diagnostics() {
   };
 
   const runForeignKeyCheck = async () => {
+    if (!isElectron()) {
+      setFkCheckError("Foreign key check is only available in desktop mode");
+      return;
+    }
     setFkCheckLoading(true);
     setFkCheckError(null);
     try {
@@ -83,6 +96,11 @@ export default function Diagnostics() {
   };
 
   const loadBackups = async () => {
+    if (!isElectron()) {
+      setBackups([]);
+      setBackupLoading(false);
+      return;
+    }
     setBackupLoading(true);
     setBackupError(null);
     setVerifyResult(null);
@@ -127,6 +145,10 @@ export default function Diagnostics() {
   };
 
   const backupNow = async () => {
+    if (!isElectron()) {
+      setBackupError("Backup is only available in desktop mode");
+      return;
+    }
     setBackupLoading(true);
     setBackupError(null);
     setVerifyResult(null);
@@ -149,6 +171,10 @@ export default function Diagnostics() {
   };
 
   const verifySelected = async () => {
+    if (!isElectron()) {
+      setBackupError("Backup verification is only available in desktop mode");
+      return;
+    }
     if (!selectedBackupPath) return;
     setBackupLoading(true);
     setBackupError(null);
@@ -174,6 +200,10 @@ export default function Diagnostics() {
   };
 
   const restoreSelected = async () => {
+    if (!isElectron()) {
+      setBackupError("Restore is only available in desktop mode");
+      return;
+    }
     if (!selectedBackupPath) return;
     if (
       !confirm(

@@ -13,3 +13,6 @@ coverage/
 !.env.example
 !.env.dev
 !.env.prod
+
+# Google Service Account Key
+config/google-service-account.json

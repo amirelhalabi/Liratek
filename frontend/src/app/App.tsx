@@ -1,5 +1,11 @@
-import { HashRouter, Routes, Route, Navigate } from "react-router-dom";
-import { lazy, Suspense, useEffect } from "react";
+import {
+  HashRouter,
+  Routes,
+  Route,
+  Navigate,
+  useLocation,
+} from "react-router-dom";
+import { lazy, Suspense, useEffect, type ReactNode } from "react";
 import { AuthProvider, useAuth } from "@/features/auth/context/AuthContext";
 import { SessionProvider } from "@/features/sessions/context/SessionContext";
 import { ModuleProvider } from "@/contexts/ModuleContext";
@@ -7,6 +13,7 @@ import { CurrencyProvider } from "@/contexts/CurrencyContext";
 import { ActiveModuleProvider } from "@/contexts/ActiveModuleContext";
 import Login from "@/features/auth/pages/Login";
 import Dashboard from "@/features/dashboard/pages/Dashboard";
+import SubscriptionGuard from "@/shared/components/SubscriptionGuard";
 
 // Lazy-loaded routes
 const ProductList = lazy(
@@ -28,7 +35,10 @@ const CustomServices = lazy(
   () => import("@/features/custom-services/pages/CustomServices"),
 );
 const Settings = lazy(() => import("@/features/settings/pages/Settings"));
-const Profits = lazy(() => import("@/features/profits/pages/Profits"));
+const AdminClients = lazy(
+  () => import("@/features/settings/pages/AdminClients"),
+);
+// const Profits = lazy(() => import("@/features/profits/pages/Profits")); // Unused
 const CheckpointTimeline = lazy(
   () => import("@/features/closing/pages/CheckpointTimeline"),
 );
@@ -63,7 +73,11 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     return <Navigate to="/login" />;
   }
 
-  return <MainLayout>{children}</MainLayout>;
+  return (
+    <SubscriptionGuard allowOffline={true}>
+      <MainLayout>{children}</MainLayout>
+    </SubscriptionGuard>
+  );
 }
 
 /** Renders HomeGrid or Dashboard based on layout mode */
@@ -196,12 +210,22 @@ function AppRoutes() {
             </ProtectedRoute>
           }
         />
+        {/* Admin page - standalone, no auth, no MainLayout */}
         <Route
-          path="/profits"
+          path="/admin"
           element={
-            <ProtectedRoute>
-              <Profits />
-            </ProtectedRoute>
+            <div className="min-h-screen bg-slate-900">
+              <AdminClients />
+            </div>
+          }
+        />
+        {/* Redirect /admin (no hash) to /#/admin for HashRouter compatibility */}
+        <Route
+          path="admin"
+          element={
+            <div className="min-h-screen bg-slate-900">
+              <AdminClients />
+            </div>
           }
         />
         <Route
@@ -219,8 +243,46 @@ function AppRoutes() {
   );
 }
 
+function VoiceBotWrapper() {
+  const { config } = useVoiceBotSettings();
+  const location = useLocation();
+
+  // Don't show voice bot on login or admin pages (hash-based routing)
+  const hash = location.hash;
+  if (hash === "#/login" || hash === "#/admin" || hash === "" || hash === "#") {
+    return null;
+  }
+
+  return config.enabled ? <VoiceBotButton /> : null;
+}
+
+/**
+ * Providers that require authentication before fetching data.
+ * ModuleProvider, CurrencyProvider, and FeatureFlagProvider all call
+ * authenticated API endpoints on mount. Rendering them above AuthProvider
+ * causes 401 errors on the login page. This wrapper defers them until
+ * the user is authenticated.
+ */
+function AuthenticatedProviders({ children }: { children: ReactNode }) {
+  const { isAuthenticated, isLoading } = useAuth();
+
+  // Before auth resolves or when not authenticated, render children
+  // without the data providers — the login page doesn't need them.
+  if (isLoading || !isAuthenticated) {
+    return <>{children}</>;
+  }
+
+  return (
+    <ModuleProvider>
+      <CurrencyProvider>
+        <FeatureFlagProvider>{children}</FeatureFlagProvider>
+      </CurrencyProvider>
+    </ModuleProvider>
+  );
+}
+
 function App() {
-  const { config, isLoaded } = useVoiceBotSettings();
+  const { isLoaded } = useVoiceBotSettings();
 
   // Apply saved UI scale on startup
   useEffect(() => {
@@ -247,22 +309,18 @@ function App() {
     <ErrorBoundary>
       {/* HashRouter is recommended for Electron to avoid path issues in production */}
       <ApiProvider adapter={backendApiAdapter}>
-        <ModuleProvider>
-          <CurrencyProvider>
-            <FeatureFlagProvider>
-              <HashRouter>
-                <ActiveModuleProvider>
-                  <AuthProvider>
-                    <SessionProvider>
-                      <AppRoutes />
-                      {config.enabled && <VoiceBotButton />}
-                    </SessionProvider>
-                  </AuthProvider>
-                </ActiveModuleProvider>
-              </HashRouter>
-            </FeatureFlagProvider>
-          </CurrencyProvider>
-        </ModuleProvider>
+        <HashRouter>
+          <ActiveModuleProvider>
+            <AuthProvider>
+              <AuthenticatedProviders>
+                <SessionProvider>
+                  <AppRoutes />
+                  <VoiceBotWrapper />
+                </SessionProvider>
+              </AuthenticatedProviders>
+            </AuthProvider>
+          </ActiveModuleProvider>
+        </HashRouter>
       </ApiProvider>
     </ErrorBoundary>
   );

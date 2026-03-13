@@ -261,3 +261,23 @@ export class CustomerSessionService {
     }
   }
 }
+
+// Singleton instance
+let instance: CustomerSessionService | null = null;
+
+/**
+ * Get or create the CustomerSessionService instance
+ */
+export function getCustomerSessionService(): CustomerSessionService {
+  if (!instance) {
+    instance = new CustomerSessionService();
+  }
+  return instance;
+}
+
+/**
+ * Reset the singleton instance (for testing)
+ */
+export function resetCustomerSessionService(): void {
+  instance = null;
+}

@@ -7,10 +7,15 @@ const config: Config = {
   testRegex: "(/__tests__/.*|(\\.|/)(test|spec))\\.tsx?$",
   moduleFileExtensions: ["ts", "tsx", "js", "jsx", "json"],
   setupFilesAfterEnv: ["<rootDir>/jest.setup.ts"],
+  // Limit workers to avoid excessive memory usage (~1.2GB per worker)
+  maxWorkers: "50%",
+  workerIdleMemoryLimit: "512MB",
   transform: {
     "^.+\\.(ts|tsx)$": [
       "ts-jest",
-      { tsconfig: "<rootDir>/tsconfig.jest.json" },
+      {
+        tsconfig: "<rootDir>/tsconfig.jest.json",
+      },
     ],
   },
   moduleNameMapper: {

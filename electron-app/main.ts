@@ -49,6 +49,33 @@ const __dirname = path.dirname(__filename);
 let mainWindow: BrowserWindow | null = null;
 let db: Database.Database;
 
+// ── Graceful shutdown ──────────────────────────────────────────────────────
+// Close the database and force-exit on SIGTERM/SIGINT so the process never
+// lingers as a zombie when the dev runner (concurrently) tears things down.
+function gracefulShutdown(signal: string) {
+  logger.info({ signal }, "Received signal, shutting down…");
+  try {
+    if (db?.open) db.close();
+  } catch {
+    // best-effort
+  }
+  app.quit();
+  // If app.quit() doesn't terminate within 3 s, force-exit so we never
+  // become an unkillable zombie.
+  setTimeout(() => process.exit(0), 3_000).unref();
+}
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+
+app.on("before-quit", () => {
+  try {
+    if (db?.open) db.close();
+  } catch {
+    // best-effort
+  }
+});
+// ──────────────────────────────────────────────────────────────────────────
+
 // ── Global error handlers ──────────────────────────────────────────────────
 // Catch any unhandled error in the main process before it silently crashes.
 process.on("uncaughtException", (err) => {
@@ -82,6 +109,7 @@ process.on("unhandledRejection", (reason) => {
 // Single instance lock
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
+  logger.warn("Another instance is running – quitting.");
   app.quit();
 } else {
   app.on("second-instance", () => {
@@ -93,17 +121,45 @@ if (!gotTheLock) {
 }
 
 function createWindow() {
-  mainWindow = new BrowserWindow({
-    width: 1400,
-    height: 900,
-    autoHideMenuBar: true,
-    webPreferences: {
-      preload: path.join(__dirname, "preload.cjs"),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
+  try {
+    mainWindow = new BrowserWindow({
+      width: 1400,
+      height: 900,
+      autoHideMenuBar: true,
+      center: true,
+      // show: true (default) — window appears immediately even before content
+      // loads.  Using show:false + manual .show() before loadURL results in an
+      // invisible/transparent window on macOS because the Chromium compositor
+      // has nothing to paint yet.
+      webPreferences: {
+        preload: path.join(__dirname, "preload.cjs"),
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+      },
+    });
+  } catch (error) {
+    console.error("Failed to create BrowserWindow:", error);
+    logger.error({ error }, "Failed to create BrowserWindow");
+    dialog.showErrorBox(
+      "Window Error",
+      "Failed to create application window: " + (error as any).message,
+    );
+    app.quit();
+    return;
+  }
+
+  // Show window if there's a load failure (for debugging)
+  mainWindow.webContents.on(
+    "did-fail-load",
+    (_event, errorCode, errorDescription) => {
+      logger.error({ errorCode, errorDescription }, "Renderer failed to load");
+      dialog.showErrorBox(
+        "Load Error",
+        `Failed to load application: ${errorDescription} (Code: ${errorCode})`,
+      );
     },
-  });
+  );
 
   // Suppress noisy Chromium DevTools protocol errors (Autofill.enable, etc.)
   mainWindow.webContents.on("console-message", (_event, _level, message) => {
@@ -114,7 +170,14 @@ function createWindow() {
 
   // Development: Load from Vite dev server
   if (ELECTRON_RENDERER_URL) {
-    mainWindow.loadURL(ELECTRON_RENDERER_URL);
+    mainWindow.loadURL(ELECTRON_RENDERER_URL).catch((error) => {
+      logger.error({ error }, "Failed to load renderer URL");
+      dialog.showErrorBox(
+        "Renderer Load Error",
+        `Failed to load the application from ${ELECTRON_RENDERER_URL}\n\n${error.message}`,
+      );
+      app.quit();
+    });
     mainWindow.webContents.openDevTools({ mode: "bottom", activate: false });
   }
   // Production: Load from built files
@@ -124,7 +187,13 @@ function createWindow() {
     const indexPath = app.isPackaged
       ? path.join(__dirname, "../dist/index.html")
       : path.join(__dirname, "../../frontend/dist/index.html");
-    mainWindow.loadFile(indexPath);
+    mainWindow.loadFile(indexPath).catch((error) => {
+      logger.error({ error }, "Failed to load file");
+      dialog.showErrorBox(
+        "File Load Error",
+        `Failed to load the application from ${indexPath}\n\n${error.message}`,
+      );
+    });
   }
 
   mainWindow.on("closed", () => {
@@ -135,51 +204,76 @@ function createWindow() {
 // Load electron-app/.env (repo-local, gitignored)
 loadDotEnvFile(path.join(__dirname, "../.env"));
 
-app.whenReady().then(async () => {
-  logger.info("App ready, creating window...");
+app
+  .whenReady()
+  .then(async () => {
+    logger.info("App ready, creating window...");
 
-  // Remove default menu bar in production (keep in dev for DevTools access)
-  if (!ELECTRON_RENDERER_URL) {
-    Menu.setApplicationMenu(null);
-  }
+    // Remove default menu bar in production (keep in dev for DevTools access)
+    if (!ELECTRON_RENDERER_URL) {
+      Menu.setApplicationMenu(null);
+    }
 
-  // Initialize database and services
-  initializeBackend();
+    createWindow();
 
-  // Register IPC handlers
-  await registerHandlers();
-
-  createWindow();
-
-  // Auto-check for updates in background (packaged builds only, setting-gated)
-  try {
-    const { autoCheckForUpdates } =
-      await import("./handlers/updaterHandlers.js");
-    autoCheckForUpdates((key: string) => {
+    // Defer backend initialization so the event loop can pump and the
+    // Chromium compositor paints the window before heavy synchronous work
+    // (database open, migrations, crypto) blocks the main thread.
+    setTimeout(() => {
       try {
-        const row = db
-          .prepare(
-            "SELECT value FROM system_settings WHERE key_name = ? LIMIT 1",
-          )
-          .get(key) as { value?: string } | undefined;
-        return row?.value;
-      } catch {
-        return undefined;
+        initializeBackend();
+
+        // Register IPC handlers
+        registerHandlers()
+          .then(() => {
+            logger.info("IPC handlers registered");
+          })
+          .catch((error: any) => {
+            logger.error({ error }, "Handler registration failed");
+          });
+      } catch (error: any) {
+        logger.error({ error }, "Backend initialization failed");
+      }
+    }, 0);
+
+    // Auto-check for updates in background (packaged builds only, setting-gated)
+    try {
+      const { autoCheckForUpdates } =
+        await import("./handlers/updaterHandlers.js");
+      autoCheckForUpdates((key: string) => {
+        try {
+          const row = db
+            .prepare(
+              "SELECT value FROM system_settings WHERE key_name = ? LIMIT 1",
+            )
+            .get(key) as { value?: string } | undefined;
+          return row?.value;
+        } catch {
+          return undefined;
+        }
+      });
+    } catch {
+      // Non-fatal: auto-check is a convenience feature
+    }
+
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow();
       }
     });
-  } catch {
-    // Non-fatal: auto-check is a convenience feature
-  }
-
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-    }
+  })
+  .catch((err) => {
+    logger.fatal({ err }, "Fatal error during app startup");
+    dialog.showErrorBox(
+      "Startup Error",
+      `The application failed to start.\n\n${err?.message ?? String(err)}`,
+    );
+    app.quit();
   });
-});
 
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
+  // Always quit in dev mode; in production follow macOS convention (stay alive)
+  if (process.platform !== "darwin" || ELECTRON_RENDERER_URL) {
     app.quit();
   }
 });
@@ -202,7 +296,7 @@ function initializeDatabase() {
   }
 
   try {
-    db = new Database(dbPath);
+    db = new Database(dbPath, { timeout: 5000 });
 
     // Apply SQLCipher key (if provided) BEFORE any other access
     const keyResult = applySqlCipherKey(db, resolvedKey.key);

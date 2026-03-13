@@ -1,0 +1,380 @@
+{
+  "info": {
+    "_postman_id": "liratek-subscription-management",
+    "name": "LiraTek Subscription Management",
+    "description": "Complete API collection for LiraTek subscription management system including client-facing and admin endpoints.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "professional_api_key",
+      "value": "lsk_test_prof_abc123xyz789",
+      "type": "string"
+    },
+    {
+      "key": "essentials_api_key",
+      "value": "lsk_test_ess_def456uvw012",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Client-Facing APIs",
+      "item": [
+        {
+          "name": "Get Available Plans",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/subscription/plans",
+              "host": ["{{base_url}}"],
+              "path": ["api", "subscription", "plans"]
+            },
+            "description": "Get all available subscription plans and their features. No authentication required."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Current Subscription (Professional)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{professional_api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/subscription/current",
+              "host": ["{{base_url}}"],
+              "path": ["api", "subscription", "current"]
+            },
+            "description": "Get the current subscription details for the authenticated client (Professional plan)."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Current Subscription (Essentials)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{essentials_api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/subscription/current",
+              "host": ["{{base_url}}"],
+              "path": ["api", "subscription", "current"]
+            },
+            "description": "Get the current subscription details for the authenticated client (Essentials plan)."
+          },
+          "response": []
+        },
+        {
+          "name": "Request Plan Change",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{essentials_api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"new_plan\": \"professional\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/subscription/change-plan",
+              "host": ["{{base_url}}"],
+              "path": ["api", "subscription", "change-plan"]
+            },
+            "description": "Request a plan change (requires admin approval via Google Sheets)."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Current Subscription (No Auth)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/subscription/current",
+              "host": ["{{base_url}}"],
+              "path": ["api", "subscription", "current"]
+            },
+            "description": "Test without API key - should return 401 Unauthorized."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Current Subscription (Invalid Key)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer invalid_api_key",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/subscription/current",
+              "host": ["{{base_url}}"],
+              "path": ["api", "subscription", "current"]
+            },
+            "description": "Test with invalid API key - should return 401 Unauthorized."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Admin APIs",
+      "item": [
+        {
+          "name": "Get All Clients",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/admin/subscriptions/clients",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "subscriptions", "clients"]
+            },
+            "description": "Get list of all clients (admin only, no API key required for now)."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Specific Client",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/admin/subscriptions/clients/Test Shop Professional",
+              "host": ["{{base_url}}"],
+              "path": [
+                "api",
+                "admin",
+                "subscriptions",
+                "clients",
+                "Test Shop Professional"
+              ]
+            },
+            "description": "Get detailed information about a specific client."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Specific Client (Essentials)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/admin/subscriptions/clients/Test Shop Essentials",
+              "host": ["{{base_url}}"],
+              "path": [
+                "api",
+                "admin",
+                "subscriptions",
+                "clients",
+                "Test Shop Essentials"
+              ]
+            },
+            "description": "Get detailed information about Essentials plan client."
+          },
+          "response": []
+        },
+        {
+          "name": "Force Sync Client Data",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/admin/subscriptions/clients/Test Shop Professional/sync",
+              "host": ["{{base_url}}"],
+              "path": [
+                "api",
+                "admin",
+                "subscriptions",
+                "clients",
+                "Test Shop Professional",
+                "sync"
+              ]
+            },
+            "description": "Manually trigger sync for a specific client from Google Sheets."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Sync Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/admin/subscriptions/sync/status",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "subscriptions", "sync", "status"]
+            },
+            "description": "Get the current status of the subscription sync service."
+          },
+          "response": []
+        },
+        {
+          "name": "Trigger Manual Sync",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/admin/subscriptions/sync/trigger",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "subscriptions", "sync", "trigger"]
+            },
+            "description": "Manually trigger a full sync of all clients from Google Sheets."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Client Not Found",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/admin/subscriptions/clients/NonExistent Shop",
+              "host": ["{{base_url}}"],
+              "path": [
+                "api",
+                "admin",
+                "subscriptions",
+                "clients",
+                "NonExistent Shop"
+              ]
+            },
+            "description": "Test with non-existent client - should return 404."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Plan Enforcement Tests",
+      "item": [
+        {
+          "name": "Access Exchange (Professional Plan)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{professional_api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/exchange/rates",
+              "host": ["{{base_url}}"],
+              "path": ["api", "exchange", "rates"]
+            },
+            "description": "Professional plan should have access to Exchange module."
+          },
+          "response": []
+        },
+        {
+          "name": "Access Exchange (Essentials Plan)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{essentials_api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/exchange/rates",
+              "host": ["{{base_url}}"],
+              "path": ["api", "exchange", "rates"]
+            },
+            "description": "Essentials plan should be denied access to Exchange module (403 Forbidden)."
+          },
+          "response": []
+        },
+        {
+          "name": "Access POS (Professional Plan)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{professional_api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/sales",
+              "host": ["{{base_url}}"],
+              "path": ["api", "sales"]
+            },
+            "description": "Professional plan should have access to POS module."
+          },
+          "response": []
+        },
+        {
+          "name": "Access POS (Essentials Plan)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{essentials_api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/sales",
+              "host": ["{{base_url}}"],
+              "path": ["api", "sales"]
+            },
+            "description": "Essentials plan should have access to POS module."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Health & System",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            },
+            "description": "Basic health check endpoint."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

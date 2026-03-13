@@ -48,7 +48,7 @@ export function FeatureFlagProvider({
     try {
       const settings = await api.getAllSettings();
       const map = new Map<string, string>(
-        settings.map((s: { key_name: string; value: string }) => [
+        (settings || []).map((s: { key_name: string; value: string }) => [
           s.key_name,
           s.value,
         ]),

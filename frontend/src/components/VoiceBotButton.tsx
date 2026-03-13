@@ -7,9 +7,7 @@ import { voiceBotLogger } from "@/utils/voiceBotLogger";
 import { VoiceBotTips } from "./VoiceBotTips";
 import { MODULE_SUGGESTIONS } from "@/constants/voiceBot";
 
-interface VoiceBotButtonProps {}
-
-export function VoiceBotButton({}: VoiceBotButtonProps) {
+export function VoiceBotButton() {
   const { activeModule } = useActiveModule();
   const {
     listening,

@@ -40,7 +40,7 @@ export function usePaymentMethods(): UsePaymentMethodsResult {
     setLoading(true);
     try {
       const active = await api.getActivePaymentMethods();
-      setMethods(active);
+      setMethods(Array.isArray(active) ? active : []);
     } catch {
       // Keep existing if fetch fails
     } finally {
