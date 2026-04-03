@@ -1,0 +1,17 @@
+{
+  "name": "liratek-modules",
+  "version": "1.0.0",
+  "author": "LiraTek Engineering",
+  "description": "Module addition skills for LiraTek POS - Complete checklist for adding new modules to the application",
+  "license": "MIT",
+  "createdAt": "2026-03-20",
+  "categories": ["modules", "feature-addition", "checklist"],
+  "tags": ["modules", "features", "checklist", "migration"],
+  "organization": "LiraTek",
+  "relatedSkills": [
+    "liratek-database",
+    "liratek-backend",
+    "liratek-frontend",
+    "liratek-electron"
+  ]
+}

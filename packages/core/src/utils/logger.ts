@@ -313,3 +313,4 @@ export const logShutdown = (reason?: string): void => {
 export default logger;
 export { logger };
 export const voiceBotLogger = logger.child({ module: "voicebot" });
+export const lotoLogger = logger.child({ module: "loto" });

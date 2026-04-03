@@ -28,12 +28,12 @@ export default function Settings() {
   const [active, setActive] = useState<TabKey>("shop");
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 space-y-6 animate-in fade-in duration-500">
+    <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500">
       <PageHeader icon={SettingsIcon} title="Settings" />
 
       {/* Tab Navigation Section */}
-      <div className="bg-slate-800 p-2 rounded-xl border border-slate-700 shadow-lg">
-        <div className="flex gap-2 p-2 border-b border-slate-700">
+      <div className="flex-1 min-h-0 bg-slate-800 rounded-xl border border-slate-700 shadow-lg flex flex-col overflow-hidden">
+        <div className="flex gap-2 p-2 border-b border-slate-700 shrink-0">
           {(
             [
               { key: "shop", label: "Shop Config" },
@@ -57,7 +57,7 @@ export default function Settings() {
             </button>
           ))}
         </div>
-        <div className="p-4">
+        <div className="flex-1 min-h-0 overflow-auto p-4">
           {active === "shop" && <ShopConfig />}
           {active === "categories" && <CategoriesManager />}
           {active === "suppliers" && <SupplierLedger />}

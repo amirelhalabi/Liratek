@@ -25,6 +25,30 @@ export function useVoiceBotSettings() {
     }
   }, []);
 
+  // Listen for settings changes from ShopConfig
+  useEffect(() => {
+    const handleSettingsChange = () => {
+      try {
+        const enabled = localStorage.getItem(STORAGE_KEYS.ENABLED);
+        setConfig({
+          enabled:
+            enabled !== null
+              ? enabled === "true"
+              : DEFAULT_VOICEBOT_CONFIG.enabled,
+        });
+      } catch (error) {
+        console.error("Failed to reload voice bot settings:", error);
+      }
+    };
+
+    window.addEventListener("voicebot-settings-changed", handleSettingsChange);
+    return () =>
+      window.removeEventListener(
+        "voicebot-settings-changed",
+        handleSettingsChange,
+      );
+  }, []);
+
   // Save enabled setting
   const setEnabled = useCallback((enabled: boolean) => {
     try {

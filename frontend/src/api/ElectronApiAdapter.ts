@@ -378,4 +378,27 @@ export class ElectronApiAdapter implements ApiAdapter {
     note?: string;
   }) => api.addCustomService(data);
   deleteCustomService = (id: number) => api.deleteCustomService(id);
+
+  // ---------------------------------------------------------------------------
+  // Loto
+  // ---------------------------------------------------------------------------
+  loto = {
+    sell: (data: any) => api.lotoSell(data),
+    get: (id: number) => api.lotoGet(id),
+    getByDateRange: (from: string, to: string) =>
+      api.lotoGetByDateRange(from, to),
+    update: (id: number, data: any) => api.lotoUpdate(id, data),
+    report: (from: string, to: string) => api.lotoReport(from, to),
+    settlement: (from: string, to: string) => api.lotoSettlement(from, to),
+    fees: {
+      create: (data: any) => api.lotoFeesCreate(data),
+      get: (year: number) => api.lotoFeesGet(year),
+      pay: (id: number) => api.lotoFeesPay(id),
+    },
+    settings: {
+      get: () => api.lotoSettingsGet(),
+      update: (key: string, value: string) =>
+        api.lotoSettingsUpdate(key, value),
+    },
+  };
 }

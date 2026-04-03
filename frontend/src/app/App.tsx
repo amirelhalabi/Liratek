@@ -21,6 +21,7 @@ const Exchange = lazy(() => import("@/features/exchange/pages/Exchange"));
 const Services = lazy(() => import("@/features/services/pages/Services"));
 const Recharge = lazy(() => import("@/features/recharge/pages/Recharge"));
 const Expenses = lazy(() => import("@/features/expenses/pages/Expenses"));
+const Loto = lazy(() => import("@/features/loto/pages/Loto"));
 const Maintenance = lazy(
   () => import("@/features/maintenance/pages/Maintenance"),
 );
@@ -40,7 +41,6 @@ import { ApiProvider } from "@liratek/ui";
 import { backendApiAdapter } from "@/api/adapter";
 import { FeatureFlagProvider } from "@/contexts/FeatureFlagContext";
 import { ErrorBoundary } from "@/shared/components/ErrorBoundary";
-import { VoiceBotButton } from "@/components/VoiceBotButton";
 import { useVoiceBotSettings } from "@/hooks/useVoiceBotSettings";
 
 // Wrapper for protected routes
@@ -189,6 +189,14 @@ function AppRoutes() {
           }
         />
         <Route
+          path="/loto"
+          element={
+            <ProtectedRoute>
+              <Loto />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/settings"
           element={
             <ProtectedRoute>
@@ -220,7 +228,7 @@ function AppRoutes() {
 }
 
 function App() {
-  const { config, isLoaded } = useVoiceBotSettings();
+  const { isLoaded } = useVoiceBotSettings();
 
   // Apply saved UI scale on startup
   useEffect(() => {
@@ -255,7 +263,6 @@ function App() {
                   <AuthProvider>
                     <SessionProvider>
                       <AppRoutes />
-                      {config.enabled && <VoiceBotButton />}
                     </SessionProvider>
                   </AuthProvider>
                 </ActiveModuleProvider>

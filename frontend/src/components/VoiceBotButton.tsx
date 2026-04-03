@@ -7,9 +7,7 @@ import { voiceBotLogger } from "@/utils/voiceBotLogger";
 import { VoiceBotTips } from "./VoiceBotTips";
 import { MODULE_SUGGESTIONS } from "@/constants/voiceBot";
 
-interface VoiceBotButtonProps {}
-
-export function VoiceBotButton({}: VoiceBotButtonProps) {
+export function VoiceBotButton() {
   const { activeModule } = useActiveModule();
   const {
     listening,
@@ -214,23 +212,18 @@ export function VoiceBotButton({}: VoiceBotButtonProps) {
 
   return (
     <>
-      {/* Floating Action Button */}
+      {/* Voice Bot Button */}
       <button
         onClick={handleOpenPanel}
-        className="fixed bottom-6 right-6 z-50 p-4 rounded-full shadow-2xl transition-all duration-300 bg-gradient-to-br from-violet-600 to-purple-700 hover:from-violet-700 hover:to-purple-800 hover:scale-105 text-white"
+        className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors flex items-center gap-2"
         title="Voice assistant"
       >
-        <div className="relative">
-          <Bot size={24} />
-          <div className="absolute -top-1 -right-1">
-            <Sparkles size={14} className="text-yellow-300" />
-          </div>
-        </div>
+        <Bot size={20} />
       </button>
 
       {/* Voice Bot Panel - ChatGPT Style */}
       {showPanel && (
-        <div className="fixed bottom-6 right-6 z-40 mb-15 w-[22rem] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl overflow-hidden transition-all duration-300">
+        <div className="absolute top-full mt-2 w-[22rem] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl overflow-hidden transition-all duration-300 z-50">
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 relative">
             <div className="flex items-center gap-2">

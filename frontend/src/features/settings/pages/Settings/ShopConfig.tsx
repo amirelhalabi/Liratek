@@ -8,7 +8,7 @@ import {
   List,
   Monitor,
   Printer,
-  Volume2,
+  Wallet,
 } from "lucide-react";
 import clsx from "clsx";
 import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
@@ -58,6 +58,8 @@ export default function ShopConfig() {
     const saved = localStorage.getItem("ui_scale");
     return saved ? parseFloat(saved) : 1.0;
   });
+  const [alfaCreditCost, setAlfaCreditCost] = useState("85000");
+  const [alfaCreditSellRate, setAlfaCreditSellRate] = useState("100000");
 
   const handleLayoutChange = (mode: "left-panel" | "page-view") => {
     setLayoutMode(mode);
@@ -101,6 +103,10 @@ export default function ShopConfig() {
       setAutoCheckUpdates(map.get("auto_check_updates") !== "0");
       setReceiptPrinter((map.get("receipt_printer") as string) || "");
       setBarcodePrinter((map.get("barcode_printer") as string) || "");
+      setAlfaCreditCost((map.get("alfa_credit_cost_lbp") as string) || "85000");
+      setAlfaCreditSellRate(
+        (map.get("alfa_credit_sell_rate_lbp") as string) || "100000",
+      );
 
       // Load voice bot setting from localStorage
       const voiceBotEnabledSetting = localStorage.getItem("voicebot_enabled");
@@ -146,10 +152,13 @@ export default function ShopConfig() {
         api.updateSetting("auto_check_updates", autoCheckUpdates ? "1" : "0"),
         api.updateSetting("receipt_printer", receiptPrinter),
         api.updateSetting("barcode_printer", barcodePrinter),
+        api.updateSetting("alfa_credit_cost_lbp", alfaCreditCost),
+        api.updateSetting("alfa_credit_sell_rate_lbp", alfaCreditSellRate),
       ]);
 
       // Save voice bot setting to localStorage
       localStorage.setItem("voicebot_enabled", String(voiceBotEnabled));
+      window.dispatchEvent(new Event("voicebot-settings-changed"));
 
       // Invalidate cached shop info so receipts pick up new values
       invalidateShopInfo();
@@ -240,6 +249,50 @@ export default function ShopConfig() {
           onChange={(e) => setReceiptHeaderText(e.target.value)}
           className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white"
         />
+      </div>
+
+      <div className="pt-6 border-t border-slate-700">
+        <span className="flex items-center gap-2 block text-sm text-slate-400 mb-4">
+          <Wallet size={16} /> Alfa Gift Card Settings
+        </span>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label
+              htmlFor="alfa-credit-cost"
+              className="block text-xs text-slate-400 mb-1.5"
+            >
+              Credit Cost (LBP per $1)
+            </label>
+            <input
+              id="alfa-credit-cost"
+              type="number"
+              value={alfaCreditCost}
+              onChange={(e) => setAlfaCreditCost(e.target.value)}
+              className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white"
+            />
+            <p className="text-xs text-slate-500 mt-1">
+              Default: 85,000 LBP per $1 USD credit
+            </p>
+          </div>
+          <div>
+            <label
+              htmlFor="alfa-credit-sell"
+              className="block text-xs text-slate-400 mb-1.5"
+            >
+              Credit Sell Rate (LBP per $1)
+            </label>
+            <input
+              id="alfa-credit-sell"
+              type="number"
+              value={alfaCreditSellRate}
+              onChange={(e) => setAlfaCreditSellRate(e.target.value)}
+              className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white"
+            />
+            <p className="text-xs text-slate-500 mt-1">
+              Default: 100,000 LBP per $1 USD credit
+            </p>
+          </div>
+        </div>
       </div>
 
       <div className="pt-6 border-t border-slate-700">
@@ -366,9 +419,6 @@ export default function ShopConfig() {
 
         <label className="flex items-center justify-between cursor-pointer group">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-violet-600/20 rounded-lg">
-              <Volume2 size={16} className="text-violet-400" />
-            </div>
             <div>
               <span className="text-sm text-white">Voice Bot</span>
               <p className="text-xs text-slate-500">

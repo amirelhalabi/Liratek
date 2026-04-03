@@ -36,12 +36,18 @@ export interface CurrencyPair {
 // Note: TransactionType is defined above. RateType ('BUY'|'SELL'|'N/A') is used for rate direction.
 
 /**
- * Get exchange rates from rate list (LBP/USD only - legacy function)
+ * Get exchange rates from rate list (USD/LBP).
  *
- * OPTION B FORMAT: Stronger currency as base
- * - LBP (weaker than USD): "1 USD = X LBP" format
- *   - "LBP → USD" with rate 88,500 means "1 USD = 88,500 LBP" (BUY USD from customer)
- *   - "USD → LBP" with rate 89,500 means "1 USD = 89,500 LBP" (SELL USD to customer)
+ * Supports TWO formats returned by api.getRates():
+ *
+ * **New 4-column schema** (current):
+ *   { to_code, market_rate, delta, is_stronger }
+ *   Formula: rate = market_rate + is_stronger × (action × delta)
+ *     TAKE_USD (−1) → buyRate  (we buy USD from customer, lower rate)
+ *     GIVE_USD (+1) → sellRate (we sell USD to customer, higher rate)
+ *
+ * **Legacy from/to schema** (fallback):
+ *   { from_code, to_code, rate }
  *
  * @param rates - Array of exchange rate objects from database
  * @param fallbackRate - Default rate if not found (default: 89,000)
@@ -50,26 +56,40 @@ export interface CurrencyPair {
  * @example
  * const rates = await api.getRates();
  * const { buyRate, sellRate } = getExchangeRates(rates);
- * // buyRate: 88,500 (we buy USD cheap)
- * // sellRate: 89,500 (we sell USD expensive)
+ * // buyRate: 89,000 (we buy USD — lower, favorable to us)
+ * // sellRate: 90,000 (we sell USD — higher, favorable to us)
  */
 export function getExchangeRates(
-  rates: Array<{ from_code: string; to_code: string; rate: number }>,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  rates: Array<any>,
   fallbackRate: number = 89000,
 ): ExchangeRates {
-  // Find "LBP → USD" rate (1 USD = X LBP when buying USD from customer)
-  const buyRateEntry = rates.find(
-    (r) => r.from_code === "LBP" && r.to_code === "USD",
+  // ── New 4-column schema: { to_code, market_rate, delta, is_stronger } ──────
+  const lbpRow = rates.find(
+    (r) => r.to_code === "LBP" && r.market_rate !== undefined,
   );
+  if (lbpRow) {
+    const { market_rate, delta } = lbpRow;
+    // buyRate = we pay customer less LBP per USD (lower, favorable to us)
+    // sellRate = customer pays us more LBP per USD (higher, favorable to us)
+    const buyRate = market_rate - delta;
+    const sellRate = market_rate + delta;
+    return { buyRate, sellRate };
+  }
 
-  // Find "USD → LBP" rate (1 USD = X LBP when selling USD to customer)
+  // ── Legacy from/to schema: { from_code, to_code, rate } ───────────────────
+  const buyRateEntry = rates.find(
+    (r: { from_code?: string; to_code?: string }) =>
+      r.from_code === "LBP" && r.to_code === "USD",
+  );
   const sellRateEntry = rates.find(
-    (r) => r.from_code === "USD" && r.to_code === "LBP",
+    (r: { from_code?: string; to_code?: string }) =>
+      r.from_code === "USD" && r.to_code === "LBP",
   );
 
   return {
-    buyRate: buyRateEntry?.rate || fallbackRate, // Lower: 88,500 LBP per USD
-    sellRate: sellRateEntry?.rate || fallbackRate + 500, // Higher: 89,500 LBP per USD
+    buyRate: buyRateEntry?.rate || fallbackRate,
+    sellRate: sellRateEntry?.rate || fallbackRate + 500,
   };
 }
 

@@ -1,8 +1,107 @@
 # Current Sprint — March 2026
 
-> **Last Updated**: 2026-03-05  
+> **Last Updated**: 2026-04-01  
 > **Sprint Start**: 2026-03-01  
-> **Focus**: Setup Wizard, Module-Linked UI, UX Polish, CI/CD + Packaging, Auto-Update, Sales Reporting
+> **Focus**: Setup Wizard, Module-Linked UI, UX Polish, CI/CD + Packaging, Auto-Update, Sales Reporting, Recharge Page Overhaul, IPEC/KATCH/OMT App Implementation, Exchange Rate System
+
+---
+
+## 🔥 High Priority — Next Tasks
+
+### Exchange Rate System & OMT/Whish SEND/RECEIVE
+
+| Task                               | Details                                                                                                                                                                              | Priority    |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------- |
+| **Fix exchange rate logic**        | Currently backwards! Customer pays 90,000 LBP/$ (higher rate), We pay 89,000 LBP/$ (lower rate). Update KatchForm, FinancialForm, TelecomForm to use correct rates                   | 🔴 CRITICAL |
+| **OMT App SEND/RECEIVE feature**   | Add SEND/RECEIVE toggle to OMT App in Mobile Recharge module (similar to IPEC). SEND = customer sends abroad, RECEIVE = customer receives from abroad. High priority revenue feature | 🔴 HIGH     |
+| **Whish App SEND/RECEIVE feature** | Add SEND/RECEIVE toggle to Whish App in Mobile Recharge module. Same logic as OMT App                                                                                                | 🔴 HIGH     |
+| **OMT System Rate settings**       | Add dynamic rate configuration in Settings → OMT System Rate (separate from regular exchange rates). Used for OMT App SEND/RECEIVE transactions                                      | 🔴 HIGH     |
+| **Whish System Rate settings**     | Add dynamic rate configuration in Settings → Whish System Rate (separate from regular exchange rates). Used for Whish App SEND/RECEIVE transactions                                  | 🔴 HIGH     |
+| **Multi-currency payment logic**   | When customer pays in LBP → use 90,000 rate. When customer pays in USD → base price. When shop pays customer (refund/receive) in LBP → use 89,000 rate                               | 🔴 HIGH     |
+
+**Files to modify**:
+
+- `frontend/src/features/recharge/components/KatchForm.tsx` — Fix rate logic
+- `frontend/src/features/recharge/components/FinancialForm.tsx` — Fix rate logic, add SEND/RECEIVE for OMT/Whish
+- `frontend/src/features/recharge/components/TelecomForm.tsx` — Fix rate logic
+- `frontend/src/features/settings/pages/Settings/` — Add OMT/Whish System Rate settings
+- `packages/core/src/db/migrations/` — Add migration for OMT/Whish system rates
+
+**Acceptance criteria**:
+
+- [ ] Customer pays LBP → 90,000 LBP/$ rate applied
+- [ ] Customer pays USD → No conversion (base price)
+- [ ] Shop pays customer (refund/receive) in LBP → 89,000 LBP/$ rate applied
+- [ ] OMT App has SEND/RECEIVE toggle
+- [ ] Whish App has SEND/RECEIVE toggle
+- [ ] OMT System Rate configurable in Settings
+- [ ] Whish System Rate configurable in Settings
+- [ ] All rates dynamically loaded from Settings/Database
+
+---
+
+### Sell Prices Update & Dev Mode Testing
+
+| Task                              | Details                                                                                                                                                                             | Priority    |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
+| **Update sell prices**            | Replace all `"sell": "0"` placeholders in `mobileServices.ts` with real selling prices for KATCH, IPEC, and OMT App items. Focus on positive margins (cost < sell)                  | 🔴 High     |
+| **Dev mode testing**              | Run `yarn dev` and test full transaction flow for IPEC, KATCH, and OMT App. Verify database records, metadata_json structure, and history modal                                     | 🔴 High     |
+| **IPEC predefined items catalog** | Already added to `mobileServices.ts` under `iPick` key with 150+ items across Alfa, MTC, Internet, and Gaming categories                                                            | ✅ Complete |
+| **IPEC UI display**               | IPEC tab now shows correctly using KatchForm card grid UI. Search feature implemented with 100% test coverage (16/16 tests)                                                         | ✅ Complete |
+| **KATCH selling prices**          | Pending — update all KATCH items in `mobileServices.ts` — replace placeholder `"sell": "0"` with actual selling prices. Focus: Alfa vouchers, MTC vouchers, gaming cards, DSL cards | 🔴 High     |
+| **Alfa/MTC voucher sell prices**  | Critical for "Only Days" feature — accurate sell prices needed for profit calculation. Denominations: 3.6, 5.24, 8.65, 11.32, 17.06, 25.47, 86 USD                                  | 🔴 High     |
+| **Price validation**              | Ensure all items have `cost < sell` (positive margin). Flag any items with zero or negative margin for review                                                                       | 🟠 Medium   |
+
+**Files to modify**:
+
+- `frontend/src/data/mobileServices.ts` — Update KATCH, IPEC, OMT App sell prices
+- Manual testing in dev mode — verify transaction flow
+
+**Acceptance criteria**:
+
+- [ ] All KATCH, IPEC, OMT App items have realistic sell prices (no "0" placeholders)
+- [ ] Profit calculations accurate for all items
+- [ ] Dev mode test: IPEC, KATCH, OMT App transactions save correctly
+- [ ] No TypeScript errors after price updates
+
+---
+
+## ✅ Done This Sprint (March 22, 2026 — IPEC/KATCH/OMT App Implementation & Search Feature)
+
+### Recharge Page — Major Refactoring
+
+| Change                                     | Details                                                                                                                                                                                   | Status  |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| **3300-line file split into 8 components** | Extracted `FinancialForm`, `KatchForm`, `TelecomForm`, `CryptoForm`, `ProviderTabs`, `ProviderStats`, `HistoryModal`, `CompactStats` into separate files. Main orchestrator now 586 lines | ✅ Done |
+| **KATCH card grid UI**                     | New card-based layout replacing form dropdowns. Quantity controls on cards, accordion details for "Only Days" + returned credits. Category collapse headers                               | ✅ Done |
+| **Alfa/MTC logos**                         | Downloaded/embedded SVG logos. Cards show brand logos instead of text subcategories. Logos inline in JS bundle via `vite-plugin-svgr`                                                     | ✅ Done |
+| **Split payment integration**              | MultiPaymentInput added to KATCH sticky bottom bar. Toggle between single/split payment. Submits `payments` array to backend                                                              | ✅ Done |
+| **Compact stats in header**                | Moved large stat cards to compact inline stats next to provider tabs. Three cards: Provider commission, All providers commission, Transaction count. Matching tab styling                 | ✅ Done |
+| **Telecom voucher detection fix**          | Fixed `isTelecomVoucher()` to match flattened subcategory structure. "Only Days" checkbox + returned credits field now appear correctly                                                   | ✅ Done |
+| **Flattened mobile topups structure**      | Removed unnecessary `voucher` nesting layer. `Katsh.alfa` and `Katsh.mtc` directly contain items instead of `Katsh.alfa.voucher`                                                          | ✅ Done |
+
+### Voice Bot — Relocated to TopBar
+
+| Change                      | Details                                                                                                                                                      | Status  |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------- |
+| **Removed floating button** | Deleted bottom-right floating FAB entirely from codebase                                                                                                     | ✅ Done |
+| **TopBar integration**      | Voice Bot button now in TopBar left section (replacing non-functional global search). Inline button style with icon + "Voice Bot" text                       | ✅ Done |
+| **Panel repositioned**      | Chat panel now appears directly below TopBar button (absolute positioning) instead of fixed bottom-right. Shifted right with `-right-4` for better alignment | ✅ Done |
+
+### Files Modified
+
+| File                                                            | Change                                                             |
+| --------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `frontend/src/features/recharge/pages/Recharge/index.tsx`       | Refactored to 586 lines, imports 8 components                      |
+| `frontend/src/features/recharge/components/*.tsx` (8 new files) | Extracted form components, stats, tabs, history modal              |
+| `frontend/src/features/recharge/types/index.ts`                 | Shared types and constants (ProviderConfig, ALFA_GIFT_TIERS, etc.) |
+| `frontend/src/data/mobileServices.ts`                           | Flattened KATCH mobile topups structure, removed `voucher` nesting |
+| `frontend/src/assets/logos/*.svg` (2 new files)                 | Alfa (red) and MTC Touch (blue) brand logos                        |
+| `frontend/src/components/VoiceBotButton.tsx`                    | Removed floating button variant, only inline TopBar button         |
+| `frontend/src/shared/components/layouts/TopBar.tsx`             | Removed global search, added VoiceBotButton                        |
+| `frontend/src/app/App.tsx`                                      | Removed global VoiceBotButton render                               |
+| `frontend/vite.config.ts`                                       | Added `vite-plugin-svgr` for SVG imports                           |
+| `package.json`                                                  | Added `vite-plugin-svgr` dependency                                |
 
 ---
 
@@ -915,7 +1014,49 @@ All 11 implementation phases completed:
 **WHISH fee table**: $1–$100 → $1, $101–$200 → $2, $201–$300 → $3, $301–$1000 → $5, $1001–$2000 → $10, $2001–$3000 → $15, $3001–$4000 → $20, $4001–$5000 → $25  
 **Commission rate**: 10% of WHISH fee (same as OMT INTRA/WU)
 
-## 🟡 Medium Priority — After Settlement
+## 🔴 High Priority — Next Sprint
+
+### [T-61] Loto Module Implementation
+
+**Priority**: HIGH | **Estimated Time**: 2-3 days | **Status**: Not started
+
+Add a lottery ticket sales module with the following features:
+
+- **Ticket Sales**: Record individual loto ticket sales with ticket number, amount (LBP), payment method/currency
+- **Commission Tracking**: 4.45% commission on each sale (configurable) — shop profit
+- **Prize Payouts**: Mark tickets as won, record prize amount, pay customer from General drawer, supplier reimburses (reduces debt)
+- **Monthly Fee**: Auto-record 1,400,000 LBP "ajar makana" machine rental fee on 1st Monday of each month (configurable start date, fee amount, commission rate)
+- **Supplier Integration**: Loto supplier appears in Settings > Suppliers with full ledger history and balance tracking (owed in LBP)
+- **Reporting**: On Loto page — total sales, commission earned, monthly fees, prizes paid, net owed to supplier (with date range filters)
+- **Module Toggle**: Enable/disable from Settings > Modules; hidden from sidebar/HomeGrid when disabled
+- **Drawer**: Uses General drawer only (no separate loto drawer)
+
+**Files**: See `docs/LOTO_IMPLEMENTATION_PLAN.md` for full technical specification
+
+---
+
+## 🟡 Medium Priority — After Loto
+
+### [T-62] Accessory Sales & Profit Reporting Module
+
+**Priority**: MEDIUM | **Estimated Time**: 1-2 days | **Status**: Not started
+
+Create a dedicated reporting module for accessory sales analytics:
+
+- **Top Selling Accessories**: Ranked list of accessories by units sold and revenue
+- **Profit per Category**: Breakdown of profit margins by accessory category
+- **Daily Accessory Sales**: Day-by-day sales volume with trend visualization
+- **Date Range Filters**: Custom date ranges, comparison with previous period
+- **Export**: Excel/PDF export of all reports
+- **Dashboard Widgets**: Summary cards showing top performers on main dashboard
+
+**Integration Points**:
+
+- Links to existing inventory module (accessory products)
+- Uses existing sales/transactions data
+- Integrates with Profits module for margin calculations
+
+---
 
 ### [T-27] Payment Methods Everywhere + Drawer Model Expansion
 
@@ -996,15 +1137,21 @@ All 11 implementation phases completed:
 
 Once `[T-60] OMT Settlement System` is complete, the natural progression is:
 
-1. **WHISH Fee Calculation [T-34]** — WHISH is the second biggest revenue provider after OMT. Once settlement exists, WHISH needs the same fee tables + settlement flow. The `is_settled` infrastructure will already be in place.
+1. **Loto Module [T-61]** — NEW high-priority module for lottery ticket sales with commission tracking, prize payouts, and auto-recorded monthly machine fees. See `docs/LOTO_IMPLEMENTATION_PLAN.md`.
 
-2. **Profits Module Expansion [T-48]** — With settlement tracking live, the Profits page can show rich analytics: realized vs pending per provider, settled-per-month charts, commission trend lines.
+2. **Alfa Gift Card [T-63]** — NEW feature in Recharge module for selling Alfa data gift cards. 8 predefined tiers, LBP-based profit from exchange rate spread. See `docs/ALFA_GIFT_IMPLEMENTATION_PLAN.md`.
 
-3. **WhatsApp Integration [T-45]** — Settlement receipts sent to the shop owner via WhatsApp after each OMT settlement. Also: debt reminders to clients. This is a high-value UX feature with existing service scaffolding.
+3. **Accessory Reporting [T-62]** — NEW dedicated reporting for accessory sales analytics: top sellers, profit per category, daily trends.
 
-4. **Customer Session Linkage [T-28]** — Link OMT/WHISH transactions to customer visit sessions for a complete per-customer financial history.
+4. **WHISH Fee Calculation [T-34]** — WHISH is the second biggest revenue provider after OMT. Once settlement exists, WHISH needs the same fee tables + settlement flow. The `is_settled` infrastructure will already be in place.
 
-5. **Consolidated Reports [T-51]** — Generate PDF settlement receipts, closing reports, and daily summaries. The settlement data will make these reports much richer.
+5. **Profits Module Expansion [T-48]** — With settlement tracking live, the Profits page can show rich analytics: realized vs pending per provider, settled-per-month charts, commission trend lines.
+
+6. **WhatsApp Integration [T-45]** — Settlement receipts sent to the shop owner via WhatsApp after each OMT settlement. Also: debt reminders to clients. This is a high-value UX feature with existing service scaffolding.
+
+7. **Customer Session Linkage [T-28]** — Link OMT/WHISH transactions to customer visit sessions for a complete per-customer financial history.
+
+8. **Consolidated Reports [T-51]** — Generate PDF settlement receipts, closing reports, and daily summaries. The settlement data will make these reports much richer.
 
 ---
 
@@ -1055,6 +1202,9 @@ Once `[T-60] OMT Settlement System` is complete, the natural progression is:
 
 | Task                            | Priority | Estimated Time | Status      |
 | ------------------------------- | -------- | -------------- | ----------- |
+| [T-61] Loto Module              | HIGH     | 2-3 days       | Not started |
+| [T-63] Alfa Gift Card Feature   | HIGH     | 0.5-1 day      | Not started |
+| [T-62] Accessory Reporting      | MEDIUM   | 1-2 days       | Not started |
 | [T-45] WhatsApp receipt sending | Medium   | 2-3 hours      | Deferred    |
 | [T-45] WhatsApp debt reminder   | Medium   | 1 hour         | Deferred    |
 | [T-28] Customer Visit Sessions  | Low      | TBD            | Not started |
@@ -1062,6 +1212,12 @@ Once `[T-60] OMT Settlement System` is complete, the natural progression is:
 
 ---
 
-**Sprint Status: ALL PLANNED TASKS COMPLETE** 🎉
+**Sprint Status: NEW SPRINT PLANNED** 🎯
 
-The codebase is production-ready with all March 2026 goals achieved.
+March 2026 goals achieved. New high-priority tasks added:
+
+- [T-61] Loto Module Implementation (HIGH priority)
+- [T-63] Alfa Gift Card Feature (HIGH priority) — Documentation complete
+- [T-62] Accessory Sales & Profit Reporting (MEDIUM priority)
+
+The codebase is production-ready for loto module and Alfa gift card development.

@@ -28,7 +28,7 @@ export type RechargePaidByMethod = string;
 
 export interface RechargeData {
   provider: "MTC" | "Alfa";
-  type: "CREDIT_TRANSFER" | "VOUCHER" | "DAYS";
+  type: "CREDIT_TRANSFER" | "VOUCHER" | "DAYS" | "TOP_UP" | "ALFA_GIFT";
   amount: number;
   cost: number;
   price: number;

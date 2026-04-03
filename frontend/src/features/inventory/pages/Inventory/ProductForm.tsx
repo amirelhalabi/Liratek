@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import logger from "@/utils/logger";
-import { X, Save, Printer } from "lucide-react";
+import { X, Save, Printer, Minus } from "lucide-react";
 import { useApi, appEvents } from "@liratek/ui";
 import type { Product } from "@liratek/ui";
 import JsBarcode from "jsbarcode";
@@ -11,6 +11,29 @@ interface ProductFormProps {
   product?: Product | null;
   prefillName?: string | undefined;
   prefillBarcode?: string | undefined;
+  onMinimize?: (data: {
+    formData: {
+      barcode: string;
+      name: string;
+      category: string;
+      cost_price: number;
+      retail_price: number;
+      min_stock_level: number;
+      stock_quantity: number;
+      supplier: string;
+    };
+    editingProduct: Product | null;
+  }) => void;
+  initialFormData?: {
+    barcode: string;
+    name: string;
+    category: string;
+    cost_price: number;
+    retail_price: number;
+    min_stock_level: number;
+    stock_quantity: number;
+    supplier: string;
+  } | null;
 }
 
 export default function ProductForm({
@@ -19,6 +42,8 @@ export default function ProductForm({
   product,
   prefillName,
   prefillBarcode,
+  onMinimize,
+  initialFormData,
 }: ProductFormProps) {
   const api = useApi();
   const [isLoading, setIsLoading] = useState(false);
@@ -29,19 +54,24 @@ export default function ProductForm({
     attempted: string;
     suggested: string;
   }>(null);
-  const [formData, setFormData] = useState({
-    barcode: prefillBarcode || "",
-    name: prefillName || "",
-    category: "Accessories",
-    cost_price: 0,
-    retail_price: 0,
-    min_stock_level: 5,
-    stock_quantity: 0,
-    supplier: "" as string,
+  const [formData, setFormData] = useState(() => {
+    if (initialFormData) {
+      return initialFormData;
+    }
+    return {
+      barcode: prefillBarcode || "",
+      name: prefillName || "",
+      category: "Accessories",
+      cost_price: 0,
+      retail_price: 0,
+      min_stock_level: 5,
+      stock_quantity: 0,
+      supplier: "" as string,
+    };
   });
 
   useEffect(() => {
-    if (product) {
+    if (product && !initialFormData) {
       setFormData({
         barcode: product.barcode,
         name: product.name,
@@ -53,7 +83,7 @@ export default function ProductForm({
         supplier: (product as any).supplier ?? "",
       });
     }
-  }, [product]);
+  }, [product, initialFormData]);
 
   useEffect(() => {
     const loadCategories = async () => {
@@ -120,12 +150,12 @@ export default function ProductForm({
     try {
       JsBarcode(svgEl, barcode, {
         format: "CODE128",
-        width: 2,
-        height: 80,
+        width: 1.5,
+        height: 60,
         displayValue: true,
-        fontSize: 16,
+        fontSize: 12,
         fontOptions: "bold",
-        margin: 4,
+        margin: 2,
         textMargin: 2,
       });
     } catch {
@@ -316,9 +346,28 @@ ${labels}
           <h2 className="text-xl font-bold text-white">
             {product ? "Edit Product" : "New Product"}
           </h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-white">
-            <X size={24} />
-          </button>
+          <div className="flex items-center gap-2">
+            {onMinimize && (
+              <button
+                onClick={() =>
+                  onMinimize({
+                    formData,
+                    editingProduct: product || null,
+                  })
+                }
+                className="text-slate-400 hover:text-white p-1"
+                title="Minimize"
+              >
+                <Minus size={24} />
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="text-slate-400 hover:text-white"
+            >
+              <X size={24} />
+            </button>
+          </div>
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">

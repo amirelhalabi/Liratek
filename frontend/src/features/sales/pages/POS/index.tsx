@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import logger from "@/utils/logger";
-import { FileText, X, ShoppingCart } from "lucide-react";
+import { FileText, X, ShoppingCart, Trash2 } from "lucide-react";
 import { PageHeader } from "@liratek/ui";
 import ProductSearch from "./components/ProductSearch";
 import Cart from "./components/Cart";
@@ -51,9 +51,23 @@ export default function POS() {
     cartItems: CartItem[];
     checkoutData: CheckoutDraftData;
     draftId?: number | undefined;
-    createdAt: Date;
+    createdAt: string;
   };
-  const [minimizedOrders, setMinimizedOrders] = useState<MinimizedOrder[]>([]);
+  const [minimizedOrders, setMinimizedOrders] = useState<MinimizedOrder[]>(
+    () => {
+      try {
+        const stored = localStorage.getItem("pos_minimized_orders");
+        if (stored) {
+          return JSON.parse(stored);
+        }
+      } catch (error) {
+        logger.error("Failed to load minimized orders:", error);
+      }
+      return [];
+    },
+  );
+  const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const isInitialMountRef = useRef(true);
 
   type DraftItem = {
     product_id: number;
@@ -148,7 +162,7 @@ export default function POS() {
         cartItems: [...cartItems],
         checkoutData: checkoutData,
         draftId: currentDraftId,
-        createdAt: new Date(),
+        createdAt: new Date().toISOString(),
       };
 
       setMinimizedOrders((prev) => [...prev, minimizedOrder]);
@@ -176,6 +190,128 @@ export default function POS() {
     },
     [minimizedOrders],
   );
+
+  // Cancel order (from checkout modal)
+  const handleCancelOrder = useCallback(async () => {
+    if (currentDraftId) {
+      try {
+        await api.deleteDraft(currentDraftId);
+        await fetchDrafts();
+      } catch (error) {
+        logger.error("Failed to delete draft on cancel:", error);
+      }
+    }
+    setIsCheckoutOpen(false);
+    setCartItems([]);
+    setCurrentDraftId(undefined);
+    setPendingCheckoutData(null);
+  }, [currentDraftId, api, fetchDrafts]);
+
+  // Cancel minimized order
+  const handleCancelMinimizedOrder = useCallback(
+    async (orderId: string, e: React.MouseEvent) => {
+      e.stopPropagation();
+      const order = minimizedOrders.find((o) => o.id === orderId);
+      if (!order) return;
+
+      if (order.draftId) {
+        try {
+          await api.deleteDraft(order.draftId);
+          await fetchDrafts();
+        } catch (error) {
+          logger.error("Failed to delete draft on cancel:", error);
+        }
+      }
+
+      setMinimizedOrders((prev) => prev.filter((o) => o.id !== orderId));
+    },
+    [minimizedOrders, api, fetchDrafts],
+  );
+
+  // Delete draft from history modal
+  const handleDeleteDraft = useCallback(
+    async (draftId: number) => {
+      try {
+        await api.deleteDraft(draftId);
+        await fetchDrafts();
+        appEvents.emit("notification:show", "Draft deleted", "success");
+      } catch (error) {
+        logger.error("Failed to delete draft:", error);
+        appEvents.emit("notification:show", "Failed to delete draft", "error");
+      }
+    },
+    [api, fetchDrafts],
+  );
+
+  // Persist minimized orders to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        "pos_minimized_orders",
+        JSON.stringify(minimizedOrders),
+      );
+    } catch (error) {
+      logger.error("Failed to save minimized orders:", error);
+    }
+  }, [minimizedOrders]);
+
+  // Auto-save draft when cart changes (for resumed drafts)
+  useEffect(() => {
+    if (isInitialMountRef.current) {
+      isInitialMountRef.current = false;
+      return;
+    }
+
+    if (!currentDraftId || cartItems.length === 0) return;
+
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+
+    autoSaveTimerRef.current = setTimeout(async () => {
+      try {
+        const totalAmount = cartItems.reduce(
+          (sum, item) => sum + item.retail_price * item.quantity,
+          0,
+        );
+        const discount = pendingCheckoutData?.discount || 0;
+        const saleRequest: SaleRequest = {
+          status: "draft",
+          id: currentDraftId,
+          items: cartItems.map((item) => ({
+            product_id: item.id,
+            quantity: item.quantity,
+            price: item.retail_price,
+            imei: item.imei || "",
+          })),
+          total_amount: totalAmount,
+          discount,
+          final_amount: totalAmount - discount,
+          payment_usd: pendingCheckoutData?.paidUSD || 0,
+          payment_lbp: pendingCheckoutData?.paidLBP || 0,
+          client_id: pendingCheckoutData?.selectedClient?.id || null,
+          exchange_rate:
+            pendingCheckoutData?.exchangeRate || defaultExchangeRate,
+        };
+
+        await api.processSale(saleRequest);
+      } catch (error) {
+        logger.error("Auto-save draft failed:", error);
+      }
+    }, 1000);
+
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
+    };
+  }, [
+    cartItems,
+    currentDraftId,
+    pendingCheckoutData,
+    api,
+    defaultExchangeRate,
+  ]);
 
   // Open ProductForm from POS with pre-filled name or barcode
   const handleCreateProduct = useCallback(
@@ -377,7 +513,7 @@ export default function POS() {
 
   return (
     <div
-      className={`h-screen overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col gap-6 animate-in fade-in duration-500 ${minimizedOrders.length > 0 ? "pb-32" : ""}`}
+      className={`h-full overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col gap-6 animate-in fade-in duration-500 ${minimizedOrders.length > 0 ? "pb-32" : ""}`}
     >
       <PageHeader icon={ShoppingCart} title="Point of Sale" />
 
@@ -422,18 +558,14 @@ export default function POS() {
             0,
           )}
           onMinimize={handleMinimizeOrder}
+          onCancel={handleCancelOrder}
           onEdit={(checkoutData) => {
-            // Store checkout state and close modal without clearing cart
             setPendingCheckoutData(checkoutData);
             setIsCheckoutOpen(false);
-            appEvents.emit(
-              "notification:show",
-              "You can now edit your cart. Click checkout to restore your payment details.",
-              "info",
-            );
           }}
           onComplete={handleCompleteSale}
           onSaveDraft={handleSaveDraft}
+          isDraft={currentDraftId !== undefined}
           {...(pendingCheckoutData ? { draftData: pendingCheckoutData } : {})}
           onRestoreDraftComplete={() => {
             setPendingCheckoutData(null);
@@ -514,6 +646,13 @@ export default function POS() {
                     </div>
                     <div className="flex gap-2">
                       <button
+                        onClick={() => handleDeleteDraft(draft.id)}
+                        className="px-3 py-2 bg-red-600/20 hover:bg-red-600/40 text-red-400 hover:text-red-300 rounded-lg font-medium transition-colors"
+                        title="Delete Draft"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                      <button
                         onClick={() => handleResumeDraft(draft)}
                         className="px-4 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg font-medium shadow-lg shadow-violet-900/20"
                       >
@@ -582,14 +721,19 @@ export default function POS() {
                   {index === minimizedOrders.length - 1 && (
                     <div className="w-2 h-2 bg-violet-500 rounded-full animate-pulse" />
                   )}
+                  <button
+                    onClick={(e) => handleCancelMinimizedOrder(order.id, e)}
+                    className="ml-1 p-1 text-slate-400 hover:text-red-400 hover:bg-slate-700 rounded transition-colors"
+                    title="Cancel Order"
+                  >
+                    <Trash2 size={14} />
+                  </button>
                 </button>
               );
             })}
           </div>
         </div>
       )}
-
-      {/* Voice Bot Button */}
     </div>
   );
 }

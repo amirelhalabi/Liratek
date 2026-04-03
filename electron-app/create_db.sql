@@ -665,7 +665,8 @@ INSERT OR IGNORE INTO modules (key, label, icon, route, sort_order, is_enabled, 
   ('binance',     'Binance',      'Bitcoin',       '/recharge',     10,  0, 0, 0),
   ('ipec_katch',  'IPEC/Katch',  'Zap',           '/recharge',     11,  0, 0, 0),
   ('custom_services','Services', 'Briefcase',     '/custom-services',12, 1, 0, 0),
-  ('profits',        'Profits',  'TrendingUp',    '/profits',        13, 1, 1, 0);
+  ('profits',        'Profits',  'TrendingUp',    '/profits',        13, 1, 1, 0),
+  ('loto',           'Loto',     'Ticket',        '/loto',           16, 1, 0, 0);
   -- REMOVED: reports, transactions (redundant with Dashboard & Profits)
 
 -- Currency–Module junction (which currencies are allowed in which modules)
@@ -682,13 +683,14 @@ INSERT OR IGNORE INTO currency_modules (currency_code, module_key) VALUES
   ('USD', 'pos'), ('USD', 'debts'), ('USD', 'exchange'),
   ('USD', 'omt_whish'), ('USD', 'recharge'), ('USD', 'expenses'),
   ('USD', 'maintenance'), ('USD', 'binance'), ('USD', 'ipec_katch'),
-  ('USD', 'custom_services'), ('USD', 'closing');
+  ('USD', 'custom_services'), ('USD', 'closing'), ('USD', 'loto');
 
 -- LBP: enabled for most modules except OMT/Whish, Binance
 INSERT OR IGNORE INTO currency_modules (currency_code, module_key) VALUES
   ('LBP', 'pos'), ('LBP', 'debts'), ('LBP', 'exchange'),
   ('LBP', 'expenses'), ('LBP', 'maintenance'), ('LBP', 'ipec_katch'),
-  ('LBP', 'custom_services'), ('LBP', 'recharge'), ('LBP', 'closing');
+  ('LBP', 'custom_services'), ('LBP', 'recharge'), ('LBP', 'closing'),
+  ('LBP', 'loto');
 
 -- EUR: exchange only (by default)
 INSERT OR IGNORE INTO currency_modules (currency_code, module_key) VALUES
@@ -753,6 +755,73 @@ INSERT OR IGNORE INTO suppliers (name, module_key, provider, is_system) VALUES
   ('Whish App',    'ipec_katch', 'WHISH_APP',    1);
 
 -- =============================================================================
+-- 9b. Loto Module
+-- =============================================================================
+
+-- Loto tickets (sold tickets tracking)
+CREATE TABLE IF NOT EXISTS loto_tickets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticket_number TEXT,
+    sale_amount REAL NOT NULL,
+    commission_rate REAL DEFAULT 0.0445,
+    commission_amount REAL NOT NULL,
+    is_winner INTEGER DEFAULT 0,
+    prize_amount REAL DEFAULT 0,
+    prize_paid_date TEXT,
+    sale_date TEXT NOT NULL,
+    payment_method TEXT,
+    currency TEXT DEFAULT 'LBP',
+    note TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_loto_tickets_sale_date ON loto_tickets(sale_date);
+CREATE INDEX IF NOT EXISTS idx_loto_tickets_is_winner ON loto_tickets(is_winner);
+
+-- Loto settings (commission rate, monthly fee, etc.)
+CREATE TABLE IF NOT EXISTS loto_settings (
+    key_name TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    description TEXT,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Seed default loto settings
+INSERT OR IGNORE INTO loto_settings (key_name, value, description) VALUES
+  ('commission_rate', '0.0445', 'Commission rate (4.45%)'),
+  ('monthly_fee_amount', '1400000', 'Monthly machine fee in LBP'),
+  ('auto_record_monthly_fee', '1', 'Enable/disable auto-recording of monthly fee');
+
+-- Loto monthly fees (machine rental fees)
+CREATE TABLE IF NOT EXISTS loto_monthly_fees (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fee_amount REAL NOT NULL,
+    fee_month TEXT NOT NULL,
+    fee_year INTEGER NOT NULL,
+    recorded_date TEXT NOT NULL,
+    is_paid INTEGER DEFAULT 0,
+    paid_date TEXT,
+    note TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Seed Loto supplier
+INSERT OR IGNORE INTO suppliers (name, provider, is_active) VALUES ('Loto Liban', 'LOTO', 1);
+
+-- Seed Loto module
+INSERT OR IGNORE INTO modules (key, label, icon, route, sort_order, admin_only)
+VALUES ('loto', 'Loto', 'Ticket', '/loto', 16, 0);
+
+-- Add currency-modules for Loto
+INSERT OR IGNORE INTO currency_modules (currency_code, module_key)
+VALUES ('USD', 'loto'), ('LBP', 'loto');
+
+-- Add currency-drawers for Loto
+INSERT OR IGNORE INTO currency_drawers (currency_code, drawer_name)
+VALUES ('USD', 'Loto'), ('LBP', 'Loto');
+
+-- =============================================================================
 -- 10. Migration Tracking
 -- =============================================================================
 
@@ -797,5 +866,6 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (39, 'setup_wizard_feature_flags'),
     (40, 'create_product_suppliers'),
     (41, 'fix_category_cascade_to_set_null'),
+    (47, 'add_loto_module'),
     (42, 'add_reports_and_transactions_modules'),
     (43, 'add_soft_delete_to_products');

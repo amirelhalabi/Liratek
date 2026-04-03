@@ -301,7 +301,7 @@ export default function CategoriesManager() {
             exportExcel
             exportPdf
             exportFilename="categories"
-            defaultSortKey="sort_order"
+            defaultSortKey="name"
             selectAll={{
               checked: allSelected,
               indeterminate: someSelected,
@@ -488,7 +488,7 @@ export default function CategoriesManager() {
             exportExcel
             exportPdf
             exportFilename="product-suppliers"
-            defaultSortKey="sort_order"
+            defaultSortKey="name"
             selectAll={{
               checked: suppAllSelected,
               indeterminate: suppSomeSelected,

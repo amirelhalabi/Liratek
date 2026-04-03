@@ -62,11 +62,20 @@ function ProductSearch({
   // Date state for searching past sales, defaults to today
   const [selectedDate, setSelectedDate] = useState(() => {
     const today = new Date();
-    // Return YYYY-MM-DD
-    return today.toISOString().split("T")[0];
+    // Return YYYY-MM-DD in local timezone
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, "0");
+    const day = String(today.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
   });
 
-  const getTodayStr = () => new Date().toISOString().split("T")[0];
+  const getTodayStr = () => {
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, "0");
+    const day = String(today.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
   const isToday = selectedDate === getTodayStr();
 
   // A barcode is a purely numeric string with 6+ digits (barcode scanners input digits rapidly)
@@ -196,7 +205,7 @@ function ProductSearch({
   const displayDateStr = () => {
     if (isToday) return "Today's Sales";
     const [year, month, day] = selectedDate.split("-");
-    return `${day}/${month}/${year}`;
+    return `${day}/${month}/${year}'s Sales`;
   };
 
   return (
@@ -236,7 +245,14 @@ function ProductSearch({
                   {todaysSales.length}
                 </span>
               </div>
-
+              {!isToday && (
+                <button
+                  onClick={() => setSelectedDate(getTodayStr())}
+                  className="ml-2 text-xs text-violet-400 hover:text-violet-300 font-medium"
+                >
+                  Today
+                </button>
+              )}
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => shiftDate(-1)}
@@ -258,14 +274,6 @@ function ProductSearch({
                 >
                   <ChevronRight size={16} />
                 </button>
-                {!isToday && (
-                  <button
-                    onClick={() => setSelectedDate(getTodayStr())}
-                    className="ml-2 text-xs text-violet-400 hover:text-violet-300 font-medium"
-                  >
-                    Today
-                  </button>
-                )}
               </div>
             </div>
 

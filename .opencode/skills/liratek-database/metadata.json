@@ -1,0 +1,12 @@
+{
+  "name": "liratek-database",
+  "version": "1.0.0",
+  "author": "LiraTek Engineering",
+  "description": "Database skills for LiraTek POS - SQLite schema design, migrations, queries, and data integrity",
+  "license": "MIT",
+  "createdAt": "2026-03-20",
+  "categories": ["database", "sqlite", "sqlcipher", "migrations"],
+  "tags": ["sqlite", "migrations", "schema", "sql", "sqlcipher"],
+  "organization": "LiraTek",
+  "relatedSkills": ["liratek-backend", "liratek-modules"]
+}

@@ -239,3 +239,10 @@ export {
   resetVoiceBotService,
 } from "./VoiceBotService.js";
 export type { VoiceCommand, VoiceCommandPattern } from "./VoiceBotService.js";
+
+// Loto Service
+export {
+  LotoService,
+  getLotoService,
+  resetLotoService,
+} from "./LotoService.js";

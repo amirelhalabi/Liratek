@@ -1,0 +1,12 @@
+{
+  "name": "liratek-electron",
+  "version": "1.0.0",
+  "author": "LiraTek Engineering",
+  "description": "Electron skills for LiraTek POS - IPC handlers, preload bindings, session management, and main process",
+  "license": "MIT",
+  "createdAt": "2026-03-20",
+  "categories": ["electron", "ipc", "main-process", "preload"],
+  "tags": ["electron", "ipc", "handlers", "preload", "session"],
+  "organization": "LiraTek",
+  "relatedSkills": ["liratek-backend", "liratek-frontend", "liratek-devops"]
+}

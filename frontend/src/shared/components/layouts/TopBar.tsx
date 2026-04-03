@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { appEvents, useApi, type UINotification } from "@liratek/ui";
-import { LogOut, Bell, X, Search, Home } from "lucide-react";
+import { LogOut, Bell, X, Home } from "lucide-react";
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { useShopName } from "@/hooks/useShopName";
 import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
 import { CustomerSessionButton } from "@/features/sessions/components/CustomerSessionButton";
+import { VoiceBotButton } from "@/components/VoiceBotButton";
 
 interface TopBarProps {
   showHomeButton?: boolean;
@@ -172,17 +173,9 @@ export default function TopBar({
         {/* Customer Session Button (embedded in topbar) */}
         {flags.customerSessions && <CustomerSessionButton />}
 
-        {/* Search Bar (Global) */}
-        <div className="relative w-96">
-          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-            <Search className="h-4 w-4 text-slate-500" />
-          </div>
-          <input
-            type="text"
-            className="w-full pl-10 pr-4 py-2 bg-slate-900 border border-slate-700 rounded-lg focus:ring-2 focus:ring-violet-500 focus:border-transparent text-white placeholder-slate-500 text-sm"
-            placeholder="Global Search (Coming Soon)..."
-            disabled
-          />
+        {/* Voice Bot Button */}
+        <div className="relative">
+          <VoiceBotButton />
         </div>
       </div>
 

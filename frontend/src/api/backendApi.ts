@@ -2049,3 +2049,228 @@ export async function deleteCustomService(
       ),
   );
 }
+
+// ==================== Loto API ====================
+
+export async function lotoSell(data: {
+  ticket_number?: string;
+  sale_amount: number;
+  commission_rate?: number;
+  is_winner?: boolean;
+  prize_amount?: number;
+  sale_date?: string;
+  payment_method?: string;
+  currency?: string;
+  note?: string;
+}): Promise<{ success: boolean; ticket?: any; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().loto.sell(data),
+    async () =>
+      requestJson<{ success: boolean; ticket?: any; error?: string }>(
+        `/api/loto/sell`,
+        {
+          method: "POST",
+          body: data,
+        },
+      ),
+  );
+}
+
+export async function lotoGet(
+  id: number,
+): Promise<{ success: boolean; ticket?: any; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().loto.get(id),
+    async () => {
+      const res = await requestJson<{ success: boolean; ticket?: any }>(
+        `/api/loto/${id}`,
+      );
+      return res.ticket ?? null;
+    },
+  );
+}
+
+export async function lotoGetByDateRange(
+  from: string,
+  to: string,
+): Promise<{ success: boolean; tickets?: any[]; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().loto.getByDateRange(from, to),
+    async () => {
+      const res = await requestJson<{ success: boolean; tickets?: any[] }>(
+        `/api/loto?from=${from}&to=${to}`,
+      );
+      return res.tickets ?? [];
+    },
+  );
+}
+
+export async function lotoUpdate(
+  id: number,
+  data: any,
+): Promise<{ success: boolean; ticket?: any; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().loto.update(id, data),
+    async () =>
+      requestJson<{ success: boolean; ticket?: any; error?: string }>(
+        `/api/loto/${id}`,
+        {
+          method: "PUT",
+          body: data,
+        },
+      ),
+  );
+}
+
+export async function lotoReport(
+  from: string,
+  to: string,
+): Promise<{
+  success: boolean;
+  reportData?: {
+    total_tickets: number;
+    total_sales: number;
+    total_commission: number;
+    total_prizes: number;
+    outstanding_prizes: number;
+    total_fees: number;
+  };
+  error?: string;
+}> {
+  return ipcOrHttp(
+    async () => getElectronApi().loto.report(from, to),
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        reportData?: {
+          total_tickets: number;
+          total_sales: number;
+          total_commission: number;
+          total_prizes: number;
+          outstanding_prizes: number;
+          total_fees: number;
+        };
+      }>(`/api/loto/report?from=${from}&to=${to}`);
+      return res.reportData ?? null;
+    },
+  );
+}
+
+export async function lotoSettlement(
+  from: string,
+  to: string,
+): Promise<{
+  success: boolean;
+  settlement?: {
+    totalSales: number;
+    totalFees: number;
+    totalCommission: number;
+    totalPrizes: number;
+    shopPaysSupplier: number;
+    supplierPaysShop: number;
+    netSettlement: number;
+  };
+  error?: string;
+}> {
+  return ipcOrHttp(
+    async () => getElectronApi().loto.settlement(from, to),
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        settlement?: {
+          totalSales: number;
+          totalFees: number;
+          totalCommission: number;
+          totalPrizes: number;
+          shopPaysSupplier: number;
+          supplierPaysShop: number;
+          netSettlement: number;
+        };
+      }>(`/api/loto/settlement?from=${from}&to=${to}`);
+      return res.settlement ?? null;
+    },
+  );
+}
+
+export async function lotoFeesCreate(data: {
+  fee_amount: number;
+  fee_month: string;
+  fee_year: number;
+  recorded_date?: string;
+  note?: string;
+}): Promise<{ success: boolean; fee?: any; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().loto.fees.create(data),
+    async () =>
+      requestJson<{ success: boolean; fee?: any; error?: string }>(
+        `/api/loto/fees`,
+        {
+          method: "POST",
+          body: data,
+        },
+      ),
+  );
+}
+
+export async function lotoFeesGet(
+  year: number,
+): Promise<{ success: boolean; fees?: any[]; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().loto.fees.get(year),
+    async () => {
+      const res = await requestJson<{ success: boolean; fees?: any[] }>(
+        `/api/loto/fees?year=${year}`,
+      );
+      return res.fees ?? [];
+    },
+  );
+}
+
+export async function lotoFeesPay(
+  id: number,
+): Promise<{ success: boolean; fee?: any; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().loto.fees.pay(id),
+    async () =>
+      requestJson<{ success: boolean; fee?: any; error?: string }>(
+        `/api/loto/fees/${id}/pay`,
+        {
+          method: "POST",
+        },
+      ),
+  );
+}
+
+export async function lotoSettingsGet(): Promise<{
+  success: boolean;
+  settings?: Record<string, string>;
+  error?: string;
+}> {
+  return ipcOrHttp(
+    async () => getElectronApi().loto.settings.get(),
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        settings?: Record<string, string>;
+      }>(`/api/loto/settings`);
+      return res.settings ?? {};
+    },
+  );
+}
+
+export async function lotoSettingsUpdate(
+  key: string,
+  value: string,
+): Promise<{ success: boolean; setting?: any; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().loto.settings.update(key, value),
+    async () =>
+      requestJson<{ success: boolean; setting?: any; error?: string }>(
+        `/api/loto/settings/${key}`,
+        {
+          method: "PUT",
+          body: { value },
+        },
+      ),
+  );
+}

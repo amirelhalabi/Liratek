@@ -245,6 +245,46 @@ contextBridge.exposeInMainWorld("api", {
     }) => ipcRenderer.invoke("suppliers:settle-transactions", data),
   },
 
+  // Loto
+  loto: {
+    sell: (data: {
+      ticket_number?: string;
+      sale_amount: number;
+      commission_rate?: number;
+      is_winner?: boolean;
+      prize_amount?: number;
+      sale_date?: string;
+      payment_method?: string;
+      currency?: string;
+      note?: string;
+    }) => ipcRenderer.invoke("loto:sell", data),
+    get: (id: number) => ipcRenderer.invoke("loto:get", id),
+    getByDateRange: (from: string, to: string) =>
+      ipcRenderer.invoke("loto:get-by-date-range", from, to),
+    update: (id: number, data: any) =>
+      ipcRenderer.invoke("loto:update", id, data),
+    report: (from: string, to: string) =>
+      ipcRenderer.invoke("loto:report", from, to),
+    settlement: (from: string, to: string) =>
+      ipcRenderer.invoke("loto:settlement", from, to),
+    fees: {
+      create: (data: {
+        fee_amount: number;
+        fee_month: string;
+        fee_year: number;
+        recorded_date?: string;
+        note?: string;
+      }) => ipcRenderer.invoke("loto:fees:create", data),
+      get: (year: number) => ipcRenderer.invoke("loto:fees:get", year),
+      pay: (id: number) => ipcRenderer.invoke("loto:fees:pay", id),
+    },
+    settings: {
+      get: () => ipcRenderer.invoke("loto:settings:get"),
+      update: (key: string, value: string) =>
+        ipcRenderer.invoke("loto:settings:update", key, value),
+    },
+  },
+
   // Maintenance
   maintenance: {
     save: (job: unknown) => ipcRenderer.invoke("maintenance:save", job),

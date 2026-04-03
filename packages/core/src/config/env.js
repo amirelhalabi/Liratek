@@ -1,0 +1,156 @@
+/**
+ * Environment Configuration
+ *
+ * Centralized environment variable management with Zod validation and defaults.
+ * All environment variable access should go through this module.
+ */
+import { z } from "zod";
+import dotenv from "dotenv";
+// Load environment variables from root directory
+// Use process.cwd() for better Jest and Node.js compatibility
+import path from "path";
+const envPath = path.join(process.cwd(), ".env");
+dotenv.config({ path: envPath });
+dotenv.config();
+// =============================================================================
+// Environment Variables Schema (with Zod)
+// =============================================================================
+const envSchema = z
+  .object({
+    // Node environment
+    NODE_ENV: z
+      .enum(["development", "production", "test"])
+      .default("development"),
+    // Logging
+    LOG_LEVEL: z
+      .enum(["trace", "debug", "info", "warn", "error", "fatal"])
+      .default("info"),
+    LOG_DIR: z.string().optional(),
+    // Database
+    DATABASE_PATH: z.string().optional(),
+    DATABASE_KEY: z.string().optional(),
+    // Backend-specific (only needed when running backend)
+    PORT: z.coerce.number().int().positive().max(65535).default(3000),
+    HOST: z.string().default("0.0.0.0"),
+    CORS_ORIGIN: z.string().url().default("http://localhost:5173"),
+    JWT_SECRET: z.string().min(32).optional(),
+    JWT_EXPIRES_IN: z.string().default("7d"),
+    // Electron-specific (only needed when running electron app)
+    ELECTRON_RENDERER_URL: z.string().url().optional(),
+    // Voice Transcription (Qwen-ASR)
+    DASHSCOPE_API_KEY: z.string().optional(),
+    QWEN_ASR_MODEL: z.string().default("qwen3-asr-flash-realtime"),
+    QWEN_ASR_REGION: z.string().default("singapore"),
+    QWEN_ASR_LANGUAGE: z.string().default("en"),
+  })
+  .transform((data) => {
+    // Auto-adjust log level based on environment if not explicitly set
+    const hasLogLevel =
+      typeof process !== "undefined" &&
+      typeof process.env !== "undefined" &&
+      !!process.env.LOG_LEVEL;
+    if (!hasLogLevel) {
+      if (data.NODE_ENV === "development") {
+        data.LOG_LEVEL = "debug";
+      } else if (data.NODE_ENV === "test") {
+        data.LOG_LEVEL = "warn";
+      }
+    }
+    return data;
+  });
+// =============================================================================
+// Parse and Validate Environment
+// =============================================================================
+/**
+ * Parse and validate environment variables.
+ * Browser-safe: returns defaults if process is not available (Vite/frontend context).
+ */
+function parseEnv() {
+  // In browser/Vite context, process is not defined — return safe defaults
+  const isBrowser =
+    typeof process === "undefined" || typeof process.env === "undefined";
+  if (isBrowser) {
+    return envSchema.parse({});
+  }
+  const result = envSchema.safeParse({
+    NODE_ENV: process.env.NODE_ENV,
+    LOG_LEVEL: process.env.LOG_LEVEL,
+    LOG_DIR: process.env.LOG_DIR?.trim(),
+    DATABASE_PATH: process.env.DATABASE_PATH?.trim(),
+    DATABASE_KEY: process.env.DATABASE_KEY?.trim(),
+    PORT: process.env.PORT,
+    HOST: process.env.HOST,
+    CORS_ORIGIN: process.env.CORS_ORIGIN,
+    JWT_SECRET: process.env.JWT_SECRET,
+    JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN,
+    ELECTRON_RENDERER_URL: process.env.ELECTRON_RENDERER_URL,
+    DASHSCOPE_API_KEY: process.env.DASHSCOPE_API_KEY,
+    QWEN_ASR_MODEL: process.env.QWEN_ASR_MODEL,
+    QWEN_ASR_REGION: process.env.QWEN_ASR_REGION,
+    QWEN_ASR_LANGUAGE: process.env.QWEN_ASR_LANGUAGE,
+  });
+  if (!result.success) {
+    // Use stderr directly since logger isn't initialized yet
+    process.stderr.write("❌ Environment variable validation failed:\n");
+    process.stderr.write(JSON.stringify(result.error.format(), null, 2) + "\n");
+    throw new Error("Invalid environment configuration");
+  }
+  return result.data;
+}
+// =============================================================================
+// Exported Config
+// =============================================================================
+const env = parseEnv();
+export default env;
+// =============================================================================
+// Convenience Exports
+// =============================================================================
+export const isDevelopment = env.NODE_ENV === "development";
+export const isProduction = env.NODE_ENV === "production";
+export const isTest = env.NODE_ENV === "test";
+// Re-export for easy access
+export const {
+  NODE_ENV,
+  LOG_LEVEL,
+  LOG_DIR,
+  DATABASE_PATH,
+  DATABASE_KEY,
+  PORT,
+  HOST,
+  CORS_ORIGIN,
+  JWT_SECRET,
+  JWT_EXPIRES_IN,
+  ELECTRON_RENDERER_URL,
+  DASHSCOPE_API_KEY,
+  QWEN_ASR_MODEL,
+  QWEN_ASR_REGION,
+  QWEN_ASR_LANGUAGE,
+} = env;
+/**
+ * Validate that required environment variables are set for production
+ */
+export function validateProductionEnv() {
+  if (!isProduction) return;
+  const requiredVars = {
+    JWT_SECRET: env.JWT_SECRET,
+    DATABASE_KEY: env.DATABASE_KEY,
+  };
+  const missing = Object.entries(requiredVars)
+    .filter(([_, value]) => !value)
+    .map(([key]) => key);
+  if (missing.length > 0) {
+    throw new Error(
+      `Missing required environment variables for production: ${missing.join(", ")}`,
+    );
+  }
+  // Warn if using default values in production
+  if (env.CORS_ORIGIN === "http://localhost:5173") {
+    if (typeof process !== "undefined" && process.stderr) {
+      process.stderr.write(
+        "⚠️  WARNING: Using default CORS_ORIGIN in production\n",
+      );
+    } else {
+      console.warn("⚠️  WARNING: Using default CORS_ORIGIN in production");
+    }
+  }
+}

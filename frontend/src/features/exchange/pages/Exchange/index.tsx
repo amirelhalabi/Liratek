@@ -419,7 +419,7 @@ export default function Exchange() {
     toCurrency !== "USD";
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col h-full min-h-0 gap-6 overflow-hidden animate-in fade-in duration-500">
+    <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col min-h-0 gap-6 overflow-hidden animate-in fade-in duration-500">
       <PageHeader icon={RefreshCw} title="Exchange" />
 
       <div className="flex-1 min-h-0 flex gap-6">

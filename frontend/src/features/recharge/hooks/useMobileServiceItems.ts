@@ -12,7 +12,7 @@ import mobileServices from "@/data/mobileServices";
 // ─── Types ─────────────────────────────────────────────────────────────────
 
 /** Provider key as used in the financial_services DB table */
-export type ProviderKey = "IPEC" | "KATCH" | "WISH_APP";
+export type ProviderKey = "IPEC" | "KATCH" | "WISH_APP" | "OMT_APP";
 
 /** A single selectable service item */
 export interface ServiceItem {
@@ -27,6 +27,8 @@ export interface ServiceItem {
   label: string;
   /** Cost price from the catalog (in LBP) */
   catalogCost?: number;
+  /** Selling price from the catalog (in LBP) */
+  catalogSellPrice?: number;
   /** Saved default cost from item_costs table */
   savedCost?: number;
   /** Saved voucher image (base64 or URL) */
@@ -51,9 +53,10 @@ interface VoucherImageRow {
 
 /** Map from provider display name → DB provider key */
 const PROVIDER_MAP: Record<string, ProviderKey> = {
-  "i-Pick": "IPEC",
+  iPick: "IPEC",
   Katsh: "KATCH",
   "Whish App": "WISH_APP",
+  "OMT App": "OMT_APP",
 };
 
 // ─── Static catalog parsing (runs once) ────────────────────────────────────
@@ -82,7 +85,7 @@ function parseCatalog(): ServiceItem[] {
             itemsOrNested,
           )) {
             if (typeof costOrNested === "string") {
-              // Direct item: label → cost
+              // Old format: label → cost string (should not exist after migration)
               result.push({
                 key: `${providerKey}/${categoryName}/${subName}/${labelOrGroup}`,
                 provider: providerKey,
@@ -95,19 +98,51 @@ function parseCatalog(): ServiceItem[] {
               typeof costOrNested === "object" &&
               !Array.isArray(costOrNested)
             ) {
-              // One level deeper (e.g. Katsh > mobile topups > alfa > voucher > items)
-              for (const [deepLabel, deepCost] of Object.entries(
-                costOrNested,
-              )) {
-                if (typeof deepCost === "string") {
-                  result.push({
-                    key: `${providerKey}/${categoryName}/${subName}/${labelOrGroup}/${deepLabel}`,
-                    provider: providerKey,
-                    category: categoryName,
-                    subcategory: `${subName} / ${labelOrGroup}`,
-                    label: deepLabel,
-                    catalogCost: Number(deepCost),
-                  });
+              // Check if it's the new { cost, sell } format
+              if ("cost" in costOrNested) {
+                const pricing = costOrNested as { cost: string; sell: string };
+                result.push({
+                  key: `${providerKey}/${categoryName}/${subName}/${labelOrGroup}`,
+                  provider: providerKey,
+                  category: categoryName,
+                  subcategory: subName,
+                  label: labelOrGroup,
+                  catalogCost: Number(pricing.cost),
+                  catalogSellPrice: Number(pricing.sell),
+                });
+              } else {
+                // One level deeper (e.g. Katsh > mobile topups > alfa > voucher > items)
+                for (const [deepLabel, deepCost] of Object.entries(
+                  costOrNested,
+                )) {
+                  if (typeof deepCost === "string") {
+                    // Old format
+                    result.push({
+                      key: `${providerKey}/${categoryName}/${subName}/${labelOrGroup}/${deepLabel}`,
+                      provider: providerKey,
+                      category: categoryName,
+                      subcategory: `${subName} / ${labelOrGroup}`,
+                      label: deepLabel,
+                      catalogCost: Number(deepCost),
+                    });
+                  } else if (
+                    typeof deepCost === "object" &&
+                    deepCost !== null &&
+                    !Array.isArray(deepCost) &&
+                    "cost" in deepCost
+                  ) {
+                    // New { cost, sell } format
+                    const pricing = deepCost as { cost: string; sell: string };
+                    result.push({
+                      key: `${providerKey}/${categoryName}/${subName}/${labelOrGroup}/${deepLabel}`,
+                      provider: providerKey,
+                      category: categoryName,
+                      subcategory: `${subName} / ${labelOrGroup}`,
+                      label: deepLabel,
+                      catalogCost: Number(pricing.cost),
+                      catalogSellPrice: Number(pricing.sell),
+                    });
+                  }
                 }
               }
             }
@@ -190,6 +225,7 @@ export function useMobileServiceItems() {
       IPEC: [],
       KATCH: [],
       WISH_APP: [],
+      OMT_APP: [],
     };
     for (const item of items) {
       map[item.provider].push(item);

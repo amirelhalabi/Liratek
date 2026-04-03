@@ -35,8 +35,10 @@ interface CheckoutModalProps {
   onSaveDraft: (paymentData: PaymentData) => Promise<void>;
   onMinimize?: (checkoutData: CheckoutDraftData) => void;
   onEdit?: (checkoutData: CheckoutDraftData) => void;
+  onCancel?: () => void;
   draftData?: CheckoutDraftData; // optional: only provided when restoring a draft
   onRestoreDraftComplete?: () => void;
+  isDraft?: boolean;
 }
 
 export type CheckoutDraftData = {
@@ -108,8 +110,10 @@ export default function CheckoutModal({
   onSaveDraft,
   onMinimize,
   onEdit,
+  onCancel,
   draftData,
   onRestoreDraftComplete,
+  isDraft,
 }: CheckoutModalProps) {
   const api = useApi();
   const { activeSession } = useSession();
@@ -746,27 +750,38 @@ export default function CheckoutModal({
                     placeholder={exchangeRate.toString()}
                   />
                   <label className="text-xs text-slate-500">LBP</label>
-                  {onMinimize && (
-                    <button
-                      onClick={() =>
-                        onMinimize({
-                          selectedClient,
-                          clientSearchInput: clientSearch,
-                          clientSearchSecondary: secondaryInput,
-                          discount,
-                          paidUSD,
-                          paidLBP,
-                          changeGivenUSD,
-                          changeGivenLBP,
-                          exchangeRate: effectiveExchangeRate,
-                        })
-                      }
-                      className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
-                      title="Minimize Order"
-                    >
-                      <Minus size={20} />
-                    </button>
-                  )}
+                  <div className="flex items-center gap-1">
+                    {onMinimize && (
+                      <button
+                        onClick={() =>
+                          onMinimize({
+                            selectedClient,
+                            clientSearchInput: clientSearch,
+                            clientSearchSecondary: secondaryInput,
+                            discount,
+                            paidUSD,
+                            paidLBP,
+                            changeGivenUSD,
+                            changeGivenLBP,
+                            exchangeRate: effectiveExchangeRate,
+                          })
+                        }
+                        className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
+                        title="Minimize Order"
+                      >
+                        <Minus size={20} />
+                      </button>
+                    )}
+                    {onCancel && (
+                      <button
+                        onClick={onCancel}
+                        className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-700 rounded-lg transition-colors"
+                        title="Cancel Order"
+                      >
+                        <X size={20} />
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -1185,13 +1200,15 @@ export default function CheckoutModal({
             </div>
 
             <div className="mt-4 flex gap-3">
-              <button
-                onClick={handleSaveDraft}
-                disabled={isLoading}
-                className="px-6 py-4 rounded-xl text-violet-300 hover:text-violet-100 hover:bg-violet-900/30 transition-colors font-medium border border-violet-500/30"
-              >
-                Save Draft
-              </button>
+              {!isDraft && (
+                <button
+                  onClick={handleSaveDraft}
+                  disabled={isLoading}
+                  className="px-6 py-4 rounded-xl text-violet-300 hover:text-violet-100 hover:bg-violet-900/30 transition-colors font-medium border border-violet-500/30"
+                >
+                  Save Draft
+                </button>
+              )}
               <button
                 onClick={() => setShowReceiptPreview(true)}
                 disabled={isLoading}

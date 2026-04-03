@@ -1,0 +1,19 @@
+{
+  "name": "liratek-backend",
+  "version": "1.0.0",
+  "author": "LiraTek Engineering",
+  "description": "Backend development skills for LiraTek POS - Repository pattern, Service pattern, business logic, and database operations",
+  "license": "MIT",
+  "createdAt": "2026-03-20",
+  "categories": ["backend", "typescript", "nodejs", "sqlite"],
+  "tags": [
+    "repository-pattern",
+    "service-pattern",
+    "business-logic",
+    "database",
+    "sqlite",
+    "sqlcipher"
+  ],
+  "organization": "LiraTek",
+  "relatedSkills": ["liratek-database", "liratek-electron", "liratek-testing"]
+}

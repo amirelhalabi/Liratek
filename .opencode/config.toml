@@ -1,0 +1,38 @@
+# Opencode Configuration for LiraTek POS
+
+[profile.liratek]
+description = "LiraTek - Desktop POS System for Retail Management"
+agent = "engineer"
+
+[profile.liratek.instructions]
+- This is a monorepo with Yarn Workspaces (frontend, electron-app, packages/core, packages/ui)
+- Tech stack: React 18 + Vite + TypeScript + Electron 31 + SQLite
+- Database migrations in packages/core/src/db/migrations/ (current version: 47)
+- Use window.api.* for IPC calls (NOT window.electron.*)
+- All business logic in packages/core/src/services/
+- IPC handlers in electron-app/handlers/ are thin wrappers
+- Use module-specific loggers (salesLogger, lotoLogger, etc.)
+- Always run typecheck and lint before committing
+
+[profile.liratek.rules]
+- Use TypeScript strictly - no `any` types
+- Named exports preferred (default only for pages/components)
+- Use `@/` alias for frontend/src/ imports
+- All data structures need TypeScript interfaces
+- Use parameterized SQL queries (never concatenate)
+- All tables need created_at and updated_at
+- IPC handlers return { success, data?, error? }
+
+[profile.liratek.modules]
+active = [
+  "pos", "debts", "inventory", "clients", "exchange",
+  "omt_whish", "recharge", "loto", "expenses", 
+  "maintenance", "custom_services", "closing", "profits"
+]
+
+[profile.liratek.database]
+type = "sqlite"
+encryption = "sqlcipher"
+migrations = "packages/core/src/db/migrations/index.ts"
+schema = "electron-app/create_db.sql"
+current_version = 47

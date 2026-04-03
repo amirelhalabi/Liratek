@@ -22,11 +22,9 @@ import {
 } from "@liratek/ui";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { useExchangeRate } from "@/hooks/useExchangeRate";
+import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { DataTable } from "@/shared/components/DataTable";
-import {
-  MultiPaymentInput,
-  type PaymentLine,
-} from "@/shared/components/MultiPaymentInput";
+import { MultiPaymentInput, type PaymentLine } from "@liratek/ui";
 import {
   ServiceDebtDetailModal,
   type FinancialServiceData,
@@ -48,6 +46,7 @@ type SortOrder = "desc" | "asc";
 export default function Debts() {
   const api = useApi();
   const { user } = useAuth();
+  const { allMethods: methods } = usePaymentMethods();
   const { rate: EXCHANGE_RATE } = useExchangeRate("USD", "LBP");
 
   type DebtHistoryItem = DebtLedgerEntity & {
@@ -436,10 +435,10 @@ export default function Debts() {
   }, [filteredDebtors, selectedClient]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 space-y-6 animate-in fade-in duration-500">
+    <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500">
       <PageHeader icon={BookOpen} title="Debts" />
 
-      <div className="flex h-full min-h-0 gap-6 overflow-hidden">
+      <div className="flex flex-1 min-h-0 gap-6 overflow-hidden">
         {/* Left: Debtors List */}
         <div className="w-[280px] min-w-[280px] flex flex-col bg-slate-800 rounded-xl border border-slate-700 shadow-xl overflow-hidden">
           <div className="p-4 border-b border-slate-700 space-y-4">
@@ -971,8 +970,13 @@ export default function Debts() {
                   totalAmount={totalDebt}
                   currency="USD"
                   onChange={setRepayPaymentLines}
-                  transactionType="DEBT_PAYMENT"
                   showPmFee={false}
+                  paymentMethods={methods}
+                  currencies={[
+                    { code: "USD", symbol: "$" },
+                    { code: "LBP", symbol: "L£" },
+                  ]}
+                  exchangeRate={EXCHANGE_RATE}
                 />
 
                 <div>
@@ -1147,8 +1151,6 @@ export default function Debts() {
           </div>
         </div>
       )}
-
-      {/* Voice Bot Button */}
     </div>
   );
 }

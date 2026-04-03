@@ -162,6 +162,36 @@ export default function ProductList() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isImporting, setIsImporting] = useState(false);
 
+  // Minimized product forms
+  type MinimizedProduct = {
+    id: string;
+    formData: {
+      barcode: string;
+      name: string;
+      category: string;
+      cost_price: number;
+      retail_price: number;
+      min_stock_level: number;
+      stock_quantity: number;
+      supplier: string;
+    };
+    editingProduct: Product | null;
+    createdAt: string;
+  };
+  const [minimizedProducts, setMinimizedProducts] = useState<
+    MinimizedProduct[]
+  >(() => {
+    try {
+      const stored = localStorage.getItem("products_minimized_forms");
+      if (stored) {
+        return JSON.parse(stored);
+      }
+    } catch (error) {
+      logger.error("Failed to load minimized products:", error);
+    }
+    return [];
+  });
+
   // ── Batch selection ───────────────────────────────────────────────
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   /** Tracks the current visible (sorted+paginated) product order from DataTable */
@@ -381,6 +411,55 @@ export default function ProductList() {
     window.api?.display?.fixFocus();
   };
 
+  const handleMinimizeProduct = (data: {
+    formData: MinimizedProduct["formData"];
+    editingProduct: Product | null;
+  }) => {
+    const minimizedProduct: MinimizedProduct = {
+      id: `product-${Date.now()}`,
+      formData: data.formData,
+      editingProduct: data.editingProduct,
+      createdAt: new Date().toISOString(),
+    };
+    setMinimizedProducts((prev) => [...prev, minimizedProduct]);
+    setIsFormOpen(false);
+    setEditingProduct(null);
+  };
+
+  const handleRestoreProduct = (productId: string) => {
+    const minimized = minimizedProducts.find((p) => p.id === productId);
+    if (!minimized) return;
+
+    setEditingProduct(minimized.editingProduct);
+    setInitialFormData(minimized.formData);
+    setIsFormOpen(true);
+    setMinimizedProducts((prev) => prev.filter((p) => p.id !== productId));
+  };
+
+  const handleCancelMinimizedProduct = (
+    productId: string,
+    e: React.MouseEvent,
+  ) => {
+    e.stopPropagation();
+    setMinimizedProducts((prev) => prev.filter((p) => p.id !== productId));
+  };
+
+  const [initialFormData, setInitialFormData] = useState<
+    MinimizedProduct["formData"] | null
+  >(null);
+
+  // Persist minimized products to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        "products_minimized_forms",
+        JSON.stringify(minimizedProducts),
+      );
+    } catch (error) {
+      logger.error("Failed to save minimized products:", error);
+    }
+  }, [minimizedProducts]);
+
   const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -496,7 +575,7 @@ export default function ProductList() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 space-y-6">
+    <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500">
       {/* Hidden file input for .toon import */}
       <input
         ref={fileInputRef}
@@ -548,7 +627,7 @@ export default function ProductList() {
       </div>
 
       {/* Table */}
-      <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden shadow-xl">
+      <div className="flex-1 min-h-0 bg-slate-800 rounded-xl border border-slate-700 overflow-auto shadow-xl">
         <DataTable
           headerActions={
             selectedIds.size > 0 ? (
@@ -927,6 +1006,8 @@ export default function ProductList() {
           onClose={handleClose}
           onSave={handleSave}
           product={editingProduct}
+          onMinimize={handleMinimizeProduct}
+          initialFormData={initialFormData}
         />
       )}
 
@@ -950,6 +1031,46 @@ export default function ProductList() {
         onCancel={() => setShowBatchDeleteConfirm(false)}
         variant="danger"
       />
+
+      {/* Minimized Products Bar */}
+      {minimizedProducts.length > 0 && (
+        <div className="fixed bottom-0 left-0 right-0 bg-slate-900/95 backdrop-blur-md border-t border-slate-700 shadow-2xl z-40">
+          <div className="flex items-center gap-2 px-4 py-2 overflow-x-auto">
+            {minimizedProducts.map((product, index) => {
+              const productName = product.formData.name || "New Product";
+              const isEditing = product.editingProduct !== null;
+
+              return (
+                <button
+                  key={product.id}
+                  onClick={() => handleRestoreProduct(product.id)}
+                  className="flex items-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-600 hover:border-violet-500 rounded-lg transition-all shrink-0 group min-w-[200px]"
+                >
+                  <Package size={16} className="text-violet-400" />
+                  <div className="flex-1 text-left min-w-0">
+                    <div className="text-xs font-medium text-white truncate">
+                      {productName}
+                    </div>
+                    <div className="text-[10px] text-slate-400">
+                      {isEditing ? "Editing" : "New Product"}
+                    </div>
+                  </div>
+                  {index === minimizedProducts.length - 1 && (
+                    <div className="w-2 h-2 bg-violet-500 rounded-full animate-pulse" />
+                  )}
+                  <button
+                    onClick={(e) => handleCancelMinimizedProduct(product.id, e)}
+                    className="ml-1 p-1 text-slate-400 hover:text-red-400 hover:bg-slate-700 rounded transition-colors"
+                    title="Cancel"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

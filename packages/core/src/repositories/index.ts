@@ -307,3 +307,19 @@ export type {
   ProductSupplier,
   ProductSupplierWithCount,
 } from "./ProductSupplierRepository.js";
+
+// Loto Repository
+export {
+  LotoRepository,
+  getLotoRepository,
+  resetLotoRepository,
+} from "./LotoRepository.js";
+export type {
+  LotoTicket,
+  LotoTicketCreate,
+  LotoTicketUpdate,
+  LotoMonthlyFee,
+  LotoMonthlyFeeCreate,
+  LotoSetting,
+  LotoReportData,
+} from "./LotoRepository.js";

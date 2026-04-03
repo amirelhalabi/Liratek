@@ -78,9 +78,8 @@ export type StockStats = {
 };
 
 export type VirtualStock = {
-  carrier: string;
-  denomination: number;
-  stock: number;
+  mtc: number;
+  alfa: number;
 };
 
 export type MonthlyPL = {
@@ -238,7 +237,7 @@ export type ApiAdapter = {
   // ---------------------------------------------------------------------------
   // Recharge
   // ---------------------------------------------------------------------------
-  getRechargeStock: () => Promise<VirtualStock[]>;
+  getRechargeStock: () => Promise<VirtualStock>;
   processRecharge: (payload: any) => Promise<ApiResult>;
   topUpRecharge: (payload: {
     provider: "MTC" | "Alfa";

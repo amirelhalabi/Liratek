@@ -1,0 +1,12 @@
+{
+  "name": "liratek-frontend",
+  "version": "1.0.0",
+  "author": "LiraTek Engineering",
+  "description": "Frontend development skills for LiraTek POS - React components, pages, routes, TypeScript types, and UI patterns",
+  "license": "MIT",
+  "createdAt": "2026-03-20",
+  "categories": ["frontend", "react", "typescript", "vite"],
+  "tags": ["react", "components", "pages", "typescript", "tailwindcss", "vite"],
+  "organization": "LiraTek",
+  "relatedSkills": ["liratek-electron", "liratek-backend", "liratek-testing"]
+}

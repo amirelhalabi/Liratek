@@ -382,6 +382,7 @@ async function registerHandlers() {
     const rechargeHandlers = await import("./handlers/rechargeHandlers.js");
     const reportHandlers = await import("./handlers/reportHandlers.js");
     const salesHandlers = await import("./handlers/salesHandlers.js");
+    const lotoHandlers = await import("./handlers/lotoHandlers.js");
     const supplierHandlers = await import("./handlers/supplierHandlers.js");
     const updaterHandlers = await import("./handlers/updaterHandlers.js");
     const sessionHandlers = await import("./handlers/sessionHandlers.js");
@@ -416,6 +417,7 @@ async function registerHandlers() {
     rechargeHandlers.registerRechargeHandlers();
     reportHandlers.registerReportHandlers();
     salesHandlers.registerSalesHandlers();
+    lotoHandlers.registerLotoHandlers();
     supplierHandlers.registerSupplierHandlers();
     updaterHandlers.registerUpdaterHandlers();
     sessionHandlers.registerSessionHandlers();
@@ -441,6 +443,9 @@ async function registerHandlers() {
     });
 
     logger.info("All IPC handlers registered");
+
+    // Check and record Loto monthly fee if it's the first Monday
+    lotoHandlers.checkLotoMonthlyFee();
 
     // Start periodic session cleanup
     startSessionCleanup();

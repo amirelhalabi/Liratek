@@ -442,7 +442,7 @@ export default function Profits() {
   // ---------- Render ----------
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 space-y-6">
+    <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500">
       <PageHeader icon={TrendingUp} title="Profits" />
 
       {/* Tab bar + date range */}
@@ -473,6 +473,8 @@ export default function Profits() {
         />
       </div>
 
+      {/* Scrollable content area */}
+      <div className="flex-1 min-h-0 overflow-auto space-y-6">
       {/* Loading */}
       {loading && (
         <div className="text-center py-12 text-gray-400">Loading...</div>
@@ -1545,6 +1547,7 @@ export default function Profits() {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

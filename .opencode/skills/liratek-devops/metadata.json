@@ -1,0 +1,12 @@
+{
+  "name": "liratek-devops",
+  "version": "1.0.0",
+  "author": "LiraTek Engineering",
+  "description": "DevOps skills for LiraTek POS - CI/CD pipelines, GitHub Actions, build automation, and release management",
+  "license": "MIT",
+  "createdAt": "2026-03-20",
+  "categories": ["devops", "cicd", "github-actions", "build"],
+  "tags": ["ci-cd", "github-actions", "build", "release", "electron-builder"],
+  "organization": "LiraTek",
+  "relatedSkills": ["liratek-electron", "liratek-testing"]
+}

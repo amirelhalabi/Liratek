@@ -530,6 +530,101 @@ export interface ElectronAPI {
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
   };
 
+  // Loto
+  loto: {
+    sell: (data: {
+      ticket_number?: string;
+      sale_amount: number;
+      commission_rate?: number;
+      is_winner?: boolean;
+      prize_amount?: number;
+      sale_date?: string;
+      payment_method?: string;
+      currency?: string;
+      note?: string;
+    }) => Promise<{ success: boolean; ticket?: any; error?: string }>;
+    get: (
+      id: number,
+    ) => Promise<{ success: boolean; ticket?: any; error?: string }>;
+    getByDateRange: (
+      from: string,
+      to: string,
+    ) => Promise<{
+      success: boolean;
+      tickets?: any[];
+      error?: string;
+    }>;
+    update: (
+      id: number,
+      data: any,
+    ) => Promise<{
+      success: boolean;
+      ticket?: any;
+      error?: string;
+    }>;
+    report: (
+      from: string,
+      to: string,
+    ) => Promise<{
+      success: boolean;
+      reportData?: {
+        total_tickets: number;
+        total_sales: number;
+        total_commission: number;
+        total_prizes: number;
+        outstanding_prizes: number;
+        total_fees: number;
+      };
+      error?: string;
+    }>;
+    settlement: (
+      from: string,
+      to: string,
+    ) => Promise<{
+      success: boolean;
+      settlement?: {
+        totalSales: number;
+        totalFees: number;
+        totalCommission: number;
+        totalPrizes: number;
+        shopPaysSupplier: number;
+        supplierPaysShop: number;
+        netSettlement: number;
+      };
+      error?: string;
+    }>;
+    fees: {
+      create: (data: {
+        fee_amount: number;
+        fee_month: string;
+        fee_year: number;
+        recorded_date?: string;
+        note?: string;
+      }) => Promise<{ success: boolean; fee?: any; error?: string }>;
+      get: (
+        year: number,
+      ) => Promise<{ success: boolean; fees?: any[]; error?: string }>;
+      pay: (
+        id: number,
+      ) => Promise<{ success: boolean; fee?: any; error?: string }>;
+    };
+    settings: {
+      get: () => Promise<{
+        success: boolean;
+        settings?: Record<string, string>;
+        error?: string;
+      }>;
+      update: (
+        key: string,
+        value: string,
+      ) => Promise<{
+        success: boolean;
+        setting?: any;
+        error?: string;
+      }>;
+    };
+  };
+
   // Maintenance
   maintenance: {
     save: (job: {

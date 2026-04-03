@@ -1799,6 +1799,116 @@ export const MIGRATIONS: Migration[] = [
     },
   },
   addSenderReceiverFieldsMigration,
+  {
+    version: 47,
+    name: "add_loto_module",
+    description:
+      "Add Loto module: tables, settings, supplier, and module entry",
+    type: "typescript",
+    up(db) {
+      // Create loto_tickets table
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS loto_tickets (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          ticket_number TEXT,
+          sale_amount REAL NOT NULL,
+          commission_rate REAL DEFAULT 0.0445,
+          commission_amount REAL NOT NULL,
+          is_winner INTEGER DEFAULT 0,
+          prize_amount REAL DEFAULT 0,
+          prize_paid_date TEXT,
+          sale_date TEXT NOT NULL,
+          payment_method TEXT,
+          currency TEXT DEFAULT 'LBP',
+          note TEXT,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      // Create indexes
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_loto_tickets_sale_date ON loto_tickets(sale_date);
+        CREATE INDEX IF NOT EXISTS idx_loto_tickets_is_winner ON loto_tickets(is_winner);
+      `);
+
+      // Create loto_settings table
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS loto_settings (
+          key_name TEXT PRIMARY KEY,
+          value TEXT NOT NULL,
+          description TEXT,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      // Insert default settings
+      db.exec(`
+        INSERT OR IGNORE INTO loto_settings (key_name, value, description)
+        VALUES 
+          ('commission_rate', '0.0445', 'Commission rate (4.45%)'),
+          ('monthly_fee_amount', '1400000', 'Monthly machine fee in LBP'),
+          ('auto_record_monthly_fee', '1', 'Enable/disable auto-recording of monthly fee')
+      `);
+
+      // Create loto_monthly_fees table
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS loto_monthly_fees (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          fee_amount REAL NOT NULL,
+          fee_month TEXT NOT NULL,
+          fee_year INTEGER NOT NULL,
+          recorded_date TEXT NOT NULL,
+          is_paid INTEGER DEFAULT 0,
+          paid_date TEXT,
+          note TEXT,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      // Add Loto supplier
+      db.exec(`
+        INSERT OR IGNORE INTO suppliers (name, provider, is_active)
+        VALUES ('Loto Liban', 'LOTO', 1)
+      `);
+
+      // Add Loto module
+      db.exec(`
+        INSERT OR IGNORE INTO modules (key, label, icon, route, sort_order, admin_only)
+        VALUES ('loto', 'Loto', 'Ticket', '/loto', 16, 0)
+      `);
+
+      // Add currency-modules for Loto
+      db.exec(`
+        INSERT OR IGNORE INTO currency_modules (currency_code, module_key)
+        VALUES ('USD', 'loto'), ('LBP', 'loto')
+      `);
+
+      // Add currency-drawers for Loto
+      db.exec(`
+        INSERT OR IGNORE INTO currency_drawers (currency_code, drawer_name)
+        VALUES ('USD', 'Loto'), ('LBP', 'Loto')
+      `);
+
+      console.log("Migration v47: Loto module added");
+    },
+    down(db) {
+      // Drop tables
+      db.exec(`DROP TABLE IF EXISTS loto_monthly_fees`);
+      db.exec(`DROP TABLE IF EXISTS loto_settings`);
+      db.exec(`DROP TABLE IF EXISTS loto_tickets`);
+
+      // Remove supplier
+      db.exec(
+        `DELETE FROM suppliers WHERE name = 'Loto Liban' AND provider = 'LOTO'`,
+      );
+
+      // Remove module
+      db.exec(`DELETE FROM modules WHERE key = 'loto'`);
+
+      console.log("Migration v47 rolled back: Loto module removed");
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

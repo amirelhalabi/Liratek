@@ -41,19 +41,19 @@ export function calculateProfitSpread(
 }
 
 /**
- * Get effective buy rate for a currency (we give USD / customer pays in this currency).
- * Formula: market_rate + is_stronger × (+1 × delta)
+ * Get effective buy rate for a currency (we pay customer — favorable to us, lower value).
+ * buyRate = min(market + delta, market - delta)
  */
 export function getBuyRate(rate: ExchangeRate): number {
-  return rate.market_rate + rate.is_stronger * rate.delta;
+  return Math.min(rate.market_rate + rate.delta, rate.market_rate - rate.delta);
 }
 
 /**
- * Get effective sell rate for a currency (customer gives USD / we give this currency).
- * Formula: market_rate + is_stronger × (-1 × delta)
+ * Get effective sell rate for a currency (customer pays us — favorable to us, higher value).
+ * sellRate = max(market + delta, market - delta)
  */
 export function getSellRate(rate: ExchangeRate): number {
-  return rate.market_rate + rate.is_stronger * (-1 * rate.delta);
+  return Math.max(rate.market_rate + rate.delta, rate.market_rate - rate.delta);
 }
 
 /**

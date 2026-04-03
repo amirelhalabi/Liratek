@@ -29,8 +29,34 @@ export type {
   SaleItemEntity as SaleItem,
 } from "./repositories/index.js";
 
+// Loto (explicit exports due to TS wildcard issue)
+export type {
+  LotoTicket,
+  LotoTicketCreate,
+  LotoTicketUpdate,
+  LotoMonthlyFee,
+  LotoMonthlyFeeCreate,
+  LotoSetting,
+  LotoReportData,
+} from "./repositories/LotoRepository.js";
+export {
+  LotoRepository,
+  getLotoRepository,
+  resetLotoRepository,
+} from "./repositories/LotoRepository.js";
+
 // Services
 export * from "./services/index.js";
+
+// Loto Service (explicit exports)
+export {
+  LotoService,
+  getLotoService,
+  resetLotoService,
+} from "./services/LotoService.js";
+
+// Loto Logger
+export { lotoLogger } from "./utils/logger.js";
 
 // Validators
 export * from "./validators/index.js";

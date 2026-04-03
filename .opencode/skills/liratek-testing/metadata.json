@@ -1,0 +1,12 @@
+{
+  "name": "liratek-testing",
+  "version": "1.0.0",
+  "author": "LiraTek Engineering",
+  "description": "Testing skills for LiraTek POS - Unit tests, integration tests, and test automation",
+  "license": "MIT",
+  "createdAt": "2026-03-20",
+  "categories": ["testing", "unit-tests", "integration-tests", "automation"],
+  "tags": ["testing", "jest", "vitest", "playwright", "e2e"],
+  "organization": "LiraTek",
+  "relatedSkills": ["liratek-backend", "liratek-frontend", "liratek-devops"]
+}

@@ -17,10 +17,7 @@ import { useSession } from "@/features/sessions/context/SessionContext";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { PageHeader, Select, useApi, appEvents } from "@liratek/ui";
 import { DataTable } from "@/shared/components/DataTable";
-import {
-  MultiPaymentInput,
-  type PaymentLine,
-} from "@/shared/components/MultiPaymentInput";
+import { MultiPaymentInput, type PaymentLine } from "@liratek/ui";
 
 type Provider = "OMT" | "WHISH";
 type ServiceType = "SEND" | "RECEIVE";
@@ -801,7 +798,7 @@ export default function Services() {
   );
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 h-full min-h-0 flex flex-col gap-4 animate-in fade-in duration-300">
+    <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 min-h-0 flex flex-col gap-4 overflow-hidden animate-in fade-in duration-300">
       <PageHeader icon={Send} title="OMT/Whish" />
 
       <div className="flex-1 min-h-0 overflow-auto">
@@ -1405,11 +1402,19 @@ export default function Services() {
                       !!(serviceType === "SEND" ? senderName : receiverName) ||
                       !!(serviceType === "SEND" ? senderPhone : receiverPhone)
                     }
-                    transactionType="SERVICE_PAYMENT"
                     showPmFee={multiPmFeeApplies}
                     pmFeeRate={PM_FEE_DEFAULT_RATE}
                     onPmFeesChange={setMultiPmFees}
                     providerFee={serviceType === "SEND" ? renderProviderFee : 0}
+                    paymentMethods={drawerAffectingMethods}
+                    currencies={[
+                      { code: "USD", symbol: "$" },
+                      { code: "LBP", symbol: "L£" },
+                    ]}
+                    exchangeRate={Number(
+                      localStorage.getItem("alfa_credit_sell_rate_lbp") ||
+                        "100000",
+                    )}
                   />
                 )}
               </div>
@@ -1900,8 +1905,6 @@ export default function Services() {
           </div>
         </div>
       )}
-
-      {/* Voice Bot Button */}
     </div>
   );
 }

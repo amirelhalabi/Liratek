@@ -1022,7 +1022,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       const targetDate = date ? date : "now";
       const dateFunc = date ? "?" : "DATE('now', 'localtime')";
 
-      return this.query<RecentSale>(
+      const result = this.query<RecentSale>(
         `
         SELECT 
           s.id,
@@ -1042,6 +1042,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       `,
         ...(date ? [targetDate, limit] : [limit]),
       );
+
+      return result;
     } catch (error) {
       throw new DatabaseError("Failed to get recent sales", { cause: error });
     }
