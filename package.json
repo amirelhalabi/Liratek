@@ -4,7 +4,7 @@
   "description": "Electron",
   "author": "Amir <amir@liratek.com>",
   "private": true,
-  "version": "1.18.34",
+  "version": "1.18.37",
   "type": "module",
   "main": "dist-electron/main.js",
   "workspaces": [
@@ -40,7 +40,7 @@
     "typecheck:frontend": "cd frontend && npm run typecheck",
     "typecheck:backend": "cd backend && npm run typecheck",
     "typecheck:electron": "cd electron-app && npx tsc --noEmit",
-    "ci:build:win": "electron-builder --win",
+    "ci:build:win": "electron-builder --win --publish always",
     "ci:build:mac:arm": "electron-builder --mac --arm64",
     "ci:build:mac:intel": "electron-builder --mac --x64",
     "clean": "rimraf dist dist-electron coverage releases release frontend/dist frontend/coverage backend/dist backend/coverage electron-app/dist",
