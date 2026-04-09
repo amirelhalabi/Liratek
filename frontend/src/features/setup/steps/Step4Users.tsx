@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useSetup } from "../context/SetupContext";
-import { Plus, Trash2, AlertCircle } from "lucide-react";
-import { useCapsLock } from "@/hooks/useCapsLock";
+import { Plus, Trash2 } from "lucide-react";
+import PasswordInput from "@/shared/components/PasswordInput";
+import { TextInput } from "@liratek/ui";
 
 export default function Step4Users() {
   const { payload, updatePayload, setStep } = useSetup();
@@ -10,7 +11,6 @@ export default function Step4Users() {
     password: "",
     role: "staff",
   });
-  const { capsLock, capsLockProps } = useCapsLock();
 
   const addUser = () => {
     if (!newUser.username.trim() || !newUser.password) return;
@@ -76,24 +76,19 @@ export default function Step4Users() {
         )}
 
         <div className="grid grid-cols-3 gap-2">
-          <input
-            type="text"
-            placeholder="Username"
+          <TextInput
             value={newUser.username}
-            onChange={(e) =>
-              setNewUser((p) => ({ ...p, username: e.target.value }))
-            }
-            className={inputCls}
+            onChange={(value) => setNewUser((p) => ({ ...p, username: value }))}
+            label=""
+            placeholder="Username"
+            compact
           />
-          <input
-            type="password"
-            placeholder="Password"
+          <PasswordInput
             value={newUser.password}
-            onChange={(e) =>
-              setNewUser((p) => ({ ...p, password: e.target.value }))
-            }
-            className={inputCls}
-            {...capsLockProps}
+            onChange={(value) => setNewUser((p) => ({ ...p, password: value }))}
+            label=""
+            placeholder="Password"
+            compact
           />
           <div className="flex gap-2">
             <select
@@ -114,12 +109,6 @@ export default function Step4Users() {
             </button>
           </div>
         </div>
-        {capsLock && (
-          <p className="text-xs text-amber-400 flex items-center gap-1">
-            <AlertCircle size={12} />
-            Caps Lock is on
-          </p>
-        )}
       </div>
 
       {/* WhatsApp */}
@@ -144,13 +133,12 @@ export default function Step4Users() {
           </div>
           <div>
             <label className="block text-xs text-slate-400 mb-1">API Key</label>
-            <input
-              type="password"
+            <PasswordInput
               value={payload.whatsapp_api_key}
-              onChange={(e) =>
-                updatePayload({ whatsapp_api_key: e.target.value })
-              }
-              className={inputCls}
+              onChange={(value) => updatePayload({ whatsapp_api_key: value })}
+              label=""
+              placeholder="Enter API Key"
+              compact
             />
           </div>
         </div>

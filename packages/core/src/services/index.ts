@@ -246,3 +246,4 @@ export {
   getLotoService,
   resetLotoService,
 } from "./LotoService.js";
+export type { SellTicketData, SettlementData } from "./LotoService.js";

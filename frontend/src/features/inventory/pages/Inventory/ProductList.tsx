@@ -14,8 +14,7 @@ import { useAuth } from "@/features/auth/context/AuthContext";
 import { PageHeader, useApi, appEvents } from "@liratek/ui";
 import ProductForm from "./ProductForm";
 import type { Product } from "@liratek/ui";
-import { DataTable } from "@/shared/components/DataTable";
-import { ConfirmModal } from "@/shared/components/ConfirmModal";
+import { DataTable, ConfirmModal } from "@liratek/ui";
 
 interface BatchUpdateFields {
   category?: string;

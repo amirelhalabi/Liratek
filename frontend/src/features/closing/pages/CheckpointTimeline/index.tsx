@@ -1,13 +1,15 @@
 import { useState, useEffect, useMemo } from "react";
 import { PageHeader } from "@liratek/ui";
-import { Clock, TrendingUp, TrendingDown } from "lucide-react";
-import { DataTable } from "@/shared/components/DataTable";
+import { Clock, TrendingUp, TrendingDown, Eye } from "lucide-react";
+import { DataTable } from "@liratek/ui";
+import OpeningModal from "../Opening";
 
 interface CheckpointCurrency {
   currency_code: string;
   opening_amount: number;
   physical_amount?: number;
   variance?: number;
+  drawer_name?: string;
 }
 
 interface CheckpointRecord {
@@ -41,6 +43,9 @@ export default function CheckpointTimeline() {
     type: "ALL",
     drawer_name: "",
   });
+  const [viewCheckpoint, setViewCheckpoint] = useState<CheckpointRecord | null>(
+    null,
+  );
 
   useEffect(() => {
     loadCheckpoints();
@@ -90,13 +95,16 @@ export default function CheckpointTimeline() {
     return Array.from(currencySet).sort();
   }, [checkpoints]);
 
-  // Get currencies for a specific drawer
-  const getDrawerCurrencies = (
-    checkpoint: CheckpointRecord,
-  ): CheckpointCurrency[] => {
-    return checkpoint.currencies.sort((a, b) =>
-      a.currency_code.localeCompare(b.currency_code),
-    );
+  // Get aggregated totals by currency (for timeline display)
+  const getAggregatedTotals = (checkpoint: CheckpointRecord) => {
+    const totals: Record<string, number> = {};
+    checkpoint.currencies.forEach((c) => {
+      if (!totals[c.currency_code]) {
+        totals[c.currency_code] = 0;
+      }
+      totals[c.currency_code] += c.opening_amount || 0;
+    });
+    return totals;
   };
 
   return (
@@ -150,8 +158,8 @@ export default function CheckpointTimeline() {
           <option value="MTC">MTC</option>
           <option value="Alfa">Alfa</option>
           <option value="Binance">Binance</option>
-          <option value="IPEC">IPEC</option>
-          <option value="Katch">Katch</option>
+          <option value="iPick">iPick</option>
+          <option value="Katsh">Katsh</option>
         </select>
       </div>
 
@@ -177,19 +185,18 @@ export default function CheckpointTimeline() {
                 header: "Type",
                 className: "p-4 border-b border-slate-700 w-32",
               },
-              { header: "Drawer", className: "p-4 border-b border-slate-700" },
               ...allCurrencies.map((code) => ({
                 header: code,
                 className: "p-4 border-b border-slate-700 text-right w-40",
               })),
               { header: "User", className: "p-4 border-b border-slate-700" },
               { header: "Notes", className: "p-4 border-b border-slate-700" },
+              { header: "", className: "p-4 border-b border-slate-700 w-20" },
             ]}
             data={checkpoints}
             loading={loading}
             emptyMessage="No checkpoints found"
             renderRow={(checkpoint) => {
-              const drawerCurrencies = getDrawerCurrencies(checkpoint);
               return (
                 <tr
                   key={checkpoint.id}
@@ -210,14 +217,10 @@ export default function CheckpointTimeline() {
                       {checkpoint.checkpoint_type}
                     </span>
                   </td>
-                  <td className="p-4 text-white font-medium">
-                    {checkpoint.drawer_name}
-                  </td>
                   {allCurrencies.map((code) => {
-                    const currency = drawerCurrencies.find(
-                      (c) => c.currency_code === code,
-                    );
-                    if (!currency) {
+                    const totals = getAggregatedTotals(checkpoint);
+                    const total = totals[code] || 0;
+                    if (total === 0) {
                       return (
                         <td
                           key={code}
@@ -230,28 +233,8 @@ export default function CheckpointTimeline() {
                     return (
                       <td key={code} className="p-4 text-right">
                         <div className="text-emerald-400 font-mono font-medium">
-                          {formatCurrency(currency.opening_amount, code)}
+                          {formatCurrency(total, code)}
                         </div>
-                        {currency.physical_amount !== undefined && (
-                          <>
-                            <div className="text-xs text-slate-400">
-                              Physical:{" "}
-                              {formatCurrency(currency.physical_amount, code)}
-                            </div>
-                            {currency.variance !== undefined && (
-                              <div
-                                className={`text-xs font-medium ${
-                                  currency.variance >= 0
-                                    ? "text-emerald-400"
-                                    : "text-red-400"
-                                }`}
-                              >
-                                {currency.variance >= 0 ? "+" : ""}
-                                {formatCurrency(currency.variance, code)}
-                              </div>
-                            )}
-                          </>
-                        )}
                       </td>
                     );
                   })}
@@ -259,12 +242,31 @@ export default function CheckpointTimeline() {
                   <td className="p-4 text-slate-400 italic max-w-xs truncate">
                     {checkpoint.notes || "-"}
                   </td>
+                  <td className="p-4 text-right">
+                    <button
+                      onClick={() => setViewCheckpoint(checkpoint)}
+                      className="p-2 hover:bg-slate-700 rounded-lg transition-colors text-slate-400 hover:text-white"
+                      title="View details"
+                    >
+                      <Eye size={16} />
+                    </button>
+                  </td>
                 </tr>
               );
             }}
           />
         )}
       </div>
+
+      {/* View Checkpoint Details Modal */}
+      {viewCheckpoint && (
+        <OpeningModal
+          isOpen={true}
+          onClose={() => setViewCheckpoint(null)}
+          viewOnly={true}
+          checkpointData={viewCheckpoint}
+        />
+      )}
     </div>
   );
 }

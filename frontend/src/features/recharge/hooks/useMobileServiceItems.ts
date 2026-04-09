@@ -12,7 +12,7 @@ import mobileServices from "@/data/mobileServices";
 // ─── Types ─────────────────────────────────────────────────────────────────
 
 /** Provider key as used in the financial_services DB table */
-export type ProviderKey = "IPEC" | "KATCH" | "WISH_APP" | "OMT_APP";
+export type ProviderKey = "iPick" | "Katsh" | "WISH_APP" | "OMT_APP";
 
 /** A single selectable service item */
 export interface ServiceItem {
@@ -51,30 +51,24 @@ interface VoucherImageRow {
   image_data: string;
 }
 
-/** Map from provider display name → DB provider key */
-const PROVIDER_MAP: Record<string, ProviderKey> = {
-  iPick: "IPEC",
-  Katsh: "KATCH",
-  "Whish App": "WISH_APP",
-  "OMT App": "OMT_APP",
-};
-
 // ─── Static catalog parsing (runs once) ────────────────────────────────────
 
 function parseCatalog(): ServiceItem[] {
   const result: ServiceItem[] = [];
 
-  for (const [providerName, catalog] of Object.entries(mobileServices)) {
-    const providerKey = PROVIDER_MAP[providerName];
-    if (!providerKey) continue; // skip unknown providers (e.g. "Validity vouchers")
+  for (const [providerKey, catalog] of Object.entries(mobileServices)) {
+    const typedProviderKey = providerKey as ProviderKey;
+    if (!["iPick", "Katsh", "WISH_APP", "OMT_APP"].includes(typedProviderKey)) {
+      continue; // skip unknown providers (e.g. "Validity vouchers")
+    }
 
     for (const [categoryName, subcategories] of Object.entries(catalog)) {
       for (const [subName, itemsOrNested] of Object.entries(subcategories)) {
         if (Array.isArray(itemsOrNested)) {
           // Empty array = free-form category (e.g. i-Pick gaming items)
           result.push({
-            key: `${providerKey}/${categoryName}/${subName}`,
-            provider: providerKey,
+            key: `${typedProviderKey}/${categoryName}/${subName}`,
+            provider: typedProviderKey,
             category: categoryName,
             subcategory: subName,
             label: subName,
@@ -87,8 +81,8 @@ function parseCatalog(): ServiceItem[] {
             if (typeof costOrNested === "string") {
               // Old format: label → cost string (should not exist after migration)
               result.push({
-                key: `${providerKey}/${categoryName}/${subName}/${labelOrGroup}`,
-                provider: providerKey,
+                key: `${typedProviderKey}/${categoryName}/${subName}/${labelOrGroup}`,
+                provider: typedProviderKey,
                 category: categoryName,
                 subcategory: subName,
                 label: labelOrGroup,
@@ -102,8 +96,8 @@ function parseCatalog(): ServiceItem[] {
               if ("cost" in costOrNested) {
                 const pricing = costOrNested as { cost: string; sell: string };
                 result.push({
-                  key: `${providerKey}/${categoryName}/${subName}/${labelOrGroup}`,
-                  provider: providerKey,
+                  key: `${typedProviderKey}/${categoryName}/${subName}/${labelOrGroup}`,
+                  provider: typedProviderKey,
                   category: categoryName,
                   subcategory: subName,
                   label: labelOrGroup,
@@ -118,8 +112,8 @@ function parseCatalog(): ServiceItem[] {
                   if (typeof deepCost === "string") {
                     // Old format
                     result.push({
-                      key: `${providerKey}/${categoryName}/${subName}/${labelOrGroup}/${deepLabel}`,
-                      provider: providerKey,
+                      key: `${typedProviderKey}/${categoryName}/${subName}/${labelOrGroup}/${deepLabel}`,
+                      provider: typedProviderKey,
                       category: categoryName,
                       subcategory: `${subName} / ${labelOrGroup}`,
                       label: deepLabel,
@@ -134,8 +128,8 @@ function parseCatalog(): ServiceItem[] {
                     // New { cost, sell } format
                     const pricing = deepCost as { cost: string; sell: string };
                     result.push({
-                      key: `${providerKey}/${categoryName}/${subName}/${labelOrGroup}/${deepLabel}`,
-                      provider: providerKey,
+                      key: `${typedProviderKey}/${categoryName}/${subName}/${labelOrGroup}/${deepLabel}`,
+                      provider: typedProviderKey,
                       category: categoryName,
                       subcategory: `${subName} / ${labelOrGroup}`,
                       label: deepLabel,
@@ -222,8 +216,8 @@ export function useMobileServiceItems() {
   // Group items by provider
   const itemsByProvider = useMemo(() => {
     const map: Record<ProviderKey, ServiceItem[]> = {
-      IPEC: [],
-      KATCH: [],
+      iPick: [],
+      Katsh: [],
       WISH_APP: [],
       OMT_APP: [],
     };

@@ -5,7 +5,7 @@ import {
   refundTransaction,
   type TransactionFiltersParam,
 } from "@/api/backendApi";
-import { DataTable } from "@/shared/components/DataTable";
+import { DataTable } from "@liratek/ui";
 
 type TransactionRow = {
   id: number;

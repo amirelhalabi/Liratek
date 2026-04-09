@@ -4,8 +4,6 @@ import {
   Send,
   ArrowDownToLine,
   History,
-  TrendingUp,
-  Calendar,
   User,
   Hash,
   Phone,
@@ -16,8 +14,9 @@ import {
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { PageHeader, Select, useApi, appEvents } from "@liratek/ui";
-import { DataTable } from "@/shared/components/DataTable";
+import { DataTable } from "@liratek/ui";
 import { MultiPaymentInput, type PaymentLine } from "@liratek/ui";
+import { StatsCards } from "../../components/StatsCards";
 
 type Provider = "OMT" | "WHISH";
 type ServiceType = "SEND" | "RECEIVE";
@@ -183,18 +182,6 @@ const SERVICE_TYPE_LABELS: Record<ServiceType, string> = {
 const INPUT_CLASS =
   "w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-violet-500 transition-colors";
 
-function getBalanceColor(value: number): string {
-  if (value > 0) return "text-red-400";
-  if (value < 0) return "text-emerald-400";
-  return "text-slate-500";
-}
-
-function getBalanceLabel(value: number, provider: string): string {
-  if (value > 0) return `You owe ${provider}`;
-  if (value < 0) return `${provider} owes you`;
-  return "Settled";
-}
-
 function formatAmount(amount: number, currency: string): string {
   if (currency === "USD") return `$${amount.toFixed(2)}`;
   if (currency === "LBP") return `${amount.toLocaleString()} LBP`;
@@ -252,7 +239,7 @@ export default function Services() {
   >({});
 
   // Loading / error state
-  const [isLoading, setIsLoading] = useState(false);
+  const [_isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   // Form State
@@ -799,134 +786,44 @@ export default function Services() {
 
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 min-h-0 flex flex-col gap-4 overflow-hidden animate-in fade-in duration-300">
-      <PageHeader icon={Send} title="OMT/Whish" />
+      {/* Header with Stats on Right */}
+      <PageHeader
+        icon={Send}
+        title="OMT/Whish"
+        actions={
+          <div className="flex items-center gap-2">
+            <StatsCards
+              todayCommission={analytics.today.commission}
+              monthCommission={analytics.month.commission}
+              owedByProvider={owedByProvider}
+            />
+            <button
+              type="button"
+              onClick={() => setShowHistory(true)}
+              className="px-4 py-2 rounded-lg font-medium text-sm bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 hover:text-white transition-all"
+            >
+              History
+            </button>
+          </div>
+        }
+      />
+
+      {/* Loading / Error banner */}
+      {loadError && (
+        <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 text-sm text-red-300">
+          <AlertTriangle size={16} className="text-red-400 flex-shrink-0" />
+          <span className="flex-1">{loadError}</span>
+          <button
+            onClick={loadData}
+            className="text-xs px-2 py-1 rounded bg-red-500/20 hover:bg-red-500/30 text-red-300 transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       <div className="flex-1 min-h-0 overflow-auto">
         <div className="w-full flex flex-col gap-4 pb-1">
-          {/* Loading / Error banner */}
-          {loadError && (
-            <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 text-sm text-red-300">
-              <AlertTriangle size={16} className="text-red-400 flex-shrink-0" />
-              <span className="flex-1">{loadError}</span>
-              <button
-                onClick={loadData}
-                className="text-xs px-2 py-1 rounded bg-red-500/20 hover:bg-red-500/30 text-red-300 transition-colors"
-              >
-                Retry
-              </button>
-            </div>
-          )}
-
-          {/* ── Stat cards row + History button ── */}
-          <div
-            className={`flex items-stretch gap-3 flex-wrap ${isLoading ? "animate-pulse" : ""}`}
-          >
-            {/* Today */}
-            <div className="flex items-center justify-between gap-3 bg-slate-800 border border-slate-700/50 rounded-xl px-4 py-3 min-w-[140px]">
-              <div className="flex items-center gap-2">
-                <TrendingUp size={15} className="text-[#ffde00] shrink-0" />
-                <div>
-                  <p className="text-[10px] text-slate-500 uppercase tracking-wider leading-none">
-                    Today
-                  </p>
-                  <p className="text-sm font-bold text-white font-mono">
-                    ${analytics.today.commission.toFixed(2)}
-                  </p>
-                  {analytics.today.pending_commission > 0 && (
-                    <p className="text-[10px] text-amber-400">
-                      ⚠ ${analytics.today.pending_commission.toFixed(2)} pending
-                    </p>
-                  )}
-                </div>
-              </div>
-              <span className="text-xs text-slate-600 whitespace-nowrap">
-                {analytics.today.count} txns
-              </span>
-            </div>
-
-            {/* Month */}
-            <div className="flex items-center justify-between gap-3 bg-slate-800 border border-slate-700/50 rounded-xl px-4 py-3 min-w-[140px]">
-              <div className="flex items-center gap-2">
-                <Calendar size={15} className="text-blue-400 shrink-0" />
-                <div>
-                  <p className="text-[10px] text-slate-500 uppercase tracking-wider leading-none">
-                    Month
-                  </p>
-                  <p className="text-sm font-bold text-white font-mono">
-                    ${analytics.month.commission.toFixed(2)}
-                  </p>
-                  {analytics.month.pending_commission > 0 && (
-                    <p className="text-[10px] text-amber-400">
-                      ⚠ ${analytics.month.pending_commission.toFixed(2)} pending
-                    </p>
-                  )}
-                </div>
-              </div>
-              <span className="text-xs text-slate-600 whitespace-nowrap">
-                {analytics.month.count} txns
-              </span>
-            </div>
-
-            {/* Per-provider settlement chips */}
-            {PROVIDERS.map((p) => {
-              const owed = owedByProvider[p];
-              const usd = owed?.usd ?? 0;
-              const usdColor = getBalanceColor(usd);
-              const usdLabel = getBalanceLabel(usd, p);
-              const borderClass =
-                usd > 0
-                  ? "border-red-500/20"
-                  : usd < 0
-                    ? "border-emerald-500/20"
-                    : "border-slate-700/50";
-              const dotClass =
-                usd > 0
-                  ? "bg-red-400"
-                  : usd < 0
-                    ? "bg-emerald-400"
-                    : "bg-slate-600";
-
-              return (
-                <div
-                  key={p}
-                  className={`flex items-center justify-between gap-3 bg-slate-800 border rounded-xl px-4 py-3 min-w-[140px] ${borderClass}`}
-                >
-                  <div className="flex items-center gap-2">
-                    <div
-                      className={`w-2 h-2 rounded-full shrink-0 ${dotClass}`}
-                    />
-                    <div>
-                      <p className="text-[10px] text-slate-500 uppercase tracking-wider leading-none">
-                        {p}
-                      </p>
-                      <p className={`text-sm font-bold font-mono ${usdColor}`}>
-                        ${Math.abs(usd).toFixed(2)}
-                      </p>
-                    </div>
-                  </div>
-                  <span
-                    className={`text-xs whitespace-nowrap ${usdColor} opacity-75`}
-                  >
-                    {usdLabel}
-                  </span>
-                </div>
-              );
-            })}
-
-            {/* History button — lives in the same row, pushed right */}
-            <div className="ml-auto flex items-center">
-              <button
-                type="button"
-                onClick={() => setShowHistory(true)}
-                className="h-full px-4 py-3 rounded-xl font-semibold text-sm bg-slate-700/60 hover:bg-slate-700 text-slate-300 hover:text-white transition-all flex items-center gap-2 border border-slate-600/50 whitespace-nowrap"
-                title="View transaction history"
-              >
-                <History size={15} />
-                History
-              </button>
-            </div>
-          </div>
-
           {/* ── Form Card ── */}
           <div
             className={`w-full bg-slate-800/80 rounded-2xl border border-slate-700/60 shadow-xl ring-1 ${providerAccent.ring} flex flex-col overflow-hidden`}

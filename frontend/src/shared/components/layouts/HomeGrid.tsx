@@ -19,6 +19,7 @@ import {
   Zap,
   Briefcase,
   Circle,
+  Clock,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import clsx from "clsx";
@@ -239,15 +240,20 @@ export default function HomeGrid() {
   }, [enabledModules, isAdmin]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 space-y-8 animate-in fade-in duration-500">
-      <div>
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col animate-in fade-in duration-500">
+      <div className="shrink-0">
         <h1 className="text-2xl font-bold text-white">Home</h1>
         <p className="text-slate-400 text-sm mt-1">
           Select a module to get started
         </p>
       </div>
 
-      <div className={clsx("grid gap-4", colsClass[columns] || "grid-cols-5")}>
+      <div
+        className={clsx(
+          "grid gap-4 flex-1",
+          colsClass[columns] || "grid-cols-5",
+        )}
+      >
         {navItems.map((item) => {
           const accent = accentMap[routeToKey(item.to)] || defaultAccent;
           return (
@@ -283,7 +289,7 @@ export default function HomeGrid() {
         })}
       </div>
 
-      {/* Admin-only Opening / Closing — only when session management is enabled */}
+      {/* Admin-only Actions — only when session management is enabled */}
       {isAdmin && flags.sessionManagement && (
         <div className="pt-4 border-t border-slate-700/50">
           <p className="text-xs text-slate-500 uppercase tracking-wider mb-3">
@@ -291,22 +297,22 @@ export default function HomeGrid() {
           </p>
           <div className="flex gap-3">
             <button
-              onClick={() => appEvents.emit("opening:open")}
-              className="flex items-center gap-2 px-4 py-3 bg-slate-800 border border-slate-700/50 rounded-xl transition-all hover:border-emerald-500/60 hover:shadow-lg text-slate-300 hover:text-white group"
+              onClick={() => appEvents.emit("checkpoint:open")}
+              className="flex items-center gap-2 px-4 py-3 bg-slate-800 border border-slate-700/50 rounded-xl transition-all hover:border-violet-500/60 hover:shadow-lg text-slate-300 hover:text-white group"
             >
-              <div className="p-1.5 rounded-lg bg-emerald-400/10">
-                <Play size={18} className="text-emerald-400" />
+              <div className="p-1.5 rounded-lg bg-violet-400/10">
+                <Play size={18} className="text-violet-400" />
               </div>
-              <span className="text-sm font-medium">Opening</span>
+              <span className="text-sm font-medium">Checkpoint</span>
             </button>
             <button
-              onClick={() => appEvents.emit("closing:open")}
-              className="flex items-center gap-2 px-4 py-3 bg-slate-800 border border-slate-700/50 rounded-xl transition-all hover:border-rose-500/60 hover:shadow-lg text-slate-300 hover:text-white group"
+              onClick={() => navigate("/checkpoint-timeline")}
+              className="flex items-center gap-2 px-4 py-3 bg-slate-800 border border-slate-700/50 rounded-xl transition-all hover:border-blue-500/60 hover:shadow-lg text-slate-300 hover:text-white group"
             >
-              <div className="p-1.5 rounded-lg bg-rose-400/10">
-                <SquareActivity size={18} className="text-rose-400" />
+              <div className="p-1.5 rounded-lg bg-blue-400/10">
+                <Clock size={18} className="text-blue-400" />
               </div>
-              <span className="text-sm font-medium">Closing</span>
+              <span className="text-sm font-medium">Checkpoint Timeline</span>
             </button>
           </div>
         </div>

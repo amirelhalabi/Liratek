@@ -7,7 +7,11 @@ import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useApi, PageHeader } from "@liratek/ui";
 import { MultiPaymentInput, type PaymentLine } from "@liratek/ui";
 import { getExchangeRates } from "@/utils/exchangeRates";
-import { Ticket, DollarSign, Percent, TrendingUp, Plus } from "lucide-react";
+import { Ticket, Plus, History, ClipboardCheck, Trophy } from "lucide-react";
+import { StatsCards } from "../../components/StatsCards";
+import { CheckpointHistory } from "../../components/CheckpointHistory";
+import { CheckpointScheduler } from "../../components/CheckpointScheduler";
+import { SettlementVerification } from "../../components/SettlementVerification";
 
 interface LotoSettings {
   commission_rate: string;
@@ -24,15 +28,20 @@ interface TodayStats {
 
 export function LotoPage() {
   const api = useApi();
-  const [ticketNumber, setTicketNumber] = useState("");
+  // Tab state: "sell" or "cashPrize"
+  const [activeTab, setActiveTab] = useState<"sell" | "cashPrize">("sell");
+
+  // Sell ticket form state
   const [saleAmount, setSaleAmount] = useState<string>("");
-  const [isWinner, setIsWinner] = useState(false);
-  const [prizeAmount, setPrizeAmount] = useState<string>("");
   const [paymentMethod, setPaymentMethod] = useState("CASH");
   const [useMultiPayment, setUseMultiPayment] = useState(false);
-
   const [_paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
-  const [note, setNote] = useState("");
+
+  // Cash prize form state
+  const [cashPrizeTicketNumber, setCashPrizeTicketNumber] = useState("");
+  const [cashPrizeAmount, setCashPrizeAmount] = useState<string>("");
+  const [isSubmittingCashPrize, setIsSubmittingCashPrize] = useState(false);
+
   const [settings, setSettings] = useState<LotoSettings | null>(null);
   const [stats, setStats] = useState<TodayStats>({
     ticketsSold: 0,
@@ -43,6 +52,10 @@ export function LotoPage() {
   const [exchangeRate, setExchangeRate] = useState(100000); // Default fallback
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { methods } = usePaymentMethods();
+
+  // Modal states
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [isCreatingCheckpoint, setIsCreatingCheckpoint] = useState(false);
 
   const commissionRate = settings
     ? parseFloat(settings.commission_rate)
@@ -62,15 +75,14 @@ export function LotoPage() {
       // Check if getRates API is available
       const getRatesApi = (api as any)?.getRates;
       if (!getRatesApi) {
-        console.error("getRates API is not available");
         return;
       }
-      
+
       const ratesList = await getRatesApi();
       const { sellRate } = getExchangeRates(ratesList);
       setExchangeRate(sellRate);
-    } catch (error) {
-      console.error("Failed to load exchange rate:", error);
+    } catch {
+      // silent
     }
   }
 
@@ -78,16 +90,15 @@ export function LotoPage() {
     try {
       const lotoApi = (api as any)?.loto;
       if (!lotoApi) {
-        console.error("Loto API is not available");
         return;
       }
-      
+
       const result = await lotoApi.settings.get();
       if (result.success && result.settings) {
         setSettings(result.settings as unknown as LotoSettings);
       }
-    } catch (error) {
-      console.error("Failed to load Loto settings:", error);
+    } catch {
+      // silent
     }
   }
 
@@ -95,10 +106,9 @@ export function LotoPage() {
     try {
       const lotoApi = (api as any)?.loto;
       if (!lotoApi) {
-        console.error("Loto API is not available");
         return;
       }
-      
+
       const today = new Date().toISOString().split("T")[0];
       const result = await lotoApi.report(today, today);
       if (result.success && result.reportData) {
@@ -109,8 +119,49 @@ export function LotoPage() {
           totalPrizes: result.reportData.total_prizes,
         });
       }
+    } catch {
+      // silent
+    }
+  }
+
+  async function handleCreateCheckpoint() {
+    setIsCreatingCheckpoint(true);
+    try {
+      const lotoApi = (api as any)?.loto;
+      if (!lotoApi) {
+        alert("Loto API is not available");
+        return;
+      }
+
+      // Get the last checkpoint to determine period_start
+      const lastResult = await lotoApi.checkpoint.getLast();
+      const periodStart =
+        lastResult.success && lastResult.checkpoint
+          ? lastResult.checkpoint.period_end
+          : "1970-01-01";
+
+      const today = new Date().toISOString().split("T")[0];
+
+      const result = await lotoApi.checkpoint.create({
+        checkpoint_date: today,
+        period_start: periodStart,
+        period_end: today,
+        note: `Manual checkpoint for ${new Date().toLocaleDateString()}`,
+      });
+
+      if (result.success) {
+        alert("Checkpoint created successfully!");
+        loadTodayStats();
+      } else {
+        alert("Failed to create checkpoint: " + result.error);
+      }
     } catch (error) {
-      console.error("Failed to load today's stats:", error);
+      alert(
+        "Error creating checkpoint: " +
+          (error instanceof Error ? error.message : "Unknown error"),
+      );
+    } finally {
+      setIsCreatingCheckpoint(false);
     }
   }
 
@@ -129,251 +180,275 @@ export function LotoPage() {
     setIsSubmitting(true);
 
     try {
-      const ticketData: any = {
-        // ticket_number added conditionally below
+      const ticketData = {
         sale_amount: parseFloat(saleAmount),
         commission_rate: commissionRate,
         commission_amount: commissionAmount,
-        is_winner: isWinner,
-        prize_amount: isWinner
-          ? prizeAmount
-            ? parseFloat(prizeAmount)
-            : 0
-          : 0,
         sale_date: new Date().toISOString().split("T")[0],
         payment_method: useMultiPayment ? "SPLIT" : paymentMethod,
         currency: "LBP",
-        // Optional properties added conditionally below
       };
-      // Conditionally add optional properties
-      if (ticketNumber) ticketData.ticket_number = ticketNumber;
-      if (note) ticketData.note = note;
 
       const result = await lotoApi.sell(ticketData);
 
       if (result.success) {
         alert("Ticket sold successfully!");
         // Reset form
-        setTicketNumber("");
         setSaleAmount("");
-        setIsWinner(false);
-        setPrizeAmount("");
-        setNote("");
         setPaymentLines([]);
         // Reload stats
         loadTodayStats();
       } else {
         alert("Failed to sell ticket: " + result.error);
       }
-    } catch (error) {
-      console.error("Failed to sell ticket:", error);
+    } catch {
       alert("Failed to sell ticket");
     } finally {
       setIsSubmitting(false);
     }
   }
 
+  async function handleCashPrizeSubmit() {
+    if (!cashPrizeAmount || parseFloat(cashPrizeAmount) <= 0) {
+      alert("Please enter a valid prize amount");
+      return;
+    }
+
+    if (!cashPrizeTicketNumber || !cashPrizeTicketNumber.trim()) {
+      alert("Please enter the ticket number");
+      return;
+    }
+
+    const lotoApi = (api as any)?.loto;
+    if (!lotoApi) {
+      alert("Loto API is not available");
+      return;
+    }
+
+    setIsSubmittingCashPrize(true);
+
+    try {
+      const prizeData = {
+        prize_amount: parseFloat(cashPrizeAmount),
+        prize_date: new Date().toISOString().split("T")[0],
+        ticket_number: cashPrizeTicketNumber.trim(),
+      };
+
+      const result = await lotoApi.cashPrize.create(prizeData);
+
+      if (result.success) {
+        alert("Cash prize recorded successfully!");
+        // Reset form
+        setCashPrizeTicketNumber("");
+        setCashPrizeAmount("");
+        // Reload stats
+        loadTodayStats();
+      } else {
+        alert("Failed to record cash prize: " + result.error);
+      }
+    } catch {
+      alert("Failed to record cash prize");
+    } finally {
+      setIsSubmittingCashPrize(false);
+    }
+  }
+
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 min-h-0 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500">
-      <PageHeader icon={Ticket} title="Loto" subtitle="Lottery ticket sales and management" />
-
-      {/* Today's Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-slate-800 rounded-xl border border-slate-700/50 p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <Ticket className="w-4 h-4 text-blue-400" />
-            <span className="text-xs text-slate-400">Tickets Sold</span>
+      <PageHeader
+        icon={Ticket}
+        title="Loto"
+        subtitle="Lottery ticket sales and management"
+        actions={
+          <div className="flex items-center gap-2">
+            <StatsCards
+              ticketsSold={stats.ticketsSold}
+              totalSales={stats.totalSales}
+              totalCommission={stats.totalCommission}
+              totalPrizes={stats.totalPrizes}
+            />
+            <button
+              onClick={handleCreateCheckpoint}
+              disabled={isCreatingCheckpoint}
+              className="px-4 py-2 rounded-lg font-medium text-sm transition-all flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 text-white"
+            >
+              <ClipboardCheck size={16} />
+              <span className="font-medium">
+                {isCreatingCheckpoint ? "Creating..." : "Checkpoint"}
+              </span>
+            </button>
+            <button
+              onClick={() => setShowHistoryModal(true)}
+              className="px-4 py-2 rounded-lg font-medium text-sm transition-all flex items-center gap-2 bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 hover:text-white"
+            >
+              <History size={16} />
+              <span className="font-medium">History</span>
+            </button>
+            <SettlementVerification />
           </div>
-          <p className="text-2xl font-bold text-white">{stats.ticketsSold}</p>
-        </div>
+        }
+      />
 
-        <div className="bg-slate-800 rounded-xl border border-slate-700/50 p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <DollarSign className="w-4 h-4 text-emerald-400" />
-            <span className="text-xs text-slate-400">Total Sales</span>
-          </div>
-          <p className="text-2xl font-bold text-white">
-            {stats.totalSales.toLocaleString()} L
-          </p>
-        </div>
-
-        <div className="bg-slate-800 rounded-xl border border-slate-700/50 p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <Percent className="w-4 h-4 text-orange-400" />
-            <span className="text-xs text-slate-400">Commission</span>
-          </div>
-          <p className="text-2xl font-bold text-white">
-            {stats.totalCommission.toLocaleString()} L
-          </p>
-        </div>
-
-        <div className="bg-slate-800 rounded-xl border border-slate-700/50 p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <TrendingUp className="w-4 h-4 text-purple-400" />
-            <span className="text-xs text-slate-400">Prizes Paid</span>
-          </div>
-          <p className="text-2xl font-bold text-white">
-            {stats.totalPrizes.toLocaleString()} L
-          </p>
-        </div>
-      </div>
-
-      {/* Centered Ticket Sales Form */}
+      {/* Centered Forms with Tabs */}
       <div className="flex-1 min-h-0 overflow-auto">
         <div className="max-w-3xl mx-auto">
-          <div className="bg-slate-800 rounded-xl border border-slate-700/50 p-6 shadow-2xl">
-            <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
-              <Plus className="w-5 h-5 text-orange-500" />
+          {/* Tab Switcher */}
+          <div className="flex gap-1 mb-4 bg-slate-800 rounded-lg p-1 border border-slate-700/50">
+            <button
+              onClick={() => setActiveTab("sell")}
+              className={`flex-1 py-2.5 px-4 rounded-md text-sm font-medium transition-all flex items-center justify-center gap-2 ${
+                activeTab === "sell"
+                  ? "bg-orange-500 text-white shadow-lg"
+                  : "text-slate-400 hover:text-white hover:bg-slate-700"
+              }`}
+            >
+              <Plus className="w-4 h-4" />
               Sell Ticket
-            </h2>
+            </button>
+            <button
+              onClick={() => setActiveTab("cashPrize")}
+              className={`flex-1 py-2.5 px-4 rounded-md text-sm font-medium transition-all flex items-center justify-center gap-2 ${
+                activeTab === "cashPrize"
+                  ? "bg-yellow-500 text-white shadow-lg"
+                  : "text-slate-400 hover:text-white hover:bg-slate-700"
+              }`}
+            >
+              <Trophy className="w-4 h-4" />
+              Cash Prize
+            </button>
+          </div>
 
-            <div className="space-y-5">
-              {/* Ticket Number */}
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">
-                  Ticket Number (Optional)
-                </label>
-                <input
-                  type="text"
-                  value={ticketNumber}
-                  onChange={(e) => setTicketNumber(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500 transition-colors"
-                  placeholder="Enter ticket number"
-                />
-              </div>
+          {activeTab === "sell" ? (
+            <div className="bg-slate-800 rounded-xl border border-slate-700/50 p-6 shadow-2xl">
+              <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
+                <Plus className="w-5 h-5 text-orange-500" />
+                Sell Ticket
+              </h2>
 
-              {/* Sale Amount */}
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">
-                  Sale Amount (LBP) *
-                </label>
-                <input
-                  type="number"
-                  value={saleAmount}
-                  onChange={(e) => setSaleAmount(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500 transition-colors"
-                  placeholder="Enter sale amount"
-                />
-              </div>
-
-              {/* Commission Display */}
-              {saleAmount && (
-                <div className="bg-slate-900 rounded-lg p-4 border border-slate-700">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs text-slate-400">
-                      Commission Rate
-                    </span>
-                    <span className="text-xs text-white font-medium">
-                      {(commissionRate * 100).toFixed(2)}%
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-slate-400">
-                      Commission Amount
-                    </span>
-                    <span className="text-lg text-emerald-400 font-bold">
-                      {commissionAmount.toLocaleString()} L
-                    </span>
-                  </div>
+              <div className="space-y-5">
+                {/* Sale Amount */}
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">
+                    Sale Amount (LBP) *
+                  </label>
+                  <input
+                    type="number"
+                    value={saleAmount}
+                    onChange={(e) => setSaleAmount(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500 transition-colors"
+                    placeholder="Enter sale amount"
+                  />
                 </div>
-              )}
 
-              {/* Winner Checkbox */}
-              <div className="flex items-center gap-2 p-3 bg-slate-900 rounded-lg border border-slate-700">
-                <input
-                  type="checkbox"
-                  id="isWinner"
-                  checked={isWinner}
-                  onChange={(e) => setIsWinner(e.target.checked)}
-                  className="w-5 h-5 rounded border-slate-600 text-orange-500 focus:ring-orange-500"
-                />
-                <label htmlFor="isWinner" className="text-sm text-white font-medium">
-                  This is a winning ticket
-                </label>
+                {/* Payment Method */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs text-slate-400">
+                      Payment Method
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setUseMultiPayment(!useMultiPayment)}
+                      className="text-xs px-3 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
+                    >
+                      {useMultiPayment ? "Single Payment" : "Split Payment"}
+                    </button>
+                  </div>
+                  {useMultiPayment ? (
+                    <MultiPaymentInput
+                      totalAmount={saleAmount ? parseFloat(saleAmount) : 0}
+                      currency="LBP"
+                      onChange={setPaymentLines}
+                      showPmFee={false}
+                      paymentMethods={methods}
+                      currencies={[
+                        { code: "USD", symbol: "$" },
+                        { code: "LBP", symbol: "L£" },
+                      ]}
+                      exchangeRate={exchangeRate}
+                    />
+                  ) : (
+                    <select
+                      value={paymentMethod}
+                      onChange={(e) => setPaymentMethod(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500 transition-colors"
+                    >
+                      {methods.map((m) => (
+                        <option key={m.code} value={m.code}>
+                          {m.label}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+
+                {/* Submit Button */}
+                <button
+                  onClick={handleSubmit}
+                  disabled={isSubmitting || !saleAmount}
+                  className="w-full py-3.5 bg-orange-500 hover:bg-orange-600 disabled:bg-slate-700 disabled:text-slate-500 text-white font-bold rounded-lg transition-all mt-6 shadow-lg hover:shadow-orange-500/20"
+                >
+                  {isSubmitting ? "Selling..." : "Sell Ticket"}
+                </button>
               </div>
+            </div>
+          ) : (
+            <div className="bg-slate-800 rounded-xl border border-slate-700/50 p-6 shadow-2xl">
+              <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
+                <Trophy className="w-5 h-5 text-yellow-500" />
+                Cash Prize
+              </h2>
 
-              {/* Prize Amount */}
-              {isWinner && (
+              <div className="space-y-5">
+                {/* Prize Amount */}
                 <div>
                   <label className="text-xs text-slate-400 block mb-1">
                     Prize Amount (LBP) *
                   </label>
                   <input
                     type="number"
-                    value={prizeAmount}
-                    onChange={(e) => setPrizeAmount(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500 transition-colors"
+                    value={cashPrizeAmount}
+                    onChange={(e) => setCashPrizeAmount(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-yellow-500 transition-colors"
                     placeholder="Enter prize amount"
                   />
                 </div>
-              )}
 
-              {/* Note */}
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">
-                  Note (Optional)
-                </label>
-                <textarea
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                  rows={3}
-                  className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500 transition-colors resize-none"
-                  placeholder="Add a note"
-                />
-              </div>
-
-              {/* Payment Method */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-xs text-slate-400">Payment Method</label>
-                  <button
-                    type="button"
-                    onClick={() => setUseMultiPayment(!useMultiPayment)}
-                    className="text-xs px-3 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
-                  >
-                    {useMultiPayment ? "Single Payment" : "Split Payment"}
-                  </button>
-                </div>
-                {useMultiPayment ? (
-                  <MultiPaymentInput
-                    totalAmount={saleAmount ? parseFloat(saleAmount) : 0}
-                    currency="LBP"
-                    onChange={setPaymentLines}
-                    showPmFee={false}
-                    paymentMethods={methods}
-                    currencies={[
-                      { code: "USD", symbol: "$" },
-                      { code: "LBP", symbol: "L£" },
-                    ]}
-                    exchangeRate={exchangeRate}
+                {/* Ticket Number */}
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">
+                    Ticket Number *
+                  </label>
+                  <input
+                    type="text"
+                    value={cashPrizeTicketNumber}
+                    onChange={(e) => setCashPrizeTicketNumber(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-yellow-500 transition-colors"
+                    placeholder="Winning ticket number"
                   />
-                ) : (
-                  <select
-                    value={paymentMethod}
-                    onChange={(e) => setPaymentMethod(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500 transition-colors"
-                  >
-                    {methods.map((m) => (
-                      <option key={m.code} value={m.code}>
-                        {m.label}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </div>
+                </div>
 
-              {/* Submit Button */}
-              <button
-                onClick={handleSubmit}
-                disabled={isSubmitting || !saleAmount}
-                className="w-full py-3.5 bg-orange-500 hover:bg-orange-600 disabled:bg-slate-700 disabled:text-slate-500 text-white font-bold rounded-lg transition-all mt-6 shadow-lg hover:shadow-orange-500/20"
-              >
-                {isSubmitting ? "Selling..." : "Sell Ticket"}
-              </button>
+                {/* Submit Button */}
+                <button
+                  onClick={handleCashPrizeSubmit}
+                  disabled={isSubmittingCashPrize || !cashPrizeAmount}
+                  className="w-full py-3.5 bg-yellow-500 hover:bg-yellow-600 disabled:bg-slate-700 disabled:text-slate-500 text-white font-bold rounded-lg transition-all mt-6 shadow-lg hover:shadow-yellow-500/20"
+                >
+                  {isSubmittingCashPrize ? "Recording..." : "Record Cash Prize"}
+                </button>
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
+
+      {/* Scheduled Checkpoint Popup (Thu/Mon 7pm) */}
+      <CheckpointScheduler onCheckpointCreated={() => loadTodayStats()} />
+
+      {/* Checkpoint History Modal */}
+      {showHistoryModal && (
+        <CheckpointHistory onClose={() => setShowHistoryModal(false)} />
+      )}
     </div>
   );
 }

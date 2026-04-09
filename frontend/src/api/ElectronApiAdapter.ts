@@ -97,6 +97,12 @@ export class ElectronApiAdapter implements ApiAdapter {
     amount: number;
     currency?: string;
   }) => api.topUpRecharge(payload);
+  topUpApp = (payload: {
+    provider: "OMT_APP" | "WHISH_APP" | "iPick" | "Katsh";
+    amount: number;
+    currency: "USD" | "LBP";
+    sourceDrawer: string;
+  }) => api.topUpApp(payload);
 
   // ---------------------------------------------------------------------------
   // Services (OMT / Whish / BOB)
@@ -390,6 +396,43 @@ export class ElectronApiAdapter implements ApiAdapter {
     update: (id: number, data: any) => api.lotoUpdate(id, data),
     report: (from: string, to: string) => api.lotoReport(from, to),
     settlement: (from: string, to: string) => api.lotoSettlement(from, to),
+    checkpoint: {
+      create: (data: any) => api.lotoCheckpointCreate(data),
+      get: (id: number) => api.lotoCheckpointGet(id),
+      getByDate: (date: string) => api.lotoCheckpointGetByDate(date),
+      getByDateRange: (from: string, to: string) =>
+        api.lotoCheckpointGetByDateRange(from, to),
+      getUnsettled: () => api.lotoCheckpointGetUnsettled(),
+      update: (id: number, data: any) => api.lotoCheckpointUpdate(id, data),
+      markSettled: (id: number, settledAt?: string, settlementId?: number) =>
+        api.lotoCheckpointMarkSettled(id, settledAt, settlementId),
+      settle: (data: {
+        id: number;
+        totalSales: number;
+        totalCommission: number;
+        totalPrizes: number;
+        totalCashPrizes: number;
+        settledAt?: string;
+      }) => api.lotoCheckpointSettle(data),
+      getTotalSalesUnsettled: () => api.lotoCheckpointGetTotalSalesUnsettled(),
+      getTotalCommissionUnsettled: () =>
+        api.lotoCheckpointGetTotalCommissionUnsettled(),
+      getLast: () => api.lotoCheckpointGetLast(),
+      createScheduled: (checkpointDate?: string) =>
+        api.lotoCheckpointCreateScheduled(checkpointDate),
+    },
+    cashPrize: {
+      create: (data: any) => api.lotoCashPrizeCreate(data),
+      getByDateRange: (from: string, to: string) =>
+        api.lotoCashPrizeGetByDateRange(from, to),
+      getUnreimbursed: () => api.lotoCashPrizeGetUnreimbursed(),
+      markReimbursed: (
+        id: number,
+        reimbursedDate?: string,
+        settlementId?: number,
+      ) => api.lotoCashPrizeMarkReimbursed(id, reimbursedDate, settlementId),
+      getTotalUnreimbursed: () => api.lotoCashPrizeGetTotalUnreimbursed(),
+    },
     fees: {
       create: (data: any) => api.lotoFeesCreate(data),
       get: (year: number) => api.lotoFeesGet(year),

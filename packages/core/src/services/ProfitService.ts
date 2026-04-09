@@ -808,7 +808,7 @@ export class ProfitService {
           LEFT JOIN transactions t ON t.id = p.transaction_id
           WHERE p.created_at >= ? AND p.created_at <= ?
             -- Exclude internal system flows
-            AND p.method NOT IN ('OMT', 'WHISH', 'BOB', 'IPEC', 'KATCH', 'WISH_APP', 'OMT_APP', 'BINANCE', 'RESERVE', 'COMMISSION')
+            AND p.method NOT IN ('OMT', 'WHISH', 'BOB', 'iPick', 'Katsh', 'WISH_APP', 'OMT_APP', 'BINANCE', 'RESERVE', 'COMMISSION')
             AND p.amount > 0
           GROUP BY p.method
           HAVING total_usd > 0 OR total_lbp > 0`,

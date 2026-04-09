@@ -1,5 +1,5 @@
 import { History, RefreshCw, X, Send, ArrowDownToLine } from "lucide-react";
-import { DataTable } from "@/shared/components/DataTable";
+import { DataTable } from "@liratek/ui";
 import type { FinancialTransaction, ServiceType } from "../types";
 import { FINANCIAL_SERVICE_ICONS } from "../types";
 

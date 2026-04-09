@@ -19,40 +19,20 @@ import {
   Search,
   X,
   RefreshCw,
-  Ban,
   UserPlus,
 } from "lucide-react";
 import { PageHeader, Select, useApi } from "@liratek/ui";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useSession } from "@/features/sessions/context/SessionContext";
-import {
-  useCustomServices,
-  type CustomServiceEntry,
-} from "../../hooks/useCustomServices";
+import { useCustomServices } from "../../hooks/useCustomServices";
 import logger from "@/utils/logger";
-import { DataTable } from "@/shared/components/DataTable";
 import { MultiPaymentInput, type PaymentLine } from "@liratek/ui";
+import { HistoryModal } from "./components/HistoryModal";
+import { StatsCards } from "../../components/StatsCards";
 
 // =============================================================================
 // Helper
 // =============================================================================
-
-function formatTime(dateStr: string): string {
-  const d = new Date(dateStr);
-  const now = new Date();
-  const sameDay =
-    d.getFullYear() === now.getFullYear() &&
-    d.getMonth() === now.getMonth() &&
-    d.getDate() === now.getDate();
-  if (sameDay) {
-    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  }
-  return (
-    d.toLocaleDateString([], { month: "short", day: "numeric" }) +
-    " " +
-    d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-  );
-}
 
 function formatCurrency(usd: number, lbp: number): string {
   const parts: string[] = [];
@@ -89,6 +69,9 @@ export default function CustomServices() {
   // ─── Multi-payment support ───
   const [useMultiPayment, setUseMultiPayment] = useState(false);
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
+
+  // ─── History Modal ───
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
 
   // ─── Customer Details (for ALL payment methods) ───
   const [clientId, setClientId] = useState<number | null>(null);
@@ -278,59 +261,40 @@ export default function CustomServices() {
   // ─── Render ───
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 min-h-0 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500">
-      {/* Header */}
+      {/* Header with Stats and History */}
       <PageHeader
         icon={Briefcase}
         title="Services"
         actions={
-          <button
-            onClick={reload}
-            className="text-slate-400 hover:text-white transition-colors p-2 rounded-lg hover:bg-slate-800"
-            title="Refresh"
-          >
-            <RefreshCw size={18} />
-          </button>
+          <div className="flex items-center gap-2">
+            <StatsCards
+              count={summary.count}
+              totalPriceUsd={summary.totalPriceUsd}
+              totalPriceLbp={summary.totalPriceLbp}
+              totalProfitUsd={summary.totalProfitUsd}
+              totalProfitLbp={summary.totalProfitLbp}
+            />
+            <button
+              onClick={() => setShowHistoryModal(true)}
+              className="px-4 py-2 rounded-lg font-medium text-sm transition-all flex items-center gap-2 bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 hover:text-white"
+            >
+              <History size={16} />
+              <span className="font-medium">History</span>
+            </button>
+          </div>
         }
       />
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-slate-800 border border-slate-700/50 rounded-xl p-5 shadow-lg hover:border-slate-600 transition-colors">
-          <p className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">
-            Today&apos;s Services
-          </p>
-          <p className="text-2xl font-bold text-white">{summary.count}</p>
-        </div>
-        <div className="bg-slate-800 border border-slate-700/50 rounded-xl p-5 shadow-lg hover:border-slate-600 transition-colors">
-          <p className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">
-            Today&apos;s Revenue
-          </p>
-          <p className="text-2xl font-bold text-white">
-            {formatCurrency(summary.totalPriceUsd, summary.totalPriceLbp)}
-          </p>
-        </div>
-        <div className="bg-slate-800 border border-slate-700/50 rounded-xl p-5 shadow-lg hover:border-slate-600 transition-colors">
-          <p className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">
-            Today&apos;s Profit
-          </p>
-          <p
-            className={`text-2xl font-bold ${summary.totalProfitUsd >= 0 && summary.totalProfitLbp >= 0 ? "text-emerald-400" : "text-red-400"}`}
-          >
-            {formatCurrency(summary.totalProfitUsd, summary.totalProfitLbp)}
-          </p>
-        </div>
-      </div>
-
-      {/* Main: Form + History */}
-      <div className="flex-1 min-h-0 flex gap-6">
-        {/* Left: New Service Form */}
-        <div className="w-1/3 min-w-[380px] bg-slate-800 rounded-xl border border-slate-700/50 shadow-xl p-5 flex flex-col overflow-hidden">
+      {/* Main: Form */}
+      <div className="flex-1 min-h-0 overflow-auto">
+        {/* New Service Form */}
+        <div className="w-full bg-slate-800 rounded-xl border border-slate-700/50 shadow-xl p-5 flex flex-col">
           <h2 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
             <Plus className="text-teal-400" size={20} />
             New Service
           </h2>
 
-          <div className="space-y-4 flex-1 overflow-auto pr-1 custom-scrollbar">
+          <div className="space-y-4">
             {/* Description */}
             <div>
               <label
@@ -666,148 +630,18 @@ export default function CustomServices() {
             )}
           </button>
         </div>
-
-        {/* Right: History Table */}
-        <div className="flex-1 min-h-0 bg-slate-800 rounded-xl border border-slate-700/50 shadow-xl overflow-hidden flex flex-col">
-          <div className="p-4 border-b border-slate-700 bg-slate-800 flex items-center justify-between">
-            <h2 className="font-bold text-white flex items-center gap-2">
-              <History className="text-slate-400" size={18} />
-              Service History
-            </h2>
-            <span className="text-xs text-slate-500">
-              {history.length} entries
-            </span>
-          </div>
-
-          <div className="flex-1 min-h-0 overflow-auto">
-            {historyLoading ? (
-              <div className="flex items-center justify-center py-12 text-slate-500">
-                <RefreshCw size={20} className="animate-spin mr-2" />
-                Loading...
-              </div>
-            ) : (
-              <>
-                <DataTable<CustomServiceEntry>
-                  columns={[
-                    {
-                      header: "Time",
-                      className: "px-4 py-3",
-                      sortKey: "created_at",
-                    },
-                    {
-                      header: "Description",
-                      className: "px-4 py-3",
-                      sortKey: "description",
-                    },
-                    {
-                      header: "Customer",
-                      className: "px-4 py-3",
-                      sortKey: "client_name",
-                    },
-                    {
-                      header: "Cost",
-                      className: "px-4 py-3 text-right",
-                      sortKey: "cost_usd",
-                    },
-                    {
-                      header: "Price",
-                      className: "px-4 py-3 text-right",
-                      sortKey: "price_usd",
-                    },
-                    {
-                      header: "Profit",
-                      className: "px-4 py-3 text-right",
-                      sortKey: "profit_usd",
-                    },
-                    {
-                      header: "Paid By",
-                      className: "px-4 py-3",
-                      sortKey: "paid_by",
-                    },
-                    { header: "", className: "px-4 py-3 w-10" },
-                  ]}
-                  data={history}
-                  exportExcel
-                  exportPdf
-                  exportFilename="custom-services"
-                  loading={historyLoading}
-                  className="w-full"
-                  theadClassName="bg-slate-900/50 text-left text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0"
-                  tbodyClassName="divide-y divide-slate-700/50"
-                  emptyMessage="No services recorded yet. Add your first one!"
-                  renderRow={(tx) => (
-                    <tr
-                      key={tx.id}
-                      className="hover:bg-slate-700/20 transition-colors"
-                    >
-                      <td className="px-4 py-3 text-sm text-slate-400 whitespace-nowrap">
-                        {formatTime(tx.created_at)}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="text-sm text-white font-medium">
-                          {tx.description}
-                        </div>
-                        {tx.note && (
-                          <div className="text-xs text-slate-500 mt-0.5 truncate max-w-[200px]">
-                            {tx.note}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        {tx.client_name && (
-                          <div className="text-sm text-white flex items-center gap-1">
-                            <User size={12} className="text-slate-500" />
-                            {tx.client_name}
-                          </div>
-                        )}
-                        {tx.phone_number && (
-                          <div className="text-xs text-slate-500 mt-0.5 flex items-center gap-1">
-                            <Phone size={10} />
-                            {tx.phone_number}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-right text-sm font-mono text-slate-400">
-                        {formatCurrency(tx.cost_usd, tx.cost_lbp)}
-                      </td>
-                      <td className="px-4 py-3 text-right text-sm font-mono text-white font-medium">
-                        {formatCurrency(tx.price_usd, tx.price_lbp)}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <span
-                          className={`text-sm font-bold font-mono ${tx.profit_usd >= 0 && tx.profit_lbp >= 0 ? "text-emerald-400" : "text-red-400"}`}
-                        >
-                          {formatCurrency(tx.profit_usd, tx.profit_lbp)}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                            tx.paid_by === "DEBT"
-                              ? "bg-orange-500/10 text-orange-400"
-                              : "bg-slate-700 text-slate-300"
-                          }`}
-                        >
-                          {tx.paid_by}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <button
-                          onClick={() => handleVoid(tx.id)}
-                          className="text-slate-600 hover:text-red-400 transition-colors p-1"
-                          title="Void service"
-                        >
-                          <Ban size={14} />
-                        </button>
-                      </td>
-                    </tr>
-                  )}
-                />
-              </>
-            )}
-          </div>
-        </div>
       </div>
+
+      {/* History Modal */}
+      {showHistoryModal && (
+        <HistoryModal
+          history={history}
+          loading={historyLoading}
+          onClose={() => setShowHistoryModal(false)}
+          onRefresh={reload}
+          onVoid={handleVoid}
+        />
+      )}
     </div>
   );
 }

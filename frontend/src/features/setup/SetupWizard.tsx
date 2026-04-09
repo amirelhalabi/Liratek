@@ -24,9 +24,6 @@ function WizardContent() {
           <h1 className="text-3xl font-bold bg-gradient-to-r from-violet-400 to-indigo-400 bg-clip-text text-transparent">
             LiraTek Setup
           </h1>
-          <p className="text-slate-500 text-sm mt-1">
-            First-time configuration
-          </p>
         </div>
 
         {/* Progress indicator */}

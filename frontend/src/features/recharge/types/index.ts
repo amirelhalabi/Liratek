@@ -3,7 +3,7 @@
 // =============================================================================
 
 export type TelecomProvider = "MTC" | "Alfa";
-export type FinancialProvider = "IPEC" | "KATCH" | "WISH_APP" | "OMT_APP";
+export type FinancialProvider = "iPick" | "Katsh" | "WISH_APP" | "OMT_APP";
 export type CryptoProvider = "BINANCE";
 export type AnyProvider = TelecomProvider | FinancialProvider | CryptoProvider;
 
@@ -100,10 +100,10 @@ export const PROVIDER_CONFIGS: ProviderConfig[] = [
     hasSupplier: false,
   },
   {
-    key: "IPEC",
-    label: "IPEC",
+    key: "iPick",
+    label: "iPick",
     module: "ipec_katch",
-    drawer: "IPEC",
+    drawer: "iPick",
     formMode: "financial",
     color: "text-sky-400",
     bgTint: "bg-sky-400/10",
@@ -114,10 +114,10 @@ export const PROVIDER_CONFIGS: ProviderConfig[] = [
     hasSupplier: true,
   },
   {
-    key: "KATCH",
-    label: "Katch",
+    key: "Katsh",
+    label: "Katsh",
     module: "ipec_katch",
-    drawer: "Katch",
+    drawer: "Katsh",
     formMode: "financial",
     color: "text-orange-400",
     bgTint: "bg-orange-400/10",
@@ -184,7 +184,6 @@ export const TELECOM_SERVICE_TYPES: {
   { id: "DAYS", label: "Days", iconKey: "Clock" },
   { id: "VOUCHER", label: "Voucher", iconKey: "CreditCard" },
   { id: "ALFA_GIFT", label: "Alfa Gift", iconKey: "Zap" },
-  { id: "TOP_UP", label: "Top Up", iconKey: "ArrowUpCircle" },
 ];
 
 export const ALFA_GIFT_TIERS = {

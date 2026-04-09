@@ -101,8 +101,8 @@ export const MIGRATIONS: Migration[] = [
         ALTER TABLE supplier_ledger ADD COLUMN transaction_type TEXT DEFAULT NULL;
 
         INSERT OR IGNORE INTO suppliers (name, module_key, provider, is_system) VALUES
-          ('IPEC',  'ipec_katch', 'IPEC',  1),
-          ('Katch', 'ipec_katch', 'KATCH', 1),
+          ('iPick',  'ipec_katch', 'iPick',  1),
+          ('Katsh', 'ipec_katch', 'Katsh', 1),
           ('OMT',   'omt_whish',  'OMT',   1),
           ('Whish', 'omt_whish',  'WHISH', 1);
       `);
@@ -194,7 +194,7 @@ export const MIGRATIONS: Migration[] = [
         -- Create new table with all columns and updated CHECK
         CREATE TABLE IF NOT EXISTS financial_services (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          provider TEXT CHECK(provider IN ('OMT','WHISH','BOB','OTHER','IPEC','KATCH','WISH_APP','OMT_APP')) NOT NULL,
+          provider TEXT CHECK(provider IN ('OMT','WHISH','BOB','OTHER','iPick','Katsh','WISH_APP','OMT_APP')) NOT NULL,
           service_type TEXT CHECK(service_type IN ('SEND','RECEIVE','BILL_PAYMENT')) NOT NULL,
           amount DECIMAL(10, 2) NOT NULL,
           currency TEXT DEFAULT 'USD' NOT NULL,
@@ -724,7 +724,7 @@ export const MIGRATIONS: Migration[] = [
       db.exec(`
         CREATE TABLE IF NOT EXISTS financial_services_new (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          provider TEXT CHECK(provider IN ('OMT', 'WHISH', 'BOB', 'OTHER', 'IPEC', 'KATCH', 'WISH_APP', 'OMT_APP', 'BINANCE')) NOT NULL,
+          provider TEXT CHECK(provider IN ('OMT', 'WHISH', 'BOB', 'OTHER', 'iPick', 'Katsh', 'WISH_APP', 'OMT_APP', 'BINANCE')) NOT NULL,
           service_type TEXT CHECK(service_type IN ('SEND', 'RECEIVE', 'BILL_PAYMENT')) NOT NULL,
           amount DECIMAL(10, 2) NOT NULL,
           currency TEXT DEFAULT 'USD' NOT NULL,
@@ -823,7 +823,7 @@ export const MIGRATIONS: Migration[] = [
       db.exec(`
         CREATE TABLE IF NOT EXISTS financial_services_new (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          provider TEXT CHECK(provider IN ('OMT', 'WHISH', 'BOB', 'OTHER', 'IPEC', 'KATCH', 'WISH_APP', 'OMT_APP', 'BINANCE')) NOT NULL,
+          provider TEXT CHECK(provider IN ('OMT', 'WHISH', 'BOB', 'OTHER', 'iPick', 'Katsh', 'WISH_APP', 'OMT_APP', 'BINANCE')) NOT NULL,
           service_type TEXT CHECK(service_type IN ('SEND', 'RECEIVE')) NOT NULL,
           amount DECIMAL(10, 2) NOT NULL,
           currency TEXT DEFAULT 'USD' NOT NULL,
@@ -890,7 +890,7 @@ export const MIGRATIONS: Migration[] = [
       db.exec(`
         CREATE TABLE IF NOT EXISTS financial_services_new (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          provider TEXT CHECK(provider IN ('OMT', 'WHISH', 'BOB', 'OTHER', 'IPEC', 'KATCH', 'WISH_APP', 'OMT_APP', 'BINANCE')) NOT NULL,
+          provider TEXT CHECK(provider IN ('OMT', 'WHISH', 'BOB', 'OTHER', 'iPick', 'Katsh', 'WISH_APP', 'OMT_APP', 'BINANCE')) NOT NULL,
           service_type TEXT CHECK(service_type IN ('SEND', 'RECEIVE')) NOT NULL,
           amount DECIMAL(10, 2) NOT NULL,
           currency TEXT DEFAULT 'USD' NOT NULL,
@@ -1907,6 +1907,227 @@ export const MIGRATIONS: Migration[] = [
       db.exec(`DELETE FROM modules WHERE key = 'loto'`);
 
       console.log("Migration v47 rolled back: Loto module removed");
+    },
+  },
+  // Migration v48: Update currency_drawers from IPEC/Katch to iPick/Katsh
+  {
+    version: 48,
+    name: "update_provider_drawer_names",
+    description: "Update currency_drawers from IPEC/Katch to iPick/Katsh",
+    type: "typescript",
+    up(db) {
+      // Update currency_drawers table
+      db.exec(`
+        UPDATE currency_drawers SET drawer_name = 'iPick' WHERE drawer_name = 'IPEC'
+      `);
+      db.exec(`
+        UPDATE currency_drawers SET drawer_name = 'Katsh' WHERE drawer_name = 'Katch'
+      `);
+
+      console.log(
+        "Migration v48: currency_drawers updated (IPEC→iPick, Katch→Katsh)",
+      );
+    },
+    down(db) {
+      // Rollback currency_drawers table
+      db.exec(`
+        UPDATE currency_drawers SET drawer_name = 'IPEC' WHERE drawer_name = 'iPick'
+      `);
+      db.exec(`
+        UPDATE currency_drawers SET drawer_name = 'Katch' WHERE drawer_name = 'Katsh'
+      `);
+
+      console.log("Migration v48 rolled back: currency_drawers reverted");
+    },
+  },
+  // ─────────────────────────────────────────────────────────────────────────────
+  // v49 — Reorder modules + ensure drawer names updated
+  // NOTE: Original v48 was duplicated (update_provider_drawer_names AND
+  //       reorder_modules_loto_services_profits both had version 48).
+  //       Existing DBs applied the reorder as v48 but skipped the drawer rename.
+  //       This v49 combines both: drawer rename (idempotent) + module reorder.
+  // ─────────────────────────────────────────────────────────────────────────────
+  {
+    version: 49,
+    name: "reorder_modules_loto_services_profits_v49",
+    description:
+      "Reorder modules to: Loto, Services, Profits + ensure IPEC/Katch drawer renames applied",
+    type: "typescript",
+    up(db) {
+      // --- Ensure drawer name updates from skipped v48 are applied (idempotent) ---
+      db.exec(`
+        UPDATE currency_drawers SET drawer_name = 'iPick' WHERE drawer_name = 'IPEC';
+      `);
+      db.exec(`
+        UPDATE currency_drawers SET drawer_name = 'Katsh' WHERE drawer_name = 'Katch';
+      `);
+
+      // --- Update sort_order for loto, custom_services, and profits ---
+      db.exec(`
+        UPDATE modules SET sort_order = 13 WHERE key = 'loto';
+      `);
+      db.exec(`
+        UPDATE modules SET sort_order = 14 WHERE key = 'custom_services';
+      `);
+      db.exec(`
+        UPDATE modules SET sort_order = 15 WHERE key = 'profits';
+      `);
+
+      console.log(
+        "Migration v49: Drawer names updated + modules reordered (Loto, Services, Profits)",
+      );
+    },
+    down(db) {
+      // Revert module order
+      db.exec(`
+        UPDATE modules SET sort_order = 16 WHERE key = 'loto';
+      `);
+      db.exec(`
+        UPDATE modules SET sort_order = 13 WHERE key = 'custom_services';
+      `);
+      db.exec(`
+        UPDATE modules SET sort_order = 14 WHERE key = 'profits';
+      `);
+
+      // Revert drawer names
+      db.exec(`
+        UPDATE currency_drawers SET drawer_name = 'IPEC' WHERE drawer_name = 'iPick';
+      `);
+      db.exec(`
+        UPDATE currency_drawers SET drawer_name = 'Katch' WHERE drawer_name = 'Katsh';
+      `);
+
+      console.log(
+        "Migration v49 rolled back: Modules reverted + drawer names reverted",
+      );
+    },
+  },
+  // ─────────────────────────────────────────────────────────────────────────────
+  // v50 — Add loto_checkpoints table for scheduled checkpoint tracking
+  // ─────────────────────────────────────────────────────────────────────────────
+  {
+    version: 50,
+    name: "add_loto_checkpoints_table",
+    description:
+      "Add loto_checkpoints table to track scheduled checkpoints for Loto module",
+    type: "typescript",
+    up(db) {
+      // Create loto_checkpoints table
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS loto_checkpoints (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          checkpoint_date TEXT NOT NULL,
+          period_start TEXT NOT NULL,
+          period_end TEXT NOT NULL,
+          total_sales REAL NOT NULL DEFAULT 0,
+          total_commission REAL NOT NULL DEFAULT 0,
+          total_tickets INTEGER NOT NULL DEFAULT 0,
+          total_prizes REAL NOT NULL DEFAULT 0,
+          is_settled INTEGER NOT NULL DEFAULT 0,
+          settled_at TEXT,
+          settlement_id INTEGER,
+          note TEXT,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      // Create indexes for efficient querying
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_loto_checkpoints_date ON loto_checkpoints(checkpoint_date);
+        CREATE INDEX IF NOT EXISTS idx_loto_checkpoints_is_settled ON loto_checkpoints(is_settled);
+        CREATE INDEX IF NOT EXISTS idx_loto_checkpoints_period ON loto_checkpoints(period_start, period_end);
+      `);
+
+      console.log("Migration v50: loto_checkpoints table added");
+    },
+    down(db) {
+      // Drop loto_checkpoints table
+      db.exec(`DROP TABLE IF EXISTS loto_checkpoints`);
+
+      console.log("Migration v50 rolled back: loto_checkpoints table removed");
+    },
+  },
+  // ─────────────────────────────────────────────────────────────────────────────
+  // v51 — Add loto_cash_prizes table for cash prize tracking
+  // ─────────────────────────────────────────────────────────────────────────────
+  {
+    version: 51,
+    name: "add_loto_cash_prizes_table",
+    description:
+      "Add loto_cash_prizes table to track cash prizes for Loto module",
+    type: "typescript",
+    up(db) {
+      // Create loto_cash_prizes table
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS loto_cash_prizes (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          ticket_number TEXT,
+          prize_amount REAL NOT NULL,
+          customer_name TEXT,
+          prize_date TEXT NOT NULL,
+          is_reimbursed INTEGER NOT NULL DEFAULT 0,
+          reimbursed_date TEXT,
+          reimbursed_in_settlement_id INTEGER,
+          note TEXT,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      // Create indexes for efficient querying
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_loto_cash_prizes_date ON loto_cash_prizes(prize_date);
+        CREATE INDEX IF NOT EXISTS idx_loto_cash_prizes_reimbursed ON loto_cash_prizes(is_reimbursed);
+      `);
+
+      console.log("Migration v51: loto_cash_prizes table added");
+    },
+    down(db) {
+      // Drop loto_cash_prizes table
+      db.exec(`DROP TABLE IF EXISTS loto_cash_prizes`);
+
+      console.log("Migration v51 rolled back: loto_cash_prizes table removed");
+    },
+  },
+  // ─────────────────────────────────────────────────────────────────────────────
+  // v52 — Add loto_settlements table for settlement history
+  // ─────────────────────────────────────────────────────────────────────────────
+  {
+    version: 52,
+    name: "add_loto_settlements_table",
+    description:
+      "Add loto_settlements table to track settlement events for Loto module",
+    type: "typescript",
+    up(db) {
+      // Create loto_settlements table
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS loto_settlements (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          settlement_date TEXT NOT NULL,
+          checkpoint_ids TEXT NOT NULL,
+          total_sales REAL NOT NULL DEFAULT 0,
+          total_commission REAL NOT NULL DEFAULT 0,
+          total_cash_prizes REAL NOT NULL DEFAULT 0,
+          net_settlement REAL NOT NULL,
+          note TEXT,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      // Create index for efficient querying
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_loto_settlements_date ON loto_settlements(settlement_date);
+      `);
+
+      console.log("Migration v52: loto_settlements table added");
+    },
+    down(db) {
+      // Drop loto_settlements table
+      db.exec(`DROP TABLE IF EXISTS loto_settlements`);
+
+      console.log("Migration v52 rolled back: loto_settlements table removed");
     },
   },
 ];

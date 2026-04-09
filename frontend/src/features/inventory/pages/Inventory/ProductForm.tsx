@@ -150,8 +150,8 @@ export default function ProductForm({
     try {
       JsBarcode(svgEl, barcode, {
         format: "CODE128",
-        width: 1.5,
-        height: 60,
+        width: 1.0,
+        height: 40,
         displayValue: true,
         fontSize: 12,
         fontOptions: "bold",

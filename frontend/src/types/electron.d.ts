@@ -382,8 +382,8 @@ export interface ElectronAPI {
         | "WHISH"
         | "BOB"
         | "OTHER"
-        | "IPEC"
-        | "KATCH"
+        | "iPick"
+        | "Katsh"
         | "WISH_APP"
         | "OMT_APP";
       serviceType: "SEND" | "RECEIVE";
@@ -434,6 +434,24 @@ export interface ElectronAPI {
   // Recharge
   recharge: {
     getStock: () => Promise<{ mtc: number; alfa: number }>;
+    getHistory: (provider: "MTC" | "Alfa") => Promise<
+      Array<{
+        id: number;
+        carrier: string;
+        recharge_type: string;
+        amount: number;
+        cost: number;
+        price: number;
+        currency_code: string;
+        paid_by: string;
+        phone_number: string | null;
+        client_id: number | null;
+        client_name: string | null;
+        note: string | null;
+        created_at: string;
+        created_by: number;
+      }>
+    >;
     process: (data: {
       provider: "MTC" | "Alfa";
       type: "CREDIT_TRANSFER" | "VOUCHER" | "DAYS";
@@ -448,6 +466,19 @@ export interface ElectronAPI {
       amount: number;
       currency?: string;
     }) => Promise<{ success: boolean; error?: string }>;
+    topUpApp: (data: {
+      provider: "MTC" | "Alfa" | "OMT_APP" | "WHISH_APP" | "iPick" | "Katsh";
+      amount: number;
+      currency: "USD" | "LBP";
+      sourceDrawer: string;
+    }) => Promise<{ success: boolean; error?: string }>;
+    getDrawerBalances: () => Promise<
+      Array<{
+        name: string;
+        usdBalance: number;
+        lbpBalance: number;
+      }>
+    >;
   };
 
   // Suppliers
@@ -593,6 +624,116 @@ export interface ElectronAPI {
       };
       error?: string;
     }>;
+    checkpoint: {
+      create: (data: {
+        checkpoint_date: string;
+        period_start: string;
+        period_end: string;
+        note?: string;
+      }) => Promise<{ success: boolean; checkpoint?: any; error?: string }>;
+      get: (
+        id: number,
+      ) => Promise<{ success: boolean; checkpoint?: any; error?: string }>;
+      getByDate: (
+        date: string,
+      ) => Promise<{ success: boolean; checkpoint?: any; error?: string }>;
+      getByDateRange: (
+        from: string,
+        to: string,
+      ) => Promise<{
+        success: boolean;
+        checkpoints?: any[];
+        error?: string;
+      }>;
+      getUnsettled: () => Promise<{
+        success: boolean;
+        checkpoints?: any[];
+        error?: string;
+      }>;
+      update: (
+        id: number,
+        data: any,
+      ) => Promise<{
+        success: boolean;
+        checkpoint?: any;
+        error?: string;
+      }>;
+      markSettled: (
+        id: number,
+        settledAt?: string,
+        settlementId?: number,
+      ) => Promise<{
+        success: boolean;
+        checkpoint?: any;
+        error?: string;
+      }>;
+      settle: (data: {
+        id: number;
+        totalSales: number;
+        totalCommission: number;
+        totalPrizes: number;
+        totalCashPrizes: number;
+        settledAt?: string;
+      }) => Promise<{
+        success: boolean;
+        checkpoint?: any;
+        error?: string;
+      }>;
+      getTotalSalesUnsettled: () => Promise<{
+        success: boolean;
+        totalSales?: number;
+        error?: string;
+      }>;
+      getTotalCommissionUnsettled: () => Promise<{
+        success: boolean;
+        totalCommission?: number;
+        error?: string;
+      }>;
+      getLast: () => Promise<{
+        success: boolean;
+        checkpoint?: any;
+        error?: string;
+      }>;
+      createScheduled: (
+        checkpointDate?: string,
+      ) => Promise<{ success: boolean; checkpoint?: any; error?: string }>;
+    };
+    cashPrize: {
+      create: (data: {
+        ticket_number?: string;
+        prize_amount: number;
+        customer_name?: string;
+        prize_date?: string;
+        note?: string;
+      }) => Promise<{ success: boolean; prize?: any; error?: string }>;
+      getByDateRange: (
+        from: string,
+        to: string,
+      ) => Promise<{
+        success: boolean;
+        prizes?: any[];
+        error?: string;
+      }>;
+      getUnreimbursed: () => Promise<{
+        success: boolean;
+        prizes?: any[];
+        error?: string;
+      }>;
+      markReimbursed: (
+        id: number,
+        reimbursedDate?: string,
+        settlementId?: number,
+      ) => Promise<{
+        success: boolean;
+        prize?: any;
+        error?: string;
+      }>;
+      getTotalUnreimbursed: () => Promise<{
+        success: boolean;
+        total?: number;
+        error?: string;
+      }>;
+    };
     fees: {
       create: (data: {
         fee_amount: number;

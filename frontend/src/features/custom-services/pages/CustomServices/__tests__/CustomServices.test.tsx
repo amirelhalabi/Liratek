@@ -57,6 +57,55 @@ jest.mock("@liratek/ui", () => ({
       ))}
     </select>
   ),
+  DataTable: ({
+    columns,
+    data,
+    emptyMessage,
+  }: {
+    columns: unknown[];
+    data: unknown[];
+    emptyMessage?: string;
+  }) => (
+    <div data-testid="data-table">
+      {data && (data as unknown[]).length === 0 ? (
+        <div>{emptyMessage}</div>
+      ) : (
+        <table>
+          <thead>
+            <tr>
+              {(columns as unknown[]).map((_, i) => (
+                <th key={i}>Column {i}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {(data as unknown[]).map((_, i) => (
+              <tr key={i}>
+                <td>Row {i}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  ),
+  MultiPaymentInput: ({
+    totalAmount,
+    onChange,
+  }: {
+    totalAmount?: number;
+    onChange?: (payments: unknown[]) => void;
+  }) => (
+    <div data-testid="multi-payment-input">
+      <input
+        type="number"
+        value={totalAmount}
+        onChange={(e) =>
+          onChange?.([{ method: "CASH", amount: parseFloat(e.target.value) }])
+        }
+      />
+    </div>
+  ),
 }));
 
 // ── Mock usePaymentMethods ──
@@ -123,7 +172,8 @@ describe("CustomServices Page", () => {
     expect(screen.getByText("Today's Revenue")).toBeInTheDocument();
     expect(screen.getByText("Today's Profit")).toBeInTheDocument();
     expect(screen.getByText("New Service")).toBeInTheDocument();
-    expect(screen.getByText("Service History")).toBeInTheDocument();
+    // History button should be present
+    expect(screen.getByText("History")).toBeInTheDocument();
   });
 
   it("should render the form with required fields", () => {
@@ -139,12 +189,11 @@ describe("CustomServices Page", () => {
     expect(screen.getByText("Submit Service")).toBeInTheDocument();
   });
 
-  it("should show empty state in history table", () => {
+  it("should show History button", () => {
     render(<CustomServices />);
 
-    expect(
-      screen.getByText("No services recorded yet. Add your first one!"),
-    ).toBeInTheDocument();
+    // History button should be visible in header
+    expect(screen.getByText("History")).toBeInTheDocument();
   });
 
   it("should validate empty description on submit", async () => {

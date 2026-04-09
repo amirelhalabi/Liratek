@@ -1,5 +1,5 @@
 import { describe, it, expect } from "@jest/globals";
-import type { PaymentLine } from "../MultiPaymentInput";
+import type { PaymentLine } from "@liratek/ui";
 
 /**
  * Unit tests for MultiPaymentInput component logic (Phase 3)

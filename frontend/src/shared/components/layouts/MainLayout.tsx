@@ -3,8 +3,7 @@ import LeftPanelLayout from "./LeftPanelLayout";
 import HomeViewLayout from "./HomeViewLayout";
 import { NotificationCenter, appEvents } from "@liratek/ui";
 
-import Closing from "@/features/closing/pages/Closing";
-import Opening from "@/features/closing/pages/Opening";
+import CheckpointModal from "@/features/closing/pages/Checkpoint";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
 
@@ -29,8 +28,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
     });
   };
 
-  const [isClosingModalOpen, setIsClosingModalOpen] = useState(false);
-  const [isOpeningModalOpen, setIsOpeningModalOpen] = useState(false);
+  const [isCheckpointModalOpen, setIsCheckpointModalOpen] = useState(false);
   const { user, needsOpening, clearOpeningFlag } = useAuth();
   const isAdmin = user?.role === "admin";
   const { flags } = useFeatureFlags();
@@ -44,16 +42,12 @@ export default function MainLayout({ children }: MainLayoutProps) {
   // Listen to app-wide events so modals work from anywhere
   // Only open if the feature flag is enabled
   useEffect(() => {
-    const offClosing = appEvents.on("closing:open", () => {
-      if (flags.sessionManagement) setIsClosingModalOpen(true);
-    });
-    const offOpening = appEvents.on("opening:open", () => {
-      if (flags.sessionManagement) setIsOpeningModalOpen(true);
+    const offCheckpoint = appEvents.on("checkpoint:open", () => {
+      if (flags.sessionManagement) setIsCheckpointModalOpen(true);
     });
 
     return () => {
-      offClosing();
-      offOpening();
+      offCheckpoint();
     };
   }, [flags.sessionManagement]);
 
@@ -65,10 +59,10 @@ export default function MainLayout({ children }: MainLayoutProps) {
     return () => window.removeEventListener("layout-mode-changed", handler);
   }, []);
 
-  // Auto-open Opening after login if required — only when session management is enabled
+  // Auto-open Checkpoint after login if opening is required — only when session management is enabled
   useEffect(() => {
     if (isAdmin && needsOpening && flags.sessionManagement) {
-      setIsOpeningModalOpen(true);
+      setIsCheckpointModalOpen(true);
     }
   }, [isAdmin, needsOpening, flags.sessionManagement]);
 
@@ -88,20 +82,14 @@ export default function MainLayout({ children }: MainLayoutProps) {
     <>
       {layoutContent}
       <NotificationCenter />
-      {/* Session Components — moved to TopBar as embedded button */}
-      {isAdmin && isOpeningModalOpen && (
-        <Opening
-          isOpen={isOpeningModalOpen}
+      {/* Checkpoint Modal (unified Opening/Closing) */}
+      {isAdmin && isCheckpointModalOpen && (
+        <CheckpointModal
+          isOpen={isCheckpointModalOpen}
           onClose={() => {
-            setIsOpeningModalOpen(false);
+            setIsCheckpointModalOpen(false);
             clearOpeningFlag();
           }}
-        />
-      )}
-      {isAdmin && isClosingModalOpen && (
-        <Closing
-          isOpen={isClosingModalOpen}
-          onClose={() => setIsClosingModalOpen(false)}
         />
       )}
     </>

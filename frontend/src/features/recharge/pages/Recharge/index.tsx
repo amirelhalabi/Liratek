@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useApi } from "@liratek/ui";
 import { useCurrencyContext } from "@/contexts/CurrencyContext";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
+import { useAuth } from "@/features/auth/context/AuthContext";
 import type { PaymentLine } from "@liratek/ui";
 import {
   useMobileServiceItems,
@@ -15,6 +16,7 @@ import {
   CryptoForm,
   ProviderTabs,
 } from "../../components";
+import { TopUpModal } from "@liratek/ui";
 import type {
   AnyProvider,
   ProviderConfig,
@@ -28,6 +30,8 @@ import { PROVIDER_CONFIGS } from "../../types";
 export default function MobileRecharge() {
   const api = useApi();
   const { formatAmount } = useCurrencyContext();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const { methods } = usePaymentMethods();
   const { getCategoriesForProvider, getItems: getServiceItems } =
     useMobileServiceItems();
@@ -59,7 +63,6 @@ export default function MobileRecharge() {
 
   const [rechargeType, setRechargeType] =
     useState<RechargeType>("CREDIT_TRANSFER");
-  const [topUpAmount, setTopUpAmount] = useState("");
   const [telecomAmount, setTelecomAmount] = useState("");
   const [telecomPrice, setTelecomPrice] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
@@ -82,6 +85,18 @@ export default function MobileRecharge() {
   const [cryptoDescription, setCryptoDescription] = useState("");
 
   const [showHistory, setShowHistory] = useState(false);
+  const [rechargeHistory, setRechargeHistory] = useState<any[]>([]);
+  const [showTopUpModal, setShowTopUpModal] = useState(false);
+  const [topUpData, setTopUpData] = useState<{
+    provider: "MTC" | "Alfa" | "OMT_APP" | "WHISH_APP" | "iPick" | "Katsh";
+    destinationDrawer: string;
+    defaultSourceDrawer: string;
+    availableDrawers: Array<{
+      name: string;
+      usdBalance: number;
+      lbpBalance: number;
+    }>;
+  } | null>(null);
 
   const activeConfig = PROVIDER_CONFIGS.find(
     (p: ProviderConfig) => p.key === activeProvider,
@@ -226,21 +241,114 @@ export default function MobileRecharge() {
     loadFinancialData,
   ]);
 
-  const handleTopUp = useCallback(async () => {
-    if (!activeProvider || !topUpAmount) return;
-    setIsSubmitting(true);
+  const loadRechargeHistory = useCallback(async () => {
+    if (!activeProvider || !["MTC", "Alfa"].includes(activeProvider)) return;
     try {
-      await api.topUpRecharge({
-        provider: activeProvider as "MTC" | "Alfa",
-        amount: parseFloat(topUpAmount),
-      });
-      setTopUpAmount("");
-    } catch (err) {
-      console.error("Failed to submit top up:", err);
-    } finally {
-      setIsSubmitting(false);
+      const history = await window.api.recharge.getHistory(
+        activeProvider as "MTC" | "Alfa",
+      );
+      setRechargeHistory(history ?? []);
+    } catch (error) {
+      console.error("Failed to load recharge history:", error);
+      setRechargeHistory([]);
     }
-  }, [activeProvider, topUpAmount, api]);
+  }, [activeProvider]);
+
+  const handleTopUpClick = useCallback(async () => {
+    if (!activeProvider) return;
+
+    // Provider configuration mapping
+    const providerConfig: Record<
+      string,
+      {
+        drawer: string;
+        defaultSource: string;
+        type: "MTC" | "Alfa" | "OMT_APP" | "WHISH_APP" | "iPick" | "Katsh";
+      }
+    > = {
+      MTC: { drawer: "MTC", defaultSource: "General", type: "MTC" },
+      Alfa: { drawer: "Alfa", defaultSource: "General", type: "Alfa" },
+      OMT_APP: {
+        drawer: "OMT_App",
+        defaultSource: "OMT_System",
+        type: "OMT_APP",
+      },
+      WISH_APP: {
+        drawer: "Whish_App",
+        defaultSource: "General",
+        type: "WHISH_APP",
+      },
+      iPick: { drawer: "iPick", defaultSource: "General", type: "iPick" },
+      Katsh: { drawer: "Katsh", defaultSource: "General", type: "Katsh" },
+    };
+
+    const config = providerConfig[activeProvider];
+    if (!config) return;
+
+    const {
+      drawer: destinationDrawer,
+      defaultSource: defaultSourceDrawer,
+      type: provider,
+    } = config;
+
+    try {
+      const drawers = await window.api.recharge.getDrawerBalances();
+      const availableDrawers = drawers.filter(
+        (d) => d.name !== destinationDrawer,
+      );
+
+      setTopUpData({
+        provider,
+        destinationDrawer,
+        defaultSourceDrawer,
+        availableDrawers,
+      });
+      setShowTopUpModal(true);
+    } catch (error) {
+      console.error("Failed to load drawer balances:", error);
+      alert("Failed to load drawer balances");
+    }
+  }, [activeProvider]);
+
+  const handleTopUpConfirm = useCallback(
+    async (data: {
+      amount: number;
+      currency: "USD" | "LBP";
+      sourceDrawer: string;
+    }) => {
+      if (!topUpData) return;
+
+      const result = await window.api.recharge.topUpApp({
+        provider: topUpData.provider,
+        amount: data.amount,
+        currency: data.currency,
+        sourceDrawer: data.sourceDrawer,
+      });
+
+      if (!result.success) {
+        throw new Error(result.error || "Top-up failed");
+      }
+
+      // Reload financial data to show updated balances
+      if (activeConfig?.formMode === "financial") {
+        loadFinancialData();
+      }
+
+      const providerLabels: Record<string, string> = {
+        MTC: "MTC",
+        Alfa: "Alfa",
+        OMT_APP: "OMT App",
+        WHISH_APP: "Whish App",
+        iPick: "iPick",
+        Katsh: "Katsh",
+      };
+
+      alert(
+        `Successfully topped up ${providerLabels[topUpData.provider] || topUpData.provider} drawer with ${data.amount} ${data.currency}`,
+      );
+    },
+    [topUpData, activeConfig, loadFinancialData],
+  );
 
   const handleAlfaGiftSubmit = useCallback(async () => {
     if (!giftTierKey) return;
@@ -337,35 +445,67 @@ export default function MobileRecharge() {
 
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 min-h-0 flex flex-col overflow-hidden animate-in fade-in duration-500">
-      {/* Header: Provider Tabs (left) + Stats (right) */}
+      {/* Header */}
       <div className="flex items-center justify-between mb-6">
-        <ProviderTabs
-          providers={PROVIDER_CONFIGS}
-          activeProvider={activeProvider}
-          onSelectProvider={setActiveProvider}
-        />
-
-        {/* Compact Stats - changes based on active provider */}
-        {activeConfig && (
-          <CompactStats
-            providerLabel={activeConfig.label}
-            activeConfig={activeConfig}
-            todayCommission={telecomStats.commission}
-            todayCount={telecomStats.count}
-            allProvidersCommission={
-              activeConfig.formMode !== "crypto"
-                ? finAnalytics.today.commission
-                : undefined
-            }
-            cryptoOutToday={binanceStats.totalSent}
-            cryptoInToday={binanceStats.totalReceived}
-            showCryptoStats={activeConfig.formMode === "crypto"}
-            showHistoryButton={
-              activeConfig.formMode === "financial" ||
-              activeConfig.formMode === "crypto"
-            }
-            onShowHistory={() => setShowHistory(true)}
+        {/* Left: Provider Tabs + Stats */}
+        <div className="flex items-center gap-4">
+          <ProviderTabs
+            providers={PROVIDER_CONFIGS}
+            activeProvider={activeProvider}
+            onSelectProvider={setActiveProvider}
           />
+
+          {activeConfig && (
+            <CompactStats
+              activeConfig={activeConfig}
+              todayCommission={telecomStats.commission}
+              todayCount={telecomStats.count}
+              allProvidersCommission={
+                activeConfig.formMode !== "crypto"
+                  ? finAnalytics.today.commission
+                  : undefined
+              }
+              cryptoOutToday={binanceStats.totalSent}
+              cryptoInToday={binanceStats.totalReceived}
+              showCryptoStats={activeConfig.formMode === "crypto"}
+              isAdmin={isAdmin}
+            />
+          )}
+        </div>
+
+        {/* Right: Action Buttons */}
+        {activeConfig && (
+          <div className="flex items-center gap-2">
+            {(activeConfig.formMode === "financial" ||
+              activeConfig.formMode === "crypto" ||
+              activeConfig.formMode === "telecom") && (
+              <button
+                onClick={async () => {
+                  if (activeConfig?.formMode === "telecom") {
+                    await loadRechargeHistory();
+                  }
+                  setShowHistory(true);
+                }}
+                className="px-4 py-2 rounded-lg font-medium text-sm bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 hover:text-white transition-all"
+              >
+                History
+              </button>
+            )}
+
+            {(activeConfig.key === "MTC" ||
+              activeConfig.key === "Alfa" ||
+              activeConfig.key === "OMT_APP" ||
+              activeConfig.key === "WISH_APP" ||
+              activeConfig.key === "iPick" ||
+              activeConfig.key === "Katsh") && (
+              <button
+                onClick={handleTopUpClick}
+                className="px-4 py-2 rounded-lg font-medium text-sm bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 hover:text-white transition-all"
+              >
+                Top-Up
+              </button>
+            )}
+          </div>
         )}
       </div>
 
@@ -374,11 +514,11 @@ export default function MobileRecharge() {
           isMTC={isMTC}
           rechargeType={rechargeType}
           setRechargeType={setRechargeType}
-          topUpAmount={topUpAmount}
-          setTopUpAmount={setTopUpAmount}
-          handleTopUp={handleTopUp}
           isSubmitting={isSubmitting}
           handleQuickAmount={handleQuickAmount}
+          showHistory={showHistory}
+          setShowHistory={setShowHistory}
+          rechargeHistory={rechargeHistory}
           telecomAmount={telecomAmount}
           setTelecomAmount={setTelecomAmount}
           telecomPrice={telecomPrice}
@@ -420,7 +560,7 @@ export default function MobileRecharge() {
       )}
 
       {activeConfig?.formMode === "financial" &&
-        (activeProvider === "KATCH" || activeProvider === "IPEC" ? (
+        (activeProvider === "Katsh" || activeProvider === "iPick" ? (
           <KatchForm
             activeConfig={activeConfig}
             finTransactions={finTransactions}
@@ -480,6 +620,22 @@ export default function MobileRecharge() {
           loadCryptoData={loadBinanceData}
           showHistory={showHistory}
           setShowHistory={setShowHistory}
+        />
+      )}
+
+      {/* Top-Up Modal for OMT App and Whish App */}
+      {topUpData && (
+        <TopUpModal
+          isOpen={showTopUpModal}
+          onClose={() => {
+            setShowTopUpModal(false);
+            setTopUpData(null);
+          }}
+          onConfirm={handleTopUpConfirm}
+          provider={topUpData.provider}
+          allDrawers={topUpData.availableDrawers}
+          destinationDrawer={topUpData.destinationDrawer}
+          defaultSourceDrawer={topUpData.defaultSourceDrawer}
         />
       )}
     </div>

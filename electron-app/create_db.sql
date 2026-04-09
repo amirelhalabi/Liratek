@@ -392,10 +392,10 @@ CREATE TABLE IF NOT EXISTS exchange_transactions (
     created_by       INTEGER
 );
 
--- Financial Services (OMT, Whish, IPEC, Katch, Wish App, Binance, etc.)
+-- Financial Services (OMT, Whish, iPick, Katsh, Wish App, Binance, etc.)
 CREATE TABLE IF NOT EXISTS financial_services (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    provider TEXT CHECK(provider IN ('OMT', 'WHISH', 'BOB', 'OTHER', 'IPEC', 'KATCH', 'WISH_APP', 'OMT_APP', 'BINANCE')) NOT NULL,
+    provider TEXT CHECK(provider IN ('OMT', 'WHISH', 'BOB', 'OTHER', 'iPick', 'Katsh', 'WISH_APP', 'OMT_APP', 'BINANCE')) NOT NULL,
     service_type TEXT CHECK(service_type IN ('SEND', 'RECEIVE')) NOT NULL,
     amount DECIMAL(10, 2) NOT NULL,
     currency TEXT DEFAULT 'USD' NOT NULL,
@@ -510,8 +510,8 @@ INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALU
 INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Binance', 'USD', 0);
 INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('MTC', 'USD', 0);
 INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Alfa', 'USD', 0);
-INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('IPEC', 'USD', 0);
-INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('IPEC', 'LBP', 0);
+INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('iPick', 'USD', 0);
+INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('iPick', 'LBP', 0);
 INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Katch', 'USD', 0);
 INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Katch', 'LBP', 0);
 INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Whish_System', 'USD', 0);
@@ -663,7 +663,7 @@ INSERT OR IGNORE INTO modules (key, label, icon, route, sort_order, is_enabled, 
   ('expenses',    'Expenses',     'Banknote',      '/expenses',      8,  1, 0, 0),
   ('maintenance', 'Maintenance',  'Wrench',        '/maintenance',   9,  1, 0, 0),
   ('binance',     'Binance',      'Bitcoin',       '/recharge',     10,  0, 0, 0),
-  ('ipec_katch',  'IPEC/Katch',  'Zap',           '/recharge',     11,  0, 0, 0),
+  ('ipec_katch',  'iPick/Katsh',  'Zap',           '/recharge',     11,  0, 0, 0),
   ('custom_services','Services', 'Briefcase',     '/custom-services',12, 1, 0, 0),
   ('profits',        'Profits',  'TrendingUp',    '/profits',        13, 1, 1, 0),
   ('loto',           'Loto',     'Ticket',        '/loto',           16, 1, 0, 0);
@@ -713,8 +713,8 @@ INSERT OR IGNORE INTO currency_drawers (currency_code, drawer_name) VALUES
   ('USD', 'Binance'),
   ('USD', 'MTC'),
   ('USD', 'Alfa'),
-  ('USD', 'IPEC'),       ('LBP', 'IPEC'),
-  ('USD', 'Katch'),      ('LBP', 'Katch'),
+  ('USD', 'iPick'),       ('LBP', 'iPick'),
+  ('USD', 'Katsh'),       ('LBP', 'Katsh'),
   ('USD', 'Whish_System'), ('LBP', 'Whish_System');
 
 -- Debt ledger indexes
@@ -747,7 +747,7 @@ INSERT OR IGNORE INTO payment_methods (code, label, drawer_name, affects_drawer,
 
 -- Seed system suppliers (linked to modules)
 INSERT OR IGNORE INTO suppliers (name, module_key, provider, is_system) VALUES
-  ('IPEC',         'ipec_katch', 'IPEC',         1),
+  ('iPick',         'ipec_katch', 'iPick',         1),
   ('Katch',        'ipec_katch', 'KATCH',        1),
   ('OMT',          'omt_whish',  'OMT',          1),
   ('Whish',        'omt_whish',  'WHISH',        1),
@@ -821,6 +821,46 @@ VALUES ('USD', 'loto'), ('LBP', 'loto');
 INSERT OR IGNORE INTO currency_drawers (currency_code, drawer_name)
 VALUES ('USD', 'Loto'), ('LBP', 'Loto');
 
+-- Loto checkpoints (scheduled checkpoint tracking)
+CREATE TABLE IF NOT EXISTS loto_checkpoints (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    checkpoint_date TEXT NOT NULL,
+    period_start TEXT NOT NULL,
+    period_end TEXT NOT NULL,
+    total_sales REAL NOT NULL DEFAULT 0,
+    total_commission REAL NOT NULL DEFAULT 0,
+    total_tickets INTEGER NOT NULL DEFAULT 0,
+    total_prizes REAL NOT NULL DEFAULT 0,
+    is_settled INTEGER NOT NULL DEFAULT 0,
+    settled_at TEXT,
+    settlement_id INTEGER,
+    note TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_loto_checkpoints_date ON loto_checkpoints(checkpoint_date);
+CREATE INDEX IF NOT EXISTS idx_loto_checkpoints_is_settled ON loto_checkpoints(is_settled);
+CREATE INDEX IF NOT EXISTS idx_loto_checkpoints_period ON loto_checkpoints(period_start, period_end);
+
+-- Cash prizes table for Loto module
+CREATE TABLE IF NOT EXISTS loto_cash_prizes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticket_number TEXT,
+    prize_amount REAL NOT NULL,
+    customer_name TEXT,
+    prize_date TEXT NOT NULL,
+    is_reimbursed INTEGER NOT NULL DEFAULT 0,
+    reimbursed_date TEXT,
+    reimbursed_in_settlement_id INTEGER,
+    note TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_loto_cash_prizes_date ON loto_cash_prizes(prize_date);
+CREATE INDEX IF NOT EXISTS idx_loto_cash_prizes_reimbursed ON loto_cash_prizes(is_reimbursed);
+
 -- =============================================================================
 -- 10. Migration Tracking
 -- =============================================================================
@@ -866,6 +906,13 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (39, 'setup_wizard_feature_flags'),
     (40, 'create_product_suppliers'),
     (41, 'fix_category_cascade_to_set_null'),
-    (47, 'add_loto_module'),
     (42, 'add_reports_and_transactions_modules'),
-    (43, 'add_soft_delete_to_products');
+    (43, 'add_soft_delete_to_products'),
+    (44, 'add_refunded_quantity_to_sale_items'),
+    (45, 'remove_reports_transactions_modules'),
+    (46, 'add_sender_receiver_fields'),
+    (47, 'add_loto_module'),
+    (48, 'update_provider_drawer_names'),
+    (49, 'reorder_modules_loto_services_profits_v49'),
+    (50, 'add_loto_checkpoints_table'),
+    (51, 'add_loto_cash_prizes_table');

@@ -544,6 +544,24 @@ export async function topUpRecharge(payload: {
   );
 }
 
+export async function topUpApp(payload: {
+  provider: "OMT_APP" | "WHISH_APP" | "iPick" | "Katsh";
+  amount: number;
+  currency: "USD" | "LBP";
+  sourceDrawer: string;
+}) {
+  if (isElectron()) {
+    return (window as any).api.recharge.topUpApp(payload);
+  }
+  return requestJson<{ success: boolean; error?: string }>(
+    `/api/recharge/top-up-app`,
+    {
+      method: "POST",
+      body: payload,
+    },
+  );
+}
+
 // Services (OMT/Whish/BOB)
 export async function getOMTHistory(provider?: string) {
   if (isElectron()) {
@@ -2272,5 +2290,298 @@ export async function lotoSettingsUpdate(
           body: { value },
         },
       ),
+  );
+}
+
+// Loto Cash Prize functions
+
+export async function lotoCashPrizeCreate(data: {
+  ticket_number?: string;
+  prize_amount: number;
+  customer_name?: string;
+  prize_date?: string;
+  note?: string;
+}): Promise<{ success: boolean; prize?: any; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().loto.cashPrize.create(data),
+    async () =>
+      requestJson<{ success: boolean; prize?: any; error?: string }>(
+        `/api/loto/cash-prizes`,
+        {
+          method: "POST",
+          body: data,
+        },
+      ),
+  );
+}
+
+export async function lotoCashPrizeGetByDateRange(
+  from: string,
+  to: string,
+): Promise<{ success: boolean; prizes?: any[]; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().loto.cashPrize.getByDateRange(from, to),
+    async () => {
+      const res = await requestJson<{ success: boolean; prizes?: any[] }>(
+        `/api/loto/cash-prizes?from=${from}&to=${to}`,
+      );
+      return res.prizes ?? [];
+    },
+  );
+}
+
+export async function lotoCashPrizeGetUnreimbursed(): Promise<{
+  success: boolean;
+  prizes?: any[];
+  error?: string;
+}> {
+  return ipcOrHttp(
+    async () => getElectronApi().loto.cashPrize.getUnreimbursed(),
+    async () => {
+      const res = await requestJson<{ success: boolean; prizes?: any[] }>(
+        `/api/loto/cash-prizes/unreimbursed`,
+      );
+      return res.prizes ?? [];
+    },
+  );
+}
+
+export async function lotoCashPrizeMarkReimbursed(
+  id: number,
+  reimbursedDate?: string,
+  settlementId?: number,
+): Promise<{ success: boolean; prize?: any; error?: string }> {
+  return ipcOrHttp(
+    async () =>
+      getElectronApi().loto.cashPrize.markReimbursed(
+        id,
+        reimbursedDate,
+        settlementId,
+      ),
+    async () =>
+      requestJson<{ success: boolean; prize?: any; error?: string }>(
+        `/api/loto/cash-prizes/${id}/reimburse`,
+        {
+          method: "POST",
+          body: { reimbursedDate, settlementId },
+        },
+      ),
+  );
+}
+
+export async function lotoCashPrizeGetTotalUnreimbursed(): Promise<{
+  success: boolean;
+  total?: number;
+  error?: string;
+}> {
+  return ipcOrHttp(
+    async () => getElectronApi().loto.cashPrize.getTotalUnreimbursed(),
+    async () => {
+      const res = await requestJson<{ success: boolean; total?: number }>(
+        `/api/loto/cash-prizes/total-unreimbursed`,
+      );
+      return res.total ?? 0;
+    },
+  );
+}
+
+// Loto Checkpoint functions
+
+export async function lotoCheckpointCreate(data: {
+  checkpoint_date: string;
+  period_start: string;
+  period_end: string;
+  note?: string;
+}): Promise<{ success: boolean; checkpoint?: any; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().loto.checkpoint.create(data),
+    async () =>
+      requestJson<{ success: boolean; checkpoint?: any; error?: string }>(
+        `/api/loto/checkpoints`,
+        {
+          method: "POST",
+          body: data,
+        },
+      ),
+  );
+}
+
+export async function lotoCheckpointGet(
+  id: number,
+): Promise<{ success: boolean; checkpoint?: any; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().loto.checkpoint.get(id),
+    async () => {
+      const res = await requestJson<{ success: boolean; checkpoint?: any }>(
+        `/api/loto/checkpoints/${id}`,
+      );
+      return res.checkpoint ?? null;
+    },
+  );
+}
+
+export async function lotoCheckpointGetByDate(
+  date: string,
+): Promise<{ success: boolean; checkpoint?: any; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().loto.checkpoint.getByDate(date),
+    async () => {
+      const res = await requestJson<{ success: boolean; checkpoint?: any }>(
+        `/api/loto/checkpoints/date/${date}`,
+      );
+      return res.checkpoint ?? null;
+    },
+  );
+}
+
+export async function lotoCheckpointGetByDateRange(
+  from: string,
+  to: string,
+): Promise<{ success: boolean; checkpoints?: any[]; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().loto.checkpoint.getByDateRange(from, to),
+    async () => {
+      const res = await requestJson<{ success: boolean; checkpoints?: any[] }>(
+        `/api/loto/checkpoints?from=${from}&to=${to}`,
+      );
+      return res.checkpoints ?? [];
+    },
+  );
+}
+
+export async function lotoCheckpointGetUnsettled(): Promise<{
+  success: boolean;
+  checkpoints?: any[];
+  error?: string;
+}> {
+  return ipcOrHttp(
+    async () => getElectronApi().loto.checkpoint.getUnsettled(),
+    async () => {
+      const res = await requestJson<{ success: boolean; checkpoints?: any[] }>(
+        `/api/loto/checkpoints/unssettled`,
+      );
+      return res.checkpoints ?? [];
+    },
+  );
+}
+
+export async function lotoCheckpointUpdate(
+  id: number,
+  data: any,
+): Promise<{ success: boolean; checkpoint?: any; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().loto.checkpoint.update(id, data),
+    async () =>
+      requestJson<{ success: boolean; checkpoint?: any; error?: string }>(
+        `/api/loto/checkpoints/${id}`,
+        {
+          method: "PUT",
+          body: data,
+        },
+      ),
+  );
+}
+
+export async function lotoCheckpointMarkSettled(
+  id: number,
+  settledAt?: string,
+  settlementId?: number,
+): Promise<{ success: boolean; checkpoint?: any; error?: string }> {
+  return ipcOrHttp(
+    async () =>
+      getElectronApi().loto.checkpoint.markSettled(id, settledAt, settlementId),
+    async () =>
+      requestJson<{ success: boolean; checkpoint?: any; error?: string }>(
+        `/api/loto/checkpoints/${id}/settle`,
+        {
+          method: "POST",
+          body: { settledAt, settlementId },
+        },
+      ),
+  );
+}
+
+export async function lotoCheckpointSettle(data: {
+  id: number;
+  totalSales: number;
+  totalCommission: number;
+  totalPrizes: number;
+  totalCashPrizes: number;
+  settledAt?: string;
+}): Promise<{ success: boolean; checkpoint?: any; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().loto.checkpoint.settle(data),
+    async () =>
+      requestJson<{ success: boolean; checkpoint?: any; error?: string }>(
+        `/api/loto/checkpoints/${data.id}/settle`,
+        {
+          method: "POST",
+          body: data,
+        },
+      ),
+  );
+}
+
+export async function lotoCheckpointGetTotalSalesUnsettled(): Promise<{
+  success: boolean;
+  totalSales?: number;
+  error?: string;
+}> {
+  return ipcOrHttp(
+    async () => getElectronApi().loto.checkpoint.getTotalSalesUnsettled(),
+    async () => {
+      const res = await requestJson<{ success: boolean; totalSales?: number }>(
+        `/api/loto/checkpoints/total-sales-unssettled`,
+      );
+      return res.totalSales ?? 0;
+    },
+  );
+}
+
+export async function lotoCheckpointGetTotalCommissionUnsettled(): Promise<{
+  success: boolean;
+  totalCommission?: number;
+  error?: string;
+}> {
+  return ipcOrHttp(
+    async () => getElectronApi().loto.checkpoint.getTotalCommissionUnsettled(),
+    async () => {
+      const res = await requestJson<{
+        success: boolean;
+        totalCommission?: number;
+      }>(`/api/loto/checkpoints/total-commission-unssettled`);
+      return res.totalCommission ?? 0;
+    },
+  );
+}
+
+export async function lotoCheckpointGetLast(): Promise<{
+  success: boolean;
+  checkpoint?: any;
+  error?: string;
+}> {
+  return ipcOrHttp(
+    async () => getElectronApi().loto.checkpoint.getLast(),
+    async () => {
+      const res = await requestJson<{ success: boolean; checkpoint?: any }>(
+        `/api/loto/checkpoints/last`,
+      );
+      return res.checkpoint ?? null;
+    },
+  );
+}
+
+export async function lotoCheckpointCreateScheduled(
+  checkpointDate?: string,
+): Promise<{ success: boolean; checkpoint?: any; error?: string }> {
+  return ipcOrHttp(
+    async () =>
+      getElectronApi().loto.checkpoint.createScheduled(checkpointDate),
+    async () => {
+      const res = await requestJson<{ success: boolean; checkpoint?: any }>(
+        `/api/loto/checkpoints/scheduled?date=${checkpointDate || ""}`,
+      );
+      return res.checkpoint ?? null;
+    },
   );
 }

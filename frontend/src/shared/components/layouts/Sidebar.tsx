@@ -101,14 +101,6 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
       );
   }, [enabledModules, isAdmin]);
 
-  const handleClosingClick = () => {
-    appEvents.emit("closing:open");
-  };
-
-  const handleOpeningClick = () => {
-    appEvents.emit("opening:open");
-  };
-
   return (
     <aside
       className={clsx(
@@ -158,39 +150,21 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
             )}
           </NavLink>
         ))}
-        {/* Opening and Closing Buttons - admin only, only when session management is enabled */}
+        {/* Checkpoint Button (unified Opening/Closing) - admin only, only when session management is enabled */}
         {isAdmin && flags.sessionManagement && (
           <button
-            onClick={handleOpeningClick}
+            onClick={() => appEvents.emit("checkpoint:open")}
             className={clsx(
               "flex items-center gap-3 px-3 py-3 rounded-xl transition-all font-medium whitespace-nowrap w-full",
               "text-slate-400 hover:bg-slate-800 hover:text-white",
               isCollapsed ? "justify-center" : "",
             )}
-            title={isCollapsed ? "Opening" : undefined}
+            title={isCollapsed ? "Checkpoint" : undefined}
           >
             <Play size={20} className="min-w-[20px]" />
             {!isCollapsed && (
               <span className="opacity-100 transition-opacity duration-200">
-                Opening
-              </span>
-            )}
-          </button>
-        )}
-        {isAdmin && flags.sessionManagement && (
-          <button
-            onClick={handleClosingClick}
-            className={clsx(
-              "flex items-center gap-3 px-3 py-3 rounded-xl transition-all font-medium whitespace-nowrap w-full",
-              "text-slate-400 hover:bg-slate-800 hover:text-white",
-              isCollapsed ? "justify-center" : "",
-            )}
-            title={isCollapsed ? "Closing" : undefined}
-          >
-            <SquareActivity size={20} className="min-w-[20px]" />
-            {!isCollapsed && (
-              <span className="opacity-100 transition-opacity duration-200">
-                Closing
+                Checkpoint
               </span>
             )}
           </button>

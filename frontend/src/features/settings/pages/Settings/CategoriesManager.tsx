@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Plus, Pencil, Trash2, Check, X, Tag, Truck } from "lucide-react";
-import { DataTable } from "@/shared/components/DataTable";
+import { DataTable } from "@liratek/ui";
 
 interface Category {
   id: number;

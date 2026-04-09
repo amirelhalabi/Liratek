@@ -61,7 +61,7 @@ describe("exchangeRateCalculator", () => {
       expect(result.rate).toBe(90000);
     });
 
-    it("should handle SERVICE_PAYMENT for IPEC/KATCH/OMT", () => {
+    it("should handle SERVICE_PAYMENT for iPick/Katsh/OMT", () => {
       const resultIn = calculateExchangeRate({
         transactionType: "SERVICE_PAYMENT",
         selectedCurrency: "LBP",
@@ -151,7 +151,7 @@ describe("exchangeRateCalculator", () => {
   });
 
   describe("Financial Impact Scenarios", () => {
-    it("should calculate correct amount for $100 IPEC payment (Money IN)", () => {
+    it("should calculate correct amount for $100 iPick payment (Money IN)", () => {
       const result = calculateExchangeRate({
         transactionType: "SERVICE_PAYMENT",
         selectedCurrency: "LBP",
@@ -166,7 +166,7 @@ describe("exchangeRateCalculator", () => {
       expect(amountLBP).toBe(8950000); // Customer pays 8,950,000 LBP
     });
 
-    it("should calculate correct amount for $100 IPEC refund (Money OUT)", () => {
+    it("should calculate correct amount for $100 iPick refund (Money OUT)", () => {
       const result = calculateExchangeRate({
         transactionType: "REFUND",
         selectedCurrency: "LBP",

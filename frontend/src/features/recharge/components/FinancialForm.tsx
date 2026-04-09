@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Search, X } from "lucide-react";
 import { MultiPaymentInput, useApi } from "@liratek/ui";
 import { ServiceTypeTabs, type ServiceTypeOption } from "@liratek/ui";
 import type { ServiceItem, ProviderKey } from "../hooks/useMobileServiceItems";
@@ -68,6 +68,7 @@ export function FinancialForm({
   const [_paymentLines, setPaymentLines] = useState<any[]>([]); // Used by MultiPaymentInput onChange callback
   const [paymentMethod, setPaymentMethod] = useState("CASH");
   const [rates, setRates] = useState({ buyRate: 89000, sellRate: 89500 });
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Fetch exchange rates on mount
   useEffect(() => {
@@ -170,30 +171,74 @@ export function FinancialForm({
       setClientName("");
       setReferenceNumber("");
       setExpandedKeys(new Set());
+      setSearchQuery("");
     }
+  };
+
+  // Filter items by search query
+  const filterItemsBySearch = (items: ServiceItem[]): ServiceItem[] => {
+    if (!searchQuery.trim()) return items;
+    const query = searchQuery.toLowerCase();
+    return items.filter(
+      (item) =>
+        item.label.toLowerCase().includes(query) ||
+        item.subcategory.toLowerCase().includes(query) ||
+        item.category.toLowerCase().includes(query),
+    );
   };
 
   return (
     <>
       <div className="flex flex-col gap-5 h-full">
-        {/* Service Type Tabs */}
-        <ServiceTypeTabs
-          options={
-            [
-              { id: "SEND", label: "Money In", iconKey: "Send" },
-              { id: "RECEIVE", label: "Money Out", iconKey: "Package" },
-            ] as ServiceTypeOption[]
-          }
-          value={serviceType}
-          onChange={(val) => setServiceType(val as ServiceType)}
-          accentColor={
-            activeProvider === "IPEC" || activeProvider === "KATCH"
-              ? "orange"
-              : activeProvider === "WISH_APP"
-                ? "violet"
-                : "lime"
-          }
-        />
+        {/* Header with Tabs and Top-Up Button */}
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex-1">
+            <ServiceTypeTabs
+              options={
+                [
+                  { id: "SEND", label: "Money In", iconKey: "Send" },
+                  { id: "RECEIVE", label: "Money Out", iconKey: "Package" },
+                ] as ServiceTypeOption[]
+              }
+              value={serviceType}
+              onChange={(val) => setServiceType(val as ServiceType)}
+              accentColor={
+                activeProvider === "iPick" || activeProvider === "Katsh"
+                  ? "orange"
+                  : activeProvider === "WISH_APP"
+                    ? "violet"
+                    : "lime"
+              }
+            />
+          </div>
+        </div>
+
+        {/* Search Bar - only for providers with items */}
+        {(activeProvider === "iPick" ||
+          activeProvider === "Katsh" ||
+          activeProvider === "WISH_APP" ||
+          activeProvider === "OMT_APP") && (
+          <div className="relative">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={`Search ${activeProvider === "iPick" ? "iPick" : activeProvider === "Katsh" ? "Katsh" : activeProvider === "WISH_APP" ? "Whish App" : "OMT App"} items...`}
+              className="w-full px-4 py-2.5 pl-10 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500/50 transition-all"
+            />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+                aria-label="Clear search"
+                type="button"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Card Grid */}
         <div className="flex-1 min-h-0 overflow-auto space-y-6">
@@ -202,7 +247,8 @@ export function FinancialForm({
               activeProvider as ProviderKey,
               category,
             );
-            if (categoryItems.length === 0) return null;
+            const filteredItems = filterItemsBySearch(categoryItems);
+            if (filteredItems.length === 0) return null;
 
             return (
               <div
@@ -224,7 +270,7 @@ export function FinancialForm({
                 </div>
                 {!collapsedCategories.has(category) && (
                   <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 mt-3">
-                    {categoryItems.map((item) => {
+                    {filteredItems.map((item) => {
                       const inCart = cart.get(item.key);
                       const qty = inCart?.quantity ?? 0;
                       const isExpanded = expandedKeys.has(item.key);
@@ -376,20 +422,27 @@ export function FinancialForm({
             </div>
 
             <div className="flex flex-col gap-2 min-w-[200px]">
-              <input
-                type="text"
-                value={clientName}
-                onChange={(e) => setClientName(e.target.value)}
-                placeholder="Client name (optional)"
-                className="w-full bg-slate-900 border border-slate-600 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-violet-500"
-              />
-              <input
-                type="text"
-                value={referenceNumber}
-                onChange={(e) => setReferenceNumber(e.target.value)}
-                placeholder="Ref # (optional)"
-                className="w-full bg-slate-900 border border-slate-600 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-violet-500"
-              />
+              {activeProvider === "iPick" ||
+              activeProvider === "Katsh" ||
+              activeProvider === "WISH_APP" ||
+              activeProvider === "OMT_APP" ? (
+                <>
+                  <input
+                    type="text"
+                    value={clientName}
+                    onChange={(e) => setClientName(e.target.value)}
+                    placeholder="Client name (optional)"
+                    className="w-full bg-slate-900 border border-slate-600 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-violet-500"
+                  />
+                  <input
+                    type="text"
+                    value={referenceNumber}
+                    onChange={(e) => setReferenceNumber(e.target.value)}
+                    placeholder="Ref # (optional)"
+                    className="w-full bg-slate-900 border border-slate-600 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-violet-500"
+                  />
+                </>
+              ) : null}
             </div>
 
             <button

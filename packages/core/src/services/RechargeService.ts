@@ -9,8 +9,10 @@ import {
   getRechargeRepository,
   type VirtualStock,
   type RechargeData,
+  type RechargeEntity,
 } from "../repositories/index.js";
 import { rechargeLogger } from "../utils/logger.js";
+import type { TopUpProvider } from "../constants/index.js";
 
 // =============================================================================
 // Types
@@ -46,6 +48,18 @@ export class RechargeService {
   }
 
   /**
+   * Get recharge history for a provider
+   */
+  getHistory(provider: "MTC" | "Alfa"): RechargeEntity[] {
+    try {
+      return this.rechargeRepo.getHistory(provider);
+    } catch (error) {
+      rechargeLogger.error({ error }, "Failed to get recharge history");
+      return [];
+    }
+  }
+
+  /**
    * Process a recharge transaction
    */
   processRecharge(data: RechargeData): RechargeResult {
@@ -61,6 +75,29 @@ export class RechargeService {
     currency?: string;
   }): { success: boolean; error?: string } {
     return this.rechargeRepo.topUp(data);
+  }
+
+  /**
+   * Top up provider drawer from another drawer
+   */
+  topUpApp(data: {
+    provider: TopUpProvider;
+    amount: number;
+    currency: string;
+    sourceDrawer: string;
+  }): { success: boolean; error?: string } {
+    return this.rechargeRepo.topUpApp(data);
+  }
+
+  /**
+   * Get all drawer balances
+   */
+  getDrawerBalances(): Array<{
+    name: string;
+    usdBalance: number;
+    lbpBalance: number;
+  }> {
+    return this.rechargeRepo.getDrawerBalances();
   }
 }
 

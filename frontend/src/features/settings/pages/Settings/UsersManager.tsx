@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Select, useApi } from "@liratek/ui";
-import { DataTable } from "@/shared/components/DataTable";
+import { DataTable, TextInput } from "@liratek/ui";
+import PasswordInput from "@/shared/components/PasswordInput";
 
 export default function UsersManager() {
   const api = useApi();
@@ -80,18 +81,21 @@ export default function UsersManager() {
   return (
     <div className="space-y-4">
       <div className="bg-slate-900 border border-slate-700 rounded-lg p-3 flex items-center gap-2">
-        <input
+        <TextInput
           value={newUsername}
-          onChange={(e) => setNewUsername(e.target.value)}
+          onChange={setNewUsername}
+          label=""
           placeholder="Username"
-          className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white"
+          compact
+          className="w-48"
         />
-        <input
+        <PasswordInput
           value={newPassword}
-          onChange={(e) => setNewPassword(e.target.value)}
+          onChange={setNewPassword}
+          label=""
           placeholder="Password"
-          type="password"
-          className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white"
+          compact
+          className="flex-1"
         />
         <Select
           value={newRole}

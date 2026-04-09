@@ -20,3 +20,21 @@ export type {
   Currency,
   TransactionType,
 } from "./MultiPaymentInput";
+export { default as TopUpModal } from "./TopUpModal";
+export type {
+  TopUpModalProps,
+  DrawerBalanceWithBalance,
+  TopUpProvider,
+} from "./TopUpModal";
+export { default as TextInput } from "./TextInput";
+export type { TextInputProps } from "./TextInput";
+export { ConfirmModal } from "./ConfirmModal";
+export type { ConfirmModalProps } from "./ConfirmModal";
+export { DataTable } from "./DataTable";
+export type {
+  DataTableProps,
+  DataTableColumn,
+  SortDirection,
+} from "./DataTable";
+export { ExportBar } from "./ExportBar";
+export type { ExportBarProps, ExportableTableProps } from "./ExportBar";

@@ -2,10 +2,11 @@ import React, { useState } from "react";
 import logger from "@/utils/logger";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { Smartphone, Lock, User, AlertCircle } from "lucide-react";
+import { Smartphone, AlertCircle } from "lucide-react";
 import clsx from "clsx";
 import { useShopName } from "@/hooks/useShopName";
-import { useCapsLock } from "@/hooks/useCapsLock";
+import PasswordInput from "@/shared/components/PasswordInput";
+import { TextInput } from "@liratek/ui";
 
 export default function Login() {
   const { login } = useAuth();
@@ -16,7 +17,6 @@ export default function Login() {
   const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const { capsLock, capsLockProps } = useCapsLock();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -61,57 +61,24 @@ export default function Login() {
               </div>
             )}
 
-            <div>
-              <label
-                htmlFor="login-username"
-                className="block text-slate-400 text-sm font-medium mb-2"
-              >
-                Username
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <User className="h-5 w-5 text-slate-500" />
-                </div>
-                <input
-                  id="login-username"
-                  type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 bg-slate-900 border border-slate-700 rounded-lg focus:ring-2 focus:ring-violet-500 focus:border-transparent text-white placeholder-slate-500 transition-all"
-                  placeholder="Enter username"
-                  required
-                />
-              </div>
-            </div>
+            <TextInput
+              value={username}
+              onChange={setUsername}
+              label="Username"
+              placeholder="Enter username"
+              icon="user"
+              required
+              className="mb-4"
+            />
 
             <div>
-              <label
-                htmlFor="login-password"
-                className="block text-slate-400 text-sm font-medium mb-2"
-              >
-                Password
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Lock className="h-5 w-5 text-slate-500" />
-                </div>
-                <input
-                  id="login-password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 bg-slate-900 border border-slate-700 rounded-lg focus:ring-2 focus:ring-violet-500 focus:border-transparent text-white placeholder-slate-500 transition-all"
-                  placeholder="••••••••"
-                  required
-                  {...capsLockProps}
-                />
-              </div>
-              {capsLock && (
-                <p className="text-xs text-amber-400 mt-1.5 flex items-center gap-1">
-                  <AlertCircle size={12} />
-                  Caps Lock is on
-                </p>
-              )}
+              <PasswordInput
+                value={password}
+                onChange={setPassword}
+                label="Password"
+                placeholder="••••••••"
+                className="mb-4"
+              />
             </div>
 
             <div className="flex items-center">

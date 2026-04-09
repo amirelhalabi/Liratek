@@ -905,11 +905,20 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
    */
   getDashboardStats(): DashboardStats {
     try {
-      // Total Sales Today
+      // Sales Revenue Today (actual sale value, NOT amount tendered)
       const salesResult = this.queryOne<SumRow>(`
         SELECT 
-          SUM(paid_usd) as total_usd,
-          SUM(paid_lbp) as total_lbp
+          SUM(final_amount_usd) as total_usd,
+          SUM(paid_lbp - COALESCE(change_given_lbp, 0)) as total_lbp
+        FROM ${this.tableName} 
+        WHERE DATE(created_at, 'localtime') = DATE('now', 'localtime') AND status = 'completed'
+      `);
+
+      // Cash Collected from Sales Today (net cash retained = tendered - change)
+      const cashFromSalesResult = this.queryOne<SumRow>(`
+        SELECT 
+          SUM(paid_usd - COALESCE(change_given_usd, 0)) as total_usd,
+          SUM(paid_lbp - COALESCE(change_given_lbp, 0)) as total_lbp
         FROM ${this.tableName} 
         WHERE DATE(created_at, 'localtime') = DATE('now', 'localtime') AND status = 'completed'
       `);
@@ -943,14 +952,16 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       `);
 
       return {
-        // Sales Revenue: Only sales created today (revenue recognition)
+        // Sales Revenue: actual sale value today (revenue recognition)
         totalSalesUSD: salesResult?.total_usd ?? 0,
         totalSalesLBP: salesResult?.total_lbp ?? 0,
-        // Cash Collected: Sales + debt repayments received today (cash flow)
+        // Cash Collected: net cash from sales + debt repayments today (cash flow)
         cashCollectedUSD:
-          (salesResult?.total_usd ?? 0) + (repaymentResult?.total_usd ?? 0),
+          (cashFromSalesResult?.total_usd ?? 0) +
+          (repaymentResult?.total_usd ?? 0),
         cashCollectedLBP:
-          (salesResult?.total_lbp ?? 0) + (repaymentResult?.total_lbp ?? 0),
+          (cashFromSalesResult?.total_lbp ?? 0) +
+          (repaymentResult?.total_lbp ?? 0),
         ordersCount: ordersResult?.count ?? 0,
         activeClients: clientsResult?.count ?? 0,
         lowStockCount: stockResult?.count ?? 0,
@@ -976,7 +987,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       }>(`
         SELECT drawer_name, currency_code, balance 
         FROM drawer_balances 
-        WHERE drawer_name IN ('General', 'OMT_System', 'OMT_App', 'Whish_App', 'Whish_System', 'Binance', 'Alfa', 'MTC', 'IPEC', 'Katch')
+        WHERE drawer_name IN ('General', 'OMT_System', 'OMT_App', 'Whish_App', 'Whish_System', 'Binance', 'Alfa', 'MTC', 'iPick', 'Katsh')
         ORDER BY drawer_name, currency_code
       `);
 
@@ -1102,8 +1113,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           `
           SELECT 
             DATE(created_at, 'localtime') as date,
-            SUM(paid_usd) as daily_usd,
-            SUM(paid_lbp) as daily_lbp
+            SUM(final_amount_usd) as daily_usd,
+            SUM(paid_lbp - COALESCE(change_given_lbp, 0)) as daily_lbp
           FROM ${this.tableName}
           WHERE status = 'completed' AND DATE(created_at, 'localtime') >= ?
           GROUP BY date

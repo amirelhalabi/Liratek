@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Lock, Save, Send, CheckCircle, AlertCircle } from "lucide-react";
 import logger from "@/utils/logger";
 import { useApi } from "@liratek/ui";
+import PasswordInput from "@/shared/components/PasswordInput";
 
 export default function IntegrationsConfig() {
   const api = useApi();
@@ -112,22 +113,12 @@ export default function IntegrationsConfig() {
           WhatsApp Cloud API
         </h3>
 
-        <div>
-          <label
-            htmlFor="whatsAppApiKey"
-            className="block text-sm font-medium text-slate-400 mb-2"
-          >
-            Access Token
-          </label>
-          <input
-            type="password"
-            id="whatsAppApiKey"
-            className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500/30 transition-colors"
-            value={whatsAppApiKey}
-            onChange={(e) => setWhatsAppApiKey(e.target.value)}
-            placeholder="Enter access token from Meta Developer dashboard..."
-          />
-        </div>
+        <PasswordInput
+          value={whatsAppApiKey}
+          onChange={setWhatsAppApiKey}
+          label="Access Token"
+          placeholder="Enter access token from Meta Developer dashboard..."
+        />
 
         <div>
           <label

@@ -1,13 +1,5 @@
 import { useState, useEffect } from "react";
-import {
-  Phone,
-  Wallet,
-  User,
-  Search,
-  X,
-  CheckCircle,
-  Plus,
-} from "lucide-react";
+import { Phone, Wallet, User, Search, X, CheckCircle } from "lucide-react";
 import {
   Select,
   ServiceTypeTabs,
@@ -16,6 +8,7 @@ import {
 } from "@liratek/ui";
 import type { ProviderConfig, RechargeType } from "../types";
 import { TELECOM_SERVICE_TYPES, ALFA_GIFT_TIERS } from "../types";
+import { HistoryModal } from "./HistoryModal";
 import { MultiPaymentInput, type PaymentLine } from "@liratek/ui";
 import { getExchangeRates } from "@/utils/exchangeRates";
 
@@ -23,11 +16,11 @@ interface TelecomFormProps {
   isMTC: boolean;
   rechargeType: RechargeType;
   setRechargeType: (type: RechargeType) => void;
-  topUpAmount: string;
-  setTopUpAmount: (val: string) => void;
-  handleTopUp: () => void;
   isSubmitting: boolean;
   handleQuickAmount: (val: number) => void;
+  showHistory: boolean;
+  setShowHistory: (show: boolean) => void;
+  rechargeHistory: any[];
   telecomAmount: string;
   setTelecomAmount: (val: string) => void;
   telecomPrice: string;
@@ -71,11 +64,11 @@ export function TelecomForm({
   isMTC,
   rechargeType,
   setRechargeType,
-  topUpAmount,
-  setTopUpAmount,
-  handleTopUp,
   isSubmitting,
   handleQuickAmount,
+  showHistory,
+  setShowHistory,
+  rechargeHistory,
   telecomAmount,
   setTelecomAmount,
   telecomPrice,
@@ -115,14 +108,27 @@ export function TelecomForm({
 }: TelecomFormProps) {
   const api = useApi();
   const [rates, setRates] = useState({ buyRate: 89000, sellRate: 89500 });
+  const [costRate, setCostRate] = useState(85000);
 
-  // Fetch exchange rates on mount
+  // Fetch exchange rates and cost rate on mount
   useEffect(() => {
     const loadRates = async () => {
       try {
-        const list = await api.getRates();
+        const [list, settings] = await Promise.all([
+          api.getRates(),
+          api.getAllSettings(),
+        ]);
         const { buyRate, sellRate } = getExchangeRates(list);
         setRates({ buyRate, sellRate });
+
+        const settingsMap = new Map(
+          settings.map((s: { key_name: string; value: string }) => [
+            s.key_name,
+            s.value,
+          ]),
+        );
+        const costVal = Number(settingsMap.get("alfa_credit_cost_lbp"));
+        if (costVal > 0) setCostRate(costVal);
       } catch (error) {
         console.error("Failed to load exchange rates:", error);
       }
@@ -172,7 +178,7 @@ export function TelecomForm({
                       "100000",
                   ) / 1000;
                 const priceLbp = (tier.usd * sellRate * 1000).toFixed(0);
-                const costLbp = tier.usd * 85000;
+                const costLbp = tier.usd * costRate;
                 const profitLbp = parseFloat(priceLbp) - costLbp;
 
                 return (
@@ -278,7 +284,7 @@ export function TelecomForm({
                   Cost:{" "}
                   <span className="text-white font-mono">
                     {(
-                      parseFloat(giftAmountUsd || "0") * 85000
+                      parseFloat(giftAmountUsd || "0") * costRate
                     ).toLocaleString()}{" "}
                     L
                   </span>
@@ -292,7 +298,7 @@ export function TelecomForm({
                 <div
                   className={`text-xs font-bold ${
                     parseFloat(giftPriceLbp || "0") -
-                      parseFloat(giftAmountUsd || "0") * 85000 >=
+                      parseFloat(giftAmountUsd || "0") * costRate >=
                     0
                       ? "text-emerald-400"
                       : "text-red-400"
@@ -301,7 +307,7 @@ export function TelecomForm({
                   Profit:{" "}
                   {(
                     parseFloat(giftPriceLbp || "0") -
-                    parseFloat(giftAmountUsd || "0") * 85000
+                    parseFloat(giftAmountUsd || "0") * costRate
                   ).toLocaleString()}{" "}
                   L
                 </div>
@@ -420,67 +426,6 @@ export function TelecomForm({
               }`}
             >
               {isSubmitting ? "Processing..." : "Confirm Voucher Sale"}
-            </button>
-          </div>
-        </div>
-      ) : rechargeType === "TOP_UP" ? (
-        /* Top Up Form */
-        <div className="bg-slate-800 rounded-2xl border border-slate-700/50 p-6">
-          <div className="max-w-lg mx-auto space-y-6">
-            <div>
-              <label
-                htmlFor="topup-amount"
-                className="block text-xs font-medium text-slate-500 mb-2 uppercase tracking-wider"
-              >
-                Amount (USD)
-              </label>
-              <div className="relative">
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-emerald-400 font-bold text-2xl">
-                  $
-                </span>
-                <input
-                  id="topup-amount"
-                  type="number"
-                  value={topUpAmount}
-                  onChange={(e) => setTopUpAmount(e.target.value)}
-                  className="w-full bg-slate-900/80 border border-slate-600 rounded-xl pl-12 pr-4 py-4 text-3xl font-bold text-white text-center focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30 transition-all"
-                  placeholder="0.00"
-                  step="0.01"
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-4 gap-2">
-              {[50, 100, 200, 500, 1000, 2000, 3000, 5000].map((amt) => (
-                <button
-                  key={amt}
-                  onClick={() => setTopUpAmount(amt.toString())}
-                  className={`py-2.5 rounded-xl font-bold text-sm transition-all border ${
-                    topUpAmount === amt.toString()
-                      ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40"
-                      : "bg-slate-900/50 border-slate-700 text-slate-400 hover:border-slate-500 hover:text-white"
-                  }`}
-                >
-                  ${amt.toLocaleString()}
-                </button>
-              ))}
-            </div>
-            <button
-              onClick={handleTopUp}
-              disabled={isSubmitting}
-              className={`w-full py-4 rounded-xl font-bold text-lg text-white shadow-lg active:scale-[0.98] transition-all flex items-center justify-center gap-3 ${
-                isSubmitting
-                  ? "bg-slate-600 cursor-not-allowed"
-                  : "bg-emerald-600 hover:bg-emerald-500"
-              }`}
-            >
-              {isSubmitting ? (
-                "Processing..."
-              ) : (
-                <>
-                  <Plus size={20} />
-                  Confirm Top Up
-                </>
-              )}
             </button>
           </div>
         </div>
@@ -746,6 +691,28 @@ export function TelecomForm({
             </button>
           </div>
         </div>
+      )}
+
+      {/* History Modal */}
+      {showHistory && (
+        <HistoryModal
+          transactions={rechargeHistory.map((r) => ({
+            id: r.id,
+            provider: r.carrier,
+            service_type: "SEND" as const,
+            amount: r.amount,
+            currency: r.currency_code,
+            cost: r.cost,
+            commission: r.price - r.cost,
+            client_name: r.client_name,
+            reference_number: r.phone_number || undefined,
+            created_at: r.created_at,
+          }))}
+          provider={isMTC ? "MTC" : "Alfa"}
+          onClose={() => setShowHistory(false)}
+          onRefresh={() => {}}
+          formatAmount={(val, currency) => `${val.toFixed(2)} ${currency}`}
+        />
       )}
     </div>
   );

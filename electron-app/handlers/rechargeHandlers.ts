@@ -19,6 +19,19 @@ export function registerRechargeHandlers(): void {
     return rechargeService.getStock();
   });
 
+  // Get Recharge History
+  ipcMain.handle(
+    "recharge:get-history",
+    (event: IpcMainInvokeEvent, provider: "MTC" | "Alfa") => {
+      return rechargeService.getHistory(provider);
+    },
+  );
+
+  // Get All Drawer Balances
+  ipcMain.handle("recharge:get-drawer-balances", () => {
+    return rechargeService.getDrawerBalances();
+  });
+
   // Process Recharge Transaction (admin only)
   ipcMain.handle(
     "recharge:process",
@@ -56,6 +69,34 @@ export function registerRechargeHandlers(): void {
         "Processing top-up",
       );
       return rechargeService.topUp(data);
+    },
+  );
+
+  // Top up provider drawer (admin and staff)
+  ipcMain.handle(
+    "recharge:top-up-app",
+    (
+      event: IpcMainInvokeEvent,
+      data: {
+        provider: "MTC" | "Alfa" | "OMT_APP" | "WHISH_APP" | "iPick" | "Katsh";
+        amount: number;
+        currency: "USD" | "LBP";
+        sourceDrawer: string;
+      },
+    ) => {
+      const auth = requireRole(event.sender.id, ["admin", "staff"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+
+      rechargeLogger.info(
+        {
+          provider: data.provider,
+          amount: data.amount,
+          currency: data.currency,
+          sourceDrawer: data.sourceDrawer,
+        },
+        "Processing app top-up",
+      );
+      return rechargeService.topUpApp(data);
     },
   );
 }

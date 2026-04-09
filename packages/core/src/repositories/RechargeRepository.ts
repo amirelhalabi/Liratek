@@ -14,6 +14,11 @@ import {
 } from "../utils/payments.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
+import {
+  type TopUpProvider,
+  TOP_UP_PROVIDER_DRAWERS,
+  TOP_UP_PROVIDER_LABELS,
+} from "../constants/index.js";
 
 // =============================================================================
 // Entity Types
@@ -72,6 +77,23 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
 
   protected getColumns(): string {
     return "id, carrier, recharge_type, amount, cost, price, currency_code, paid_by, phone_number, client_id, client_name, note, created_at, created_by";
+  }
+
+  /**
+   * Get recharge history for a specific provider
+   */
+  getHistory(provider: "MTC" | "Alfa"): RechargeEntity[] {
+    const rows = this.db
+      .prepare(
+        `SELECT ${this.getColumns()}
+         FROM recharges
+         WHERE carrier = ?
+         ORDER BY created_at DESC
+         LIMIT 100`,
+      )
+      .all(provider) as RechargeEntity[];
+
+    return rows;
   }
 
   /**
@@ -149,6 +171,145 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         success: false,
         error: error instanceof Error ? error.message : String(error),
       };
+    }
+  }
+
+  /**
+   * Top up provider drawer from another drawer.
+   * This is a drawer-to-drawer transfer with no fees or commission.
+   * Records a TOP_UP entry in the recharges table.
+   */
+  topUpApp(data: {
+    provider: TopUpProvider;
+    amount: number;
+    currency: string;
+    sourceDrawer: string;
+  }): { success: boolean; error?: string } {
+    try {
+      const destDrawer = TOP_UP_PROVIDER_DRAWERS[data.provider];
+      const currency = data.currency;
+      const amount = Math.abs(data.amount);
+      // Validate source drawer has sufficient balance
+      const sourceBalanceRow = this.db
+        .prepare(
+          "SELECT balance FROM drawer_balances WHERE drawer_name = ? AND currency_code = ?",
+        )
+        .get(data.sourceDrawer, currency) as { balance: number | null };
+
+      const sourceBalance = sourceBalanceRow?.balance ?? 0;
+      if (sourceBalance < amount) {
+        return {
+          success: false,
+          error: `Insufficient balance in ${data.sourceDrawer}. Available: ${sourceBalance} ${currency}`,
+        };
+      }
+
+      this.db.transaction(() => {
+        // Record the top-up in recharges table
+        this.db
+          .prepare(
+            `INSERT INTO recharges (carrier, recharge_type, amount, cost, price, currency_code, paid_by, note, created_by)
+             VALUES (?, 'TOP_UP', ?, 0, 0, ?, ?, ?, 1)`,
+          )
+          .run(
+            data.provider,
+            amount,
+            currency,
+            data.sourceDrawer,
+            `${data.provider === "OMT_APP" ? "OMT App" : "Whish App"} top-up from ${data.sourceDrawer}: +${amount} ${currency}`,
+          );
+
+        // Deduct from source drawer
+        this.db
+          .prepare(
+            `UPDATE drawer_balances SET balance = balance - ?, updated_at = CURRENT_TIMESTAMP
+             WHERE drawer_name = ? AND currency_code = ?`,
+          )
+          .run(amount, data.sourceDrawer, currency);
+
+        // Add to destination drawer
+        this.db
+          .prepare(
+            `INSERT INTO drawer_balances (drawer_name, currency_code, balance)
+             VALUES (?, ?, ?)
+             ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+               balance = drawer_balances.balance + excluded.balance,
+               updated_at = CURRENT_TIMESTAMP`,
+          )
+          .run(destDrawer, currency, amount);
+      })();
+
+      const providerLabel = TOP_UP_PROVIDER_LABELS[data.provider];
+
+      rechargeLogger.info(
+        {
+          provider: data.provider,
+          amount: data.amount,
+          currency,
+          sourceDrawer: data.sourceDrawer,
+          destDrawer,
+        },
+        `${providerLabel} top-up: ${data.sourceDrawer} → ${destDrawer}: ${amount} ${currency}`,
+      );
+
+      return { success: true };
+    } catch (error) {
+      rechargeLogger.error({ error, data }, "App top-up failed");
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * Get all drawer balances
+   */
+  getDrawerBalances(): Array<{
+    name: string;
+    usdBalance: number;
+    lbpBalance: number;
+  }> {
+    try {
+      const rows = this.db
+        .prepare(
+          `SELECT drawer_name, currency_code, balance 
+           FROM drawer_balances 
+           WHERE currency_code IN ('USD', 'LBP')
+           ORDER BY drawer_name`,
+        )
+        .all() as Array<{
+        drawer_name: string;
+        currency_code: string;
+        balance: number;
+      }>;
+
+      // Group by drawer name
+      const drawerMap = new Map<
+        string,
+        { usdBalance: number; lbpBalance: number }
+      >();
+
+      for (const row of rows) {
+        if (!drawerMap.has(row.drawer_name)) {
+          drawerMap.set(row.drawer_name, { usdBalance: 0, lbpBalance: 0 });
+        }
+        const drawer = drawerMap.get(row.drawer_name)!;
+        if (row.currency_code === "USD") {
+          drawer.usdBalance = row.balance;
+        } else if (row.currency_code === "LBP") {
+          drawer.lbpBalance = row.balance;
+        }
+      }
+
+      return Array.from(drawerMap.entries()).map(([name, balances]) => ({
+        name,
+        usdBalance: balances.usdBalance,
+        lbpBalance: balances.lbpBalance,
+      }));
+    } catch (error) {
+      rechargeLogger.error({ error }, "Failed to get drawer balances");
+      return [];
     }
   }
 

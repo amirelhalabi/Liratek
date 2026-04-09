@@ -272,8 +272,8 @@ export default function Dashboard() {
     Binance: () => isModuleEnabled("binance"),
     MTC: () => isModuleEnabled("recharge"),
     Alfa: () => isModuleEnabled("recharge"),
-    IPEC: () => isModuleEnabled("ipec_katch"),
-    Katch: () => isModuleEnabled("ipec_katch"),
+    iPick: () => isModuleEnabled("ipec_katch"),
+    Katsh: () => isModuleEnabled("ipec_katch"),
   };
 
   // Drawer Balances (Row 2) — dynamic from drawer_balances table
@@ -330,94 +330,9 @@ export default function Dashboard() {
 
         {/* Scrollable content area */}
         <div className="flex-1 min-h-0 overflow-auto space-y-6">
-        {/* Financial Metrics */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {financialCards.map((stat) => (
-            <div
-              key={stat.label}
-              className="bg-slate-800 p-4 rounded-xl border border-slate-700/50 shadow-lg hover:border-slate-600 transition-colors"
-            >
-              <div className="flex items-center justify-between mb-2">
-                <div className={`p-2 rounded-lg ${stat.bg}`}>
-                  <stat.icon className={`w-4 h-4 ${stat.color}`} />
-                </div>
-              </div>
-              <h3 className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">
-                {stat.label}
-              </h3>
-
-              {stat.singleValue && (
-                <p className="text-xl font-bold text-white">
-                  {stat.singleValue}
-                </p>
-              )}
-
-              {stat.usdValue !== undefined && stat.lbpValue !== undefined && (
-                <div className="flex items-center gap-2">
-                  <div className="flex-1">
-                    <p className="text-base font-bold text-emerald-400">
-                      {formatAmount(stat.usdValue, "USD")}
-                    </p>
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-base font-bold text-violet-400 text-right">
-                      {formatAmount(stat.lbpValue, "LBP")}
-                    </p>
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-
-        {/* Drawer Balances — separate section */}
-        {drawerCards.length > 0 && (
-          <div>
-            <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-              <Wallet className="text-sky-400" />
-              Drawer Balances
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {drawerCards.map((stat) => (
-                <div
-                  key={stat.label}
-                  className="bg-slate-800 p-4 rounded-xl border border-slate-700/50 shadow-lg hover:border-slate-600 transition-colors"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <div className={`p-2 rounded-lg ${stat.bg}`}>
-                      <stat.icon className={`w-4 h-4 ${stat.color}`} />
-                    </div>
-                  </div>
-                  <h3 className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">
-                    {stat.label}
-                  </h3>
-                  <div className="space-y-1">
-                    {Object.entries(stat.currencies).map(([code, amount]) => (
-                      <p
-                        key={code}
-                        className="text-base font-bold text-emerald-400"
-                      >
-                        {formatAmount(amount, code)}
-                      </p>
-                    ))}
-                    {Object.keys(stat.currencies).length === 0 && (
-                      <p className="text-sm text-slate-500">No balance</p>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Credits, Stock & Profit */}
-        <div>
-          <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-            <Package className="text-amber-400" />
-            Credits & Stock
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {creditsAndStockCards.map((stat) => (
+          {/* Financial Metrics */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {financialCards.map((stat) => (
               <div
                 key={stat.label}
                 className="bg-slate-800 p-4 rounded-xl border border-slate-700/50 shadow-lg hover:border-slate-600 transition-colors"
@@ -430,178 +345,266 @@ export default function Dashboard() {
                 <h3 className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">
                   {stat.label}
                 </h3>
-                <p className="text-xl font-bold text-white">
-                  {stat.singleValue}
-                </p>
+
+                {stat.singleValue && (
+                  <p className="text-xl font-bold text-white">
+                    {stat.singleValue}
+                  </p>
+                )}
+
+                {stat.usdValue !== undefined && stat.lbpValue !== undefined && (
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1">
+                      <p className="text-base font-bold text-emerald-400">
+                        {formatAmount(stat.usdValue, "USD")}
+                      </p>
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-base font-bold text-violet-400 text-right">
+                        {formatAmount(stat.lbpValue, "LBP")}
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>
-        </div>
 
-        {/* Pending Settlement Banner — only shown when there are unsettled commissions */}
-        {unsettledSummary.length > 0 &&
-          (() => {
-            const totalPendingUsd = unsettledSummary.reduce(
-              (s, r) => s + r.pending_commission_usd,
-              0,
-            );
-            const totalTxns = unsettledSummary.reduce((s, r) => s + r.count, 0);
-            return (
-              <div className="bg-amber-950/40 border border-amber-700/60 rounded-xl p-4 flex items-start gap-3">
-                <AlertTriangle
-                  className="text-amber-400 shrink-0 mt-0.5"
-                  size={18}
-                />
-                <div className="flex-1 min-w-0">
-                  <p className="text-amber-300 font-semibold text-sm">
-                    Pending Settlement — {totalTxns} transaction
-                    {totalTxns !== 1 ? "s" : ""}
-                  </p>
-                  <div className="mt-1 flex flex-wrap gap-3">
-                    {unsettledSummary.map((r) => (
-                      <span
-                        key={r.provider}
-                        className="text-xs text-amber-400/80 font-mono"
-                      >
-                        {r.provider}:{" "}
-                        <span className="text-amber-300 font-semibold">
-                          ${r.pending_commission_usd.toFixed(4)}
-                        </span>{" "}
-                        commission on ${r.total_owed_usd.toFixed(2)} owed (
-                        {r.count} txns)
-                      </span>
-                    ))}
+          {/* Drawer Balances — separate section */}
+          {drawerCards.length > 0 && (
+            <div>
+              <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                <Wallet className="text-sky-400" />
+                Drawer Balances
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                {drawerCards.map((stat) => (
+                  <div
+                    key={stat.label}
+                    className="bg-slate-800 p-4 rounded-xl border border-slate-700/50 shadow-lg hover:border-slate-600 transition-colors"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <div className={`p-2 rounded-lg ${stat.bg}`}>
+                        <stat.icon className={`w-4 h-4 ${stat.color}`} />
+                      </div>
+                    </div>
+                    <h3 className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">
+                      {stat.label}
+                    </h3>
+                    <div className="space-y-1">
+                      {Object.entries(stat.currencies).map(([code, amount]) => (
+                        <p
+                          key={code}
+                          className="text-base font-bold text-emerald-400"
+                        >
+                          {formatAmount(amount, code)}
+                        </p>
+                      ))}
+                      {Object.keys(stat.currencies).length === 0 && (
+                        <p className="text-sm text-slate-500">No balance</p>
+                      )}
+                    </div>
                   </div>
-                  <p className="text-xs text-amber-500 mt-1">
-                    Total pending:{" "}
-                    <span className="text-amber-300 font-mono font-bold">
-                      ${totalPendingUsd.toFixed(4)}
-                    </span>{" "}
-                    — settle via Settings → Supplier Ledger
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Credits, Stock & Profit */}
+          <div>
+            <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+              <Package className="text-amber-400" />
+              Credits & Stock
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {creditsAndStockCards.map((stat) => (
+                <div
+                  key={stat.label}
+                  className="bg-slate-800 p-4 rounded-xl border border-slate-700/50 shadow-lg hover:border-slate-600 transition-colors"
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <div className={`p-2 rounded-lg ${stat.bg}`}>
+                      <stat.icon className={`w-4 h-4 ${stat.color}`} />
+                    </div>
+                  </div>
+                  <h3 className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">
+                    {stat.label}
+                  </h3>
+                  <p className="text-xl font-bold text-white">
+                    {stat.singleValue}
                   </p>
                 </div>
-              </div>
-            );
-          })()}
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 bg-slate-800 p-6 rounded-xl border border-slate-700/50 shadow-lg flex flex-col">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                <DollarSign size={18} className="text-emerald-400" />
-                {chartType} Trend (Last 30 Days)
-              </h3>
-              <select
-                value={chartType}
-                onChange={(e) => setChartType(e.target.value as ChartType)}
-                className="bg-slate-700 text-xs text-white rounded p-1 border border-slate-600 focus:ring-violet-500 focus:border-violet-500"
-              >
-                <option value="Sales">Sales</option>
-                <option value="Profit">Profit</option>
-              </select>
-            </div>
-            <div className="flex-1 h-80 w-full min-h-0">
-              <Suspense
-                fallback={
-                  <div className="h-80 animate-pulse bg-slate-700/30 rounded-xl" />
-                }
-              >
-                <DashboardChart
-                  chartData={chartData}
-                  chartType={chartType}
-                  maxUsdSales={maxUsdSales}
-                  maxLbpSales={maxLbpSales}
-                  getSymbol={getSymbol}
-                  formatAmount={formatAmount}
-                />
-              </Suspense>
+              ))}
             </div>
           </div>
 
-          <div className="flex flex-col h-full gap-4">
-            {debtEnabled && (
+          {/* Pending Settlement Banner — only shown when there are unsettled commissions */}
+          {unsettledSummary.length > 0 &&
+            (() => {
+              const totalPendingUsd = unsettledSummary.reduce(
+                (s, r) => s + r.pending_commission_usd,
+                0,
+              );
+              const totalTxns = unsettledSummary.reduce(
+                (s, r) => s + r.count,
+                0,
+              );
+              return (
+                <div className="bg-amber-950/40 border border-amber-700/60 rounded-xl p-4 flex items-start gap-3">
+                  <AlertTriangle
+                    className="text-amber-400 shrink-0 mt-0.5"
+                    size={18}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-amber-300 font-semibold text-sm">
+                      Pending Settlement — {totalTxns} transaction
+                      {totalTxns !== 1 ? "s" : ""}
+                    </p>
+                    <div className="mt-1 flex flex-wrap gap-3">
+                      {unsettledSummary.map((r) => (
+                        <span
+                          key={r.provider}
+                          className="text-xs text-amber-400/80 font-mono"
+                        >
+                          {r.provider}:{" "}
+                          <span className="text-amber-300 font-semibold">
+                            ${r.pending_commission_usd.toFixed(4)}
+                          </span>{" "}
+                          commission on ${r.total_owed_usd.toFixed(2)} owed (
+                          {r.count} txns)
+                        </span>
+                      ))}
+                    </div>
+                    <p className="text-xs text-amber-500 mt-1">
+                      Total pending:{" "}
+                      <span className="text-amber-300 font-mono font-bold">
+                        ${totalPendingUsd.toFixed(4)}
+                      </span>{" "}
+                      — settle via Settings → Supplier Ledger
+                    </p>
+                  </div>
+                </div>
+              );
+            })()}
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2 bg-slate-800 p-6 rounded-xl border border-slate-700/50 shadow-lg flex flex-col">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                  <DollarSign size={18} className="text-emerald-400" />
+                  {chartType} Trend (Last 30 Days)
+                </h3>
+                <select
+                  value={chartType}
+                  onChange={(e) => setChartType(e.target.value as ChartType)}
+                  className="bg-slate-700 text-xs text-white rounded p-1 border border-slate-600 focus:ring-violet-500 focus:border-violet-500"
+                >
+                  <option value="Sales">Sales</option>
+                  <option value="Profit">Profit</option>
+                </select>
+              </div>
+              <div className="flex-1 h-80 w-full min-h-0">
+                <Suspense
+                  fallback={
+                    <div className="h-80 animate-pulse bg-slate-700/30 rounded-xl" />
+                  }
+                >
+                  <DashboardChart
+                    chartData={chartData}
+                    chartType={chartType}
+                    maxUsdSales={maxUsdSales}
+                    maxLbpSales={maxLbpSales}
+                    getSymbol={getSymbol}
+                    formatAmount={formatAmount}
+                  />
+                </Suspense>
+              </div>
+            </div>
+
+            <div className="flex flex-col h-full gap-4">
+              {debtEnabled && (
+                <div className="bg-slate-800 p-5 rounded-xl border border-slate-700/50 shadow-lg flex-1 flex flex-col">
+                  <h3 className="text-md font-bold text-white mb-4 flex items-center gap-2">
+                    <BarChart2 size={16} className="text-red-400" />
+                    Top Debtors
+                  </h3>
+                  <div className="flex-1 min-h-[150px] overflow-y-auto space-y-2">
+                    {debtSummary.topDebtors.length > 0 ? (
+                      debtSummary.topDebtors.map((debtor) => (
+                        <div
+                          key={debtor.full_name}
+                          className="flex items-center justify-between p-2.5 bg-slate-700/20 rounded-lg"
+                        >
+                          <span className="text-sm text-slate-300 truncate mr-3">
+                            {debtor.full_name}
+                          </span>
+                          <div className="text-right shrink-0">
+                            <span className="text-sm font-bold text-red-400">
+                              {formatAmount(debtor.total_debt_usd, "USD")}
+                            </span>
+                            {debtor.total_debt_lbp !== 0 && (
+                              <span className="text-xs text-red-400/70 ml-2">
+                                {formatAmount(debtor.total_debt_lbp, "LBP")}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="flex items-center justify-center h-full text-slate-500 text-sm">
+                        No debtors
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               <div className="bg-slate-800 p-5 rounded-xl border border-slate-700/50 shadow-lg flex-1 flex flex-col">
                 <h3 className="text-md font-bold text-white mb-4 flex items-center gap-2">
-                  <BarChart2 size={16} className="text-red-400" />
-                  Top Debtors
+                  <Clock size={16} className="text-blue-400" />
+                  Today's Sales
                 </h3>
-                <div className="flex-1 min-h-[150px] overflow-y-auto space-y-2">
-                  {debtSummary.topDebtors.length > 0 ? (
-                    debtSummary.topDebtors.map((debtor) => (
+                <div className="space-y-3 overflow-y-auto flex-1">
+                  {todaysSales.length > 0 ? (
+                    todaysSales.map((sale) => (
                       <div
-                        key={debtor.full_name}
-                        className="flex items-center justify-between p-2.5 bg-slate-700/20 rounded-lg"
+                        key={sale.id}
+                        className="flex items-center justify-between p-3 bg-slate-700/20 rounded-lg hover:bg-slate-700/40 transition-colors"
                       >
-                        <span className="text-sm text-slate-300 truncate mr-3">
-                          {debtor.full_name}
-                        </span>
-                        <div className="text-right shrink-0">
-                          <span className="text-sm font-bold text-red-400">
-                            {formatAmount(debtor.total_debt_usd, "USD")}
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-slate-200">
+                            {sale.client_name || "Walk-in Client"}
                           </span>
-                          {debtor.total_debt_lbp !== 0 && (
-                            <span className="text-xs text-red-400/70 ml-2">
-                              {formatAmount(debtor.total_debt_lbp, "LBP")}
-                            </span>
+                          <span className="text-xs text-slate-500">
+                            {new Date(sale.created_at).toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </span>
+                        </div>
+                        <div className="text-right">
+                          {sale.paid_usd > 0 && (
+                            <p className="text-emerald-400 font-bold text-sm">
+                              +{formatAmount(sale.paid_usd, "USD")}
+                            </p>
+                          )}
+                          {sale.paid_lbp > 0 && (
+                            <p className="text-sky-400 font-semibold text-xs">
+                              +{formatAmount(sale.paid_lbp, "LBP")}
+                            </p>
                           )}
                         </div>
                       </div>
                     ))
                   ) : (
-                    <div className="flex items-center justify-center h-full text-slate-500 text-sm">
-                      No debtors
-                    </div>
+                    <p className="text-xs text-slate-500 text-center py-4">
+                      No sales yet today.
+                    </p>
                   )}
                 </div>
               </div>
-            )}
-
-            <div className="bg-slate-800 p-5 rounded-xl border border-slate-700/50 shadow-lg flex-1 flex flex-col">
-              <h3 className="text-md font-bold text-white mb-4 flex items-center gap-2">
-                <Clock size={16} className="text-blue-400" />
-                Today's Sales
-              </h3>
-              <div className="space-y-3 overflow-y-auto flex-1">
-                {todaysSales.length > 0 ? (
-                  todaysSales.map((sale) => (
-                    <div
-                      key={sale.id}
-                      className="flex items-center justify-between p-3 bg-slate-700/20 rounded-lg hover:bg-slate-700/40 transition-colors"
-                    >
-                      <div className="flex flex-col">
-                        <span className="text-sm font-medium text-slate-200">
-                          {sale.client_name || "Walk-in Client"}
-                        </span>
-                        <span className="text-xs text-slate-500">
-                          {new Date(sale.created_at).toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </span>
-                      </div>
-                      <div className="text-right">
-                        {sale.paid_usd > 0 && (
-                          <p className="text-emerald-400 font-bold text-sm">
-                            +{formatAmount(sale.paid_usd, "USD")}
-                          </p>
-                        )}
-                        {sale.paid_lbp > 0 && (
-                          <p className="text-sky-400 font-semibold text-xs">
-                            +{formatAmount(sale.paid_lbp, "LBP")}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-xs text-slate-500 text-center py-4">
-                    No sales yet today.
-                  </p>
-                )}
-              </div>
             </div>
           </div>
-        </div>
         </div>
       </div>
     </>

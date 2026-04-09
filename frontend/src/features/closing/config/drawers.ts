@@ -83,10 +83,10 @@ export const DRAWER_CONFIGS: Record<DrawerType, DrawerConfig> = {
       accent: "red-500",
     },
   },
-  IPEC: {
-    type: "IPEC",
-    label: "IPEC",
-    description: "IPEC services",
+  iPick: {
+    type: "iPick",
+    label: "iPick",
+    description: "iPick services",
     icon: "zap",
     color: {
       border: "border-sky-500/30",
@@ -94,10 +94,10 @@ export const DRAWER_CONFIGS: Record<DrawerType, DrawerConfig> = {
       accent: "sky-500",
     },
   },
-  Katch: {
-    type: "Katch",
-    label: "Katch",
-    description: "Katch services",
+  Katsh: {
+    type: "Katsh",
+    label: "Katsh",
+    description: "Katsh services",
     icon: "zap",
     color: {
       border: "border-orange-500/30",
@@ -126,7 +126,7 @@ export const DRAWER_ORDER: DrawerType[] = [
   "Binance",
   "MTC",
   "Alfa",
-  "IPEC",
-  "Katch",
+  "iPick",
+  "Katsh",
   "Whish_System",
 ];

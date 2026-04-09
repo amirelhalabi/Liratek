@@ -18,6 +18,14 @@ import { X } from "lucide-react";
 interface OpeningProps {
   isOpen: boolean;
   onClose: () => void;
+  viewOnly?: boolean;
+  checkpointData?: {
+    currencies: Array<{
+      currency_code: string;
+      opening_amount: number;
+      physical_amount?: number;
+    }>;
+  } | null;
 }
 
 const DRAWER_MODULE_MAP: Partial<Record<string, string>> = {
@@ -28,11 +36,16 @@ const DRAWER_MODULE_MAP: Partial<Record<string, string>> = {
   Binance: "binance",
   MTC: "recharge",
   Alfa: "recharge",
-  IPEC: "ipec_katch",
-  Katch: "ipec_katch",
+  iPick: "ipec_katch",
+  Katsh: "ipec_katch",
 };
 
-export default function Opening({ isOpen, onClose }: OpeningProps) {
+export default function Opening({
+  isOpen,
+  onClose,
+  viewOnly = false,
+  checkpointData = null,
+}: OpeningProps) {
   const api = useApi();
   const { user } = useAuth();
   const { isModuleEnabled } = useModules();
@@ -67,29 +80,49 @@ export default function Opening({ isOpen, onClose }: OpeningProps) {
     }
   }, [isOpen]);
 
-  // Auto-fill amounts from current drawer balances in the database
+  // Auto-fill amounts from checkpoint data (view-only mode) or current drawer balances
   useEffect(() => {
     if (currencies.length > 0 && isOpen) {
       drawerAmounts.initializeAmounts();
 
-      // Load current balances and populate the form
-      api
-        .getSystemExpectedBalancesDynamic()
-        .then((balances) => {
-          for (const [drawer, currencyMap] of Object.entries(balances)) {
-            for (const [code, value] of Object.entries(currencyMap)) {
-              if (typeof value === "number" && value !== 0) {
-                drawerAmounts.updateAmount(drawer as DrawerType, code, value);
+      // If view-only mode with checkpoint data, use that
+      if (viewOnly && checkpointData) {
+        // Populate amounts per drawer from checkpoint data
+        checkpointData.currencies.forEach(
+          (c: {
+            currency_code: string;
+            opening_amount: number;
+            drawer_name?: string;
+          }) => {
+            if (c.opening_amount > 0 && c.drawer_name) {
+              drawerAmounts.updateAmount(
+                c.drawer_name as DrawerType,
+                c.currency_code,
+                c.opening_amount,
+              );
+            }
+          },
+        );
+      } else {
+        // Load current balances and populate the form
+        api
+          .getSystemExpectedBalancesDynamic()
+          .then((balances) => {
+            for (const [drawer, currencyMap] of Object.entries(balances)) {
+              for (const [code, value] of Object.entries(currencyMap)) {
+                if (typeof value === "number" && value !== 0) {
+                  drawerAmounts.updateAmount(drawer as DrawerType, code, value);
+                }
               }
             }
-          }
-        })
-        .catch((err) => {
-          logger.error("[Opening] Failed to load current balances:", err);
-        });
+          })
+          .catch((err) => {
+            logger.error("[Opening] Failed to load current balances:", err);
+          });
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currencies, isOpen]);
+  }, [currencies, isOpen, viewOnly, checkpointData]);
 
   // Reset state when modal closes
   useEffect(() => {
@@ -160,6 +193,12 @@ export default function Opening({ isOpen, onClose }: OpeningProps) {
   };
 
   const handleCancel = () => {
+    // In view-only mode, just close without confirmation
+    if (viewOnly) {
+      onClose();
+      return;
+    }
+
     if (drawerAmounts.hasAnyAmounts) {
       if (
         confirm("You have unsaved changes. Are you sure you want to close?")
@@ -178,7 +217,8 @@ export default function Opening({ isOpen, onClose }: OpeningProps) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
       role="presentation"
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget) {
+        // In view-only mode, don't close on backdrop click
+        if (!viewOnly && e.target === e.currentTarget) {
           handleCancel();
         }
       }}
@@ -191,9 +231,13 @@ export default function Opening({ isOpen, onClose }: OpeningProps) {
         {/* Header */}
         <div className="flex justify-between items-center p-6 border-b border-slate-700 bg-slate-800">
           <div>
-            <h2 className="text-2xl font-bold text-white">Opening</h2>
+            <h2 className="text-2xl font-bold text-white">
+              {viewOnly ? "View Opening" : "Opening"}
+            </h2>
             <p className="text-slate-400 text-sm mt-1">
-              Set starting drawer amounts
+              {viewOnly
+                ? "Read-only view of opening balances"
+                : "Set starting drawer amounts"}
             </p>
           </div>
           <button
@@ -238,11 +282,13 @@ export default function Opening({ isOpen, onClose }: OpeningProps) {
 
           {!currenciesLoading && !currenciesError && currencies.length > 0 && (
             <>
-              <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
-                <p className="text-slate-300 text-sm">
-                  Enter the starting cash amount for each drawer and currency.
-                </p>
-              </div>
+              {!viewOnly && (
+                <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
+                  <p className="text-slate-300 text-sm">
+                    Enter the starting cash amount for each drawer and currency.
+                  </p>
+                </div>
+              )}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {activeDrawerOrder.map((drawer) => {
@@ -260,7 +306,7 @@ export default function Opening({ isOpen, onClose }: OpeningProps) {
                         drawerAmounts.getDisplayValue(d, c)
                       }
                       onAmountChange={handleAmountChange}
-                      disabled={saving}
+                      disabled={saving || viewOnly}
                       focusRingColor="violet-500"
                     />
                   );
@@ -273,25 +319,39 @@ export default function Opening({ isOpen, onClose }: OpeningProps) {
         {/* Footer */}
         <div className="border-t border-slate-700 p-6 bg-slate-800">
           <div className="flex justify-end items-center gap-3">
-            <button
-              type="button"
-              onClick={handleCancel}
-              disabled={saving}
-              className="px-4 py-2 rounded-lg text-slate-300 hover:text-white hover:bg-slate-700 transition-colors disabled:opacity-50"
-            >
-              Cancel
-            </button>
+            {!viewOnly && (
+              <>
+                <button
+                  type="button"
+                  onClick={handleCancel}
+                  disabled={saving}
+                  className="px-4 py-2 rounded-lg text-slate-300 hover:text-white hover:bg-slate-700 transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
 
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={
-                saving || !drawerAmounts.hasAnyAmounts || currenciesLoading
-              }
-              className="px-6 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {saving ? "Saving..." : "Save & Start Day"}
-            </button>
+                <button
+                  type="button"
+                  onClick={handleSave}
+                  disabled={
+                    saving || !drawerAmounts.hasAnyAmounts || currenciesLoading
+                  }
+                  className="px-6 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {saving ? "Saving..." : "Save & Start Day"}
+                </button>
+              </>
+            )}
+
+            {viewOnly && (
+              <button
+                type="button"
+                onClick={handleCancel}
+                className="px-6 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg font-medium transition-colors"
+              >
+                Close
+              </button>
+            )}
           </div>
         </div>
       </div>

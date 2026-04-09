@@ -17,8 +17,8 @@ export type DrawerType =
   | "Binance"
   | "MTC"
   | "Alfa"
-  | "IPEC"
-  | "Katch"
+  | "iPick"
+  | "Katsh"
   | "Whish_System";
 
 export interface DrawerAmount {

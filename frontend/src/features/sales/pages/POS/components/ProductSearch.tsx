@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import type { Product } from "@liratek/ui";
 import { useApi, appEvents } from "@liratek/ui";
-import { DataTable } from "@/shared/components/DataTable";
+import { DataTable } from "@liratek/ui";
 
 const PAGE_SIZE = 20;
 

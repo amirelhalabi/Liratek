@@ -50,7 +50,7 @@ export interface CalculateExchangeRateResult {
  * @returns Exchange rate with metadata
  *
  * @example
- * // Customer pays $100 for IPEC transfer (Money IN)
+ * // Customer pays $100 for iPick transfer (Money IN)
  * const result = calculateExchangeRate({
  *   transactionType: "SERVICE_PAYMENT",
  *   selectedCurrency: "LBP",
@@ -60,7 +60,7 @@ export interface CalculateExchangeRateResult {
  * // Result: { rate: 89500, rateType: "SELL", description: "💰 SELL rate" }
  *
  * @example
- * // Customer refunds $100 IPEC transfer (Money OUT)
+ * // Customer refunds $100 iPick transfer (Money OUT)
  * const result = calculateExchangeRate({
  *   transactionType: "REFUND",
  *   selectedCurrency: "LBP",

@@ -11,7 +11,7 @@ import {
   X,
 } from "lucide-react";
 import { useApi } from "@liratek/ui";
-import { DataTable } from "@/shared/components/DataTable";
+import { DataTable } from "@liratek/ui";
 import { calculateProfitSpread } from "@/utils/currencyUtils";
 
 interface CurrencyRow {
@@ -663,8 +663,8 @@ function DrawerCurrencySection() {
     Binance: "Binance",
     MTC: "MTC",
     Alfa: "Alfa",
-    IPEC: "IPEC",
-    Katch: "Katch",
+    iPick: "iPick",
+    Katsh: "Katsh",
     Whish_System: "Whish System",
   };
 

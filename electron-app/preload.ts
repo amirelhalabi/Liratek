@@ -170,8 +170,8 @@ contextBridge.exposeInMainWorld("api", {
         | "WHISH"
         | "BOB"
         | "OTHER"
-        | "IPEC"
-        | "KATCH"
+        | "iPick"
+        | "Katsh"
         | "WISH_APP"
         | "OMT_APP";
       serviceType: "SEND" | "RECEIVE";
@@ -194,6 +194,9 @@ contextBridge.exposeInMainWorld("api", {
   // Recharge (Alfa/MTC)
   recharge: {
     getStock: () => ipcRenderer.invoke("recharge:get-stock"),
+    getHistory: (provider: "MTC" | "Alfa") =>
+      ipcRenderer.invoke("recharge:get-history", provider),
+    getDrawerBalances: () => ipcRenderer.invoke("recharge:get-drawer-balances"),
     process: (data: {
       provider: "MTC" | "Alfa";
       type: "CREDIT_TRANSFER" | "VOUCHER" | "DAYS";
@@ -208,6 +211,12 @@ contextBridge.exposeInMainWorld("api", {
       amount: number;
       currency?: string;
     }) => ipcRenderer.invoke("recharge:top-up", data),
+    topUpApp: (data: {
+      provider: "OMT_APP" | "WHISH_APP";
+      amount: number;
+      currency: "USD" | "LBP";
+      sourceDrawer: string;
+    }) => ipcRenderer.invoke("recharge:top-up-app", data),
   },
 
   // Suppliers
@@ -267,6 +276,70 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("loto:report", from, to),
     settlement: (from: string, to: string) =>
       ipcRenderer.invoke("loto:settlement", from, to),
+    checkpoint: {
+      create: (data: {
+        checkpoint_date: string;
+        period_start: string;
+        period_end: string;
+        note?: string;
+      }) => ipcRenderer.invoke("loto:checkpoint:create", data),
+      get: (id: number) => ipcRenderer.invoke("loto:checkpoint:get", id),
+      getByDate: (date: string) =>
+        ipcRenderer.invoke("loto:checkpoint:get-by-date", date),
+      getByDateRange: (from: string, to: string) =>
+        ipcRenderer.invoke("loto:checkpoint:get-by-date-range", from, to),
+      getUnsettled: () => ipcRenderer.invoke("loto:checkpoint:get-unsettled"),
+      update: (id: number, data: any) =>
+        ipcRenderer.invoke("loto:checkpoint:update", id, data),
+      markSettled: (id: number, settledAt?: string, settlementId?: number) =>
+        ipcRenderer.invoke(
+          "loto:checkpoint:mark-settled",
+          id,
+          settledAt,
+          settlementId,
+        ),
+      settle: (data: {
+        id: number;
+        totalSales: number;
+        totalCommission: number;
+        totalPrizes: number;
+        totalCashPrizes: number;
+        settledAt?: string;
+      }) => ipcRenderer.invoke("loto:checkpoint:settle", data),
+      getTotalSalesUnsettled: () =>
+        ipcRenderer.invoke("loto:checkpoint:get-total-sales-unsettled"),
+      getTotalCommissionUnsettled: () =>
+        ipcRenderer.invoke("loto:checkpoint:get-total-commission-unsettled"),
+      getLast: () => ipcRenderer.invoke("loto:checkpoint:get-last"),
+      createScheduled: (checkpointDate?: string) =>
+        ipcRenderer.invoke("loto:checkpoint:create-scheduled", checkpointDate),
+    },
+    cashPrize: {
+      create: (data: {
+        ticket_number?: string;
+        prize_amount: number;
+        customer_name?: string;
+        prize_date?: string;
+        note?: string;
+      }) => ipcRenderer.invoke("loto:cash-prize:create", data),
+      getByDateRange: (from: string, to: string) =>
+        ipcRenderer.invoke("loto:cash-prize:get-by-date-range", from, to),
+      getUnreimbursed: () =>
+        ipcRenderer.invoke("loto:cash-prize:get-unreimbursed"),
+      markReimbursed: (
+        id: number,
+        reimbursedDate?: string,
+        settlementId?: number,
+      ) =>
+        ipcRenderer.invoke(
+          "loto:cash-prize:mark-reimbursed",
+          id,
+          reimbursedDate,
+          settlementId,
+        ),
+      getTotalUnreimbursed: () =>
+        ipcRenderer.invoke("loto:cash-prize:get-total-unreimbursed"),
+    },
     fees: {
       create: (data: {
         fee_amount: number;
@@ -299,6 +372,12 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("closing:get-system-expected-balances-dynamic"),
     hasOpeningBalanceToday: () =>
       ipcRenderer.invoke("closing:has-opening-balance-today"),
+    getCheckpointTimeline: (filters: {
+      date?: string;
+      type?: "OPENING" | "CLOSING" | "ALL";
+      drawer_name?: string;
+      user_id?: number;
+    }) => ipcRenderer.invoke("closing:getCheckpointTimeline", filters),
     createDailyClosing: (data: {
       closing_date: string;
       amounts: Array<{

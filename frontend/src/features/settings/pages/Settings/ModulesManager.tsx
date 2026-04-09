@@ -9,7 +9,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import logger from "@/utils/logger";
 import { appEvents, useApi } from "@liratek/ui";
 import PaymentMethodsManager from "./PaymentMethodsManager";
-import { ExportBar } from "@/shared/components/ExportBar";
+import { ExportBar } from "@liratek/ui";
 
 interface ModuleRow {
   key: string;
@@ -27,8 +27,8 @@ interface ModuleRow {
 const RECHARGE_PROVIDERS = [
   { key: "MTC", label: "MTC", drawer: "MTC", module: "recharge" },
   { key: "Alfa", label: "Alfa", drawer: "Alfa", module: "recharge" },
-  { key: "IPEC", label: "IPEC", drawer: "IPEC", module: "ipec_katch" },
-  { key: "KATCH", label: "Katch", drawer: "Katch", module: "ipec_katch" },
+  { key: "iPick", label: "iPick", drawer: "iPick", module: "ipec_katch" },
+  { key: "Katsh", label: "Katsh", drawer: "Katsh", module: "ipec_katch" },
   {
     key: "WISH_APP",
     label: "Whish App",

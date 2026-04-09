@@ -141,6 +141,165 @@ export type PaymentMethodEntity = {
 // UI components are decoupled from the transport layer (Electron IPC vs HTTP).
 // =============================================================================
 
+// =============================================================================
+// Lotto API
+// =============================================================================
+
+export type LotoCheckpointApi = {
+  create: (
+    data: any,
+  ) => Promise<{ success: boolean; checkpoint?: any; error?: string }>;
+  get: (
+    id: number,
+  ) => Promise<{ success: boolean; checkpoint?: any; error?: string }>;
+  getByDate: (
+    date: string,
+  ) => Promise<{ success: boolean; checkpoint?: any; error?: string }>;
+  getByDateRange: (
+    from: string,
+    to: string,
+  ) => Promise<{ success: boolean; checkpoints?: any[]; error?: string }>;
+  getUnsettled: () => Promise<{
+    success: boolean;
+    checkpoints?: any[];
+    error?: string;
+  }>;
+  update: (
+    id: number,
+    data: any,
+  ) => Promise<{ success: boolean; checkpoint?: any; error?: string }>;
+  markSettled: (
+    id: number,
+    settledAt?: string,
+    settlementId?: number,
+  ) => Promise<{ success: boolean; checkpoint?: any; error?: string }>;
+  settle: (data: {
+    id: number;
+    totalSales: number;
+    totalCommission: number;
+    totalPrizes: number;
+    totalCashPrizes: number;
+    settledAt?: string;
+  }) => Promise<{ success: boolean; checkpoint?: any; error?: string }>;
+  getTotalSalesUnsettled: () => Promise<{
+    success: boolean;
+    totalSales?: number;
+    error?: string;
+  }>;
+  getTotalCommissionUnsettled: () => Promise<{
+    success: boolean;
+    totalCommission?: number;
+    error?: string;
+  }>;
+  getLast: () => Promise<{
+    success: boolean;
+    checkpoint?: any;
+    error?: string;
+  }>;
+  createScheduled: (
+    checkpointDate?: string,
+  ) => Promise<{ success: boolean; checkpoint?: any; error?: string }>;
+};
+
+export type LotoCashPrizeApi = {
+  create: (
+    data: any,
+  ) => Promise<{ success: boolean; prize?: any; error?: string }>;
+  getByDateRange: (
+    from: string,
+    to: string,
+  ) => Promise<{ success: boolean; prizes?: any[]; error?: string }>;
+  getUnreimbursed: () => Promise<{
+    success: boolean;
+    prizes?: any[];
+    error?: string;
+  }>;
+  markReimbursed: (
+    id: number,
+    reimbursedDate?: string,
+    settlementId?: number,
+  ) => Promise<{ success: boolean; prize?: any; error?: string }>;
+  getTotalUnreimbursed: () => Promise<{
+    success: boolean;
+    total?: number;
+    error?: string;
+  }>;
+};
+
+export type LotoFeesApi = {
+  create: (
+    data: any,
+  ) => Promise<{ success: boolean; fee?: any; error?: string }>;
+  get: (
+    year: number,
+  ) => Promise<{ success: boolean; fees?: any[]; error?: string }>;
+  pay: (id: number) => Promise<{ success: boolean; fee?: any; error?: string }>;
+};
+
+export type LotoSettingsApi = {
+  get: () => Promise<{
+    success: boolean;
+    settings?: Record<string, string>;
+    error?: string;
+  }>;
+  update: (
+    key: string,
+    value: string,
+  ) => Promise<{ success: boolean; setting?: any; error?: string }>;
+};
+
+export type LotoApi = {
+  sell: (
+    data: any,
+  ) => Promise<{ success: boolean; ticket?: any; error?: string }>;
+  get: (
+    id: number,
+  ) => Promise<{ success: boolean; ticket?: any; error?: string }>;
+  getByDateRange: (
+    from: string,
+    to: string,
+  ) => Promise<{ success: boolean; tickets?: any[]; error?: string }>;
+  update: (
+    id: number,
+    data: any,
+  ) => Promise<{ success: boolean; ticket?: any; error?: string }>;
+  report: (
+    from: string,
+    to: string,
+  ) => Promise<{
+    success: boolean;
+    reportData?: {
+      total_tickets: number;
+      total_sales: number;
+      total_commission: number;
+      total_prizes: number;
+      outstanding_prizes: number;
+      total_fees: number;
+    };
+    error?: string;
+  }>;
+  settlement: (
+    from: string,
+    to: string,
+  ) => Promise<{
+    success: boolean;
+    settlement?: {
+      totalSales: number;
+      totalFees: number;
+      totalCommission: number;
+      totalPrizes: number;
+      shopPaysSupplier: number;
+      supplierPaysShop: number;
+      netSettlement: number;
+    };
+    error?: string;
+  }>;
+  checkpoint: LotoCheckpointApi;
+  cashPrize: LotoCashPrizeApi;
+  fees: LotoFeesApi;
+  settings: LotoSettingsApi;
+};
+
 export type ApiAdapter = {
   // ---------------------------------------------------------------------------
   // Auth
@@ -571,4 +730,9 @@ export type ApiAdapter = {
     limit?: number,
   ) => Promise<any[]>;
   getPendingProfit: (from: string, to: string) => Promise<any>;
+
+  // ---------------------------------------------------------------------------
+  // Loto
+  // ---------------------------------------------------------------------------
+  loto: LotoApi;
 };

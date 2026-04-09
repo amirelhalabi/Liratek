@@ -49,8 +49,8 @@ type UnsettledTransaction = {
 const PROVIDER_DRAWER: Record<string, string> = {
   OMT: "OMT_System",
   WHISH: "Whish_System",
-  IPEC: "IPEC",
-  KATCH: "Katch",
+  iPick: "iPick",
+  Katsh: "Katsh",
   OMT_APP: "OMT_App",
   WHISH_APP: "Whish_App",
 };

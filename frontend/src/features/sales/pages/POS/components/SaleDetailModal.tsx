@@ -14,7 +14,7 @@ import {
   type ReceiptData,
 } from "@/features/sales/utils/receiptFormatter";
 import { useShopInfo } from "@/hooks/useShopName";
-import { ConfirmModal } from "@/shared/components/ConfirmModal";
+import { ConfirmModal } from "@liratek/ui";
 
 interface SaleItem {
   id: number;

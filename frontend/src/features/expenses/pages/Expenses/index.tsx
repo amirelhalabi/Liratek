@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
 import logger from "@/utils/logger";
-import { Plus, Ban, Calendar, Banknote } from "lucide-react";
+import { Plus, Banknote, History } from "lucide-react";
 import { PageHeader, Select, useApi } from "@liratek/ui";
-import { DataTable } from "@/shared/components/DataTable";
+import { HistoryModal } from "./components/HistoryModal";
+import { StatsCards } from "../../components/StatsCards";
 
 interface Expense {
   id?: number;
@@ -96,35 +97,31 @@ export default function Expenses() {
 
   const totalUSD = expenses.reduce((sum, e) => sum + (e.amount_usd || 0), 0);
   const totalLBP = expenses.reduce((sum, e) => sum + (e.amount_lbp || 0), 0);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
 
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 min-h-0 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500">
-      {/* Header */}
-      <PageHeader icon={Banknote} title="Expenses" />
+      {/* Header with Stats and History */}
+      <PageHeader
+        icon={Banknote}
+        title="Expenses"
+        actions={
+          <div className="flex items-center gap-2">
+            <StatsCards totalUSD={totalUSD} totalLBP={totalLBP} />
+            <button
+              onClick={() => setShowHistoryModal(true)}
+              className="px-4 py-2 rounded-lg font-medium text-sm transition-all flex items-center gap-2 bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 hover:text-white"
+            >
+              <History size={16} />
+              <span className="font-medium">History</span>
+            </button>
+          </div>
+        }
+      />
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="bg-slate-800 border border-slate-700/50 rounded-xl p-5 shadow-lg hover:border-slate-600 transition-colors">
-          <p className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">
-            Total USD
-          </p>
-          <p className="text-2xl font-bold text-white">
-            ${totalUSD.toFixed(2)}
-          </p>
-        </div>
-        <div className="bg-slate-800 border border-slate-700/50 rounded-xl p-5 shadow-lg hover:border-slate-600 transition-colors">
-          <p className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">
-            Total LBP
-          </p>
-          <p className="text-2xl font-bold text-white">
-            {totalLBP.toLocaleString()}
-          </p>
-        </div>
-      </div>
-
-      <div className="flex-1 min-h-0 grid grid-cols-3 gap-4">
-        {/* Left: Add Expense Form */}
-        <div className="col-span-1 min-w-[380px] bg-slate-800 rounded-xl border border-slate-700/50 shadow-xl p-4 flex flex-col overflow-hidden">
+      <div className="flex-1 min-h-0">
+        {/* Add Expense Form */}
+        <div className="w-full max-w-2xl mx-auto bg-slate-800 rounded-xl border border-slate-700/50 shadow-xl p-4 flex flex-col overflow-hidden">
           <h2 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
             <Plus className="text-orange-500" size={20} />
             Add New Expense
@@ -261,89 +258,18 @@ export default function Expenses() {
             Record Expense
           </button>
         </div>
-
-        {/* Right: History Table */}
-        <div className="col-span-2 min-h-0 bg-slate-800 rounded-xl border border-slate-700/50 shadow-xl overflow-hidden flex flex-col">
-          <div className="p-4 border-b border-slate-700 bg-slate-800 flex items-center justify-between">
-            <h2 className="font-bold text-white flex items-center gap-2">
-              <Calendar className="text-slate-400" size={18} />
-              Today's History
-            </h2>
-            <button
-              onClick={loadTodayExpenses}
-              className="text-slate-400 hover:text-white transition-colors p-1.5 rounded-lg hover:bg-slate-700"
-            >
-              <Plus className="rotate-45" size={18} />
-            </button>
-          </div>
-
-          <div className="flex-1 min-h-0 overflow-auto">
-            <DataTable
-              columns={[
-                {
-                  header: "Description",
-                  className: "px-6 py-3",
-                  sortKey: "created_at",
-                },
-                {
-                  header: "Category",
-                  className: "px-6 py-3",
-                  sortKey: "category",
-                },
-                { header: "Paid By", className: "px-6 py-3" },
-                {
-                  header: "USD",
-                  className: "px-6 py-3 text-right",
-                  sortKey: "amount_usd",
-                },
-                { header: "LBP", className: "px-6 py-3 text-right" },
-                { header: "Action", className: "px-6 py-3 text-center" },
-              ]}
-              data={expenses}
-              exportExcel
-              exportPdf
-              exportFilename="expenses"
-              className="w-full"
-              theadClassName="bg-slate-900/50 text-left text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0"
-              tbodyClassName="divide-y divide-slate-700/50"
-              emptyMessage="No expenses recorded yet today."
-              renderRow={(expense) => (
-                <tr
-                  key={expense.id}
-                  className="hover:bg-slate-700/20 transition-colors"
-                >
-                  <td className="px-6 py-4">
-                    <div className="text-sm text-white font-medium">
-                      {expense.description}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className="px-2.5 py-0.5 bg-slate-700 text-slate-300 rounded-full text-xs font-medium">
-                      {expense.category.replace(/_/g, " ")}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-slate-400">Cash</td>
-                  <td className="px-6 py-4 text-right text-sm font-bold text-orange-400 font-mono">
-                    ${expense.amount_usd.toFixed(2)}
-                  </td>
-                  <td className="px-6 py-4 text-right text-sm font-bold text-orange-400 font-mono">
-                    {expense.amount_lbp.toLocaleString()}
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    <button
-                      onClick={() => handleVoid(expense.id!)}
-                      className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-colors"
-                      title="Void expense"
-                    >
-                      <Ban size={16} />
-                    </button>
-                  </td>
-                </tr>
-              )}
-            />
-          </div>
-        </div>
       </div>
+
+      {/* History Modal */}
+      {showHistoryModal && (
+        <HistoryModal
+          expenses={expenses}
+          loading={false}
+          onClose={() => setShowHistoryModal(false)}
+          onRefresh={loadTodayExpenses}
+          onVoid={handleVoid}
+        />
+      )}
     </div>
   );
 }

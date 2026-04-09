@@ -1,8 +1,112 @@
 # Current Sprint — March 2026
 
-> **Last Updated**: 2026-04-01  
+> **Last Updated**: 2026-04-09  
 > **Sprint Start**: 2026-03-01  
 > **Focus**: Setup Wizard, Module-Linked UI, UX Polish, CI/CD + Packaging, Auto-Update, Sales Reporting, Recharge Page Overhaul, IPEC/KATCH/OMT App Implementation, Exchange Rate System
+
+---
+
+## 🚨 URGENT — Hardcoded `user_id: 1` System-Wide [T-57]
+
+**Priority**: 🔴 CRITICAL — Affects audit trail integrity  
+**Status**: Ready  
+**Discovered**: 2026-04-09 during Dashboard stats bug investigation  
+**Estimate**: 1–2 days
+
+### Problem
+
+14 occurrences across 7 files hardcode `user_id: 1` instead of using the authenticated user's ID. This means:
+
+- All transactions appear to be created by user #1 (admin) regardless of who is logged in
+- Audit trail is unreliable — cannot determine which cashier performed which action
+- Multi-user environments have no accountability
+
+### Reference Implementation
+
+`electron-app/handlers/transactionHandlers.ts` (lines 54, 70) already does this correctly:
+
+```typescript
+const auth = requireRole(e.sender.id, ["admin"]);
+if (!auth.ok) throw new Error(auth.error);
+const userId = auth.userId ?? 1; // fallback only
+```
+
+### Files Requiring Changes
+
+| #   | File                                                  | Occurrences | Methods                                                     | Layer      |
+| --- | ----------------------------------------------------- | ----------- | ----------------------------------------------------------- | ---------- |
+| 1   | `packages/core/src/repositories/SalesRepository.ts`   | 1           | `processSale()`                                             | Repository |
+| 2   | `packages/core/src/repositories/LotoRepository.ts`    | 6           | `createTicket()`, `settleCheckpoint()`, `createCashPrize()` | Repository |
+| 3   | `packages/core/src/repositories/ExpenseRepository.ts` | 1           | `createExpense()`                                           | Repository |
+| 4   | `packages/core/src/repositories/ClosingRepository.ts` | 1           | `createDailyClosing()`                                      | Repository |
+| 5   | `packages/core/src/repositories/ClientRepository.ts`  | 3           | `createClient()`, `updateClientFull()`, `deleteClient()`    | Repository |
+| 6   | `electron-app/handlers/supplierHandlers.ts`           | 2           | `suppliers:add-ledger`, `suppliers:settle-transactions`     | Handler    |
+
+### Implementation Plan
+
+**Phase 1: Repository layer** (thread `userId` through method signatures)
+
+1. Add `userId: number` parameter to all 12 affected repository methods
+2. Replace hardcoded `1` with the parameter
+3. Update service layer methods to accept and pass `userId`
+4. Update all unit tests
+
+**Phase 2: Handler layer** (extract `userId` from auth)
+
+1. In each IPC handler, extract `userId` from `requireRole()` result: `const userId = auth.userId ?? 1;`
+2. Pass `userId` to the service/repository call
+3. Fix the 2 supplier handler occurrences directly (they bypass service layer)
+
+**Phase 3: Verify**
+
+1. Run full test suite
+2. Test in dev mode with multiple users
+3. Verify audit trail shows correct user IDs
+
+### Acceptance Criteria
+
+- [ ] All 14 hardcoded `user_id: 1` replaced with authenticated user's ID
+- [ ] All repository methods accept `userId` as a parameter
+- [ ] All IPC handlers extract `userId` from `requireRole()` result
+- [ ] Fallback `?? 1` used only as safety net, not primary value
+- [ ] All existing tests updated and passing
+- [ ] New test: verify correct `userId` is stored in transaction records
+
+---
+
+## ✅ Done (April 9, 2026 — Dashboard Stats Bug Fix & Drawer Balance Recalculation)
+
+### Dashboard Revenue Showing Tendered Amount Instead of Sale Value
+
+| Change                    | Details                                                                                                                                                                                                                                                                                      |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Root cause**            | `getDashboardStats()` in `SalesRepository.ts` used `SUM(paid_usd)` (the amount the customer hands over) instead of `SUM(final_amount_usd)` (the actual sale value). Example: Sale #372 had `final_amount_usd = 12` but `paid_usd = 50` — customer paid $50, got $33 USD + 450,000 LBP change |
+| **Sales Revenue fix**     | Changed `SUM(paid_usd)` → `SUM(final_amount_usd)` in `getDashboardStats()`                                                                                                                                                                                                                   |
+| **Sales Revenue LBP fix** | Changed `SUM(paid_lbp)` → `SUM(paid_lbp - COALESCE(change_given_lbp, 0))`                                                                                                                                                                                                                    |
+| **Cash Collected fix**    | Split into separate query using `SUM(paid_usd - COALESCE(change_given_usd, 0))`                                                                                                                                                                                                              |
+| **Chart data fix**        | Same `SUM(paid_usd)` → `SUM(final_amount_usd)` fix in `getChartData("Sales")`                                                                                                                                                                                                                |
+
+### Drawer Balance Drift — One-Time Recalculation
+
+| Change         | Details                                                                                                                                                                                                        |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Root cause** | Historical drift of +$10 USD and -85,000 LBP between `drawer_balances` table and `SUM(amount)` from `payments` journal. The incremental `upsertBalanceDelta` logic is correct — drift was from historical data |
+| **Fix**        | Added one-time `getClosingRepository().recalculateDrawerBalances()` call in `initializeBackend()` on app startup                                                                                               |
+| **Cleanup**    | Marked with `TODO: Remove this block in the next release` — runs once then should be removed                                                                                                                   |
+
+### Pre-existing Loto Typecheck Errors Fixed
+
+| Change                           | Details                                                                                                                                 |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| **`SettlementVerification.tsx`** | Removed 3 unused imports (`TrendingDown`, `TrendingUp`, `Trophy`). Fixed wrong API call: `getUnreimbursed()` → `getTotalUnreimbursed()` |
+
+### Files Modified
+
+| File                                                               | Change                                                                     |
+| ------------------------------------------------------------------ | -------------------------------------------------------------------------- |
+| `packages/core/src/repositories/SalesRepository.ts`                | Fixed `getDashboardStats()` and `getChartData()` to use `final_amount_usd` |
+| `electron-app/main.ts`                                             | Added one-time `recalculateDrawerBalances()` on startup                    |
+| `frontend/src/features/loto/components/SettlementVerification.tsx` | Fixed unused imports and wrong API call                                    |
 
 ---
 

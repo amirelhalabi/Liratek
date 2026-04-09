@@ -80,7 +80,7 @@ export function KatchForm({
     loadRates();
   }, [api]);
 
-  // KATCH/IPEC transactions - customer always pays us (money IN)
+  // Katsh/iPick transactions - customer always pays us (money IN)
   // Use Customer Pays rate (higher - benefits shop)
   const exchangeRate = rates.sellRate;
 

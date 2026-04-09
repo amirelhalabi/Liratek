@@ -14,7 +14,7 @@ import { appEvents, useApi } from "@liratek/ui";
 import type { Product, CartItem, SaleRequest } from "@liratek/ui";
 import { useExchangeRate } from "@/hooks/useExchangeRate";
 import { useSession } from "@/features/sessions/context/SessionContext";
-import { ConfirmModal } from "@/shared/components/ConfirmModal";
+import { ConfirmModal } from "@liratek/ui";
 
 export default function POS() {
   const api = useApi();

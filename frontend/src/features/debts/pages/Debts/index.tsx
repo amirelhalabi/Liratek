@@ -23,7 +23,7 @@ import {
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { useExchangeRate } from "@/hooks/useExchangeRate";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
-import { DataTable } from "@/shared/components/DataTable";
+import { DataTable } from "@liratek/ui";
 import { MultiPaymentInput, type PaymentLine } from "@liratek/ui";
 import {
   ServiceDebtDetailModal,

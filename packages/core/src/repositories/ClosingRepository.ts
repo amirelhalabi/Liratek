@@ -532,12 +532,16 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
         dc.notes,
         dc.created_at,
         dc.created_by,
-        u.full_name as user_name,
-        t.type as checkpoint_type
+        COALESCE(u.username, 'Unknown') as user_name,
+        CASE 
+          WHEN t.type = 'OPENING' THEN 'OPENING'
+          WHEN t.type = 'CLOSING' THEN 'CLOSING'
+          ELSE 'UNKNOWN'
+        END as checkpoint_type
       FROM daily_closings dc
       LEFT JOIN users u ON u.id = dc.created_by
       LEFT JOIN transactions t ON t.source_table = 'daily_closings' AND t.source_id = dc.id
-      WHERE DATE(dc.created_at) = ?
+      WHERE dc.closing_date = ?
     `;
 
     const params: any[] = [date];
@@ -561,28 +565,33 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
 
     const checkpoints = this.query<CheckpointRecord>(sql, ...params);
 
-    // Load currency breakdown for each checkpoint
+    // Load full per-drawer breakdown for each checkpoint (NOT aggregated)
     for (const checkpoint of checkpoints) {
-      const currencies = this.query<{
+      const amounts = this.query<{
+        drawer_name: string;
         currency_code: string;
         opening_amount: number;
         physical_amount: number;
       }>(
-        `SELECT currency_code, opening_amount, physical_amount 
+        `SELECT drawer_name, currency_code, opening_amount, physical_amount 
          FROM daily_closing_amounts 
          WHERE closing_id = ?
-         ORDER BY currency_code`,
+         ORDER BY drawer_name, currency_code`,
         checkpoint.id,
       );
 
-      checkpoint.currencies = currencies.map((c: any) => ({
-        currency_code: c.currency_code,
-        opening_amount: c.opening_amount,
-        physical_amount: c.physical_amount > 0 ? c.physical_amount : undefined,
-        variance:
-          c.physical_amount > 0
-            ? c.physical_amount - c.opening_amount
+      checkpoint.currencies = amounts.map((a: any) => ({
+        currency_code: a.currency_code,
+        opening_amount: a.opening_amount || 0,
+        physical_amount:
+          a.physical_amount && a.physical_amount > 0
+            ? a.physical_amount
             : undefined,
+        variance:
+          a.physical_amount && a.physical_amount > 0
+            ? a.physical_amount - a.opening_amount
+            : undefined,
+        drawer_name: a.drawer_name, // Keep drawer info for modal
       }));
     }
 

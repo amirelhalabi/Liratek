@@ -5,7 +5,7 @@
  *   1. Zod validator (createFinancialServiceSchema):
  *      - phoneNumber, omtServiceType, BINANCE provider, DEBT refinement
  *   2. Service ↔ Repository delegation:
- *      - addTransaction for all providers (OMT, WHISH, BOB, IPEC, KATCH, WISH_APP)
+ *      - addTransaction for all providers (OMT, WHISH, BOB, iPick, Katsh, WISH_APP)
  *      - getHistory with/without provider filter
  *      - getAnalytics happy path + error
  *   3. SQL-level correctness (mock DB):
@@ -317,27 +317,27 @@ describe("FinancialService (delegation)", () => {
       expect(result).toEqual({ success: true, id: 3 });
     });
 
-    it("should delegate IPEC transaction to repo", () => {
+    it("should delegate iPick transaction to repo", () => {
       const data: CreateFinancialServiceData = {
-        provider: "IPEC",
+        provider: "iPick",
         serviceType: "SEND",
         amount: 150,
         commission: 7,
       };
-      mockRepo.createTransaction.mockReturnValue({ id: 4, drawer: "IPEC" });
+      mockRepo.createTransaction.mockReturnValue({ id: 4, drawer: "iPick" });
       const result = service.addTransaction(data);
       expect(result).toEqual({ success: true, id: 4 });
       expect(mockRepo.createTransaction).toHaveBeenCalledWith(data);
     });
 
-    it("should delegate KATCH transaction to repo", () => {
+    it("should delegate Katsh transaction to repo", () => {
       const data: CreateFinancialServiceData = {
-        provider: "KATCH",
+        provider: "Katsh",
         serviceType: "RECEIVE",
         amount: 80,
         commission: 4,
       };
-      mockRepo.createTransaction.mockReturnValue({ id: 5, drawer: "Katch" });
+      mockRepo.createTransaction.mockReturnValue({ id: 5, drawer: "Katsh" });
       const result = service.addTransaction(data);
       expect(result).toEqual({ success: true, id: 5 });
       expect(mockRepo.createTransaction).toHaveBeenCalledWith(data);
@@ -457,11 +457,13 @@ describe("FinancialService (delegation)", () => {
       const mockAnalytics: FinancialServiceAnalytics = {
         today: {
           commission: 50,
+          pending_commission: 0,
           count: 10,
           byCurrency: [{ currency: "USD", commission: 50, count: 10 }],
         },
         month: {
           commission: 500,
+          pending_commission: 0,
           count: 100,
           byCurrency: [{ currency: "USD", commission: 500, count: 100 }],
         },

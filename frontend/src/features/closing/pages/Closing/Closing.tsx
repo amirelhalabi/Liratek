@@ -33,8 +33,8 @@ const DRAWER_MODULE_MAP: Partial<Record<string, string>> = {
   Binance: "binance",
   MTC: "recharge",
   Alfa: "recharge",
-  IPEC: "ipec_katch",
-  Katch: "ipec_katch",
+  iPick: "ipec_katch",
+  Katsh: "ipec_katch",
 };
 
 export default function Closing({ isOpen, onClose }: ClosingProps) {

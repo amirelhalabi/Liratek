@@ -11,6 +11,7 @@ import {
   applySqlCipherKey,
   initDatabase as initCoreDatabase,
   getSessionRepository,
+  getClosingRepository,
   runMigrations,
   logger,
 } from "@liratek/core";
@@ -93,9 +94,17 @@ if (!gotTheLock) {
 }
 
 function createWindow() {
+  // Resolve icon path - resources folder is at project root
+  // In dev: __dirname = electron-app/dist, so we need ../../resources
+  // In production: __dirname = dist-electron, so we need ../resources
+  const iconPath = app.isPackaged
+    ? path.join(__dirname, "../resources/icon.png")
+    : path.join(__dirname, "../../resources/icon.png");
+
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
+    icon: iconPath,
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
@@ -137,6 +146,14 @@ loadDotEnvFile(path.join(__dirname, "../.env"));
 
 app.whenReady().then(async () => {
   logger.info("App ready, creating window...");
+
+  // Set app icon (especially important for macOS dock)
+  const iconPath = app.isPackaged
+    ? path.join(__dirname, "../resources/icon.png")
+    : path.join(__dirname, "../../resources/icon.png");
+  if (fs.existsSync(iconPath)) {
+    app.dock?.setIcon(iconPath);
+  }
 
   // Remove default menu bar in production (keep in dev for DevTools access)
   if (!ELECTRON_RENDERER_URL) {
@@ -343,6 +360,23 @@ function initializeBackend() {
 
   // Services are initialized on-demand by handlers
   // Each service gets the db instance when needed
+
+  // One-time drawer balance recalculation to fix accumulated drift.
+  // TODO: Remove this block in the next release after v____.
+  try {
+    const closingRepo = getClosingRepository();
+    const result = closingRepo.recalculateDrawerBalances();
+    if (result.success) {
+      logger.info("Drawer balances recalculated on startup");
+    } else {
+      logger.warn(
+        { error: result.error },
+        "Drawer balance recalculation failed",
+      );
+    }
+  } catch (err) {
+    logger.warn({ error: err }, "Drawer balance recalculation skipped");
+  }
 
   logger.info("Backend services initialized");
 }

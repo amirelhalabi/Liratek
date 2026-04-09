@@ -2,17 +2,17 @@ import { z } from "zod";
 import { positiveDecimalSchema, currencyCodeSchema } from "./common.js";
 
 /**
- * Financial services validation schemas (OMT, WHISH, IPEC, Katch, Binance, etc.)
+ * Financial services validation schemas (OMT, WHISH, iPick, Katsh, Binance, etc.)
  */
 
-// OMT/WHISH Money Transfer & IPEC/Katch/WishApp/Binance services
+// OMT/WHISH Money Transfer & iPick/Katsh/WishApp/Binance services
 export const createFinancialServiceSchema = z
   .object({
     provider: z.enum([
       "OMT",
       "WHISH",
-      "IPEC",
-      "KATCH",
+      "iPick",
+      "Katsh",
       "WISH_APP",
       "OMT_APP",
       "BOB",
@@ -134,8 +134,8 @@ export const getFinancialServicesSchema = z.object({
     .enum([
       "OMT",
       "WHISH",
-      "IPEC",
-      "KATCH",
+      "iPick",
+      "Katsh",
       "WISH_APP",
       "OMT_APP",
       "BOB",

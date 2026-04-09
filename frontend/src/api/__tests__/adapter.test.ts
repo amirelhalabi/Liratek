@@ -107,6 +107,84 @@ jest.mock("../backendApi", () => ({
   })),
   sendWhatsAppTestMessage: jest.fn(async () => ({ success: true })),
   sendWhatsAppMessage: jest.fn(async () => ({ success: true })),
+  // Loto API functions
+  lotoSell: jest.fn(async () => ({ success: true })),
+  lotoGet: jest.fn(async () => ({})),
+  lotoGetByDateRange: jest.fn(async () => []),
+  lotoUpdate: jest.fn(async () => ({ success: true })),
+  lotoReport: jest.fn(async () => ({})),
+  lotoSettlement: jest.fn(async () => ({})),
+  lotoFeesCreate: jest.fn(async () => ({ success: true })),
+  lotoFeesGet: jest.fn(async () => []),
+  lotoFeesPay: jest.fn(async () => ({ success: true })),
+  lotoSettingsGet: jest.fn(async () => ({})),
+  lotoSettingsUpdate: jest.fn(async () => ({ success: true })),
+  // Loto Checkpoint functions
+  lotoCheckpointCreate: jest.fn(async () => ({
+    success: true,
+    checkpoint: {},
+  })),
+  lotoCheckpointGet: jest.fn(async () => ({ success: true, checkpoint: {} })),
+  lotoCheckpointGetByDate: jest.fn(async () => ({
+    success: true,
+    checkpoint: {},
+  })),
+  lotoCheckpointGetByDateRange: jest.fn(async () => ({
+    success: true,
+    checkpoints: [],
+  })),
+  lotoCheckpointGetUnsettled: jest.fn(async () => ({
+    success: true,
+    checkpoints: [],
+  })),
+  lotoCheckpointUpdate: jest.fn(async () => ({
+    success: true,
+    checkpoint: {},
+  })),
+  lotoCheckpointMarkSettled: jest.fn(async () => ({
+    success: true,
+    checkpoint: {},
+  })),
+  lotoCheckpointSettle: jest.fn(async () => ({
+    success: true,
+    checkpoint: {},
+  })),
+  lotoCheckpointGetTotalSalesUnsettled: jest.fn(async () => ({
+    success: true,
+    totalSales: 0,
+  })),
+  lotoCheckpointGetTotalCommissionUnsettled: jest.fn(async () => ({
+    success: true,
+    totalCommission: 0,
+  })),
+  lotoCheckpointGetLast: jest.fn(async () => ({
+    success: true,
+    checkpoint: {},
+  })),
+  lotoCheckpointCreateScheduled: jest.fn(async () => ({
+    success: true,
+    checkpoint: {},
+  })),
+  lotoCashPrizeCreate: jest.fn(async () => ({
+    success: true,
+    prize: {},
+  })),
+  lotoCashPrizeGetByDateRange: jest.fn(async () => ({
+    success: true,
+    prizes: [],
+  })),
+  lotoCashPrizeGetUnreimbursed: jest.fn(async () => ({
+    success: true,
+    prizes: [],
+  })),
+  lotoCashPrizeMarkReimbursed: jest.fn(async () => ({
+    success: true,
+    prize: {},
+  })),
+  lotoCashPrizeGetTotalUnreimbursed: jest.fn(async () => ({
+    success: true,
+    total: 0,
+  })),
 }));
 
 import { backendApiAdapter } from "../adapter";

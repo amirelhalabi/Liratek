@@ -3,14 +3,14 @@ import logger from "@/utils/logger";
 import {
   RefreshCw,
   ArrowRightLeft,
-  History,
   ArrowRight,
   AlertCircle,
+  History,
 } from "lucide-react";
 import { PageHeader, useApi } from "@liratek/ui";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { useCurrencyContext } from "@/contexts/CurrencyContext";
-import { DataTable } from "@/shared/components/DataTable";
+import { HistoryModal } from "./components/HistoryModal";
 import {
   calculateExchange,
   type CurrencyRate,
@@ -98,6 +98,7 @@ export default function Exchange() {
 
   const [transactions, setTransactions] = useState<ExchangeTx[]>([]);
   const [fromCurrency, setFromCurrency] = useState<string>("");
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [toCurrency, setToCurrency] = useState<string>("");
   const [amountIn, setAmountIn] = useState<string>("");
   const [amountOut, setAmountOut] = useState<string>("");
@@ -420,11 +421,23 @@ export default function Exchange() {
 
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col min-h-0 gap-6 overflow-hidden animate-in fade-in duration-500">
-      <PageHeader icon={RefreshCw} title="Exchange" />
+      <PageHeader
+        icon={RefreshCw}
+        title="Exchange"
+        actions={
+          <button
+            onClick={() => setShowHistoryModal(true)}
+            className="px-4 py-2 rounded-lg font-medium text-sm transition-all flex items-center gap-2 bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 hover:text-white"
+          >
+            <History size={16} />
+            <span className="font-medium">History</span>
+          </button>
+        }
+      />
 
-      <div className="flex-1 min-h-0 flex gap-6">
-        {/* ── Left: Calculator ── */}
-        <div className="w-1/3 min-w-[380px] h-full overflow-auto bg-slate-800 rounded-xl border border-slate-700/50 shadow-xl p-4 flex flex-col gap-4">
+      <div className="flex-1 min-h-0">
+        {/* ── Exchange Calculator ── */}
+        <div className="w-full max-w-2xl mx-auto bg-slate-800 rounded-xl border border-slate-700/50 shadow-xl p-4 flex flex-col gap-4">
           {/* Currency Selectors */}
           <div className="flex items-center gap-2">
             <div className="flex-1">
@@ -693,125 +706,17 @@ export default function Exchange() {
             Confirm Exchange
           </button>
         </div>
-
-        {/* ── Right: History ── */}
-        <div className="flex-1 min-h-0 bg-slate-800 rounded-xl border border-slate-700/50 shadow-xl overflow-hidden flex flex-col">
-          <div className="p-4 border-b border-slate-700 bg-slate-800 flex items-center justify-between">
-            <h2 className="font-bold text-white flex items-center gap-2">
-              <History className="text-slate-400" size={18} />
-              Today's Exchanges
-            </h2>
-            <button
-              onClick={loadHistory}
-              className="text-slate-400 hover:text-white transition-colors p-1 rounded hover:bg-slate-700"
-            >
-              <RefreshCw size={16} />
-            </button>
-          </div>
-
-          <div className="flex-1 overflow-auto">
-            <DataTable
-              columns={[
-                {
-                  header: "Time",
-                  className: "px-4 py-3",
-                  sortKey: "created_at",
-                },
-                {
-                  header: "Pair",
-                  className: "px-4 py-3",
-                  sortKey: "from_currency",
-                },
-                {
-                  header: "Amount In",
-                  className: "px-4 py-3 text-right",
-                  sortKey: "amount_in",
-                },
-                {
-                  header: "Amount Out",
-                  className: "px-4 py-3 text-right",
-                  sortKey: "amount_out",
-                },
-                { header: "Via", className: "px-4 py-3 text-center" },
-                {
-                  header: "Profit",
-                  className: "px-4 py-3 text-right",
-                  sortKey: "profit_usd",
-                },
-              ]}
-              data={transactions}
-              exportExcel
-              exportPdf
-              exportFilename="exchange-history"
-              className="w-full"
-              theadClassName="bg-slate-900/50 text-left text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0"
-              tbodyClassName="divide-y divide-slate-700/50"
-              emptyMessage="No exchanges yet today."
-              renderRow={(tx) => {
-                const totalProfit =
-                  tx.leg1_profit_usd !== null || tx.leg2_profit_usd !== null
-                    ? (tx.leg1_profit_usd ?? 0) + (tx.leg2_profit_usd ?? 0)
-                    : tx.profit_usd;
-
-                return (
-                  <tr
-                    key={tx.id}
-                    className="hover:bg-slate-700/20 transition-colors"
-                  >
-                    <td className="px-4 py-3 text-sm text-slate-400">
-                      {new Date(tx.created_at).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-1">
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400">
-                          {tx.from_currency}
-                        </span>
-                        <ArrowRight size={10} className="text-slate-600" />
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-500/10 text-red-400">
-                          {tx.to_currency}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-sm font-bold text-emerald-400 text-right font-mono">
-                      {Number(tx.amount_in).toLocaleString()} {tx.from_currency}
-                    </td>
-                    <td className="px-4 py-3 text-sm font-bold text-red-400 text-right font-mono">
-                      {Number(tx.amount_out).toLocaleString()} {tx.to_currency}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      {tx.via_currency ? (
-                        <span className="text-xs text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
-                          via {tx.via_currency}
-                        </span>
-                      ) : (
-                        <span className="text-xs text-slate-600">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-sm font-bold text-right">
-                      {totalProfit !== null && totalProfit !== undefined ? (
-                        <span
-                          className={
-                            totalProfit >= 0
-                              ? "text-emerald-400"
-                              : "text-red-400"
-                          }
-                        >
-                          ${Number(totalProfit).toFixed(2)}
-                        </span>
-                      ) : (
-                        <span className="text-slate-500">—</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              }}
-            />
-          </div>
-        </div>
       </div>
+
+      {/* History Modal */}
+      {showHistoryModal && (
+        <HistoryModal
+          transactions={transactions}
+          loading={false}
+          onClose={() => setShowHistoryModal(false)}
+          onRefresh={loadHistory}
+        />
+      )}
     </div>
   );
 }

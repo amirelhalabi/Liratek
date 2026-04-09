@@ -13,7 +13,7 @@ import { PageHeader, useApi } from "@liratek/ui";
 import ClientForm from "./ClientForm";
 import CustomerSessionsView from "./CustomerSessionsView";
 import type { Client } from "@liratek/ui";
-import { DataTable } from "@/shared/components/DataTable";
+import { DataTable } from "@liratek/ui";
 
 export default function ClientList() {
   const api = useApi();

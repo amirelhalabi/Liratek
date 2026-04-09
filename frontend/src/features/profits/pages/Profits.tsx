@@ -23,7 +23,7 @@ import {
   Activity,
 } from "lucide-react";
 import { useCurrencyContext } from "@/contexts/CurrencyContext";
-import { DataTable } from "@/shared/components/DataTable";
+import { DataTable } from "@liratek/ui";
 
 const CommissionsChart = lazy(
   () => import("../../dashboard/components/CommissionsChart"),
@@ -475,1078 +475,1088 @@ export default function Profits() {
 
       {/* Scrollable content area */}
       <div className="flex-1 min-h-0 overflow-auto space-y-6">
-      {/* Loading */}
-      {loading && (
-        <div className="text-center py-12 text-gray-400">Loading...</div>
-      )}
+        {/* Loading */}
+        {loading && (
+          <div className="text-center py-12 text-gray-400">Loading...</div>
+        )}
 
-      {/* ==================== Overview Tab ==================== */}
-      {!loading && tab === "overview" && !summary && (
-        <div className="text-center py-12 text-gray-500">
-          No data for this period
-        </div>
-      )}
-      {!loading && tab === "overview" && summary && (
-        <div className="space-y-6">
-          {/* Top-level KPI cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <SummaryCard
-              label="Net Profit (USD)"
-              value={formatAmount(summary.totals.net_profit_usd, "USD")}
-              subValue={`Gross: ${formatAmount(summary.totals.gross_profit_usd, "USD")}`}
-              icon={DollarSign}
-              color="text-emerald-400"
-              trend={
-                summary.totals.net_profit_usd > 0
-                  ? "up"
-                  : summary.totals.net_profit_usd < 0
-                    ? "down"
-                    : "neutral"
-              }
-            />
-            <SummaryCard
-              label="Net Profit (LBP)"
-              value={formatAmount(summary.totals.net_profit_lbp, "LBP")}
-              icon={DollarSign}
-              color="text-blue-400"
-              trend={
-                summary.totals.net_profit_lbp > 0
-                  ? "up"
-                  : summary.totals.net_profit_lbp < 0
-                    ? "down"
-                    : "neutral"
-              }
-            />
-            <SummaryCard
-              label="Total Revenue"
-              value={formatAmount(summary.totals.gross_revenue_usd, "USD")}
-              subValue={
-                summary.totals.gross_revenue_lbp > 0
-                  ? formatAmount(summary.totals.gross_revenue_lbp, "LBP")
-                  : undefined
-              }
-              icon={TrendingUp}
-              color="text-blue-400"
-            />
-            <SummaryCard
-              label="Total Expenses"
-              value={formatAmount(summary.expenses.total_usd, "USD")}
-              subValue={
-                summary.expenses.total_lbp > 0
-                  ? formatAmount(summary.expenses.total_lbp, "LBP")
-                  : undefined
-              }
-              icon={ArrowDownRight}
-              color="text-red-400"
-            />
+        {/* ==================== Overview Tab ==================== */}
+        {!loading && tab === "overview" && !summary && (
+          <div className="text-center py-12 text-gray-500">
+            No data for this period
           </div>
-
-          {/* Module breakdown cards */}
-          <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">
-            Breakdown by Source
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* Sales */}
-            <div className="bg-gray-800/50 rounded-xl border border-gray-700 p-4 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-white">
-                  Product Sales
-                </span>
-                <span className="text-xs bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full">
-                  {summary.sales.count} sales
-                </span>
-              </div>
-              <div className="text-xs text-gray-400 space-y-1">
-                <div className="flex justify-between">
-                  <span>Revenue</span>
-                  <span className="text-white">
-                    {formatAmount(summary.sales.revenue_usd, "USD")}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Cost</span>
-                  <span className="text-red-400">
-                    -{formatAmount(summary.sales.cost_usd, "USD")}
-                  </span>
-                </div>
-                <div className="flex justify-between border-t border-gray-700 pt-1">
-                  <span className="font-semibold">Profit</span>
-                  <span className="text-emerald-400 font-semibold">
-                    {formatAmount(summary.sales.profit_usd, "USD")}
-                  </span>
-                </div>
-              </div>
+        )}
+        {!loading && tab === "overview" && summary && (
+          <div className="space-y-6">
+            {/* Top-level KPI cards */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <SummaryCard
+                label="Net Profit (USD)"
+                value={formatAmount(summary.totals.net_profit_usd, "USD")}
+                subValue={`Gross: ${formatAmount(summary.totals.gross_profit_usd, "USD")}`}
+                icon={DollarSign}
+                color="text-emerald-400"
+                trend={
+                  summary.totals.net_profit_usd > 0
+                    ? "up"
+                    : summary.totals.net_profit_usd < 0
+                      ? "down"
+                      : "neutral"
+                }
+              />
+              <SummaryCard
+                label="Net Profit (LBP)"
+                value={formatAmount(summary.totals.net_profit_lbp, "LBP")}
+                icon={DollarSign}
+                color="text-blue-400"
+                trend={
+                  summary.totals.net_profit_lbp > 0
+                    ? "up"
+                    : summary.totals.net_profit_lbp < 0
+                      ? "down"
+                      : "neutral"
+                }
+              />
+              <SummaryCard
+                label="Total Revenue"
+                value={formatAmount(summary.totals.gross_revenue_usd, "USD")}
+                subValue={
+                  summary.totals.gross_revenue_lbp > 0
+                    ? formatAmount(summary.totals.gross_revenue_lbp, "LBP")
+                    : undefined
+                }
+                icon={TrendingUp}
+                color="text-blue-400"
+              />
+              <SummaryCard
+                label="Total Expenses"
+                value={formatAmount(summary.expenses.total_usd, "USD")}
+                subValue={
+                  summary.expenses.total_lbp > 0
+                    ? formatAmount(summary.expenses.total_lbp, "LBP")
+                    : undefined
+                }
+                icon={ArrowDownRight}
+                color="text-red-400"
+              />
             </div>
 
-            {/* Financial Services */}
-            <div className="bg-gray-800/50 rounded-xl border border-gray-700 p-4 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-white">
-                  Financial Services
-                </span>
-                <span className="text-xs bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded-full">
-                  {summary.financial_services.count} txns
-                </span>
-              </div>
-              <div className="text-xs text-gray-400 space-y-1">
-                <div className="flex justify-between">
-                  <span>Revenue (USD)</span>
-                  <span className="text-white">
-                    {formatAmount(
-                      summary.financial_services.revenue_usd,
-                      "USD",
-                    )}
-                  </span>
-                </div>
-                {summary.financial_services.revenue_lbp > 0 && (
-                  <div className="flex justify-between">
-                    <span>Revenue (LBP)</span>
-                    <span className="text-white">
-                      {formatAmount(
-                        summary.financial_services.revenue_lbp,
-                        "LBP",
-                      )}
-                    </span>
-                  </div>
-                )}
-                <div className="flex justify-between border-t border-gray-700 pt-1">
-                  <span className="font-semibold">Commission</span>
-                  <span className="text-emerald-400 font-semibold">
-                    {formatAmount(
-                      summary.financial_services.commission_usd,
-                      "USD",
-                    )}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Custom Services */}
-            <div className="bg-gray-800/50 rounded-xl border border-gray-700 p-4 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-white">
-                  Custom Services
-                </span>
-                <span className="text-xs bg-purple-500/20 text-purple-400 px-2 py-0.5 rounded-full">
-                  {summary.custom_services.count} jobs
-                </span>
-              </div>
-              <div className="text-xs text-gray-400 space-y-1">
-                <div className="flex justify-between">
-                  <span>Revenue</span>
-                  <span className="text-white">
-                    {formatAmount(summary.custom_services.revenue_usd, "USD")}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Cost</span>
-                  <span className="text-red-400">
-                    -{formatAmount(summary.custom_services.cost_usd, "USD")}
-                  </span>
-                </div>
-                <div className="flex justify-between border-t border-gray-700 pt-1">
-                  <span className="font-semibold">Profit</span>
-                  <span className="text-emerald-400 font-semibold">
-                    {formatAmount(summary.custom_services.profit_usd, "USD")}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Recharges */}
-            {summary.recharges && summary.recharges.count > 0 && (
+            {/* Module breakdown cards */}
+            <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">
+              Breakdown by Source
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* Sales */}
               <div className="bg-gray-800/50 rounded-xl border border-gray-700 p-4 space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium text-white">
-                    Mobile Recharges
+                    Product Sales
                   </span>
-                  <span className="text-xs bg-teal-500/20 text-teal-400 px-2 py-0.5 rounded-full">
-                    {summary.recharges.count} txns
+                  <span className="text-xs bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full">
+                    {summary.sales.count} sales
                   </span>
                 </div>
                 <div className="text-xs text-gray-400 space-y-1">
                   <div className="flex justify-between">
                     <span>Revenue</span>
                     <span className="text-white">
-                      {formatAmount(summary.recharges.revenue_usd, "USD")}
+                      {formatAmount(summary.sales.revenue_usd, "USD")}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span>Cost</span>
                     <span className="text-red-400">
-                      -{formatAmount(summary.recharges.cost_usd, "USD")}
+                      -{formatAmount(summary.sales.cost_usd, "USD")}
                     </span>
                   </div>
                   <div className="flex justify-between border-t border-gray-700 pt-1">
                     <span className="font-semibold">Profit</span>
                     <span className="text-emerald-400 font-semibold">
-                      {formatAmount(summary.recharges.profit_usd, "USD")}
+                      {formatAmount(summary.sales.profit_usd, "USD")}
                     </span>
                   </div>
                 </div>
               </div>
-            )}
 
-            {/* Maintenance */}
-            <div className="bg-gray-800/50 rounded-xl border border-gray-700 p-4 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-white">
-                  Maintenance
-                </span>
-                <span className="text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full">
-                  {summary.maintenance.count} jobs
-                </span>
+              {/* Financial Services */}
+              <div className="bg-gray-800/50 rounded-xl border border-gray-700 p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-white">
+                    Financial Services
+                  </span>
+                  <span className="text-xs bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded-full">
+                    {summary.financial_services.count} txns
+                  </span>
+                </div>
+                <div className="text-xs text-gray-400 space-y-1">
+                  <div className="flex justify-between">
+                    <span>Revenue (USD)</span>
+                    <span className="text-white">
+                      {formatAmount(
+                        summary.financial_services.revenue_usd,
+                        "USD",
+                      )}
+                    </span>
+                  </div>
+                  {summary.financial_services.revenue_lbp > 0 && (
+                    <div className="flex justify-between">
+                      <span>Revenue (LBP)</span>
+                      <span className="text-white">
+                        {formatAmount(
+                          summary.financial_services.revenue_lbp,
+                          "LBP",
+                        )}
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex justify-between border-t border-gray-700 pt-1">
+                    <span className="font-semibold">Commission</span>
+                    <span className="text-emerald-400 font-semibold">
+                      {formatAmount(
+                        summary.financial_services.commission_usd,
+                        "USD",
+                      )}
+                    </span>
+                  </div>
+                </div>
               </div>
-              <div className="text-xs text-gray-400 space-y-1">
-                <div className="flex justify-between">
-                  <span>Revenue</span>
-                  <span className="text-white">
-                    {formatAmount(summary.maintenance.revenue_usd, "USD")}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Cost</span>
-                  <span className="text-red-400">
-                    -{formatAmount(summary.maintenance.cost_usd, "USD")}
-                  </span>
-                </div>
-                <div className="flex justify-between border-t border-gray-700 pt-1">
-                  <span className="font-semibold">Profit</span>
-                  <span className="text-emerald-400 font-semibold">
-                    {formatAmount(summary.maintenance.profit_usd, "USD")}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
 
-          {/* Expense breakdown */}
-          <div className="bg-gray-800/50 rounded-xl border border-gray-700 p-4">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium text-white">
-                Expenses Deducted
-              </span>
-              <span className="text-xs text-gray-400">
-                {summary.expenses.count} entries
-              </span>
-            </div>
-            <div className="flex gap-6 text-sm">
-              <div>
-                <span className="text-gray-400">USD: </span>
-                <span className="text-red-400 font-semibold">
-                  -{formatAmount(summary.expenses.total_usd, "USD")}
-                </span>
-              </div>
-              {summary.expenses.total_lbp > 0 && (
-                <div>
-                  <span className="text-gray-400">LBP: </span>
-                  <span className="text-red-400 font-semibold">
-                    -{formatAmount(summary.expenses.total_lbp, "LBP")}
+              {/* Custom Services */}
+              <div className="bg-gray-800/50 rounded-xl border border-gray-700 p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-white">
+                    Custom Services
                   </span>
+                  <span className="text-xs bg-purple-500/20 text-purple-400 px-2 py-0.5 rounded-full">
+                    {summary.custom_services.count} jobs
+                  </span>
+                </div>
+                <div className="text-xs text-gray-400 space-y-1">
+                  <div className="flex justify-between">
+                    <span>Revenue</span>
+                    <span className="text-white">
+                      {formatAmount(summary.custom_services.revenue_usd, "USD")}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Cost</span>
+                    <span className="text-red-400">
+                      -{formatAmount(summary.custom_services.cost_usd, "USD")}
+                    </span>
+                  </div>
+                  <div className="flex justify-between border-t border-gray-700 pt-1">
+                    <span className="font-semibold">Profit</span>
+                    <span className="text-emerald-400 font-semibold">
+                      {formatAmount(summary.custom_services.profit_usd, "USD")}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Recharges */}
+              {summary.recharges && summary.recharges.count > 0 && (
+                <div className="bg-gray-800/50 rounded-xl border border-gray-700 p-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-white">
+                      Mobile Recharges
+                    </span>
+                    <span className="text-xs bg-teal-500/20 text-teal-400 px-2 py-0.5 rounded-full">
+                      {summary.recharges.count} txns
+                    </span>
+                  </div>
+                  <div className="text-xs text-gray-400 space-y-1">
+                    <div className="flex justify-between">
+                      <span>Revenue</span>
+                      <span className="text-white">
+                        {formatAmount(summary.recharges.revenue_usd, "USD")}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Cost</span>
+                      <span className="text-red-400">
+                        -{formatAmount(summary.recharges.cost_usd, "USD")}
+                      </span>
+                    </div>
+                    <div className="flex justify-between border-t border-gray-700 pt-1">
+                      <span className="font-semibold">Profit</span>
+                      <span className="text-emerald-400 font-semibold">
+                        {formatAmount(summary.recharges.profit_usd, "USD")}
+                      </span>
+                    </div>
+                  </div>
                 </div>
               )}
+
+              {/* Maintenance */}
+              <div className="bg-gray-800/50 rounded-xl border border-gray-700 p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-white">
+                    Maintenance
+                  </span>
+                  <span className="text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full">
+                    {summary.maintenance.count} jobs
+                  </span>
+                </div>
+                <div className="text-xs text-gray-400 space-y-1">
+                  <div className="flex justify-between">
+                    <span>Revenue</span>
+                    <span className="text-white">
+                      {formatAmount(summary.maintenance.revenue_usd, "USD")}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Cost</span>
+                    <span className="text-red-400">
+                      -{formatAmount(summary.maintenance.cost_usd, "USD")}
+                    </span>
+                  </div>
+                  <div className="flex justify-between border-t border-gray-700 pt-1">
+                    <span className="font-semibold">Profit</span>
+                    <span className="text-emerald-400 font-semibold">
+                      {formatAmount(summary.maintenance.profit_usd, "USD")}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Expense breakdown */}
+            <div className="bg-gray-800/50 rounded-xl border border-gray-700 p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium text-white">
+                  Expenses Deducted
+                </span>
+                <span className="text-xs text-gray-400">
+                  {summary.expenses.count} entries
+                </span>
+              </div>
+              <div className="flex gap-6 text-sm">
+                <div>
+                  <span className="text-gray-400">USD: </span>
+                  <span className="text-red-400 font-semibold">
+                    -{formatAmount(summary.expenses.total_usd, "USD")}
+                  </span>
+                </div>
+                {summary.expenses.total_lbp > 0 && (
+                  <div>
+                    <span className="text-gray-400">LBP: </span>
+                    <span className="text-red-400 font-semibold">
+                      -{formatAmount(summary.expenses.total_lbp, "LBP")}
+                    </span>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* ==================== By Module Tab ==================== */}
-      {!loading && tab === "by-module" && (
-        <div className="bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden">
-          <DataTable<ModuleRow>
-            columns={[
-              { header: "Module", className: "text-left px-4 py-3" },
-              { header: "Revenue (USD)", className: "text-right px-4 py-3" },
-              { header: "Revenue (LBP)", className: "text-right px-4 py-3" },
-              { header: "Profit (USD)", className: "text-right px-4 py-3" },
-              { header: "Profit (LBP)", className: "text-right px-4 py-3" },
-              { header: "Count", className: "text-right px-4 py-3" },
-              { header: "Margin", className: "text-right px-4 py-3" },
-            ]}
-            data={byModule}
-            exportExcel
-            exportPdf
-            exportFilename="profit-by-module"
-            className="w-full text-sm"
-            theadClassName="border-b border-gray-700 text-gray-400 text-xs uppercase"
-            emptyMessage="No data for this period"
-            renderRow={(row) => (
-              <tr
-                key={row.module}
-                className="border-b border-gray-700/50 hover:bg-gray-700/30"
-              >
-                <td className="px-4 py-3 font-medium text-white">
-                  {row.label}
-                </td>
-                <td className="px-4 py-3 text-right text-white">
-                  {formatAmount(row.revenue_usd, "USD")}
-                </td>
-                <td className="px-4 py-3 text-right text-white">
-                  {row.revenue_lbp > 0
-                    ? formatAmount(row.revenue_lbp, "LBP")
-                    : "—"}
-                </td>
-                <td className="px-4 py-3 text-right text-emerald-400 font-medium">
-                  {formatAmount(row.profit_usd, "USD")}
-                </td>
-                <td className="px-4 py-3 text-right text-emerald-400">
-                  {row.profit_lbp > 0
-                    ? formatAmount(row.profit_lbp, "LBP")
-                    : "—"}
-                </td>
-                <td className="px-4 py-3 text-right text-gray-300">
-                  {row.count}
-                </td>
-                <td className="px-4 py-3 text-right text-gray-300">
-                  {formatPct(row.profit_usd, row.revenue_usd)}
-                </td>
-              </tr>
-            )}
-          />
-        </div>
-      )}
-
-      {/* ==================== By Date Tab ==================== */}
-      {!loading && tab === "by-date" && (
-        <div className="space-y-4">
-          {/* Visual bar chart */}
-          {byDate.length > 0 && (
-            <div className="bg-gray-800/50 rounded-xl border border-gray-700 p-4">
-              <h3 className="text-sm font-semibold text-gray-400 mb-3">
-                Daily Net Profit (USD)
-              </h3>
-              <div className="flex items-end gap-1 h-40">
-                {(() => {
-                  const maxVal = Math.max(
-                    ...byDate.map((d) => Math.abs(d.net_profit_usd)),
-                    1,
-                  );
-                  return byDate.map((d) => {
-                    const pct = Math.abs(d.net_profit_usd) / maxVal;
-                    const isPositive = d.net_profit_usd >= 0;
-                    return (
-                      <div
-                        key={d.date}
-                        className="flex-1 flex flex-col justify-end items-center group relative"
-                      >
-                        <div
-                          className={`w-full rounded-t ${
-                            isPositive ? "bg-emerald-500/70" : "bg-red-500/70"
-                          }`}
-                          style={{
-                            height: `${Math.max(pct * 100, 2)}%`,
-                            minHeight: "2px",
-                          }}
-                        />
-                        {/* Tooltip */}
-                        <div className="absolute bottom-full mb-1 hidden group-hover:block bg-gray-900 border border-gray-600 rounded px-2 py-1 text-xs text-white whitespace-nowrap z-10">
-                          {d.date}: {formatAmount(d.net_profit_usd, "USD")}
-                        </div>
-                      </div>
-                    );
-                  });
-                })()}
-              </div>
-              <div className="flex justify-between text-[10px] text-gray-500 mt-1">
-                <span>{byDate[0]?.date}</span>
-                <span>{byDate[byDate.length - 1]?.date}</span>
-              </div>
-            </div>
-          )}
-
-          {/* Table */}
+        {/* ==================== By Module Tab ==================== */}
+        {!loading && tab === "by-module" && (
           <div className="bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden">
-            <DataTable<DateRow>
+            <DataTable<ModuleRow>
               columns={[
-                { header: "Date", className: "text-left px-4 py-3" },
-                { header: "Revenue", className: "text-right px-4 py-3" },
-                { header: "Gross Profit", className: "text-right px-4 py-3" },
-                { header: "Expenses", className: "text-right px-4 py-3" },
-                { header: "Net Profit", className: "text-right px-4 py-3" },
+                { header: "Module", className: "text-left px-4 py-3" },
+                { header: "Revenue (USD)", className: "text-right px-4 py-3" },
+                { header: "Revenue (LBP)", className: "text-right px-4 py-3" },
+                { header: "Profit (USD)", className: "text-right px-4 py-3" },
+                { header: "Profit (LBP)", className: "text-right px-4 py-3" },
+                { header: "Count", className: "text-right px-4 py-3" },
+                { header: "Margin", className: "text-right px-4 py-3" },
               ]}
-              data={byDate}
+              data={byModule}
               exportExcel
               exportPdf
-              exportFilename="profit-by-date"
+              exportFilename="profit-by-module"
               className="w-full text-sm"
               theadClassName="border-b border-gray-700 text-gray-400 text-xs uppercase"
               emptyMessage="No data for this period"
-              footerContent={
-                byDate.length > 0 ? (
-                  <tr className="border-t-2 border-gray-600 bg-gray-800/80 font-bold">
-                    <td className="px-4 py-3 text-white">TOTAL</td>
-                    <td className="px-4 py-3 text-right text-white">
-                      {formatAmount(
-                        byDate.reduce((s, d) => s + d.revenue_usd, 0),
-                        "USD",
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-right text-emerald-400">
-                      {formatAmount(
-                        byDate.reduce((s, d) => s + d.profit_usd, 0),
-                        "USD",
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-right text-red-400">
-                      -
-                      {formatAmount(
-                        byDate.reduce((s, d) => s + d.expenses_usd, 0),
-                        "USD",
-                      )}
-                    </td>
-                    <td
-                      className={`px-4 py-3 text-right ${
-                        byDate.reduce((s, d) => s + d.net_profit_usd, 0) >= 0
-                          ? "text-emerald-400"
-                          : "text-red-400"
-                      }`}
-                    >
-                      {formatAmount(
-                        byDate.reduce((s, d) => s + d.net_profit_usd, 0),
-                        "USD",
-                      )}
-                    </td>
-                  </tr>
-                ) : undefined
-              }
-              renderRow={(d) => (
+              renderRow={(row) => (
                 <tr
-                  key={d.date}
+                  key={row.module}
                   className="border-b border-gray-700/50 hover:bg-gray-700/30"
                 >
-                  <td className="px-4 py-3 font-medium text-white">{d.date}</td>
+                  <td className="px-4 py-3 font-medium text-white">
+                    {row.label}
+                  </td>
                   <td className="px-4 py-3 text-right text-white">
-                    {formatAmount(d.revenue_usd, "USD")}
+                    {formatAmount(row.revenue_usd, "USD")}
                   </td>
-                  <td className="px-4 py-3 text-right text-emerald-400">
-                    {formatAmount(d.profit_usd, "USD")}
-                  </td>
-                  <td className="px-4 py-3 text-right text-red-400">
-                    {d.expenses_usd > 0
-                      ? `-${formatAmount(d.expenses_usd, "USD")}`
+                  <td className="px-4 py-3 text-right text-white">
+                    {row.revenue_lbp > 0
+                      ? formatAmount(row.revenue_lbp, "LBP")
                       : "—"}
                   </td>
-                  <td
-                    className={`px-4 py-3 text-right font-semibold ${
-                      d.net_profit_usd >= 0
-                        ? "text-emerald-400"
-                        : "text-red-400"
-                    }`}
-                  >
-                    {formatAmount(d.net_profit_usd, "USD")}
+                  <td className="px-4 py-3 text-right text-emerald-400 font-medium">
+                    {formatAmount(row.profit_usd, "USD")}
                   </td>
-                </tr>
-              )}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* ==================== By Payment Method Tab ==================== */}
-      {!loading && tab === "by-payment" && (
-        <div className="bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden">
-          <DataTable<PaymentMethodRow>
-            columns={[
-              { header: "Payment Method", className: "text-left px-4 py-3" },
-              { header: "Total (USD)", className: "text-right px-4 py-3" },
-              { header: "Total (LBP)", className: "text-right px-4 py-3" },
-              { header: "Count", className: "text-right px-4 py-3" },
-              { header: "Status", className: "text-right px-4 py-3" },
-              { header: "Share", className: "text-right px-4 py-3" },
-            ]}
-            data={byPayment}
-            exportExcel
-            exportPdf
-            exportFilename="profit-by-payment"
-            className="w-full text-sm"
-            theadClassName="border-b border-gray-700 text-gray-400 text-xs uppercase"
-            emptyMessage="No payment data for this period"
-            renderRow={(row) => {
-              const totalAll = byPayment
-                .filter(
-                  (r) =>
-                    r.method !== "PM_FEE" &&
-                    r.is_settled !== 0 &&
-                    !r.is_debt_repayment_only,
-                )
-                .reduce((s, r) => s + r.total_usd, 0);
-              const isPending = row.is_settled === 0;
-              const isCommission = row.method.startsWith("Commission");
-              const isPmFee = row.method === "PM_FEE";
-              const isDebtRepayment = !!row.is_debt_repayment_only;
-              return (
-                <tr
-                  key={row.method}
-                  className={`border-b border-gray-700/50 hover:bg-gray-700/30 ${
-                    isPending
-                      ? "bg-amber-950/20"
-                      : isPmFee
-                        ? "bg-violet-950/20"
-                        : ""
-                  }`}
-                >
-                  <td className="px-4 py-3 font-medium text-white">
-                    <div className="flex items-center gap-2">
-                      <CreditCard
-                        className={`h-4 w-4 ${
-                          isCommission
-                            ? "text-emerald-400"
-                            : isPmFee
-                              ? "text-violet-400"
-                              : "text-gray-400"
-                        }`}
-                      />
-                      {isPmFee
-                        ? "Payment Method Fee (Wallet Surcharge)"
-                        : row.method}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-right font-mono">
-                    {isPending && (row.pending_commission_usd ?? 0) > 0 ? (
-                      <span className="text-amber-400">
-                        ${(row.pending_commission_usd ?? 0).toFixed(4)}
-                      </span>
-                    ) : (
-                      <span
-                        className={
-                          isCommission
-                            ? "text-emerald-400 font-semibold"
-                            : isPmFee
-                              ? "text-violet-300 font-semibold"
-                              : "text-white"
-                        }
-                      >
-                        {formatAmount(row.total_usd, "USD")}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-right text-white">
-                    {row.total_lbp > 0
-                      ? formatAmount(row.total_lbp, "LBP")
+                  <td className="px-4 py-3 text-right text-emerald-400">
+                    {row.profit_lbp > 0
+                      ? formatAmount(row.profit_lbp, "LBP")
                       : "—"}
                   </td>
                   <td className="px-4 py-3 text-right text-gray-300">
                     {row.count}
                   </td>
-                  <td className="px-4 py-3 text-right">
-                    {isPending ? (
-                      <span className="text-xs font-medium text-amber-400">
-                        Profit Pending
-                      </span>
-                    ) : isCommission ? (
-                      <span className="text-xs font-medium text-emerald-400">
-                        Settled
-                      </span>
-                    ) : isPmFee ? (
-                      <span className="text-xs font-medium text-violet-400">
-                        Immediate Profit
-                      </span>
-                    ) : isDebtRepayment ? (
-                      <span className="text-xs font-medium text-slate-500">
-                        No Profit
-                      </span>
-                    ) : (
-                      <span className="text-slate-600 text-xs">—</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    {!isPending && !isPmFee && !isDebtRepayment && (
-                      <div className="flex items-center justify-end gap-2">
-                        <div className="w-16 bg-gray-700 rounded-full h-1.5">
-                          <div
-                            className="bg-blue-500 h-1.5 rounded-full"
-                            style={{
-                              width: `${totalAll > 0 ? (row.total_usd / totalAll) * 100 : 0}%`,
-                            }}
-                          />
-                        </div>
-                        <span className="text-gray-300 text-xs w-10 text-right">
-                          {formatPct(row.total_usd, totalAll)}
-                        </span>
-                      </div>
-                    )}
-                    {isPending && (
-                      <span className="text-xs text-amber-500/70">
-                        → Settle in Settings
-                      </span>
-                    )}
-                    {isPmFee && (
-                      <span className="text-xs text-violet-500/70">
-                        In wallet drawer
-                      </span>
-                    )}
-                    {isDebtRepayment && (
-                      <span className="text-xs text-slate-600">0%</span>
-                    )}
+                  <td className="px-4 py-3 text-right text-gray-300">
+                    {formatPct(row.profit_usd, row.revenue_usd)}
                   </td>
                 </tr>
-              );
-            }}
-          />
-        </div>
-      )}
-
-      {/* ==================== By User/Cashier Tab ==================== */}
-      {!loading && tab === "by-user" && (
-        <div className="bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden">
-          <DataTable<UserRow>
-            columns={[
-              { header: "Cashier", className: "text-left px-4 py-3" },
-              { header: "Revenue (USD)", className: "text-right px-4 py-3" },
-              { header: "Profits", className: "text-right px-4 py-3" },
-              { header: "Pending Profits", className: "text-right px-4 py-3" },
-              { header: "Transactions", className: "text-right px-4 py-3" },
-              { header: "Avg Profit/Txn", className: "text-right px-4 py-3" },
-            ]}
-            data={byUser}
-            exportExcel
-            exportPdf
-            exportFilename="profit-by-cashier"
-            className="w-full text-sm"
-            theadClassName="border-b border-gray-700 text-gray-400 text-xs uppercase"
-            emptyMessage="No data for this period"
-            renderRow={(row) => (
-              <tr
-                key={row.user_id}
-                className="border-b border-gray-700/50 hover:bg-gray-700/30"
-              >
-                <td className="px-4 py-3 font-medium text-white">
-                  <div className="flex items-center gap-2">
-                    <UserCheck className="h-4 w-4 text-gray-400" />
-                    {row.username}
-                  </div>
-                </td>
-                <td className="px-4 py-3 text-right text-white">
-                  {formatAmount(row.revenue_usd, "USD")}
-                </td>
-                <td className="px-4 py-3 text-right text-emerald-400 font-medium">
-                  {formatAmount(row.profit_usd, "USD")}
-                </td>
-                <td className="px-4 py-3 text-right">
-                  {(row.pending_profit_usd ?? 0) > 0 ? (
-                    <span className="text-amber-400 font-medium">
-                      ⚠ {formatAmount(row.pending_profit_usd, "USD")}
-                    </span>
-                  ) : (
-                    <span className="text-gray-600 text-xs">—</span>
-                  )}
-                </td>
-                <td className="px-4 py-3 text-right text-gray-300">
-                  {row.transaction_count}
-                </td>
-                <td className="px-4 py-3 text-right text-gray-300">
-                  {row.transaction_count > 0
-                    ? formatAmount(
-                        row.profit_usd / row.transaction_count,
-                        "USD",
-                      )
-                    : "—"}
-                </td>
-              </tr>
-            )}
-          />
-        </div>
-      )}
-
-      {/* ==================== By Client Tab ==================== */}
-      {!loading && tab === "by-client" && (
-        <div className="bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden">
-          <DataTable<ClientRow>
-            columns={[
-              { header: "#", className: "text-left px-4 py-3" },
-              { header: "Client", className: "text-left px-4 py-3" },
-              { header: "Revenue (USD)", className: "text-right px-4 py-3" },
-              { header: "Profits", className: "text-right px-4 py-3" },
-              { header: "Pending Profits", className: "text-right px-4 py-3" },
-              { header: "Transactions", className: "text-right px-4 py-3" },
-            ]}
-            data={byClient}
-            exportExcel
-            exportPdf
-            exportFilename="profit-by-client"
-            className="w-full text-sm"
-            theadClassName="border-b border-gray-700 text-gray-400 text-xs uppercase"
-            emptyMessage="No data for this period"
-            renderRow={(row, i) => (
-              <tr
-                key={row.client_id ?? `walk-in-${i}`}
-                className="border-b border-gray-700/50 hover:bg-gray-700/30"
-              >
-                <td className="px-4 py-3 text-gray-500 text-xs">{i + 1}</td>
-                <td className="px-4 py-3 font-medium text-white">
-                  {row.client_name}
-                </td>
-                <td className="px-4 py-3 text-right text-white">
-                  {formatAmount(row.revenue_usd, "USD")}
-                </td>
-                <td className="px-4 py-3 text-right text-emerald-400 font-medium">
-                  {formatAmount(row.profit_usd, "USD")}
-                </td>
-                <td className="px-4 py-3 text-right">
-                  {(row.pending_profit_usd ?? 0) > 0 ? (
-                    <span className="text-amber-400 font-medium">
-                      ⚠ {formatAmount(row.pending_profit_usd, "USD")}
-                    </span>
-                  ) : (
-                    <span className="text-gray-600 text-xs">—</span>
-                  )}
-                </td>
-                <td className="px-4 py-3 text-right text-gray-300">
-                  {row.transaction_count}
-                </td>
-              </tr>
-            )}
-          />
-        </div>
-      )}
-
-      {/* ==================== Commissions Tab ==================== */}
-      {!loading && tab === "commissions" && !commissionsData && (
-        <div className="text-center py-12 text-gray-500">Loading...</div>
-      )}
-      {!loading && tab === "commissions" && commissionsData && (
-        <div className="space-y-6">
-          {/* Overview Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="bg-slate-800 p-6 rounded-xl border border-slate-700/50 shadow-lg">
-              <p className="text-slate-400 text-sm font-medium uppercase mb-4">
-                Realized Commissions (Month)
-              </p>
-              <div className="flex items-end gap-3">
-                <span className="text-3xl font-bold text-white">
-                  {formatAmount(commissionsData.month.commission, "USD")}
-                </span>
-              </div>
-              {commissionsData.month.pending_commission > 0 && (
-                <p className="text-xs text-amber-400 mt-2 font-mono">
-                  + ${commissionsData.month.pending_commission.toFixed(4)}{" "}
-                  pending settlement
-                </p>
               )}
-            </div>
-
-            <div className="bg-slate-800 p-6 rounded-xl border border-slate-700/50 shadow-lg">
-              <p className="text-slate-400 text-sm font-medium uppercase mb-4">
-                Realized Commissions (Today)
-              </p>
-              <div className="flex items-end gap-3">
-                <span className="text-3xl font-bold text-emerald-400">
-                  {formatAmount(commissionsData.today.commission, "USD")}
-                </span>
-              </div>
-              {commissionsData.today.pending_commission > 0 && (
-                <p className="text-xs text-amber-400 mt-2 font-mono">
-                  + ${commissionsData.today.pending_commission.toFixed(4)}{" "}
-                  pending settlement
-                </p>
-              )}
-            </div>
-
-            <div className="bg-slate-800 p-6 rounded-xl border border-slate-700/50 shadow-lg">
-              <p className="text-slate-400 text-sm font-medium uppercase mb-4">
-                Transaction Volume
-              </p>
-              <div className="flex items-end gap-3">
-                <span className="text-3xl font-bold text-blue-400">
-                  {commissionsData.month.count}
-                </span>
-                <span className="text-slate-500 mb-1">services this month</span>
-              </div>
-              <div className="mt-2 text-blue-500/70 text-sm">
-                {commissionsData.today.count} processed today
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Market Share / Provider Breakdown */}
-            <div className="bg-slate-800 p-6 rounded-xl border border-slate-700/50 shadow-lg">
-              <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
-                <PieChartIcon size={18} className="text-pink-500" />
-                Revenue by Provider
-              </h3>
-              <div className="h-80">
-                <Suspense
-                  fallback={
-                    <div className="h-80 animate-pulse bg-slate-700/30 rounded-xl" />
-                  }
-                >
-                  <CommissionsChart
-                    pieData={commissionsData.byProvider.map((p) => ({
-                      name: p.provider,
-                      value: p.commission,
-                      pending:
-                        unsettledByProvider.find(
-                          (u) => u.provider === p.provider,
-                        )?.pending_commission_usd ?? 0,
-                    }))}
-                    formatAmount={formatAmount}
-                  />
-                </Suspense>
-              </div>
-            </div>
-
-            {/* Detailed Table */}
-            <div className="bg-slate-800 p-6 rounded-xl border border-slate-700/50 shadow-lg flex flex-col">
-              <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
-                <Activity size={18} className="text-blue-400" />
-                Provider Performance (Today)
-              </h3>
-              {/* fetch unsettled per provider from pendingData if available, else show from commissionsData */}
-              <div className="flex-1 overflow-auto">
-                <DataTable
-                  columns={[
-                    { header: "Provider", className: "pb-3" },
-                    { header: "Transactions", className: "pb-3 text-right" },
-                    {
-                      header: "Commission (Realized)",
-                      className: "pb-3 text-right",
-                    },
-                    {
-                      header: "Commission (Pending)",
-                      className: "pb-3 text-right",
-                    },
-                    { header: "Status", className: "pb-3 text-right" },
-                  ]}
-                  data={commissionsData.byProvider}
-                  exportExcel
-                  exportPdf
-                  exportFilename="commissions"
-                  className="w-full text-left"
-                  theadClassName="text-xs text-slate-500 uppercase tracking-wider border-b border-slate-700/50"
-                  tbodyClassName="divide-y divide-slate-700/30"
-                  emptyMessage="No provider data"
-                  renderRow={(p) => {
-                    // Per-provider pending from unsettledByProvider (exact, not global)
-                    const providerUnsettled = unsettledByProvider.find(
-                      (u) => u.provider === p.provider,
-                    );
-                    const pendingUsd =
-                      providerUnsettled?.pending_commission_usd ?? 0;
-                    return (
-                      <tr
-                        key={p.provider}
-                        className="group hover:bg-slate-700/30 transition-colors"
-                      >
-                        <td className="py-4 font-medium text-slate-200">
-                          {p.provider}
-                        </td>
-                        <td className="py-4 text-right text-slate-400">
-                          {p.count}
-                        </td>
-                        <td className="py-4 text-right text-emerald-400 font-mono font-medium">
-                          ${p.commission.toFixed(4)}
-                        </td>
-                        <td className="py-4 text-right text-amber-400 font-mono">
-                          {pendingUsd > 0 ? `$${pendingUsd.toFixed(4)}` : "—"}
-                        </td>
-                        <td className="py-4 text-right">
-                          {pendingUsd > 0 ? (
-                            <span className="text-xs font-medium text-amber-400">
-                              Profit Pending
-                            </span>
-                          ) : p.commission > 0 ? (
-                            <span className="text-xs font-medium text-emerald-400">
-                              Settled
-                            </span>
-                          ) : (
-                            <span className="text-slate-600 text-xs">—</span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  }}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ==================== Pending Profit Tab ==================== */}
-      {/* ── Unsettled commissions section (OMT/WHISH RECEIVE pending settlement) ── */}
-      {!loading &&
-        tab === "pending" &&
-        pendingData &&
-        pendingData.unsettled_commissions.length > 0 && (
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <h3 className="text-sm font-semibold text-amber-400 uppercase tracking-wider">
-                Pending OMT/WHISH Commissions
-              </h3>
-              <span className="text-xs bg-amber-900/50 text-amber-400 px-2 py-0.5 rounded-full border border-amber-700">
-                {pendingData.unsettled_totals.count} txns
-              </span>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="bg-amber-950/30 border border-amber-800/50 rounded-xl p-4">
-                <p className="text-xs text-amber-400/70 uppercase tracking-wider mb-1">
-                  Pending Commission (USD)
-                </p>
-                <p className="text-2xl font-bold text-amber-300 font-mono">
-                  $
-                  {pendingData.unsettled_totals.total_pending_commission_usd.toFixed(
-                    4,
-                  )}
-                </p>
-                <p className="text-xs text-amber-500/70 mt-1">
-                  Will be realized after settlement with supplier
-                </p>
-              </div>
-              {pendingData.unsettled_totals.total_pending_commission_lbp >
-                0 && (
-                <div className="bg-amber-950/30 border border-amber-800/50 rounded-xl p-4">
-                  <p className="text-xs text-amber-400/70 uppercase tracking-wider mb-1">
-                    Pending Commission (LBP)
-                  </p>
-                  <p className="text-2xl font-bold text-amber-300 font-mono">
-                    {pendingData.unsettled_totals.total_pending_commission_lbp.toLocaleString()}{" "}
-                    LBP
-                  </p>
-                </div>
-              )}
-            </div>
-            <div className="bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden">
-              <div className="grid grid-cols-12 gap-2 bg-gray-800 text-gray-400 text-xs font-semibold uppercase px-4 py-2">
-                <div className="col-span-2">Provider</div>
-                <div className="col-span-3">Service Type</div>
-                <div className="col-span-2 text-right">Amount</div>
-                <div className="col-span-2 text-right">OMT Fee</div>
-                <div className="col-span-2 text-right">Commission</div>
-                <div className="col-span-1 text-right">Date</div>
-              </div>
-              {pendingData.unsettled_commissions.map((r) => (
-                <div
-                  key={r.id}
-                  className="grid grid-cols-12 gap-2 px-4 py-2.5 text-sm border-t border-gray-700/50"
-                >
-                  <div className="col-span-2 font-medium text-white">
-                    {r.provider}
-                  </div>
-                  <div className="col-span-3 text-gray-400 text-xs">
-                    {r.omt_service_type || "—"}
-                  </div>
-                  <div className="col-span-2 text-right font-mono text-white">
-                    ${Math.abs(r.amount).toFixed(2)}
-                  </div>
-                  <div className="col-span-2 text-right font-mono text-amber-400">
-                    {r.omt_fee ? `$${r.omt_fee.toFixed(2)}` : "—"}
-                  </div>
-                  <div className="col-span-2 text-right font-mono text-amber-300 font-bold">
-                    ${r.commission.toFixed(4)}
-                  </div>
-                  <div className="col-span-1 text-right text-xs text-gray-500">
-                    {new Date(r.created_at).toLocaleDateString()}
-                  </div>
-                </div>
-              ))}
-            </div>
-            <p className="text-xs text-gray-500">
-              → Settle these in{" "}
-              <span className="text-white font-medium">
-                Settings → Supplier Ledger
-              </span>
-            </p>
+            />
           </div>
         )}
 
-      {!loading && tab === "pending" && !pendingData && (
-        <div className="text-center py-12 text-gray-500">
-          No data for this period
-        </div>
-      )}
-      {!loading && tab === "pending" && pendingData && (
-        <div className="space-y-4">
-          {/* Summary cards */}
-          <div className="grid grid-cols-3 gap-4">
-            <SummaryCard
-              label="Unpaid Sales"
-              value={String(pendingData.totals.count)}
-              icon={Clock}
-              color="text-amber-400"
-            />
-            <SummaryCard
-              label="Outstanding Amount"
-              value={formatAmount(
-                pendingData.totals.total_outstanding_usd,
-                "USD",
-              )}
-              icon={DollarSign}
-              color="text-red-400"
-            />
-            <SummaryCard
-              label="Pending Profit"
-              value={formatAmount(
-                pendingData.totals.total_pending_profit_usd,
-                "USD",
-              )}
-              subValue="Recognized once fully paid"
-              icon={TrendingUp}
-              color="text-amber-400"
-            />
-          </div>
+        {/* ==================== By Date Tab ==================== */}
+        {!loading && tab === "by-date" && (
+          <div className="space-y-4">
+            {/* Visual bar chart */}
+            {byDate.length > 0 && (
+              <div className="bg-gray-800/50 rounded-xl border border-gray-700 p-4">
+                <h3 className="text-sm font-semibold text-gray-400 mb-3">
+                  Daily Net Profit (USD)
+                </h3>
+                <div className="flex items-end gap-1 h-40">
+                  {(() => {
+                    const maxVal = Math.max(
+                      ...byDate.map((d) => Math.abs(d.net_profit_usd)),
+                      1,
+                    );
+                    return byDate.map((d) => {
+                      const pct = Math.abs(d.net_profit_usd) / maxVal;
+                      const isPositive = d.net_profit_usd >= 0;
+                      return (
+                        <div
+                          key={d.date}
+                          className="flex-1 flex flex-col justify-end items-center group relative"
+                        >
+                          <div
+                            className={`w-full rounded-t ${
+                              isPositive ? "bg-emerald-500/70" : "bg-red-500/70"
+                            }`}
+                            style={{
+                              height: `${Math.max(pct * 100, 2)}%`,
+                              minHeight: "2px",
+                            }}
+                          />
+                          {/* Tooltip */}
+                          <div className="absolute bottom-full mb-1 hidden group-hover:block bg-gray-900 border border-gray-600 rounded px-2 py-1 text-xs text-white whitespace-nowrap z-10">
+                            {d.date}: {formatAmount(d.net_profit_usd, "USD")}
+                          </div>
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
+                <div className="flex justify-between text-[10px] text-gray-500 mt-1">
+                  <span>{byDate[0]?.date}</span>
+                  <span>{byDate[byDate.length - 1]?.date}</span>
+                </div>
+              </div>
+            )}
 
-          {/* Table */}
+            {/* Table */}
+            <div className="bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden">
+              <DataTable<DateRow>
+                columns={[
+                  { header: "Date", className: "text-left px-4 py-3" },
+                  { header: "Revenue", className: "text-right px-4 py-3" },
+                  { header: "Gross Profit", className: "text-right px-4 py-3" },
+                  { header: "Expenses", className: "text-right px-4 py-3" },
+                  { header: "Net Profit", className: "text-right px-4 py-3" },
+                ]}
+                data={byDate}
+                exportExcel
+                exportPdf
+                exportFilename="profit-by-date"
+                className="w-full text-sm"
+                theadClassName="border-b border-gray-700 text-gray-400 text-xs uppercase"
+                emptyMessage="No data for this period"
+                footerContent={
+                  byDate.length > 0 ? (
+                    <tr className="border-t-2 border-gray-600 bg-gray-800/80 font-bold">
+                      <td className="px-4 py-3 text-white">TOTAL</td>
+                      <td className="px-4 py-3 text-right text-white">
+                        {formatAmount(
+                          byDate.reduce((s, d) => s + d.revenue_usd, 0),
+                          "USD",
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right text-emerald-400">
+                        {formatAmount(
+                          byDate.reduce((s, d) => s + d.profit_usd, 0),
+                          "USD",
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right text-red-400">
+                        -
+                        {formatAmount(
+                          byDate.reduce((s, d) => s + d.expenses_usd, 0),
+                          "USD",
+                        )}
+                      </td>
+                      <td
+                        className={`px-4 py-3 text-right ${
+                          byDate.reduce((s, d) => s + d.net_profit_usd, 0) >= 0
+                            ? "text-emerald-400"
+                            : "text-red-400"
+                        }`}
+                      >
+                        {formatAmount(
+                          byDate.reduce((s, d) => s + d.net_profit_usd, 0),
+                          "USD",
+                        )}
+                      </td>
+                    </tr>
+                  ) : undefined
+                }
+                renderRow={(d) => (
+                  <tr
+                    key={d.date}
+                    className="border-b border-gray-700/50 hover:bg-gray-700/30"
+                  >
+                    <td className="px-4 py-3 font-medium text-white">
+                      {d.date}
+                    </td>
+                    <td className="px-4 py-3 text-right text-white">
+                      {formatAmount(d.revenue_usd, "USD")}
+                    </td>
+                    <td className="px-4 py-3 text-right text-emerald-400">
+                      {formatAmount(d.profit_usd, "USD")}
+                    </td>
+                    <td className="px-4 py-3 text-right text-red-400">
+                      {d.expenses_usd > 0
+                        ? `-${formatAmount(d.expenses_usd, "USD")}`
+                        : "—"}
+                    </td>
+                    <td
+                      className={`px-4 py-3 text-right font-semibold ${
+                        d.net_profit_usd >= 0
+                          ? "text-emerald-400"
+                          : "text-red-400"
+                      }`}
+                    >
+                      {formatAmount(d.net_profit_usd, "USD")}
+                    </td>
+                  </tr>
+                )}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* ==================== By Payment Method Tab ==================== */}
+        {!loading && tab === "by-payment" && (
           <div className="bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden">
-            <DataTable<(typeof pendingData.rows)[number]>
+            <DataTable<PaymentMethodRow>
               columns={[
-                { header: "Date", className: "text-left px-4 py-3" },
-                { header: "Client", className: "text-left px-4 py-3" },
-                { header: "Items", className: "text-left px-4 py-3" },
-                { header: "Sale Total", className: "text-right px-4 py-3" },
-                { header: "Paid", className: "text-right px-4 py-3" },
-                { header: "Outstanding", className: "text-right px-4 py-3" },
-                {
-                  header: "Pending Profit",
-                  className: "text-right px-4 py-3",
-                },
+                { header: "Payment Method", className: "text-left px-4 py-3" },
+                { header: "Total (USD)", className: "text-right px-4 py-3" },
+                { header: "Total (LBP)", className: "text-right px-4 py-3" },
+                { header: "Count", className: "text-right px-4 py-3" },
+                { header: "Status", className: "text-right px-4 py-3" },
+                { header: "Share", className: "text-right px-4 py-3" },
               ]}
-              data={pendingData.rows}
+              data={byPayment}
               exportExcel
               exportPdf
-              exportFilename="pending-profit"
+              exportFilename="profit-by-payment"
               className="w-full text-sm"
               theadClassName="border-b border-gray-700 text-gray-400 text-xs uppercase"
-              emptyMessage="No unpaid sales in this period"
+              emptyMessage="No payment data for this period"
+              renderRow={(row) => {
+                const totalAll = byPayment
+                  .filter(
+                    (r) =>
+                      r.method !== "PM_FEE" &&
+                      r.is_settled !== 0 &&
+                      !r.is_debt_repayment_only,
+                  )
+                  .reduce((s, r) => s + r.total_usd, 0);
+                const isPending = row.is_settled === 0;
+                const isCommission = row.method.startsWith("Commission");
+                const isPmFee = row.method === "PM_FEE";
+                const isDebtRepayment = !!row.is_debt_repayment_only;
+                return (
+                  <tr
+                    key={row.method}
+                    className={`border-b border-gray-700/50 hover:bg-gray-700/30 ${
+                      isPending
+                        ? "bg-amber-950/20"
+                        : isPmFee
+                          ? "bg-violet-950/20"
+                          : ""
+                    }`}
+                  >
+                    <td className="px-4 py-3 font-medium text-white">
+                      <div className="flex items-center gap-2">
+                        <CreditCard
+                          className={`h-4 w-4 ${
+                            isCommission
+                              ? "text-emerald-400"
+                              : isPmFee
+                                ? "text-violet-400"
+                                : "text-gray-400"
+                          }`}
+                        />
+                        {isPmFee
+                          ? "Payment Method Fee (Wallet Surcharge)"
+                          : row.method}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono">
+                      {isPending && (row.pending_commission_usd ?? 0) > 0 ? (
+                        <span className="text-amber-400">
+                          ${(row.pending_commission_usd ?? 0).toFixed(4)}
+                        </span>
+                      ) : (
+                        <span
+                          className={
+                            isCommission
+                              ? "text-emerald-400 font-semibold"
+                              : isPmFee
+                                ? "text-violet-300 font-semibold"
+                                : "text-white"
+                          }
+                        >
+                          {formatAmount(row.total_usd, "USD")}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right text-white">
+                      {row.total_lbp > 0
+                        ? formatAmount(row.total_lbp, "LBP")
+                        : "—"}
+                    </td>
+                    <td className="px-4 py-3 text-right text-gray-300">
+                      {row.count}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {isPending ? (
+                        <span className="text-xs font-medium text-amber-400">
+                          Profit Pending
+                        </span>
+                      ) : isCommission ? (
+                        <span className="text-xs font-medium text-emerald-400">
+                          Settled
+                        </span>
+                      ) : isPmFee ? (
+                        <span className="text-xs font-medium text-violet-400">
+                          Immediate Profit
+                        </span>
+                      ) : isDebtRepayment ? (
+                        <span className="text-xs font-medium text-slate-500">
+                          No Profit
+                        </span>
+                      ) : (
+                        <span className="text-slate-600 text-xs">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {!isPending && !isPmFee && !isDebtRepayment && (
+                        <div className="flex items-center justify-end gap-2">
+                          <div className="w-16 bg-gray-700 rounded-full h-1.5">
+                            <div
+                              className="bg-blue-500 h-1.5 rounded-full"
+                              style={{
+                                width: `${totalAll > 0 ? (row.total_usd / totalAll) * 100 : 0}%`,
+                              }}
+                            />
+                          </div>
+                          <span className="text-gray-300 text-xs w-10 text-right">
+                            {formatPct(row.total_usd, totalAll)}
+                          </span>
+                        </div>
+                      )}
+                      {isPending && (
+                        <span className="text-xs text-amber-500/70">
+                          → Settle in Settings
+                        </span>
+                      )}
+                      {isPmFee && (
+                        <span className="text-xs text-violet-500/70">
+                          In wallet drawer
+                        </span>
+                      )}
+                      {isDebtRepayment && (
+                        <span className="text-xs text-slate-600">0%</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              }}
+            />
+          </div>
+        )}
+
+        {/* ==================== By User/Cashier Tab ==================== */}
+        {!loading && tab === "by-user" && (
+          <div className="bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden">
+            <DataTable<UserRow>
+              columns={[
+                { header: "Cashier", className: "text-left px-4 py-3" },
+                { header: "Revenue (USD)", className: "text-right px-4 py-3" },
+                { header: "Profits", className: "text-right px-4 py-3" },
+                {
+                  header: "Pending Profits",
+                  className: "text-right px-4 py-3",
+                },
+                { header: "Transactions", className: "text-right px-4 py-3" },
+                { header: "Avg Profit/Txn", className: "text-right px-4 py-3" },
+              ]}
+              data={byUser}
+              exportExcel
+              exportPdf
+              exportFilename="profit-by-cashier"
+              className="w-full text-sm"
+              theadClassName="border-b border-gray-700 text-gray-400 text-xs uppercase"
+              emptyMessage="No data for this period"
               renderRow={(row) => (
                 <tr
-                  key={row.sale_id}
+                  key={row.user_id}
                   className="border-b border-gray-700/50 hover:bg-gray-700/30"
                 >
-                  <td className="px-4 py-3 text-gray-300 text-xs">
-                    {new Date(row.created_at).toLocaleDateString()}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="font-medium text-white">
-                      {row.client_name}
+                  <td className="px-4 py-3 font-medium text-white">
+                    <div className="flex items-center gap-2">
+                      <UserCheck className="h-4 w-4 text-gray-400" />
+                      {row.username}
                     </div>
-                    {row.client_phone && (
-                      <div className="text-xs text-gray-500">
-                        {row.client_phone}
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-gray-300 text-xs max-w-[200px] truncate">
-                    {row.items_summary}
                   </td>
                   <td className="px-4 py-3 text-right text-white">
-                    {formatAmount(row.total_amount_usd, "USD")}
+                    {formatAmount(row.revenue_usd, "USD")}
                   </td>
-                  <td className="px-4 py-3 text-right text-emerald-400">
-                    {formatAmount(row.paid_usd, "USD")}
+                  <td className="px-4 py-3 text-right text-emerald-400 font-medium">
+                    {formatAmount(row.profit_usd, "USD")}
                   </td>
-                  <td className="px-4 py-3 text-right text-red-400 font-medium">
-                    {formatAmount(row.outstanding_usd, "USD")}
+                  <td className="px-4 py-3 text-right">
+                    {(row.pending_profit_usd ?? 0) > 0 ? (
+                      <span className="text-amber-400 font-medium">
+                        ⚠ {formatAmount(row.pending_profit_usd, "USD")}
+                      </span>
+                    ) : (
+                      <span className="text-gray-600 text-xs">—</span>
+                    )}
                   </td>
-                  <td className="px-4 py-3 text-right text-amber-400 font-medium">
-                    {formatAmount(row.potential_profit_usd, "USD")}
+                  <td className="px-4 py-3 text-right text-gray-300">
+                    {row.transaction_count}
+                  </td>
+                  <td className="px-4 py-3 text-right text-gray-300">
+                    {row.transaction_count > 0
+                      ? formatAmount(
+                          row.profit_usd / row.transaction_count,
+                          "USD",
+                        )
+                      : "—"}
                   </td>
                 </tr>
               )}
             />
           </div>
-        </div>
-      )}
+        )}
+
+        {/* ==================== By Client Tab ==================== */}
+        {!loading && tab === "by-client" && (
+          <div className="bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden">
+            <DataTable<ClientRow>
+              columns={[
+                { header: "#", className: "text-left px-4 py-3" },
+                { header: "Client", className: "text-left px-4 py-3" },
+                { header: "Revenue (USD)", className: "text-right px-4 py-3" },
+                { header: "Profits", className: "text-right px-4 py-3" },
+                {
+                  header: "Pending Profits",
+                  className: "text-right px-4 py-3",
+                },
+                { header: "Transactions", className: "text-right px-4 py-3" },
+              ]}
+              data={byClient}
+              exportExcel
+              exportPdf
+              exportFilename="profit-by-client"
+              className="w-full text-sm"
+              theadClassName="border-b border-gray-700 text-gray-400 text-xs uppercase"
+              emptyMessage="No data for this period"
+              renderRow={(row, i) => (
+                <tr
+                  key={row.client_id ?? `walk-in-${i}`}
+                  className="border-b border-gray-700/50 hover:bg-gray-700/30"
+                >
+                  <td className="px-4 py-3 text-gray-500 text-xs">{i + 1}</td>
+                  <td className="px-4 py-3 font-medium text-white">
+                    {row.client_name}
+                  </td>
+                  <td className="px-4 py-3 text-right text-white">
+                    {formatAmount(row.revenue_usd, "USD")}
+                  </td>
+                  <td className="px-4 py-3 text-right text-emerald-400 font-medium">
+                    {formatAmount(row.profit_usd, "USD")}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    {(row.pending_profit_usd ?? 0) > 0 ? (
+                      <span className="text-amber-400 font-medium">
+                        ⚠ {formatAmount(row.pending_profit_usd, "USD")}
+                      </span>
+                    ) : (
+                      <span className="text-gray-600 text-xs">—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-right text-gray-300">
+                    {row.transaction_count}
+                  </td>
+                </tr>
+              )}
+            />
+          </div>
+        )}
+
+        {/* ==================== Commissions Tab ==================== */}
+        {!loading && tab === "commissions" && !commissionsData && (
+          <div className="text-center py-12 text-gray-500">Loading...</div>
+        )}
+        {!loading && tab === "commissions" && commissionsData && (
+          <div className="space-y-6">
+            {/* Overview Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="bg-slate-800 p-6 rounded-xl border border-slate-700/50 shadow-lg">
+                <p className="text-slate-400 text-sm font-medium uppercase mb-4">
+                  Realized Commissions (Month)
+                </p>
+                <div className="flex items-end gap-3">
+                  <span className="text-3xl font-bold text-white">
+                    {formatAmount(commissionsData.month.commission, "USD")}
+                  </span>
+                </div>
+                {commissionsData.month.pending_commission > 0 && (
+                  <p className="text-xs text-amber-400 mt-2 font-mono">
+                    + ${commissionsData.month.pending_commission.toFixed(4)}{" "}
+                    pending settlement
+                  </p>
+                )}
+              </div>
+
+              <div className="bg-slate-800 p-6 rounded-xl border border-slate-700/50 shadow-lg">
+                <p className="text-slate-400 text-sm font-medium uppercase mb-4">
+                  Realized Commissions (Today)
+                </p>
+                <div className="flex items-end gap-3">
+                  <span className="text-3xl font-bold text-emerald-400">
+                    {formatAmount(commissionsData.today.commission, "USD")}
+                  </span>
+                </div>
+                {commissionsData.today.pending_commission > 0 && (
+                  <p className="text-xs text-amber-400 mt-2 font-mono">
+                    + ${commissionsData.today.pending_commission.toFixed(4)}{" "}
+                    pending settlement
+                  </p>
+                )}
+              </div>
+
+              <div className="bg-slate-800 p-6 rounded-xl border border-slate-700/50 shadow-lg">
+                <p className="text-slate-400 text-sm font-medium uppercase mb-4">
+                  Transaction Volume
+                </p>
+                <div className="flex items-end gap-3">
+                  <span className="text-3xl font-bold text-blue-400">
+                    {commissionsData.month.count}
+                  </span>
+                  <span className="text-slate-500 mb-1">
+                    services this month
+                  </span>
+                </div>
+                <div className="mt-2 text-blue-500/70 text-sm">
+                  {commissionsData.today.count} processed today
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Market Share / Provider Breakdown */}
+              <div className="bg-slate-800 p-6 rounded-xl border border-slate-700/50 shadow-lg">
+                <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
+                  <PieChartIcon size={18} className="text-pink-500" />
+                  Revenue by Provider
+                </h3>
+                <div className="h-80">
+                  <Suspense
+                    fallback={
+                      <div className="h-80 animate-pulse bg-slate-700/30 rounded-xl" />
+                    }
+                  >
+                    <CommissionsChart
+                      pieData={commissionsData.byProvider.map((p) => ({
+                        name: p.provider,
+                        value: p.commission,
+                        pending:
+                          unsettledByProvider.find(
+                            (u) => u.provider === p.provider,
+                          )?.pending_commission_usd ?? 0,
+                      }))}
+                      formatAmount={formatAmount}
+                    />
+                  </Suspense>
+                </div>
+              </div>
+
+              {/* Detailed Table */}
+              <div className="bg-slate-800 p-6 rounded-xl border border-slate-700/50 shadow-lg flex flex-col">
+                <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
+                  <Activity size={18} className="text-blue-400" />
+                  Provider Performance (Today)
+                </h3>
+                {/* fetch unsettled per provider from pendingData if available, else show from commissionsData */}
+                <div className="flex-1 overflow-auto">
+                  <DataTable
+                    columns={[
+                      { header: "Provider", className: "pb-3" },
+                      { header: "Transactions", className: "pb-3 text-right" },
+                      {
+                        header: "Commission (Realized)",
+                        className: "pb-3 text-right",
+                      },
+                      {
+                        header: "Commission (Pending)",
+                        className: "pb-3 text-right",
+                      },
+                      { header: "Status", className: "pb-3 text-right" },
+                    ]}
+                    data={commissionsData.byProvider}
+                    exportExcel
+                    exportPdf
+                    exportFilename="commissions"
+                    className="w-full text-left"
+                    theadClassName="text-xs text-slate-500 uppercase tracking-wider border-b border-slate-700/50"
+                    tbodyClassName="divide-y divide-slate-700/30"
+                    emptyMessage="No provider data"
+                    renderRow={(p) => {
+                      // Per-provider pending from unsettledByProvider (exact, not global)
+                      const providerUnsettled = unsettledByProvider.find(
+                        (u) => u.provider === p.provider,
+                      );
+                      const pendingUsd =
+                        providerUnsettled?.pending_commission_usd ?? 0;
+                      return (
+                        <tr
+                          key={p.provider}
+                          className="group hover:bg-slate-700/30 transition-colors"
+                        >
+                          <td className="py-4 font-medium text-slate-200">
+                            {p.provider}
+                          </td>
+                          <td className="py-4 text-right text-slate-400">
+                            {p.count}
+                          </td>
+                          <td className="py-4 text-right text-emerald-400 font-mono font-medium">
+                            ${p.commission.toFixed(4)}
+                          </td>
+                          <td className="py-4 text-right text-amber-400 font-mono">
+                            {pendingUsd > 0 ? `$${pendingUsd.toFixed(4)}` : "—"}
+                          </td>
+                          <td className="py-4 text-right">
+                            {pendingUsd > 0 ? (
+                              <span className="text-xs font-medium text-amber-400">
+                                Profit Pending
+                              </span>
+                            ) : p.commission > 0 ? (
+                              <span className="text-xs font-medium text-emerald-400">
+                                Settled
+                              </span>
+                            ) : (
+                              <span className="text-slate-600 text-xs">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ==================== Pending Profit Tab ==================== */}
+        {/* ── Unsettled commissions section (OMT/WHISH RECEIVE pending settlement) ── */}
+        {!loading &&
+          tab === "pending" &&
+          pendingData &&
+          pendingData.unsettled_commissions.length > 0 && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-semibold text-amber-400 uppercase tracking-wider">
+                  Pending OMT/WHISH Commissions
+                </h3>
+                <span className="text-xs bg-amber-900/50 text-amber-400 px-2 py-0.5 rounded-full border border-amber-700">
+                  {pendingData.unsettled_totals.count} txns
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-amber-950/30 border border-amber-800/50 rounded-xl p-4">
+                  <p className="text-xs text-amber-400/70 uppercase tracking-wider mb-1">
+                    Pending Commission (USD)
+                  </p>
+                  <p className="text-2xl font-bold text-amber-300 font-mono">
+                    $
+                    {pendingData.unsettled_totals.total_pending_commission_usd.toFixed(
+                      4,
+                    )}
+                  </p>
+                  <p className="text-xs text-amber-500/70 mt-1">
+                    Will be realized after settlement with supplier
+                  </p>
+                </div>
+                {pendingData.unsettled_totals.total_pending_commission_lbp >
+                  0 && (
+                  <div className="bg-amber-950/30 border border-amber-800/50 rounded-xl p-4">
+                    <p className="text-xs text-amber-400/70 uppercase tracking-wider mb-1">
+                      Pending Commission (LBP)
+                    </p>
+                    <p className="text-2xl font-bold text-amber-300 font-mono">
+                      {pendingData.unsettled_totals.total_pending_commission_lbp.toLocaleString()}{" "}
+                      LBP
+                    </p>
+                  </div>
+                )}
+              </div>
+              <div className="bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden">
+                <div className="grid grid-cols-12 gap-2 bg-gray-800 text-gray-400 text-xs font-semibold uppercase px-4 py-2">
+                  <div className="col-span-2">Provider</div>
+                  <div className="col-span-3">Service Type</div>
+                  <div className="col-span-2 text-right">Amount</div>
+                  <div className="col-span-2 text-right">OMT Fee</div>
+                  <div className="col-span-2 text-right">Commission</div>
+                  <div className="col-span-1 text-right">Date</div>
+                </div>
+                {pendingData.unsettled_commissions.map((r) => (
+                  <div
+                    key={r.id}
+                    className="grid grid-cols-12 gap-2 px-4 py-2.5 text-sm border-t border-gray-700/50"
+                  >
+                    <div className="col-span-2 font-medium text-white">
+                      {r.provider}
+                    </div>
+                    <div className="col-span-3 text-gray-400 text-xs">
+                      {r.omt_service_type || "—"}
+                    </div>
+                    <div className="col-span-2 text-right font-mono text-white">
+                      ${Math.abs(r.amount).toFixed(2)}
+                    </div>
+                    <div className="col-span-2 text-right font-mono text-amber-400">
+                      {r.omt_fee ? `$${r.omt_fee.toFixed(2)}` : "—"}
+                    </div>
+                    <div className="col-span-2 text-right font-mono text-amber-300 font-bold">
+                      ${r.commission.toFixed(4)}
+                    </div>
+                    <div className="col-span-1 text-right text-xs text-gray-500">
+                      {new Date(r.created_at).toLocaleDateString()}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-gray-500">
+                → Settle these in{" "}
+                <span className="text-white font-medium">
+                  Settings → Supplier Ledger
+                </span>
+              </p>
+            </div>
+          )}
+
+        {!loading && tab === "pending" && !pendingData && (
+          <div className="text-center py-12 text-gray-500">
+            No data for this period
+          </div>
+        )}
+        {!loading && tab === "pending" && pendingData && (
+          <div className="space-y-4">
+            {/* Summary cards */}
+            <div className="grid grid-cols-3 gap-4">
+              <SummaryCard
+                label="Unpaid Sales"
+                value={String(pendingData.totals.count)}
+                icon={Clock}
+                color="text-amber-400"
+              />
+              <SummaryCard
+                label="Outstanding Amount"
+                value={formatAmount(
+                  pendingData.totals.total_outstanding_usd,
+                  "USD",
+                )}
+                icon={DollarSign}
+                color="text-red-400"
+              />
+              <SummaryCard
+                label="Pending Profit"
+                value={formatAmount(
+                  pendingData.totals.total_pending_profit_usd,
+                  "USD",
+                )}
+                subValue="Recognized once fully paid"
+                icon={TrendingUp}
+                color="text-amber-400"
+              />
+            </div>
+
+            {/* Table */}
+            <div className="bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden">
+              <DataTable<(typeof pendingData.rows)[number]>
+                columns={[
+                  { header: "Date", className: "text-left px-4 py-3" },
+                  { header: "Client", className: "text-left px-4 py-3" },
+                  { header: "Items", className: "text-left px-4 py-3" },
+                  { header: "Sale Total", className: "text-right px-4 py-3" },
+                  { header: "Paid", className: "text-right px-4 py-3" },
+                  { header: "Outstanding", className: "text-right px-4 py-3" },
+                  {
+                    header: "Pending Profit",
+                    className: "text-right px-4 py-3",
+                  },
+                ]}
+                data={pendingData.rows}
+                exportExcel
+                exportPdf
+                exportFilename="pending-profit"
+                className="w-full text-sm"
+                theadClassName="border-b border-gray-700 text-gray-400 text-xs uppercase"
+                emptyMessage="No unpaid sales in this period"
+                renderRow={(row) => (
+                  <tr
+                    key={row.sale_id}
+                    className="border-b border-gray-700/50 hover:bg-gray-700/30"
+                  >
+                    <td className="px-4 py-3 text-gray-300 text-xs">
+                      {new Date(row.created_at).toLocaleDateString()}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="font-medium text-white">
+                        {row.client_name}
+                      </div>
+                      {row.client_phone && (
+                        <div className="text-xs text-gray-500">
+                          {row.client_phone}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-gray-300 text-xs max-w-[200px] truncate">
+                      {row.items_summary}
+                    </td>
+                    <td className="px-4 py-3 text-right text-white">
+                      {formatAmount(row.total_amount_usd, "USD")}
+                    </td>
+                    <td className="px-4 py-3 text-right text-emerald-400">
+                      {formatAmount(row.paid_usd, "USD")}
+                    </td>
+                    <td className="px-4 py-3 text-right text-red-400 font-medium">
+                      {formatAmount(row.outstanding_usd, "USD")}
+                    </td>
+                    <td className="px-4 py-3 text-right text-amber-400 font-medium">
+                      {formatAmount(row.potential_profit_usd, "USD")}
+                    </td>
+                  </tr>
+                )}
+              />
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

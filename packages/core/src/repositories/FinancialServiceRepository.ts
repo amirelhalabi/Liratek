@@ -37,7 +37,7 @@ export interface FinancialServiceEntity {
     | "WHISH"
     | "BOB"
     | "OTHER"
-    | "IPEC"
+    | "iPick"
     | "KATCH"
     | "WISH_APP"
     | "OMT_APP"
@@ -93,8 +93,8 @@ export interface CreateFinancialServiceData {
     | "WHISH"
     | "BOB"
     | "OTHER"
-    | "IPEC"
-    | "KATCH"
+    | "iPick"
+    | "Katsh"
     | "WISH_APP"
     | "OMT_APP"
     | "BINANCE";
@@ -207,10 +207,10 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         return "OMT_System";
       case "WHISH":
         return "Whish_System";
-      case "IPEC":
-        return "IPEC";
-      case "KATCH":
-        return "Katch";
+      case "iPick":
+        return "iPick";
+      case "Katsh":
+        return "Katsh";
       case "WISH_APP":
         return "Whish_App";
       case "OMT_APP":
@@ -228,7 +228,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
    * Create a new financial service transaction.
    *
    * Two modes:
-   * - **Cost/Price mode** (cost > 0): IPEC/Katch/WishApp/OMT_App with cost outflow,
+   * - **Cost/Price mode** (cost > 0): iPick/Katsh/WishApp/OMT_App with cost outflow,
    *   price inflow, optional DEBT, and real profit tracking.
    * - **Legacy mode** (no cost): OMT/WHISH/BOB/OTHER with signed amount + commission.
    */
@@ -496,7 +496,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       `);
 
       if (useCostPriceFlow) {
-        // ─── COST/PRICE FLOW (IPEC, KATCH, WISH_APP, OMT_APP, BINANCE) ───
+        // ─── COST/PRICE FLOW (iPick, Katsh, WISH_APP, OMT_APP, BINANCE) ───
         const providerDrawer = this.mapDrawerName(data.provider);
 
         // Cost outflow: shop pays the provider

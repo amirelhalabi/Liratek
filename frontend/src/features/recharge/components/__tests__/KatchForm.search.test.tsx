@@ -46,8 +46,8 @@ jest.mock("@/assets/logos/mtc.svg?react", () => ({
 const mockServiceItems: ServiceItem[] = [
   // Alfa category items - unique labels
   {
-    key: "IPEC/alfa/Alfa Go/Alfa Go",
-    provider: "IPEC",
+    key: "iPick/alfa/Alfa Go/Alfa Go",
+    provider: "iPick",
     category: "alfa",
     subcategory: "Alfa Go",
     label: "Alfa Go Premium",
@@ -55,8 +55,8 @@ const mockServiceItems: ServiceItem[] = [
     catalogSellPrice: 0,
   },
   {
-    key: "IPEC/alfa/Alfa Go/Alfa Go+",
-    provider: "IPEC",
+    key: "iPick/alfa/Alfa Go/Alfa Go+",
+    provider: "iPick",
     category: "alfa",
     subcategory: "Alfa Go",
     label: "Alfa Go Plus",
@@ -64,8 +64,8 @@ const mockServiceItems: ServiceItem[] = [
     catalogSellPrice: 0,
   },
   {
-    key: "IPEC/alfa/Mobile Internet/1GB",
-    provider: "IPEC",
+    key: "iPick/alfa/Mobile Internet/1GB",
+    provider: "iPick",
     category: "alfa",
     subcategory: "Mobile Internet",
     label: "1GB Data",
@@ -73,8 +73,8 @@ const mockServiceItems: ServiceItem[] = [
     catalogSellPrice: 0,
   },
   {
-    key: "IPEC/alfa/Mobile Internet/3GB",
-    provider: "IPEC",
+    key: "iPick/alfa/Mobile Internet/3GB",
+    provider: "iPick",
     category: "alfa",
     subcategory: "Mobile Internet",
     label: "3GB Data",
@@ -83,8 +83,8 @@ const mockServiceItems: ServiceItem[] = [
   },
   // Gaming category items - unique labels
   {
-    key: "IPEC/Gaming/Pubg direct/60",
-    provider: "IPEC",
+    key: "iPick/Gaming/Pubg direct/60",
+    provider: "iPick",
     category: "Gaming",
     subcategory: "Pubg direct",
     label: "60 UC",
@@ -92,8 +92,8 @@ const mockServiceItems: ServiceItem[] = [
     catalogSellPrice: 0,
   },
   {
-    key: "IPEC/Gaming/Pubg direct/325 UC",
-    provider: "IPEC",
+    key: "iPick/Gaming/Pubg direct/325 UC",
+    provider: "iPick",
     category: "Gaming",
     subcategory: "Pubg direct",
     label: "325 UC Pack",
@@ -101,8 +101,8 @@ const mockServiceItems: ServiceItem[] = [
     catalogSellPrice: 0,
   },
   {
-    key: "IPEC/Gaming/Free Fire direct/100 +10 diamonds",
-    provider: "IPEC",
+    key: "iPick/Gaming/Free Fire direct/100 +10 diamonds",
+    provider: "iPick",
     category: "Gaming",
     subcategory: "Free Fire direct",
     label: "100 Diamonds",
@@ -111,8 +111,8 @@ const mockServiceItems: ServiceItem[] = [
   },
   // MTC category items - unique labels
   {
-    key: "IPEC/mtc/Credits/3$",
-    provider: "IPEC",
+    key: "iPick/mtc/Credits/3$",
+    provider: "iPick",
     category: "mtc",
     subcategory: "Credits",
     label: "3 USD Credit",
@@ -120,8 +120,8 @@ const mockServiceItems: ServiceItem[] = [
     catalogSellPrice: 0,
   },
   {
-    key: "IPEC/mtc/Validity/10 days",
-    provider: "IPEC",
+    key: "iPick/mtc/Validity/10 days",
+    provider: "iPick",
     category: "mtc",
     subcategory: "Validity",
     label: "10 Days Validity",
@@ -131,10 +131,10 @@ const mockServiceItems: ServiceItem[] = [
 ];
 
 const mockActiveConfig: ProviderConfig = {
-  key: "IPEC",
-  label: "IPEC",
+  key: "iPick",
+  label: "iPick",
   module: "ipec_katch",
-  drawer: "IPEC",
+  drawer: "iPick",
   formMode: "financial",
   color: "text-sky-400",
   bgTint: "bg-sky-400/10",
@@ -148,20 +148,20 @@ const mockActiveConfig: ProviderConfig = {
 const mockProps = {
   activeConfig: mockActiveConfig,
   finTransactions: [] as FinancialTransaction[],
-  activeProvider: "IPEC" as ProviderKey,
+  activeProvider: "iPick" as ProviderKey,
   finAnalytics: {
     today: { commission: 0, count: 0 },
     byProvider: [],
   } as ProviderAnalytics,
   owedByProvider: {},
   getCategoriesForProvider: (provider: ProviderKey) => {
-    if (provider === "IPEC") {
+    if (provider === "iPick") {
       return ["alfa", "mtc", "Gaming"];
     }
     return [];
   },
   getServiceItems: (provider: ProviderKey, category: string) => {
-    if (provider !== "IPEC") return [];
+    if (provider !== "iPick") return [];
     return mockServiceItems.filter((item) => item.category === category);
   },
   methods: [{ code: "CASH", label: "Cash" }],
@@ -199,7 +199,7 @@ describe("KatchForm Search", () => {
       const searchInput = getSearchInput();
       expect(searchInput).toBeInTheDocument();
       expect(searchInput.placeholder).toContain("Search");
-      expect(searchInput.placeholder).toContain("IPEC");
+      expect(searchInput.placeholder).toContain("iPick");
     });
 
     it("renders search icon", () => {
@@ -474,7 +474,7 @@ describe("KatchForm Search", () => {
       renderKatchForm();
 
       const searchInput = getSearchInput();
-      expect(searchInput.placeholder).toContain("IPEC");
+      expect(searchInput.placeholder).toContain("iPick");
     });
   });
 });
