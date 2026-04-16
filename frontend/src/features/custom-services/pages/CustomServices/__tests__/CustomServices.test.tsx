@@ -153,8 +153,20 @@ jest.mock("../../../hooks/useCustomServices", () => ({
 }));
 
 // ── Mock logger ──
-jest.mock("../../../../../utils/logger", () => ({
-  default: { error: jest.fn(), info: jest.fn(), warn: jest.fn() },
+jest.mock("@/utils/logger", () => ({
+  __esModule: true,
+  default: {
+    error: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    debug: jest.fn(),
+  },
+  logger: {
+    error: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    debug: jest.fn(),
+  },
 }));
 
 describe("CustomServices Page", () => {
