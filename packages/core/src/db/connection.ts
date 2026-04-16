@@ -1,10 +1,13 @@
 /**
  * Database connection management
- * This is a placeholder that will be overridden by electron-app or backend
+ * Supports both local and network database paths
  */
 import Database from "better-sqlite3";
+import path from "path";
+import fs from "fs";
 
 let db: Database.Database | null = null;
+let databasePath: string | null = null;
 
 export function getDatabase(): Database.Database {
   // Test hook: allow injecting a mock DB without calling initDatabase()
@@ -21,13 +24,40 @@ export function getDatabase(): Database.Database {
   return db;
 }
 
-export function initDatabase(database: Database.Database): void {
+export function initDatabase(
+  database: Database.Database,
+  dbPath?: string,
+): void {
   db = database;
+  databasePath = dbPath || null;
+
+  // Configure for network paths if applicable
+  if (dbPath && (dbPath.startsWith("\\\\") || dbPath.startsWith("//"))) {
+    // Enable WAL mode for better concurrency on network shares
+    try {
+      db.pragma("journal_mode = WAL");
+      db.pragma("synchronous = NORMAL");
+      db.pragma("busy_timeout = 5000"); // 5 second timeout for network latency
+      db.pragma("cache_size = -2000"); // 2MB cache
+    } catch (error) {
+      console.warn("Failed to configure WAL mode for network database:", error);
+    }
+  }
 }
 
 export function closeDatabase(): void {
   if (db) {
     db.close();
     db = null;
+    databasePath = null;
   }
+}
+
+export function getDatabasePath(): string | null {
+  return databasePath;
+}
+
+export function isNetworkDatabase(): boolean {
+  if (!databasePath) return false;
+  return databasePath.startsWith("\\\\") || databasePath.startsWith("//");
 }

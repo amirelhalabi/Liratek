@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useApi } from "@liratek/ui";
 import { useCurrencyContext } from "@/contexts/CurrencyContext";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
@@ -15,8 +15,9 @@ import {
   TelecomForm,
   CryptoForm,
   ProviderTabs,
+  OmtWhishAppTransferForm,
 } from "../../components";
-import { TopUpModal } from "@liratek/ui";
+import { TopUpModal, DoubleTab } from "@liratek/ui";
 import type {
   AnyProvider,
   ProviderConfig,
@@ -35,6 +36,18 @@ export default function MobileRecharge() {
   const { methods } = usePaymentMethods();
   const { getCategoriesForProvider, getItems: getServiceItems } =
     useMobileServiceItems();
+
+  // MTC voucher items from DB (provider=VOUCHER, category=mtc, subcategory=voucher)
+  const mtcVoucherItems = useMemo(() => {
+    const items = getServiceItems("VOUCHER" as ProviderKey, "mtc");
+    return items
+      .filter((i) => i.subcategory === "voucher")
+      .map((i) => ({
+        label: i.label,
+        cost_lbp: i.catalogCost ?? 0,
+        sell_lbp: i.catalogSellPrice ?? 0,
+      }));
+  }, [getServiceItems]);
 
   const [activeProvider, setActiveProvider] = useState<AnyProvider | null>(
     null,
@@ -97,6 +110,41 @@ export default function MobileRecharge() {
       lbpBalance: number;
     }>;
   } | null>(null);
+
+  // Alfa credit sell rate for "Only Days" returned credits calculation
+  const [alfaCreditSellRate, setAlfaCreditSellRate] = useState(100);
+
+  // Whish App mode: 'bills' (card grid) or 'transfer' (send/receive money)
+  const [whishAppMode, setWhishAppMode] = useState<"bills" | "transfer">(
+    "bills",
+  );
+
+  useEffect(() => {
+    const loadRate = async () => {
+      try {
+        const settings = await api.getAllSettings();
+        const settingsMap = new Map(
+          settings.map((s: { key_name: string; value: string }) => [
+            s.key_name,
+            s.value,
+          ]),
+        );
+        const rate =
+          Number(settingsMap.get("alfa_credit_sell_rate_lbp")) || 100000;
+        setAlfaCreditSellRate(rate / 1000);
+      } catch (error) {
+        console.error("Failed to load alfa credit sell rate:", error);
+      }
+    };
+    loadRate();
+  }, [api]);
+
+  // Reset Whish App mode when provider changes
+  useEffect(() => {
+    if (activeProvider === "WISH_APP") {
+      setWhishAppMode("bills");
+    }
+  }, [activeProvider]);
 
   const activeConfig = PROVIDER_CONFIGS.find(
     (p: ProviderConfig) => p.key === activeProvider,
@@ -556,11 +604,67 @@ export default function MobileRecharge() {
           setClientName={setClientName}
           referenceNumber={referenceNumber}
           setReferenceNumber={setReferenceNumber}
+          voucherItems={mtcVoucherItems}
         />
       )}
 
       {activeConfig?.formMode === "financial" &&
-        (activeProvider === "Katsh" || activeProvider === "iPick" ? (
+        (activeProvider === "OMT_APP" ? (
+          // OMT App - Transfer only (no cards)
+          <OmtWhishAppTransferForm
+            activeProvider="OMT_APP"
+            transactions={finTransactions}
+            loadFinancialData={loadFinancialData}
+            formatAmount={formatAmount}
+          />
+        ) : activeProvider === "WISH_APP" ? (
+          // Whish App - Bills (cards) or Transfer (send/receive)
+          <>
+            {/* Mode Tabs - DoubleTab Component */}
+            <DoubleTab
+              leftOption={{ id: "bills", label: "Bills", iconKey: "FileText" }}
+              rightOption={{
+                id: "transfer",
+                label: "Transfer",
+                iconKey: "ArrowLeftRight",
+              }}
+              value={whishAppMode}
+              onChange={(val) => setWhishAppMode(val as "bills" | "transfer")}
+              accentColor="violet"
+              className="mb-4"
+            />
+
+            {whishAppMode === "bills" ? (
+              <FinancialForm
+                activeConfig={activeConfig}
+                finTransactions={finTransactions}
+                activeProvider={activeProvider}
+                serviceType={serviceType}
+                setServiceType={setServiceType}
+                getCategoriesForProvider={getCategoriesForProvider}
+                getServiceItems={getServiceItems}
+                methods={methods}
+                clientName={clientName}
+                setClientName={setClientName}
+                referenceNumber={referenceNumber}
+                setReferenceNumber={setReferenceNumber}
+                handleFinancialSubmit={() => handleFinancialSubmit()}
+                isSubmitting={isSubmitting}
+                loadFinancialData={loadFinancialData}
+                formatAmount={formatAmount}
+                showHistory={showHistory}
+                setShowHistory={setShowHistory}
+              />
+            ) : (
+              <OmtWhishAppTransferForm
+                activeProvider="WISH_APP"
+                transactions={finTransactions}
+                loadFinancialData={loadFinancialData}
+                formatAmount={formatAmount}
+              />
+            )}
+          </>
+        ) : activeProvider === "Katsh" || activeProvider === "iPick" ? (
           <KatchForm
             activeConfig={activeConfig}
             finTransactions={finTransactions}
@@ -572,11 +676,7 @@ export default function MobileRecharge() {
             isSubmitting={isSubmitting}
             loadFinancialData={loadFinancialData}
             formatAmount={formatAmount}
-            alfaCreditSellRate={
-              Number(
-                localStorage.getItem("alfa_credit_sell_rate_lbp") || "100000",
-              ) / 1000
-            }
+            alfaCreditSellRate={alfaCreditSellRate}
             showHistory={showHistory}
             setShowHistory={setShowHistory}
           />

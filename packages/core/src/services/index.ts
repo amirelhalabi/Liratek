@@ -247,3 +247,14 @@ export {
   resetLotoService,
 } from "./LotoService.js";
 export type { SellTicketData, SettlementData } from "./LotoService.js";
+
+// Mobile Service Item Service
+export {
+  MobileServiceItemService,
+  getMobileServiceItemService,
+  resetMobileServiceItemService,
+} from "./MobileServiceItemService.js";
+export type {
+  MobileServiceItemResult,
+  MobileServiceItemBulkResult,
+} from "./MobileServiceItemService.js";

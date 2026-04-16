@@ -1,3 +1,18 @@
+/** A mobile service catalog item stored in the database */
+export interface MobileServiceItem {
+  id: number;
+  provider: string;
+  category: string;
+  subcategory: string;
+  label: string;
+  cost_lbp: number;
+  sell_lbp: number;
+  sort_order: number;
+  is_active: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ElectronAPI {
   // Auth & Users
   auth: {
@@ -1122,6 +1137,106 @@ export interface ElectronAPI {
       whatsapp_api_key?: string;
     }) => Promise<{ success: boolean; error?: string }>;
     reset: () => Promise<{ success: boolean; error?: string }>;
+    testDatabasePath: (
+      path: string,
+    ) => Promise<{ success: boolean; error?: string }>;
+  };
+
+  // Mobile Service Items (dynamic catalog)
+  mobileServiceItems: {
+    getAll: () => Promise<{
+      success: boolean;
+      data?: MobileServiceItem[];
+      error?: string;
+    }>;
+    getAllAdmin: () => Promise<{
+      success: boolean;
+      data?: MobileServiceItem[];
+      error?: string;
+    }>;
+    getByProvider: (provider: string) => Promise<{
+      success: boolean;
+      data?: MobileServiceItem[];
+      error?: string;
+    }>;
+    getByProviderCategory: (
+      provider: string,
+      category: string,
+    ) => Promise<{
+      success: boolean;
+      data?: MobileServiceItem[];
+      error?: string;
+    }>;
+    getCategories: (provider: string) => Promise<{
+      success: boolean;
+      data?: string[];
+      error?: string;
+    }>;
+    getSubcategories: (
+      provider: string,
+      category: string,
+    ) => Promise<{
+      success: boolean;
+      data?: string[];
+      error?: string;
+    }>;
+    create: (data: {
+      provider: string;
+      category: string;
+      subcategory: string;
+      label: string;
+      cost_lbp: number;
+      sell_lbp: number;
+      sort_order?: number;
+      is_active?: number;
+    }) => Promise<{
+      success: boolean;
+      data?: MobileServiceItem;
+      error?: string;
+    }>;
+    update: (
+      id: number,
+      data: {
+        label?: string;
+        cost_lbp?: number;
+        sell_lbp?: number;
+        sort_order?: number;
+        is_active?: number;
+      },
+    ) => Promise<{
+      success: boolean;
+      data?: MobileServiceItem;
+      error?: string;
+    }>;
+    toggleActive: (id: number) => Promise<{
+      success: boolean;
+      data?: MobileServiceItem;
+      error?: string;
+    }>;
+    delete: (id: number) => Promise<{
+      success: boolean;
+      error?: string;
+    }>;
+    seed: (
+      items: {
+        provider: string;
+        category: string;
+        subcategory: string;
+        label: string;
+        cost_lbp: number;
+        sell_lbp: number;
+        sort_order?: number;
+      }[],
+    ) => Promise<{
+      success: boolean;
+      count?: number;
+      error?: string;
+    }>;
+    count: () => Promise<{
+      success: boolean;
+      data?: number;
+      error?: string;
+    }>;
   };
 
   // Display / Zoom

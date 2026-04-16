@@ -172,10 +172,16 @@ export default function MultiPaymentInput({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pmFeesKey]);
 
-  const totalPaid = paymentLines.reduce(
-    (sum, line) => sum + (line.amount || 0),
-    0,
-  );
+  // Calculate total paid in USD (convert LBP to USD using exchange rate)
+  const totalPaid = paymentLines.reduce((sum, line) => {
+    const amount = line.amount || 0;
+    if (line.currencyCode === "LBP") {
+      // Convert LBP to USD
+      return sum + amount / safeExchangeRate;
+    }
+    return sum + amount;
+  }, 0);
+
   const hasDebt = paymentLines.some((line) => line.method === "DEBT");
 
   const getSymbol = (currencyCode: string): string => {

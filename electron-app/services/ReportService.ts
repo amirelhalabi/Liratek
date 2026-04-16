@@ -38,7 +38,8 @@ export interface VerifyBackupResult {
 
 export class ReportService {
   private getBackupsDir(): string {
-    return path.join(app.getPath("documents"), "LiratekBackups");
+    // Each PC stores backups in its own Documents/Liratek/Backups folder
+    return path.join(app.getPath("documents"), "Liratek", "Backups");
   }
 
   private getDbPath(): string {
@@ -99,7 +100,8 @@ export class ReportService {
   }
 
   /**
-   * Backup the database to Documents/LiratekBackups
+   * Backup the database to Documents/Liratek/Backups
+   * Includes WAL and SHM files if they exist (for WAL mode databases)
    */
   async backupDatabase(): Promise<BackupResult> {
     try {
@@ -112,7 +114,23 @@ export class ReportService {
 
       const ts = new Date().toISOString().replace(/[:.]/g, "-");
       const outPath = path.join(backupsDir, `backup_${ts}.sqlite`);
+
+      // Copy main database file
       fs.copyFileSync(dbPath, outPath);
+
+      // Also backup WAL and SHM files if they exist (for WAL mode)
+      const walPath = dbPath + "-wal";
+      const shmPath = dbPath + "-shm";
+
+      if (fs.existsSync(walPath)) {
+        fs.copyFileSync(walPath, outPath + "-wal");
+      }
+      if (fs.existsSync(shmPath)) {
+        fs.copyFileSync(shmPath, outPath + "-shm");
+      }
+
+      // Cleanup old backups (keep last 24 = 24 hours of hourly backups)
+      await this.pruneBackups(24);
 
       return { success: true, path: outPath };
     } catch (error) {
@@ -122,7 +140,7 @@ export class ReportService {
   }
 
   /**
-   * List backups in Documents/LiratekBackups
+   * List backups in Documents/Liratek/Backups
    */
   async listBackups(): Promise<ListBackupsResult> {
     try {
@@ -135,7 +153,11 @@ export class ReportService {
         .map((filename) => {
           const fullPath = path.join(dir, filename);
           const stat = fs.statSync(fullPath);
-          return { path: fullPath, filename, createdAtMs: stat.mtimeMs };
+          return {
+            path: fullPath,
+            filename: filename.replace(".sqlite", ".db"), // Show as .db in UI
+            createdAtMs: stat.mtimeMs,
+          };
         })
         .sort((a, b) => b.createdAtMs - a.createdAtMs);
 

@@ -17,9 +17,12 @@ export interface SetupPayload {
   enabled_payment_methods: string[];
   session_management_enabled: boolean;
   customer_sessions_enabled: boolean;
-  // Step 3 (optional)
-  active_currencies: string[];
+  // Step 3 (NEW) - Database Path
+  database_path: string | null;
+  database_type: "local" | "network";
   // Step 4 (optional)
+  active_currencies: string[];
+  // Step 5 (optional)
   extra_users: { username: string; password: string; role: string }[];
   whatsapp_phone: string;
   whatsapp_api_key: string;
@@ -33,6 +36,8 @@ const DEFAULT_PAYLOAD: SetupPayload = {
   enabled_payment_methods: ["CASH", "OMT", "WHISH"],
   session_management_enabled: true,
   customer_sessions_enabled: true,
+  database_path: null,
+  database_type: "local",
   active_currencies: ["USD", "LBP"],
   extra_users: [],
   whatsapp_phone: "",

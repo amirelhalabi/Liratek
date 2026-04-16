@@ -18,6 +18,8 @@ export interface SetupPayload {
   enabled_payment_methods: string[];
   session_management_enabled: boolean;
   customer_sessions_enabled: boolean;
+  database_path?: string | null;
+  database_type?: "local" | "network";
   // Optional
   active_currencies?: string[];
   extra_users?: { username: string; password: string; role: string }[];
@@ -189,7 +191,21 @@ export function registerSetupHandlers() {
           ).run(payload.whatsapp_api_key);
         }
 
-        // 9. Mark setup complete — LAST step
+        // 9. Save database path configuration (if network mode)
+        if (payload.database_path && payload.database_type === "network") {
+          db.prepare(
+            "INSERT OR REPLACE INTO system_settings (key_name, value) VALUES ('database_path', ?)",
+          ).run(payload.database_path);
+          db.prepare(
+            "INSERT OR REPLACE INTO system_settings (key_name, value) VALUES ('database_type', ?)",
+          ).run("network");
+        } else {
+          db.prepare(
+            "INSERT OR REPLACE INTO system_settings (key_name, value) VALUES ('database_type', ?)",
+          ).run("local");
+        }
+
+        // 10. Mark setup complete — LAST step
         db.prepare(
           "INSERT OR REPLACE INTO system_settings (key_name, value) VALUES ('setup_complete', '1')",
         ).run();
@@ -212,6 +228,58 @@ export function registerSetupHandlers() {
       return { success: true };
     } catch (error) {
       return { success: false, error: String(error) };
+    }
+  });
+
+  // ── Test Database Path ─────────────────────────────────────────────────────
+  ipcMain.handle("setup:testDatabasePath", async (_event, dbPath: string) => {
+    try {
+      const fs = await import("fs-extra");
+      const path = await import("path");
+
+      // Validate path format
+      if (!dbPath.trim()) {
+        return { success: false, error: "Path is empty" };
+      }
+
+      // Check if it's a network path
+      const isNetworkPath =
+        dbPath.startsWith("\\\\") || dbPath.startsWith("//");
+
+      if (isNetworkPath) {
+        // Test network path accessibility
+        try {
+          await fs.access(dbPath);
+          // Try to create a test file
+          const testFile = path.join(dbPath, `.liratek_test_${Date.now()}`);
+          await fs.writeFile(testFile, "test");
+          await fs.remove(testFile);
+          return { success: true };
+        } catch (error) {
+          return {
+            success: false,
+            error: `Cannot access network path: ${error instanceof Error ? error.message : String(error)}`,
+          };
+        }
+      } else {
+        // Local path - just check if directory exists or can be created
+        const dir = path.dirname(dbPath);
+        try {
+          await fs.ensureDir(dir);
+          await fs.access(dir, fs.constants.W_OK);
+          return { success: true };
+        } catch (error) {
+          return {
+            success: false,
+            error: `Cannot write to path: ${error instanceof Error ? error.message : String(error)}`,
+          };
+        }
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: `Test failed: ${error instanceof Error ? error.message : String(error)}`,
+      };
     }
   });
 }

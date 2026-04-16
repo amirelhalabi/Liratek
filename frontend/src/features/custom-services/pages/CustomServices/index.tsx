@@ -29,6 +29,7 @@ import logger from "@/utils/logger";
 import { MultiPaymentInput, type PaymentLine } from "@liratek/ui";
 import { HistoryModal } from "./components/HistoryModal";
 import { StatsCards } from "../../components/StatsCards";
+import { getExchangeRates } from "@/utils/exchangeRates";
 
 // =============================================================================
 // Helper
@@ -80,6 +81,22 @@ export default function CustomServices() {
   const [clientSearchResults, setClientSearchResults] = useState<any[]>([]);
   const [showClientSearch, setShowClientSearch] = useState(false);
   const [saveAsClient, setSaveAsClient] = useState(false);
+
+  // Exchange rate for multi-currency payments (loaded from database)
+  const [exchangeRate, setExchangeRate] = useState(89500);
+
+  useEffect(() => {
+    const loadRate = async () => {
+      try {
+        const rates = await api.getRates();
+        const { sellRate } = getExchangeRates(rates);
+        setExchangeRate(sellRate);
+      } catch (error) {
+        logger.error("Failed to load exchange rate:", error);
+      }
+    };
+    loadRate();
+  }, [api]);
 
   // Populate client name from session
   useEffect(() => {
@@ -471,10 +488,7 @@ export default function CustomServices() {
                     { code: "USD", symbol: "$" },
                     { code: "LBP", symbol: "L£" },
                   ]}
-                  exchangeRate={Number(
-                    localStorage.getItem("alfa_credit_sell_rate_lbp") ||
-                      "100000",
-                  )}
+                  exchangeRate={exchangeRate}
                 />
               )}
             </div>

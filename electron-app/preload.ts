@@ -712,6 +712,64 @@ contextBridge.exposeInMainWorld("api", {
     delete: (id: number) => ipcRenderer.invoke("voucher-images:delete", id),
   },
 
+  // Mobile Service Items (dynamic catalog)
+  mobileServiceItems: {
+    getAll: () => ipcRenderer.invoke("mobile-service-items:get-all"),
+    getAllAdmin: () => ipcRenderer.invoke("mobile-service-items:get-all-admin"),
+    getByProvider: (provider: string) =>
+      ipcRenderer.invoke("mobile-service-items:get-by-provider", provider),
+    getByProviderCategory: (provider: string, category: string) =>
+      ipcRenderer.invoke(
+        "mobile-service-items:get-by-provider-category",
+        provider,
+        category,
+      ),
+    getCategories: (provider: string) =>
+      ipcRenderer.invoke("mobile-service-items:get-categories", provider),
+    getSubcategories: (provider: string, category: string) =>
+      ipcRenderer.invoke(
+        "mobile-service-items:get-subcategories",
+        provider,
+        category,
+      ),
+    create: (data: {
+      provider: string;
+      category: string;
+      subcategory: string;
+      label: string;
+      cost_lbp: number;
+      sell_lbp: number;
+      sort_order?: number;
+      is_active?: number;
+    }) => ipcRenderer.invoke("mobile-service-items:create", data),
+    update: (
+      id: number,
+      data: {
+        label?: string;
+        cost_lbp?: number;
+        sell_lbp?: number;
+        sort_order?: number;
+        is_active?: number;
+      },
+    ) => ipcRenderer.invoke("mobile-service-items:update", id, data),
+    toggleActive: (id: number) =>
+      ipcRenderer.invoke("mobile-service-items:toggle-active", id),
+    delete: (id: number) =>
+      ipcRenderer.invoke("mobile-service-items:delete", id),
+    seed: (
+      items: {
+        provider: string;
+        category: string;
+        subcategory: string;
+        label: string;
+        cost_lbp: number;
+        sell_lbp: number;
+        sort_order?: number;
+      }[],
+    ) => ipcRenderer.invoke("mobile-service-items:seed", items),
+    count: () => ipcRenderer.invoke("mobile-service-items:count"),
+  },
+
   // Custom Services
   customServices: {
     list: (filter?: { date?: string }) =>
@@ -740,6 +798,8 @@ contextBridge.exposeInMainWorld("api", {
     complete: (payload: unknown) =>
       ipcRenderer.invoke("setup:complete", payload),
     reset: () => ipcRenderer.invoke("setup:reset"),
+    testDatabasePath: (path: string) =>
+      ipcRenderer.invoke("setup:testDatabasePath", path),
   },
 
   // Display / Zoom

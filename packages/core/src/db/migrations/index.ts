@@ -2130,6 +2130,50 @@ export const MIGRATIONS: Migration[] = [
       console.log("Migration v52 rolled back: loto_settlements table removed");
     },
   },
+  // ─────────────────────────────────────────────────────────────────────────────
+  // v53 — Create mobile_service_items table for dynamic catalog management
+  // ─────────────────────────────────────────────────────────────────────────────
+  {
+    version: 53,
+    name: "create_mobile_service_items",
+    description:
+      "Create mobile_service_items table to replace hardcoded mobileServices.ts catalog. " +
+      "Stores provider/category/subcategory/item with LBP cost/sell prices.",
+    type: "typescript",
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS mobile_service_items (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          provider TEXT NOT NULL,
+          category TEXT NOT NULL,
+          subcategory TEXT NOT NULL,
+          label TEXT NOT NULL,
+          cost_lbp REAL NOT NULL DEFAULT 0,
+          sell_lbp REAL NOT NULL DEFAULT 0,
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          is_active INTEGER NOT NULL DEFAULT 1,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(provider, category, subcategory, label)
+        )
+      `);
+
+      // Indexes for common query patterns
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_msi_provider ON mobile_service_items(provider);
+        CREATE INDEX IF NOT EXISTS idx_msi_provider_category ON mobile_service_items(provider, category);
+        CREATE INDEX IF NOT EXISTS idx_msi_active ON mobile_service_items(is_active);
+      `);
+
+      console.log("Migration v53: mobile_service_items table created");
+    },
+    down(db) {
+      db.exec(`DROP TABLE IF EXISTS mobile_service_items`);
+      console.log(
+        "Migration v53 rolled back: mobile_service_items table removed",
+      );
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

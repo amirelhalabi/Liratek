@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Settings as SettingsIcon, Tag } from "lucide-react";
 import { PageHeader } from "@liratek/ui";
+import { useAuth } from "@/features/auth/context/AuthContext";
 import UsersManager from "./UsersManager";
 import Diagnostics from "./Diagnostics";
 import CurrencyManager from "./CurrencyManager";
@@ -11,6 +12,7 @@ import ActivityLogViewer from "./ActivityLogViewer";
 import ModulesManager from "./ModulesManager";
 import IntegrationsConfig from "./IntegrationsConfig";
 import CategoriesManager from "./CategoriesManager";
+import MobileServicesManager from "./MobileServicesManager";
 
 type TabKey =
   | "shop"
@@ -22,10 +24,27 @@ type TabKey =
   | "currencies"
   | "users"
   | "diagnostics"
-  | "integrations";
+  | "integrations"
+  | "mobile-services";
 
 export default function Settings() {
   const [active, setActive] = useState<TabKey>("shop");
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+
+  const tabs = [
+    { key: "shop", label: "Shop Config" },
+    { key: "categories", label: "Categories & Suppliers", icon: Tag },
+    { key: "suppliers", label: "Suppliers" },
+    { key: "notifications", label: "Notifications" },
+    { key: "activity", label: "Activity Logs" },
+    { key: "modules", label: "Modules & Drawers" },
+    { key: "currencies", label: "Currencies & Rates" },
+    { key: "users", label: "Users" },
+    { key: "integrations", label: "Integrations" },
+    ...(isAdmin ? [{ key: "mobile-services", label: "Mobile Services" }] : []),
+    { key: "diagnostics", label: "Diagnostics" },
+  ] as { key: TabKey; label: string; icon?: typeof Tag }[];
 
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500">
@@ -34,20 +53,7 @@ export default function Settings() {
       {/* Tab Navigation Section */}
       <div className="flex-1 min-h-0 bg-slate-800 rounded-xl border border-slate-700 shadow-lg flex flex-col overflow-hidden">
         <div className="flex gap-2 p-2 border-b border-slate-700 shrink-0">
-          {(
-            [
-              { key: "shop", label: "Shop Config" },
-              { key: "categories", label: "Categories & Suppliers", icon: Tag },
-              { key: "suppliers", label: "Suppliers" },
-              { key: "notifications", label: "Notifications" },
-              { key: "activity", label: "Activity Logs" },
-              { key: "modules", label: "Modules & Drawers" },
-              { key: "currencies", label: "Currencies & Rates" },
-              { key: "users", label: "Users" },
-              { key: "integrations", label: "Integrations" },
-              { key: "diagnostics", label: "Diagnostics" },
-            ] as { key: TabKey; label: string; icon?: any }[]
-          ).map((t) => (
+          {tabs.map((t) => (
             <button
               key={t.key}
               onClick={() => setActive(t.key)}
@@ -67,6 +73,7 @@ export default function Settings() {
           {active === "currencies" && <CurrencyManager />}
           {active === "users" && <UsersManager />}
           {active === "integrations" && <IntegrationsConfig />}
+          {active === "mobile-services" && isAdmin && <MobileServicesManager />}
           {active === "diagnostics" && <Diagnostics />}
         </div>
       </div>

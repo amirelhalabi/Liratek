@@ -119,3 +119,6 @@ temp
 
 # Secret files (must never be committed)
 backend/config/google-service-account.json
+
+# Backups
+backups

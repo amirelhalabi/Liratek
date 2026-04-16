@@ -6,3 +6,4 @@ export { CryptoForm } from "./CryptoForm";
 export { ProviderTabs } from "./ProviderTabs";
 export { HistoryModal } from "./HistoryModal";
 export { ProviderStats } from "./ProviderStats";
+export { OmtWhishAppTransferForm } from "./OmtWhishAppTransferForm";

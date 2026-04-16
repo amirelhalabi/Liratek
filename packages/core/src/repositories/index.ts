@@ -328,3 +328,15 @@ export type {
   LotoCashPrizeCreate,
   LotoSettlement,
 } from "./LotoRepository.js";
+
+// Mobile Service Item Repository
+export {
+  MobileServiceItemRepository,
+  getMobileServiceItemRepository,
+  resetMobileServiceItemRepository,
+} from "./MobileServiceItemRepository.js";
+export type {
+  MobileServiceItemEntity,
+  CreateMobileServiceItemData,
+  UpdateMobileServiceItemData,
+} from "./MobileServiceItemRepository.js";

@@ -1,22 +1,33 @@
 /**
- * useMobileServiceItems — normalizes the nested mobileServices catalog into a
- * flat, searchable list of selectable items grouped by provider & category.
+ * useMobileServiceItems — loads the mobile services catalog from the database
+ * and exposes a flat, searchable list of selectable items grouped by provider
+ * & category.
  *
- * Also merges voucher images + saved item costs from the API.
+ * On first launch (empty DB table) it seeds the DB from the static
+ * mobileServices.ts catalog, then switches to DB-only reads.
+ *
+ * Also merges voucher images + saved item costs from the legacy API for
+ * backwards compatibility.
  */
 
 import { useMemo, useEffect, useState, useCallback } from "react";
 import { useApi } from "@liratek/ui";
-import mobileServices from "@/data/mobileServices";
+import type { MobileServiceItem } from "@/types/electron";
+import { parseCatalogToSeedData } from "../utils/parseCatalogToSeedData";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
 /** Provider key as used in the financial_services DB table */
-export type ProviderKey = "iPick" | "Katsh" | "WISH_APP" | "OMT_APP";
+export type ProviderKey =
+  | "iPick"
+  | "Katsh"
+  | "WISH_APP"
+  | "OMT_APP"
+  | "VOUCHER";
 
 /** A single selectable service item */
 export interface ServiceItem {
-  /** Unique key: `${provider}/${category}/${label}` */
+  /** Unique key: `${provider}/${category}/${subcategory}/${label}` */
   key: string;
   provider: ProviderKey;
   /** Top-level category e.g. "Gaming cards" */
@@ -51,125 +62,36 @@ interface VoucherImageRow {
   image_data: string;
 }
 
-// ─── Static catalog parsing (runs once) ────────────────────────────────────
-
-function parseCatalog(): ServiceItem[] {
-  const result: ServiceItem[] = [];
-
-  for (const [providerKey, catalog] of Object.entries(mobileServices)) {
-    const typedProviderKey = providerKey as ProviderKey;
-    if (!["iPick", "Katsh", "WISH_APP", "OMT_APP"].includes(typedProviderKey)) {
-      continue; // skip unknown providers (e.g. "Validity vouchers")
-    }
-
-    for (const [categoryName, subcategories] of Object.entries(catalog)) {
-      for (const [subName, itemsOrNested] of Object.entries(subcategories)) {
-        if (Array.isArray(itemsOrNested)) {
-          // Empty array = free-form category (e.g. i-Pick gaming items)
-          result.push({
-            key: `${typedProviderKey}/${categoryName}/${subName}`,
-            provider: typedProviderKey,
-            category: categoryName,
-            subcategory: subName,
-            label: subName,
-          });
-        } else if (typeof itemsOrNested === "object") {
-          // Object — could be items or deeper nesting
-          for (const [labelOrGroup, costOrNested] of Object.entries(
-            itemsOrNested,
-          )) {
-            if (typeof costOrNested === "string") {
-              // Old format: label → cost string (should not exist after migration)
-              result.push({
-                key: `${typedProviderKey}/${categoryName}/${subName}/${labelOrGroup}`,
-                provider: typedProviderKey,
-                category: categoryName,
-                subcategory: subName,
-                label: labelOrGroup,
-                catalogCost: Number(costOrNested),
-              });
-            } else if (
-              typeof costOrNested === "object" &&
-              !Array.isArray(costOrNested)
-            ) {
-              // Check if it's the new { cost, sell } format
-              if ("cost" in costOrNested) {
-                const pricing = costOrNested as { cost: string; sell: string };
-                result.push({
-                  key: `${typedProviderKey}/${categoryName}/${subName}/${labelOrGroup}`,
-                  provider: typedProviderKey,
-                  category: categoryName,
-                  subcategory: subName,
-                  label: labelOrGroup,
-                  catalogCost: Number(pricing.cost),
-                  catalogSellPrice: Number(pricing.sell),
-                });
-              } else {
-                // One level deeper (e.g. Katsh > mobile topups > alfa > voucher > items)
-                for (const [deepLabel, deepCost] of Object.entries(
-                  costOrNested,
-                )) {
-                  if (typeof deepCost === "string") {
-                    // Old format
-                    result.push({
-                      key: `${typedProviderKey}/${categoryName}/${subName}/${labelOrGroup}/${deepLabel}`,
-                      provider: typedProviderKey,
-                      category: categoryName,
-                      subcategory: `${subName} / ${labelOrGroup}`,
-                      label: deepLabel,
-                      catalogCost: Number(deepCost),
-                    });
-                  } else if (
-                    typeof deepCost === "object" &&
-                    deepCost !== null &&
-                    !Array.isArray(deepCost) &&
-                    "cost" in deepCost
-                  ) {
-                    // New { cost, sell } format
-                    const pricing = deepCost as { cost: string; sell: string };
-                    result.push({
-                      key: `${typedProviderKey}/${categoryName}/${subName}/${labelOrGroup}/${deepLabel}`,
-                      provider: typedProviderKey,
-                      category: categoryName,
-                      subcategory: `${subName} / ${labelOrGroup}`,
-                      label: deepLabel,
-                      catalogCost: Number(pricing.cost),
-                      catalogSellPrice: Number(pricing.sell),
-                    });
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-
-  return result;
-}
-
-/** Parsed once at module level — the catalog data is static */
-const BASE_ITEMS = parseCatalog();
-
 // ─── Hook ──────────────────────────────────────────────────────────────────
 
 export function useMobileServiceItems() {
   const api = useApi();
+  const [dbItems, setDbItems] = useState<MobileServiceItem[]>([]);
   const [itemCosts, setItemCosts] = useState<ItemCostRow[]>([]);
   const [voucherImages, setVoucherImages] = useState<VoucherImageRow[]>([]);
   const [loaded, setLoaded] = useState(false);
 
-  // Load saved costs + images once
+  // Load DB items (seed if needed) + legacy costs/images once
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const [costs, images] = await Promise.all([
+        // Check if DB needs seeding
+        const countResult = await window.api.mobileServiceItems.count();
+        if (countResult.success && countResult.data === 0) {
+          const seedData = parseCatalogToSeedData();
+          await window.api.mobileServiceItems.seed(seedData);
+        }
+
+        // Load all active items from DB + legacy overrides in parallel
+        const [allResult, costs, images] = await Promise.all([
+          window.api.mobileServiceItems.getAll(),
           api.getItemCosts(),
           api.getVoucherImages(),
         ]);
+
         if (!cancelled) {
+          setDbItems(allResult.success ? (allResult.data ?? []) : []);
           setItemCosts(costs ?? []);
           setVoucherImages(images ?? []);
           setLoaded(true);
@@ -183,9 +105,19 @@ export function useMobileServiceItems() {
     };
   }, [api]);
 
-  // Merge saved costs & images onto the static catalog items
+  // Map DB items → ServiceItem and merge legacy costs / images
   const items = useMemo<ServiceItem[]>(() => {
-    if (!itemCosts.length && !voucherImages.length) return BASE_ITEMS;
+    const baseItems: ServiceItem[] = dbItems.map((item) => ({
+      key: `${item.provider}/${item.category}/${item.subcategory}/${item.label}`,
+      provider: item.provider as ProviderKey,
+      category: item.category,
+      subcategory: item.subcategory,
+      label: item.label,
+      catalogCost: item.cost_lbp,
+      catalogSellPrice: item.sell_lbp,
+    }));
+
+    if (!itemCosts.length && !voucherImages.length) return baseItems;
 
     // Build O(1) lookup maps keyed by "provider|category|item_key"
     const costMap = new Map<string, number>();
@@ -198,7 +130,7 @@ export function useMobileServiceItems() {
       imageMap.set(`${v.provider}|${v.category}|${v.item_key}`, v.image_data);
     }
 
-    return BASE_ITEMS.map((item) => {
+    return baseItems.map((item) => {
       const lookupKey = `${item.provider}|${item.category}|${item.key}`;
       const savedCost = costMap.get(lookupKey);
       const imageData = imageMap.get(lookupKey);
@@ -211,7 +143,7 @@ export function useMobileServiceItems() {
         ...(imageData !== undefined && { imageData }),
       };
     });
-  }, [itemCosts, voucherImages]);
+  }, [dbItems, itemCosts, voucherImages]);
 
   // Group items by provider
   const itemsByProvider = useMemo(() => {
@@ -220,9 +152,12 @@ export function useMobileServiceItems() {
       Katsh: [],
       WISH_APP: [],
       OMT_APP: [],
+      VOUCHER: [],
     };
     for (const item of items) {
-      map[item.provider].push(item);
+      if (item.provider in map) {
+        map[item.provider].push(item);
+      }
     }
     return map;
   }, [items]);
@@ -246,13 +181,15 @@ export function useMobileServiceItems() {
     [itemsByProvider],
   );
 
-  // Refresh data from API
+  // Refresh data from DB + legacy APIs
   const refresh = useCallback(async () => {
     try {
-      const [costs, images] = await Promise.all([
+      const [allResult, costs, images] = await Promise.all([
+        window.api.mobileServiceItems.getAll(),
         api.getItemCosts(),
         api.getVoucherImages(),
       ]);
+      setDbItems(allResult.success ? (allResult.data ?? []) : []);
       setItemCosts(costs ?? []);
       setVoucherImages(images ?? []);
     } catch {

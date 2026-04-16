@@ -102,8 +102,10 @@ export function KatchForm({
 
   const isTelecomVoucher = (item: ServiceItem) => {
     return (
-      item.category === "mobile topups" &&
-      (item.subcategory === "alfa" || item.subcategory === "mtc")
+      item.category === "alfa" ||
+      item.category === "mtc" ||
+      item.subcategory === "alfa" ||
+      item.subcategory === "mtc"
     );
   };
 

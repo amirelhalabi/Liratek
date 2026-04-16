@@ -12,6 +12,12 @@ import { HistoryModal } from "./HistoryModal";
 import { MultiPaymentInput, type PaymentLine } from "@liratek/ui";
 import { getExchangeRates } from "@/utils/exchangeRates";
 
+interface VoucherItem {
+  label: string;
+  cost_lbp: number;
+  sell_lbp: number;
+}
+
 interface TelecomFormProps {
   isMTC: boolean;
   rechargeType: RechargeType;
@@ -58,6 +64,7 @@ interface TelecomFormProps {
   setClientName: (val: string) => void;
   referenceNumber: string;
   setReferenceNumber: (val: string) => void;
+  voucherItems?: VoucherItem[];
 }
 
 export function TelecomForm({
@@ -105,6 +112,7 @@ export function TelecomForm({
   setClientName,
   referenceNumber,
   setReferenceNumber,
+  voucherItems,
 }: TelecomFormProps) {
   const api = useApi();
   const [rates, setRates] = useState({ buyRate: 89000, sellRate: 89500 });
@@ -344,37 +352,82 @@ export function TelecomForm({
             </div>
           </div>
         </div>
+      ) : rechargeType === "VOUCHER" && isMTC ? (
+        /* Voucher Form - MTC Card Grid */
+        <div className="flex flex-col gap-5 h-full">
+          {/* MTC Voucher Card Grid - loaded from DB */}
+          <div className="flex-1 min-h-0 overflow-auto">
+            <div className="text-sm text-slate-400 mb-3">
+              Select MTC Voucher:
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+              {(voucherItems ?? []).map((item) => (
+                <div
+                  key={item.label}
+                  onClick={() => setTelecomAmount(item.label)}
+                  className={`p-3 rounded-lg border transition-all cursor-pointer ${
+                    telecomAmount === item.label
+                      ? "border-cyan-500/40 bg-cyan-500/5 ring-2 ring-cyan-500/50"
+                      : "border-slate-700 bg-slate-800 hover:border-slate-600"
+                  }`}
+                >
+                  <div className="text-white font-bold text-sm mb-1">
+                    {item.label}
+                  </div>
+                  <div className="text-xs text-slate-400">
+                    Cost: {item.cost_lbp.toLocaleString()} L
+                  </div>
+                  <div className="text-xs text-emerald-400 font-mono">
+                    Sell: {item.sell_lbp.toLocaleString()} L
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Sticky Bottom Bar */}
+          <div className="sticky bottom-0 bg-slate-800 rounded-xl border border-slate-700/50 p-4 shadow-2xl">
+            <div className="flex items-center gap-4">
+              <div className="flex-1">
+                <label className="text-xs text-slate-400">Payment Method</label>
+                <select
+                  value={paidBy}
+                  onChange={(e) => setPaidBy(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500 mt-1"
+                >
+                  {methods.map((method) => (
+                    <option key={method.code} value={method.code}>
+                      {method.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="text-right">
+                <div className="text-xs text-slate-400">Amount:</div>
+                <div className="text-sm text-emerald-400 font-mono font-bold">
+                  {telecomAmount || "0"}
+                </div>
+              </div>
+
+              <button
+                onClick={handleTelecomSubmit}
+                disabled={isSubmitting || !telecomAmount}
+                className={`px-6 py-3 rounded-lg font-bold text-white transition-all ${
+                  isSubmitting || !telecomAmount
+                    ? "bg-slate-600 text-slate-400 cursor-not-allowed"
+                    : "bg-cyan-600 hover:bg-cyan-500 shadow-lg shadow-cyan-500/20"
+                }`}
+              >
+                {isSubmitting ? "Processing..." : "Submit"}
+              </button>
+            </div>
+          </div>
+        </div>
       ) : rechargeType === "VOUCHER" ? (
-        /* Voucher Form - Only for MTC */
+        /* Voucher Form - Only for MTC (fallback) */
         <div className="bg-slate-800 rounded-2xl border border-slate-700/50 p-6">
           <div className="max-w-lg mx-auto space-y-6">
-            {/* Voucher Image Preview */}
-            {telecomAmount &&
-              (() => {
-                const imgPath = resolveVoucherImage(
-                  activeProvider || "",
-                  parseFloat(telecomAmount),
-                );
-                if (!imgPath) return null;
-                return (
-                  <div className="flex items-center gap-3 bg-slate-900/60 rounded-xl p-3 border border-slate-700/50">
-                    <img
-                      src={imgPath}
-                      alt={`${activeConfig?.label} ${telecomAmount} voucher`}
-                      className="w-24 h-16 object-contain rounded-lg border border-slate-600 bg-white/5"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-white">
-                        {activeConfig?.label} Voucher
-                      </p>
-                      <p className={`text-xs font-mono ${activeConfig?.color}`}>
-                        ${telecomAmount}
-                      </p>
-                    </div>
-                  </div>
-                );
-              })()}
-
             <div>
               <label
                 htmlFor="telecom-amount"
@@ -397,23 +450,6 @@ export function TelecomForm({
                   placeholder="0.00"
                 />
               </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-slate-500 mb-2 uppercase tracking-wider">
-                Payment Method
-              </label>
-              <select
-                value={paidBy}
-                onChange={(e) => setPaidBy(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-slate-500"
-              >
-                {methods.map((method) => (
-                  <option key={method.code} value={method.code}>
-                    {method.label}
-                  </option>
-                ))}
-              </select>
             </div>
 
             <button

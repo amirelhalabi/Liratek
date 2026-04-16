@@ -1,13 +1,15 @@
 import { SetupProvider, useSetup } from "./context/SetupContext";
 import Step1Account from "./steps/Step1Account";
 import Step2Modules from "./steps/Step2Modules";
-import Step3Currencies from "./steps/Step3Currencies";
-import Step4Users from "./steps/Step4Users";
+import Step3DatabasePath from "./steps/Step3DatabasePath";
+import Step4Currencies from "./steps/Step3Currencies";
+import Step5Users from "./steps/Step4Users";
 import StepComplete from "./steps/StepComplete";
 
 const STEPS = [
   { label: "Account" },
   { label: "Modules" },
+  { label: "Database" },
   { label: "Currencies" },
   { label: "Users" },
   { label: "Done" },
@@ -27,9 +29,9 @@ function WizardContent() {
         </div>
 
         {/* Progress indicator */}
-        {step < 5 && (
+        {step < 6 && (
           <div className="flex items-center justify-center gap-2 mb-8">
-            {STEPS.slice(0, 4).map((s, i) => {
+            {STEPS.slice(0, 5).map((s, i) => {
               const stepNum = i + 1;
               const isDone = step > stepNum;
               const isCurrent = step === stepNum;
@@ -53,7 +55,7 @@ function WizardContent() {
                   >
                     {s.label}
                   </span>
-                  {i < 3 && (
+                  {i < 4 && (
                     <div
                       className={`mx-3 h-px w-8 ${
                         step > stepNum ? "bg-emerald-600" : "bg-slate-700"
@@ -70,13 +72,14 @@ function WizardContent() {
         <div className="bg-slate-800 border border-slate-700 rounded-2xl p-8 shadow-2xl">
           {step === 1 && <Step1Account />}
           {step === 2 && <Step2Modules />}
-          {step === 3 && <Step3Currencies />}
-          {step === 4 && <Step4Users />}
-          {step === 5 && <StepComplete />}
+          {step === 3 && <Step3DatabasePath />}
+          {step === 4 && <Step4Currencies />}
+          {step === 5 && <Step5Users />}
+          {step === 6 && <StepComplete />}
         </div>
 
         <p className="text-center text-xs text-slate-600 mt-4">
-          Step {Math.min(step, 4)} of 4
+          Step {Math.min(step, 5)} of 5
         </p>
       </div>
     </div>

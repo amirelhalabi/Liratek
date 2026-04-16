@@ -470,6 +470,25 @@ CREATE TABLE IF NOT EXISTS voucher_images (
     UNIQUE(provider, category, item_key)
 );
 
+-- Mobile Service Items (dynamic catalog — replaces hardcoded mobileServices.ts)
+CREATE TABLE IF NOT EXISTS mobile_service_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider TEXT NOT NULL,
+    category TEXT NOT NULL,
+    subcategory TEXT NOT NULL,
+    label TEXT NOT NULL,
+    cost_lbp REAL NOT NULL DEFAULT 0,
+    sell_lbp REAL NOT NULL DEFAULT 0,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(provider, category, subcategory, label)
+);
+CREATE INDEX IF NOT EXISTS idx_msi_provider ON mobile_service_items(provider);
+CREATE INDEX IF NOT EXISTS idx_msi_provider_category ON mobile_service_items(provider, category);
+CREATE INDEX IF NOT EXISTS idx_msi_active ON mobile_service_items(is_active);
+
 -- =============================================================================
 -- 4. Financial Management (Drawers & Closings)
 -- =============================================================================
@@ -915,4 +934,6 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (48, 'update_provider_drawer_names'),
     (49, 'reorder_modules_loto_services_profits_v49'),
     (50, 'add_loto_checkpoints_table'),
-    (51, 'add_loto_cash_prizes_table');
+    (51, 'add_loto_cash_prizes_table'),
+    (52, 'add_loto_settlements_table'),
+    (53, 'create_mobile_service_items');

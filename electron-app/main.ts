@@ -166,6 +166,9 @@ app.whenReady().then(async () => {
   // Register IPC handlers
   await registerHandlers();
 
+  // Start automatic hourly backup
+  startHourlyBackup();
+
   createWindow();
 
   // Auto-check for updates in background (packaged builds only, setting-gated)
@@ -205,11 +208,44 @@ app.on("window-all-closed", () => {
  * Initialize database connection and schema
  */
 function initializeDatabase() {
-  const resolved = resolveDatabasePath();
-  const dbPath = resolved.path;
-  const resolvedKey = resolveDatabaseKey();
+  // First, try to get custom database path from settings (set by setup wizard)
+  let dbPath: string;
+  let dbSource = "settings";
 
-  logger.info({ dbPath, source: resolved.source }, "DB path resolved");
+  try {
+    // Try to read existing database to get settings
+    const tempResolved = resolveDatabasePath();
+    const tempDb = new Database(tempResolved.path);
+    const dbPathSetting = tempDb
+      .prepare(
+        "SELECT value FROM system_settings WHERE key_name = 'database_path' LIMIT 1",
+      )
+      .get() as { value?: string } | undefined;
+
+    if (dbPathSetting?.value) {
+      dbPath = dbPathSetting.value;
+      logger.info(
+        { dbPath, source: "settings" },
+        "Custom database path loaded from settings",
+      );
+    } else {
+      dbPath = tempResolved.path;
+      dbSource = tempResolved.source;
+      logger.info({ dbPath, source: dbSource }, "Default database path used");
+    }
+    tempDb.close();
+  } catch (error) {
+    // If can't read settings, use default path
+    const resolved = resolveDatabasePath();
+    dbPath = resolved.path;
+    dbSource = resolved.source;
+    logger.info(
+      { dbPath, source: dbSource },
+      "DB path resolved (settings not accessible)",
+    );
+  }
+
+  const resolvedKey = resolveDatabaseKey();
 
   // Ensure the database directory exists (fresh installs won't have it)
   const dbDir = path.dirname(dbPath);
@@ -224,8 +260,18 @@ function initializeDatabase() {
     // Apply SQLCipher key (if provided) BEFORE any other access
     const keyResult = applySqlCipherKey(db, resolvedKey.key);
 
-    db.pragma("journal_mode = WAL");
-    db.pragma("synchronous = NORMAL");
+    // Configure for network paths
+    const isNetworkPath = dbPath.startsWith("\\\\") || dbPath.startsWith("//");
+    if (isNetworkPath) {
+      db.pragma("journal_mode = WAL");
+      db.pragma("synchronous = NORMAL");
+      db.pragma("busy_timeout = 5000"); // 5 second timeout for network latency
+      db.pragma("cache_size = -2000"); // 2MB cache
+      logger.info("Database configured for network share (WAL mode enabled)");
+    } else {
+      db.pragma("journal_mode = WAL");
+      db.pragma("synchronous = NORMAL");
+    }
     db.pragma("foreign_keys = ON");
 
     logger.info(
@@ -319,10 +365,13 @@ function initializeDatabase() {
       logger.warn({ error: e }, "Admin seed warning");
     }
 
-    // Initialize @liratek/core database singleton
+    // Initialize @liratek/core database singleton with path
     initCoreDatabase(db);
 
-    logger.info("Database connected successfully");
+    logger.info(
+      { path: dbPath, network: isNetworkPath },
+      "Database connected successfully",
+    );
     return db;
   } catch (error) {
     logger.error({ error }, "Database connection failed");
@@ -435,8 +484,11 @@ async function registerHandlers() {
     const setupHandlers = await import("./handlers/setupHandlers.js");
     const printHandlers = await import("./handlers/printHandlers.js");
     const voiceBotHandlers = await import("./handlers/voiceBotHandlers.js");
+    const backupHandlers = await import("./handlers/backupHandlers.js");
+    const mobileServiceItemHandlers =
+      await import("./handlers/mobileServiceItemHandlers.js");
 
-    // Register all handlers (they auto-register with ipcMain)
+    // Register all handlers
     authHandlers.registerAuthHandlers();
     clientHandlers.registerClientHandlers();
     currencyHandlers.registerCurrencyHandlers();
@@ -466,6 +518,8 @@ async function registerHandlers() {
     setupHandlers.registerSetupHandlers();
     printHandlers.registerPrintHandlers();
     voiceBotHandlers.registerVoiceBotHandlers();
+    backupHandlers.registerBackupHandlers();
+    mobileServiceItemHandlers.registerMobileServiceItemHandlers();
 
     // Windows focus fix handler
     ipcMain.on("display:fix-focus", (event) => {
@@ -530,4 +584,47 @@ function startSessionCleanup() {
   setInterval(cleanupSessions, CLEANUP_INTERVAL);
 
   logger.info("Periodic session cleanup started (every 5 minutes)");
+}
+
+// ── Automatic Hourly Backup ──────────────────────────────────────────────────
+function startHourlyBackup() {
+  const BACKUP_INTERVAL = 60 * 60 * 1000; // 1 hour in milliseconds
+
+  const createHourlyBackup = async () => {
+    try {
+      const { ReportService } = await import("./services/ReportService.js");
+      const { getSettingsService } = await import("@liratek/core");
+
+      const service = new ReportService();
+      const backupResult = await service.backupDatabase();
+
+      if (backupResult.success) {
+        // Update last_backup_at setting
+        try {
+          const settings = getSettingsService();
+          settings.updateSetting("last_backup_at", new Date().toISOString());
+        } catch {}
+
+        logger.info(
+          { path: backupResult.path },
+          "Automatic hourly backup created",
+        );
+      } else {
+        logger.error(
+          { error: backupResult.error },
+          "Automatic hourly backup failed",
+        );
+      }
+    } catch (error) {
+      logger.error({ error }, "Error during automatic backup");
+    }
+  };
+
+  // Run backup immediately on startup (after 1 minute delay)
+  setTimeout(createHourlyBackup, 60 * 1000);
+
+  // Then run every hour
+  setInterval(createHourlyBackup, BACKUP_INTERVAL);
+
+  logger.info("Automatic hourly backup started (every 1 hour)");
 }

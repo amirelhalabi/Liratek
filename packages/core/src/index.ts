@@ -47,6 +47,12 @@ export {
 
 // Services
 export * from "./services/index.js";
+export {
+  BackupService,
+  getBackupService,
+  resetBackupService,
+} from "./services/BackupService.js";
+export type { BackupInfo, BackupResult } from "./services/BackupService.js";
 
 // Loto Service (explicit exports)
 export {

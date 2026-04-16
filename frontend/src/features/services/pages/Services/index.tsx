@@ -17,6 +17,7 @@ import { PageHeader, Select, useApi, appEvents } from "@liratek/ui";
 import { DataTable } from "@liratek/ui";
 import { MultiPaymentInput, type PaymentLine } from "@liratek/ui";
 import { StatsCards } from "../../components/StatsCards";
+import { getExchangeRates } from "@/utils/exchangeRates";
 
 type Provider = "OMT" | "WHISH";
 type ServiceType = "SEND" | "RECEIVE";
@@ -275,6 +276,22 @@ export default function Services() {
 
   // History modal
   const [showHistory, setShowHistory] = useState(false);
+
+  // Exchange rate for multi-currency payments (loaded from database)
+  const [exchangeRate, setExchangeRate] = useState(89500);
+
+  useEffect(() => {
+    const loadRate = async () => {
+      try {
+        const rates = await api.getRates();
+        const { sellRate } = getExchangeRates(rates);
+        setExchangeRate(sellRate);
+      } catch (error) {
+        logger.error("Failed to load exchange rate:", error);
+      }
+    };
+    loadRate();
+  }, [api]);
 
   // Payment method fee (PM fee) — surcharge for non-cash wallet payments
   // Stored as a USD amount string; auto-filled from amount * 1% default rate
@@ -1308,10 +1325,7 @@ export default function Services() {
                       { code: "USD", symbol: "$" },
                       { code: "LBP", symbol: "L£" },
                     ]}
-                    exchangeRate={Number(
-                      localStorage.getItem("alfa_credit_sell_rate_lbp") ||
-                        "100000",
-                    )}
+                    exchangeRate={exchangeRate}
                   />
                 )}
               </div>

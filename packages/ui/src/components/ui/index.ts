@@ -12,6 +12,12 @@ export type {
   ServiceTypeOption,
   ServiceTypeIcon,
 } from "./ServiceTypeTabs";
+export { default as DoubleTab } from "./DoubleTab";
+export type {
+  DoubleTabProps,
+  DoubleTabOption,
+  DoubleTabIcon,
+} from "./DoubleTab";
 export { default as MultiPaymentInput } from "./MultiPaymentInput";
 export type {
   MultiPaymentInputProps,
