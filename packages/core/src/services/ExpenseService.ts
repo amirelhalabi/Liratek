@@ -23,9 +23,9 @@ export class ExpenseService {
   /**
    * Add a new expense
    */
-  addExpense(data: CreateExpenseData): ExpenseResult {
+  addExpense(data: CreateExpenseData, userId: number): ExpenseResult {
     try {
-      const id = this.repo.createExpense(data);
+      const id = this.repo.createExpense(data, userId);
 
       expenseLogger.info(
         {
@@ -59,12 +59,12 @@ export class ExpenseService {
   /**
    * Delete an expense
    */
-  deleteExpense(id: number): ExpenseResult {
+  deleteExpense(id: number, userId: number): ExpenseResult {
     try {
       // Get expense details for logging
       const expense = this.repo.getExpenseById(id);
 
-      this.repo.deleteExpense(id);
+      this.repo.deleteExpense(id, userId);
 
       if (expense) {
         expenseLogger.info(

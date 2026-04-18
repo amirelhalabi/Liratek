@@ -31,7 +31,12 @@ export {
   getClientService,
   resetClientService,
 } from "./ClientService.js";
-export type { ClientResult } from "./ClientService.js";
+export type {
+  ClientResult,
+  ImportedDebtEntry,
+  ImportedClientData,
+  ImportResult,
+} from "./ClientService.js";
 
 // Debt Service
 export {
@@ -258,3 +263,19 @@ export type {
   MobileServiceItemResult,
   MobileServiceItemBulkResult,
 } from "./MobileServiceItemService.js";
+
+// Audit Service
+export {
+  AuditService,
+  getAuditService,
+  resetAuditService,
+  auditLogger,
+} from "./AuditService.js";
+export type {
+  CreateAuditLogData,
+  AuditLogEntity,
+  AuditFilters,
+} from "./AuditService.js";
+
+// Audit utilities
+export { diffObjects } from "../utils/audit.js";

@@ -12,6 +12,8 @@ import {
   getTransactionRepository,
 } from "@liratek/core";
 import type { CreateFinancialServiceData } from "@liratek/core";
+import { requireRole } from "../session.js";
+import { audit } from "./auditHelper.js";
 
 export function registerOMTHandlers(): void {
   const financialService = getFinancialService();
@@ -19,7 +21,9 @@ export function registerOMTHandlers(): void {
   // Add Transaction (Drawer A for OMT, Drawer B for WHISH/BOB/OTHER)
   ipcMain.handle(
     "omt:add-transaction",
-    (_event, data: CreateFinancialServiceData) => {
+    (event, data: CreateFinancialServiceData) => {
+      const auth = requireRole(event.sender.id, ["admin", "staff"]);
+      if (!auth.ok) return { success: false, error: auth.error };
       financialLogger.info(
         {
           provider: data.provider,
@@ -29,7 +33,19 @@ export function registerOMTHandlers(): void {
         },
         "Processing financial service transaction",
       );
-      return financialService.addTransaction(data);
+      const result = financialService.addTransaction(data);
+      audit(event.sender.id, {
+        action: "create",
+        entity_type: "financial_transaction",
+        summary: `${data.provider} ${data.serviceType}: ${data.amount} ${data.currency || "USD"}`,
+        metadata: {
+          provider: data.provider,
+          serviceType: data.serviceType,
+          amount: data.amount,
+          currency: data.currency || "USD",
+        },
+      });
+      return result;
     },
   );
 

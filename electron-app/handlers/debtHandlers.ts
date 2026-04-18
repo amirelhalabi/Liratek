@@ -7,6 +7,8 @@
 
 import { ipcMain } from "electron";
 import { getDebtService, debtLogger } from "@liratek/core";
+import { requireRole } from "../session.js";
+import { audit } from "./auditHelper.js";
 
 interface RepaymentPaymentLeg {
   method: string;
@@ -46,7 +48,9 @@ export function registerDebtHandlers(): void {
   });
 
   // Add a repayment
-  ipcMain.handle("debt:add-repayment", (_event, data: RepaymentData) => {
+  ipcMain.handle("debt:add-repayment", (event, data: RepaymentData) => {
+    const auth = requireRole(event.sender.id, ["admin", "staff"]);
+    if (!auth.ok) return { success: false, error: auth.error };
     debtLogger.info(
       {
         clientId: data.clientId,
@@ -55,7 +59,18 @@ export function registerDebtHandlers(): void {
       },
       "Adding repayment",
     );
-    return debtService.addRepayment(data);
+    const result = debtService.addRepayment({ ...data, userId: auth.userId });
+    audit(event.sender.id, {
+      action: "create",
+      entity_type: "repayment",
+      summary: `Repayment for client #${data.clientId}: $${data.amountUSD} + ${data.amountLBP} LBP`,
+      metadata: {
+        clientId: data.clientId,
+        amountUSD: data.amountUSD,
+        amountLBP: data.amountLBP,
+      },
+    });
+    return result;
   });
 
   // Dashboard debt summary

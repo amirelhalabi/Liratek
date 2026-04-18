@@ -28,6 +28,9 @@ export type TransactionType =
 export interface MultiPaymentInputProps {
   totalAmount: number;
   currency: string;
+  /** The currency that totalAmount is denominated in. Defaults to "USD".
+   *  e.g. Whish/iPick/KATCH pass "LBP", POS sale passes "USD". */
+  totalAmountCurrency?: string;
   onChange: (payments: PaymentLine[]) => void;
   requiresClientForDebt?: boolean;
   hasClient?: boolean;
@@ -53,6 +56,7 @@ const CASH_EQUIVALENT_METHODS = new Set(["CASH", "DEBT"]);
 export default function MultiPaymentInput({
   totalAmount,
   currency,
+  totalAmountCurrency = "USD",
   onChange,
   requiresClientForDebt = true,
   hasClient = false,
@@ -66,6 +70,7 @@ export default function MultiPaymentInput({
   exchangeRate,
   onRateChange,
 }: MultiPaymentInputProps) {
+  const [isSplitMode, setIsSplitMode] = useState(false);
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([
     {
       id: crypto.randomUUID(),
@@ -91,6 +96,19 @@ export default function MultiPaymentInput({
     onExchangeRateChange?.(safeExchangeRate);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [safeExchangeRate]);
+
+  // In single mode, auto-sync the line amount with totalAmount
+  useEffect(() => {
+    if (!isSplitMode && paymentLines.length === 1) {
+      const line = paymentLines[0];
+      if (line.amount !== totalAmount) {
+        const updated = [{ ...line, amount: totalAmount }];
+        setPaymentLines(updated);
+        onChange(updated);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [totalAmount, isSplitMode]);
 
   const handleLinesChange = (newLines: PaymentLine[]) => {
     setPaymentLines(newLines);
@@ -172,15 +190,30 @@ export default function MultiPaymentInput({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pmFeesKey]);
 
-  // Calculate total paid in USD (convert LBP to USD using exchange rate)
-  const totalPaid = paymentLines.reduce((sum, line) => {
-    const amount = line.amount || 0;
-    if (line.currencyCode === "LBP") {
-      // Convert LBP to USD
-      return sum + amount / safeExchangeRate;
+  const effectiveRate = parseFloat(customExchangeRate) || safeExchangeRate;
+
+  /** Convert a payment line amount into the totalAmountCurrency.
+   *  - If the line currency matches totalAmountCurrency → no conversion.
+   *  - LBP → USD: divide by rate.   USD → LBP: multiply by rate. */
+  const normalizeToTarget = (amount: number, lineCurrency: string): number => {
+    if (lineCurrency === totalAmountCurrency) return amount;
+    if (lineCurrency === "LBP" && totalAmountCurrency === "USD") {
+      return amount / effectiveRate;
     }
-    return sum + amount;
+    if (lineCurrency === "USD" && totalAmountCurrency === "LBP") {
+      return amount * effectiveRate;
+    }
+    // Fallback for other currency pairs — treat as-is (no cross-rate support yet)
+    return amount;
+  };
+
+  // Calculate total paid normalized to the totalAmountCurrency
+  const totalPaid = paymentLines.reduce((sum, line) => {
+    return sum + normalizeToTarget(line.amount || 0, line.currencyCode);
   }, 0);
+
+  // Tolerance for matching: LBP amounts are large so use higher tolerance
+  const matchTolerance = totalAmountCurrency === "LBP" ? 100 : 0.01;
 
   const hasDebt = paymentLines.some((line) => line.method === "DEBT");
 
@@ -189,154 +222,251 @@ export default function MultiPaymentInput({
     return curr?.symbol || "$";
   };
 
+  // Summary formatting helpers
+  const targetSymbol = getSymbol(totalAmountCurrency);
+  const targetDecimals = totalAmountCurrency === "LBP" ? 0 : 2;
+  const fmtTarget = (v: number) => {
+    const formatted = Math.abs(v).toFixed(targetDecimals);
+    // Prefix symbols ($, €, £) go before the number, others (LBP) go after
+    if (["$", "€", "£"].includes(targetSymbol)) {
+      return `${targetSymbol}${formatted}`;
+    }
+    return `${formatted} ${targetSymbol}`;
+  };
+
+  const toggleSplitMode = () => {
+    if (isSplitMode) {
+      // Switching to single: reset to one line with full amount
+      const singleLine: PaymentLine[] = [
+        {
+          id: crypto.randomUUID(),
+          method: paymentLines[0]?.method || "CASH",
+          currencyCode: paymentLines[0]?.currencyCode || currency,
+          amount: totalAmount,
+        },
+      ];
+      setPaymentLines(singleLine);
+      onChange(singleLine);
+    }
+    setIsSplitMode(!isSplitMode);
+  };
+
   return (
     <div className="bg-slate-900/40 border border-slate-700/50 rounded-xl p-4">
       <div className="flex items-center justify-between mb-3">
-        <div className="text-sm font-medium text-slate-300">Payment Split</div>
+        <div className="text-sm font-medium text-slate-300">
+          {isSplitMode ? "Payment Split" : "Payment Method"}
+        </div>
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <label className="text-xs text-slate-500">1 USD =</label>
-            <input
-              type="number"
-              value={customExchangeRate}
-              onChange={(e) => {
-                setCustomExchangeRate(e.target.value);
-                const newRate = parseFloat(e.target.value) || safeExchangeRate;
-                onRateChange?.(newRate);
-                onExchangeRateChange?.(newRate);
-              }}
-              className="w-28 bg-slate-950 border border-slate-700 rounded-lg px-3 py-1 text-white font-mono text-xs focus:outline-none focus:border-violet-500"
-              placeholder={safeExchangeRate.toString()}
-            />
-            <label className="text-xs text-slate-500">LBP</label>
-          </div>
+          {isSplitMode && (
+            <>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-slate-500">1 USD =</label>
+                <input
+                  type="number"
+                  value={customExchangeRate}
+                  onChange={(e) => {
+                    setCustomExchangeRate(e.target.value);
+                    const newRate =
+                      parseFloat(e.target.value) || safeExchangeRate;
+                    onRateChange?.(newRate);
+                    onExchangeRateChange?.(newRate);
+                  }}
+                  className="w-28 bg-slate-950 border border-slate-700 rounded-lg px-3 py-1 text-white font-mono text-xs focus:outline-none focus:border-violet-500"
+                  placeholder={safeExchangeRate.toString()}
+                />
+                <label className="text-xs text-slate-500">LBP</label>
+              </div>
+              <button
+                type="button"
+                onClick={addPaymentLine}
+                className="text-xs px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors"
+              >
+                + Add Payment Method
+              </button>
+            </>
+          )}
           <button
             type="button"
-            onClick={addPaymentLine}
-            className="text-xs px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors"
+            onClick={toggleSplitMode}
+            className="text-xs px-3 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
           >
-            + Add Payment Method
+            {isSplitMode ? "Single Payment" : "Split Payment"}
           </button>
         </div>
       </div>
 
-      <div className="space-y-2">
-        {paymentLines.map((line) => (
-          <div key={line.id}>
-            <div className="grid grid-cols-12 gap-2 items-center">
-              {/* Payment Method */}
-              <div className="col-span-5">
-                <select
-                  value={line.method}
-                  onChange={(e) =>
-                    updatePaymentLine(line.id, "method", e.target.value)
-                  }
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
-                >
-                  {paymentMethods.map((pm) => (
-                    <option key={pm.code} value={pm.code}>
-                      {pm.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Currency */}
-              <div className="col-span-3">
-                <select
-                  value={line.currencyCode}
-                  onChange={(e) =>
-                    updatePaymentLine(line.id, "currencyCode", e.target.value)
-                  }
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
-                >
-                  {currencies.map((curr) => (
-                    <option key={curr.code} value={curr.code}>
-                      {curr.code}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Amount */}
-              <div className="col-span-3">
-                <div className="relative">
-                  {/* Show prefix symbols ($, €, £) */}
-                  {["$", "€", "£"].includes(getSymbol(line.currencyCode)) && (
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs">
-                      {getSymbol(line.currencyCode)}
-                    </span>
-                  )}
-                  <input
-                    type="number"
-                    value={line.amount || ""}
+      {isSplitMode ? (
+        <div className="space-y-2">
+          {paymentLines.map((line) => (
+            <div key={line.id}>
+              <div className="grid grid-cols-12 gap-2 items-center">
+                {/* Payment Method */}
+                <div className="col-span-5">
+                  <select
+                    value={line.method}
                     onChange={(e) =>
-                      updatePaymentLine(
-                        line.id,
-                        "amount",
-                        parseFloat(e.target.value) || 0,
-                      )
+                      updatePaymentLine(line.id, "method", e.target.value)
                     }
-                    className={`w-full bg-slate-950 border border-slate-700 rounded-lg pr-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-violet-500 ${
-                      ["$", "€", "£"].includes(getSymbol(line.currencyCode))
-                        ? "pl-7"
-                        : "pl-3"
-                    }`}
-                    placeholder="0"
-                    step="0.01"
-                  />
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
+                  >
+                    {paymentMethods.map((pm) => (
+                      <option key={pm.code} value={pm.code}>
+                        {pm.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
-              </div>
 
-              {/* Remove Button */}
-              <div className="col-span-1 flex justify-end">
-                <button
-                  type="button"
-                  disabled={paymentLines.length === 1}
-                  onClick={() => removePaymentLine(line.id)}
-                  className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
-                  title="Remove payment line"
-                >
-                  <X size={16} />
-                </button>
-              </div>
-            </div>
-
-            {/* PM Fee Row */}
-            {showPmFee && !CASH_EQUIVALENT_METHODS.has(line.method) && (
-              <div className="grid grid-cols-12 gap-2 items-center mt-1 ml-0 pl-0">
-                <div className="col-span-5" />
-                <div className="col-span-3" />
+                {/* Currency */}
                 <div className="col-span-3">
-                  <div className="relative bg-violet-950/40 border border-violet-700/50 rounded-lg px-3 py-2">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-violet-400 text-xs">
-                      $
-                    </span>
+                  <select
+                    value={line.currencyCode}
+                    onChange={(e) =>
+                      updatePaymentLine(line.id, "currencyCode", e.target.value)
+                    }
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
+                  >
+                    {currencies.map((curr) => (
+                      <option key={curr.code} value={curr.code}>
+                        {curr.code}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Amount */}
+                <div className="col-span-3">
+                  <div className="relative">
+                    {/* Show prefix symbols ($, €, £) */}
+                    {["$", "€", "£"].includes(getSymbol(line.currencyCode)) && (
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs">
+                        {getSymbol(line.currencyCode)}
+                      </span>
+                    )}
                     <input
                       type="number"
-                      value={
-                        pmFeeOverrides[line.id] ??
-                        (line.amount * pmFeeRate).toFixed(2)
+                      value={line.amount || ""}
+                      onChange={(e) =>
+                        updatePaymentLine(
+                          line.id,
+                          "amount",
+                          parseFloat(e.target.value) || 0,
+                        )
                       }
-                      onChange={(e) => {
-                        const newOverrides = { ...pmFeeOverrides };
-                        newOverrides[line.id] = e.target.value;
-                        setPmFeeOverrides(newOverrides);
-                      }}
-                      className="w-full bg-transparent text-violet-200 text-sm font-mono focus:outline-none pl-7 pr-3 py-0"
-                      placeholder="0.00"
+                      className={`w-full bg-slate-950 border border-slate-700 rounded-lg pr-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-violet-500 ${
+                        ["$", "€", "£"].includes(getSymbol(line.currencyCode))
+                          ? "pl-7"
+                          : "pl-3"
+                      }`}
+                      placeholder="0"
                       step="0.01"
                     />
                   </div>
                 </div>
-                <div className="col-span-1 flex justify-start">
-                  <label className="text-xs text-violet-400">PM fee:</label>
+
+                {/* Remove Button */}
+                <div className="col-span-1 flex justify-end">
+                  <button
+                    type="button"
+                    disabled={paymentLines.length === 1}
+                    onClick={() => removePaymentLine(line.id)}
+                    className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+                    title="Remove payment line"
+                  >
+                    <X size={16} />
+                  </button>
                 </div>
               </div>
-            )}
+
+              {/* PM Fee Row */}
+              {showPmFee && !CASH_EQUIVALENT_METHODS.has(line.method) && (
+                <div className="grid grid-cols-12 gap-2 items-center mt-1 ml-0 pl-0">
+                  <div className="col-span-5" />
+                  <div className="col-span-3" />
+                  <div className="col-span-3">
+                    <div className="relative bg-violet-950/40 border border-violet-700/50 rounded-lg px-3 py-2">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-violet-400 text-xs">
+                        $
+                      </span>
+                      <input
+                        type="number"
+                        value={
+                          pmFeeOverrides[line.id] ??
+                          (line.amount * pmFeeRate).toFixed(2)
+                        }
+                        onChange={(e) => {
+                          const newOverrides = { ...pmFeeOverrides };
+                          newOverrides[line.id] = e.target.value;
+                          setPmFeeOverrides(newOverrides);
+                        }}
+                        className="w-full bg-transparent text-violet-200 text-sm font-mono focus:outline-none pl-7 pr-3 py-0"
+                        placeholder="0.00"
+                        step="0.01"
+                      />
+                    </div>
+                  </div>
+                  <div className="col-span-1 flex justify-start">
+                    <label className="text-xs text-violet-400">PM fee:</label>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <>
+          <div className="flex gap-2">
+            <select
+              value={paymentLines[0]?.method || "CASH"}
+              onChange={(e) =>
+                updatePaymentLine(paymentLines[0]?.id, "method", e.target.value)
+              }
+              className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
+            >
+              {paymentMethods.map((pm) => (
+                <option key={pm.code} value={pm.code}>
+                  {pm.label}
+                </option>
+              ))}
+            </select>
+            <select
+              value={paymentLines[0]?.currencyCode || currency}
+              onChange={(e) =>
+                updatePaymentLine(
+                  paymentLines[0]?.id,
+                  "currencyCode",
+                  e.target.value,
+                )
+              }
+              className="w-24 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
+            >
+              {currencies.map((curr) => (
+                <option key={curr.code} value={curr.code}>
+                  {curr.code}
+                </option>
+              ))}
+            </select>
           </div>
-        ))}
-      </div>
+          <div className="mt-2">
+            <label className="text-xs text-slate-500 mb-1 block">Paid</label>
+            <input
+              type="number"
+              value={paymentLines[0]?.amount || ""}
+              onChange={(e) =>
+                updatePaymentLine(
+                  paymentLines[0]?.id,
+                  "amount",
+                  parseFloat(e.target.value) || 0,
+                )
+              }
+              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-violet-500"
+              placeholder="0"
+              step="0.01"
+            />
+          </div>
+        </>
+      )}
 
       {/* Summary
           totalAmount = sentAmount + providerFee (what customer must physically pay)
@@ -350,19 +480,19 @@ export default function MultiPaymentInput({
             <div className="flex justify-between text-xs">
               <span className="text-slate-400">Send Amount</span>
               <span className="font-mono text-white">
-                ${(totalAmount - providerFee).toFixed(2)}
+                {fmtTarget(totalAmount - providerFee)}
               </span>
             </div>
             <div className="flex justify-between text-xs">
               <span className="text-amber-400">Provider Fee</span>
               <span className="font-mono text-amber-300">
-                +${providerFee.toFixed(2)}
+                +{fmtTarget(providerFee)}
               </span>
             </div>
             <div className="flex justify-between text-xs border-t border-slate-700/40 pt-1">
               <span className="text-slate-300 font-medium">Total to Pay</span>
               <span className="font-mono text-slate-200 font-medium">
-                ${totalAmount.toFixed(2)}
+                {fmtTarget(totalAmount)}
               </span>
             </div>
           </>
@@ -371,19 +501,19 @@ export default function MultiPaymentInput({
           <div className="flex justify-between text-xs">
             <span className="text-slate-400">Total Amount</span>
             <span className="font-mono text-white">
-              ${totalAmount.toFixed(2)}
+              {fmtTarget(totalAmount)}
             </span>
           </div>
         )}
         <div className="flex justify-between text-xs">
           <span className="text-slate-400">Total Paid</span>
           <span
-            className={`font-mono ${Math.abs(totalPaid - totalAmount) < 0.01 ? "text-emerald-400" : "text-red-400"}`}
+            className={`font-mono ${Math.abs(totalPaid - totalAmount) < matchTolerance ? "text-emerald-400" : "text-red-400"}`}
           >
-            ${totalPaid.toFixed(2)}
+            {fmtTarget(totalPaid)}
           </span>
         </div>
-        {Math.abs(totalPaid - totalAmount) > 0.01 && (
+        {Math.abs(totalPaid - totalAmount) > matchTolerance && (
           <div className="flex justify-between text-xs">
             <span
               className={
@@ -395,7 +525,7 @@ export default function MultiPaymentInput({
             <span
               className={`font-mono font-bold ${totalPaid < totalAmount ? "text-red-400" : "text-amber-400"}`}
             >
-              ${Math.abs(totalPaid - totalAmount).toFixed(2)}
+              {fmtTarget(Math.abs(totalPaid - totalAmount))}
             </span>
           </div>
         )}
@@ -406,13 +536,13 @@ export default function MultiPaymentInput({
                 Wallet Surcharge (PM fees)
               </span>
               <span className="font-mono text-violet-300">
-                +${totalPmFees.toFixed(2)}
+                +{fmtTarget(totalPmFees)}
               </span>
             </div>
             <div className="flex justify-between text-xs">
               <span className="text-white font-semibold">Grand Total</span>
               <span className="font-mono text-white font-semibold">
-                ${(totalPaid + totalPmFees).toFixed(2)}
+                {fmtTarget(totalPaid + totalPmFees)}
               </span>
             </div>
           </>

@@ -20,6 +20,8 @@ interface LotoCheckpoint {
   total_commission: number;
   total_tickets: number;
   total_prizes: number;
+  total_cash_prizes: number;
+  total_cash_prizes_count: number;
   is_settled: number;
   settled_at: string | null;
   settlement_id: number | null;
@@ -33,6 +35,7 @@ interface CheckpointReportData {
   total_sales: number;
   total_commission: number;
   total_prizes: number;
+  total_cash_prizes: number;
   outstanding_prizes: number;
   total_fees: number;
 }
@@ -217,9 +220,9 @@ export function CheckpointHistory({ onClose }: CheckpointHistoryProps) {
                     sortKey: "total_commission",
                   },
                   {
-                    header: "Prizes (LBP)",
+                    header: "Cash Prizes (LBP)",
                     className: "px-4 py-3 text-right",
-                    sortKey: "total_prizes",
+                    sortKey: "total_cash_prizes",
                   },
                   {
                     header: "Status",
@@ -271,7 +274,7 @@ export function CheckpointHistory({ onClose }: CheckpointHistoryProps) {
                       {checkpoint.total_commission.toLocaleString()}
                     </td>
                     <td className="px-4 py-3 text-right text-sm font-bold text-white font-mono">
-                      {checkpoint.total_prizes.toLocaleString()}
+                      {(checkpoint.total_cash_prizes || 0).toLocaleString()}
                     </td>
                     <td className="px-4 py-3 text-center">
                       <span
@@ -407,9 +410,12 @@ export function CheckpointHistory({ onClose }: CheckpointHistoryProps) {
                         </p>
                       </div>
                       <div>
-                        <p className="text-sm text-slate-400">Prizes Paid</p>
+                        <p className="text-sm text-slate-400">
+                          Cash Prizes Paid
+                        </p>
                         <p className="text-white font-bold text-lg">
-                          {reportData.total_prizes.toLocaleString()} LBP
+                          {(reportData.total_cash_prizes || 0).toLocaleString()}{" "}
+                          LBP
                         </p>
                       </div>
                     </div>

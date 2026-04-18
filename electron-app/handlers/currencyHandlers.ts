@@ -7,6 +7,7 @@
 import { ipcMain, IpcMainInvokeEvent } from "electron";
 import { getCurrencyService, settingsLogger } from "@liratek/core";
 import { requireRole } from "../session.js";
+import { audit } from "./auditHelper.js";
 import type { CreateCurrencyData, UpdateCurrencyData } from "@liratek/core";
 
 export function registerCurrencyHandlers(): void {
@@ -29,7 +30,14 @@ export function registerCurrencyHandlers(): void {
         { code: data.code, name: data.name },
         "Creating currency",
       );
-      return currencyService.createCurrency(data);
+      const result = currencyService.createCurrency(data);
+      audit(event.sender.id, {
+        action: "create",
+        entity_type: "currency",
+        entity_id: data.code,
+        summary: `Created currency "${data.code}" (${data.name})`,
+      });
+      return result;
     },
   );
 
@@ -42,7 +50,14 @@ export function registerCurrencyHandlers(): void {
 
       settingsLogger.info({ id: data.id }, "Updating currency");
       const { id, ...updateData } = data;
-      return currencyService.updateCurrency(id, updateData);
+      const result = currencyService.updateCurrency(id, updateData);
+      audit(event.sender.id, {
+        action: "update",
+        entity_type: "currency",
+        entity_id: String(id),
+        summary: `Updated currency #${id}`,
+      });
+      return result;
     },
   );
 
@@ -54,7 +69,14 @@ export function registerCurrencyHandlers(): void {
       if (!auth.ok) return { success: false, error: auth.error };
 
       settingsLogger.info({ id }, "Deleting currency");
-      return currencyService.deleteCurrency(id);
+      const result = currencyService.deleteCurrency(id);
+      audit(event.sender.id, {
+        action: "delete",
+        entity_type: "currency",
+        entity_id: String(id),
+        summary: `Deleted currency #${id}`,
+      });
+      return result;
     },
   );
 
@@ -80,7 +102,15 @@ export function registerCurrencyHandlers(): void {
       if (!auth.ok) return { success: false, error: auth.error };
 
       settingsLogger.info({ code, modules }, "Setting modules for currency");
-      return currencyService.setModulesForCurrency(code, modules);
+      const result = currencyService.setModulesForCurrency(code, modules);
+      audit(event.sender.id, {
+        action: "update",
+        entity_type: "currency_modules",
+        entity_id: code,
+        summary: `Set modules for currency ${code}`,
+        new_values: { modules },
+      });
+      return result;
     },
   );
 
@@ -119,7 +149,18 @@ export function registerCurrencyHandlers(): void {
         { drawerName, currencies },
         "Setting currencies for drawer",
       );
-      return currencyService.setCurrenciesForDrawer(drawerName, currencies);
+      const result = currencyService.setCurrenciesForDrawer(
+        drawerName,
+        currencies,
+      );
+      audit(event.sender.id, {
+        action: "update",
+        entity_type: "currency_drawers",
+        entity_id: drawerName,
+        summary: `Set currencies for drawer ${drawerName}`,
+        new_values: { currencies },
+      });
+      return result;
     },
   );
 

@@ -73,7 +73,7 @@ router.post(
   validateRequest(createSaleSchema),
   (req, res) => {
     const service = getSalesService();
-    const result = service.processSale(req.body);
+    const result = service.processSale(req.body, req.user!.userId);
 
     if (result.success) {
       emitEvent("sales:processed", {

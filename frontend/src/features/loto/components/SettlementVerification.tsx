@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
-import { useApi } from "@liratek/ui";
+import { useApi, MultiPaymentInput, type PaymentLine } from "@liratek/ui";
+import { usePaymentMethods } from "@/hooks/usePaymentMethods";
+import { getExchangeRates } from "@/utils/exchangeRates";
 import {
   Calculator,
   CheckCircle,
@@ -21,12 +23,16 @@ interface UnsettledCheckpoint {
   total_commission: number;
   total_tickets: number;
   total_prizes: number;
+  total_cash_prizes: number;
+  total_cash_prizes_count: number;
   is_settled: number;
 }
 
 interface CheckpointBreakdown {
   sales: number;
   commission: number;
+  cashPrizes: number;
+  cashPrizesCount: number;
   weOweLoto: number;
   lotoOwesUs: number;
   net: number;
@@ -36,6 +42,7 @@ interface UncheckedActivity {
   sales: number;
   commission: number;
   cashPrizes: number;
+  cashPrizesCount: number;
   ticketsCount: number;
   net: number;
 }
@@ -44,6 +51,8 @@ export function SettlementVerification({
   onSettlementComplete,
 }: SettlementVerificationProps) {
   const api = useApi();
+  const { methods } = usePaymentMethods();
+  const [exchangeRate, setExchangeRate] = useState(90000);
   const [showDialog, setShowDialog] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -54,11 +63,26 @@ export function SettlementVerification({
   const [breakdowns, setBreakdowns] = useState<
     Map<number, CheckpointBreakdown>
   >(new Map());
-  const [totalCashPrizes, setTotalCashPrizes] = useState(0);
   const [uncheckedActivity, setUncheckedActivity] =
     useState<UncheckedActivity | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [settlementSuccess, setSettlementSuccess] = useState(false);
+  const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
+
+  // Load exchange rate
+  useEffect(() => {
+    (async () => {
+      try {
+        const getRatesApi = (api as any)?.getRates;
+        if (!getRatesApi) return;
+        const ratesList = await getRatesApi();
+        const { sellRate } = getExchangeRates(ratesList);
+        setExchangeRate(sellRate);
+      } catch {
+        // silent
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     if (showDialog) {
@@ -81,24 +105,17 @@ export function SettlementVerification({
       const checkpoints = checkpointsResult.checkpoints || [];
       setUnsettledCheckpoints(checkpoints);
 
-      // Get total unreimbursed cash prizes (global, not per checkpoint)
-      const cashPrizeResult = await api.loto.cashPrize.getTotalUnreimbursed();
-      const cashPrizes =
-        cashPrizeResult.success && cashPrizeResult.total !== undefined
-          ? cashPrizeResult.total
-          : 0;
-      setTotalCashPrizes(cashPrizes);
-
-      // Calculate breakdown for each checkpoint
+      // Calculate breakdown for each checkpoint (cash prizes now per-checkpoint)
       const breakdownMap = new Map<number, CheckpointBreakdown>();
       for (const cp of checkpoints) {
         const weOweLoto = cp.total_sales - cp.total_commission;
-        // Cash prizes are distributed proportionally or shown as global
-        const lotoOwesUs = cashPrizes; // Show full amount on each checkpoint for clarity
+        const lotoOwesUs = cp.total_cash_prizes || 0;
         const net = lotoOwesUs - weOweLoto;
         breakdownMap.set(cp.id, {
           sales: cp.total_sales,
           commission: cp.total_commission,
+          cashPrizes: cp.total_cash_prizes || 0,
+          cashPrizesCount: cp.total_cash_prizes_count || 0,
           weOweLoto,
           lotoOwesUs,
           net,
@@ -111,12 +128,12 @@ export function SettlementVerification({
         const today = new Date().toISOString().split("T")[0];
         let periodStart = "1970-01-01";
 
-        // If there are checkpoints, get the latest period_end
-        if (checkpoints.length > 0) {
-          const latestCheckpoint = checkpoints.reduce((latest, cp) =>
-            cp.period_end > latest.period_end ? cp : latest,
-          );
-          periodStart = latestCheckpoint.period_end;
+        // Use the latest checkpoint (settled OR unsettled) to determine period start
+        const lastResult = await api.loto.checkpoint.getLast();
+        if (lastResult.success && lastResult.checkpoint) {
+          const nextDay = new Date(lastResult.checkpoint.period_end);
+          nextDay.setDate(nextDay.getDate() + 1);
+          periodStart = nextDay.toISOString().split("T")[0];
         }
 
         // Get sales after the last checkpoint period
@@ -129,22 +146,28 @@ export function SettlementVerification({
           0,
         );
 
-        // Get unreimbursed cash prizes
-        const unreimbursedResult =
-          await api.loto.cashPrize.getTotalUnreimbursed();
-        const cashPrizes =
-          unreimbursedResult.success && unreimbursedResult.total !== undefined
-            ? unreimbursedResult.total
-            : 0;
+        // Unchecked activity: tickets + unassigned cash prizes (no checkpoint yet)
+        const unreimbursedResult = await api.loto.cashPrize.getUnreimbursed();
+        const unassignedPrizes =
+          unreimbursedResult.success && unreimbursedResult.prizes
+            ? unreimbursedResult.prizes.filter(
+                (p: { checkpoint_id?: number | null }) => !p.checkpoint_id,
+              )
+            : [];
+        const cashPrizesTotal = unassignedPrizes.reduce(
+          (sum: number, p: { prize_amount: number }) => sum + p.prize_amount,
+          0,
+        );
 
         const weOweLoto = sales - commission;
-        const net = cashPrizes - weOweLoto;
+        const net = cashPrizesTotal - weOweLoto;
 
-        if (sales > 0 || cashPrizes > 0) {
+        if (tickets.length > 0 || unassignedPrizes.length > 0) {
           setUncheckedActivity({
             sales,
             commission,
-            cashPrizes,
+            cashPrizes: cashPrizesTotal,
+            cashPrizesCount: unassignedPrizes.length,
             ticketsCount: tickets.length,
             net,
           });
@@ -184,6 +207,17 @@ export function SettlementVerification({
     try {
       const today = new Date().toISOString().split("T")[0];
 
+      // Build payments array from payment lines
+      // Net > 0 = LOTO pays us (positive drawer credit)
+      // Net < 0 = we pay LOTO (negative drawer debit)
+      const totals = calculateTotals();
+      const sign = totals.net >= 0 ? 1 : -1;
+      const paymentsPayload = paymentLines.map((p) => ({
+        method: p.method,
+        currency_code: p.currencyCode,
+        amount: sign * Math.abs(p.amount),
+      }));
+
       // If there's unchecked activity but no checkpoints, create a checkpoint first
       if (unsettledCheckpoints.length === 0 && uncheckedActivity) {
         try {
@@ -192,13 +226,18 @@ export function SettlementVerification({
           if (checkpointResult.success && checkpointResult.checkpoint) {
             // Now settle the newly created checkpoint
             const newCheckpoint = checkpointResult.checkpoint;
-            await api.loto.checkpoint.settle({
+            const settleResult = await api.loto.checkpoint.settle({
               id: newCheckpoint.id,
               totalSales: newCheckpoint.total_sales,
               totalCommission: newCheckpoint.total_commission,
               totalPrizes: newCheckpoint.total_prizes,
-              totalCashPrizes,
+              payments: paymentsPayload,
             });
+            if (!settleResult.success) {
+              throw new Error(
+                settleResult.error || "Failed to settle checkpoint",
+              );
+            }
           }
         } catch (checkpointErr) {
           console.error("Failed to create checkpoint:", checkpointErr);
@@ -207,27 +246,23 @@ export function SettlementVerification({
       } else {
         // Settle all existing checkpoints
         for (const checkpoint of unsettledCheckpoints) {
-          await api.loto.checkpoint.settle({
+          const result = await api.loto.checkpoint.settle({
             id: checkpoint.id,
             totalSales: checkpoint.total_sales,
             totalCommission: checkpoint.total_commission,
             totalPrizes: checkpoint.total_prizes,
-            totalCashPrizes,
+            payments: paymentsPayload,
           });
+          if (!result.success) {
+            throw new Error(
+              result.error || `Failed to settle checkpoint #${checkpoint.id}`,
+            );
+          }
         }
       }
 
-      // Mark all unreimbursed cash prizes as reimbursed
-      try {
-        const unreimbursedResult = await api.loto.cashPrize.getUnreimbursed();
-        if (unreimbursedResult.success && unreimbursedResult.prizes) {
-          for (const prize of unreimbursedResult.prizes) {
-            await api.loto.cashPrize.markReimbursed(prize.id, today);
-          }
-        }
-      } catch {
-        // Cash prize API may not be available, continue
-      }
+      // Cash prizes are now automatically marked as reimbursed by the backend
+      // during settleCheckpoint() — no separate loop needed
 
       setSettlementSuccess(true);
 
@@ -260,9 +295,13 @@ export function SettlementVerification({
       (sum, cp) => sum + cp.total_commission,
       0,
     );
+    const totalCashPrizes = unsettledCheckpoints.reduce(
+      (sum, cp) => sum + (cp.total_cash_prizes || 0),
+      0,
+    );
     const weOweLoto = totalSales - totalCommission;
     const net = totalCashPrizes - weOweLoto;
-    return { totalSales, totalCommission, weOweLoto, net };
+    return { totalSales, totalCommission, totalCashPrizes, weOweLoto, net };
   }
 
   if (!showDialog) {
@@ -342,206 +381,165 @@ export function SettlementVerification({
             </div>
           ) : (
             <>
-              {/* Overall Settlement Summary */}
-              <div
-                className={`p-4 rounded-lg mb-6 border ${
-                  totals.net >= 0
-                    ? "bg-green-900/30 border-green-700"
-                    : "bg-red-900/30 border-red-700"
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-slate-400 mb-1">
-                      Settlement Summary ({unsettledCheckpoints.length}{" "}
-                      checkpoint{unsettledCheckpoints.length > 1 ? "s" : ""})
-                    </p>
-                    <p className="text-xs text-slate-500">
-                      Sales: {totals.totalSales.toLocaleString()} LBP •
-                      Commission: {totals.totalCommission.toLocaleString()} LBP
-                      • Cash Prizes: {totalCashPrizes.toLocaleString()} LBP
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p
-                      className={`text-sm font-semibold ${
-                        totals.net >= 0 ? "text-green-400" : "text-red-400"
-                      }`}
-                    >
-                      {totals.net >= 0 ? "LOTO pays us" : "We pay LOTO"}
-                    </p>
-                    <p
-                      className={`text-2xl font-bold ${
-                        totals.net >= 0 ? "text-green-400" : "text-red-400"
-                      }`}
-                    >
-                      {Math.abs(totals.net).toLocaleString()} LBP
-                    </p>
-                  </div>
-                </div>
-              </div>
-
               {/* Checkpoint List */}
-              <div className="space-y-3 mb-6">
-                <h4 className="text-sm font-semibold text-slate-400 uppercase tracking-wide">
-                  Checkpoint Details
-                </h4>
+              {unsettledCheckpoints.some(
+                (cp) => cp.total_tickets > 0 || cp.total_sales > 0,
+              ) && (
+                <div className="space-y-3 mb-6">
+                  <h4 className="text-sm font-semibold text-slate-400 uppercase tracking-wide">
+                    Checkpoint Details
+                  </h4>
 
-                {unsettledCheckpoints.map((checkpoint) => {
-                  const isExpanded = expandedId === checkpoint.id;
-                  const breakdown = breakdowns.get(checkpoint.id);
+                  {unsettledCheckpoints
+                    .filter((cp) => cp.total_tickets > 0 || cp.total_sales > 0)
+                    .map((checkpoint) => {
+                      const isExpanded = expandedId === checkpoint.id;
+                      const breakdown = breakdowns.get(checkpoint.id);
 
-                  return (
-                    <div
-                      key={checkpoint.id}
-                      className="border border-slate-700 rounded-lg overflow-hidden"
-                    >
-                      {/* Checkpoint Header (Clickable) */}
-                      <button
-                        onClick={() => toggleExpand(checkpoint.id)}
-                        className={`w-full p-4 transition-colors ${
-                          isExpanded
-                            ? "bg-blue-900/30 border-b border-slate-700"
-                            : "bg-slate-900/50 hover:bg-slate-900"
-                        }`}
-                      >
-                        <div className="flex items-center justify-between mb-3">
-                          <div className="flex items-center gap-3">
-                            <div
-                              className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                                isExpanded ? "bg-blue-600" : "bg-slate-700"
-                              }`}
-                            >
-                              <Calculator
-                                className={`w-5 h-5 ${
-                                  isExpanded ? "text-white" : "text-slate-400"
-                                }`}
-                              />
-                            </div>
-                            <div className="text-left">
-                              <p className="text-sm font-semibold text-white">
-                                {new Date(
-                                  checkpoint.checkpoint_date,
-                                ).toLocaleDateString("en-US", {
-                                  weekday: "short",
-                                  month: "short",
-                                  day: "numeric",
-                                  year: "numeric",
-                                })}
-                              </p>
-                              <p className="text-xs text-slate-400">
-                                {checkpoint.total_tickets} tickets •{" "}
-                                {checkpoint.total_sales.toLocaleString()} LBP
-                              </p>
-                            </div>
-                          </div>
-                          {isExpanded ? (
-                            <ChevronUp className="w-5 h-5 text-blue-400" />
-                          ) : (
-                            <ChevronDown className="w-5 h-5 text-slate-400" />
-                          )}
-                        </div>
-
-                        {/* Settlement Hint - Always Visible */}
-                        {breakdown && (
-                          <div
-                            className={`px-3 py-2 rounded-lg flex items-center justify-between ${
-                              breakdown.net >= 0
-                                ? "bg-green-900/30 border border-green-700/50"
-                                : "bg-red-900/30 border border-red-700/50"
+                      return (
+                        <div
+                          key={checkpoint.id}
+                          className="border border-slate-700 rounded-lg overflow-hidden"
+                        >
+                          {/* Checkpoint Header (Clickable) */}
+                          <button
+                            onClick={() => toggleExpand(checkpoint.id)}
+                            className={`w-full p-4 transition-colors ${
+                              isExpanded
+                                ? "bg-blue-900/30 border-b border-slate-700"
+                                : "bg-slate-900/50 hover:bg-slate-900"
                             }`}
                           >
-                            <span
-                              className={`text-xs font-medium ${
-                                breakdown.net >= 0
-                                  ? "text-green-400"
-                                  : "text-red-400"
-                              }`}
-                            >
-                              Net
-                            </span>
-                            <span
-                              className={`text-sm font-bold ${
-                                breakdown.net >= 0
-                                  ? "text-green-400"
-                                  : "text-red-400"
-                              }`}
-                            >
-                              {Math.abs(breakdown.net).toLocaleString()} LBP
-                            </span>
-                          </div>
-                        )}
-                      </button>
-
-                      {/* Expanded Breakdown */}
-                      {isExpanded && breakdown && (
-                        <div className="bg-slate-900/50 p-4">
-                          <h5 className="text-sm font-semibold text-white mb-4">
-                            How it's calculated
-                          </h5>
-
-                          {/* Money Flow */}
-                          <div className="space-y-3">
-                            <div className="flex items-center justify-between">
-                              <span className="text-sm text-slate-400">
-                                Sales collected
-                              </span>
-                              <span className="text-sm font-bold text-green-400">
-                                +{breakdown.sales.toLocaleString()} LBP
-                              </span>
+                            <div className="flex items-center justify-between mb-3">
+                              <div className="flex items-center gap-3">
+                                <div
+                                  className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                                    isExpanded ? "bg-blue-600" : "bg-slate-700"
+                                  }`}
+                                >
+                                  <Calculator
+                                    className={`w-5 h-5 ${
+                                      isExpanded
+                                        ? "text-white"
+                                        : "text-slate-400"
+                                    }`}
+                                  />
+                                </div>
+                                <div className="text-left">
+                                  <p className="text-sm font-semibold text-white">
+                                    {new Date(
+                                      checkpoint.checkpoint_date,
+                                    ).toLocaleDateString("en-US", {
+                                      weekday: "short",
+                                      month: "short",
+                                      day: "numeric",
+                                      year: "numeric",
+                                    })}
+                                  </p>
+                                  <p className="text-xs text-slate-400">
+                                    {checkpoint.total_tickets} tickets •{" "}
+                                    {checkpoint.total_sales.toLocaleString()}{" "}
+                                    LBP
+                                    {(checkpoint.total_cash_prizes_count || 0) >
+                                      0 &&
+                                      ` • ${checkpoint.total_cash_prizes_count} cash prize${checkpoint.total_cash_prizes_count !== 1 ? "s" : ""}`}
+                                  </p>
+                                </div>
+                              </div>
+                              {isExpanded ? (
+                                <ChevronUp className="w-5 h-5 text-blue-400" />
+                              ) : (
+                                <ChevronDown className="w-5 h-5 text-slate-400" />
+                              )}
                             </div>
 
-                            <div className="flex items-center justify-between">
-                              <span className="text-sm text-slate-400">
-                                We keep (commission)
-                              </span>
-                              <span className="text-sm font-bold text-blue-400">
-                                +{breakdown.commission.toLocaleString()} LBP
-                              </span>
-                            </div>
-
-                            <div className="flex items-center justify-between pt-2 border-t border-slate-700">
-                              <span className="text-sm text-slate-400">
-                                We owe LOTO
-                              </span>
-                              <span className="text-sm font-bold text-red-400">
-                                {breakdown.weOweLoto.toLocaleString()} LBP
-                              </span>
-                            </div>
-
-                            <div className="flex items-center justify-between">
-                              <span className="text-sm text-slate-400">
-                                LOTO owes us (cash prizes)
-                              </span>
-                              <span className="text-sm font-bold text-yellow-400">
-                                {breakdown.lotoOwesUs.toLocaleString()} LBP
-                              </span>
-                            </div>
-
-                            {/* Calculation */}
-                            <div className="bg-slate-800 rounded-lg p-3 mt-2">
-                              <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-                                <span>Formula</span>
-                                <span className="font-mono">
-                                  prizes - (sales - commission)
+                            {/* Settlement Hint - Always Visible */}
+                            {breakdown && (
+                              <div
+                                className={`px-3 py-2 rounded-lg flex items-center justify-between ${
+                                  breakdown.net >= 0
+                                    ? "bg-green-900/30 border border-green-700/50"
+                                    : "bg-red-900/30 border border-red-700/50"
+                                }`}
+                              >
+                                <span
+                                  className={`text-xs font-medium ${
+                                    breakdown.net >= 0
+                                      ? "text-green-400"
+                                      : "text-red-400"
+                                  }`}
+                                >
+                                  Net
+                                </span>
+                                <span
+                                  className={`text-sm font-bold ${
+                                    breakdown.net >= 0
+                                      ? "text-green-400"
+                                      : "text-red-400"
+                                  }`}
+                                >
+                                  {Math.abs(breakdown.net).toLocaleString()} LBP
                                 </span>
                               </div>
-                              <div className="flex items-center justify-between text-xs text-slate-500">
-                                <span>Calculation</span>
-                                <span className="font-mono">
-                                  {breakdown.lotoOwesUs.toLocaleString()} - (
-                                  {breakdown.sales.toLocaleString()} -{" "}
-                                  {breakdown.commission.toLocaleString()})
-                                </span>
+                            )}
+                          </button>
+
+                          {/* Expanded Breakdown */}
+                          {isExpanded && breakdown && (
+                            <div className="bg-slate-900/50 p-4">
+                              <h5 className="text-sm font-semibold text-white mb-4">
+                                How it's calculated
+                              </h5>
+
+                              {/* Money Flow */}
+                              <div className="space-y-3">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-sm text-slate-400">
+                                    Sales collected
+                                  </span>
+                                  <span className="text-sm font-bold text-green-400">
+                                    +{breakdown.sales.toLocaleString()} LBP
+                                  </span>
+                                </div>
+
+                                <div className="flex items-center justify-between">
+                                  <span className="text-sm text-slate-400">
+                                    We keep (commission)
+                                  </span>
+                                  <span className="text-sm font-bold text-blue-400">
+                                    +{breakdown.commission.toLocaleString()} LBP
+                                  </span>
+                                </div>
+
+                                <div className="flex items-center justify-between pt-2 border-t border-slate-700">
+                                  <span className="text-sm text-slate-400">
+                                    We owe LOTO
+                                  </span>
+                                  <span className="text-sm font-bold text-red-400">
+                                    {breakdown.weOweLoto.toLocaleString()} LBP
+                                  </span>
+                                </div>
+
+                                {breakdown.cashPrizes > 0 && (
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-sm text-slate-400">
+                                      LOTO owes us (cash prizes ×{" "}
+                                      {breakdown.cashPrizesCount})
+                                    </span>
+                                    <span className="text-sm font-bold text-yellow-400">
+                                      +{breakdown.cashPrizes.toLocaleString()}{" "}
+                                      LBP
+                                    </span>
+                                  </div>
+                                )}
                               </div>
                             </div>
-                          </div>
+                          )}
                         </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
+                      );
+                    })}
+                </div>
+              )}
 
               {/* Unchecked Activity */}
               {uncheckedActivity && (
@@ -561,9 +559,10 @@ export function SettlementVerification({
                               Sales Without Checkpoint
                             </p>
                             <p className="text-xs text-slate-400">
-                              {uncheckedActivity.ticketsCount} tickets •{" "}
-                              {uncheckedActivity.sales.toLocaleString()} LBP
-                              sales
+                              {uncheckedActivity.ticketsCount} ticket
+                              {uncheckedActivity.ticketsCount !== 1 ? "s" : ""}
+                              {uncheckedActivity.cashPrizesCount > 0 &&
+                                ` • ${uncheckedActivity.cashPrizesCount} cash prize${uncheckedActivity.cashPrizesCount !== 1 ? "s" : ""}`}
                             </p>
                           </div>
                         </div>
@@ -612,12 +611,15 @@ export function SettlementVerification({
                             {uncheckedActivity.commission.toLocaleString()} LBP
                           </span>
                         </div>
-                        <div>
-                          <span className="text-slate-400">Cash Prizes:</span>{" "}
-                          <span className="text-yellow-400 font-medium">
-                            {uncheckedActivity.cashPrizes.toLocaleString()} LBP
-                          </span>
-                        </div>
+                        {uncheckedActivity.cashPrizes > 0 && (
+                          <div>
+                            <span className="text-slate-400">Cash Prizes:</span>{" "}
+                            <span className="text-yellow-400 font-medium">
+                              {uncheckedActivity.cashPrizes.toLocaleString()}{" "}
+                              LBP
+                            </span>
+                          </div>
+                        )}
                       </div>
 
                       {/* Create Checkpoint Button */}
@@ -655,6 +657,33 @@ export function SettlementVerification({
                   </div>
                 </div>
               )}
+
+              {/* Payment Method Selection */}
+              <div className="mb-6">
+                <h4 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">
+                  Payment Method
+                </h4>
+                <div className="bg-slate-900/50 border border-slate-700 rounded-lg p-4">
+                  <p className="text-xs text-slate-400 mb-3">
+                    {totals.net >= 0
+                      ? "How LOTO pays you:"
+                      : "How you pay LOTO:"}
+                  </p>
+                  <MultiPaymentInput
+                    totalAmount={Math.abs(totals.net)}
+                    totalAmountCurrency="LBP"
+                    currency="LBP"
+                    onChange={setPaymentLines}
+                    showPmFee={false}
+                    paymentMethods={methods}
+                    currencies={[
+                      { code: "USD", symbol: "$" },
+                      { code: "LBP", symbol: "LBP" },
+                    ]}
+                    exchangeRate={exchangeRate}
+                  />
+                </div>
+              </div>
 
               {/* Action Buttons */}
               <div className="flex gap-3 pt-4 border-t border-slate-700">

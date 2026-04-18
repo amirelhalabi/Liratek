@@ -1,6 +1,7 @@
 import { ipcMain } from "electron";
 import { getSupplierService, getFinancialService } from "@liratek/core";
 import { requireRole } from "../session.js";
+import { audit } from "./auditHelper.js";
 
 export function registerSupplierHandlers(): void {
   const service = getSupplierService();
@@ -38,7 +39,18 @@ export function registerSupplierHandlers(): void {
         if (!auth.ok) return { success: false, error: auth.error };
       } catch {}
 
-      return service.createSupplier(data);
+      const result = service.createSupplier(data);
+      audit(e.sender.id, {
+        action: "create",
+        entity_type: "supplier",
+        summary: `Created supplier "${data.name}"`,
+        metadata: {
+          name: data.name,
+          module_key: data.module_key,
+          provider: data.provider,
+        },
+      });
+      return result;
     },
   );
 
@@ -55,12 +67,23 @@ export function registerSupplierHandlers(): void {
         drawer_name?: string;
       },
     ) => {
-      try {
-        const auth = requireRole(e.sender.id, ["admin"]);
-        if (!auth.ok) return { success: false, error: auth.error };
-      } catch {}
+      const auth = requireRole(e.sender.id, ["admin"]);
+      if (!auth.ok) return { success: false, error: auth.error };
 
-      return service.addLedgerEntry({ ...data, created_by: 1 });
+      const result = service.addLedgerEntry({
+        ...data,
+        created_by: auth.userId,
+      });
+      audit(e.sender.id, {
+        action: "create",
+        entity_type: "supplier_ledger",
+        summary: `Supplier ledger ${data.entry_type}: $${data.amount_usd} + ${data.amount_lbp} LBP`,
+        metadata: {
+          supplier_id: data.supplier_id,
+          entry_type: data.entry_type,
+        },
+      });
+      return result;
     },
   );
 
@@ -90,14 +113,30 @@ export function registerSupplierHandlers(): void {
         commission_lbp: number;
         drawer_name: string;
         note?: string;
+        payments?: Array<{
+          method: string;
+          currency_code: string;
+          amount: number;
+        }>;
       },
     ) => {
-      try {
-        const auth = requireRole(e.sender.id, ["admin"]);
-        if (!auth.ok) return { success: false, error: auth.error };
-      } catch {}
+      const auth = requireRole(e.sender.id, ["admin"]);
+      if (!auth.ok) return { success: false, error: auth.error };
 
-      return service.settleTransactions({ ...data, created_by: 1 });
+      const result = service.settleTransactions({
+        ...data,
+        created_by: auth.userId,
+      });
+      audit(e.sender.id, {
+        action: "settle",
+        entity_type: "supplier_settlement",
+        summary: `Settled ${data.financial_service_ids.length} transactions for supplier #${data.supplier_id}`,
+        metadata: {
+          supplier_id: data.supplier_id,
+          count: data.financial_service_ids.length,
+        },
+      });
+      return result;
     },
   );
 }

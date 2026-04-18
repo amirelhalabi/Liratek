@@ -5,11 +5,13 @@ import {
   getExpenseService,
   getClosingService,
   getActivityService,
+  resolveDatabasePath,
   settingsLogger,
   expenseLogger,
   closingLogger,
 } from "@liratek/core";
 import { requireRole } from "../session.js";
+import { audit } from "./auditHelper.js";
 import { AddExpenseSchema, validatePayload } from "../schemas/index.js";
 
 export function registerDatabaseHandlers(): void {
@@ -42,7 +44,15 @@ export function registerDatabaseHandlers(): void {
       if (!auth.ok) return { success: false, error: auth.error };
     } catch {}
     settingsLogger.info({ key }, "Updating setting");
-    return settingsService.updateSetting(key, value);
+    const result = settingsService.updateSetting(key, value);
+    audit(e.sender.id, {
+      action: "update",
+      entity_type: "setting",
+      entity_id: key,
+      summary: `Updated setting "${key}"`,
+      new_values: { value },
+    });
+    return result;
   });
 
   // Alias for settings:update
@@ -51,7 +61,15 @@ export function registerDatabaseHandlers(): void {
       const auth = requireRole(e.sender.id, ["admin"]);
       if (!auth.ok) return { success: false, error: auth.error };
     } catch {}
-    return settingsService.updateSetting(key, value);
+    const result = settingsService.updateSetting(key, value);
+    audit(e.sender.id, {
+      action: "update",
+      entity_type: "setting",
+      entity_id: key,
+      summary: `Updated setting "${key}"`,
+      new_values: { value },
+    });
+    return result;
   });
 
   // ==================== EXPENSES ====================
@@ -71,10 +89,8 @@ export function registerDatabaseHandlers(): void {
         expense_date: string;
       },
     ) => {
-      try {
-        const auth = requireRole(e.sender.id, ["admin"]);
-        if (!auth.ok) return { success: false, error: auth.error };
-      } catch {}
+      const auth = requireRole(e.sender.id, ["admin"]);
+      if (!auth.ok) return { success: false, error: auth.error };
 
       // Validation
       const v = validatePayload(AddExpenseSchema, data);
@@ -88,7 +104,17 @@ export function registerDatabaseHandlers(): void {
         },
         "Adding expense",
       );
-      return expenseService.addExpense(validatedData);
+      const result = expenseService.addExpense(validatedData, auth.userId);
+      audit(e.sender.id, {
+        action: "create",
+        entity_type: "expense",
+        summary: `Added expense: ${validatedData.category} $${validatedData.amount_usd}`,
+        metadata: {
+          category: validatedData.category,
+          amount_usd: validatedData.amount_usd,
+        },
+      });
+      return result;
     },
   );
 
@@ -99,11 +125,17 @@ export function registerDatabaseHandlers(): void {
 
   // Delete Expense
   ipcMain.handle("db:delete-expense", (e, id: number) => {
-    try {
-      const auth = requireRole(e.sender.id, ["admin"]);
-      if (!auth.ok) return { success: false, error: auth.error };
-    } catch {}
-    return expenseService.deleteExpense(id);
+    const auth = requireRole(e.sender.id, ["admin"]);
+    if (!auth.ok) return { success: false, error: auth.error };
+
+    const result = expenseService.deleteExpense(id, auth.userId);
+    audit(e.sender.id, {
+      action: "delete",
+      entity_type: "expense",
+      entity_id: String(id),
+      summary: `Deleted expense #${id}`,
+    });
+    return result;
   });
 
   // ==================== CLOSING ====================
@@ -112,10 +144,8 @@ export function registerDatabaseHandlers(): void {
   ipcMain.handle(
     "closing:set-opening-balances",
     (e, data: { drawer_name: string; balances: Record<string, number> }) => {
-      try {
-        const auth = requireRole(e.sender.id, ["admin"]);
-        if (!auth.ok) return { success: false, error: auth.error };
-      } catch {}
+      const auth = requireRole(e.sender.id, ["admin"]);
+      if (!auth.ok) return { success: false, error: auth.error };
 
       const schema = z.object({
         closing_date: z.string().min(8),
@@ -135,13 +165,17 @@ export function registerDatabaseHandlers(): void {
         { date: parsed.data.closing_date },
         "Setting opening balances",
       );
-      return closingService.setOpeningBalances({
+      const result = closingService.setOpeningBalances({
         closing_date: parsed.data.closing_date,
         amounts: parsed.data.amounts,
-        ...(parsed.data.user_id != null
-          ? { user_id: parsed.data.user_id }
-          : {}),
+        user_id: parsed.data.user_id ?? auth.userId,
       });
+      audit(e.sender.id, {
+        action: "create",
+        entity_type: "opening_balance",
+        summary: `Set opening balances for ${parsed.data.closing_date}`,
+      });
+      return result;
     },
   );
 
@@ -167,10 +201,8 @@ export function registerDatabaseHandlers(): void {
   ipcMain.handle(
     "closing:create-daily-closing",
     (e, data: { drawer_name: string; note?: string }) => {
-      try {
-        const auth = requireRole(e.sender.id, ["admin"]);
-        if (!auth.ok) return { success: false, error: auth.error };
-      } catch {}
+      const auth = requireRole(e.sender.id, ["admin"]);
+      if (!auth.ok) return { success: false, error: auth.error };
 
       const schema = z.object({
         closing_date: z.string().min(8),
@@ -195,7 +227,7 @@ export function registerDatabaseHandlers(): void {
         { date: parsed.data.closing_date },
         "Creating daily closing",
       );
-      return closingService.createDailyClosing({
+      const result = closingService.createDailyClosing({
         closing_date: parsed.data.closing_date,
         amounts: parsed.data.amounts.map((amount) => ({
           drawer_name: amount.drawer_name,
@@ -205,9 +237,7 @@ export function registerDatabaseHandlers(): void {
             ? { opening_amount: amount.opening_amount }
             : {}),
         })),
-        ...(parsed.data.user_id != null
-          ? { user_id: parsed.data.user_id }
-          : {}),
+        user_id: parsed.data.user_id ?? auth.userId,
         ...(parsed.data.variance_notes != null
           ? { variance_notes: parsed.data.variance_notes }
           : {}),
@@ -221,6 +251,12 @@ export function registerDatabaseHandlers(): void {
           ? { system_expected_lbp: parsed.data.system_expected_lbp }
           : {}),
       });
+      audit(e.sender.id, {
+        action: "create",
+        entity_type: "daily_closing",
+        summary: `Created daily closing for ${parsed.data.closing_date}`,
+      });
+      return result;
     },
   );
 
@@ -245,8 +281,21 @@ export function registerDatabaseHandlers(): void {
       try {
         const auth = requireRole(e.sender.id, ["admin"]);
         if (!auth.ok) return { success: false, error: auth.error };
-      } catch {}
-      return closingService.updateDailyClosing(data);
+
+        const result = closingService.updateDailyClosing({
+          ...data,
+          user_id: data.user_id ?? auth.userId,
+        });
+        audit(e.sender.id, {
+          action: "update",
+          entity_type: "daily_closing",
+          entity_id: String(data.id),
+          summary: `Updated daily closing #${data.id}`,
+        });
+        return result;
+      } catch {
+        return { success: false, error: "Unauthorized" };
+      }
     },
   );
 
@@ -266,6 +315,26 @@ export function registerDatabaseHandlers(): void {
     return activityService.getSyncErrors();
   });
 
+  // Diagnostics: get database file path
+  ipcMain.handle("diagnostics:getDbPath", (e) => {
+    try {
+      const auth = requireRole(e.sender.id, ["admin"]);
+      if (!auth.ok) return { success: false, error: "Forbidden" };
+    } catch {
+      // No session — allow anyway for diagnostics
+    }
+    try {
+      const resolved = resolveDatabasePath();
+      return { success: true, path: resolved.path, source: resolved.source };
+    } catch (err) {
+      settingsLogger.error({ err }, "diagnostics:getDbPath failed");
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : "Unknown error",
+      };
+    }
+  });
+
   // Recalculate drawer balances from payments journal
   ipcMain.handle("closing:recalculate-drawer-balances", (e) => {
     try {
@@ -274,7 +343,13 @@ export function registerDatabaseHandlers(): void {
     } catch {}
 
     closingLogger.info("Recalculating drawer balances from payments journal");
-    return closingService.recalculateDrawerBalances();
+    const result = closingService.recalculateDrawerBalances();
+    audit(e.sender.id, {
+      action: "update",
+      entity_type: "drawer_balance",
+      summary: "Recalculated drawer balances from payments journal",
+    });
+    return result;
   });
 
   // Get checkpoint timeline

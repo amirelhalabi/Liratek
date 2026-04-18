@@ -51,9 +51,9 @@ export class SalesService {
   /**
    * Process a sale (create new or update existing)
    */
-  processSale(sale: SaleRequest): SaleResult {
+  processSale(sale: SaleRequest, userId: number): SaleResult {
     try {
-      const result = this.salesRepo.processSale(sale);
+      const result = this.salesRepo.processSale(sale, userId);
 
       if (result.success && result.id) {
         const drawerName = sale.drawer_name || "General";

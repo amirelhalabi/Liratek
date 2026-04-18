@@ -128,6 +128,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
     provider: "MTC" | "Alfa";
     amount: number;
     currency?: string;
+    userId: number;
   }): { success: boolean; error?: string } {
     try {
       const drawerName = data.provider === "MTC" ? "MTC" : "Alfa";
@@ -135,17 +136,37 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
 
       this.db.transaction(() => {
         // Record the top-up in recharges table
-        this.db
+        const rechargeResult = this.db
           .prepare(
             `INSERT INTO recharges (carrier, recharge_type, amount, cost, price, currency_code, paid_by, note, created_by)
-             VALUES (?, 'TOP_UP', ?, 0, 0, ?, 'CASH', ?, 1)`,
+             VALUES (?, 'TOP_UP', ?, 0, 0, ?, 'CASH', ?, ?)`,
           )
           .run(
             data.provider,
             Math.abs(data.amount),
             currency,
             `${data.provider} top-up: +${data.amount} ${currency}`,
+            data.userId,
           );
+
+        const rechargeId = Number(rechargeResult.lastInsertRowid);
+
+        // Create unified transaction record
+        getTransactionRepository().createTransaction({
+          type: TRANSACTION_TYPES.RECHARGE_TOPUP,
+          source_table: "recharges",
+          source_id: rechargeId,
+          user_id: data.userId,
+          amount_usd: currency === "USD" ? Math.abs(data.amount) : 0,
+          amount_lbp: currency === "LBP" ? Math.abs(data.amount) : 0,
+          summary: `${data.provider} top-up: +${Math.abs(data.amount)} ${currency}`,
+          metadata_json: {
+            provider: data.provider,
+            amount: Math.abs(data.amount),
+            currency,
+            drawer: drawerName,
+          },
+        });
 
         // Increase the provider drawer balance
         this.db
@@ -184,6 +205,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
     amount: number;
     currency: string;
     sourceDrawer: string;
+    userId: number;
   }): { success: boolean; error?: string } {
     try {
       const destDrawer = TOP_UP_PROVIDER_DRAWERS[data.provider];
@@ -206,10 +228,10 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
 
       this.db.transaction(() => {
         // Record the top-up in recharges table
-        this.db
+        const rechargeResult = this.db
           .prepare(
             `INSERT INTO recharges (carrier, recharge_type, amount, cost, price, currency_code, paid_by, note, created_by)
-             VALUES (?, 'TOP_UP', ?, 0, 0, ?, ?, ?, 1)`,
+             VALUES (?, 'TOP_UP', ?, 0, 0, ?, ?, ?, ?)`,
           )
           .run(
             data.provider,
@@ -217,7 +239,28 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             currency,
             data.sourceDrawer,
             `${data.provider === "OMT_APP" ? "OMT App" : "Whish App"} top-up from ${data.sourceDrawer}: +${amount} ${currency}`,
+            data.userId,
           );
+
+        const rechargeId = Number(rechargeResult.lastInsertRowid);
+
+        // Create unified transaction record
+        getTransactionRepository().createTransaction({
+          type: TRANSACTION_TYPES.RECHARGE_TOPUP,
+          source_table: "recharges",
+          source_id: rechargeId,
+          user_id: data.userId,
+          amount_usd: currency === "USD" ? amount : 0,
+          amount_lbp: currency === "LBP" ? amount : 0,
+          summary: `${TOP_UP_PROVIDER_LABELS[data.provider]} top-up: ${data.sourceDrawer} → ${destDrawer}: ${amount} ${currency}`,
+          metadata_json: {
+            provider: data.provider,
+            amount,
+            currency,
+            sourceDrawer: data.sourceDrawer,
+            destDrawer,
+          },
+        });
 
         // Deduct from source drawer
         this.db

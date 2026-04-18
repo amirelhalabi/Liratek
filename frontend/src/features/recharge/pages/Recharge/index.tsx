@@ -3,6 +3,7 @@ import { useApi } from "@liratek/ui";
 import { useCurrencyContext } from "@/contexts/CurrencyContext";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useAuth } from "@/features/auth/context/AuthContext";
+import { useSession } from "@/features/sessions/context/SessionContext";
 import type { PaymentLine } from "@liratek/ui";
 import {
   useMobileServiceItems,
@@ -34,6 +35,7 @@ export default function MobileRecharge() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const { methods } = usePaymentMethods();
+  const { activeSession } = useSession();
   const { getCategoriesForProvider, getItems: getServiceItems } =
     useMobileServiceItems();
 
@@ -72,7 +74,6 @@ export default function MobileRecharge() {
 
   const [serviceType, setServiceType] = useState<ServiceType>("SEND");
   const [clientName, setClientName] = useState("");
-  const [referenceNumber, setReferenceNumber] = useState("");
 
   const [rechargeType, setRechargeType] =
     useState<RechargeType>("CREDIT_TRANSFER");
@@ -118,6 +119,14 @@ export default function MobileRecharge() {
   const [whishAppMode, setWhishAppMode] = useState<"bills" | "transfer">(
     "bills",
   );
+
+  // Autofill client name from active customer session
+  useEffect(() => {
+    if (activeSession?.customer_name) {
+      setClientName(activeSession.customer_name);
+      setTelecomClientName(activeSession.customer_name);
+    }
+  }, [activeSession]);
 
   useEffect(() => {
     const loadRate = async () => {
@@ -602,8 +611,6 @@ export default function MobileRecharge() {
           setPaymentLines={setPaymentLines}
           clientName={clientName}
           setClientName={setClientName}
-          referenceNumber={referenceNumber}
-          setReferenceNumber={setReferenceNumber}
           voucherItems={mtcVoucherItems}
         />
       )}
@@ -646,8 +653,6 @@ export default function MobileRecharge() {
                 methods={methods}
                 clientName={clientName}
                 setClientName={setClientName}
-                referenceNumber={referenceNumber}
-                setReferenceNumber={setReferenceNumber}
                 handleFinancialSubmit={() => handleFinancialSubmit()}
                 isSubmitting={isSubmitting}
                 loadFinancialData={loadFinancialData}
@@ -692,8 +697,6 @@ export default function MobileRecharge() {
             methods={methods}
             clientName={clientName}
             setClientName={setClientName}
-            referenceNumber={referenceNumber}
-            setReferenceNumber={setReferenceNumber}
             handleFinancialSubmit={() => handleFinancialSubmit()}
             isSubmitting={isSubmitting}
             loadFinancialData={loadFinancialData}

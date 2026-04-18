@@ -41,7 +41,7 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
   /**
    * Create a new expense
    */
-  createExpense(data: CreateExpenseData): number {
+  createExpense(data: CreateExpenseData, userId: number): number {
     const paidBy = data.paid_by_method || "CASH";
     const drawerName = paymentMethodToDrawerName(paidBy);
 
@@ -65,7 +65,7 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
         type: TRANSACTION_TYPES.EXPENSE,
         source_table: "expenses",
         source_id: expenseId,
-        user_id: 1,
+        user_id: userId,
         amount_usd: -(data.amount_usd || 0),
         amount_lbp: -(data.amount_lbp || 0),
         summary: `Expense: ${data.category} - ${data.description}`,
@@ -95,7 +95,7 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
         `);
 
         const note = `${data.category}: ${data.description}`;
-        const createdBy = 1;
+        const createdBy = userId;
 
         // USD outflow
         if (data.amount_usd && data.amount_usd !== 0) {
@@ -157,13 +157,13 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
   /**
    * Delete an expense by ID and void its transaction
    */
-  deleteExpense(id: number): void {
+  deleteExpense(id: number, userId: number): void {
     this.db.transaction(() => {
       // Void the unified transaction (if exists)
       const txnRepo = getTransactionRepository();
       const originalTxn = txnRepo.getBySourceId("expenses", id);
       if (originalTxn) {
-        txnRepo.voidTransaction(originalTxn.id, 1);
+        txnRepo.voidTransaction(originalTxn.id, userId);
       }
       // Soft-delete: mark as voided instead of removing the record
       this.db

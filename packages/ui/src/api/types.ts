@@ -178,8 +178,9 @@ export type LotoCheckpointApi = {
     totalSales: number;
     totalCommission: number;
     totalPrizes: number;
-    totalCashPrizes: number;
+    totalCashPrizes?: number; // DEPRECATED — now read from checkpoint
     settledAt?: string;
+    payments?: Array<{ method: string; currency_code: string; amount: number }>;
   }) => Promise<{ success: boolean; checkpoint?: any; error?: string }>;
   getTotalSalesUnsettled: () => Promise<{
     success: boolean;
@@ -273,6 +274,7 @@ export type LotoApi = {
       total_sales: number;
       total_commission: number;
       total_prizes: number;
+      total_cash_prizes: number;
       outstanding_prizes: number;
       total_fees: number;
     };
@@ -503,6 +505,7 @@ export type ApiAdapter = {
     commission_lbp: number;
     drawer_name: string;
     note?: string;
+    payments?: Array<{ method: string; currency_code: string; amount: number }>;
   }) => Promise<ApiResult & { id?: number }>;
 
   // ---------------------------------------------------------------------------

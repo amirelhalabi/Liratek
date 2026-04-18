@@ -1,15 +1,15 @@
 import { SetupProvider, useSetup } from "./context/SetupContext";
+import StepDetect from "./steps/StepDetect";
+import StepJoinShop from "./steps/StepJoinShop";
 import Step1Account from "./steps/Step1Account";
 import Step2Modules from "./steps/Step2Modules";
-import Step3DatabasePath from "./steps/Step3DatabasePath";
-import Step4Currencies from "./steps/Step3Currencies";
-import Step5Users from "./steps/Step4Users";
+import Step3Currencies from "./steps/Step3Currencies";
+import Step4Users from "./steps/Step4Users";
 import StepComplete from "./steps/StepComplete";
 
 const STEPS = [
   { label: "Account" },
   { label: "Modules" },
-  { label: "Database" },
   { label: "Currencies" },
   { label: "Users" },
   { label: "Done" },
@@ -17,6 +17,9 @@ const STEPS = [
 
 function WizardContent() {
   const { step } = useSetup();
+
+  // Steps 0 and -1 are the detection / join flow (no progress bar)
+  const isDetectFlow = step <= 0;
 
   return (
     <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
@@ -28,10 +31,10 @@ function WizardContent() {
           </h1>
         </div>
 
-        {/* Progress indicator */}
-        {step < 6 && (
+        {/* Progress indicator — only for full setup (steps 1-5) */}
+        {!isDetectFlow && step < 5 && (
           <div className="flex items-center justify-center gap-2 mb-8">
-            {STEPS.slice(0, 5).map((s, i) => {
+            {STEPS.slice(0, 4).map((s, i) => {
               const stepNum = i + 1;
               const isDone = step > stepNum;
               const isCurrent = step === stepNum;
@@ -46,7 +49,7 @@ function WizardContent() {
                           : "bg-slate-800 text-slate-500"
                     }`}
                   >
-                    {isDone ? "✓" : stepNum}
+                    {isDone ? "\u2713" : stepNum}
                   </div>
                   <span
                     className={`ml-1.5 text-xs hidden sm:block ${
@@ -55,7 +58,7 @@ function WizardContent() {
                   >
                     {s.label}
                   </span>
-                  {i < 4 && (
+                  {i < 3 && (
                     <div
                       className={`mx-3 h-px w-8 ${
                         step > stepNum ? "bg-emerald-600" : "bg-slate-700"
@@ -70,17 +73,20 @@ function WizardContent() {
 
         {/* Card */}
         <div className="bg-slate-800 border border-slate-700 rounded-2xl p-8 shadow-2xl">
+          {step === 0 && <StepDetect />}
+          {step === -1 && <StepJoinShop />}
           {step === 1 && <Step1Account />}
           {step === 2 && <Step2Modules />}
-          {step === 3 && <Step3DatabasePath />}
-          {step === 4 && <Step4Currencies />}
-          {step === 5 && <Step5Users />}
-          {step === 6 && <StepComplete />}
+          {step === 3 && <Step3Currencies />}
+          {step === 4 && <Step4Users />}
+          {step === 5 && <StepComplete />}
         </div>
 
-        <p className="text-center text-xs text-slate-600 mt-4">
-          Step {Math.min(step, 5)} of 5
-        </p>
+        {!isDetectFlow && (
+          <p className="text-center text-xs text-slate-600 mt-4">
+            Step {Math.min(step, 4)} of 4
+          </p>
+        )}
       </div>
     </div>
   );

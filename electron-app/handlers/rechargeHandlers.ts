@@ -7,6 +7,7 @@
 import { ipcMain, IpcMainInvokeEvent } from "electron";
 import { getRechargeService, rechargeLogger } from "@liratek/core";
 import { requireRole } from "../session.js";
+import { audit } from "./auditHelper.js";
 import type { RechargeData } from "@liratek/core";
 
 import { RechargeSchema, validatePayload } from "../schemas/index.js";
@@ -50,7 +51,18 @@ export function registerRechargeHandlers(): void {
         },
         "Processing recharge",
       );
-      return rechargeService.processRecharge(v.data as RechargeData);
+      const result = rechargeService.processRecharge(v.data as RechargeData);
+      audit(event.sender.id, {
+        action: "create",
+        entity_type: "recharge",
+        summary: `Recharge ${v.data.provider} ${v.data.type}: ${v.data.amount}`,
+        metadata: {
+          provider: v.data.provider,
+          type: v.data.type,
+          amount: v.data.amount,
+        },
+      });
+      return result;
     },
   );
 
@@ -68,7 +80,14 @@ export function registerRechargeHandlers(): void {
         { provider: data.provider, amount: data.amount },
         "Processing top-up",
       );
-      return rechargeService.topUp(data);
+      const result = rechargeService.topUp({ ...data, userId: auth.userId });
+      audit(event.sender.id, {
+        action: "create",
+        entity_type: "recharge_topup",
+        summary: `Top-up ${data.provider}: ${data.amount}`,
+        metadata: { provider: data.provider, amount: data.amount },
+      });
+      return result;
     },
   );
 
@@ -96,7 +115,19 @@ export function registerRechargeHandlers(): void {
         },
         "Processing app top-up",
       );
-      return rechargeService.topUpApp(data);
+      const result = rechargeService.topUpApp({ ...data, userId: auth.userId });
+      audit(event.sender.id, {
+        action: "create",
+        entity_type: "recharge_topup",
+        summary: `App top-up ${data.provider}: ${data.amount} ${data.currency} from ${data.sourceDrawer}`,
+        metadata: {
+          provider: data.provider,
+          amount: data.amount,
+          currency: data.currency,
+          sourceDrawer: data.sourceDrawer,
+        },
+      });
+      return result;
     },
   );
 }

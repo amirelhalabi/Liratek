@@ -411,7 +411,10 @@ const mobileServices: Record<string, ServiceCatalog | Record<string, never>> = {
         "ADSL 8Mbps/unl DualPlay Value": { cost: "2382433", sell: "2452433" },
         "ADSL OpenSpeed/110GB": { cost: "861092", sell: "931092" },
         "ADSL OpenSpeed/150GB DualPlay": { cost: "1868992", sell: "1938992" },
-        "ADSL OpenSpeed/150GB DualPlay Value": { cost: "2177057", sell: "2247057" },
+        "ADSL OpenSpeed/150GB DualPlay Value": {
+          cost: "2177057",
+          sell: "2247057",
+        },
         "ADSL OpenSpeed/170GB": { cost: "1307065", sell: "1377065" },
         "ADSL OpenSpeed/220GB": { cost: "1621534", sell: "1691534" },
         "ADSL OpenSpeed/300GB DualPlay": { cost: "2078943", sell: "2148943" },

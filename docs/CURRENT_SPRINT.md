@@ -1,112 +1,75 @@
 # Current Sprint — March 2026
 
-> **Last Updated**: 2026-04-09  
+> **Last Updated**: 2026-04-17  
 > **Sprint Start**: 2026-03-01  
 > **Focus**: Setup Wizard, Module-Linked UI, UX Polish, CI/CD + Packaging, Auto-Update, Sales Reporting, Recharge Page Overhaul, IPEC/KATCH/OMT App Implementation, Exchange Rate System
 
 ---
 
-## 🚨 URGENT — Hardcoded `user_id: 1` System-Wide [T-57]
+## ✅ Done (April 17, 2026 — Setup Wizard Simplification & DB Path Cleanup)
 
-**Priority**: 🔴 CRITICAL — Affects audit trail integrity  
-**Status**: Ready  
-**Discovered**: 2026-04-09 during Dashboard stats bug investigation  
-**Estimate**: 1–2 days
+### Removed Step 3 "Database Location" from Setup Wizard
 
-### Problem
+Each PC always uses its platform-default DB path. Network PCs use the "Join Shop" flow (Step 0) which writes `db-path.txt` to point at the primary PC's shared DB file. No need to choose local vs network during setup.
 
-14 occurrences across 7 files hardcode `user_id: 1` instead of using the authenticated user's ID. This means:
-
-- All transactions appear to be created by user #1 (admin) regardless of who is logged in
-- Audit trail is unreliable — cannot determine which cashier performed which action
-- Multi-user environments have no accountability
-
-### Reference Implementation
-
-`electron-app/handlers/transactionHandlers.ts` (lines 54, 70) already does this correctly:
-
-```typescript
-const auth = requireRole(e.sender.id, ["admin"]);
-if (!auth.ok) throw new Error(auth.error);
-const userId = auth.userId ?? 1; // fallback only
-```
-
-### Files Requiring Changes
-
-| #   | File                                                  | Occurrences | Methods                                                     | Layer      |
-| --- | ----------------------------------------------------- | ----------- | ----------------------------------------------------------- | ---------- |
-| 1   | `packages/core/src/repositories/SalesRepository.ts`   | 1           | `processSale()`                                             | Repository |
-| 2   | `packages/core/src/repositories/LotoRepository.ts`    | 6           | `createTicket()`, `settleCheckpoint()`, `createCashPrize()` | Repository |
-| 3   | `packages/core/src/repositories/ExpenseRepository.ts` | 1           | `createExpense()`                                           | Repository |
-| 4   | `packages/core/src/repositories/ClosingRepository.ts` | 1           | `createDailyClosing()`                                      | Repository |
-| 5   | `packages/core/src/repositories/ClientRepository.ts`  | 3           | `createClient()`, `updateClientFull()`, `deleteClient()`    | Repository |
-| 6   | `electron-app/handlers/supplierHandlers.ts`           | 2           | `suppliers:add-ledger`, `suppliers:settle-transactions`     | Handler    |
-
-### Implementation Plan
-
-**Phase 1: Repository layer** (thread `userId` through method signatures)
-
-1. Add `userId: number` parameter to all 12 affected repository methods
-2. Replace hardcoded `1` with the parameter
-3. Update service layer methods to accept and pass `userId`
-4. Update all unit tests
-
-**Phase 2: Handler layer** (extract `userId` from auth)
-
-1. In each IPC handler, extract `userId` from `requireRole()` result: `const userId = auth.userId ?? 1;`
-2. Pass `userId` to the service/repository call
-3. Fix the 2 supplier handler occurrences directly (they bypass service layer)
-
-**Phase 3: Verify**
-
-1. Run full test suite
-2. Test in dev mode with multiple users
-3. Verify audit trail shows correct user IDs
-
-### Acceptance Criteria
-
-- [ ] All 14 hardcoded `user_id: 1` replaced with authenticated user's ID
-- [ ] All repository methods accept `userId` as a parameter
-- [ ] All IPC handlers extract `userId` from `requireRole()` result
-- [ ] Fallback `?? 1` used only as safety net, not primary value
-- [ ] All existing tests updated and passing
-- [ ] New test: verify correct `userId` is stored in transaction records
-
----
-
-## ✅ Done (April 9, 2026 — Dashboard Stats Bug Fix & Drawer Balance Recalculation)
-
-### Dashboard Revenue Showing Tendered Amount Instead of Sale Value
-
-| Change                    | Details                                                                                                                                                                                                                                                                                      |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Root cause**            | `getDashboardStats()` in `SalesRepository.ts` used `SUM(paid_usd)` (the amount the customer hands over) instead of `SUM(final_amount_usd)` (the actual sale value). Example: Sale #372 had `final_amount_usd = 12` but `paid_usd = 50` — customer paid $50, got $33 USD + 450,000 LBP change |
-| **Sales Revenue fix**     | Changed `SUM(paid_usd)` → `SUM(final_amount_usd)` in `getDashboardStats()`                                                                                                                                                                                                                   |
-| **Sales Revenue LBP fix** | Changed `SUM(paid_lbp)` → `SUM(paid_lbp - COALESCE(change_given_lbp, 0))`                                                                                                                                                                                                                    |
-| **Cash Collected fix**    | Split into separate query using `SUM(paid_usd - COALESCE(change_given_usd, 0))`                                                                                                                                                                                                              |
-| **Chart data fix**        | Same `SUM(paid_usd)` → `SUM(final_amount_usd)` fix in `getChartData("Sales")`                                                                                                                                                                                                                |
-
-### Drawer Balance Drift — One-Time Recalculation
-
-| Change         | Details                                                                                                                                                                                                        |
-| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Root cause** | Historical drift of +$10 USD and -85,000 LBP between `drawer_balances` table and `SUM(amount)` from `payments` journal. The incremental `upsertBalanceDelta` logic is correct — drift was from historical data |
-| **Fix**        | Added one-time `getClosingRepository().recalculateDrawerBalances()` call in `initializeBackend()` on app startup                                                                                               |
-| **Cleanup**    | Marked with `TODO: Remove this block in the next release` — runs once then should be removed                                                                                                                   |
-
-### Pre-existing Loto Typecheck Errors Fixed
-
-| Change                           | Details                                                                                                                                 |
-| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| **`SettlementVerification.tsx`** | Removed 3 unused imports (`TrendingDown`, `TrendingUp`, `Trophy`). Fixed wrong API call: `getUnreimbursed()` → `getTotalUnreimbursed()` |
+| Change                              | Details                                                                                                 |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| **Step 3 removed**                  | Deleted `Step3DatabasePath.tsx`, removed from wizard, renumbered steps 4→3, 5→4, 6→5                    |
+| **`testDatabasePath` removed**      | IPC handler, preload binding, and TypeScript type removed                                               |
+| **`database_type` removed**         | No longer stored in `system_settings` or `SetupPayload`                                                 |
+| **Dead code in `main.ts` removed**  | Was opening DB twice on startup to check `system_settings` for a `database_path` that was never written |
+| **`initCoreDatabase` fixed**        | Now receives `dbPath` so `getDatabasePath()` and `isNetworkDatabase()` work correctly                   |
+| **Duplicate pragma config removed** | Network pragma configuration deduplicated (only in `main.ts` now)                                       |
+| **Diagnostics DB path**             | Added error handling to `diagnostics:getDbPath` handler and frontend display                            |
 
 ### Files Modified
 
-| File                                                               | Change                                                                     |
-| ------------------------------------------------------------------ | -------------------------------------------------------------------------- |
-| `packages/core/src/repositories/SalesRepository.ts`                | Fixed `getDashboardStats()` and `getChartData()` to use `final_amount_usd` |
-| `electron-app/main.ts`                                             | Added one-time `recalculateDrawerBalances()` on startup                    |
-| `frontend/src/features/loto/components/SettlementVerification.tsx` | Fixed unused imports and wrong API call                                    |
+| File                                                            | Change                                                                                   |
+| --------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `frontend/src/features/setup/steps/Step3DatabasePath.tsx`       | **Deleted**                                                                              |
+| `frontend/src/features/setup/SetupWizard.tsx`                   | Removed step 3, renumbered                                                               |
+| `frontend/src/features/setup/context/SetupContext.tsx`          | Removed `database_type`, renamed `database_path` → `join_db_path`                        |
+| `frontend/src/features/setup/steps/StepDetect.tsx`              | Updated to use `join_db_path`                                                            |
+| `frontend/src/features/setup/steps/StepJoinShop.tsx`            | Updated to use `join_db_path`                                                            |
+| `frontend/src/features/setup/steps/Step3Currencies.tsx`         | Renumbered back/next/skip                                                                |
+| `frontend/src/features/setup/steps/Step4Users.tsx`              | Renumbered back/next/skip                                                                |
+| `electron-app/handlers/setupHandlers.ts`                        | Removed `database_path`/`database_type` from payload, removed `testDatabasePath` handler |
+| `electron-app/main.ts`                                          | Simplified `initializeDatabase()`, pass `dbPath` to `initCoreDatabase`                   |
+| `packages/core/src/db/connection.ts`                            | Removed duplicate network pragma config                                                  |
+| `electron-app/preload.ts`                                       | Removed `testDatabasePath` binding                                                       |
+| `frontend/src/types/electron.d.ts`                              | Removed `testDatabasePath` type                                                          |
+| `electron-app/handlers/dbHandlers.ts`                           | Added error handling to `diagnostics:getDbPath`                                          |
+| `frontend/src/features/settings/pages/Settings/Diagnostics.tsx` | Added error feedback for DB path display                                                 |
+
+---
+
+## ✅ Done — Hardcoded `user_id: 1` System-Wide [T-57]
+
+**Priority**: 🔴 CRITICAL — Affects audit trail integrity  
+**Status**: ✅ **COMPLETE** — All userId/created_by fallbacks removed  
+**Discovered**: 2026-04-09 during Dashboard stats bug investigation  
+**Completed**: 2026-04-18
+
+### Resolution
+
+All repository methods now require `userId`/`created_by` as a mandatory parameter (no defaults, no fallbacks). All IPC handlers extract `auth.userId` from `requireRole()` and pass it through.
+
+| File                                    | Fix                                                                                           |
+| --------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `SalesRepository.ts`                    | ✅ Previously fixed                                                                           |
+| `LotoRepository.ts`                     | ✅ Previously fixed                                                                           |
+| `ExpenseRepository.ts`                  | ✅ Previously fixed                                                                           |
+| `ClosingRepository.ts`                  | ✅ Previously fixed                                                                           |
+| `ClientRepository.ts`                   | ✅ Previously fixed                                                                           |
+| `RechargeRepository.ts`                 | ✅ Made `userId` required, removed 4× `\|\| 1`                                                |
+| `SupplierRepository.ts`                 | ✅ Made `created_by` required, removed 3× `\|\| 1` + 3× `?? 1` + 2× `?? null`                 |
+| `DebtRepository.ts`                     | ✅ Made `created_by` required, removed 1× `\|\| 1` + 4× `\|\| null`                           |
+| `DebtService.ts`                        | ✅ Made `userId` required in `RepaymentData`, removed `\|\| null`                             |
+| `RechargeService.ts`                    | ✅ Made `userId` required in `topUp()` and `topUpApp()`                                       |
+| `salesHandlers.ts`                      | ✅ Removed `?? 1` fallback on `auth.userId`                                                   |
+| `supplierHandlers.ts`                   | ✅ Replaced hardcoded `created_by: 1` with `auth.userId`, fixed broken try/catch auth pattern |
+| `debtHandlers.ts`                       | ✅ Now passes `auth.userId` to `addRepayment()`                                               |
+| `SupplierRepository.settlement.test.ts` | ✅ Added `created_by: 1` to all 12 test calls                                                 |
 
 ---
 
@@ -114,29 +77,17 @@ const userId = auth.userId ?? 1; // fallback only
 
 ### Exchange Rate System & OMT/Whish SEND/RECEIVE
 
-| Task                               | Details                                                                                                                                                                              | Priority    |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------- |
-| **Fix exchange rate logic**        | Currently backwards! Customer pays 90,000 LBP/$ (higher rate), We pay 89,000 LBP/$ (lower rate). Update KatchForm, FinancialForm, TelecomForm to use correct rates                   | 🔴 CRITICAL |
-| **OMT App SEND/RECEIVE feature**   | Add SEND/RECEIVE toggle to OMT App in Mobile Recharge module (similar to IPEC). SEND = customer sends abroad, RECEIVE = customer receives from abroad. High priority revenue feature | 🔴 HIGH     |
-| **Whish App SEND/RECEIVE feature** | Add SEND/RECEIVE toggle to Whish App in Mobile Recharge module. Same logic as OMT App                                                                                                | 🔴 HIGH     |
-| **OMT System Rate settings**       | Add dynamic rate configuration in Settings → OMT System Rate (separate from regular exchange rates). Used for OMT App SEND/RECEIVE transactions                                      | 🔴 HIGH     |
-| **Whish System Rate settings**     | Add dynamic rate configuration in Settings → Whish System Rate (separate from regular exchange rates). Used for Whish App SEND/RECEIVE transactions                                  | 🔴 HIGH     |
-| **Multi-currency payment logic**   | When customer pays in LBP → use 90,000 rate. When customer pays in USD → base price. When shop pays customer (refund/receive) in LBP → use 89,000 rate                               | 🔴 HIGH     |
+| Task                             | Status         | Details                                                                                                                        |
+| -------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| **Fix exchange rate logic**      | ✅ **Done**    | KatchForm uses `sellRate`, FinancialForm uses `sellRate`/`buyRate` for SEND/RECEIVE, TelecomForm uses `sellRate`. All correct. |
+| **OMT App SEND/RECEIVE**         | ✅ **Done**    | DoubleTab toggle ("Money In" / "Money Out") implemented in FinancialForm                                                       |
+| **Whish App SEND/RECEIVE**       | 🔴 **Pending** | Toggle is explicitly hidden for WISH_APP — needs to be enabled                                                                 |
+| **OMT System Rate settings**     | 🔴 **Pending** | No settings UI or system_settings entries exist                                                                                |
+| **Whish System Rate settings**   | 🔴 **Pending** | No settings UI or system_settings entries exist                                                                                |
+| **Multi-currency payment logic** | ✅ **Done**    | Correct rates applied based on payment direction                                                                               |
 
-**Files to modify**:
+**Remaining acceptance criteria**:
 
-- `frontend/src/features/recharge/components/KatchForm.tsx` — Fix rate logic
-- `frontend/src/features/recharge/components/FinancialForm.tsx` — Fix rate logic, add SEND/RECEIVE for OMT/Whish
-- `frontend/src/features/recharge/components/TelecomForm.tsx` — Fix rate logic
-- `frontend/src/features/settings/pages/Settings/` — Add OMT/Whish System Rate settings
-- `packages/core/src/db/migrations/` — Add migration for OMT/Whish system rates
-
-**Acceptance criteria**:
-
-- [ ] Customer pays LBP → 90,000 LBP/$ rate applied
-- [ ] Customer pays USD → No conversion (base price)
-- [ ] Shop pays customer (refund/receive) in LBP → 89,000 LBP/$ rate applied
-- [ ] OMT App has SEND/RECEIVE toggle
 - [ ] Whish App has SEND/RECEIVE toggle
 - [ ] OMT System Rate configurable in Settings
 - [ ] Whish System Rate configurable in Settings
@@ -146,27 +97,19 @@ const userId = auth.userId ?? 1; // fallback only
 
 ### Sell Prices Update & Dev Mode Testing
 
-| Task                              | Details                                                                                                                                                                             | Priority    |
-| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
-| **Update sell prices**            | Replace all `"sell": "0"` placeholders in `mobileServices.ts` with real selling prices for KATCH, IPEC, and OMT App items. Focus on positive margins (cost < sell)                  | 🔴 High     |
-| **Dev mode testing**              | Run `yarn dev` and test full transaction flow for IPEC, KATCH, and OMT App. Verify database records, metadata_json structure, and history modal                                     | 🔴 High     |
-| **IPEC predefined items catalog** | Already added to `mobileServices.ts` under `iPick` key with 150+ items across Alfa, MTC, Internet, and Gaming categories                                                            | ✅ Complete |
-| **IPEC UI display**               | IPEC tab now shows correctly using KatchForm card grid UI. Search feature implemented with 100% test coverage (16/16 tests)                                                         | ✅ Complete |
-| **KATCH selling prices**          | Pending — update all KATCH items in `mobileServices.ts` — replace placeholder `"sell": "0"` with actual selling prices. Focus: Alfa vouchers, MTC vouchers, gaming cards, DSL cards | 🔴 High     |
-| **Alfa/MTC voucher sell prices**  | Critical for "Only Days" feature — accurate sell prices needed for profit calculation. Denominations: 3.6, 5.24, 8.65, 11.32, 17.06, 25.47, 86 USD                                  | 🔴 High     |
-| **Price validation**              | Ensure all items have `cost < sell` (positive margin). Flag any items with zero or negative margin for review                                                                       | 🟠 Medium   |
+| Task                              | Status           | Details                                                      |
+| --------------------------------- | ---------------- | ------------------------------------------------------------ |
+| **Update sell prices**            | 🟡 **~48% done** | 199 items still have `sell: "0"`, 212 items have real prices |
+| **IPEC predefined items catalog** | ✅ Complete      | 150+ items in `mobileServices.ts`                            |
+| **IPEC UI display**               | ✅ Complete      | KatchForm card grid, search with 100% test coverage          |
+| **Dev mode testing**              | 🔴 Pending       | Full transaction flow verification needed                    |
+| **Price validation**              | 🔴 Pending       | Ensure `cost < sell` for all items                           |
 
-**Files to modify**:
-
-- `frontend/src/data/mobileServices.ts` — Update KATCH, IPEC, OMT App sell prices
-- Manual testing in dev mode — verify transaction flow
-
-**Acceptance criteria**:
+**Remaining acceptance criteria**:
 
 - [ ] All KATCH, IPEC, OMT App items have realistic sell prices (no "0" placeholders)
 - [ ] Profit calculations accurate for all items
 - [ ] Dev mode test: IPEC, KATCH, OMT App transactions save correctly
-- [ ] No TypeScript errors after price updates
 
 ---
 

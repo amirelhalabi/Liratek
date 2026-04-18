@@ -7,6 +7,8 @@ import type { ElectronAPI } from "./electron";
  */
 export {};
 
+declare const __APP_VERSION__: string;
+
 declare global {
   type UINotificationHistoryItem = {
     id: string | number;

@@ -1,7 +1,14 @@
 import { BaseRepository } from "./BaseRepository.js";
 import { DatabaseError } from "../utils/errors.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
-import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
+import {
+  TRANSACTION_TYPES,
+  type TransactionType,
+} from "../constants/transactionTypes.js";
+import {
+  isDrawerAffectingMethod,
+  paymentMethodToDrawerName,
+} from "../utils/payments.js";
 
 export interface SupplierEntity {
   id: number;
@@ -44,10 +51,12 @@ export interface SettleTransactionsData {
   /** Total commission earned (will be credited to General drawer) */
   commission_usd: number;
   commission_lbp: number;
-  /** Drawer cash is paid from (usually General) */
+  /** Drawer cash is paid from (usually General) — ignored when payments[] is provided */
   drawer_name: string;
   note?: string;
-  created_by?: number;
+  created_by: number;
+  /** Multi-payment legs (optional; when provided, replaces drawer_name-based logic) */
+  payments?: Array<{ method: string; currency_code: string; amount: number }>;
 }
 
 export interface CreateSupplierData {
@@ -65,7 +74,7 @@ export interface CreateSupplierLedgerEntryData {
   amount_usd: number;
   amount_lbp: number;
   note?: string;
-  created_by?: number;
+  created_by: number;
   drawer_name?: string;
 }
 
@@ -169,7 +178,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         amountUsd,
         amountLbp,
         data.note ?? null,
-        data.created_by ?? null,
+        data.created_by,
       );
       const entryId = Number(res.lastInsertRowid);
 
@@ -193,7 +202,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             type: TRANSACTION_TYPES.SUPPLIER_PAYMENT,
             source_table: "supplier_ledger",
             source_id: entryId,
-            user_id: data.created_by || 1,
+            user_id: data.created_by,
             amount_usd: Math.abs(amountUsd),
             amount_lbp: Math.abs(amountLbp),
             summary: `Supplier Payment: $${Math.abs(amountUsd)} + ${Math.abs(amountLbp)} LBP`,
@@ -229,8 +238,41 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
               amountUsd ? "USD" : "LBP",
               amountUsd || amountLbp,
               data.note || `Supplier Payment: ${data.supplier_id}`,
-              data.created_by || 1,
+              data.created_by,
             );
+        }
+      } else {
+        // No drawer_name: still create a transaction record for non-PAYMENT entries
+        // (TOP_UP, ADJUSTMENT) so they appear in the unified journal
+        if (data.entry_type !== "PAYMENT") {
+          const typeMap: Record<string, string> = {
+            TOP_UP: TRANSACTION_TYPES.SUPPLIER_PAYMENT,
+            ADJUSTMENT: TRANSACTION_TYPES.SUPPLIER_PAYMENT,
+            SETTLEMENT: TRANSACTION_TYPES.SUPPLIER_SETTLEMENT,
+          };
+          const txnType =
+            typeMap[data.entry_type] || TRANSACTION_TYPES.SUPPLIER_PAYMENT;
+
+          const txnId = getTransactionRepository().createTransaction({
+            type: txnType as TransactionType,
+            source_table: "supplier_ledger",
+            source_id: entryId,
+            user_id: data.created_by,
+            amount_usd: amountUsd,
+            amount_lbp: amountLbp,
+            summary: `Supplier ${data.entry_type}: $${amountUsd} + ${amountLbp} LBP`,
+            metadata_json: {
+              supplier_id: data.supplier_id,
+              entry_type: data.entry_type,
+            },
+          });
+
+          // Link supplier_ledger row to unified transaction
+          this.db
+            .prepare(
+              `UPDATE supplier_ledger SET transaction_id = ? WHERE id = ?`,
+            )
+            .run(txnId, entryId);
         }
       }
 
@@ -311,7 +353,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             netUsd,
             netLbp,
             data.note ?? null,
-            data.created_by ?? null,
+            data.created_by,
             now,
           );
         const ledgerEntryId = Number(ledgerRes.lastInsertRowid);
@@ -347,25 +389,18 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           upsertBalance.run("General", "LBP", data.commission_lbp);
         }
 
-        // ── 4. Debit net payment from drawer (shop pays supplier) ──────────
-        if (data.amount_usd > 0) {
-          upsertBalance.run(data.drawer_name, "USD", -data.amount_usd);
-        }
-        if (data.amount_lbp > 0) {
-          upsertBalance.run(data.drawer_name, "LBP", -data.amount_lbp);
-        }
-
-        // ── 5. Create unified transaction for audit trail ──────────────────
+        // ── 4. Create unified transaction for audit trail ──────────────────
         const txnRes = this.db
           .prepare(
             `INSERT INTO transactions
                (type, status, source_table, source_id, user_id,
                 amount_usd, amount_lbp, summary, metadata_json, created_at)
-             VALUES ('SUPPLIER_SETTLEMENT', 'ACTIVE', 'supplier_ledger', ?, ?, ?, ?, ?, ?, ?)`,
+             VALUES (?, 'ACTIVE', 'supplier_ledger', ?, ?, ?, ?, ?, ?, ?)`,
           )
           .run(
+            TRANSACTION_TYPES.SUPPLIER_SETTLEMENT,
             ledgerEntryId,
-            data.created_by ?? 1,
+            data.created_by,
             data.amount_usd,
             data.amount_lbp,
             `Settlement: ${data.financial_service_ids.length} txns, net $${data.amount_usd.toFixed(2)}`,
@@ -385,20 +420,50 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           .prepare(`UPDATE supplier_ledger SET transaction_id = ? WHERE id = ?`)
           .run(txnId, ledgerEntryId);
 
-        // Insert payments rows for audit
-        if (data.amount_usd > 0) {
-          this.db
-            .prepare(
-              `INSERT INTO payments (transaction_id, method, drawer_name, currency_code, amount, note, created_by)
-               VALUES (?, 'CASH', ?, 'USD', ?, ?, ?)`,
-            )
-            .run(
+        // ── 5. Debit net payment from drawer(s) and insert payment rows ──
+        if (data.payments && data.payments.length > 0) {
+          const insertPayment = this.db.prepare(
+            `INSERT INTO payments (transaction_id, method, drawer_name, currency_code, amount, note, created_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          );
+          for (const p of data.payments) {
+            if (!isDrawerAffectingMethod(p.method)) continue;
+            const drawerName = paymentMethodToDrawerName(p.method);
+            upsertBalance.run(drawerName, p.currency_code, -Math.abs(p.amount));
+            insertPayment.run(
               txnId,
-              data.drawer_name,
-              -data.amount_usd,
+              p.method,
+              drawerName,
+              p.currency_code,
+              -Math.abs(p.amount),
               data.note ?? "Settlement payment",
-              data.created_by ?? 1,
+              data.created_by,
             );
+          }
+        } else {
+          // Legacy: single drawer
+          if (data.amount_usd > 0) {
+            upsertBalance.run(data.drawer_name, "USD", -data.amount_usd);
+          }
+          if (data.amount_lbp > 0) {
+            upsertBalance.run(data.drawer_name, "LBP", -data.amount_lbp);
+          }
+
+          // Insert legacy payment row
+          if (data.amount_usd > 0) {
+            this.db
+              .prepare(
+                `INSERT INTO payments (transaction_id, method, drawer_name, currency_code, amount, note, created_by)
+                 VALUES (?, 'CASH', ?, 'USD', ?, ?, ?)`,
+              )
+              .run(
+                txnId,
+                data.drawer_name,
+                -data.amount_usd,
+                data.note ?? "Settlement payment",
+                data.created_by,
+              );
+          }
         }
 
         return { id: ledgerEntryId };

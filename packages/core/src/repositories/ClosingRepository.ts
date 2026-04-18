@@ -207,8 +207,9 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
     amounts: ClosingAmount[],
     systemExpectedUsd: number,
     systemExpectedLbp: number,
-    varianceNotes?: string,
-    reportPath?: string,
+    varianceNotes: string | undefined,
+    reportPath: string | undefined,
+    userId: number,
   ): { success: boolean; id?: number | bigint; error?: string } {
     try {
       const stmt = this.db.prepare(`
@@ -252,7 +253,7 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
         type: TRANSACTION_TYPES.CLOSING,
         source_table: "daily_closings",
         source_id: Number(result.lastInsertRowid),
-        user_id: 1,
+        user_id: userId,
         amount_usd: systemExpectedUsd || 0,
         amount_lbp: systemExpectedLbp || 0,
         summary: `Daily closing for ${closingDate}`,
@@ -312,7 +313,7 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
         data.variance_usd,
         data.notes,
         data.report_path,
-        data.updated_by || 1,
+        data.updated_by ?? null,
         id,
       );
       return { success: true };

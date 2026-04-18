@@ -16,8 +16,6 @@ import {
   hashPassword,
   isAppError,
   authLogger,
-  getTransactionRepository,
-  TRANSACTION_TYPES,
 } from "@liratek/core";
 import {
   setSession,
@@ -36,6 +34,7 @@ import {
   SetUserRoleSchema,
   validatePayload,
 } from "../schemas/index.js";
+import { audit } from "./auditHelper.js";
 
 // =============================================================================
 // Handler Registration
@@ -94,9 +93,6 @@ export function registerAuthHandlers(): void {
           return { success: false, error: "Invalid username or password" };
         }
 
-        // Log activity
-        logActivity(db, result.user.id, "LOGIN");
-
         // Bind session to this renderer (webContents) for backwards compatibility
         try {
           setSession(
@@ -130,6 +126,11 @@ export function registerAuthHandlers(): void {
           { username, userId: result.user.id, rememberMe },
           "Login successful with database session",
         );
+        audit(event.sender.id, {
+          action: "login",
+          entity_type: "session",
+          summary: `User "${username}" logged in`,
+        });
         return {
           success: true,
           user: result.user,
@@ -164,6 +165,13 @@ export function registerAuthHandlers(): void {
       const success = await authService.logout(sessionToken);
 
       if (success) {
+        // Audit before clearing session
+        audit(_event.sender.id, {
+          action: "logout",
+          entity_type: "session",
+          summary: "User logged out",
+        });
+
         // Clear in-memory session for backwards compatibility
         try {
           clearSession(_event.sender.id);
@@ -428,6 +436,12 @@ export function registerAuthHandlers(): void {
         );
 
         if (result.success && result.user) {
+          audit(e.sender.id, {
+            action: "create",
+            entity_type: "user",
+            entity_id: String(result.user.id),
+            summary: `Created user "${validatedData.username}" with role "${validatedData.role}"`,
+          });
           return { success: true, id: result.user.id };
         }
         return {
@@ -466,6 +480,14 @@ export function registerAuthHandlers(): void {
           v.data.password,
           "admin",
         );
+        if (result.success) {
+          audit(e.sender.id, {
+            action: "update",
+            entity_type: "user",
+            entity_id: String(v.data.id),
+            summary: "Changed user password",
+          });
+        }
         return { success: result.success, error: result.error };
       } catch (error) {
         authLogger.error(
@@ -525,6 +547,12 @@ export function registerAuthHandlers(): void {
           // Reactivate
           authService.reactivateUser(v.data.id, "admin");
         }
+        audit(e.sender.id, {
+          action: "update",
+          entity_type: "user",
+          entity_id: String(v.data.id),
+          summary: `${v.data.is_active ? "Activated" : "Deactivated"} user`,
+        });
         return { success: true };
       } catch (error) {
         authLogger.error(
@@ -562,6 +590,12 @@ export function registerAuthHandlers(): void {
           role,
           v.data.id,
         );
+        audit(e.sender.id, {
+          action: "update",
+          entity_type: "user",
+          entity_id: String(v.data.id),
+          summary: `Changed user role to "${v.data.role}"`,
+        });
         return { success: true };
       } catch (error) {
         authLogger.error(
@@ -580,31 +614,6 @@ export function registerAuthHandlers(): void {
 // =============================================================================
 // Helper Functions
 // =============================================================================
-
-/**
- * Log user activity
- */
-function logActivity(
-  _db: ReturnType<typeof getDatabase>,
-  userId: number,
-  action: string,
-): void {
-  try {
-    getTransactionRepository().createTransaction({
-      type: action as (typeof TRANSACTION_TYPES)[keyof typeof TRANSACTION_TYPES],
-      source_table: "users",
-      source_id: userId,
-      user_id: userId,
-      summary: `User ${action}`,
-      metadata_json: { timestamp: new Date().toISOString() },
-    });
-  } catch (e) {
-    authLogger.warn(
-      { error: e instanceof Error ? e.message : String(e), action, userId },
-      "Failed to log activity",
-    );
-  }
-}
 
 /**
  * Check if current session has admin role

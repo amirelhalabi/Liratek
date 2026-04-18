@@ -33,8 +33,6 @@ export function LotoPage() {
 
   // Sell ticket form state
   const [saleAmount, setSaleAmount] = useState<string>("");
-  const [paymentMethod, setPaymentMethod] = useState("CASH");
-  const [useMultiPayment, setUseMultiPayment] = useState(false);
   const [_paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
 
   // Cash prize form state
@@ -116,7 +114,7 @@ export function LotoPage() {
           ticketsSold: result.reportData.total_tickets,
           totalSales: result.reportData.total_sales,
           totalCommission: result.reportData.total_commission,
-          totalPrizes: result.reportData.total_prizes,
+          totalPrizes: result.reportData.total_cash_prizes,
         });
       }
     } catch {
@@ -135,12 +133,27 @@ export function LotoPage() {
 
       // Get the last checkpoint to determine period_start
       const lastResult = await lotoApi.checkpoint.getLast();
-      const periodStart =
-        lastResult.success && lastResult.checkpoint
-          ? lastResult.checkpoint.period_end
-          : "1970-01-01";
+      let periodStart = "1970-01-01";
+      if (lastResult.success && lastResult.checkpoint) {
+        // Start from the day AFTER the last checkpoint's period_end
+        const nextDay = new Date(lastResult.checkpoint.period_end);
+        nextDay.setDate(nextDay.getDate() + 1);
+        periodStart = nextDay.toISOString().split("T")[0];
+      }
 
       const today = new Date().toISOString().split("T")[0];
+
+      // Check if there are any sales or cash prizes to checkpoint
+      const ticketsResult = await lotoApi.getByDateRange(periodStart, today);
+      const tickets = ticketsResult.tickets || [];
+      const cashPrizeResult = await lotoApi.cashPrize.getTotalUnreimbursed();
+      const hasCashPrizes =
+        cashPrizeResult.success && cashPrizeResult.total > 0;
+
+      if (tickets.length === 0 && !hasCashPrizes) {
+        alert("No sales or cash prizes to checkpoint.");
+        return;
+      }
 
       const result = await lotoApi.checkpoint.create({
         checkpoint_date: today,
@@ -185,7 +198,10 @@ export function LotoPage() {
         commission_rate: commissionRate,
         commission_amount: commissionAmount,
         sale_date: new Date().toISOString().split("T")[0],
-        payment_method: useMultiPayment ? "SPLIT" : paymentMethod,
+        payment_method:
+          _paymentLines.length > 1
+            ? "SPLIT"
+            : _paymentLines[0]?.method || "CASH",
         currency: "LBP",
       };
 
@@ -214,11 +230,6 @@ export function LotoPage() {
       return;
     }
 
-    if (!cashPrizeTicketNumber || !cashPrizeTicketNumber.trim()) {
-      alert("Please enter the ticket number");
-      return;
-    }
-
     const lotoApi = (api as any)?.loto;
     if (!lotoApi) {
       alert("Loto API is not available");
@@ -231,7 +242,7 @@ export function LotoPage() {
       const prizeData = {
         prize_amount: parseFloat(cashPrizeAmount),
         prize_date: new Date().toISOString().split("T")[0],
-        ticket_number: cashPrizeTicketNumber.trim(),
+        ticket_number: cashPrizeTicketNumber.trim() || undefined,
       };
 
       const result = await lotoApi.cashPrize.create(prizeData);
@@ -258,7 +269,6 @@ export function LotoPage() {
       <PageHeader
         icon={Ticket}
         title="Loto"
-        subtitle="Lottery ticket sales and management"
         actions={
           <div className="flex items-center gap-2">
             <StatsCards
@@ -342,44 +352,19 @@ export function LotoPage() {
 
                 {/* Payment Method */}
                 <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="text-xs text-slate-400">
-                      Payment Method
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => setUseMultiPayment(!useMultiPayment)}
-                      className="text-xs px-3 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
-                    >
-                      {useMultiPayment ? "Single Payment" : "Split Payment"}
-                    </button>
-                  </div>
-                  {useMultiPayment ? (
-                    <MultiPaymentInput
-                      totalAmount={saleAmount ? parseFloat(saleAmount) : 0}
-                      currency="LBP"
-                      onChange={setPaymentLines}
-                      showPmFee={false}
-                      paymentMethods={methods}
-                      currencies={[
-                        { code: "USD", symbol: "$" },
-                        { code: "LBP", symbol: "L£" },
-                      ]}
-                      exchangeRate={exchangeRate}
-                    />
-                  ) : (
-                    <select
-                      value={paymentMethod}
-                      onChange={(e) => setPaymentMethod(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500 transition-colors"
-                    >
-                      {methods.map((m) => (
-                        <option key={m.code} value={m.code}>
-                          {m.label}
-                        </option>
-                      ))}
-                    </select>
-                  )}
+                  <MultiPaymentInput
+                    totalAmount={saleAmount ? parseFloat(saleAmount) : 0}
+                    totalAmountCurrency="LBP"
+                    currency="LBP"
+                    onChange={setPaymentLines}
+                    showPmFee={false}
+                    paymentMethods={methods}
+                    currencies={[
+                      { code: "USD", symbol: "$" },
+                      { code: "LBP", symbol: "LBP" },
+                    ]}
+                    exchangeRate={exchangeRate}
+                  />
                 </div>
 
                 {/* Submit Button */}
@@ -417,14 +402,14 @@ export function LotoPage() {
                 {/* Ticket Number */}
                 <div>
                   <label className="text-xs text-slate-400 block mb-1">
-                    Ticket Number *
+                    Ticket Number
                   </label>
                   <input
                     type="text"
                     value={cashPrizeTicketNumber}
                     onChange={(e) => setCashPrizeTicketNumber(e.target.value)}
                     className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-yellow-500 transition-colors"
-                    placeholder="Winning ticket number"
+                    placeholder="Winning ticket number (optional)"
                   />
                 </div>
 

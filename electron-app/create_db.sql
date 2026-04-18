@@ -300,7 +300,7 @@ CREATE INDEX IF NOT EXISTS idx_customer_session_transactions_session ON customer
 CREATE TABLE IF NOT EXISTS supplier_ledger (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   supplier_id INTEGER NOT NULL,
-  entry_type TEXT NOT NULL CHECK(entry_type IN ('TOP_UP', 'PAYMENT', 'ADJUSTMENT', 'SETTLEMENT')),
+  entry_type TEXT NOT NULL CHECK(entry_type IN ('TOP_UP', 'PAYMENT', 'ADJUSTMENT', 'SETTLEMENT', 'CASH_PRIZE')),
   amount_usd REAL NOT NULL DEFAULT 0,
   amount_lbp REAL NOT NULL DEFAULT 0,
   note TEXT,
@@ -850,6 +850,8 @@ CREATE TABLE IF NOT EXISTS loto_checkpoints (
     total_commission REAL NOT NULL DEFAULT 0,
     total_tickets INTEGER NOT NULL DEFAULT 0,
     total_prizes REAL NOT NULL DEFAULT 0,
+    total_cash_prizes REAL NOT NULL DEFAULT 0,
+    total_cash_prizes_count INTEGER NOT NULL DEFAULT 0,
     is_settled INTEGER NOT NULL DEFAULT 0,
     settled_at TEXT,
     settlement_id INTEGER,
@@ -872,6 +874,7 @@ CREATE TABLE IF NOT EXISTS loto_cash_prizes (
     is_reimbursed INTEGER NOT NULL DEFAULT 0,
     reimbursed_date TEXT,
     reimbursed_in_settlement_id INTEGER,
+    checkpoint_id INTEGER REFERENCES loto_checkpoints(id),
     note TEXT,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP
@@ -879,9 +882,49 @@ CREATE TABLE IF NOT EXISTS loto_cash_prizes (
 
 CREATE INDEX IF NOT EXISTS idx_loto_cash_prizes_date ON loto_cash_prizes(prize_date);
 CREATE INDEX IF NOT EXISTS idx_loto_cash_prizes_reimbursed ON loto_cash_prizes(is_reimbursed);
+CREATE INDEX IF NOT EXISTS idx_loto_cash_prizes_checkpoint ON loto_cash_prizes(checkpoint_id);
+
+-- Loto settlements table
+CREATE TABLE IF NOT EXISTS loto_settlements (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    settlement_date TEXT NOT NULL,
+    checkpoint_ids TEXT NOT NULL,
+    total_sales REAL NOT NULL DEFAULT 0,
+    total_commission REAL NOT NULL DEFAULT 0,
+    total_cash_prizes REAL NOT NULL DEFAULT 0,
+    net_settlement REAL NOT NULL,
+    note TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
 
 -- =============================================================================
--- 10. Migration Tracking
+-- 10. Audit Log
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    username TEXT NOT NULL,
+    role TEXT NOT NULL,
+    action TEXT NOT NULL,
+    entity_type TEXT NOT NULL,
+    entity_id TEXT,
+    summary TEXT NOT NULL,
+    old_values TEXT,
+    new_values TEXT,
+    metadata TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_log_user_id ON audit_log(user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_log_entity ON audit_log(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action);
+CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at);
+
+-- =============================================================================
+-- 11. Migration Tracking
 -- =============================================================================
 
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -936,4 +979,8 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (50, 'add_loto_checkpoints_table'),
     (51, 'add_loto_cash_prizes_table'),
     (52, 'add_loto_settlements_table'),
-    (53, 'create_mobile_service_items');
+    (53, 'create_mobile_service_items'),
+    (54, 'create_audit_log'),
+    (55, 'remove_login_transactions'),
+    (56, 'add_cash_prize_entry_type'),
+    (57, 'link_cash_prizes_to_checkpoints');

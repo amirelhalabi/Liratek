@@ -8,6 +8,7 @@
 import { ipcMain, IpcMainInvokeEvent } from "electron";
 import { getRateService, settingsLogger } from "@liratek/core";
 import { requireRole } from "../session.js";
+import { audit } from "./auditHelper.js";
 import type { SetRateData } from "@liratek/core";
 
 export function registerRateHandlers(): void {
@@ -35,7 +36,19 @@ export function registerRateHandlers(): void {
         },
         "Setting rate",
       );
-      return rateService.setRate(data);
+      const result = rateService.setRate(data);
+      audit(event.sender.id, {
+        action: "update",
+        entity_type: "exchange_rate",
+        entity_id: data.to_code,
+        summary: `Set rate USD→${data.to_code}: market=${data.market_rate}, delta=${data.delta}`,
+        new_values: {
+          market_rate: data.market_rate,
+          delta: data.delta,
+          is_stronger: data.is_stronger,
+        },
+      });
+      return result;
     },
   );
 
@@ -47,7 +60,14 @@ export function registerRateHandlers(): void {
       if (!auth.ok) return { success: false, error: auth.error };
 
       settingsLogger.info({ toCode }, "Deleting rate");
-      return rateService.deleteRate(toCode, "USD");
+      const result = rateService.deleteRate(toCode, "USD");
+      audit(event.sender.id, {
+        action: "delete",
+        entity_type: "exchange_rate",
+        entity_id: toCode,
+        summary: `Deleted rate USD→${toCode}`,
+      });
+      return result;
     },
   );
 }

@@ -499,7 +499,7 @@ yarn workspace @liratek/ui typecheck  # Should pass
   paymentMethods={methods}
   currencies={[
     { code: "USD", symbol: "$" },
-    { code: "LBP", symbol: "L£" },
+    { code: "LBP", symbol: "LBP" },
   ]}
   exchangeRate={calculatedRate}  // ← Keep existing calculation
 />

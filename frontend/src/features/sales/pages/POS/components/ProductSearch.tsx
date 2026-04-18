@@ -209,7 +209,7 @@ function ProductSearch({
   };
 
   return (
-    <div className="flex flex-col bg-slate-900/50 rounded-2xl border border-slate-700/50 overflow-hidden">
+    <div className="flex flex-col h-full bg-slate-900/50 rounded-2xl border border-slate-700/50 overflow-hidden">
       {/* Search Header */}
       <div className="p-4 border-b border-slate-700 bg-slate-800/80 backdrop-blur-sm sticky top-0 z-10">
         <div className="relative">
@@ -231,7 +231,7 @@ function ProductSearch({
       </div>
 
       {/* Content Area */}
-      <div className="min-h-0 max-h-full overflow-y-auto p-4 custom-scrollbar">
+      <div className="flex-1 min-h-0 overflow-y-auto p-4 custom-scrollbar">
         {isSearchEmpty ? (
           /* ── Sales View ── */
           <>

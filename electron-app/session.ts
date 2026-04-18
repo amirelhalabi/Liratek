@@ -216,7 +216,7 @@ export function getSession(webContentsId: number): SessionData | undefined {
 export function requireRole(
   webContentsId: number,
   allowed: UserRole[] = ["admin"],
-): { ok: boolean; error?: string; role?: UserRole; userId?: number } {
+): { ok: true; role: UserRole; userId: number } | { ok: false; error: string } {
   const session = getSession(webContentsId);
   if (!session) return { ok: false, error: "Not authenticated" };
   if (!allowed.includes(session.role)) return { ok: false, error: "Forbidden" };

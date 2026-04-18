@@ -1,7 +1,7 @@
 import { BrowserWindow, app } from "electron";
 import path from "path";
 import fs from "fs";
-import { resolveDatabasePath, toErrorString } from "@liratek/core";
+import { resolveDatabasePath, toErrorString, getDatabase } from "@liratek/core";
 import { createRequire } from "module";
 
 // ESM does not provide require(); create one so we can load CJS-only packages
@@ -101,7 +101,8 @@ export class ReportService {
 
   /**
    * Backup the database to Documents/Liratek/Backups
-   * Includes WAL and SHM files if they exist (for WAL mode databases)
+   * Performs a WAL checkpoint first to flush all changes into the main DB file,
+   * then copies only the single .sqlite file (no -wal/-shm needed).
    */
   async backupDatabase(): Promise<BackupResult> {
     try {
@@ -112,22 +113,23 @@ export class ReportService {
         fs.mkdirSync(backupsDir, { recursive: true });
       }
 
+      // Flush WAL into main DB so we only need the single .sqlite file
+      try {
+        const db = getDatabase();
+        db.pragma("wal_checkpoint(TRUNCATE)");
+      } catch {
+        // If checkpoint fails, proceed anyway — the copy will still work
+        // but may not include the very latest WAL entries
+      }
+
       const ts = new Date().toISOString().replace(/[:.]/g, "-");
       const outPath = path.join(backupsDir, `backup_${ts}.sqlite`);
 
-      // Copy main database file
+      // Copy only the main database file
       fs.copyFileSync(dbPath, outPath);
 
-      // Also backup WAL and SHM files if they exist (for WAL mode)
-      const walPath = dbPath + "-wal";
-      const shmPath = dbPath + "-shm";
-
-      if (fs.existsSync(walPath)) {
-        fs.copyFileSync(walPath, outPath + "-wal");
-      }
-      if (fs.existsSync(shmPath)) {
-        fs.copyFileSync(shmPath, outPath + "-shm");
-      }
+      // Cleanup stale -wal/-shm files from previous backups
+      this.cleanupStaleWalFiles(backupsDir);
 
       // Cleanup old backups (keep last 24 = 24 hours of hourly backups)
       await this.pruneBackups(24);
@@ -137,6 +139,22 @@ export class ReportService {
       console.error("Failed to backup database:", error);
       return { success: false, error: toErrorString(error) };
     }
+  }
+
+  /**
+   * Remove stale -wal and -shm files left by previous backup logic.
+   */
+  private cleanupStaleWalFiles(dir: string): void {
+    try {
+      const files = fs.readdirSync(dir);
+      for (const f of files) {
+        if (f.endsWith("-wal") || f.endsWith("-shm")) {
+          try {
+            fs.unlinkSync(path.join(dir, f));
+          } catch {}
+        }
+      }
+    } catch {}
   }
 
   /**

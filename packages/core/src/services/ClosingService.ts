@@ -15,13 +15,13 @@ export interface ClosingResult {
 
 export interface SetOpeningBalancesData {
   closing_date: string;
-  user_id?: number;
+  user_id: number;
   amounts: OpeningBalanceAmount[];
 }
 
 export interface CreateClosingData {
   closing_date: string;
-  user_id?: number;
+  user_id: number;
   variance_notes?: string;
   report_path?: string;
   system_expected_usd?: number;
@@ -39,7 +39,7 @@ export interface UpdateClosingData {
   variance_usd?: number;
   notes?: string;
   report_path?: string;
-  user_id?: number;
+  user_id: number;
 }
 
 export class ClosingService {
@@ -56,7 +56,7 @@ export class ClosingService {
     return this.repo.setOpeningBalances(
       data.closing_date,
       data.amounts,
-      data.user_id || 1,
+      data.user_id!,
     );
   }
 
@@ -71,6 +71,7 @@ export class ClosingService {
       data.system_expected_lbp || 0,
       data.variance_notes,
       data.report_path,
+      data.user_id,
     );
   }
 

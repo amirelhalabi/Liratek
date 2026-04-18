@@ -2506,8 +2506,9 @@ export async function lotoCheckpointSettle(data: {
   totalSales: number;
   totalCommission: number;
   totalPrizes: number;
-  totalCashPrizes: number;
+  totalCashPrizes?: number;
   settledAt?: string;
+  payments?: Array<{ method: string; currency_code: string; amount: number }>;
 }): Promise<{ success: boolean; checkpoint?: any; error?: string }> {
   return ipcOrHttp(
     async () => getElectronApi().loto.checkpoint.settle(data),

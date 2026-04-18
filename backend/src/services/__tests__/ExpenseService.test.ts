@@ -58,10 +58,10 @@ describe("ExpenseService", () => {
       };
       mockRepo.createExpense.mockReturnValue(1);
 
-      const result = service.addExpense(expenseData);
+      const result = service.addExpense(expenseData, 1);
 
       expect(result).toEqual({ success: true, id: 1 });
-      expect(mockRepo.createExpense).toHaveBeenCalledWith(expenseData);
+      expect(mockRepo.createExpense).toHaveBeenCalledWith(expenseData, 1);
     });
 
     it("should add expense with LBP amount", () => {
@@ -74,7 +74,7 @@ describe("ExpenseService", () => {
       };
       mockRepo.createExpense.mockReturnValue(2);
 
-      const result = service.addExpense(expenseData);
+      const result = service.addExpense(expenseData, 1);
 
       expect(result).toEqual({ success: true, id: 2 });
     });
@@ -89,7 +89,7 @@ describe("ExpenseService", () => {
       };
       mockRepo.createExpense.mockReturnValue(3);
 
-      const result = service.addExpense(expenseData);
+      const result = service.addExpense(expenseData, 1);
 
       expect(result).toEqual({ success: true, id: 3 });
     });
@@ -106,7 +106,7 @@ describe("ExpenseService", () => {
         throw new Error("Insert failed");
       });
 
-      const result = service.addExpense(expenseData);
+      const result = service.addExpense(expenseData, 1);
 
       expect(result).toEqual({
         success: false,
@@ -124,7 +124,7 @@ describe("ExpenseService", () => {
       };
       mockRepo.createExpense.mockReturnValue(4);
 
-      const result = service.addExpense(expenseData);
+      const result = service.addExpense(expenseData, 1);
 
       expect(result).toEqual({ success: true, id: 4 });
     });
@@ -139,7 +139,7 @@ describe("ExpenseService", () => {
       };
       mockRepo.createExpense.mockReturnValue(5);
 
-      const result = service.addExpense(expenseData);
+      const result = service.addExpense(expenseData, 1);
 
       expect(result).toEqual({ success: true, id: 5 });
     });
@@ -216,17 +216,17 @@ describe("ExpenseService", () => {
       mockRepo.getExpenseById.mockReturnValue(mockExpense);
       mockRepo.deleteExpense.mockReturnValue(undefined);
 
-      const result = service.deleteExpense(1);
+      const result = service.deleteExpense(1, 1);
 
       expect(result).toEqual({ success: true });
-      expect(mockRepo.deleteExpense).toHaveBeenCalledWith(1);
+      expect(mockRepo.deleteExpense).toHaveBeenCalledWith(1, 1);
     });
 
     it("should delete without logging if expense not found", () => {
       mockRepo.getExpenseById.mockReturnValue(undefined);
       mockRepo.deleteExpense.mockReturnValue(undefined);
 
-      const result = service.deleteExpense(999);
+      const result = service.deleteExpense(999, 1);
 
       expect(result).toEqual({ success: true });
     });
@@ -245,7 +245,7 @@ describe("ExpenseService", () => {
         throw new Error("Delete failed");
       });
 
-      const result = service.deleteExpense(1);
+      const result = service.deleteExpense(1, 1);
 
       expect(result).toEqual({
         success: false,
@@ -266,10 +266,10 @@ describe("ExpenseService", () => {
       mockRepo.getExpenseById.mockReturnValue(mockExpense);
       mockRepo.deleteExpense.mockReturnValue(undefined);
 
-      const result = service.deleteExpense(2);
+      const result = service.deleteExpense(2, 1);
 
       expect(result).toEqual({ success: true });
-      expect(mockRepo.deleteExpense).toHaveBeenCalledWith(2);
+      expect(mockRepo.deleteExpense).toHaveBeenCalledWith(2, 1);
     });
   });
 

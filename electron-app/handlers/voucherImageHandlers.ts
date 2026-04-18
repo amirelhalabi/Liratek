@@ -6,6 +6,7 @@
 
 import { ipcMain } from "electron";
 import { getVoucherImageService } from "@liratek/core";
+import { requireRole } from "../session.js";
 
 export function registerVoucherImageHandlers(): void {
   const voucherImageService = getVoucherImageService();
@@ -19,7 +20,7 @@ export function registerVoucherImageHandlers(): void {
   ipcMain.handle(
     "voucher-images:set",
     (
-      _event,
+      event,
       data: {
         provider: string;
         category: string;
@@ -27,6 +28,8 @@ export function registerVoucherImageHandlers(): void {
         imageData: string;
       },
     ) => {
+      const auth = requireRole(event.sender.id, ["admin"]);
+      if (!auth.ok) return { success: false, error: auth.error };
       voucherImageService.setImage(
         data.provider,
         data.category,
@@ -38,7 +41,9 @@ export function registerVoucherImageHandlers(): void {
   );
 
   // Delete a voucher image
-  ipcMain.handle("voucher-images:delete", (_event, id: number) => {
+  ipcMain.handle("voucher-images:delete", (event, id: number) => {
+    const auth = requireRole(event.sender.id, ["admin"]);
+    if (!auth.ok) return { success: false, error: auth.error };
     voucherImageService.deleteImage(id);
     return { success: true };
   });

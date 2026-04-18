@@ -5,10 +5,14 @@
  * the complete setup payload from the wizard.
  */
 
-import { ipcMain } from "electron";
+import { ipcMain, app } from "electron";
 import crypto from "crypto";
+import fs from "fs";
+import path from "path";
+import os from "os";
+import { createRequire } from "module";
 import { getDb } from "../main.js";
-import { getSettingsService } from "@liratek/core";
+import { getSettingsService, logger } from "@liratek/core";
 
 export interface SetupPayload {
   shop_name: string;
@@ -18,8 +22,6 @@ export interface SetupPayload {
   enabled_payment_methods: string[];
   session_management_enabled: boolean;
   customer_sessions_enabled: boolean;
-  database_path?: string | null;
-  database_type?: "local" | "network";
   // Optional
   active_currencies?: string[];
   extra_users?: { username: string; password: string; role: string }[];
@@ -191,21 +193,7 @@ export function registerSetupHandlers() {
           ).run(payload.whatsapp_api_key);
         }
 
-        // 9. Save database path configuration (if network mode)
-        if (payload.database_path && payload.database_type === "network") {
-          db.prepare(
-            "INSERT OR REPLACE INTO system_settings (key_name, value) VALUES ('database_path', ?)",
-          ).run(payload.database_path);
-          db.prepare(
-            "INSERT OR REPLACE INTO system_settings (key_name, value) VALUES ('database_type', ?)",
-          ).run("network");
-        } else {
-          db.prepare(
-            "INSERT OR REPLACE INTO system_settings (key_name, value) VALUES ('database_type', ?)",
-          ).run("local");
-        }
-
-        // 10. Mark setup complete — LAST step
+        // 9. Mark setup complete — LAST step
         db.prepare(
           "INSERT OR REPLACE INTO system_settings (key_name, value) VALUES ('setup_complete', '1')",
         ).run();
@@ -231,55 +219,240 @@ export function registerSetupHandlers() {
     }
   });
 
-  // ── Test Database Path ─────────────────────────────────────────────────────
-  ipcMain.handle("setup:testDatabasePath", async (_event, dbPath: string) => {
+  // ── Detect existing LiraTek databases on network volumes ──────────────────
+  ipcMain.handle("setup:detectNetworkDb", async () => {
     try {
-      const fs = await import("fs-extra");
-      const path = await import("path");
+      const esmRequire = createRequire(import.meta.url);
+      const Database = esmRequire(
+        "better-sqlite3",
+      ) as typeof import("better-sqlite3");
 
-      // Validate path format
-      if (!dbPath.trim()) {
-        return { success: false, error: "Path is empty" };
+      const databases: Array<{ path: string; shopName: string }> = [];
+
+      if (process.platform === "darwin") {
+        const volumesDir = "/Volumes";
+        if (!fs.existsSync(volumesDir)) {
+          return { success: true, databases: [] };
+        }
+
+        const volumes = fs.readdirSync(volumesDir);
+        const DB_PATTERNS = [
+          "Library/Application Support/liratek/phone_shop.db",
+          "Documents/LiraTek/liratek.db",
+        ];
+
+        for (const vol of volumes) {
+          // Skip local disk
+          if (vol === "Macintosh HD" || vol === "Macintosh HD - Data") continue;
+
+          for (const pattern of DB_PATTERNS) {
+            const dbPath = path.join(volumesDir, vol, pattern);
+            try {
+              if (!fs.existsSync(dbPath)) continue;
+
+              const db = new Database(dbPath, { readonly: true });
+              try {
+                const setupRow = db
+                  .prepare(
+                    "SELECT value FROM system_settings WHERE key_name = 'setup_complete'",
+                  )
+                  .get() as { value: string } | undefined;
+                if (setupRow?.value !== "1") continue;
+
+                const nameRow = db
+                  .prepare(
+                    "SELECT value FROM system_settings WHERE key_name = 'shop_name'",
+                  )
+                  .get() as { value: string } | undefined;
+
+                databases.push({
+                  path: dbPath,
+                  shopName: nameRow?.value || "Unknown Shop",
+                });
+              } finally {
+                db.close();
+              }
+            } catch {
+              // Skip inaccessible or invalid DBs
+            }
+          }
+        }
       }
 
-      // Check if it's a network path
-      const isNetworkPath =
-        dbPath.startsWith("\\\\") || dbPath.startsWith("//");
-
-      if (isNetworkPath) {
-        // Test network path accessibility
-        try {
-          await fs.access(dbPath);
-          // Try to create a test file
-          const testFile = path.join(dbPath, `.liratek_test_${Date.now()}`);
-          await fs.writeFile(testFile, "test");
-          await fs.remove(testFile);
-          return { success: true };
-        } catch (error) {
-          return {
-            success: false,
-            error: `Cannot access network path: ${error instanceof Error ? error.message : String(error)}`,
-          };
-        }
-      } else {
-        // Local path - just check if directory exists or can be created
-        const dir = path.dirname(dbPath);
-        try {
-          await fs.ensureDir(dir);
-          await fs.access(dir, fs.constants.W_OK);
-          return { success: true };
-        } catch (error) {
-          return {
-            success: false,
-            error: `Cannot write to path: ${error instanceof Error ? error.message : String(error)}`,
-          };
-        }
-      }
+      logger.info(
+        { count: databases.length },
+        "Network DB detection completed",
+      );
+      return { success: true, databases };
     } catch (error) {
+      logger.error({ error }, "setup:detectNetworkDb failed");
       return {
         success: false,
-        error: `Test failed: ${error instanceof Error ? error.message : String(error)}`,
+        databases: [],
+        error: error instanceof Error ? error.message : String(error),
       };
     }
+  });
+
+  // ── Join an existing shop (secondary laptop) ──────────────────────────────
+  ipcMain.handle(
+    "setup:joinExistingShop",
+    async (
+      _event,
+      payload: {
+        dbPath: string;
+        users: Array<{ username: string; password: string; role: string }>;
+      },
+    ) => {
+      try {
+        const esmRequire = createRequire(import.meta.url);
+        const Database = esmRequire(
+          "better-sqlite3",
+        ) as typeof import("better-sqlite3");
+
+        // Validate DB exists
+        if (!fs.existsSync(payload.dbPath)) {
+          return { success: false, error: "Database file not found" };
+        }
+
+        // Open the remote DB and verify it's a valid LiraTek DB
+        const db = new Database(payload.dbPath);
+        let shopName = "Unknown Shop";
+
+        try {
+          const setupRow = db
+            .prepare(
+              "SELECT value FROM system_settings WHERE key_name = 'setup_complete'",
+            )
+            .get() as { value: string } | undefined;
+
+          if (setupRow?.value !== "1") {
+            return {
+              success: false,
+              error: "Database has not completed setup",
+            };
+          }
+
+          const nameRow = db
+            .prepare(
+              "SELECT value FROM system_settings WHERE key_name = 'shop_name'",
+            )
+            .get() as { value: string } | undefined;
+          shopName = nameRow?.value || "Unknown Shop";
+
+          // Add users in a transaction
+          if (payload.users.length > 0) {
+            db.transaction(() => {
+              for (const u of payload.users) {
+                if (!u.username?.trim() || !u.password) continue;
+
+                const existing = db
+                  .prepare("SELECT id FROM users WHERE username = ? LIMIT 1")
+                  .get(u.username.trim()) as { id: number } | undefined;
+
+                if (!existing) {
+                  db.prepare(
+                    "INSERT INTO users (username, password_hash, role, is_active) VALUES (?, ?, ?, 1)",
+                  ).run(
+                    u.username.trim(),
+                    hashPassword(u.password),
+                    u.role || "staff",
+                  );
+                }
+              }
+            })();
+          }
+        } finally {
+          db.close();
+        }
+
+        // Write db-path.txt so the app uses this DB on next launch
+        const configDir = path.join(os.homedir(), "Documents", "LiraTek");
+        fs.mkdirSync(configDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(configDir, "db-path.txt"),
+          payload.dbPath,
+          "utf8",
+        );
+
+        logger.info(
+          { dbPath: payload.dbPath, shopName, users: payload.users.length },
+          "Joined existing shop",
+        );
+
+        return { success: true, requiresRestart: true, shopName };
+      } catch (error) {
+        logger.error({ error }, "setup:joinExistingShop failed");
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    },
+  );
+
+  // ── Browse for database file (native file dialog) ─────────────────────────
+  ipcMain.handle("setup:browseForDatabase", async () => {
+    try {
+      const { dialog } = await import("electron");
+      const result = await dialog.showOpenDialog({
+        title: "Select LiraTek Database",
+        filters: [{ name: "Database", extensions: ["db", "sqlite"] }],
+        properties: ["openFile"],
+      });
+
+      if (result.canceled || result.filePaths.length === 0) {
+        return { success: false, canceled: true };
+      }
+
+      // Verify it's a valid LiraTek DB
+      const dbPath = result.filePaths[0];
+      const esmRequire = createRequire(import.meta.url);
+      const Database = esmRequire(
+        "better-sqlite3",
+      ) as typeof import("better-sqlite3");
+
+      const db = new Database(dbPath, { readonly: true });
+      try {
+        const setupRow = db
+          .prepare(
+            "SELECT value FROM system_settings WHERE key_name = 'setup_complete'",
+          )
+          .get() as { value: string } | undefined;
+
+        if (setupRow?.value !== "1") {
+          return {
+            success: false,
+            error: "This database has not completed initial setup",
+          };
+        }
+
+        const nameRow = db
+          .prepare(
+            "SELECT value FROM system_settings WHERE key_name = 'shop_name'",
+          )
+          .get() as { value: string } | undefined;
+
+        return {
+          success: true,
+          path: dbPath,
+          shopName: nameRow?.value || "Unknown Shop",
+        };
+      } finally {
+        db.close();
+      }
+    } catch (error) {
+      logger.error({ error }, "setup:browseForDatabase failed");
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  });
+
+  // ── Relaunch the app (after joining an existing shop) ─────────────────────
+  ipcMain.handle("setup:relaunch", async () => {
+    app.relaunch();
+    app.exit(0);
   });
 }

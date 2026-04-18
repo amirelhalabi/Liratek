@@ -48,7 +48,7 @@ describe("ClientRepository", () => {
     });
 
     expect(() =>
-      repo.createClient({ full_name: "A", phone_number: "1" }),
+      repo.createClient({ full_name: "A", phone_number: "1" }, 1),
     ).toThrow(/Phone number already registered/);
   });
 
@@ -65,7 +65,7 @@ describe("ClientRepository", () => {
       return stmt;
     });
 
-    expect(() => repo.deleteClient(1)).toThrow(/Cannot delete client/);
+    expect(() => repo.deleteClient(1, 1)).toThrow(/Cannot delete client/);
   });
 
   it("deleteClient deletes when no history", () => {
@@ -91,7 +91,7 @@ describe("ClientRepository", () => {
       return stmt;
     });
 
-    const ok = repo.deleteClient(1);
+    const ok = repo.deleteClient(1, 1);
     expect(ok).toBe(true);
   });
 });

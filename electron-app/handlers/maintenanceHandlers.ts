@@ -1,5 +1,6 @@
 import { ipcMain } from "electron";
 import { requireRole } from "../session.js";
+import { audit } from "./auditHelper.js";
 import {
   getMaintenanceService,
   maintenanceLogger,
@@ -24,7 +25,14 @@ export function registerMaintenanceHandlers(): void {
       { jobId: v.data.id, device: v.data.device_name },
       "Saving maintenance job",
     );
-    return service.saveJob(v.data as SaveJobParams);
+    const result = service.saveJob(v.data as SaveJobParams);
+    audit(e.sender.id, {
+      action: v.data.id ? "update" : "create",
+      entity_type: "maintenance_job",
+      entity_id: String(v.data.id ?? (result as any)?.id ?? ""),
+      summary: `${v.data.id ? "Updated" : "Created"} maintenance job: ${v.data.device_name}`,
+    });
+    return result;
   });
 
   // Get Jobs
@@ -39,6 +47,13 @@ export function registerMaintenanceHandlers(): void {
       if (!auth.ok) return { success: false, error: auth.error };
     } catch {}
     maintenanceLogger.info({ jobId: id }, "Deleting maintenance job");
-    return service.deleteJob(id);
+    const result = service.deleteJob(id);
+    audit(e.sender.id, {
+      action: "delete",
+      entity_type: "maintenance_job",
+      entity_id: String(id),
+      summary: `Deleted maintenance job #${id}`,
+    });
+    return result;
   });
 }

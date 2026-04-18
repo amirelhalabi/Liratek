@@ -183,7 +183,10 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
    * Process a complete sale transaction (create/update with items, stock, debt)
    * This wraps all sale operations in a single transaction
    */
-  processSale(sale: SaleRequest): {
+  processSale(
+    sale: SaleRequest,
+    userId: number,
+  ): {
     success: boolean;
     id?: number;
     error?: string;
@@ -296,7 +299,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           type: TRANSACTION_TYPES.SALE,
           source_table: "sales",
           source_id: saleId,
-          user_id: 1,
+          user_id: userId,
           amount_usd: sale.final_amount,
           amount_lbp: sale.payment_lbp || 0,
           exchange_rate: sale.exchange_rate,
@@ -357,7 +360,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             updated_at = CURRENT_TIMESTAMP
         `);
 
-        const createdBy = 1;
+        const createdBy = userId;
         const note = sale.note || null;
 
         for (const p of paymentLines) {
@@ -766,35 +769,26 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         throw new DatabaseError("No SALE transaction found for this sale");
       }
 
-      // 6. Create REFUND transaction for this item
-      const refundTxnResult = db
-        .prepare(
-          `INSERT INTO transactions
-            (type, status, source_table, source_id, user_id,
-             amount_usd, amount_lbp, exchange_rate,
-             client_id, reverses_id, summary, metadata_json, device_id)
-            VALUES ('REFUND', 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(
-          originalTxn.source_table,
-          originalTxn.source_id,
-          params.userId,
-          -refundAmount,
-          -(refundAmount * originalTxn.exchange_rate),
-          originalTxn.exchange_rate,
-          originalTxn.client_id,
-          null,
-          `ITEM REFUND: ${params.refundQuantity}x product ${item.product_id} from Sale #${params.saleId}`,
-          JSON.stringify({
-            refundType: "item",
-            saleItemId: params.saleItemId,
-            refundQuantity: params.refundQuantity,
-            originalSaleId: params.saleId,
-          }),
-          originalTxn.device_id,
-        );
-
-      const refundTxnId = refundTxnResult.lastInsertRowid as number;
+      // 6. Create REFUND transaction for this item via TransactionRepository
+      const txnRepo = getTransactionRepository();
+      const refundTxnId = txnRepo.createTransaction({
+        type: TRANSACTION_TYPES.REFUND,
+        source_table: originalTxn.source_table,
+        source_id: originalTxn.source_id,
+        user_id: params.userId,
+        amount_usd: -refundAmount,
+        amount_lbp: -(refundAmount * originalTxn.exchange_rate),
+        exchange_rate: originalTxn.exchange_rate,
+        client_id: originalTxn.client_id,
+        summary: `ITEM REFUND: ${params.refundQuantity}x product ${item.product_id} from Sale #${params.saleId}`,
+        metadata_json: {
+          refundType: "item",
+          saleItemId: params.saleItemId,
+          refundQuantity: params.refundQuantity,
+          originalSaleId: params.saleId,
+        },
+        device_id: originalTxn.device_id ?? undefined,
+      });
 
       // 7. Reverse payments proportionally
       const originalPayments = db

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Select, useApi } from "@liratek/ui";
 import { DataTable, TextInput } from "@liratek/ui";
 import PasswordInput from "@/shared/components/PasswordInput";
+import { validatePassword } from "@/shared/utils/validatePassword";
 
 export default function UsersManager() {
   const api = useApi();
@@ -52,8 +53,9 @@ export default function UsersManager() {
       alert("Username and password required");
       return;
     }
-    if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/.test(newPassword)) {
-      alert("Password must be at least 8 chars with upper, lower, and a digit");
+    const pwResult = validatePassword(newPassword);
+    if (!pwResult.valid) {
+      alert(pwResult.errors.join("\n"));
       return;
     }
     const res = await api.createUser({

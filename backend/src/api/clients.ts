@@ -58,7 +58,7 @@ router.post(
   validateRequest(createClientSchema),
   (req, res): void => {
     const service = getClientService();
-    const result = service.createClient(req.body);
+    const result = service.createClient(req.body, req.user!.userId);
 
     if (!result.success) {
       const errorMsg = result.error || "Failed to create client";
@@ -97,7 +97,7 @@ router.put(
     }
 
     const service = getClientService();
-    const result = service.updateClient(id, req.body);
+    const result = service.updateClient(id, req.body, req.user!.userId);
 
     if (!result.success) {
       const errorMsg = result.error || "Failed to update client";
@@ -132,7 +132,7 @@ router.delete("/:id", requireRole(["admin"]), (req, res): void => {
   }
 
   const service = getClientService();
-  const result = service.deleteClient(id);
+  const result = service.deleteClient(id, req.user!.userId);
 
   if (!result.success) {
     const errorMsg = result.error || "Failed to delete client";

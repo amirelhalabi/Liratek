@@ -1,5 +1,6 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import logger from "@/utils/logger";
+import * as XLSX from "xlsx";
 import {
   Search,
   User,
@@ -12,6 +13,7 @@ import {
   Clock,
   X as CloseIcon,
   Zap,
+  Upload,
 } from "lucide-react";
 import {
   PageHeader,
@@ -30,6 +32,10 @@ import {
   type FinancialServiceData,
   type PaymentRowData,
 } from "../../components/ServiceDebtDetailModal";
+import {
+  ImportCleanupModal,
+  type ImportClient,
+} from "../../components/ImportCleanupModal";
 import { getDebtAging } from "@/api/backendApi";
 
 type DebtAgingBuckets = {
@@ -46,8 +52,15 @@ type SortOrder = "desc" | "asc";
 export default function Debts() {
   const api = useApi();
   const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const { allMethods: methods } = usePaymentMethods();
   const { rate: EXCHANGE_RATE } = useExchangeRate("USD", "LBP");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [parsedClients, setParsedClients] = useState<ImportClient[] | null>(
+    null,
+  );
+  const [showCleanup, setShowCleanup] = useState(false);
 
   type DebtHistoryItem = DebtLedgerEntity & {
     itemNames?: string[];
@@ -410,6 +423,241 @@ export default function Debts() {
     }
   };
 
+  // ---------------------------------------------------------------------------
+  // Excel Import — execute the actual import to backend
+  // ---------------------------------------------------------------------------
+  const executeImport = useCallback(async (clients: ImportClient[]) => {
+    setShowCleanup(false);
+    setParsedClients(null);
+    setIsImporting(true);
+
+    try {
+      const totalEntries = clients.reduce((s, c) => s + c.entries.length, 0);
+      const withoutPhone = clients.filter((c) => !c.phone).length;
+
+      if (
+        !confirm(
+          `Final confirmation:\n• ${clients.length} clients (${withoutPhone} without phone)\n• ${totalEntries} debt/payment entries\n\nProceed with import?`,
+        )
+      ) {
+        setIsImporting(false);
+        return;
+      }
+
+      const result = await window.api.clients.importDebts(clients);
+
+      if (result.success && result.result) {
+        const r = result.result;
+        alert(
+          `Import Complete!\n\n` +
+            `\u2022 Clients created: ${r.clientsCreated}\n` +
+            `\u2022 Clients already existed: ${r.clientsSkipped}\n` +
+            `\u2022 Clients discarded (no phone): ${r.clientsDiscarded}\n` +
+            `\u2022 Debt entries imported: ${r.entriesImported}\n` +
+            (r.errors.length > 0
+              ? `\n\u26A0\uFE0F ${r.errors.length} errors occurred. Check console for details.`
+              : ""),
+        );
+        if (r.errors.length > 0) {
+          logger.error("Import errors:", { errors: r.errors });
+        }
+        loadDebtors();
+      } else {
+        alert("Import failed: " + (result.error ?? "Unknown error"));
+      }
+    } catch (err) {
+      logger.error("Excel import failed", { error: err });
+      alert("Failed to import: " + String(err));
+    } finally {
+      setIsImporting(false);
+    }
+  }, []);
+
+  // ---------------------------------------------------------------------------
+  // Excel Import — parse file and show cleanup modal if needed
+  // ---------------------------------------------------------------------------
+
+  /** Normalise a phone string: keep digits only (strip /, spaces, etc.) */
+  const normalizePhone = (raw: string): string => {
+    if (!raw) return "";
+    return String(raw).replace(/\D/g, "").trim();
+  };
+
+  /**
+   * Try to parse a date value from an Excel cell.
+   * SheetJS gives us a JS serial number or a string depending on format.
+   */
+  const parseExcelDate = (val: unknown): string | null => {
+    if (val == null || val === "") return null;
+    if (val instanceof Date) {
+      return val.toISOString();
+    }
+    if (typeof val === "number") {
+      const date = XLSX.SSF.parse_date_code(val);
+      if (date) {
+        const d = new Date(date.y, date.m - 1, date.d);
+        return d.toISOString();
+      }
+    }
+    if (typeof val === "string") {
+      const parsed = new Date(val);
+      if (!isNaN(parsed.getTime())) return parsed.toISOString();
+    }
+    return null;
+  };
+
+  const handleImportFile = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      setIsImporting(true);
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const workbook = XLSX.read(arrayBuffer, {
+          type: "array",
+          cellDates: true,
+          raw: true,
+        });
+
+        type ImportEntry = {
+          date: string | null;
+          amount_usd: number;
+          amount_lbp: number;
+          description: string;
+          type: "debt" | "payment";
+        };
+
+        const clients: ImportClient[] = [];
+
+        for (const sheetName of workbook.SheetNames) {
+          if (sheetName.toLowerCase() === "list name") continue;
+          if (
+            sheetName.startsWith("NAME (") ||
+            sheetName === "Sheet1" ||
+            sheetName === "Sheet2"
+          )
+            continue;
+
+          const sheet = workbook.Sheets[sheetName];
+          if (!sheet) continue;
+
+          const rows: unknown[][] = XLSX.utils.sheet_to_json(sheet, {
+            header: 1,
+            defval: "",
+            raw: true,
+          });
+
+          if (rows.length < 3) continue;
+
+          // Row 0: fixed layout — A=label, B=client name, C="mobile #", D=phone
+          let clientName = sheetName.trim();
+          let clientPhone = "";
+
+          const row0 = rows[0];
+          if (row0) {
+            const nameVal = String(row0[1] ?? "").trim();
+            if (nameVal) clientName = nameVal;
+
+            const phoneVal = String(row0[3] ?? "").trim();
+            if (phoneVal) clientPhone = normalizePhone(phoneVal);
+          }
+
+          const entries: ImportEntry[] = [];
+
+          for (let r = 2; r < rows.length; r++) {
+            const row = rows[r];
+            if (!row || row.length === 0) continue;
+
+            const leftDate = row[0];
+            const leftUsd = row[1];
+            const leftLbp = row[2];
+            const leftDesc = row[3];
+
+            const leftUsdVal =
+              typeof leftUsd === "number"
+                ? leftUsd
+                : parseFloat(String(leftUsd ?? "0").replace(/,/g, "")) || 0;
+            const leftLbpVal =
+              typeof leftLbp === "number"
+                ? leftLbp
+                : parseFloat(String(leftLbp ?? "0").replace(/,/g, "")) || 0;
+
+            if (leftUsdVal > 0 || leftLbpVal > 0) {
+              entries.push({
+                date: parseExcelDate(leftDate),
+                amount_usd: leftUsdVal,
+                amount_lbp: leftLbpVal,
+                description: String(leftDesc ?? "").trim(),
+                type: "debt",
+              });
+            }
+
+            const rightDate = row[5];
+            const rightUsd = row[6];
+            const rightLbp = row[7];
+            const rightDesc = row[8];
+
+            const rightUsdVal =
+              typeof rightUsd === "number"
+                ? rightUsd
+                : parseFloat(String(rightUsd ?? "0").replace(/,/g, "")) || 0;
+            const rightLbpVal =
+              typeof rightLbp === "number"
+                ? rightLbp
+                : parseFloat(String(rightLbp ?? "0").replace(/,/g, "")) || 0;
+
+            if (rightUsdVal > 0 || rightLbpVal > 0) {
+              entries.push({
+                date: parseExcelDate(rightDate),
+                amount_usd: rightUsdVal,
+                amount_lbp: rightLbpVal,
+                description: String(rightDesc ?? "").trim(),
+                type: "payment",
+              });
+            }
+          }
+
+          clients.push({
+            name: clientName,
+            phone: clientPhone,
+            entries,
+          });
+        }
+
+        logger.info("Parsed Excel file", {
+          totalClients: clients.length,
+          totalEntries: clients.reduce((s, c) => s + c.entries.length, 0),
+        });
+
+        if (clients.length === 0) {
+          alert("No client data found in the Excel file.");
+          return;
+        }
+
+        // Check if there are flagged clients (no phone)
+        const flagged = clients.filter((c) => !c.phone);
+        if (flagged.length > 0) {
+          // Show cleanup modal
+          setParsedClients(clients);
+          setShowCleanup(true);
+          setIsImporting(false);
+        } else {
+          // No issues — go straight to import
+          setIsImporting(false);
+          executeImport(clients);
+        }
+      } catch (err) {
+        logger.error("Excel import failed", { error: err });
+        alert("Failed to parse Excel file: " + String(err));
+        setIsImporting(false);
+      } finally {
+        if (fileInputRef.current) fileInputRef.current.value = "";
+      }
+    },
+    [executeImport],
+  );
+
   const filteredDebtors = debtors.filter((d) => {
     const matchesSearch =
       d.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -436,7 +684,31 @@ export default function Debts() {
 
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500">
-      <PageHeader icon={BookOpen} title="Debts" />
+      {/* Hidden file input for Excel import */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".xlsx,.xls"
+        className="hidden"
+        onChange={handleImportFile}
+      />
+
+      <PageHeader
+        icon={BookOpen}
+        title="Debts"
+        actions={
+          isAdmin ? (
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isImporting}
+              className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg font-medium transition-all disabled:opacity-50"
+            >
+              <Upload size={18} />
+              {isImporting ? "Importing..." : "Import Excel"}
+            </button>
+          ) : undefined
+        }
+      />
 
       <div className="flex flex-1 min-h-0 gap-6 overflow-hidden">
         {/* Left: Debtors List */}
@@ -920,6 +1192,22 @@ export default function Debts() {
           />
         )}
 
+        {/* Import Cleanup Modal */}
+        {showCleanup && parsedClients && (
+          <ImportCleanupModal
+            clients={parsedClients}
+            onConfirm={(cleaned) => {
+              setShowCleanup(false);
+              setParsedClients(null);
+              executeImport(cleaned);
+            }}
+            onCancel={() => {
+              setShowCleanup(false);
+              setParsedClients(null);
+            }}
+          />
+        )}
+
         {/* Repayment Modal */}
         {showRepaymentModal && (
           <div
@@ -974,7 +1262,7 @@ export default function Debts() {
                   paymentMethods={methods}
                   currencies={[
                     { code: "USD", symbol: "$" },
-                    { code: "LBP", symbol: "L£" },
+                    { code: "LBP", symbol: "LBP" },
                   ]}
                   exchangeRate={EXCHANGE_RATE}
                 />

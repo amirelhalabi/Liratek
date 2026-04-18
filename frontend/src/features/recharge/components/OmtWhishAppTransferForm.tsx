@@ -397,7 +397,7 @@ export function OmtWhishAppTransferForm({
                 paymentMethods={drawerAffectingMethods}
                 currencies={[
                   { code: "USD", symbol: "$" },
-                  { code: "LBP", symbol: "L£" },
+                  { code: "LBP", symbol: "LBP" },
                 ]}
                 exchangeRate={exchangeRate}
               />
@@ -408,12 +408,6 @@ export function OmtWhishAppTransferForm({
             <div className="text-xs text-slate-400">Amount:</div>
             <div className="text-sm text-emerald-400 font-mono font-bold">
               ${totalAmount.toFixed(2)}
-            </div>
-            <div className="text-xs text-slate-400 mt-1">Profit:</div>
-            <div
-              className={`text-sm font-mono font-bold ${shopProfit > 0 ? "text-emerald-400" : "text-slate-500"}`}
-            >
-              ${shopProfit.toFixed(2)}
             </div>
           </div>
 

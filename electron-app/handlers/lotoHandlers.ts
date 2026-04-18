@@ -5,6 +5,7 @@
 import { ipcMain } from "electron";
 import { getLotoService, lotoLogger } from "@liratek/core";
 import { requireRole } from "../session.js";
+import { audit } from "./auditHelper.js";
 
 let lotoService: ReturnType<typeof getLotoService> | null = null;
 
@@ -24,7 +25,14 @@ export function registerLotoHandlers(): void {
       if (!auth.ok) throw new Error(auth.error ?? "Admin access required");
 
       const service = getLotoServiceInstance();
-      const ticket = service.sellTicket(data);
+      const ticket = service.sellTicket({ ...data, userId: auth.userId });
+      audit(e.sender.id, {
+        action: "create",
+        entity_type: "loto_ticket",
+        entity_id: String(ticket?.id ?? ""),
+        summary: "Sold loto ticket",
+        metadata: data,
+      });
       return { success: true, ticket };
     } catch (error) {
       lotoLogger.error({ error }, "loto:sell failed");
@@ -79,8 +87,13 @@ export function registerLotoHandlers(): void {
       if (!auth.ok) throw new Error(auth.error ?? "Admin access required");
 
       const service = getLotoServiceInstance();
-      const repo = (service as any).repo;
-      const ticket = repo.updateTicket(id, data);
+      const ticket = service.updateTicket(id, data);
+      audit(e.sender.id, {
+        action: "update",
+        entity_type: "loto_ticket",
+        entity_id: String(id),
+        summary: `Updated loto ticket #${id}`,
+      });
       return { success: true, ticket };
     } catch (error) {
       lotoLogger.error({ error }, "loto:update failed");
@@ -137,6 +150,12 @@ export function registerLotoHandlers(): void {
 
       const service = getLotoServiceInstance();
       const fee = service.recordMonthlyFee(data);
+      audit(e.sender.id, {
+        action: "create",
+        entity_type: "loto_fee",
+        entity_id: String(fee?.id ?? ""),
+        summary: "Recorded loto monthly fee",
+      });
       return { success: true, fee };
     } catch (error) {
       lotoLogger.error({ error }, "loto:fees:create failed");
@@ -174,7 +193,13 @@ export function registerLotoHandlers(): void {
       if (!auth.ok) throw new Error(auth.error ?? "Admin access required");
 
       const service = getLotoServiceInstance();
-      const fee = service.markFeePaid(id);
+      const fee = service.markFeePaid(id, auth.userId);
+      audit(e.sender.id, {
+        action: "update",
+        entity_type: "loto_fee",
+        entity_id: String(id),
+        summary: `Marked loto fee #${id} as paid`,
+      });
       return { success: true, fee };
     } catch (error) {
       lotoLogger.error({ error }, "loto:fees:pay failed");
@@ -217,6 +242,13 @@ export function registerLotoHandlers(): void {
 
         const service = getLotoServiceInstance();
         const setting = service.updateSetting(key, value);
+        audit(e.sender.id, {
+          action: "update",
+          entity_type: "loto_setting",
+          entity_id: key,
+          summary: `Updated loto setting "${key}"`,
+          new_values: { value },
+        });
         return { success: true, setting };
       } catch (error) {
         lotoLogger.error({ error }, "loto:settings:update failed");
@@ -237,6 +269,12 @@ export function registerLotoHandlers(): void {
 
       const service = getLotoServiceInstance();
       const checkpoint = service.createCheckpoint(data);
+      audit(e.sender.id, {
+        action: "create",
+        entity_type: "loto_checkpoint",
+        entity_id: String(checkpoint?.id ?? ""),
+        summary: "Created loto checkpoint",
+      });
       return { success: true, checkpoint };
     } catch (error) {
       lotoLogger.error({ error }, "loto:checkpoint:create failed");
@@ -338,6 +376,12 @@ export function registerLotoHandlers(): void {
 
       const service = getLotoServiceInstance();
       const checkpoint = service.updateCheckpoint(id, data);
+      audit(e.sender.id, {
+        action: "update",
+        entity_type: "loto_checkpoint",
+        entity_id: String(id),
+        summary: `Updated loto checkpoint #${id}`,
+      });
       return { success: true, checkpoint };
     } catch (error) {
       lotoLogger.error({ error }, "loto:checkpoint:update failed");
@@ -364,6 +408,12 @@ export function registerLotoHandlers(): void {
           settledAt,
           settlementId,
         );
+        audit(e.sender.id, {
+          action: "settle",
+          entity_type: "loto_checkpoint",
+          entity_id: String(id),
+          summary: `Marked loto checkpoint #${id} as settled`,
+        });
         return { success: true, checkpoint };
       } catch (error) {
         lotoLogger.error({ error }, "loto:checkpoint:mark-settled failed");
@@ -387,8 +437,13 @@ export function registerLotoHandlers(): void {
         totalSales: number;
         totalCommission: number;
         totalPrizes: number;
-        totalCashPrizes: number;
+        totalCashPrizes?: number; // DEPRECATED — now read from checkpoint
         settledAt?: string;
+        payments?: Array<{
+          method: string;
+          currency_code: string;
+          amount: number;
+        }>;
       },
     ) => {
       try {
@@ -401,9 +456,21 @@ export function registerLotoHandlers(): void {
           data.totalSales,
           data.totalCommission,
           data.totalPrizes,
-          data.totalCashPrizes,
+          0, // deprecated — checkpoint reads its own total_cash_prizes
           data.settledAt,
+          auth.userId,
+          data.payments,
         );
+        audit(e.sender.id, {
+          action: "settle",
+          entity_type: "loto_checkpoint",
+          entity_id: String(data.id),
+          summary: `Settled loto checkpoint #${data.id}`,
+          metadata: {
+            totalSales: data.totalSales,
+            totalCommission: data.totalCommission,
+          },
+        });
         return { success: true, checkpoint };
       } catch (error) {
         lotoLogger.error({ error }, "loto:checkpoint:settle failed");
@@ -497,6 +564,12 @@ export function registerLotoHandlers(): void {
 
         const service = getLotoServiceInstance();
         const checkpoint = service.createScheduledCheckpoint(checkpointDate);
+        audit(e.sender.id, {
+          action: "create",
+          entity_type: "loto_checkpoint",
+          entity_id: String(checkpoint?.id ?? ""),
+          summary: "Created scheduled loto checkpoint",
+        });
         return { success: true, checkpoint };
       } catch (error) {
         lotoLogger.error({ error }, "loto:checkpoint:create-scheduled failed");
@@ -512,13 +585,52 @@ export function registerLotoHandlers(): void {
   );
 
   // Cash prize handlers
+  ipcMain.handle("loto:checkpoint:delete", async (e, id: number) => {
+    try {
+      const auth = requireRole(e.sender.id, ["admin"]);
+      if (!auth.ok) throw new Error(auth.error ?? "Admin access required");
+
+      const service = getLotoServiceInstance();
+      const deleted = service.deleteCheckpoint(id);
+      if (!deleted) {
+        return {
+          success: false,
+          error: "Checkpoint not found or already settled",
+        };
+      }
+      audit(e.sender.id, {
+        action: "delete",
+        entity_type: "loto_checkpoint",
+        entity_id: String(id),
+        summary: `Deleted unsettled loto checkpoint #${id}`,
+      });
+      return { success: true };
+    } catch (error) {
+      lotoLogger.error({ error }, "loto:checkpoint:delete failed");
+      return {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to delete checkpoint",
+      };
+    }
+  });
+
+  // Cash prize handlers
   ipcMain.handle("loto:cash-prize:create", async (e, data: any) => {
     try {
       const auth = requireRole(e.sender.id, ["admin"]);
       if (!auth.ok) throw new Error(auth.error ?? "Admin access required");
 
       const service = getLotoServiceInstance();
-      const prize = service.recordCashPrize(data);
+      const prize = service.recordCashPrize({ ...data, userId: auth.userId });
+      audit(e.sender.id, {
+        action: "create",
+        entity_type: "loto_cash_prize",
+        entity_id: String(prize?.id ?? ""),
+        summary: "Recorded loto cash prize",
+      });
       return { success: true, prize };
     } catch (error) {
       lotoLogger.error({ error }, "loto:cash-prize:create failed");
@@ -588,6 +700,12 @@ export function registerLotoHandlers(): void {
           reimbursedDate,
           settlementId,
         );
+        audit(e.sender.id, {
+          action: "update",
+          entity_type: "loto_cash_prize",
+          entity_id: String(id),
+          summary: `Marked loto cash prize #${id} as reimbursed`,
+        });
         return { success: true, prize };
       } catch (error) {
         lotoLogger.error({ error }, "loto:cash-prize:mark-reimbursed failed");

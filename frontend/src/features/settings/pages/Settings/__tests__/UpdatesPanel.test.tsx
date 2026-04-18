@@ -34,7 +34,7 @@ describe("UpdatesPanel", () => {
   it("renders and shows updater status", async () => {
     render(<UpdatesPanel />);
 
-    expect(await screen.findByText(/Updater:/)).toBeInTheDocument();
+    expect(await screen.findByText("Updater")).toBeInTheDocument();
     expect(screen.getByText(/Dev mode/)).toBeInTheDocument();
   });
 
@@ -70,14 +70,14 @@ describe("UpdatesPanel", () => {
     render(<UpdatesPanel />);
 
     // Download button should NOT be visible before check
-    expect(screen.queryByText("Download")).not.toBeInTheDocument();
+    expect(screen.queryByText("Download Update")).not.toBeInTheDocument();
 
     // Must click to trigger check
     fireEvent.click(await screen.findByText("Check for Updates"));
 
     expect(await screen.findByText(/"version": "1\.0\.1"/)).toBeInTheDocument();
     // Download button should now be visible
-    expect(screen.getByText("Download")).toBeInTheDocument();
+    expect(screen.getByText("Download Update")).toBeInTheDocument();
     // Install button should NOT be visible yet
     expect(screen.queryByText("Install & Restart")).not.toBeInTheDocument();
   });
@@ -124,7 +124,7 @@ describe("UpdatesPanel", () => {
     // First check for updates to make Download button appear
     fireEvent.click(await screen.findByText("Check for Updates"));
     // Wait for Download button to appear
-    fireEvent.click(await screen.findByText("Download"));
+    fireEvent.click(await screen.findByText("Download Update"));
 
     await waitFor(() => {
       expect(emitMock).toHaveBeenCalledWith(

@@ -13,6 +13,7 @@ import {
   getProductSupplierRepository,
 } from "@liratek/core";
 import { requireRole } from "../session.js";
+import { audit } from "./auditHelper.js";
 import {
   ProductCreateSchema,
   ProductUpdateSchema,
@@ -102,7 +103,7 @@ export function registerInventoryHandlers(): void {
       supplierRepo.getOrCreate(validatedProduct.supplier);
     }
 
-    return service.createProduct({
+    const result = service.createProduct({
       barcode: validatedProduct.barcode,
       name: validatedProduct.name,
       category: categoryName,
@@ -120,6 +121,19 @@ export function registerInventoryHandlers(): void {
         : {}),
       supplier: validatedProduct.supplier ?? null,
     });
+    audit(e.sender.id, {
+      action: "create",
+      entity_type: "product",
+      entity_id: String((result as any)?.id ?? ""),
+      summary: `Created product "${validatedProduct.name}" (${validatedProduct.barcode})`,
+      new_values: {
+        name: validatedProduct.name,
+        barcode: validatedProduct.barcode,
+        cost_price: validatedProduct.cost_price,
+        retail_price: validatedProduct.retail_price,
+      },
+    });
+    return result;
   });
 
   // Update product
@@ -144,7 +158,8 @@ export function registerInventoryHandlers(): void {
       supplierRepo.getOrCreate(validatedProduct.supplier);
     }
 
-    return service.updateProduct(validatedProduct.id, {
+    const oldProduct = service.getProductById(validatedProduct.id);
+    const result = service.updateProduct(validatedProduct.id, {
       barcode: validatedProduct.barcode,
       name: validatedProduct.name,
       category: updCategoryName,
@@ -158,6 +173,25 @@ export function registerInventoryHandlers(): void {
       supplier: validatedProduct.supplier ?? null,
       stock_quantity: validatedProduct.stock_quantity,
     });
+    audit(e.sender.id, {
+      action: "update",
+      entity_type: "product",
+      entity_id: String(validatedProduct.id),
+      summary: `Updated product "${validatedProduct.name}"`,
+      old_values: oldProduct
+        ? {
+            name: oldProduct.name,
+            cost_price: (oldProduct as any).cost_price,
+            retail_price: (oldProduct as any).retail_price,
+          }
+        : undefined,
+      new_values: {
+        name: validatedProduct.name,
+        cost_price: validatedProduct.cost_price,
+        retail_price: validatedProduct.retail_price,
+      },
+    });
+    return result;
   });
 
   // Soft delete product
@@ -177,11 +211,18 @@ export function registerInventoryHandlers(): void {
       if (!v.ok) return { success: false, error: v.error };
       const validatedPayload = v.data;
 
-      return service.batchUpdateProducts(validatedPayload.ids, {
+      const result = service.batchUpdateProducts(validatedPayload.ids, {
         category: validatedPayload.category,
         min_stock_level: validatedPayload.min_stock_level,
         supplier: validatedPayload.supplier,
       });
+      audit(_event.sender.id, {
+        action: "update",
+        entity_type: "product",
+        summary: `Batch updated ${validatedPayload.ids.length} products`,
+        metadata: { ids: validatedPayload.ids },
+      });
+      return result;
     },
   );
 
@@ -192,7 +233,14 @@ export function registerInventoryHandlers(): void {
       if (!auth.ok) return { success: false, error: auth.error };
     } catch {}
 
-    return service.deleteProduct(id);
+    const result = service.deleteProduct(id);
+    audit(e.sender.id, {
+      action: "delete",
+      entity_type: "product",
+      entity_id: String(id),
+      summary: `Deleted product #${id}`,
+    });
+    return result;
   });
 
   ipcMain.handle("inventory:batch-delete", (e, ids: number[]) => {
@@ -201,7 +249,14 @@ export function registerInventoryHandlers(): void {
       if (!auth.ok) return { success: false, error: auth.error };
     } catch {}
 
-    return service.batchDeleteProducts(ids);
+    const result = service.batchDeleteProducts(ids);
+    audit(e.sender.id, {
+      action: "delete",
+      entity_type: "product",
+      summary: `Batch deleted ${ids.length} products`,
+      metadata: { ids },
+    });
+    return result;
   });
 
   // ---------------------------------------------------------------------------
@@ -222,7 +277,15 @@ export function registerInventoryHandlers(): void {
       const v = validatePayload(StockAdjustSchema, { id, newQuantity });
       if (!v.ok) return { success: false, error: v.error };
 
-      return service.adjustStock(v.data.id, v.data.newQuantity);
+      const result = service.adjustStock(v.data.id, v.data.newQuantity);
+      audit(e.sender.id, {
+        action: "update",
+        entity_type: "product",
+        entity_id: String(v.data.id),
+        summary: `Adjusted stock for product #${v.data.id} to ${v.data.newQuantity}`,
+        new_values: { stock_quantity: v.data.newQuantity },
+      });
+      return result;
     },
   );
 
@@ -260,7 +323,14 @@ export function registerInventoryHandlers(): void {
   ipcMain.handle("inventory:get-categories", () => catRepo.getNames());
   ipcMain.handle("inventory:create-category", (_e, name: string) => {
     try {
-      return { success: true, ...catRepo.create(name) };
+      const result = catRepo.create(name);
+      audit(_e.sender.id, {
+        action: "create",
+        entity_type: "category",
+        entity_id: String(result.id),
+        summary: `Created category "${name}"`,
+      });
+      return { success: true, ...result };
     } catch (e) {
       return { success: false, error: String(e) };
     }
@@ -269,7 +339,14 @@ export function registerInventoryHandlers(): void {
     "inventory:update-category",
     (_e, id: number, name: string) => {
       try {
-        return { success: true, updated: catRepo.update(id, name) };
+        const updated = catRepo.update(id, name);
+        audit(_e.sender.id, {
+          action: "update",
+          entity_type: "category",
+          entity_id: String(id),
+          summary: `Updated category #${id} to "${name}"`,
+        });
+        return { success: true, updated };
       } catch (e) {
         return { success: false, error: String(e) };
       }
@@ -277,7 +354,14 @@ export function registerInventoryHandlers(): void {
   );
   ipcMain.handle("inventory:delete-category", (_e, id: number) => {
     try {
-      return { success: true, deleted: catRepo.delete(id) };
+      const deleted = catRepo.delete(id);
+      audit(_e.sender.id, {
+        action: "delete",
+        entity_type: "category",
+        entity_id: String(id),
+        summary: `Deleted category #${id}`,
+      });
+      return { success: true, deleted };
     } catch (e) {
       return { success: false, error: String(e) };
     }
@@ -296,7 +380,14 @@ export function registerInventoryHandlers(): void {
   );
   ipcMain.handle("inventory:create-product-supplier", (_e, name: string) => {
     try {
-      return { success: true, ...supplierRepo.create(name) };
+      const result = supplierRepo.create(name);
+      audit(_e.sender.id, {
+        action: "create",
+        entity_type: "product_supplier",
+        entity_id: String(result.id),
+        summary: `Created product supplier "${name}"`,
+      });
+      return { success: true, ...result };
     } catch (e) {
       return { success: false, error: String(e) };
     }
@@ -305,7 +396,14 @@ export function registerInventoryHandlers(): void {
     "inventory:update-product-supplier",
     (_e, id: number, name: string) => {
       try {
-        return { success: true, updated: supplierRepo.update(id, name) };
+        const updated = supplierRepo.update(id, name);
+        audit(_e.sender.id, {
+          action: "update",
+          entity_type: "product_supplier",
+          entity_id: String(id),
+          summary: `Updated product supplier #${id} to "${name}"`,
+        });
+        return { success: true, updated };
       } catch (e) {
         return { success: false, error: String(e) };
       }
@@ -313,7 +411,14 @@ export function registerInventoryHandlers(): void {
   );
   ipcMain.handle("inventory:delete-product-supplier", (_e, id: number) => {
     try {
-      return { success: true, deleted: supplierRepo.delete(id) };
+      const deleted = supplierRepo.delete(id);
+      audit(_e.sender.id, {
+        action: "delete",
+        entity_type: "product_supplier",
+        entity_id: String(id),
+        summary: `Deleted product supplier #${id}`,
+      });
+      return { success: true, deleted };
     } catch (e) {
       return { success: false, error: String(e) };
     }

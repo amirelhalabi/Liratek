@@ -43,6 +43,7 @@ describe("ClientService", () => {
       exists: jest.fn(),
       updateClientFull: jest.fn(),
       delete: jest.fn(),
+      deleteClient: jest.fn(),
       hasSalesHistory: jest.fn(),
       getDebtBalance: jest.fn(),
       findClientsWithDebt: jest.fn(),
@@ -182,25 +183,34 @@ describe("ClientService", () => {
       mockRepo.phoneExists.mockReturnValue(false);
       mockRepo.createClient.mockReturnValue({ id: 1 });
 
-      const result = service.createClient({
-        full_name: "John Doe",
-        phone_number: "123456789",
-      });
+      const result = service.createClient(
+        {
+          full_name: "John Doe",
+          phone_number: "123456789",
+        },
+        1,
+      );
 
       expect(result).toEqual({ success: true, id: 1 });
-      expect(mockRepo.createClient).toHaveBeenCalledWith({
-        full_name: "John Doe",
-        phone_number: "123456789",
-        notes: undefined,
-        whatsapp_opt_in: undefined,
-      });
+      expect(mockRepo.createClient).toHaveBeenCalledWith(
+        {
+          full_name: "John Doe",
+          phone_number: "123456789",
+          notes: undefined,
+          whatsapp_opt_in: undefined,
+        },
+        1,
+      );
     });
 
     it("returns error for missing name", () => {
-      const result = service.createClient({
-        full_name: "",
-        phone_number: "123",
-      });
+      const result = service.createClient(
+        {
+          full_name: "",
+          phone_number: "123",
+        },
+        1,
+      );
 
       expect(result).toEqual({
         success: false,
@@ -210,10 +220,13 @@ describe("ClientService", () => {
     });
 
     it("returns error for missing phone", () => {
-      const result = service.createClient({
-        full_name: "John",
-        phone_number: "",
-      });
+      const result = service.createClient(
+        {
+          full_name: "John",
+          phone_number: "",
+        },
+        1,
+      );
 
       expect(result).toEqual({
         success: false,
@@ -224,10 +237,13 @@ describe("ClientService", () => {
     it("returns error for duplicate phone", () => {
       mockRepo.phoneExists.mockReturnValue(true);
 
-      const result = service.createClient({
-        full_name: "John",
-        phone_number: "123",
-      });
+      const result = service.createClient(
+        {
+          full_name: "John",
+          phone_number: "123",
+        },
+        1,
+      );
 
       expect(result).toEqual({
         success: false,
@@ -241,10 +257,13 @@ describe("ClientService", () => {
         throw new Error("DB error");
       });
 
-      const result = service.createClient({
-        full_name: "John",
-        phone_number: "123",
-      });
+      const result = service.createClient(
+        {
+          full_name: "John",
+          phone_number: "123",
+        },
+        1,
+      );
 
       expect(result).toEqual({ success: false, error: "DB error" });
     });
@@ -257,10 +276,13 @@ describe("ClientService", () => {
         throw duplicateError;
       });
 
-      const result = service.createClient({
-        full_name: "John",
-        phone_number: "123",
-      });
+      const result = service.createClient(
+        {
+          full_name: "John",
+          phone_number: "123",
+        },
+        1,
+      );
 
       expect(result).toEqual({
         success: false,
@@ -275,28 +297,40 @@ describe("ClientService", () => {
       mockRepo.phoneExists.mockReturnValue(false);
       mockRepo.updateClientFull.mockReturnValue(true);
 
-      const result = service.updateClient(1, {
-        full_name: "John Updated",
-        phone_number: "123",
-        notes: "Updated notes",
-        whatsapp_opt_in: true,
-      });
+      const result = service.updateClient(
+        1,
+        {
+          full_name: "John Updated",
+          phone_number: "123",
+          notes: "Updated notes",
+          whatsapp_opt_in: true,
+        },
+        1,
+      );
 
       expect(result).toEqual({ success: true });
-      expect(mockRepo.updateClientFull).toHaveBeenCalledWith(1, {
-        full_name: "John Updated",
-        phone_number: "123",
-        notes: "Updated notes",
-        whatsapp_opt_in: true,
-      });
+      expect(mockRepo.updateClientFull).toHaveBeenCalledWith(
+        1,
+        {
+          full_name: "John Updated",
+          phone_number: "123",
+          notes: "Updated notes",
+          whatsapp_opt_in: true,
+        },
+        1,
+      );
     });
 
     it("returns error for missing client ID", () => {
-      const result = service.updateClient(0, {
-        full_name: "John",
-        phone_number: "123",
-        whatsapp_opt_in: false,
-      });
+      const result = service.updateClient(
+        0,
+        {
+          full_name: "John",
+          phone_number: "123",
+          whatsapp_opt_in: false,
+        },
+        1,
+      );
 
       expect(result).toEqual({ success: false, error: "Client ID required" });
     });
@@ -304,11 +338,15 @@ describe("ClientService", () => {
     it("returns error when client not found", () => {
       mockRepo.exists.mockReturnValue(false);
 
-      const result = service.updateClient(999, {
-        full_name: "John",
-        phone_number: "123",
-        whatsapp_opt_in: false,
-      });
+      const result = service.updateClient(
+        999,
+        {
+          full_name: "John",
+          phone_number: "123",
+          whatsapp_opt_in: false,
+        },
+        1,
+      );
 
       expect(result).toEqual({ success: false, error: "Client not found" });
     });
@@ -317,11 +355,15 @@ describe("ClientService", () => {
       mockRepo.exists.mockReturnValue(true);
       mockRepo.phoneExists.mockReturnValue(true);
 
-      const result = service.updateClient(1, {
-        full_name: "John",
-        phone_number: "456",
-        whatsapp_opt_in: false,
-      });
+      const result = service.updateClient(
+        1,
+        {
+          full_name: "John",
+          phone_number: "456",
+          whatsapp_opt_in: false,
+        },
+        1,
+      );
 
       expect(result).toEqual({
         success: false,
@@ -338,11 +380,15 @@ describe("ClientService", () => {
         throw duplicateError;
       });
 
-      const result = service.updateClient(1, {
-        full_name: "John",
-        phone_number: "456",
-        whatsapp_opt_in: false,
-      });
+      const result = service.updateClient(
+        1,
+        {
+          full_name: "John",
+          phone_number: "456",
+          whatsapp_opt_in: false,
+        },
+        1,
+      );
 
       expect(result).toEqual({
         success: false,
@@ -357,11 +403,15 @@ describe("ClientService", () => {
         throw new Error("Database error");
       });
 
-      const result = service.updateClient(1, {
-        full_name: "John",
-        phone_number: "123",
-        whatsapp_opt_in: false,
-      });
+      const result = service.updateClient(
+        1,
+        {
+          full_name: "John",
+          phone_number: "123",
+          whatsapp_opt_in: false,
+        },
+        1,
+      );
 
       expect(result).toEqual({ success: false, error: "Database error" });
     });
@@ -370,16 +420,16 @@ describe("ClientService", () => {
   describe("deleteClient", () => {
     it("deletes client successfully", () => {
       mockRepo.hasSalesHistory.mockReturnValue(false);
-      mockRepo.delete.mockReturnValue(true);
+      mockRepo.deleteClient.mockReturnValue(true);
 
-      const result = service.deleteClient(1);
+      const result = service.deleteClient(1, 1);
 
       expect(result).toEqual({ success: true });
-      expect(mockRepo.delete).toHaveBeenCalledWith(1);
+      expect(mockRepo.deleteClient).toHaveBeenCalledWith(1, 1);
     });
 
     it("returns error for missing client ID", () => {
-      const result = service.deleteClient(0);
+      const result = service.deleteClient(0, 1);
 
       expect(result).toEqual({ success: false, error: "Client ID required" });
     });
@@ -387,22 +437,22 @@ describe("ClientService", () => {
     it("returns error when client has sales history", () => {
       mockRepo.hasSalesHistory.mockReturnValue(true);
 
-      const result = service.deleteClient(1);
+      const result = service.deleteClient(1, 1);
 
       expect(result).toEqual({
         success: false,
         error: "Cannot delete client with existing sales history",
       });
-      expect(mockRepo.delete).not.toHaveBeenCalled();
+      expect(mockRepo.deleteClient).not.toHaveBeenCalled();
     });
 
     it("handles repository error", () => {
       mockRepo.hasSalesHistory.mockReturnValue(false);
-      mockRepo.delete.mockImplementation(() => {
+      mockRepo.deleteClient.mockImplementation(() => {
         throw new Error("DB error");
       });
 
-      const result = service.deleteClient(1);
+      const result = service.deleteClient(1, 1);
 
       expect(result).toEqual({ success: false, error: "DB error" });
     });

@@ -27,8 +27,6 @@ interface FinancialFormProps {
   methods: { code: string; label: string }[];
   clientName: string;
   setClientName: (val: string) => void;
-  referenceNumber: string;
-  setReferenceNumber: (val: string) => void;
   handleFinancialSubmit: () => void;
   isSubmitting: boolean;
   loadFinancialData: () => void;
@@ -48,8 +46,6 @@ export function FinancialForm({
   methods,
   clientName,
   setClientName,
-  referenceNumber,
-  setReferenceNumber,
   handleFinancialSubmit,
   isSubmitting,
   loadFinancialData,
@@ -147,17 +143,11 @@ export function FinancialForm({
     }
   };
 
-  const totalCost = Array.from(cart.values()).reduce((sum, line) => {
-    const unitCost = line.item.catalogCost ?? 0;
-    return sum + unitCost * line.quantity;
-  }, 0);
-
   const totalPrice = Array.from(cart.values()).reduce((sum, line) => {
     const unitPrice = line.item.catalogSellPrice ?? 0;
     return sum + unitPrice * line.quantity;
   }, 0);
 
-  const totalProfit = totalPrice - totalCost;
   const totalItems = Array.from(cart.values()).reduce(
     (sum, line) => sum + line.quantity,
     0,
@@ -168,7 +158,6 @@ export function FinancialForm({
     await handleFinancialSubmit();
     if (cart.size === 0) {
       setClientName("");
-      setReferenceNumber("");
       setExpandedKeys(new Set());
       setSearchQuery("");
     }
@@ -331,7 +320,7 @@ export function FinancialForm({
                                     Cost:
                                   </span>
                                   <span className="text-xs text-white font-mono">
-                                    {cost.toLocaleString()} L
+                                    {cost.toLocaleString()} LBP
                                   </span>
                                 </div>
                                 <div className="flex items-center justify-between">
@@ -339,7 +328,7 @@ export function FinancialForm({
                                     Sell:
                                   </span>
                                   <span className="text-xs text-emerald-400 font-mono">
-                                    {sellPrice.toLocaleString()} L
+                                    {sellPrice.toLocaleString()} LBP
                                   </span>
                                 </div>
                               </div>
@@ -381,13 +370,14 @@ export function FinancialForm({
               {useMultiPayment ? (
                 <MultiPaymentInput
                   totalAmount={totalPrice}
+                  totalAmountCurrency="LBP"
                   currency="LBP"
                   onChange={setPaymentLines}
                   showPmFee={false}
                   paymentMethods={methods}
                   currencies={[
                     { code: "USD", symbol: "$" },
-                    { code: "LBP", symbol: "L£" },
+                    { code: "LBP", symbol: "LBP" },
                   ]}
                   exchangeRate={exchangeRate}
                 />
@@ -412,21 +402,10 @@ export function FinancialForm({
                 <span className="text-white font-bold">{totalItems}</span>
               </div>
               <div className="text-xs text-slate-400">
-                Cost:{" "}
-                <span className="text-white font-mono">
-                  {totalCost.toLocaleString()} L
-                </span>
-              </div>
-              <div className="text-xs text-slate-400">
                 Price:{" "}
                 <span className="text-emerald-400 font-mono">
-                  {totalPrice.toLocaleString()} L
+                  {totalPrice.toLocaleString()} LBP
                 </span>
-              </div>
-              <div
-                className={`text-xs font-bold ${totalProfit >= 0 ? "text-emerald-400" : "text-red-400"}`}
-              >
-                Profit: {totalProfit.toLocaleString()} L
               </div>
             </div>
 
@@ -440,13 +419,6 @@ export function FinancialForm({
                     value={clientName}
                     onChange={(e) => setClientName(e.target.value)}
                     placeholder="Client name (optional)"
-                    className="w-full bg-slate-900 border border-slate-600 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-violet-500"
-                  />
-                  <input
-                    type="text"
-                    value={referenceNumber}
-                    onChange={(e) => setReferenceNumber(e.target.value)}
-                    placeholder="Ref # (optional)"
                     className="w-full bg-slate-900 border border-slate-600 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-violet-500"
                   />
                 </>

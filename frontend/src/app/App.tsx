@@ -34,6 +34,7 @@ const CheckpointTimeline = lazy(
   () => import("@/features/closing/pages/CheckpointTimeline"),
 );
 const SetupWizard = lazy(() => import("@/features/setup/SetupWizard"));
+const AuditPage = lazy(() => import("@/features/audit/pages/AuditPage"));
 import MainLayout from "@/shared/components/layouts/MainLayout";
 import HomeGrid from "@/shared/components/layouts/HomeGrid";
 import "@/index.css";
@@ -217,6 +218,14 @@ function AppRoutes() {
           element={
             <ProtectedRoute>
               <CheckpointTimeline />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/audit"
+          element={
+            <ProtectedRoute>
+              <AuditPage />
             </ProtectedRoute>
           }
         />

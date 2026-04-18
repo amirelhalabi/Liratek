@@ -197,6 +197,7 @@ describe("SupplierRepository.settleTransactions()", () => {
       commission_usd: 0.3,
       commission_lbp: 0,
       drawer_name: "General",
+      created_by: 1,
       note: "March settlement",
     });
 
@@ -223,6 +224,7 @@ describe("SupplierRepository.settleTransactions()", () => {
       commission_usd: 0.3,
       commission_lbp: 0,
       drawer_name: "General",
+      created_by: 1,
     });
 
     const rows = db
@@ -252,6 +254,7 @@ describe("SupplierRepository.settleTransactions()", () => {
       commission_usd: 0.1,
       commission_lbp: 0,
       drawer_name: "General",
+      created_by: 1,
     });
 
     const row = db
@@ -276,6 +279,7 @@ describe("SupplierRepository.settleTransactions()", () => {
       commission_usd: 0.1,
       commission_lbp: 0,
       drawer_name: "OMT_System",
+      created_by: 1,
     });
 
     const general = db
@@ -307,6 +311,7 @@ describe("SupplierRepository.settleTransactions()", () => {
       commission_usd: 0.1,
       commission_lbp: 0,
       drawer_name: "OMT_System",
+      created_by: 1,
     });
 
     const after = (
@@ -332,6 +337,7 @@ describe("SupplierRepository.settleTransactions()", () => {
       commission_usd: 0.1,
       commission_lbp: 0,
       drawer_name: "General",
+      created_by: 1,
     });
 
     const txn = db
@@ -356,6 +362,7 @@ describe("SupplierRepository.settleTransactions()", () => {
       commission_usd: 0.1,
       commission_lbp: 0,
       drawer_name: "General",
+      created_by: 1,
     });
 
     const ledgerEntry = db
@@ -391,6 +398,7 @@ describe("SupplierRepository.settleTransactions()", () => {
       commission_usd: 0.1,
       commission_lbp: 0,
       drawer_name: "General",
+      created_by: 1,
     });
 
     // settled_at should still be null (was never set for SEND rows in test)
@@ -417,6 +425,7 @@ describe("SupplierRepository.settleTransactions()", () => {
         commission_usd: 0,
         commission_lbp: 0,
         drawer_name: "General",
+        created_by: 1,
       }),
     ).toThrow("No transactions selected for settlement");
   });
@@ -441,6 +450,7 @@ describe("SupplierRepository.settleTransactions()", () => {
         commission_usd: 0.1,
         commission_lbp: 0,
         drawer_name: "General",
+        created_by: 1,
       }),
     ).toThrow();
 
@@ -486,6 +496,7 @@ describe("SupplierRepository.settleTransactions()", () => {
       commission_usd: 0.1,
       commission_lbp: 0,
       drawer_name: "OMT_System",
+      created_by: 1,
       note: "INTRA $100 settlement",
     });
 
@@ -541,6 +552,7 @@ describe("SupplierRepository.settleTransactions()", () => {
       commission_usd: 0.3,
       commission_lbp: 0,
       drawer_name: "OMT_System",
+      created_by: 1,
     });
 
     const settled = db

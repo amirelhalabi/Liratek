@@ -5,10 +5,12 @@ console.log("[PRELOAD] Starting preload script...");
 contextBridge.exposeInMainWorld("api", {
   // Auth & Users
   auth: {
-    login: (username: string, password: string) =>
-      ipcRenderer.invoke("auth:login", username, password),
-    logout: (userId: number) => ipcRenderer.invoke("auth:logout", userId),
-    restoreSession: () => ipcRenderer.invoke("auth:restore-session"),
+    login: (username: string, password: string, rememberMe?: boolean) =>
+      ipcRenderer.invoke("auth:login", username, password, rememberMe),
+    logout: (sessionToken: string) =>
+      ipcRenderer.invoke("auth:logout", sessionToken),
+    restoreSession: (sessionToken?: string) =>
+      ipcRenderer.invoke("auth:restore-session", sessionToken),
     getCurrentUser: (userId: number) =>
       ipcRenderer.invoke("auth:get-current-user", userId),
     getNonAdminUsers: () => ipcRenderer.invoke("users:get-non-admins"),
@@ -86,6 +88,8 @@ contextBridge.exposeInMainWorld("api", {
     create: (client: unknown) => ipcRenderer.invoke("clients:create", client),
     update: (client: unknown) => ipcRenderer.invoke("clients:update", client),
     delete: (id: number) => ipcRenderer.invoke("clients:delete", id),
+    importDebts: (data: unknown) =>
+      ipcRenderer.invoke("clients:import-debts", data),
   },
 
   // Sales
@@ -251,6 +255,11 @@ contextBridge.exposeInMainWorld("api", {
       commission_lbp: number;
       drawer_name: string;
       note?: string;
+      payments?: Array<{
+        method: string;
+        currency_code: string;
+        amount: number;
+      }>;
     }) => ipcRenderer.invoke("suppliers:settle-transactions", data),
   },
 
@@ -303,8 +312,12 @@ contextBridge.exposeInMainWorld("api", {
         totalSales: number;
         totalCommission: number;
         totalPrizes: number;
-        totalCashPrizes: number;
         settledAt?: string;
+        payments?: Array<{
+          method: string;
+          currency_code: string;
+          amount: number;
+        }>;
       }) => ipcRenderer.invoke("loto:checkpoint:settle", data),
       getTotalSalesUnsettled: () =>
         ipcRenderer.invoke("loto:checkpoint:get-total-sales-unsettled"),
@@ -313,6 +326,7 @@ contextBridge.exposeInMainWorld("api", {
       getLast: () => ipcRenderer.invoke("loto:checkpoint:get-last"),
       createScheduled: (checkpointDate?: string) =>
         ipcRenderer.invoke("loto:checkpoint:create-scheduled", checkpointDate),
+      delete: (id: number) => ipcRenderer.invoke("loto:checkpoint:delete", id),
     },
     cashPrize: {
       create: (data: {
@@ -461,6 +475,7 @@ contextBridge.exposeInMainWorld("api", {
   diagnostics: {
     getSyncErrors: () => ipcRenderer.invoke("diagnostics:get-sync-errors"),
     foreignKeyCheck: () => ipcRenderer.invoke("diagnostics:foreign-key-check"),
+    getDbPath: () => ipcRenderer.invoke("diagnostics:getDbPath"),
   },
 
   // Updater
@@ -503,12 +518,25 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("report:verify-backup", { path }),
     restoreDatabase: (path: string) =>
       ipcRenderer.invoke("report:restore-db", { path }),
+    getBackupDir: () => ipcRenderer.invoke("backup:getDir"),
+    pickBackupDir: () => ipcRenderer.invoke("backup:pickDir"),
+    setBackupDir: (dir: string) => ipcRenderer.invoke("backup:setDir", dir),
   },
 
   // Activity
   activity: {
     getRecent: (limit?: number) =>
       ipcRenderer.invoke("activity:get-recent", limit),
+  },
+
+  // Audit Log
+  audit: {
+    getRecent: (limit?: number) =>
+      ipcRenderer.invoke("audit:get-recent", limit),
+    search: (filters: Record<string, unknown>) =>
+      ipcRenderer.invoke("audit:search", filters),
+    getByEntity: (entityType: string, entityId: string) =>
+      ipcRenderer.invoke("audit:get-by-entity", entityType, entityId),
   },
 
   // Transactions (unified)
@@ -798,8 +826,13 @@ contextBridge.exposeInMainWorld("api", {
     complete: (payload: unknown) =>
       ipcRenderer.invoke("setup:complete", payload),
     reset: () => ipcRenderer.invoke("setup:reset"),
-    testDatabasePath: (path: string) =>
-      ipcRenderer.invoke("setup:testDatabasePath", path),
+    detectNetworkDb: () => ipcRenderer.invoke("setup:detectNetworkDb"),
+    joinExistingShop: (payload: {
+      dbPath: string;
+      users: Array<{ username: string; password: string; role: string }>;
+    }) => ipcRenderer.invoke("setup:joinExistingShop", payload),
+    browseForDatabase: () => ipcRenderer.invoke("setup:browseForDatabase"),
+    relaunch: () => ipcRenderer.invoke("setup:relaunch"),
   },
 
   // Display / Zoom

@@ -26,7 +26,7 @@ router.post(
   validateRequest(createExpenseSchema),
   (req, res) => {
     const service = getExpenseService();
-    const result = service.addExpense(req.body);
+    const result = service.addExpense(req.body, req.user!.userId);
     res.status(result.success ? 200 : 400).json(result);
   },
 );
@@ -39,7 +39,7 @@ router.delete(
   (req, res) => {
     const id = req.params.id as unknown as number;
     const service = getExpenseService();
-    const result = service.deleteExpense(id);
+    const result = service.deleteExpense(id, req.user!.userId);
     res.status(result.success ? 200 : 400).json(result);
   },
 );

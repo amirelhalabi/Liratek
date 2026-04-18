@@ -7,5 +7,6 @@
     "skill": {
       "*": "allow"
     }
-  }
+  },
+  "plugin": [".opencode/plugins/graphify.js"]
 }

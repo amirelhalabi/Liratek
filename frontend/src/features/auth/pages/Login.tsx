@@ -113,8 +113,7 @@ export default function Login() {
 
           <div className="mt-6 text-center text-xs text-slate-500">
             <p>
-              Version {import.meta.env.VITE_APP_VERSION || "1.0.0"} • Licensed
-              to {shopName}
+              Version {__APP_VERSION__} • Licensed to {shopName}
             </p>
           </div>
         </div>

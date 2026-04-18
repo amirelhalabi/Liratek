@@ -308,26 +308,68 @@ export type {
   ProductSupplierWithCount,
 } from "./ProductSupplierRepository.js";
 
-// Loto Repository
+// Loto Repository (facade - backward compat)
 export {
   LotoRepository,
   getLotoRepository,
   resetLotoRepository,
 } from "./LotoRepository.js";
+export type { LotoReportData } from "./LotoRepository.js";
+
+// Loto Ticket Repository
+export {
+  LotoTicketRepository,
+  getLotoTicketRepository,
+  resetLotoTicketRepository,
+} from "./LotoTicketRepository.js";
 export type {
   LotoTicket,
   LotoTicketCreate,
   LotoTicketUpdate,
+} from "./LotoTicketRepository.js";
+
+// Loto Settings Repository
+export {
+  LotoSettingsRepository,
+  getLotoSettingsRepository,
+  resetLotoSettingsRepository,
+} from "./LotoSettingsRepository.js";
+export type { LotoSetting } from "./LotoSettingsRepository.js";
+
+// Loto Monthly Fee Repository
+export {
+  LotoMonthlyFeeRepository,
+  getLotoMonthlyFeeRepository,
+  resetLotoMonthlyFeeRepository,
+} from "./LotoMonthlyFeeRepository.js";
+export type {
   LotoMonthlyFee,
   LotoMonthlyFeeCreate,
-  LotoSetting,
-  LotoReportData,
+} from "./LotoMonthlyFeeRepository.js";
+
+// Loto Checkpoint Repository
+export {
+  LotoCheckpointRepository,
+  getLotoCheckpointRepository,
+  resetLotoCheckpointRepository,
+} from "./LotoCheckpointRepository.js";
+export type {
   LotoCheckpoint,
   LotoCheckpointCreate,
+  LotoCheckpointUpdate,
+  LotoSettlement,
+} from "./LotoCheckpointRepository.js";
+
+// Loto Cash Prize Repository
+export {
+  LotoCashPrizeRepository,
+  getLotoCashPrizeRepository,
+  resetLotoCashPrizeRepository,
+} from "./LotoCashPrizeRepository.js";
+export type {
   LotoCashPrize,
   LotoCashPrizeCreate,
-  LotoSettlement,
-} from "./LotoRepository.js";
+} from "./LotoCashPrizeRepository.js";
 
 // Mobile Service Item Repository
 export {
@@ -340,3 +382,15 @@ export type {
   CreateMobileServiceItemData,
   UpdateMobileServiceItemData,
 } from "./MobileServiceItemRepository.js";
+
+// Audit Repository
+export {
+  AuditRepository,
+  getAuditRepository,
+  resetAuditRepository,
+} from "./AuditRepository.js";
+export type {
+  AuditLogEntity,
+  CreateAuditLogData,
+  AuditFilters,
+} from "./AuditRepository.js";

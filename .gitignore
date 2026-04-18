@@ -122,3 +122,6 @@ backend/config/google-service-account.json
 
 # Backups
 backups
+
+# Graphify outputs
+graphify-out/

@@ -1,26 +1,44 @@
 import Database from "better-sqlite3";
-import LotoRepository from "../../repositories/LotoRepository.js";
+import LotoTicketRepository from "../../repositories/LotoTicketRepository.js";
+import LotoSettingsRepository from "../../repositories/LotoSettingsRepository.js";
+import LotoMonthlyFeeRepository from "../../repositories/LotoMonthlyFeeRepository.js";
+import LotoCheckpointRepository from "../../repositories/LotoCheckpointRepository.js";
+import LotoCashPrizeRepository from "../../repositories/LotoCashPrizeRepository.js";
 import LotoService from "../LotoService.js";
 
 describe("LotoService Checkpoint Functionality", () => {
   let db: Database.Database;
-  let repo: LotoRepository;
   let service: LotoService;
 
   beforeEach(() => {
     db = new Database(":memory:");
     db.exec(`
       CREATE TABLE loto_tickets (
-        id INTEGER PRIMARY KEY,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
         ticket_number TEXT,
-        draw_date TEXT,
-        amount REAL,
-        commission REAL,
-        is_winner BOOLEAN DEFAULT 0,
+        sale_amount REAL DEFAULT 0,
+        commission_rate REAL DEFAULT 0.0445,
+        commission_amount REAL DEFAULT 0,
+        is_winner INTEGER DEFAULT 0,
         prize_amount REAL DEFAULT 0,
-        customer_name TEXT,
-        customer_phone TEXT,
-        sold_at TEXT,
+        prize_paid_date TEXT,
+        sale_date TEXT,
+        payment_method TEXT,
+        currency TEXT DEFAULT 'LBP',
+        note TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE loto_monthly_fees (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        fee_amount REAL DEFAULT 0,
+        fee_month TEXT,
+        fee_year INTEGER,
+        recorded_date TEXT,
+        is_paid INTEGER DEFAULT 0,
+        paid_date TEXT,
+        note TEXT,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
       );
 
@@ -46,48 +64,28 @@ describe("LotoService Checkpoint Functionality", () => {
       CREATE INDEX idx_loto_checkpoints_period ON loto_checkpoints(period_start, period_end);
     `);
 
-    repo = new LotoRepository(db);
-    service = new LotoService(repo);
+    const ticketRepo = new LotoTicketRepository(db);
+    const settingsRepo = new LotoSettingsRepository(db);
+    const monthlyFeeRepo = new LotoMonthlyFeeRepository(db);
+    const checkpointRepo = new LotoCheckpointRepository(db);
+    const cashPrizeRepo = new LotoCashPrizeRepository(db);
+    service = new LotoService(
+      ticketRepo,
+      settingsRepo,
+      monthlyFeeRepo,
+      checkpointRepo,
+      cashPrizeRepo,
+    );
 
     // Insert some sample tickets for testing
     const insertTicket = db.prepare(`
-      INSERT INTO loto_tickets (ticket_number, draw_date, amount, commission, is_winner, prize_amount, customer_name, customer_phone, sold_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO loto_tickets (ticket_number, sale_date, sale_amount, commission_amount, is_winner, prize_amount)
+      VALUES (?, ?, ?, ?, ?, ?)
     `);
 
-    insertTicket.run(
-      "T001",
-      "2024-01-01",
-      10,
-      1,
-      0,
-      0,
-      "John Doe",
-      "123456789",
-      "2024-01-01T10:00:00",
-    );
-    insertTicket.run(
-      "T002",
-      "2024-01-02",
-      20,
-      2,
-      1,
-      100,
-      "Jane Smith",
-      "987654321",
-      "2024-01-02T11:00:00",
-    );
-    insertTicket.run(
-      "T003",
-      "2024-01-03",
-      15,
-      1.5,
-      0,
-      0,
-      "Bob Johnson",
-      "555555555",
-      "2024-01-03T12:00:00",
-    );
+    insertTicket.run("T001", "2024-01-01", 10, 1, 0, 0);
+    insertTicket.run("T002", "2024-01-02", 20, 2, 1, 100);
+    insertTicket.run("T003", "2024-01-03", 15, 1.5, 0, 0);
   });
 
   afterEach(() => {
@@ -279,33 +277,13 @@ describe("LotoService Checkpoint Functionality", () => {
     it("should return total sales from all unsettled checkpoints", () => {
       // Create tickets that will result in specific sales totals
       const insertTicket = db.prepare(`
-        INSERT INTO loto_tickets (ticket_number, draw_date, amount, commission, is_winner, prize_amount, customer_name, customer_phone, sold_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO loto_tickets (ticket_number, sale_date, sale_amount, commission_amount, is_winner, prize_amount)
+        VALUES (?, ?, ?, ?, ?, ?)
       `);
 
       // Add more tickets for first checkpoint period to reach desired totals
-      insertTicket.run(
-        "T101",
-        "2024-01-02",
-        100,
-        10,
-        0,
-        0,
-        "Alice",
-        "111111111",
-        "2024-01-02T10:00:00",
-      );
-      insertTicket.run(
-        "T102",
-        "2024-01-03",
-        200,
-        20,
-        1,
-        100,
-        "Bob",
-        "222222222",
-        "2024-01-03T11:00:00",
-      );
+      insertTicket.run("T101", "2024-01-02", 100, 10, 0, 0);
+      insertTicket.run("T102", "2024-01-03", 200, 20, 1, 100);
 
       const checkpoint1 = service.createCheckpoint({
         checkpoint_date: "2024-01-05",
@@ -315,28 +293,8 @@ describe("LotoService Checkpoint Functionality", () => {
       });
 
       // Insert more tickets for the second range
-      insertTicket.run(
-        "T103",
-        "2024-01-07",
-        50,
-        5,
-        0,
-        0,
-        "Charlie",
-        "333333333",
-        "2024-01-07T10:00:00",
-      );
-      insertTicket.run(
-        "T104",
-        "2024-01-08",
-        150,
-        15,
-        0,
-        0,
-        "David",
-        "444444444",
-        "2024-01-08T11:00:00",
-      );
+      insertTicket.run("T103", "2024-01-07", 50, 5, 0, 0);
+      insertTicket.run("T104", "2024-01-08", 150, 15, 0, 0);
 
       const checkpoint2 = service.createCheckpoint({
         checkpoint_date: "2024-01-10",
@@ -353,22 +311,12 @@ describe("LotoService Checkpoint Functionality", () => {
     it("should exclude settled checkpoints from total", () => {
       // Create tickets for testing predictable values
       const insertTicket = db.prepare(`
-        INSERT INTO loto_tickets (ticket_number, draw_date, amount, commission, is_winner, prize_amount, customer_name, customer_phone, sold_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO loto_tickets (ticket_number, sale_date, sale_amount, commission_amount, is_winner, prize_amount)
+        VALUES (?, ?, ?, ?, ?, ?)
       `);
 
       // Create tickets for unsettled checkpoint
-      insertTicket.run(
-        "U001",
-        "2024-01-02",
-        100,
-        10,
-        0,
-        0,
-        "Unsettled User",
-        "111111111",
-        "2024-01-02T10:00:00",
-      );
+      insertTicket.run("U001", "2024-01-02", 100, 10, 0, 0);
 
       const unsettledCheckpoint = service.createCheckpoint({
         checkpoint_date: "2024-01-05",
@@ -378,17 +326,7 @@ describe("LotoService Checkpoint Functionality", () => {
       });
 
       // Create tickets for settled checkpoint
-      insertTicket.run(
-        "S001",
-        "2024-01-07",
-        200,
-        20,
-        1,
-        100,
-        "Settled User",
-        "222222222",
-        "2024-01-07T10:00:00",
-      );
+      insertTicket.run("S001", "2024-01-07", 200, 20, 1, 100);
 
       const settledCheckpoint = service.createCheckpoint({
         checkpoint_date: "2024-01-10",
@@ -411,33 +349,13 @@ describe("LotoService Checkpoint Functionality", () => {
     it("should return total commission from all unsettled checkpoints", () => {
       // Create tickets that will result in specific commission totals
       const insertTicket = db.prepare(`
-        INSERT INTO loto_tickets (ticket_number, draw_date, amount, commission, is_winner, prize_amount, customer_name, customer_phone, sold_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO loto_tickets (ticket_number, sale_date, sale_amount, commission_amount, is_winner, prize_amount)
+        VALUES (?, ?, ?, ?, ?, ?)
       `);
 
       // Create tickets for first checkpoint - commissions totaling known amounts
-      insertTicket.run(
-        "C001",
-        "2024-01-02",
-        100,
-        5,
-        0,
-        0,
-        "Com1 User",
-        "555555555",
-        "2024-01-02T10:00:00",
-      );
-      insertTicket.run(
-        "C002",
-        "2024-01-03",
-        200,
-        5,
-        1,
-        100,
-        "Com2 User",
-        "666666666",
-        "2024-01-03T11:00:00",
-      );
+      insertTicket.run("C001", "2024-01-02", 100, 5, 0, 0);
+      insertTicket.run("C002", "2024-01-03", 200, 5, 1, 100);
 
       service.createCheckpoint({
         checkpoint_date: "2024-01-05",
@@ -447,28 +365,8 @@ describe("LotoService Checkpoint Functionality", () => {
       });
 
       // Create tickets for second checkpoint - commissions totaling known amounts
-      insertTicket.run(
-        "C003",
-        "2024-01-07",
-        50,
-        10,
-        0,
-        0,
-        "Com3 User",
-        "777777777",
-        "2024-01-07T10:00:00",
-      );
-      insertTicket.run(
-        "C004",
-        "2024-01-08",
-        150,
-        10,
-        0,
-        0,
-        "Com4 User",
-        "888888888",
-        "2024-01-08T11:00:00",
-      );
+      insertTicket.run("C003", "2024-01-07", 50, 10, 0, 0);
+      insertTicket.run("C004", "2024-01-08", 150, 10, 0, 0);
 
       service.createCheckpoint({
         checkpoint_date: "2024-01-10",

@@ -62,8 +62,6 @@ interface TelecomFormProps {
   setPaymentLines: (lines: PaymentLine[]) => void;
   clientName: string;
   setClientName: (val: string) => void;
-  referenceNumber: string;
-  setReferenceNumber: (val: string) => void;
   voucherItems?: VoucherItem[];
 }
 
@@ -110,8 +108,6 @@ export function TelecomForm({
   setPaymentLines,
   clientName,
   setClientName,
-  referenceNumber,
-  setReferenceNumber,
   voucherItems,
 }: TelecomFormProps) {
   const api = useApi();
@@ -222,14 +218,14 @@ export function TelecomForm({
 
                     {/* Price Preview */}
                     <div className="text-xs text-emerald-400 font-mono mb-1">
-                      Price: {parseFloat(priceLbp).toLocaleString()} L
+                      Price: {parseFloat(priceLbp).toLocaleString()} LBP
                     </div>
 
                     {/* Profit Preview */}
                     <div
                       className={`text-xs font-mono ${profitLbp >= 0 ? "text-green-400" : "text-red-400"}`}
                     >
-                      Profit: {profitLbp.toLocaleString()} L
+                      Profit: {profitLbp.toLocaleString()} LBP
                     </div>
                   </div>
                 );
@@ -256,13 +252,14 @@ export function TelecomForm({
                 {useMultiPayment ? (
                   <MultiPaymentInput
                     totalAmount={parseFloat(giftPriceLbp) || 0}
+                    totalAmountCurrency="LBP"
                     currency="LBP"
                     onChange={setPaymentLines}
                     showPmFee={false}
                     paymentMethods={methods}
                     currencies={[
                       { code: "USD", symbol: "$" },
-                      { code: "LBP", symbol: "L£" },
+                      { code: "LBP", symbol: "LBP" },
                     ]}
                     exchangeRate={exchangeRate}
                   />
@@ -289,35 +286,10 @@ export function TelecomForm({
                   </span>
                 </div>
                 <div className="text-xs text-slate-400">
-                  Cost:{" "}
-                  <span className="text-white font-mono">
-                    {(
-                      parseFloat(giftAmountUsd || "0") * costRate
-                    ).toLocaleString()}{" "}
-                    L
-                  </span>
-                </div>
-                <div className="text-xs text-slate-400">
                   Price:{" "}
                   <span className="text-emerald-400 font-mono">
-                    {parseFloat(giftPriceLbp || "0").toLocaleString()} L
+                    {parseFloat(giftPriceLbp || "0").toLocaleString()} LBP
                   </span>
-                </div>
-                <div
-                  className={`text-xs font-bold ${
-                    parseFloat(giftPriceLbp || "0") -
-                      parseFloat(giftAmountUsd || "0") * costRate >=
-                    0
-                      ? "text-emerald-400"
-                      : "text-red-400"
-                  }`}
-                >
-                  Profit:{" "}
-                  {(
-                    parseFloat(giftPriceLbp || "0") -
-                    parseFloat(giftAmountUsd || "0") * costRate
-                  ).toLocaleString()}{" "}
-                  L
                 </div>
               </div>
 
@@ -327,13 +299,6 @@ export function TelecomForm({
                   value={clientName}
                   onChange={(e) => setTelecomClientName(e.target.value)}
                   placeholder="Client name (optional)"
-                  className="w-full bg-slate-900 border border-slate-600 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-red-500"
-                />
-                <input
-                  type="text"
-                  value={referenceNumber}
-                  onChange={(e) => setReferenceNumber(e.target.value)}
-                  placeholder="Ref # (optional)"
                   className="w-full bg-slate-900 border border-slate-600 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-red-500"
                 />
               </div>
@@ -375,10 +340,10 @@ export function TelecomForm({
                     {item.label}
                   </div>
                   <div className="text-xs text-slate-400">
-                    Cost: {item.cost_lbp.toLocaleString()} L
+                    Cost: {item.cost_lbp.toLocaleString()} LBP
                   </div>
                   <div className="text-xs text-emerald-400 font-mono">
-                    Sell: {item.sell_lbp.toLocaleString()} L
+                    Sell: {item.sell_lbp.toLocaleString()} LBP
                   </div>
                 </div>
               ))}

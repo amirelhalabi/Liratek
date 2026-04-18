@@ -8,6 +8,7 @@
 import { ipcMain, IpcMainInvokeEvent } from "electron";
 import { getModuleService, settingsLogger } from "@liratek/core";
 import { requireRole } from "../session.js";
+import { audit } from "./auditHelper.js";
 
 export function registerModuleHandlers(): void {
   const moduleService = getModuleService();
@@ -47,7 +48,14 @@ export function registerModuleHandlers(): void {
       if (!auth.ok) return { success: false, error: auth.error };
 
       settingsLogger.info({ key, enabled }, "Toggling module");
-      return moduleService.setModuleEnabled(key, enabled);
+      const result = moduleService.setModuleEnabled(key, enabled);
+      audit(event.sender.id, {
+        action: "toggle",
+        entity_type: "module",
+        entity_id: key,
+        summary: `${enabled ? "Enabled" : "Disabled"} module "${key}"`,
+      });
+      return result;
     },
   );
 
@@ -62,7 +70,14 @@ export function registerModuleHandlers(): void {
       if (!auth.ok) return { success: false, error: auth.error };
 
       settingsLogger.info({ count: updates.length }, "Bulk toggling modules");
-      return moduleService.bulkSetEnabled(updates);
+      const result = moduleService.bulkSetEnabled(updates);
+      audit(event.sender.id, {
+        action: "update",
+        entity_type: "module",
+        summary: `Bulk toggled ${updates.length} modules`,
+        metadata: { updates },
+      });
+      return result;
     },
   );
 }

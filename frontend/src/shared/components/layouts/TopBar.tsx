@@ -8,6 +8,7 @@ import { useShopName } from "@/hooks/useShopName";
 import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
 import { CustomerSessionButton } from "@/features/sessions/components/CustomerSessionButton";
 import { VoiceBotButton } from "@/components/VoiceBotButton";
+import { useVoiceBotSettings } from "@/hooks/useVoiceBotSettings";
 
 interface TopBarProps {
   showHomeButton?: boolean;
@@ -81,18 +82,8 @@ export default function TopBar({
   const navigate = useNavigate();
   const shopName = useShopName();
   const { flags } = useFeatureFlags();
+  const { config: voiceBotConfig } = useVoiceBotSettings();
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
-  const [awaitingLogout, setAwaitingLogout] = useState(false);
-
-  useEffect(() => {
-    const off = appEvents.on("closing:confirmed", () => {
-      if (awaitingLogout) {
-        setAwaitingLogout(false);
-        logout();
-      }
-    });
-    return () => off();
-  }, [awaitingLogout, logout]);
 
   // Extended notifications: poll and react to events
   useEffect(() => {
@@ -174,9 +165,11 @@ export default function TopBar({
         {flags.customerSessions && <CustomerSessionButton />}
 
         {/* Voice Bot Button */}
-        <div className="relative">
-          <VoiceBotButton />
-        </div>
+        {voiceBotConfig.enabled && (
+          <div className="relative">
+            <VoiceBotButton />
+          </div>
+        )}
       </div>
 
       {/* Right Actions */}
@@ -237,8 +230,7 @@ export default function TopBar({
 
           <button
             onClick={() => {
-              setAwaitingLogout(true);
-              appEvents.emit("closing:open");
+              logout();
             }}
             className="p-2 text-slate-400 hover:text-red-400 transition-colors"
             title="Logout"

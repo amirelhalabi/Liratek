@@ -13,6 +13,7 @@ import {
 } from "@liratek/core";
 import { financialLogger } from "@liratek/core";
 import { requireRole } from "../session.js";
+import { audit } from "./auditHelper.js";
 
 export function registerMobileServiceItemHandlers(): void {
   const service = getMobileServiceItemService();
@@ -143,7 +144,13 @@ export function registerMobileServiceItemHandlers(): void {
         const auth = requireRole(e.sender.id, ["admin"]);
         if (!auth.ok) throw new Error(auth.error);
 
-        return service.create(data);
+        const result = service.create(data);
+        audit(e.sender.id, {
+          action: "create",
+          entity_type: "mobile_service_item",
+          summary: `Created mobile service item: ${data.label} (${data.provider})`,
+        });
+        return result;
       } catch (error) {
         financialLogger.error({ error }, "mobile-service-items:create failed");
         return {
@@ -163,7 +170,14 @@ export function registerMobileServiceItemHandlers(): void {
         const auth = requireRole(e.sender.id, ["admin"]);
         if (!auth.ok) throw new Error(auth.error);
 
-        return service.update(id, data);
+        const result = service.update(id, data);
+        audit(e.sender.id, {
+          action: "update",
+          entity_type: "mobile_service_item",
+          entity_id: String(id),
+          summary: `Updated mobile service item #${id}`,
+        });
+        return result;
       } catch (error) {
         financialLogger.error({ error }, "mobile-service-items:update failed");
         return {
@@ -181,7 +195,14 @@ export function registerMobileServiceItemHandlers(): void {
       const auth = requireRole(e.sender.id, ["admin"]);
       if (!auth.ok) throw new Error(auth.error);
 
-      return service.toggleActive(id);
+      const result = service.toggleActive(id);
+      audit(e.sender.id, {
+        action: "toggle",
+        entity_type: "mobile_service_item",
+        entity_id: String(id),
+        summary: `Toggled mobile service item #${id}`,
+      });
+      return result;
     } catch (error) {
       financialLogger.error(
         { error },
@@ -200,7 +221,14 @@ export function registerMobileServiceItemHandlers(): void {
       const auth = requireRole(e.sender.id, ["admin"]);
       if (!auth.ok) throw new Error(auth.error);
 
-      return service.deleteItem(id);
+      const result = service.deleteItem(id);
+      audit(e.sender.id, {
+        action: "delete",
+        entity_type: "mobile_service_item",
+        entity_id: String(id),
+        summary: `Deleted mobile service item #${id}`,
+      });
+      return result;
     } catch (error) {
       financialLogger.error({ error }, "mobile-service-items:delete failed");
       return {
@@ -218,7 +246,13 @@ export function registerMobileServiceItemHandlers(): void {
         const auth = requireRole(e.sender.id, ["admin", "staff"]);
         if (!auth.ok) throw new Error(auth.error);
 
-        return service.seedFromCatalog(items);
+        const result = service.seedFromCatalog(items);
+        audit(e.sender.id, {
+          action: "create",
+          entity_type: "mobile_service_item",
+          summary: `Seeded ${items.length} mobile service items from catalog`,
+        });
+        return result;
       } catch (error) {
         financialLogger.error({ error }, "mobile-service-items:seed failed");
         return {

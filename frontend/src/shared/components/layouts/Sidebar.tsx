@@ -24,6 +24,7 @@ import {
   BarChart2,
   ClipboardList,
   Circle,
+  Shield,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import clsx from "clsx";
@@ -191,13 +192,35 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
             )}
           </NavLink>
         )}
+        {isAdmin && (
+          <NavLink
+            to="/audit"
+            className={({ isActive }) =>
+              clsx(
+                "flex items-center gap-3 px-3 py-3 rounded-xl transition-all font-medium whitespace-nowrap w-full",
+                isActive
+                  ? "bg-violet-600 text-white"
+                  : "text-slate-400 hover:bg-slate-800 hover:text-white",
+                isCollapsed ? "justify-center" : "",
+              )
+            }
+            title={isCollapsed ? "Audit & Transactions" : undefined}
+          >
+            <Shield size={20} className="min-w-[20px]" />
+            {!isCollapsed && (
+              <span className="opacity-100 transition-opacity duration-200">
+                Audit & Transactions
+              </span>
+            )}
+          </NavLink>
+        )}
       </nav>
 
       <div className="p-4 border-t border-slate-700 text-center text-xs text-slate-500 overflow-hidden">
         {!isCollapsed ? (
           <>
             <p>System Online</p>
-            <p className="mt-1">v1.0.0</p>
+            <p className="mt-1">v{__APP_VERSION__}</p>
           </>
         ) : (
           <div

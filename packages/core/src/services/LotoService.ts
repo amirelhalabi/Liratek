@@ -2,24 +2,51 @@
  * Loto Service
  *
  * Business logic for the Loto module.
+ * Uses 5 specialized repositories instead of the monolithic LotoRepository.
  */
 
 import {
-  LotoCashPrize,
-  LotoCashPrizeCreate,
-  LotoCheckpoint,
-  LotoCheckpointCreate,
-  LotoCheckpointUpdate,
-  LotoMonthlyFee,
-  LotoMonthlyFeeCreate,
-  LotoReportData,
-  LotoSetting,
+  LotoTicketRepository,
+  getLotoTicketRepository,
+} from "../repositories/LotoTicketRepository.js";
+import type {
   LotoTicket,
   LotoTicketCreate,
+  LotoTicketUpdate,
+} from "../repositories/LotoTicketRepository.js";
+import {
+  LotoSettingsRepository,
+  getLotoSettingsRepository,
+} from "../repositories/LotoSettingsRepository.js";
+import type { LotoSetting } from "../repositories/LotoSettingsRepository.js";
+import {
+  LotoMonthlyFeeRepository,
+  getLotoMonthlyFeeRepository,
+} from "../repositories/LotoMonthlyFeeRepository.js";
+import type { LotoMonthlyFee } from "../repositories/LotoMonthlyFeeRepository.js";
+import {
+  LotoCheckpointRepository,
+  getLotoCheckpointRepository,
+} from "../repositories/LotoCheckpointRepository.js";
+import type {
+  LotoCheckpoint,
+  LotoCheckpointUpdate,
   LotoSettlement,
-  LotoRepository,
-  getLotoRepository,
-} from "../repositories/LotoRepository.js";
+} from "../repositories/LotoCheckpointRepository.js";
+import {
+  LotoCashPrizeRepository,
+  getLotoCashPrizeRepository,
+} from "../repositories/LotoCashPrizeRepository.js";
+import type {
+  LotoCashPrize,
+  LotoCashPrizeCreate,
+} from "../repositories/LotoCashPrizeRepository.js";
+import type { LotoReportData } from "../repositories/LotoRepository.js";
+
+// Backward compat: also accept the facade
+import type { LotoRepository } from "../repositories/LotoRepository.js";
+import { getLotoRepository } from "../repositories/LotoRepository.js";
+
 import { lotoLogger } from "../utils/logger.js";
 
 export interface SellTicketData {
@@ -32,6 +59,7 @@ export interface SellTicketData {
   payment_method?: string;
   currency?: string;
   note?: string;
+  userId: number;
 }
 
 export interface SettlementData {
@@ -49,10 +77,31 @@ export interface SettlementData {
 }
 
 export class LotoService {
-  private repo: LotoRepository;
+  private ticketRepo: LotoTicketRepository;
+  private settingsRepo: LotoSettingsRepository;
+  private monthlyFeeRepo: LotoMonthlyFeeRepository;
+  private checkpointRepo: LotoCheckpointRepository;
+  private cashPrizeRepo: LotoCashPrizeRepository;
 
-  constructor(repo: LotoRepository) {
-    this.repo = repo;
+  /**
+   * @deprecated backward-compat accessor — use specialized repos instead
+   */
+  get repo(): LotoRepository {
+    return getLotoRepository();
+  }
+
+  constructor(
+    ticketRepo: LotoTicketRepository,
+    settingsRepo: LotoSettingsRepository,
+    monthlyFeeRepo: LotoMonthlyFeeRepository,
+    checkpointRepo: LotoCheckpointRepository,
+    cashPrizeRepo: LotoCashPrizeRepository,
+  ) {
+    this.ticketRepo = ticketRepo;
+    this.settingsRepo = settingsRepo;
+    this.monthlyFeeRepo = monthlyFeeRepo;
+    this.checkpointRepo = checkpointRepo;
+    this.cashPrizeRepo = cashPrizeRepo;
   }
 
   // ===========================================================================
@@ -63,7 +112,7 @@ export class LotoService {
    * Sell a loto ticket
    * Commission is auto-calculated if not provided
    */
-  sellTicket(data: SellTicketData): any {
+  sellTicket(data: SellTicketData): LotoTicket {
     try {
       // Calculate commission if not provided
       const commission_rate = data.commission_rate ?? this.getCommissionRate();
@@ -80,9 +129,10 @@ export class LotoService {
         payment_method: data.payment_method,
         currency: data.currency || "LBP",
         note: data.note,
+        userId: data.userId,
       };
 
-      const ticket = this.repo.createTicket(ticketData);
+      const ticket = this.ticketRepo.createTicket(ticketData);
       lotoLogger.info(
         `Loto ticket sold: ${ticket.id}, Amount: ${ticket.sale_amount}, Commission: ${ticket.commission_amount}`,
       );
@@ -100,9 +150,9 @@ export class LotoService {
   /**
    * Mark a ticket as winner and set prize amount
    */
-  markWinner(id: number, prizeAmount: number): any {
+  markWinner(id: number, prizeAmount: number): LotoTicket {
     try {
-      const ticket = this.repo.updateTicket(id, {
+      const ticket = this.ticketRepo.updateTicket(id, {
         is_winner: 1,
         prize_amount: prizeAmount,
       });
@@ -127,10 +177,10 @@ export class LotoService {
   /**
    * Record prize payment date
    */
-  payPrize(id: number): any {
+  payPrize(id: number): LotoTicket {
     try {
       const paidDate = new Date().toISOString();
-      const ticket = this.repo.updateTicket(id, {
+      const ticket = this.ticketRepo.updateTicket(id, {
         prize_paid_date: paidDate,
       });
 
@@ -152,9 +202,9 @@ export class LotoService {
   /**
    * Get ticket by ID
    */
-  getTicket(id: number): any {
+  getTicket(id: number): LotoTicket | null {
     try {
-      return this.repo.getTicketById(id);
+      return this.ticketRepo.getTicketById(id);
     } catch (error) {
       lotoLogger.error(
         { error: error instanceof Error ? error.message : String(error) },
@@ -165,11 +215,30 @@ export class LotoService {
   }
 
   /**
+   * Update a ticket
+   */
+  updateTicket(id: number, data: LotoTicketUpdate): LotoTicket | null {
+    try {
+      const ticket = this.ticketRepo.updateTicket(id, data);
+      if (ticket) {
+        lotoLogger.info(`Loto ticket ${id} updated`);
+      }
+      return ticket;
+    } catch (error) {
+      lotoLogger.error(
+        { error: error instanceof Error ? error.message : String(error) },
+        "LotoService.updateTicket failed",
+      );
+      throw error;
+    }
+  }
+
+  /**
    * Get tickets by date range
    */
-  getTicketsByDateRange(from: string, to: string): any[] {
+  getTicketsByDateRange(from: string, to: string): LotoTicket[] {
     try {
-      return this.repo.getTicketsByDateRange(from, to);
+      return this.ticketRepo.getTicketsByDateRange(from, to);
     } catch (error) {
       lotoLogger.error(
         { error: error instanceof Error ? error.message : String(error) },
@@ -197,11 +266,11 @@ export class LotoService {
    */
   calculateSettlement(from: string, to: string): SettlementData {
     try {
-      const totalSales = this.repo.getTotalSales(from, to);
-      const totalFees = this.repo.getTotalFees(from, to);
-      const totalCommission = this.repo.getTotalCommission(from, to);
-      const totalPrizes = this.repo.getTotalPrizes(from, to);
-      const totalCashPrizes = this.repo.getTotalCashPrizes(from, to);
+      const totalSales = this.ticketRepo.getTotalSales(from, to);
+      const totalFees = this.monthlyFeeRepo.getTotalFees(from, to);
+      const totalCommission = this.ticketRepo.getTotalCommission(from, to);
+      const totalPrizes = this.ticketRepo.getTotalPrizes(from, to);
+      const totalCashPrizes = this.cashPrizeRepo.getTotalCashPrizes(from, to);
 
       // We owe LOTO: sales minus our commission, plus any fees
       const shopPaysSupplier = totalSales - totalCommission + totalFees;
@@ -244,7 +313,7 @@ export class LotoService {
     fee_year: number;
     recorded_date?: string;
     note?: string;
-  }): any {
+  }): LotoMonthlyFee {
     try {
       const feeData = {
         fee_amount: data.fee_amount,
@@ -255,7 +324,7 @@ export class LotoService {
         note: data.note,
       };
 
-      const fee = this.repo.createMonthlyFee(feeData);
+      const fee = this.monthlyFeeRepo.createMonthlyFee(feeData);
       lotoLogger.info(
         `Loto monthly fee recorded: ${fee.id}, Amount: ${fee.fee_amount}`,
       );
@@ -273,9 +342,9 @@ export class LotoService {
   /**
    * Get monthly fees for a year
    */
-  getMonthlyFees(year: number): any[] {
+  getMonthlyFees(year: number): LotoMonthlyFee[] {
     try {
-      return this.repo.getMonthlyFeesByYear(year);
+      return this.monthlyFeeRepo.getMonthlyFeesByYear(year);
     } catch (error) {
       lotoLogger.error(
         { error: error instanceof Error ? error.message : String(error) },
@@ -288,10 +357,10 @@ export class LotoService {
   /**
    * Mark monthly fee as paid
    */
-  markFeePaid(id: number): any {
+  markFeePaid(id: number, userId: number): LotoMonthlyFee {
     try {
       const paidDate = new Date().toISOString();
-      const fee = this.repo.markFeePaid(id, paidDate);
+      const fee = this.monthlyFeeRepo.markFeePaid(id, paidDate, userId);
 
       if (!fee) {
         throw new Error(`Fee ${id} not found`);
@@ -317,7 +386,7 @@ export class LotoService {
    */
   getCommissionRate(): number {
     try {
-      const settings = this.repo.getSettings();
+      const settings = this.settingsRepo.getSettings();
       const rate = settings.get("commission_rate");
       return rate ? parseFloat(rate) : 0.0445;
     } catch (error) {
@@ -334,7 +403,7 @@ export class LotoService {
    */
   getMonthlyFeeAmount(): number {
     try {
-      const settings = this.repo.getSettings();
+      const settings = this.settingsRepo.getSettings();
       const amount = settings.get("monthly_fee_amount");
       return amount ? parseFloat(amount) : 1400000;
     } catch (error) {
@@ -351,7 +420,7 @@ export class LotoService {
    */
   isAutoRecordEnabled(): boolean {
     try {
-      const settings = this.repo.getSettings();
+      const settings = this.settingsRepo.getSettings();
       const enabled = settings.get("auto_record_monthly_fee");
       return enabled !== "0";
     } catch (error) {
@@ -366,9 +435,9 @@ export class LotoService {
   /**
    * Update setting
    */
-  updateSetting(key: string, value: string): any {
+  updateSetting(key: string, value: string): LotoSetting | null {
     try {
-      const setting = this.repo.updateSetting(key, value);
+      const setting = this.settingsRepo.updateSetting(key, value);
       lotoLogger.info(`Loto setting updated: ${key} = ${value}`);
       return setting;
     } catch (error) {
@@ -385,7 +454,7 @@ export class LotoService {
    */
   getSettings(): Map<string, string> {
     try {
-      return this.repo.getSettings();
+      return this.settingsRepo.getSettings();
     } catch (error) {
       lotoLogger.error(
         { error: error instanceof Error ? error.message : String(error) },
@@ -401,10 +470,19 @@ export class LotoService {
 
   /**
    * Get report data for date range
+   * This is a composite query spanning ticket + monthly fee repos
    */
   getReportData(from: string, to: string): LotoReportData {
     try {
-      return this.repo.getReportData(from, to);
+      return {
+        total_tickets: this.ticketRepo.getTicketCount(from, to),
+        total_sales: this.ticketRepo.getTotalSales(from, to),
+        total_commission: this.ticketRepo.getTotalCommission(from, to),
+        total_prizes: this.ticketRepo.getTotalPrizes(from, to),
+        total_cash_prizes: this.cashPrizeRepo.getTotalCashPrizes(from, to),
+        outstanding_prizes: this.ticketRepo.getOutstandingPrizes(),
+        total_fees: this.monthlyFeeRepo.getTotalFees(from, to),
+      };
     } catch (error) {
       lotoLogger.error(
         { error: error instanceof Error ? error.message : String(error) },
@@ -418,7 +496,7 @@ export class LotoService {
    * Check and record monthly fee if it's the first Monday of the month
    * Call this on app startup
    */
-  checkAndRecordMonthlyFee(): { recorded: boolean; fee?: any } {
+  checkAndRecordMonthlyFee(): { recorded: boolean; fee?: LotoMonthlyFee } {
     try {
       if (!this.isAutoRecordEnabled()) {
         return { recorded: false };
@@ -477,12 +555,19 @@ export class LotoService {
   }): LotoCheckpoint {
     try {
       // Calculate the aggregated data for this period
-      const reportData = this.repo.getReportData(
+      const reportData = this.getReportData(data.period_start, data.period_end);
+
+      // Find unassigned cash prizes in this date range
+      const unassignedPrizes = this.cashPrizeRepo.getUnassignedByDateRange(
         data.period_start,
         data.period_end,
       );
+      const totalCashPrizes = unassignedPrizes.reduce(
+        (sum, p) => sum + p.prize_amount,
+        0,
+      );
 
-      const checkpointData: LotoCheckpointCreate = {
+      const checkpointData = {
         checkpoint_date: data.checkpoint_date,
         period_start: data.period_start,
         period_end: data.period_end,
@@ -490,12 +575,20 @@ export class LotoService {
         total_commission: reportData.total_commission,
         total_tickets: reportData.total_tickets,
         total_prizes: reportData.total_prizes,
+        total_cash_prizes: totalCashPrizes,
+        total_cash_prizes_count: unassignedPrizes.length,
         note: data.note,
       };
 
-      const checkpoint = this.repo.createCheckpoint(checkpointData);
+      const checkpoint = this.checkpointRepo.createCheckpoint(checkpointData);
+
+      // Assign cash prizes to this checkpoint
+      for (const prize of unassignedPrizes) {
+        this.cashPrizeRepo.assignToCheckpoint(prize.id, checkpoint.id);
+      }
+
       lotoLogger.info(
-        `Loto checkpoint created: ${checkpoint.id}, Period: ${data.period_start} to ${data.period_end}, Sales: ${checkpoint.total_sales}, Commission: ${checkpoint.total_commission}`,
+        `Loto checkpoint created: ${checkpoint.id}, Period: ${data.period_start} to ${data.period_end}, Sales: ${checkpoint.total_sales}, Commission: ${checkpoint.total_commission}, CashPrizes: ${totalCashPrizes} (${unassignedPrizes.length})`,
       );
 
       return checkpoint;
@@ -513,7 +606,7 @@ export class LotoService {
    */
   getCheckpoint(id: number): LotoCheckpoint | null {
     try {
-      return this.repo.getCheckpointById(id);
+      return this.checkpointRepo.getCheckpointById(id);
     } catch (error) {
       lotoLogger.error(
         { error: error instanceof Error ? error.message : String(error) },
@@ -528,7 +621,7 @@ export class LotoService {
    */
   getCheckpointByDate(date: string): LotoCheckpoint | null {
     try {
-      return this.repo.getCheckpointByDate(date);
+      return this.checkpointRepo.getCheckpointByDate(date);
     } catch (error) {
       lotoLogger.error(
         { error: error instanceof Error ? error.message : String(error) },
@@ -543,7 +636,7 @@ export class LotoService {
    */
   getCheckpointsByDateRange(from: string, to: string): LotoCheckpoint[] {
     try {
-      return this.repo.getCheckpointsByDateRange(from, to);
+      return this.checkpointRepo.getCheckpointsByDateRange(from, to);
     } catch (error) {
       lotoLogger.error(
         { error: error instanceof Error ? error.message : String(error) },
@@ -558,7 +651,7 @@ export class LotoService {
    */
   getUnsettledCheckpoints(): LotoCheckpoint[] {
     try {
-      return this.repo.getUnsettledCheckpoints();
+      return this.checkpointRepo.getUnsettledCheckpoints();
     } catch (error) {
       lotoLogger.error(
         { error: error instanceof Error ? error.message : String(error) },
@@ -576,7 +669,7 @@ export class LotoService {
     data: Partial<LotoCheckpointUpdate>,
   ): LotoCheckpoint | null {
     try {
-      const checkpoint = this.repo.updateCheckpoint(id, data);
+      const checkpoint = this.checkpointRepo.updateCheckpoint(id, data);
       if (checkpoint) {
         lotoLogger.info(`Loto checkpoint ${id} updated`);
       }
@@ -599,7 +692,7 @@ export class LotoService {
     settlementId?: number,
   ): LotoCheckpoint | null {
     try {
-      const checkpoint = this.repo.markCheckpointAsSettled(
+      const checkpoint = this.checkpointRepo.markCheckpointAsSettled(
         id,
         settledAt,
         settlementId,
@@ -626,16 +719,20 @@ export class LotoService {
     totalCommission: number,
     totalPrizes: number,
     totalCashPrizes: number,
-    settledAt?: string,
+    settledAt: string | undefined,
+    userId: number,
+    payments?: Array<{ method: string; currency_code: string; amount: number }>,
   ): LotoCheckpoint {
     try {
-      const checkpoint = this.repo.settleCheckpoint(
+      const checkpoint = this.checkpointRepo.settleCheckpoint(
         id,
         totalSales,
         totalCommission,
         totalPrizes,
         totalCashPrizes,
         settledAt,
+        userId,
+        payments,
       );
       lotoLogger.info(
         `Loto checkpoint ${id} settled: sales=${totalSales}, commission=${totalCommission}, cash_prizes=${totalCashPrizes}`,
@@ -655,7 +752,7 @@ export class LotoService {
    */
   getTotalSalesFromUnsettledCheckpoints(): number {
     try {
-      return this.repo.getTotalSalesFromUnsettledCheckpoints();
+      return this.checkpointRepo.getTotalSalesFromUnsettledCheckpoints();
     } catch (error) {
       lotoLogger.error(
         { error: error instanceof Error ? error.message : String(error) },
@@ -670,7 +767,7 @@ export class LotoService {
    */
   getTotalCommissionFromUnsettledCheckpoints(): number {
     try {
-      return this.repo.getTotalCommissionFromUnsettledCheckpoints();
+      return this.checkpointRepo.getTotalCommissionFromUnsettledCheckpoints();
     } catch (error) {
       lotoLogger.error(
         { error: error instanceof Error ? error.message : String(error) },
@@ -685,11 +782,39 @@ export class LotoService {
    */
   getLastCheckpoint(): LotoCheckpoint | null {
     try {
-      return this.repo.getLastCheckpoint();
+      return this.checkpointRepo.getLastCheckpoint();
     } catch (error) {
       lotoLogger.error(
         { error: error instanceof Error ? error.message : String(error) },
         "LotoService.getLastCheckpoint failed",
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Delete an unsettled checkpoint. Settled checkpoints cannot be deleted.
+   */
+  deleteCheckpoint(id: number): boolean {
+    try {
+      // Unlink any cash prizes assigned to this checkpoint before deleting
+      const unlinkedCount = this.cashPrizeRepo.unlinkFromCheckpoint(id);
+
+      const deleted = this.checkpointRepo.deleteCheckpoint(id);
+      if (deleted) {
+        lotoLogger.info(
+          `Loto checkpoint #${id} deleted (${unlinkedCount} cash prizes unlinked)`,
+        );
+      } else {
+        lotoLogger.warn(
+          `Failed to delete checkpoint #${id} — not found or already settled`,
+        );
+      }
+      return deleted;
+    } catch (error) {
+      lotoLogger.error(
+        { error: error instanceof Error ? error.message : String(error) },
+        "LotoService.deleteCheckpoint failed",
       );
       throw error;
     }
@@ -705,9 +830,14 @@ export class LotoService {
 
       // Find the last checkpoint to determine the start date
       const lastCheckpoint = this.getLastCheckpoint();
-      const startDate = lastCheckpoint
-        ? lastCheckpoint.period_end
-        : "1970-01-01"; // Start from beginning if no previous checkpoint exists
+      let startDate = "1970-01-01";
+      if (lastCheckpoint) {
+        // Start from the day AFTER the last checkpoint's period_end
+        // to avoid double-counting tickets on the boundary day
+        const nextDay = new Date(lastCheckpoint.period_end);
+        nextDay.setDate(nextDay.getDate() + 1);
+        startDate = nextDay.toISOString().split("T")[0];
+      }
 
       // Create a checkpoint for the period since the last checkpoint
       return this.createCheckpoint({
@@ -731,30 +861,26 @@ export class LotoService {
 
   /**
    * Record a cash prize payout to a customer
-   * This is separate from ticket sales - when a customer brings a winning ticket
-   * and the shop pays them the prize. Loto reimburses at settlement.
    */
   recordCashPrize(data: {
     ticket_number: string;
     prize_amount: number;
     prize_date?: string;
+    userId: number;
   }): LotoCashPrize {
     try {
       if (!data.prize_amount || data.prize_amount <= 0) {
         throw new Error("Prize amount must be greater than zero");
       }
 
-      if (!data.ticket_number || !data.ticket_number.trim()) {
-        throw new Error("Ticket number is required");
-      }
-
       const prizeData: LotoCashPrizeCreate = {
-        ticket_number: data.ticket_number.trim(),
+        ticket_number: data.ticket_number?.trim() || undefined,
         prize_amount: data.prize_amount,
         prize_date: data.prize_date || new Date().toISOString().split("T")[0],
+        userId: data.userId,
       };
 
-      const prize = this.repo.createCashPrize(prizeData);
+      const prize = this.cashPrizeRepo.createCashPrize(prizeData);
       lotoLogger.info(
         `Cash prize recorded: ${prize.id}, Amount: ${prize.prize_amount}, Ticket: ${prize.ticket_number}`,
       );
@@ -774,7 +900,7 @@ export class LotoService {
    */
   getCashPrizes(from: string, to: string): LotoCashPrize[] {
     try {
-      return this.repo.getCashPrizesByDateRange(from, to);
+      return this.cashPrizeRepo.getCashPrizesByDateRange(from, to);
     } catch (error) {
       lotoLogger.error(
         { error: error instanceof Error ? error.message : String(error) },
@@ -789,7 +915,7 @@ export class LotoService {
    */
   getUnreimbursedCashPrizes(): LotoCashPrize[] {
     try {
-      return this.repo.getUnreimbursedCashPrizes();
+      return this.cashPrizeRepo.getUnreimbursedCashPrizes();
     } catch (error) {
       lotoLogger.error(
         { error: error instanceof Error ? error.message : String(error) },
@@ -808,7 +934,7 @@ export class LotoService {
     settlementId?: number,
   ): LotoCashPrize | null {
     try {
-      const prize = this.repo.markCashPrizeReimbursed(
+      const prize = this.cashPrizeRepo.markCashPrizeReimbursed(
         id,
         reimbursedDate,
         settlementId,
@@ -831,7 +957,7 @@ export class LotoService {
    */
   getTotalUnreimbursedCashPrizes(): number {
     try {
-      return this.repo.getTotalUnreimbursedCashPrizes();
+      return this.cashPrizeRepo.getTotalUnreimbursedCashPrizes();
     } catch (error) {
       lotoLogger.error(
         { error: error instanceof Error ? error.message : String(error) },
@@ -846,7 +972,7 @@ export class LotoService {
    */
   getSettlementHistory(limit?: number): LotoSettlement[] {
     try {
-      return this.repo.getSettlementHistory(limit);
+      return this.checkpointRepo.getSettlementHistory(limit);
     } catch (error) {
       lotoLogger.error(
         { error: error instanceof Error ? error.message : String(error) },
@@ -867,8 +993,13 @@ let lotoServiceInstance: LotoService | null = null;
 
 export function getLotoService(): LotoService {
   if (!lotoServiceInstance) {
-    const repo = getLotoRepository();
-    lotoServiceInstance = new LotoService(repo);
+    lotoServiceInstance = new LotoService(
+      getLotoTicketRepository(),
+      getLotoSettingsRepository(),
+      getLotoMonthlyFeeRepository(),
+      getLotoCheckpointRepository(),
+      getLotoCashPrizeRepository(),
+    );
   }
   return lotoServiceInstance;
 }

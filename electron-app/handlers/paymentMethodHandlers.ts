@@ -7,6 +7,7 @@
 import { ipcMain } from "electron";
 import { getPaymentMethodService, settingsLogger } from "@liratek/core";
 import { requireRole } from "../session.js";
+import { audit } from "./auditHelper.js";
 
 const log = settingsLogger.child({ sub: "paymentMethodHandlers" });
 
@@ -40,7 +41,13 @@ export function registerPaymentMethodHandlers(): void {
         if (!auth.ok) return { success: false, error: auth.error };
       } catch {}
       log.info({ code: data.code }, "Creating payment method");
-      return service.create(data);
+      const result = service.create(data);
+      audit(e.sender.id, {
+        action: "create",
+        entity_type: "payment_method",
+        summary: `Created payment method "${data.code}"`,
+      });
+      return result;
     },
   );
 
@@ -63,7 +70,14 @@ export function registerPaymentMethodHandlers(): void {
         if (!auth.ok) return { success: false, error: auth.error };
       } catch {}
       log.info({ id, data }, "Updating payment method");
-      return service.update(id, data);
+      const result = service.update(id, data);
+      audit(e.sender.id, {
+        action: "update",
+        entity_type: "payment_method",
+        entity_id: String(id),
+        summary: `Updated payment method #${id}`,
+      });
+      return result;
     },
   );
 
@@ -74,7 +88,14 @@ export function registerPaymentMethodHandlers(): void {
       if (!auth.ok) return { success: false, error: auth.error };
     } catch {}
     log.info({ id }, "Deleting payment method");
-    return service.delete(id);
+    const result = service.delete(id);
+    audit(e.sender.id, {
+      action: "delete",
+      entity_type: "payment_method",
+      entity_id: String(id),
+      summary: `Deleted payment method #${id}`,
+    });
+    return result;
   });
 
   // Reorder payment methods (admin only)
@@ -84,6 +105,12 @@ export function registerPaymentMethodHandlers(): void {
       if (!auth.ok) return { success: false, error: auth.error };
     } catch {}
     log.info({ ids }, "Reordering payment methods");
-    return service.reorder(ids);
+    const result = service.reorder(ids);
+    audit(e.sender.id, {
+      action: "update",
+      entity_type: "payment_method",
+      summary: `Reordered ${ids.length} payment methods`,
+    });
+    return result;
   });
 }

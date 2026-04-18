@@ -1,5 +1,7 @@
 import { ipcMain } from "electron";
 import { CustomerSessionService } from "@liratek/core";
+import { requireRole } from "../session.js";
+import { audit } from "./auditHelper.js";
 
 const sessionService = new CustomerSessionService();
 
@@ -8,7 +10,7 @@ export function registerSessionHandlers() {
   ipcMain.handle(
     "session:start",
     async (
-      _event,
+      event,
       data: {
         customer_name?: string;
         customer_phone?: string;
@@ -16,7 +18,15 @@ export function registerSessionHandlers() {
         started_by: string;
       },
     ) => {
-      return sessionService.startSession(data);
+      const auth = requireRole(event.sender.id, ["admin", "staff"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+      const result = sessionService.startSession(data);
+      audit(event.sender.id, {
+        action: "create",
+        entity_type: "customer_session",
+        summary: `Started customer session${data.customer_name ? ` for "${data.customer_name}"` : ""}`,
+      });
+      return result;
     },
   );
 
@@ -34,7 +44,7 @@ export function registerSessionHandlers() {
   ipcMain.handle(
     "session:update",
     async (
-      _event,
+      event,
       sessionId: number,
       data: {
         customer_name?: string;
@@ -42,6 +52,8 @@ export function registerSessionHandlers() {
         customer_notes?: string;
       },
     ) => {
+      const auth = requireRole(event.sender.id, ["admin", "staff"]);
+      if (!auth.ok) return { success: false, error: auth.error };
       return sessionService.updateSession(sessionId, data);
     },
   );
@@ -49,8 +61,17 @@ export function registerSessionHandlers() {
   // Close session
   ipcMain.handle(
     "session:close",
-    async (_event, sessionId: number, closedBy: string) => {
-      return sessionService.closeSession(sessionId, closedBy);
+    async (event, sessionId: number, closedBy: string) => {
+      const auth = requireRole(event.sender.id, ["admin", "staff"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+      const result = sessionService.closeSession(sessionId, closedBy);
+      audit(event.sender.id, {
+        action: "update",
+        entity_type: "customer_session",
+        entity_id: String(sessionId),
+        summary: `Closed customer session #${sessionId}`,
+      });
+      return result;
     },
   );
 
@@ -66,7 +87,7 @@ export function registerSessionHandlers() {
   ipcMain.handle(
     "session:linkTransaction",
     async (
-      _event,
+      event,
       data: {
         sessionId?: number;
         transactionType: string;
@@ -75,6 +96,8 @@ export function registerSessionHandlers() {
         amountLbp: number;
       },
     ) => {
+      const auth = requireRole(event.sender.id, ["admin", "staff"]);
+      if (!auth.ok) return { success: false, error: auth.error };
       if (data.sessionId) {
         return sessionService.linkTransactionToSession(
           data.sessionId,

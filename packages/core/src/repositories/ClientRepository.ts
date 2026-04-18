@@ -140,7 +140,7 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
   /**
    * Create a new client
    */
-  createClient(data: CreateClientData): { id: number } {
+  createClient(data: CreateClientData, userId: number): { id: number } {
     try {
       const stmt = this.db.prepare(`
         INSERT INTO ${this.tableName} (full_name, phone_number, notes, whatsapp_opt_in)
@@ -161,7 +161,7 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
         type: TRANSACTION_TYPES.CLIENT_CREATED,
         source_table: "clients",
         source_id: clientId,
-        user_id: 1,
+        user_id: userId,
         amount_usd: 0,
         amount_lbp: 0,
         client_id: clientId,
@@ -246,6 +246,7 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
       notes?: string | null;
       whatsapp_opt_in: boolean | number;
     },
+    userId: number,
   ): boolean {
     try {
       const stmt = this.db.prepare(`
@@ -268,7 +269,7 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
           type: TRANSACTION_TYPES.CLIENT_UPDATED,
           source_table: "clients",
           source_id: id,
-          user_id: 1,
+          user_id: userId,
           amount_usd: 0,
           amount_lbp: 0,
           client_id: id,
@@ -316,7 +317,7 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
   /**
    * Delete client (hard delete) - checks for sales history first
    */
-  deleteClient(id: number): boolean {
+  deleteClient(id: number, userId: number): boolean {
     // Check for existing sales
     if (this.hasSalesHistory(id)) {
       throw new BusinessRuleError(
@@ -335,7 +336,7 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
         type: TRANSACTION_TYPES.CLIENT_DELETED,
         source_table: "clients",
         source_id: id,
-        user_id: 1,
+        user_id: userId,
         amount_usd: 0,
         amount_lbp: 0,
         client_id: id,

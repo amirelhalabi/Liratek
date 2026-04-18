@@ -4,6 +4,18 @@ import { logger } from "../server.js";
 import { getAuthService, JWT_SECRET } from "@liratek/core";
 import type { SafeUser } from "@liratek/core";
 
+// Extend Express Request to include user from JWT auth
+declare module "express-serve-static-core" {
+  interface Request {
+    user?: {
+      userId: number;
+      username?: string;
+      role: string;
+      sessionToken?: string;
+    };
+  }
+}
+
 export interface AuthRequest extends Request {
   user?: {
     userId: number;

@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
+import { FolderOpen } from "lucide-react";
 import UpdatesPanel from "./UpdatesPanel";
-import { appEvents, Select } from "@liratek/ui";
+import { appEvents, useApi } from "@liratek/ui";
 
 export default function Diagnostics() {
+  const api = useApi();
   const [errors, setErrors] = useState<
     Array<{ id: number; endpoint: string; error: string; created_at: string }>
   >([]);
@@ -42,6 +44,10 @@ export default function Diagnostics() {
   const [fkStartupCheckedAt, setFkStartupCheckedAt] = useState<string | null>(
     null,
   );
+  const [backupDir, setBackupDir] = useState<string | null>(null);
+  const [savingConfig, setSavingConfig] = useState(false);
+  const [dbPath, setDbPath] = useState<string | null>(null);
+  const [dbPathSource, setDbPathSource] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -87,12 +93,14 @@ export default function Diagnostics() {
     setBackupError(null);
     setVerifyResult(null);
     try {
-      const [res, settings] = await Promise.all([
+      const [res, settings, dirRes] = await Promise.all([
         window.api.report.listBackups(),
         window.api.settings?.getAll?.() ?? Promise.resolve([]),
+        window.api.report.getBackupDir(),
       ]);
 
       if (!res.success) throw new Error(res.error || "Failed to list backups");
+      if (dirRes.success && dirRes.path) setBackupDir(dirRes.path);
 
       const map = new Map(settings.map((s) => [s.key_name, s.value]));
       setLastBackupAt(String(map.get("last_backup_at") ?? "") || null);
@@ -202,9 +210,93 @@ export default function Diagnostics() {
     }
   };
 
+  const changeBackupDir = async () => {
+    try {
+      const pickResult = await window.api.report.pickBackupDir();
+      if (!pickResult.success || pickResult.canceled || !pickResult.path)
+        return;
+
+      const setResult = await window.api.report.setBackupDir(pickResult.path);
+      if (!setResult.success) {
+        appEvents.emit(
+          "notification:show",
+          `Failed: ${setResult.error}`,
+          "error",
+        );
+        return;
+      }
+
+      setBackupDir(setResult.path ?? pickResult.path);
+      appEvents.emit(
+        "notification:show",
+        "Backup directory updated",
+        "success",
+      );
+      await loadBackups();
+    } catch (e) {
+      const msg =
+        e instanceof Error ? e.message : "Failed to change backup directory";
+      appEvents.emit("notification:show", msg, "error");
+    }
+  };
+
+  const saveBackupConfig = async () => {
+    setSavingConfig(true);
+    try {
+      const intervalH = autoBackupIntervalHours ?? 24;
+      const keepC = autoBackupKeepCount ?? 30;
+      if (intervalH < 1) throw new Error("Interval must be >= 1 hour");
+      if (keepC < 1) throw new Error("Keep count must be >= 1");
+
+      await Promise.all([
+        api.updateSetting("auto_backup_enabled", autoBackupEnabled ? "1" : "0"),
+        api.updateSetting("auto_backup_interval_hours", String(intervalH)),
+        api.updateSetting("auto_backup_keep_count", String(keepC)),
+        api.updateSetting(
+          "auto_backup_verify_enabled",
+          autoVerifyEnabled ? "1" : "0",
+        ),
+      ]);
+      appEvents.emit("notification:show", "Backup settings saved", "success");
+    } catch (e) {
+      appEvents.emit(
+        "notification:show",
+        e instanceof Error ? e.message : "Failed to save",
+        "error",
+      );
+    } finally {
+      setSavingConfig(false);
+    }
+  };
+
   useEffect(() => {
     load();
     loadBackups();
+    // Load database path
+    window.api?.diagnostics
+      ?.getDbPath?.()
+      .then(
+        (
+          res:
+            | {
+                success: boolean;
+                path?: string;
+                source?: string;
+                error?: string;
+              }
+            | undefined,
+        ) => {
+          if (res?.success) {
+            setDbPath(res.path ?? null);
+            setDbPathSource(res.source ?? null);
+          } else {
+            setDbPath(res?.error ?? "Failed to resolve");
+          }
+        },
+      )
+      .catch(() => {
+        setDbPath("IPC call failed");
+      });
   }, []);
 
   return (
@@ -242,69 +334,15 @@ export default function Diagnostics() {
       <UpdatesPanel />
 
       {/* Backups */}
-      <div className="space-y-3">
+      <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-white font-semibold">Local Backups</h3>
-            {(() => {
-              const intervalMs =
-                autoBackupIntervalHours != null
-                  ? autoBackupIntervalHours * 60 * 60 * 1000
-                  : null;
-              const next =
-                lastBackupAt && intervalMs
-                  ? new Date(new Date(lastBackupAt).getTime() + intervalMs)
-                  : null;
-
-              return (
-                <div className="text-xs text-slate-500 mt-1 space-y-1">
-                  <div>
-                    Last backup:{" "}
-                    {lastBackupAt
-                      ? new Date(lastBackupAt).toLocaleString()
-                      : "—"}
-                  </div>
-                  <div>
-                    Auto backup:{" "}
-                    {autoBackupEnabled == null
-                      ? "—"
-                      : autoBackupEnabled
-                        ? `Enabled (every ${autoBackupIntervalHours ?? 24}h, keep ${autoBackupKeepCount ?? 30})`
-                        : "Disabled"}
-                  </div>
-                  <div>
-                    Next backup:{" "}
-                    {autoBackupEnabled === false
-                      ? "—"
-                      : next
-                        ? next.toLocaleString()
-                        : "After first successful backup"}
-                  </div>
-                  <div>
-                    Auto verify:{" "}
-                    {autoVerifyEnabled == null
-                      ? "—"
-                      : autoVerifyEnabled
-                        ? "Enabled"
-                        : "Disabled"}
-                  </div>
-                  <div>
-                    Last verify:{" "}
-                    {lastVerifyAt
-                      ? `${new Date(lastVerifyAt).toLocaleString()} (${lastVerifyOk ? "OK" : "FAILED"})`
-                      : "—"}
-                  </div>
-                  <div>Directory: Documents/LiratekBackups</div>
-                </div>
-              );
-            })()}
-          </div>
+          <h3 className="text-white font-semibold">Local Backups</h3>
           <button
             onClick={backupNow}
             disabled={backupLoading}
-            className="px-3 py-1 bg-violet-600 rounded text-white text-sm"
+            className="px-3 py-1.5 bg-violet-600 hover:bg-violet-500 rounded text-white text-sm transition-colors"
           >
-            Backup Now
+            {backupLoading ? "Working..." : "Backup Now"}
           </button>
         </div>
 
@@ -314,48 +352,161 @@ export default function Diagnostics() {
           </div>
         )}
 
-        <div className="flex flex-col md:flex-row gap-3 items-start md:items-center">
-          <Select
-            value={selectedBackupPath}
-            onChange={(value) => setSelectedBackupPath(value)}
-            options={[
-              { value: "", label: "Select a backup..." },
-              ...backups.map((b) => ({
-                value: b.path,
-                label: b.filename,
-              })),
-            ]}
-            ringColor="ring-violet-500"
-            buttonClassName="bg-slate-900"
-            className="w-full md:flex-1"
-          />
+        {/* Info grid */}
+        <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm bg-slate-900/50 rounded-lg p-4 border border-slate-700/50">
+          <div className="text-slate-400">Database</div>
+          <div
+            className="text-slate-200 font-mono text-xs truncate"
+            title={dbPath ?? undefined}
+          >
+            {dbPath ?? "—"}
+            {dbPathSource && (
+              <span className="ml-2 text-slate-500 font-sans text-[10px]">
+                ({dbPathSource})
+              </span>
+            )}
+          </div>
 
-          <button
-            onClick={verifySelected}
-            disabled={backupLoading || !selectedBackupPath}
-            className="px-3 py-2 bg-slate-700 rounded text-white text-sm"
-          >
-            Verify
-          </button>
-          <button
-            onClick={restoreSelected}
-            disabled={backupLoading || !selectedBackupPath}
-            className="px-3 py-2 bg-red-600 rounded text-white text-sm"
-          >
-            Restore
-          </button>
+          <div className="text-slate-400">Last backup</div>
+          <div className="text-slate-200">
+            {lastBackupAt ? new Date(lastBackupAt).toLocaleString() : "—"}
+          </div>
+
+          <div className="text-slate-400">Last verify</div>
+          <div className="text-slate-200">
+            {lastVerifyAt
+              ? `${new Date(lastVerifyAt).toLocaleString()} (${lastVerifyOk ? "OK" : "FAILED"})`
+              : "—"}
+          </div>
+
+          <div className="text-slate-400">Directory</div>
+          <div className="flex items-center gap-2">
+            <span className="text-slate-200 font-mono text-xs truncate">
+              {backupDir ?? "Documents/Liratek/Backups"}
+            </span>
+            <button
+              onClick={changeBackupDir}
+              className="inline-flex items-center gap-1 px-2 py-0.5 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white rounded transition-colors shrink-0"
+              title="Change backup directory"
+            >
+              <FolderOpen size={12} />
+              Change
+            </button>
+          </div>
         </div>
 
-        {verifyResult && (
-          <div className="text-sm text-slate-300">
-            Integrity check:{" "}
-            <span className="font-semibold">{verifyResult}</span>
+        {/* Backup config */}
+        <div className="bg-slate-900/50 rounded-lg p-4 border border-slate-700/50 space-y-3">
+          <div className="text-sm font-semibold text-white">
+            Auto Backup Settings
           </div>
-        )}
 
-        {backupLoading && (
-          <div className="text-sm text-slate-500">Working...</div>
-        )}
+          <label className="flex items-center gap-2 text-slate-300 text-sm">
+            <input
+              type="checkbox"
+              checked={autoBackupEnabled ?? true}
+              onChange={(e) => setAutoBackupEnabled(e.target.checked)}
+            />{" "}
+            Enable automatic local backups
+          </label>
+
+          <label className="flex items-center gap-2 text-slate-300 text-sm">
+            <input
+              type="checkbox"
+              checked={autoVerifyEnabled ?? false}
+              onChange={(e) => setAutoVerifyEnabled(e.target.checked)}
+            />{" "}
+            Verify backups after creation
+          </label>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-slate-400 text-xs mb-1">
+                Interval (hours)
+              </label>
+              <input
+                type="number"
+                min={1}
+                value={autoBackupIntervalHours ?? 24}
+                onChange={(e) =>
+                  setAutoBackupIntervalHours(Number(e.target.value))
+                }
+                className="bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm w-full focus:outline-none focus:border-violet-500"
+              />
+            </div>
+            <div>
+              <label className="block text-slate-400 text-xs mb-1">
+                Keep (count)
+              </label>
+              <input
+                type="number"
+                min={1}
+                value={autoBackupKeepCount ?? 30}
+                onChange={(e) => setAutoBackupKeepCount(Number(e.target.value))}
+                className="bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm w-full focus:outline-none focus:border-violet-500"
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end">
+            <button
+              onClick={saveBackupConfig}
+              disabled={savingConfig}
+              className="px-3 py-1.5 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 rounded text-white text-sm transition-colors"
+            >
+              {savingConfig ? "Saving..." : "Save Settings"}
+            </button>
+          </div>
+        </div>
+
+        {/* Backup file + actions */}
+        <div className="bg-slate-900/50 rounded-lg p-4 border border-slate-700/50 space-y-3">
+          <div className="text-sm text-slate-400">Selected backup</div>
+          <div className="flex items-center gap-2">
+            <span className="text-slate-200 font-mono text-xs truncate flex-1">
+              {selectedBackupPath
+                ? (backups.find((b) => b.path === selectedBackupPath)
+                    ?.filename ?? selectedBackupPath)
+                : "No backup selected"}
+            </span>
+            {backups.length > 1 && (
+              <select
+                value={selectedBackupPath}
+                onChange={(e) => setSelectedBackupPath(e.target.value)}
+                className="bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-300 focus:outline-none focus:border-violet-500 shrink-0"
+              >
+                {backups.map((b) => (
+                  <option key={b.path} value={b.path}>
+                    {b.filename}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={verifySelected}
+              disabled={backupLoading || !selectedBackupPath}
+              className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 disabled:hover:bg-slate-700 rounded text-white text-sm transition-colors"
+            >
+              Verify Integrity
+            </button>
+            <button
+              onClick={restoreSelected}
+              disabled={backupLoading || !selectedBackupPath}
+              className="px-3 py-1.5 bg-red-600/80 hover:bg-red-600 disabled:opacity-50 disabled:hover:bg-red-600/80 rounded text-white text-sm transition-colors"
+            >
+              Restore
+            </button>
+          </div>
+
+          {verifyResult && (
+            <div className="text-sm text-slate-300">
+              Integrity check:{" "}
+              <span className="font-semibold">{verifyResult}</span>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Sync Errors */}

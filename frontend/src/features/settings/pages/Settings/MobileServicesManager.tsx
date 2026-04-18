@@ -14,7 +14,6 @@ import {
   Check,
   X,
   Search,
-  Smartphone,
   ChevronDown,
   FolderPlus,
 } from "lucide-react";

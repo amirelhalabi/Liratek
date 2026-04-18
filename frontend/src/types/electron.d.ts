@@ -13,6 +13,36 @@ export interface MobileServiceItem {
   updated_at: string;
 }
 
+/** An audit log entry */
+export interface AuditLogEntry {
+  id: number;
+  user_id: number;
+  username: string;
+  role: string;
+  action: string;
+  entity_type: string;
+  entity_id: string | null;
+  summary: string;
+  old_values: string | null;
+  new_values: string | null;
+  metadata: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Filters for searching audit logs */
+export interface AuditSearchFilters {
+  userId?: number;
+  action?: string;
+  entityType?: string;
+  entityId?: string;
+  from?: string;
+  to?: string;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}
+
 export interface ElectronAPI {
   // Auth & Users
   auth: {
@@ -182,6 +212,29 @@ export interface ElectronAPI {
       client: Partial<import("@liratek/core").Client> & { id: number },
     ) => Promise<{ success: boolean; error?: string }>;
     delete: (id: number) => Promise<{ success: boolean; error?: string }>;
+    importDebts: (
+      data: Array<{
+        name: string;
+        phone: string;
+        entries: Array<{
+          date: string | null;
+          amount_usd: number;
+          amount_lbp: number;
+          description: string;
+          type: "debt" | "payment";
+        }>;
+      }>,
+    ) => Promise<{
+      success: boolean;
+      error?: string;
+      result?: {
+        clientsCreated: number;
+        clientsSkipped: number;
+        clientsDiscarded: number;
+        entriesImported: number;
+        errors: string[];
+      };
+    }>;
   };
 
   // Sales
@@ -573,6 +626,11 @@ export interface ElectronAPI {
       commission_lbp: number;
       drawer_name: string;
       note?: string;
+      payments?: Array<{
+        method: string;
+        currency_code: string;
+        amount: number;
+      }>;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
   };
 
@@ -687,8 +745,12 @@ export interface ElectronAPI {
         totalSales: number;
         totalCommission: number;
         totalPrizes: number;
-        totalCashPrizes: number;
         settledAt?: string;
+        payments?: Array<{
+          method: string;
+          currency_code: string;
+          amount: number;
+        }>;
       }) => Promise<{
         success: boolean;
         checkpoint?: any;
@@ -1044,6 +1106,12 @@ export interface ElectronAPI {
       rows?: any[];
       error?: string;
     }>;
+    getDbPath: () => Promise<{
+      success: boolean;
+      path?: string;
+      source?: string;
+      error?: string;
+    }>;
   };
 
   // Report
@@ -1078,13 +1146,30 @@ export interface ElectronAPI {
     deleteBackup: (
       backupPath: string,
     ) => Promise<{ success: boolean; error?: string }>;
+    getBackupDir: () => Promise<{
+      success: boolean;
+      path?: string;
+      error?: string;
+    }>;
+    pickBackupDir: () => Promise<{
+      success: boolean;
+      path?: string;
+      canceled?: boolean;
+      error?: string;
+    }>;
+    setBackupDir: (dir: string) => Promise<{
+      success: boolean;
+      path?: string;
+      error?: string;
+    }>;
   };
 
   // Updater
   updater: {
     getStatus: () => Promise<{
-      status: string;
-      version?: string;
+      packaged: boolean;
+      platform: string;
+      version: string;
       updateAvailable?: boolean;
       downloadProgress?: number;
       devMode?: boolean;
@@ -1137,9 +1222,28 @@ export interface ElectronAPI {
       whatsapp_api_key?: string;
     }) => Promise<{ success: boolean; error?: string }>;
     reset: () => Promise<{ success: boolean; error?: string }>;
-    testDatabasePath: (
-      path: string,
-    ) => Promise<{ success: boolean; error?: string }>;
+    detectNetworkDb: () => Promise<{
+      success: boolean;
+      databases: Array<{ path: string; shopName: string }>;
+      error?: string;
+    }>;
+    joinExistingShop: (payload: {
+      dbPath: string;
+      users: Array<{ username: string; password: string; role: string }>;
+    }) => Promise<{
+      success: boolean;
+      requiresRestart?: boolean;
+      shopName?: string;
+      error?: string;
+    }>;
+    browseForDatabase: () => Promise<{
+      success: boolean;
+      path?: string;
+      shopName?: string;
+      canceled?: boolean;
+      error?: string;
+    }>;
+    relaunch: () => Promise<void>;
   };
 
   // Mobile Service Items (dynamic catalog)
@@ -1320,6 +1424,29 @@ export interface ElectronAPI {
       note?: string;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     delete: (id: number) => Promise<{ success: boolean; error?: string }>;
+  };
+
+  // Audit Log
+  audit: {
+    getRecent: (limit?: number) => Promise<{
+      success: boolean;
+      rows?: AuditLogEntry[];
+      error?: string;
+    }>;
+    search: (filters: AuditSearchFilters) => Promise<{
+      success: boolean;
+      rows?: AuditLogEntry[];
+      total?: number;
+      error?: string;
+    }>;
+    getByEntity: (
+      entityType: string,
+      entityId: string,
+    ) => Promise<{
+      success: boolean;
+      rows?: AuditLogEntry[];
+      error?: string;
+    }>;
   };
 }
 

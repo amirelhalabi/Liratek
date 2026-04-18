@@ -74,7 +74,7 @@ export interface CreateRepaymentData {
   amount_usd: number;
   amount_lbp: number;
   note?: string | null;
-  created_by?: number | null;
+  created_by: number;
   paid_by_method?: string;
   /** Optional multi-payment legs. When provided, overrides paid_by_method for
    *  drawer routing. Each leg is processed independently with per-leg RESERVE
@@ -200,7 +200,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         -data.amount_usd,
         -data.amount_lbp,
         data.note || null,
-        data.created_by || null,
+        data.created_by,
       );
 
       const repaymentId = Number(result.lastInsertRowid);
@@ -249,7 +249,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         type: TRANSACTION_TYPES.DEBT_REPAYMENT,
         source_table: "debt_ledger",
         source_id: repaymentId,
-        user_id: data.created_by || 1,
+        user_id: data.created_by,
         amount_usd: data.amount_usd,
         amount_lbp: data.amount_lbp,
         client_id: data.client_id,
@@ -330,7 +330,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
           legCurrency,
           leg.amount,
           legNote,
-          data.created_by || null,
+          data.created_by,
         );
         upsertBalance.run(legDrawer, legCurrency, leg.amount);
 
@@ -345,7 +345,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
             legCurrency,
             -leg.amount,
             `Reserve for ${originatingDebt?.provider} settlement`,
-            data.created_by || null,
+            data.created_by,
           );
           upsertBalance.run(legDrawer, legCurrency, -leg.amount);
 
@@ -356,7 +356,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
             legCurrency,
             leg.amount,
             `Debt repayment → ${providerSystemDrawer}`,
-            data.created_by || null,
+            data.created_by,
           );
           upsertBalance.run(providerSystemDrawer, legCurrency, leg.amount);
         }
@@ -418,6 +418,39 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         remaining -= apply;
       }
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Bulk Import
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Insert a raw debt_ledger entry (for Excel import).
+   * No drawer logic, no transaction row — just the ledger entry.
+   */
+  insertRawEntry(data: {
+    client_id: number;
+    transaction_type: string;
+    amount_usd: number;
+    amount_lbp: number;
+    note: string | null;
+    created_by: number;
+    created_at?: string;
+  }): number {
+    const stmt = this.db.prepare(`
+      INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, note, created_by, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+    `);
+    const result = stmt.run(
+      data.client_id,
+      data.transaction_type,
+      data.amount_usd,
+      data.amount_lbp,
+      data.note,
+      data.created_by,
+      data.created_at ?? null,
+    );
+    return Number(result.lastInsertRowid);
   }
 
   // ---------------------------------------------------------------------------

@@ -3,6 +3,7 @@ import { ChevronDown } from "lucide-react";
 import AlfaLogo from "@/assets/logos/alfa.svg?react";
 import MtcLogo from "@/assets/logos/mtc.svg?react";
 import { MultiPaymentInput, type PaymentLine, useApi } from "@liratek/ui";
+import { useSession } from "@/features/sessions/context/SessionContext";
 import type { ProviderConfig, FinancialTransaction } from "../types";
 import type { ServiceItem, ProviderKey } from "../hooks/useMobileServiceItems";
 import { HistoryModal } from "./HistoryModal";
@@ -59,7 +60,15 @@ export function KatchForm({
     new Set(),
   );
   const [clientName, setClientName] = useState("");
-  const [referenceNumber, setReferenceNumber] = useState("");
+  const { activeSession } = useSession();
+
+  // Autofill client name from active customer session
+  useEffect(() => {
+    if (activeSession?.customer_name) {
+      setClientName(activeSession.customer_name);
+    }
+  }, [activeSession]);
+
   const [paymentMethod, setPaymentMethod] = useState("CASH");
   const [useMultiPayment, setUseMultiPayment] = useState<boolean>(false);
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
@@ -160,11 +169,14 @@ export function KatchForm({
 
   const handleCardClick = (item: ServiceItem) => {
     const itemKey = item.key;
-    setExpandedKeys((prev) => {
-      const newSet = new Set(prev);
-      newSet.add(itemKey);
-      return newSet;
-    });
+    // Only expand accordion for telecom vouchers (they have the "Only Days" option)
+    if (isTelecomVoucher(item)) {
+      setExpandedKeys((prev) => {
+        const newSet = new Set(prev);
+        newSet.add(itemKey);
+        return newSet;
+      });
+    }
     if (!cart.has(itemKey)) {
       updateCart(item, 1);
     }
@@ -217,21 +229,11 @@ export function KatchForm({
     updateCart(item, existing.quantity, existing.onlyDays, value);
   };
 
-  const totalCost = Array.from(cart.values()).reduce((sum, line) => {
-    const unitCost = line.item.catalogCost ?? 0;
-    return sum + unitCost * line.quantity;
-  }, 0);
-
   const totalPrice = Array.from(cart.values()).reduce((sum, line) => {
-    const unitPrice = calculatePrice(
-      line.item,
-      line.onlyDays,
-      line.returnedCreditsUsd,
-    );
+    const unitPrice = calculatePrice(line.item, line.onlyDays, exchangeRate);
     return sum + unitPrice * line.quantity;
   }, 0);
 
-  const totalProfit = totalPrice - totalCost;
   const totalItems = Array.from(cart.values()).reduce(
     (sum, line) => sum + line.quantity,
     0,
@@ -243,12 +245,11 @@ export function KatchForm({
       Array.from(cart.values()),
       paymentMethod,
       clientName,
-      referenceNumber,
+      "",
       useMultiPayment ? paymentLines : undefined,
     );
     if (cart.size === 0) {
       setClientName("");
-      setReferenceNumber("");
       setExpandedKeys(new Set());
     }
   };
@@ -407,7 +408,7 @@ export function KatchForm({
                                 Cost:
                               </span>
                               <span className="text-xs text-white font-mono">
-                                {cost.toLocaleString()} L
+                                {cost.toLocaleString()} LBP
                               </span>
                             </div>
                             <div className="flex items-center justify-between">
@@ -415,7 +416,7 @@ export function KatchForm({
                                 Sell:
                               </span>
                               <span className="text-xs text-emerald-400 font-mono">
-                                {sellPrice.toLocaleString()} L
+                                {sellPrice.toLocaleString()} LBP
                               </span>
                             </div>
                           </div>
@@ -498,13 +499,14 @@ export function KatchForm({
             {useMultiPayment ? (
               <MultiPaymentInput
                 totalAmount={totalPrice}
+                totalAmountCurrency="LBP"
                 currency="LBP"
                 onChange={setPaymentLines}
                 showPmFee={false}
                 paymentMethods={methods}
                 currencies={[
                   { code: "USD", symbol: "$" },
-                  { code: "LBP", symbol: "L£" },
+                  { code: "LBP", symbol: "LBP" },
                 ]}
                 exchangeRate={exchangeRate}
               />
@@ -528,21 +530,10 @@ export function KatchForm({
               Items: <span className="text-white font-bold">{totalItems}</span>
             </div>
             <div className="text-xs text-slate-400">
-              Cost:{" "}
-              <span className="text-white font-mono">
-                {totalCost.toLocaleString()} L
-              </span>
-            </div>
-            <div className="text-xs text-slate-400">
               Price:{" "}
               <span className="text-emerald-400 font-mono">
-                {totalPrice.toLocaleString()} L
+                {totalPrice.toLocaleString()} LBP
               </span>
-            </div>
-            <div
-              className={`text-xs font-bold ${totalProfit >= 0 ? "text-emerald-400" : "text-red-400"}`}
-            >
-              Profit: {totalProfit.toLocaleString()} L
             </div>
           </div>
 
@@ -552,13 +543,6 @@ export function KatchForm({
               value={clientName}
               onChange={(e) => setClientName(e.target.value)}
               placeholder="Client name (optional)"
-              className="w-full bg-slate-900 border border-slate-600 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-orange-500"
-            />
-            <input
-              type="text"
-              value={referenceNumber}
-              onChange={(e) => setReferenceNumber(e.target.value)}
-              placeholder="Ref # (optional)"
               className="w-full bg-slate-900 border border-slate-600 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-orange-500"
             />
           </div>

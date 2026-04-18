@@ -14,6 +14,7 @@
 import {
   ClientRepository,
   getClientRepository,
+  getDebtRepository,
   type ClientEntity,
   type CreateClientData,
 } from "../repositories/index.js";
@@ -28,6 +29,31 @@ export interface ClientResult {
   success: boolean;
   id?: number;
   error?: string;
+}
+
+/** A single debt/payment entry from the Excel import */
+export interface ImportedDebtEntry {
+  date: string | null;
+  amount_usd: number;
+  amount_lbp: number;
+  description: string;
+  type: "debt" | "payment";
+}
+
+/** A client with their debt entries from the Excel import */
+export interface ImportedClientData {
+  name: string;
+  phone: string;
+  entries: ImportedDebtEntry[];
+}
+
+/** Result of the bulk import */
+export interface ImportResult {
+  clientsCreated: number;
+  clientsSkipped: number;
+  clientsDiscarded: number;
+  entriesImported: number;
+  errors: string[];
 }
 
 // =============================================================================
@@ -97,7 +123,7 @@ export class ClientService {
   /**
    * Create a new client
    */
-  createClient(data: CreateClientData): ClientResult {
+  createClient(data: CreateClientData, userId: number): ClientResult {
     // Validate required fields
     if (!data.full_name?.trim()) {
       return { success: false, error: "Client name is required" };
@@ -121,7 +147,7 @@ export class ClientService {
         ...(data.notes != null ? { notes: data.notes.trim() } : {}),
       };
 
-      const result = this.clientRepo.createClient(createData);
+      const result = this.clientRepo.createClient(createData, userId);
       return { success: true, id: result.id };
     } catch (error) {
       const repoCode = getRepoConstraintCode(error);
@@ -147,6 +173,7 @@ export class ClientService {
       notes?: string | null;
       whatsapp_opt_in: boolean | number;
     },
+    userId: number,
   ): ClientResult {
     if (!id) {
       return { success: false, error: "Client ID required" };
@@ -166,12 +193,16 @@ export class ClientService {
     }
 
     try {
-      this.clientRepo.updateClientFull(id, {
-        full_name: data.full_name,
-        phone_number: data.phone_number,
-        whatsapp_opt_in: data.whatsapp_opt_in,
-        ...(data.notes != null ? { notes: data.notes } : {}),
-      });
+      this.clientRepo.updateClientFull(
+        id,
+        {
+          full_name: data.full_name,
+          phone_number: data.phone_number,
+          whatsapp_opt_in: data.whatsapp_opt_in,
+          ...(data.notes != null ? { notes: data.notes } : {}),
+        },
+        userId,
+      );
       return { success: true };
     } catch (error) {
       const repoCode = getRepoConstraintCode(error);
@@ -191,7 +222,7 @@ export class ClientService {
   /**
    * Delete a client (checks for sales history first)
    */
-  deleteClient(id: number): ClientResult {
+  deleteClient(id: number, userId: number): ClientResult {
     if (!id) {
       return { success: false, error: "Client ID required" };
     }
@@ -205,7 +236,7 @@ export class ClientService {
     }
 
     try {
-      this.clientRepo.delete(id);
+      this.clientRepo.deleteClient(id, userId);
       return { success: true };
     } catch (error) {
       return {
@@ -238,6 +269,120 @@ export class ClientService {
    */
   getWhatsAppOptedInClients(): ClientEntity[] {
     return this.clientRepo.findWhatsAppOptedIn();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Bulk Import from Excel
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Import clients and their debt history from parsed Excel data.
+   * - Creates clients that don't exist yet (matched by phone)
+   * - Skips clients without a phone number (logs warning)
+   * - Inserts debt_ledger entries for each client's history
+   */
+  importClientsWithDebts(
+    data: ImportedClientData[],
+    userId: number,
+  ): ImportResult {
+    const debtRepo = getDebtRepository();
+    const result: ImportResult = {
+      clientsCreated: 0,
+      clientsSkipped: 0,
+      clientsDiscarded: 0,
+      entriesImported: 0,
+      errors: [],
+    };
+
+    for (const clientData of data) {
+      const name = clientData.name?.trim();
+      const phone = clientData.phone?.trim();
+
+      // Discard clients without phone
+      if (!phone) {
+        clientLogger.warn(
+          { clientName: name },
+          `DISCARDED: Client "${name}" has no phone number — skipping`,
+        );
+        result.clientsDiscarded++;
+        continue;
+      }
+
+      // Discard clients without name
+      if (!name) {
+        clientLogger.warn(
+          { phone },
+          `DISCARDED: Client with phone "${phone}" has no name — skipping`,
+        );
+        result.clientsDiscarded++;
+        continue;
+      }
+
+      try {
+        // Find or create client by phone
+        let client = this.clientRepo.findByPhone(phone);
+        if (client) {
+          clientLogger.info(
+            { clientId: client.id, name },
+            `Client "${name}" already exists (phone: ${phone}) — importing entries only`,
+          );
+          result.clientsSkipped++;
+        } else {
+          const createResult = this.clientRepo.createClient(
+            { full_name: name, phone_number: phone },
+            userId,
+          );
+          client = this.clientRepo.findById(createResult.id) ?? null;
+          if (!client) {
+            result.errors.push(`Failed to create client "${name}"`);
+            continue;
+          }
+          clientLogger.info(
+            { clientId: client.id, name },
+            `Created client "${name}" (phone: ${phone})`,
+          );
+          result.clientsCreated++;
+        }
+
+        // Import debt entries
+        for (const entry of clientData.entries) {
+          try {
+            const isPayment = entry.type === "payment";
+            debtRepo.insertRawEntry({
+              client_id: client.id,
+              transaction_type: isPayment ? "Repayment" : "Imported Debt",
+              amount_usd: isPayment ? -entry.amount_usd : entry.amount_usd,
+              amount_lbp: isPayment ? -entry.amount_lbp : entry.amount_lbp,
+              note: entry.description || null,
+              created_by: userId,
+              created_at: entry.date || undefined,
+            });
+            result.entriesImported++;
+          } catch (entryError) {
+            const msg = `Failed to import entry for "${name}": ${(entryError as Error).message}`;
+            clientLogger.error({ error: entryError, name }, msg);
+            result.errors.push(msg);
+          }
+        }
+      } catch (clientError) {
+        const msg = `Failed to process client "${name}": ${(clientError as Error).message}`;
+        clientLogger.error({ error: clientError, name }, msg);
+        result.errors.push(msg);
+      }
+    }
+
+    clientLogger.info(
+      {
+        created: result.clientsCreated,
+        skipped: result.clientsSkipped,
+        discarded: result.clientsDiscarded,
+        entries: result.entriesImported,
+        errors: result.errors.length,
+      },
+      "Excel import completed",
+    );
+
+    return result;
   }
 }
 

@@ -85,6 +85,9 @@ export default function PasswordInput({
           <p className={value.length >= 8 ? "text-emerald-400" : ""}>
             ✓ At least 8 characters
           </p>
+          <p className={/[@$!%*?&]/.test(value) ? "text-emerald-400" : ""}>
+            ✓ Special character (@$!%*?&)
+          </p>
         </div>
       )}
     </div>

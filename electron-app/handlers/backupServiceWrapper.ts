@@ -43,17 +43,11 @@ export class BackupService {
       const backupFileName = `${dbFileName}-backup-${timestamp}.db`;
       const backupPath = path.join(this.backupDir, backupFileName);
 
+      // Only copy the main DB file (caller should checkpoint WAL first)
       fs.copyFileSync(dbPath, backupPath);
 
-      const walPath = dbPath + "-wal";
-      const shmPath = dbPath + "-shm";
-
-      if (fs.existsSync(walPath)) {
-        fs.copyFileSync(walPath, backupPath + "-wal");
-      }
-      if (fs.existsSync(shmPath)) {
-        fs.copyFileSync(shmPath, backupPath + "-shm");
-      }
+      // Cleanup stale -wal/-shm files from previous backup logic
+      this.cleanupStaleWalFiles();
 
       const stats = fs.statSync(backupPath);
 
@@ -117,6 +111,19 @@ export class BackupService {
     }
   }
 
+  private cleanupStaleWalFiles(): void {
+    try {
+      const files = fs.readdirSync(this.backupDir);
+      for (const f of files) {
+        if (f.endsWith("-wal") || f.endsWith("-shm")) {
+          try {
+            fs.unlinkSync(path.join(this.backupDir, f));
+          } catch {}
+        }
+      }
+    } catch {}
+  }
+
   cleanupOldBackups(keepCount: number = 24): void {
     try {
       const backups = this.listBackups();
@@ -130,13 +137,6 @@ export class BackupService {
       for (const backup of toDelete) {
         try {
           fs.unlinkSync(backup.path);
-
-          if (fs.existsSync(backup.path + "-wal")) {
-            fs.unlinkSync(backup.path + "-wal");
-          }
-          if (fs.existsSync(backup.path + "-shm")) {
-            fs.unlinkSync(backup.path + "-shm");
-          }
         } catch (error) {
           // Ignore delete errors
         }

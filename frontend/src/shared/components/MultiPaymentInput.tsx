@@ -15,6 +15,9 @@ export type PaymentLine = {
 interface MultiPaymentInputProps {
   totalAmount: number;
   currency: string;
+  /** The currency that totalAmount is denominated in. Defaults to "USD".
+   *  e.g. Whish/iPick/KATCH pass "LBP", POS sale passes "USD". */
+  totalAmountCurrency?: string;
   onChange: (payments: PaymentLine[]) => void;
   requiresClientForDebt?: boolean;
   hasClient?: boolean;
@@ -33,6 +36,7 @@ const CASH_EQUIVALENT_METHODS = new Set(["CASH", "DEBT"]);
 export function MultiPaymentInput({
   totalAmount,
   currency,
+  totalAmountCurrency = "USD",
   onChange,
   requiresClientForDebt = true,
   hasClient = false,
@@ -169,11 +173,41 @@ export function MultiPaymentInput({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pmFeesKey]);
 
-  const totalPaid = paymentLines.reduce(
-    (sum, line) => sum + (line.amount || 0),
-    0,
-  );
+  const effectiveRate = parseFloat(customExchangeRate) || rate;
+
+  /** Convert a payment line amount into the totalAmountCurrency.
+   *  - If the line currency matches totalAmountCurrency -> no conversion.
+   *  - LBP -> USD: divide by rate.   USD -> LBP: multiply by rate. */
+  const normalizeToTarget = (amount: number, lineCurrency: string): number => {
+    if (lineCurrency === totalAmountCurrency) return amount;
+    if (lineCurrency === "LBP" && totalAmountCurrency === "USD") {
+      return amount / effectiveRate;
+    }
+    if (lineCurrency === "USD" && totalAmountCurrency === "LBP") {
+      return amount * effectiveRate;
+    }
+    return amount;
+  };
+
+  // Calculate total paid normalized to the totalAmountCurrency
+  const totalPaid = paymentLines.reduce((sum, line) => {
+    return sum + normalizeToTarget(line.amount || 0, line.currencyCode);
+  }, 0);
+
+  // Tolerance for matching: LBP amounts are large so use higher tolerance
+  const matchTolerance = totalAmountCurrency === "LBP" ? 100 : 0.01;
   const hasDebt = paymentLines.some((line) => line.method === "DEBT");
+
+  // Summary formatting helpers
+  const targetSymbol = getSymbol(totalAmountCurrency);
+  const targetDecimals = totalAmountCurrency === "LBP" ? 0 : 2;
+  const fmtTarget = (v: number) => {
+    const formatted = Math.abs(v).toFixed(targetDecimals);
+    if (["$", "€", "£"].includes(targetSymbol)) {
+      return `${targetSymbol}${formatted}`;
+    }
+    return `${formatted} ${targetSymbol}`;
+  };
 
   return (
     <div className="bg-slate-900/40 border border-slate-700/50 rounded-xl p-4">
@@ -335,19 +369,19 @@ export function MultiPaymentInput({
             <div className="flex justify-between text-xs">
               <span className="text-slate-400">Send Amount</span>
               <span className="font-mono text-white">
-                ${(totalAmount - providerFee).toFixed(2)}
+                {fmtTarget(totalAmount - providerFee)}
               </span>
             </div>
             <div className="flex justify-between text-xs">
               <span className="text-amber-400">Provider Fee</span>
               <span className="font-mono text-amber-300">
-                +${providerFee.toFixed(2)}
+                +{fmtTarget(providerFee)}
               </span>
             </div>
             <div className="flex justify-between text-xs border-t border-slate-700/40 pt-1">
               <span className="text-slate-300 font-medium">Total to Pay</span>
               <span className="font-mono text-slate-200 font-medium">
-                ${totalAmount.toFixed(2)}
+                {fmtTarget(totalAmount)}
               </span>
             </div>
           </>
@@ -356,19 +390,19 @@ export function MultiPaymentInput({
           <div className="flex justify-between text-xs">
             <span className="text-slate-400">Total Amount</span>
             <span className="font-mono text-white">
-              ${totalAmount.toFixed(2)}
+              {fmtTarget(totalAmount)}
             </span>
           </div>
         )}
         <div className="flex justify-between text-xs">
           <span className="text-slate-400">Total Paid</span>
           <span
-            className={`font-mono ${Math.abs(totalPaid - totalAmount) < 0.01 ? "text-emerald-400" : "text-red-400"}`}
+            className={`font-mono ${Math.abs(totalPaid - totalAmount) < matchTolerance ? "text-emerald-400" : "text-red-400"}`}
           >
-            ${totalPaid.toFixed(2)}
+            {fmtTarget(totalPaid)}
           </span>
         </div>
-        {Math.abs(totalPaid - totalAmount) > 0.01 && (
+        {Math.abs(totalPaid - totalAmount) > matchTolerance && (
           <div className="flex justify-between text-xs">
             <span
               className={
@@ -380,7 +414,7 @@ export function MultiPaymentInput({
             <span
               className={`font-mono font-bold ${totalPaid < totalAmount ? "text-red-400" : "text-amber-400"}`}
             >
-              ${Math.abs(totalPaid - totalAmount).toFixed(2)}
+              {fmtTarget(Math.abs(totalPaid - totalAmount))}
             </span>
           </div>
         )}
@@ -391,13 +425,13 @@ export function MultiPaymentInput({
                 Wallet Surcharge (PM fees)
               </span>
               <span className="font-mono text-violet-300">
-                +${totalPmFees.toFixed(2)}
+                +{fmtTarget(totalPmFees)}
               </span>
             </div>
             <div className="flex justify-between text-xs">
               <span className="text-white font-semibold">Grand Total</span>
               <span className="font-mono text-white font-semibold">
-                ${(totalPaid + totalPmFees).toFixed(2)}
+                {fmtTarget(totalPaid + totalPmFees)}
               </span>
             </div>
           </>

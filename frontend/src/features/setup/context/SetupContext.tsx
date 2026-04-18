@@ -17,15 +17,14 @@ export interface SetupPayload {
   enabled_payment_methods: string[];
   session_management_enabled: boolean;
   customer_sessions_enabled: boolean;
-  // Step 3 (NEW) - Database Path
-  database_path: string | null;
-  database_type: "local" | "network";
-  // Step 4 (optional)
+  // Step 3 - Currencies (optional)
   active_currencies: string[];
-  // Step 5 (optional)
+  // Step 4 - Users (optional)
   extra_users: { username: string; password: string; role: string }[];
   whatsapp_phone: string;
   whatsapp_api_key: string;
+  // Join flow (Step 0 → Step -1) — path to existing network DB
+  join_db_path?: string | null;
 }
 
 const DEFAULT_PAYLOAD: SetupPayload = {
@@ -36,8 +35,6 @@ const DEFAULT_PAYLOAD: SetupPayload = {
   enabled_payment_methods: ["CASH", "OMT", "WHISH"],
   session_management_enabled: true,
   customer_sessions_enabled: true,
-  database_path: null,
-  database_type: "local",
   active_currencies: ["USD", "LBP"],
   extra_users: [],
   whatsapp_phone: "",
@@ -66,9 +63,9 @@ export function SetupProvider({ children }: { children: React.ReactNode }) {
   const [step, setStepState] = useState<number>(() => {
     try {
       const saved = sessionStorage.getItem(STORAGE_KEY);
-      if (saved) return JSON.parse(saved).step ?? 1;
+      if (saved) return JSON.parse(saved).step ?? 0;
     } catch {}
-    return 1;
+    return 0;
   });
 
   const [payload, setPayload] = useState<SetupPayload>(() => {

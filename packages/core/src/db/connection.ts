@@ -3,8 +3,6 @@
  * Supports both local and network database paths
  */
 import Database from "better-sqlite3";
-import path from "path";
-import fs from "fs";
 
 let db: Database.Database | null = null;
 let databasePath: string | null = null;
@@ -30,19 +28,6 @@ export function initDatabase(
 ): void {
   db = database;
   databasePath = dbPath || null;
-
-  // Configure for network paths if applicable
-  if (dbPath && (dbPath.startsWith("\\\\") || dbPath.startsWith("//"))) {
-    // Enable WAL mode for better concurrency on network shares
-    try {
-      db.pragma("journal_mode = WAL");
-      db.pragma("synchronous = NORMAL");
-      db.pragma("busy_timeout = 5000"); // 5 second timeout for network latency
-      db.pragma("cache_size = -2000"); // 2MB cache
-    } catch (error) {
-      console.warn("Failed to configure WAL mode for network database:", error);
-    }
-  }
 }
 
 export function closeDatabase(): void {

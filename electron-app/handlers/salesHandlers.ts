@@ -13,20 +13,31 @@ import {
 } from "@liratek/core";
 import type { SaleRequest } from "@liratek/core";
 import { requireRole } from "../session.js";
+import { audit } from "./auditHelper.js";
 import { SaleProcessSchema, validatePayload } from "../schemas/index.js";
 
 export function registerSalesHandlers(): void {
   const salesService = getSalesService();
 
   // Process a sale (create or update)
-  ipcMain.handle("sales:process", (_event, sale: SaleRequest) => {
+  ipcMain.handle("sales:process", (event, sale: SaleRequest) => {
+    const auth = requireRole(event.sender.id, ["admin", "staff"]);
+    if (!auth.ok) return { success: false, error: auth.error };
     const v = validatePayload(SaleProcessSchema, sale);
     if (!v.ok) return { success: false, error: v.error };
     salesLogger.debug(
       { id: v.data.id, status: v.data.status },
       "Processing sale",
     );
-    return salesService.processSale(v.data as SaleRequest);
+    const result = salesService.processSale(v.data as SaleRequest, auth.userId);
+    audit(event.sender.id, {
+      action: "create",
+      entity_type: "sale",
+      entity_id: String((result as any)?.id ?? ""),
+      summary: `Processed sale (status: ${v.data.status})`,
+      metadata: { status: v.data.status, itemCount: v.data.items?.length },
+    });
+    return result;
   });
 
   // Get Drafts
@@ -38,7 +49,14 @@ export function registerSalesHandlers(): void {
   // Delete Draft
   ipcMain.handle("sales:delete-draft", (_event, saleId: number) => {
     salesLogger.debug({ saleId }, "Deleting draft");
-    return salesService.deleteDraft(saleId);
+    const result = salesService.deleteDraft(saleId);
+    audit(_event.sender.id, {
+      action: "delete",
+      entity_type: "sale",
+      entity_id: String(saleId),
+      summary: `Deleted draft sale #${saleId}`,
+    });
+    return result;
   });
 
   // Dashboard Stats
@@ -89,10 +107,17 @@ export function registerSalesHandlers(): void {
     }
     try {
       const auth = requireRole(e.sender.id, ["admin"]);
-      if (!auth.ok) throw new Error(auth.error ?? "Admin access required");
-      const userId = auth.userId ?? 1;
+      if (!auth.ok) throw new Error(auth.error);
+      const userId = auth.userId;
       const txnService = getTransactionService();
       const refundId = txnService.refundBySaleId(saleId, userId);
+      audit(e.sender.id, {
+        action: "refund",
+        entity_type: "sale",
+        entity_id: String(saleId),
+        summary: `Refunded sale #${saleId}`,
+        metadata: { refundId },
+      });
       return { success: true, refundId };
     } catch (err) {
       return {
@@ -126,16 +151,25 @@ export function registerSalesHandlers(): void {
       try {
         const auth = requireRole(e.sender.id, ["admin"]);
         if (!auth.ok) {
-          throw new Error(auth.error ?? "Admin access required");
+          throw new Error(auth.error);
         }
-        const userId = auth.userId ?? 1;
+        const userId = auth.userId;
 
-        const salesService = getSalesService();
         const result = salesService.refundSaleItem({
           saleId: params.saleId,
           saleItemId: params.saleItemId,
           refundQuantity: params.refundQuantity,
           userId,
+        });
+        audit(e.sender.id, {
+          action: "refund",
+          entity_type: "sale_item",
+          entity_id: String(params.saleItemId),
+          summary: `Refunded ${params.refundQuantity}x item #${params.saleItemId} from sale #${params.saleId}`,
+          metadata: {
+            saleId: params.saleId,
+            refundQuantity: params.refundQuantity,
+          },
         });
 
         return result;

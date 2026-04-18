@@ -2,6 +2,7 @@ import { ipcMain } from "electron";
 import { getTransactionService, getReportingService } from "@liratek/core";
 import type { TransactionFilters } from "@liratek/core";
 import { requireRole } from "../session.js";
+import { audit } from "./auditHelper.js";
 
 export function registerTransactionHandlers(): void {
   const txnService = getTransactionService();
@@ -53,6 +54,13 @@ export function registerTransactionHandlers(): void {
       if (!auth.ok) throw new Error(auth.error ?? "Admin access required");
       const userId = auth.userId ?? 1;
       const reversalId = txnService.voidTransaction(id, userId);
+      audit(e.sender.id, {
+        action: "void",
+        entity_type: "transaction",
+        entity_id: String(id),
+        summary: `Voided transaction #${id}`,
+        metadata: { reversalId },
+      });
       return { success: true, reversalId };
     } catch (err) {
       return {
@@ -69,6 +77,13 @@ export function registerTransactionHandlers(): void {
       if (!auth.ok) throw new Error(auth.error ?? "Admin access required");
       const userId = auth.userId ?? 1;
       const refundId = txnService.refundTransaction(id, userId);
+      audit(e.sender.id, {
+        action: "refund",
+        entity_type: "transaction",
+        entity_id: String(id),
+        summary: `Refunded transaction #${id}`,
+        metadata: { refundId },
+      });
       return { success: true, refundId };
     } catch (err) {
       return {

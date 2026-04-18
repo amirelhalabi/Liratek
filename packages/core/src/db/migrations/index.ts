@@ -2174,6 +2174,214 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // v54 — Audit Log
+  // ───────────────────────────────────────────────────────────────────────────
+  {
+    version: 54,
+    name: "create_audit_log",
+    description:
+      "Create audit_log table to track all user mutations across the system — " +
+      "who did what, when, with before/after snapshots for full accountability.",
+    type: "typescript",
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS audit_log (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL,
+          username TEXT NOT NULL,
+          role TEXT NOT NULL,
+          action TEXT NOT NULL,
+          entity_type TEXT NOT NULL,
+          entity_id TEXT,
+          summary TEXT NOT NULL,
+          old_values TEXT,
+          new_values TEXT,
+          metadata TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        )
+      `);
+
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_audit_log_user_id ON audit_log(user_id);
+        CREATE INDEX IF NOT EXISTS idx_audit_log_entity ON audit_log(entity_type, entity_id);
+        CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action);
+        CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at);
+      `);
+
+      console.log("Migration v54: audit_log table created");
+    },
+    down(db) {
+      db.exec(`DROP TABLE IF EXISTS audit_log`);
+      console.log("Migration v54 rolled back: audit_log table removed");
+    },
+  },
+
+  // =========================================================================
+  // v55 — Remove stale LOGIN transaction records
+  // =========================================================================
+  {
+    version: 55,
+    name: "remove_login_transactions",
+    description:
+      "Delete LOGIN/LOGOUT rows from the transactions table — these were " +
+      "incorrectly written by the old logActivity() helper and are not financial data.",
+    type: "typescript",
+    up(db) {
+      // Safety net: create loto_settlements if missing (v52 was marked applied
+      // in create_db.sql seed but the CREATE TABLE was accidentally omitted)
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS loto_settlements (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          settlement_date TEXT NOT NULL,
+          checkpoint_ids TEXT NOT NULL,
+          total_sales REAL NOT NULL DEFAULT 0,
+          total_commission REAL NOT NULL DEFAULT 0,
+          total_cash_prizes REAL NOT NULL DEFAULT 0,
+          net_settlement REAL NOT NULL,
+          note TEXT,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      const result = db
+        .prepare(`DELETE FROM transactions WHERE type IN ('LOGIN', 'LOGOUT')`)
+        .run();
+      console.log(
+        `Migration v55: removed ${result.changes} LOGIN/LOGOUT transaction rows`,
+      );
+    },
+    down(_db) {
+      // Non-reversible — the records were junk data
+      console.log("Migration v55 rolled back (no-op, data was junk)");
+    },
+  },
+  // ─────────────────────────────────────────────────────────────────────────────
+  // v56 — Add CASH_PRIZE to supplier_ledger entry_type CHECK constraint
+  // ─────────────────────────────────────────────────────────────────────────────
+  {
+    version: 56,
+    name: "add_cash_prize_entry_type",
+    description:
+      "Add CASH_PRIZE to supplier_ledger entry_type CHECK constraint for loto cash prize payouts",
+    type: "typescript",
+    up(db) {
+      // SQLite cannot ALTER CHECK constraints — must recreate the table
+      db.exec(`
+        CREATE TABLE supplier_ledger_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          supplier_id INTEGER NOT NULL,
+          entry_type TEXT NOT NULL CHECK(entry_type IN ('TOP_UP', 'PAYMENT', 'ADJUSTMENT', 'SETTLEMENT', 'CASH_PRIZE')),
+          amount_usd REAL NOT NULL DEFAULT 0,
+          amount_lbp REAL NOT NULL DEFAULT 0,
+          note TEXT,
+          created_by INTEGER,
+          transaction_id INTEGER,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE,
+          FOREIGN KEY (transaction_id) REFERENCES transactions(id),
+          FOREIGN KEY (created_by) REFERENCES users(id)
+        );
+
+        INSERT INTO supplier_ledger_new SELECT * FROM supplier_ledger;
+
+        DROP TABLE supplier_ledger;
+
+        ALTER TABLE supplier_ledger_new RENAME TO supplier_ledger;
+
+        CREATE INDEX IF NOT EXISTS idx_supplier_ledger_supplier_id_created_at ON supplier_ledger(supplier_id, created_at);
+      `);
+
+      console.log(
+        "Migration v56: Added CASH_PRIZE to supplier_ledger entry_type",
+      );
+    },
+    down(db) {
+      // Remove any CASH_PRIZE entries first, then recreate with old constraint
+      db.exec(`
+        DELETE FROM supplier_ledger WHERE entry_type = 'CASH_PRIZE';
+
+        CREATE TABLE supplier_ledger_old (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          supplier_id INTEGER NOT NULL,
+          entry_type TEXT NOT NULL CHECK(entry_type IN ('TOP_UP', 'PAYMENT', 'ADJUSTMENT', 'SETTLEMENT')),
+          amount_usd REAL NOT NULL DEFAULT 0,
+          amount_lbp REAL NOT NULL DEFAULT 0,
+          note TEXT,
+          created_by INTEGER,
+          transaction_id INTEGER,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE,
+          FOREIGN KEY (transaction_id) REFERENCES transactions(id),
+          FOREIGN KEY (created_by) REFERENCES users(id)
+        );
+
+        INSERT INTO supplier_ledger_old SELECT * FROM supplier_ledger;
+
+        DROP TABLE supplier_ledger;
+
+        ALTER TABLE supplier_ledger_old RENAME TO supplier_ledger;
+
+        CREATE INDEX IF NOT EXISTS idx_supplier_ledger_supplier_id_created_at ON supplier_ledger(supplier_id, created_at);
+      `);
+
+      console.log(
+        "Migration v56 rolled back: CASH_PRIZE removed from supplier_ledger",
+      );
+    },
+  },
+  // ─────────────────────────────────────────────────────────────────────────────
+  // v57 — Link cash prizes to checkpoints
+  // ─────────────────────────────────────────────────────────────────────────────
+  {
+    version: 57,
+    name: "link_cash_prizes_to_checkpoints",
+    description:
+      "Add checkpoint_id FK to loto_cash_prizes; add total_cash_prizes columns to loto_checkpoints",
+    type: "typescript",
+    up(db) {
+      // 1. Add columns
+      db.exec(`
+        ALTER TABLE loto_cash_prizes ADD COLUMN checkpoint_id INTEGER REFERENCES loto_checkpoints(id);
+        ALTER TABLE loto_checkpoints ADD COLUMN total_cash_prizes REAL NOT NULL DEFAULT 0;
+        ALTER TABLE loto_checkpoints ADD COLUMN total_cash_prizes_count INTEGER NOT NULL DEFAULT 0;
+
+        CREATE INDEX IF NOT EXISTS idx_loto_cash_prizes_checkpoint ON loto_cash_prizes(checkpoint_id);
+      `);
+
+      // 2. Backfill: assign existing cash prizes to checkpoints by date range
+      db.exec(`
+        UPDATE loto_cash_prizes SET checkpoint_id = (
+          SELECT c.id FROM loto_checkpoints c
+          WHERE date(loto_cash_prizes.prize_date) BETWEEN date(c.period_start) AND date(c.period_end)
+          ORDER BY c.checkpoint_date DESC LIMIT 1
+        ) WHERE checkpoint_id IS NULL;
+      `);
+
+      // 3. Backfill checkpoint totals from assigned cash prizes
+      db.exec(`
+        UPDATE loto_checkpoints SET 
+          total_cash_prizes = COALESCE((SELECT SUM(prize_amount) FROM loto_cash_prizes WHERE checkpoint_id = loto_checkpoints.id), 0),
+          total_cash_prizes_count = COALESCE((SELECT COUNT(*) FROM loto_cash_prizes WHERE checkpoint_id = loto_checkpoints.id), 0);
+      `);
+
+      console.log("Migration v57: Linked cash prizes to checkpoints");
+    },
+    down(db) {
+      // SQLite doesn't support DROP COLUMN before 3.35.0 — recreate tables
+      // For simplicity, just clear the backfilled data
+      db.exec(`
+        UPDATE loto_cash_prizes SET checkpoint_id = NULL;
+        UPDATE loto_checkpoints SET total_cash_prizes = 0, total_cash_prizes_count = 0;
+      `);
+      console.log(
+        "Migration v57 rolled back: cleared checkpoint_id and totals",
+      );
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner
@@ -2241,6 +2449,23 @@ export function getPendingMigrations(db: Database.Database): Migration[] {
  */
 export function runMigrations(db: Database.Database): void {
   ensureMigrationsTable(db);
+
+  // HOTFIX: loto_settlements was missing from create_db.sql when v52 was
+  // seeded as "applied", so some databases never got this table created.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS loto_settlements (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      settlement_date TEXT NOT NULL,
+      checkpoint_ids TEXT NOT NULL,
+      total_sales REAL NOT NULL DEFAULT 0,
+      total_commission REAL NOT NULL DEFAULT 0,
+      total_cash_prizes REAL NOT NULL DEFAULT 0,
+      net_settlement REAL NOT NULL,
+      note TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
 
   const applied = new Set(
     (

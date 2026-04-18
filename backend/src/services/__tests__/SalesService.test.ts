@@ -67,9 +67,9 @@ describe("SalesService", () => {
 
       const saleRequest = createSaleRequest();
 
-      const result = service.processSale(saleRequest);
+      const result = service.processSale(saleRequest, 1);
 
-      expect(mockRepo.processSale).toHaveBeenCalledWith(saleRequest);
+      expect(mockRepo.processSale).toHaveBeenCalledWith(saleRequest, 1);
       expect(result).toEqual({ success: true, id: 123 });
     });
 
@@ -80,7 +80,7 @@ describe("SalesService", () => {
 
       const saleRequest = createSaleRequest();
 
-      const result = service.processSale(saleRequest);
+      const result = service.processSale(saleRequest, 1);
 
       expect(result).toEqual({ success: false, error: "Transaction failed" });
     });
@@ -94,7 +94,7 @@ describe("SalesService", () => {
         status: "draft" as const,
       });
 
-      const result = service.processSale(saleRequest);
+      const result = service.processSale(saleRequest, 1);
 
       expect(result).toEqual({ success: true, id: 456 });
     });
@@ -107,7 +107,7 @@ describe("SalesService", () => {
         drawer_name: undefined,
       });
 
-      const result = service.processSale(saleRequest);
+      const result = service.processSale(saleRequest, 1);
 
       expect(result).toEqual({ success: true, id: 789 });
     });

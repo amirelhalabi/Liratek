@@ -8,7 +8,6 @@ import CurrencyManager from "./CurrencyManager";
 import ShopConfig from "./ShopConfig";
 import SupplierLedger from "./SupplierLedger";
 import NotificationsConfig from "./NotificationsConfig";
-import ActivityLogViewer from "./ActivityLogViewer";
 import ModulesManager from "./ModulesManager";
 import IntegrationsConfig from "./IntegrationsConfig";
 import CategoriesManager from "./CategoriesManager";
@@ -19,7 +18,6 @@ type TabKey =
   | "categories"
   | "suppliers"
   | "notifications"
-  | "activity"
   | "modules"
   | "currencies"
   | "users"
@@ -37,7 +35,6 @@ export default function Settings() {
     { key: "categories", label: "Categories & Suppliers", icon: Tag },
     { key: "suppliers", label: "Suppliers" },
     { key: "notifications", label: "Notifications" },
-    { key: "activity", label: "Activity Logs" },
     { key: "modules", label: "Modules & Drawers" },
     { key: "currencies", label: "Currencies & Rates" },
     { key: "users", label: "Users" },
@@ -68,7 +65,6 @@ export default function Settings() {
           {active === "categories" && <CategoriesManager />}
           {active === "suppliers" && <SupplierLedger />}
           {active === "notifications" && <NotificationsConfig />}
-          {active === "activity" && <ActivityLogViewer />}
           {active === "modules" && <ModulesManager />}
           {active === "currencies" && <CurrencyManager />}
           {active === "users" && <UsersManager />}

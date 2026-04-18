@@ -486,7 +486,7 @@ export default function CustomServices() {
                   paymentMethods={methods}
                   currencies={[
                     { code: "USD", symbol: "$" },
-                    { code: "LBP", symbol: "L£" },
+                    { code: "LBP", symbol: "LBP" },
                   ]}
                   exchangeRate={exchangeRate}
                 />

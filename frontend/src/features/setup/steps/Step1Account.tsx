@@ -3,6 +3,7 @@ import { useSetup } from "../context/SetupContext";
 
 import PasswordInput from "@/shared/components/PasswordInput";
 import { TextInput } from "@liratek/ui";
+import { validatePassword } from "@/shared/utils/validatePassword";
 
 export default function Step1Account() {
   const { payload, updatePayload, setStep } = useSetup();
@@ -14,14 +15,10 @@ export default function Step1Account() {
     if (!payload.shop_name.trim()) e.shop_name = "Shop name is required";
     if (!payload.admin_username.trim())
       e.admin_username = "Username is required";
-    if (payload.admin_password.length < 8)
-      e.admin_password = "Password must be at least 8 characters";
-    if (!/[A-Z]/.test(payload.admin_password))
-      e.admin_password = "Password must contain an uppercase letter";
-    if (!/[a-z]/.test(payload.admin_password))
-      e.admin_password = "Password must contain a lowercase letter";
-    if (!/[0-9]/.test(payload.admin_password))
-      e.admin_password = "Password must contain a digit";
+    const pwResult = validatePassword(payload.admin_password);
+    if (!pwResult.valid) {
+      e.admin_password = pwResult.errors[0];
+    }
     if (payload.admin_password !== confirmPassword)
       e.confirm = "Passwords do not match";
     return e;

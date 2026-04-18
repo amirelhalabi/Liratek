@@ -68,14 +68,35 @@ export default function UpdatesPanel() {
       }
 
       if (res.devMode && res.updateInfo) {
-        setDevRelease({
-          tag: `v${res.updateInfo.version}`,
-          name: res.updateInfo.version,
-          published_at: res.updateInfo.releaseDate,
-          assets: [],
-        });
-        setInfo(null);
-        setUpdateState("idle"); // dev mode — no download/install flow
+        const devInfo = res.updateInfo as {
+          tag?: string;
+          name?: string;
+          published_at?: string;
+          version?: string;
+          releaseDate?: string;
+          assets?: ReleaseAsset[];
+        };
+        const tag =
+          devInfo.tag || (devInfo.version ? `v${devInfo.version}` : null);
+        const remoteVer = tag?.replace(/^v/, "") || null;
+
+        // If same version, we're up to date
+        if (remoteVer && currentVersion && remoteVer === currentVersion) {
+          setInfo(null);
+          setDevRelease(null);
+          setUpdateState("up-to-date");
+        } else if (tag) {
+          setDevRelease({
+            tag,
+            name: devInfo.name || remoteVer || "",
+            published_at: devInfo.published_at || devInfo.releaseDate || "",
+            assets: devInfo.assets || [],
+          });
+          setInfo(null);
+          setUpdateState("idle");
+        } else {
+          setUpdateState("up-to-date");
+        }
       } else if (res.updateInfo) {
         const updateInfo = res.updateInfo as { version?: string; tag?: string };
         const ver =
@@ -159,8 +180,8 @@ export default function UpdatesPanel() {
       try {
         const res = await window.api.updater.getStatus();
         setStatus({
-          packaged: !res.devMode,
-          platform: res.status || "unknown",
+          packaged: res.packaged,
+          platform: res.platform || "unknown",
           version: res.version || "0.0.0",
         });
       } catch {
@@ -216,106 +237,126 @@ export default function UpdatesPanel() {
   const loading = updateState === "checking" || updateState === "downloading";
 
   return (
-    <div className="space-y-3">
-      <h3 className="text-white font-semibold">Updates</h3>
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-white font-semibold">Updates</h3>
+        <button
+          onClick={check}
+          disabled={loading}
+          className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 rounded text-white text-sm flex items-center gap-1.5 transition-colors"
+        >
+          <RefreshCw
+            size={14}
+            className={updateState === "checking" ? "animate-spin" : ""}
+          />
+          Check for Updates
+        </button>
+      </div>
 
+      {/* Info grid */}
       {status && (
-        <div className="text-xs text-slate-500 space-y-1">
-          <div>Version: {status.version}</div>
-          <div>Platform: {status.platform}</div>
-          <div>
-            Updater:{" "}
+        <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm bg-slate-900/50 rounded-lg p-4 border border-slate-700/50">
+          <div className="text-slate-400">Version</div>
+          <div className="text-slate-200 font-mono text-xs">
+            {status.version}
+          </div>
+
+          <div className="text-slate-400">Platform</div>
+          <div className="text-slate-200">{status.platform}</div>
+
+          <div className="text-slate-400">Updater</div>
+          <div className="text-slate-200">
             {status.packaged
               ? "Enabled (packaged build)"
               : "Dev mode (GitHub API preview)"}
           </div>
-        </div>
-      )}
 
-      {/* State message */}
-      {updateState === "checking" && (
-        <div className="flex items-center gap-2 text-sm text-slate-400">
-          <RefreshCw size={14} className="animate-spin" />
-          Checking for updates...
-        </div>
-      )}
-      {updateState === "up-to-date" && (
-        <div className="flex items-center gap-2 text-sm text-emerald-400">
-          <CheckCircle size={14} />
-          You are running the latest version
-        </div>
-      )}
-      {updateState === "update-available" && (
-        <div className="flex items-center gap-2 text-sm text-amber-400">
-          <Download size={14} />
-          Update available{availableVersion ? `: v${availableVersion}` : ""}
-        </div>
-      )}
-      {updateState === "downloading" && (
-        <div className="space-y-1">
-          <div className="flex items-center gap-2 text-sm text-violet-400">
-            <RefreshCw size={14} className="animate-spin" />
-            Downloading update...{" "}
-            {downloadPercent > 0 ? `${downloadPercent}%` : ""}
-          </div>
-          <div className="w-full bg-slate-700 rounded-full h-1.5 overflow-hidden">
-            {downloadPercent > 0 ? (
-              <div
-                className="bg-violet-500 h-1.5 rounded-full transition-all duration-300"
-                style={{ width: `${downloadPercent}%` }}
-              />
-            ) : (
-              <div className="bg-violet-400/60 h-1.5 w-1/3 rounded-full animate-pulse" />
+          <div className="text-slate-400">Status</div>
+          <div>
+            {updateState === "idle" && (
+              <span className="text-slate-400">—</span>
+            )}
+            {updateState === "checking" && (
+              <span className="text-slate-300 flex items-center gap-1.5">
+                <RefreshCw size={12} className="animate-spin" />
+                Checking...
+              </span>
+            )}
+            {updateState === "up-to-date" && (
+              <span className="text-emerald-400 flex items-center gap-1.5">
+                <CheckCircle size={12} />
+                Up to date
+              </span>
+            )}
+            {updateState === "update-available" && (
+              <span className="text-amber-400 flex items-center gap-1.5">
+                <Download size={12} />
+                Update available
+                {availableVersion ? `: v${availableVersion}` : ""}
+              </span>
+            )}
+            {updateState === "downloading" && (
+              <span className="text-violet-400 flex items-center gap-1.5">
+                <RefreshCw size={12} className="animate-spin" />
+                Downloading...{" "}
+                {downloadPercent > 0 ? `${downloadPercent}%` : ""}
+              </span>
+            )}
+            {updateState === "downloaded" && (
+              <span className="text-emerald-400 flex items-center gap-1.5">
+                <Package size={12} />
+                Ready to install
+              </span>
             )}
           </div>
         </div>
       )}
-      {updateState === "downloaded" && (
-        <div className="flex items-center gap-2 text-sm text-emerald-400">
-          <Package size={14} />
-          Update downloaded — ready to install
+
+      {/* Download progress bar */}
+      {updateState === "downloading" && (
+        <div className="w-full bg-slate-700 rounded-full h-1.5 overflow-hidden">
+          {downloadPercent > 0 ? (
+            <div
+              className="bg-violet-500 h-1.5 rounded-full transition-all duration-300"
+              style={{ width: `${downloadPercent}%` }}
+            />
+          ) : (
+            <div className="bg-violet-400/60 h-1.5 w-1/3 rounded-full animate-pulse" />
+          )}
         </div>
       )}
 
-      {/* Action buttons */}
-      <div className="flex gap-2 flex-wrap">
-        <button
-          onClick={check}
-          disabled={loading}
-          className="px-3 py-2 bg-slate-700 hover:bg-slate-600 rounded text-white text-sm flex items-center gap-1.5 transition-colors disabled:opacity-50"
-        >
-          <RefreshCw size={14} />
-          Check for Updates
-        </button>
-
-        {/* Download: only when update is available (packaged only) */}
-        {isPackaged && updateState === "update-available" && (
-          <button
-            onClick={download}
-            className="px-3 py-2 bg-violet-600 hover:bg-violet-500 rounded text-white text-sm flex items-center gap-1.5 transition-colors"
-          >
-            <Download size={14} />
-            Download
-          </button>
+      {/* Action buttons — only for packaged builds when action is needed */}
+      {isPackaged &&
+        (updateState === "update-available" ||
+          updateState === "downloaded") && (
+          <div className="flex gap-2">
+            {updateState === "update-available" && (
+              <button
+                onClick={download}
+                className="px-3 py-1.5 bg-violet-600 hover:bg-violet-500 rounded text-white text-sm flex items-center gap-1.5 transition-colors"
+              >
+                <Download size={14} />
+                Download Update
+              </button>
+            )}
+            {updateState === "downloaded" && (
+              <button
+                onClick={install}
+                className="px-3 py-1.5 bg-red-600/80 hover:bg-red-600 rounded text-white text-sm flex items-center gap-1.5 transition-colors"
+              >
+                <Package size={14} />
+                Install & Restart
+              </button>
+            )}
+          </div>
         )}
-
-        {/* Install: only when update is downloaded (packaged only) */}
-        {isPackaged && updateState === "downloaded" && (
-          <button
-            onClick={install}
-            className="px-3 py-2 bg-red-600 hover:bg-red-500 rounded text-white text-sm flex items-center gap-1.5 transition-colors"
-          >
-            <Package size={14} />
-            Install & Restart
-          </button>
-        )}
-      </div>
 
       {/* Dev mode: structured release display */}
       {devRelease && (
-        <div className="bg-slate-800/80 border border-slate-700 rounded-xl p-4 space-y-3">
+        <div className="bg-slate-900/50 border border-slate-700/50 rounded-lg p-4 space-y-3">
           <div className="flex items-center gap-2">
-            <Tag size={16} className="text-violet-400" />
+            <Tag size={14} className="text-violet-400" />
             <span className="text-white font-semibold text-sm">
               {devRelease.tag}
             </span>
@@ -345,7 +386,7 @@ export default function UpdatesPanel() {
                 {devRelease.assets.map((asset) => (
                   <div
                     key={asset.name}
-                    className="flex items-center justify-between bg-slate-900/60 rounded-lg px-3 py-2 text-xs"
+                    className="flex items-center justify-between bg-slate-800/60 rounded-lg px-3 py-2 text-xs"
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       <FileBox
@@ -375,7 +416,7 @@ export default function UpdatesPanel() {
 
       {/* Packaged mode: raw JSON for update info */}
       {info && !devRelease && updateState !== "idle" && (
-        <pre className="text-xs bg-slate-900 border border-slate-700 rounded p-3 overflow-auto max-h-48 text-slate-300">
+        <pre className="text-xs bg-slate-900/50 border border-slate-700/50 rounded-lg p-3 overflow-auto max-h-48 text-slate-300">
           {info}
         </pre>
       )}

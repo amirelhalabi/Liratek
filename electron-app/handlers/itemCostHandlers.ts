@@ -6,6 +6,8 @@
 
 import { ipcMain } from "electron";
 import { getItemCostService } from "@liratek/core";
+import { requireRole } from "../session.js";
+import { audit } from "./auditHelper.js";
 
 export function registerItemCostHandlers(): void {
   const itemCostService = getItemCostService();
@@ -19,7 +21,7 @@ export function registerItemCostHandlers(): void {
   ipcMain.handle(
     "item-costs:set",
     (
-      _event,
+      event,
       data: {
         provider: string;
         category: string;
@@ -28,6 +30,8 @@ export function registerItemCostHandlers(): void {
         currency: string;
       },
     ) => {
+      const auth = requireRole(event.sender.id, ["admin"]);
+      if (!auth.ok) return { success: false, error: auth.error };
       itemCostService.setCost(
         data.provider,
         data.category,
@@ -35,6 +39,12 @@ export function registerItemCostHandlers(): void {
         data.cost,
         data.currency,
       );
+      audit(event.sender.id, {
+        action: "update",
+        entity_type: "item_cost",
+        entity_id: `${data.provider}:${data.category}:${data.itemKey}`,
+        summary: `Set cost for ${data.provider}/${data.itemKey}: ${data.cost} ${data.currency}`,
+      });
       return { success: true };
     },
   );

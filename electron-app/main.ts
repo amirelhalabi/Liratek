@@ -208,42 +208,9 @@ app.on("window-all-closed", () => {
  * Initialize database connection and schema
  */
 function initializeDatabase() {
-  // First, try to get custom database path from settings (set by setup wizard)
-  let dbPath: string;
-  let dbSource = "settings";
-
-  try {
-    // Try to read existing database to get settings
-    const tempResolved = resolveDatabasePath();
-    const tempDb = new Database(tempResolved.path);
-    const dbPathSetting = tempDb
-      .prepare(
-        "SELECT value FROM system_settings WHERE key_name = 'database_path' LIMIT 1",
-      )
-      .get() as { value?: string } | undefined;
-
-    if (dbPathSetting?.value) {
-      dbPath = dbPathSetting.value;
-      logger.info(
-        { dbPath, source: "settings" },
-        "Custom database path loaded from settings",
-      );
-    } else {
-      dbPath = tempResolved.path;
-      dbSource = tempResolved.source;
-      logger.info({ dbPath, source: dbSource }, "Default database path used");
-    }
-    tempDb.close();
-  } catch (error) {
-    // If can't read settings, use default path
-    const resolved = resolveDatabasePath();
-    dbPath = resolved.path;
-    dbSource = resolved.source;
-    logger.info(
-      { dbPath, source: dbSource },
-      "DB path resolved (settings not accessible)",
-    );
-  }
+  const resolved = resolveDatabasePath();
+  const dbPath = resolved.path;
+  logger.info({ dbPath, source: resolved.source }, "Database path resolved");
 
   const resolvedKey = resolveDatabaseKey();
 
@@ -254,25 +221,23 @@ function initializeDatabase() {
     logger.info({ dbDir }, "Created database directory");
   }
 
+  const isNetworkPath = dbPath.startsWith("\\\\") || dbPath.startsWith("//");
+
   try {
     db = new Database(dbPath);
 
     // Apply SQLCipher key (if provided) BEFORE any other access
     const keyResult = applySqlCipherKey(db, resolvedKey.key);
 
-    // Configure for network paths
-    const isNetworkPath = dbPath.startsWith("\\\\") || dbPath.startsWith("//");
-    if (isNetworkPath) {
-      db.pragma("journal_mode = WAL");
-      db.pragma("synchronous = NORMAL");
-      db.pragma("busy_timeout = 5000"); // 5 second timeout for network latency
-      db.pragma("cache_size = -2000"); // 2MB cache
-      logger.info("Database configured for network share (WAL mode enabled)");
-    } else {
-      db.pragma("journal_mode = WAL");
-      db.pragma("synchronous = NORMAL");
-    }
+    // Configure pragmas — network-specific pragmas handled by initCoreDatabase
+    db.pragma("journal_mode = WAL");
+    db.pragma("synchronous = NORMAL");
     db.pragma("foreign_keys = ON");
+    if (isNetworkPath) {
+      db.pragma("busy_timeout = 5000");
+      db.pragma("cache_size = -2000");
+      logger.info("Database configured for network share");
+    }
 
     logger.info(
       {
@@ -366,7 +331,7 @@ function initializeDatabase() {
     }
 
     // Initialize @liratek/core database singleton with path
-    initCoreDatabase(db);
+    initCoreDatabase(db, dbPath);
 
     logger.info(
       { path: dbPath, network: isNetworkPath },
@@ -487,6 +452,7 @@ async function registerHandlers() {
     const backupHandlers = await import("./handlers/backupHandlers.js");
     const mobileServiceItemHandlers =
       await import("./handlers/mobileServiceItemHandlers.js");
+    const auditHandlers = await import("./handlers/auditHandlers.js");
 
     // Register all handlers
     authHandlers.registerAuthHandlers();
@@ -520,6 +486,7 @@ async function registerHandlers() {
     voiceBotHandlers.registerVoiceBotHandlers();
     backupHandlers.registerBackupHandlers();
     mobileServiceItemHandlers.registerMobileServiceItemHandlers();
+    auditHandlers.registerAuditHandlers();
 
     // Windows focus fix handler
     ipcMain.on("display:fix-focus", (event) => {

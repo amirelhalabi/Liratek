@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { Select, useApi } from "@liratek/ui";
+import {
+  Select,
+  useApi,
+  MultiPaymentInput,
+  type PaymentLine,
+} from "@liratek/ui";
+import { usePaymentMethods } from "@/hooks/usePaymentMethods";
+import { getExchangeRates } from "@/utils/exchangeRates";
 
 type Supplier = {
   id: number;
@@ -81,6 +88,8 @@ function AutoBadge() {
 
 export default function SupplierLedger() {
   const api = useApi();
+  const { methods } = usePaymentMethods();
+  const [exchangeRate, setExchangeRate] = useState(90000);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [balances, setBalances] = useState<SupplierBalance[]>([]);
   const [selectedSupplierId, setSelectedSupplierId] = useState<number | null>(
@@ -103,10 +112,28 @@ export default function SupplierLedger() {
   );
   const [selectedTxnIds, setSelectedTxnIds] = useState<Set<number>>(new Set());
   const [settleNote, setSettleNote] = useState("");
-  const [settleDrawer, setSettleDrawer] = useState("General");
+  const [settleDrawer] = useState("General");
   const [showSettleConfirm, setShowSettleConfirm] = useState(false);
   const [settling, setSettling] = useState(false);
+  const [settlePaymentLines, setSettlePaymentLines] = useState<PaymentLine[]>(
+    [],
+  );
   const [activeTab, setActiveTab] = useState<"settle" | "manual">("settle");
+
+  // Load exchange rate
+  useEffect(() => {
+    (async () => {
+      try {
+        const getRatesApi = (api as any)?.getRates;
+        if (!getRatesApi) return;
+        const ratesList = await getRatesApi();
+        const { sellRate } = getExchangeRates(ratesList);
+        setExchangeRate(sellRate);
+      } catch {
+        // silent
+      }
+    })();
+  }, []);
 
   // System suppliers first, then user-created
   const sortedSuppliers = useMemo(
@@ -215,6 +242,11 @@ export default function SupplierLedger() {
         commission_lbp: 0,
         drawer_name: settleDrawer,
         note: settleNote || `Settlement: ${selectedTxnIds.size} txns`,
+        payments: settlePaymentLines.map((p) => ({
+          method: p.method,
+          currency_code: p.currencyCode,
+          amount: p.amount,
+        })),
       });
       if (!res?.success) {
         alert(res?.error || "Settlement failed");
@@ -730,13 +762,20 @@ export default function SupplierLedger() {
             </div>
 
             <div>
-              <label className="block text-xs text-slate-400 mb-1">
-                Pay from drawer
+              <label className="block text-xs text-slate-400 mb-2">
+                Payment Method
               </label>
-              <input
-                value={settleDrawer}
-                onChange={(e) => setSettleDrawer(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white font-mono text-sm"
+              <MultiPaymentInput
+                totalAmount={settleNetPayUsd}
+                currency="USD"
+                onChange={setSettlePaymentLines}
+                showPmFee={false}
+                paymentMethods={methods}
+                currencies={[
+                  { code: "USD", symbol: "$" },
+                  { code: "LBP", symbol: "LBP" },
+                ]}
+                exchangeRate={exchangeRate}
               />
             </div>
 

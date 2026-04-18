@@ -35,7 +35,7 @@ export interface RepaymentData {
   amountUSD: number;
   amountLBP: number;
   note?: string;
-  userId?: number;
+  userId: number;
   paidByMethod?: string;
   payments?: RepaymentPaymentLine[];
 }
@@ -134,7 +134,7 @@ export class DebtService {
         amount_usd: resolvedAmountUSD,
         amount_lbp: resolvedAmountLBP,
         note: note || null,
-        created_by: userId || null,
+        created_by: userId,
         paid_by_method: paidByMethod,
         payments,
       });

@@ -1323,7 +1323,7 @@ export default function Services() {
                     paymentMethods={drawerAffectingMethods}
                     currencies={[
                       { code: "USD", symbol: "$" },
-                      { code: "LBP", symbol: "L£" },
+                      { code: "LBP", symbol: "LBP" },
                     ]}
                     exchangeRate={exchangeRate}
                   />

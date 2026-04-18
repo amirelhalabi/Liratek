@@ -85,9 +85,10 @@ describe("ClosingService", () => {
       );
     });
 
-    it("should use default user_id when not provided", () => {
+    it("should pass user_id to repository", () => {
       const data: SetOpeningBalancesData = {
         closing_date: "2025-01-15",
+        user_id: 1,
         amounts: [
           {
             drawer_name: "General",
@@ -103,13 +104,14 @@ describe("ClosingService", () => {
       expect(mockRepo.setOpeningBalances).toHaveBeenCalledWith(
         "2025-01-15",
         data.amounts,
-        1, // Default user_id
+        1,
       );
     });
 
     it("should handle error from repository", () => {
       const data: SetOpeningBalancesData = {
         closing_date: "2025-01-15",
+        user_id: 1,
         amounts: [],
       };
       mockRepo.setOpeningBalances.mockReturnValue({
@@ -160,12 +162,14 @@ describe("ClosingService", () => {
         90000000,
         "All balanced",
         undefined,
+        1,
       );
     });
 
     it("should use default values for optional fields", () => {
       const data: CreateClosingData = {
         closing_date: "2025-01-15",
+        user_id: 1,
         amounts: [
           {
             drawer_name: "General_Drawer_A",
@@ -185,12 +189,14 @@ describe("ClosingService", () => {
         0, // default system_expected_lbp
         undefined, // variance_notes
         undefined,
+        1, // user_id
       );
     });
 
     it("should handle error from repository", () => {
       const data: CreateClosingData = {
         closing_date: "2025-01-15",
+        user_id: 1,
         amounts: [],
       };
       mockRepo.createDailyClosing.mockReturnValue({
@@ -243,6 +249,7 @@ describe("ClosingService", () => {
       const data: UpdateClosingData = {
         id: 2,
         notes: "Updated notes",
+        user_id: 1,
       };
       mockRepo.updateDailyClosing.mockReturnValue({ success: true });
 
@@ -258,7 +265,7 @@ describe("ClosingService", () => {
         variance_usd: undefined,
         notes: "Updated notes",
         report_path: undefined,
-        updated_by: undefined,
+        updated_by: 1,
       });
     });
 
@@ -266,6 +273,7 @@ describe("ClosingService", () => {
       const data: UpdateClosingData = {
         id: 3,
         report_path: "/reports/closing_2025-01-15.pdf",
+        user_id: 1,
       };
       mockRepo.updateDailyClosing.mockReturnValue({ success: true });
 
@@ -278,6 +286,7 @@ describe("ClosingService", () => {
       const data: UpdateClosingData = {
         id: 999,
         notes: "Test",
+        user_id: 1,
       };
       mockRepo.updateDailyClosing.mockReturnValue({
         success: false,

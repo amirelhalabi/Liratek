@@ -73,6 +73,7 @@ export class RechargeService {
     provider: "MTC" | "Alfa";
     amount: number;
     currency?: string;
+    userId: number;
   }): { success: boolean; error?: string } {
     return this.rechargeRepo.topUp(data);
   }
@@ -85,6 +86,7 @@ export class RechargeService {
     amount: number;
     currency: string;
     sourceDrawer: string;
+    userId: number;
   }): { success: boolean; error?: string } {
     return this.rechargeRepo.topUpApp(data);
   }

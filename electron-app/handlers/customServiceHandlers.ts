@@ -7,6 +7,7 @@
 import { ipcMain, IpcMainInvokeEvent } from "electron";
 import { getCustomServiceService, customServiceLogger } from "@liratek/core";
 import { requireRole } from "../session.js";
+import { audit } from "./auditHelper.js";
 import type { CreateCustomServiceInput } from "@liratek/core";
 
 export function registerCustomServiceHandlers(): void {
@@ -44,7 +45,14 @@ export function registerCustomServiceHandlers(): void {
         { description: data.description, paid_by: data.paid_by },
         "Adding custom service",
       );
-      return service.addService(data);
+      const result = service.addService(data);
+      audit(event.sender.id, {
+        action: "create",
+        entity_type: "custom_service",
+        summary: `Custom service: ${data.description}`,
+        metadata: { description: data.description, paid_by: data.paid_by },
+      });
+      return result;
     },
   );
 
@@ -56,7 +64,14 @@ export function registerCustomServiceHandlers(): void {
       if (!auth.ok) return { success: false, error: auth.error };
 
       customServiceLogger.info({ id }, "Deleting custom service");
-      return service.deleteService(id);
+      const result = service.deleteService(id);
+      audit(event.sender.id, {
+        action: "delete",
+        entity_type: "custom_service",
+        entity_id: String(id),
+        summary: `Deleted custom service #${id}`,
+      });
+      return result;
     },
   );
 }
