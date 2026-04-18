@@ -248,6 +248,21 @@ export class LotoService {
     }
   }
 
+  /**
+   * Get all tickets not yet assigned to a checkpoint
+   */
+  getUncheckpointedTickets(): LotoTicket[] {
+    try {
+      return this.ticketRepo.getUncheckpointedTickets();
+    } catch (error) {
+      lotoLogger.error(
+        { error: error instanceof Error ? error.message : String(error) },
+        "LotoService.getUncheckpointedTickets failed",
+      );
+      throw error;
+    }
+  }
+
   // ===========================================================================
   // Settlement Calculation
   // ===========================================================================
@@ -554,14 +569,14 @@ export class LotoService {
     note?: string;
   }): LotoCheckpoint {
     try {
-      // Calculate the aggregated data for this period
-      const reportData = this.getReportData(data.period_start, data.period_end);
+      // Use checkpoint_id IS NULL to find uncheckpointed items
+      // This avoids the date-range bug when two checkpoints happen on the same day
+      const uncheckpointedTotals = this.ticketRepo.getUncheckpointedTotals();
+      const uncheckpointedTickets = this.ticketRepo.getUncheckpointedTickets();
 
-      // Find unassigned cash prizes in this date range
-      const unassignedPrizes = this.cashPrizeRepo.getUnassignedByDateRange(
-        data.period_start,
-        data.period_end,
-      );
+      // Find unassigned cash prizes using checkpoint_id IS NULL (no date filter)
+      // This avoids the same inverted date-range bug as tickets
+      const unassignedPrizes = this.cashPrizeRepo.getUnassigned();
       const totalCashPrizes = unassignedPrizes.reduce(
         (sum, p) => sum + p.prize_amount,
         0,
@@ -571,16 +586,21 @@ export class LotoService {
         checkpoint_date: data.checkpoint_date,
         period_start: data.period_start,
         period_end: data.period_end,
-        total_sales: reportData.total_sales,
-        total_commission: reportData.total_commission,
-        total_tickets: reportData.total_tickets,
-        total_prizes: reportData.total_prizes,
+        total_sales: uncheckpointedTotals.totalSales,
+        total_commission: uncheckpointedTotals.totalCommission,
+        total_tickets: uncheckpointedTotals.count,
+        total_prizes: uncheckpointedTotals.totalPrizes,
         total_cash_prizes: totalCashPrizes,
         total_cash_prizes_count: unassignedPrizes.length,
         note: data.note,
       };
 
       const checkpoint = this.checkpointRepo.createCheckpoint(checkpointData);
+
+      // Assign tickets to this checkpoint
+      for (const ticket of uncheckpointedTickets) {
+        this.ticketRepo.assignToCheckpoint(ticket.id, checkpoint.id);
+      }
 
       // Assign cash prizes to this checkpoint
       for (const prize of unassignedPrizes) {
@@ -797,13 +817,14 @@ export class LotoService {
    */
   deleteCheckpoint(id: number): boolean {
     try {
-      // Unlink any cash prizes assigned to this checkpoint before deleting
-      const unlinkedCount = this.cashPrizeRepo.unlinkFromCheckpoint(id);
+      // Unlink any cash prizes and tickets assigned to this checkpoint before deleting
+      const unlinkedCashPrizes = this.cashPrizeRepo.unlinkFromCheckpoint(id);
+      const unlinkedTickets = this.ticketRepo.unlinkFromCheckpoint(id);
 
       const deleted = this.checkpointRepo.deleteCheckpoint(id);
       if (deleted) {
         lotoLogger.info(
-          `Loto checkpoint #${id} deleted (${unlinkedCount} cash prizes unlinked)`,
+          `Loto checkpoint #${id} deleted (${unlinkedCashPrizes} cash prizes, ${unlinkedTickets} tickets unlinked)`,
         );
       } else {
         lotoLogger.warn(

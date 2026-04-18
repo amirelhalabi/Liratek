@@ -658,6 +658,11 @@ export interface ElectronAPI {
       tickets?: any[];
       error?: string;
     }>;
+    getUncheckpointed: () => Promise<{
+      success: boolean;
+      tickets?: any[];
+      error?: string;
+    }>;
     update: (
       id: number,
       data: any,
@@ -775,6 +780,7 @@ export interface ElectronAPI {
       createScheduled: (
         checkpointDate?: string,
       ) => Promise<{ success: boolean; checkpoint?: any; error?: string }>;
+      delete: (id: number) => Promise<{ success: boolean; error?: string }>;
     };
     cashPrize: {
       create: (data: {

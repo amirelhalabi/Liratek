@@ -26,6 +26,7 @@ export interface LotoTicket {
   payment_method: string | null;
   currency: string;
   note: string | null;
+  checkpoint_id: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -307,6 +308,73 @@ export class LotoTicketRepository {
     `);
     const result = stmt.get(from, to) as { count: number };
     return result.count;
+  }
+
+  // ===========================================================================
+  // Checkpoint support
+  // ===========================================================================
+
+  /**
+   * Get all tickets that have not been assigned to a checkpoint yet.
+   */
+  getUncheckpointedTickets(): LotoTicket[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM loto_tickets
+      WHERE checkpoint_id IS NULL
+      ORDER BY sale_date DESC, id DESC
+    `);
+    return stmt.all() as LotoTicket[];
+  }
+
+  /**
+   * Assign a ticket to a checkpoint.
+   */
+  assignToCheckpoint(ticketId: number, checkpointId: number): void {
+    const stmt = this.db.prepare(`
+      UPDATE loto_tickets
+      SET checkpoint_id = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `);
+    stmt.run(checkpointId, ticketId);
+  }
+
+  /**
+   * Unlink all tickets from a checkpoint (set checkpoint_id = NULL).
+   */
+  unlinkFromCheckpoint(checkpointId: number): number {
+    const stmt = this.db.prepare(`
+      UPDATE loto_tickets
+      SET checkpoint_id = NULL, updated_at = CURRENT_TIMESTAMP
+      WHERE checkpoint_id = ?
+    `);
+    const result = stmt.run(checkpointId);
+    return result.changes;
+  }
+
+  /**
+   * Get aggregated totals for uncheckpointed tickets only.
+   */
+  getUncheckpointedTotals(): {
+    count: number;
+    totalSales: number;
+    totalCommission: number;
+    totalPrizes: number;
+  } {
+    const stmt = this.db.prepare(`
+      SELECT
+        COUNT(*) as count,
+        COALESCE(SUM(sale_amount), 0) as totalSales,
+        COALESCE(SUM(commission_amount), 0) as totalCommission,
+        COALESCE(SUM(CASE WHEN is_winner = 1 THEN prize_amount ELSE 0 END), 0) as totalPrizes
+      FROM loto_tickets
+      WHERE checkpoint_id IS NULL
+    `);
+    return stmt.get() as {
+      count: number;
+      totalSales: number;
+      totalCommission: number;
+      totalPrizes: number;
+    };
   }
 }
 

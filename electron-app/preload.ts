@@ -279,6 +279,7 @@ contextBridge.exposeInMainWorld("api", {
     get: (id: number) => ipcRenderer.invoke("loto:get", id),
     getByDateRange: (from: string, to: string) =>
       ipcRenderer.invoke("loto:get-by-date-range", from, to),
+    getUncheckpointed: () => ipcRenderer.invoke("loto:get-uncheckpointed"),
     update: (id: number, data: any) =>
       ipcRenderer.invoke("loto:update", id, data),
     report: (from: string, to: string) =>

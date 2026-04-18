@@ -143,8 +143,8 @@ export function LotoPage() {
 
       const today = new Date().toISOString().split("T")[0];
 
-      // Check if there are any sales or cash prizes to checkpoint
-      const ticketsResult = await lotoApi.getByDateRange(periodStart, today);
+      // Check if there are any uncheckpointed sales or cash prizes
+      const ticketsResult = await lotoApi.getUncheckpointed();
       const tickets = ticketsResult.tickets || [];
       const cashPrizeResult = await lotoApi.cashPrize.getTotalUnreimbursed();
       const hasCashPrizes =

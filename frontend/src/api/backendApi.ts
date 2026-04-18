@@ -2123,6 +2123,20 @@ export async function lotoGetByDateRange(
   );
 }
 
+export async function lotoGetUncheckpointed(): Promise<{
+  success: boolean;
+  tickets?: any[];
+  error?: string;
+}> {
+  return ipcOrHttp(
+    async () => getElectronApi().loto.getUncheckpointed(),
+    async () =>
+      requestJson<{ success: boolean; tickets?: any[]; error?: string }>(
+        `/api/loto/uncheckpointed`,
+      ),
+  );
+}
+
 export async function lotoUpdate(
   id: number,
   data: any,
@@ -2586,5 +2600,18 @@ export async function lotoCheckpointCreateScheduled(
       );
       return res.checkpoint ?? null;
     },
+  );
+}
+
+export async function lotoCheckpointDelete(
+  id: number,
+): Promise<{ success: boolean; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().loto.checkpoint.delete(id),
+    async () =>
+      requestJson<{ success: boolean; error?: string }>(
+        `/api/loto/checkpoints/${id}`,
+        { method: "DELETE" },
+      ),
   );
 }

@@ -2382,6 +2382,41 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+
+  // =========================================================================
+  // v58 – Add checkpoint_id to loto_tickets (mirrors cash prizes pattern)
+  // =========================================================================
+  {
+    version: 58,
+    name: "add_checkpoint_id_to_loto_tickets",
+    description:
+      "Add checkpoint_id FK to loto_tickets so uncheckpointed tickets are tracked by NULL checkpoint_id instead of date ranges",
+    type: "typescript",
+    up(db) {
+      // 1. Add checkpoint_id column
+      db.exec(`
+        ALTER TABLE loto_tickets ADD COLUMN checkpoint_id INTEGER REFERENCES loto_checkpoints(id);
+        CREATE INDEX IF NOT EXISTS idx_loto_tickets_checkpoint ON loto_tickets(checkpoint_id);
+      `);
+
+      // 2. Backfill: assign existing tickets to checkpoints by date range
+      db.exec(`
+        UPDATE loto_tickets SET checkpoint_id = (
+          SELECT c.id FROM loto_checkpoints c
+          WHERE date(loto_tickets.sale_date) BETWEEN date(c.period_start) AND date(c.period_end)
+          ORDER BY c.checkpoint_date DESC LIMIT 1
+        ) WHERE checkpoint_id IS NULL;
+      `);
+
+      console.log(
+        "Migration v58: Added checkpoint_id to loto_tickets and backfilled",
+      );
+    },
+    down(db) {
+      db.exec(`UPDATE loto_tickets SET checkpoint_id = NULL;`);
+      console.log("Migration v58 rolled back: cleared checkpoint_id");
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

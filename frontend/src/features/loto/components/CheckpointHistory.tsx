@@ -8,6 +8,7 @@ import {
   TrendingDown,
   TrendingUp,
   Package,
+  Trash2,
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -77,6 +78,24 @@ export function CheckpointHistory({ onClose }: CheckpointHistoryProps) {
     }
   }
 
+  async function handleDeleteCheckpoint(checkpoint: LotoCheckpoint) {
+    if (checkpoint.is_settled) return;
+    const confirmed = window.confirm(
+      `Delete checkpoint #${checkpoint.id} (${format(new Date(checkpoint.checkpoint_date), "MMM dd, yyyy")})?\n\nThis will unlink all associated tickets and cash prizes so they can be included in a new checkpoint.`,
+    );
+    if (!confirmed) return;
+    try {
+      const result = await api.loto.checkpoint.delete(checkpoint.id);
+      if (result.success) {
+        await loadCheckpoints();
+      } else {
+        alert(result.error || "Failed to delete checkpoint");
+      }
+    } catch {
+      alert("Failed to delete checkpoint");
+    }
+  }
+
   async function handleViewReport(checkpoint: LotoCheckpoint) {
     setSelectedCheckpoint(checkpoint);
     setReportData(null);
@@ -128,13 +147,6 @@ export function CheckpointHistory({ onClose }: CheckpointHistoryProps) {
               </span>
             </h2>
             <div className="flex items-center gap-2">
-              <button
-                onClick={loadCheckpoints}
-                className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
-                title="Refresh"
-              >
-                <RefreshCw size={14} />
-              </button>
               <button
                 onClick={onClose}
                 className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
@@ -288,13 +300,24 @@ export function CheckpointHistory({ onClose }: CheckpointHistoryProps) {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <button
-                        onClick={() => handleViewReport(checkpoint)}
-                        className="p-1.5 text-slate-400 hover:text-blue-400 hover:bg-blue-400/10 rounded-lg transition-colors"
-                        title="View report"
-                      >
-                        <FileText size={16} />
-                      </button>
+                      <div className="flex items-center justify-center gap-1">
+                        <button
+                          onClick={() => handleViewReport(checkpoint)}
+                          className="p-1.5 text-slate-400 hover:text-blue-400 hover:bg-blue-400/10 rounded-lg transition-colors"
+                          title="View report"
+                        >
+                          <FileText size={16} />
+                        </button>
+                        {!checkpoint.is_settled && (
+                          <button
+                            onClick={() => handleDeleteCheckpoint(checkpoint)}
+                            className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-colors"
+                            title="Delete checkpoint"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 )}

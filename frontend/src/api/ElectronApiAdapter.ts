@@ -393,6 +393,7 @@ export class ElectronApiAdapter implements ApiAdapter {
     get: (id: number) => api.lotoGet(id),
     getByDateRange: (from: string, to: string) =>
       api.lotoGetByDateRange(from, to),
+    getUncheckpointed: () => api.lotoGetUncheckpointed(),
     update: (id: number, data: any) => api.lotoUpdate(id, data),
     report: (from: string, to: string) => api.lotoReport(from, to),
     settlement: (from: string, to: string) => api.lotoSettlement(from, to),
@@ -425,6 +426,7 @@ export class ElectronApiAdapter implements ApiAdapter {
       getLast: () => api.lotoCheckpointGetLast(),
       createScheduled: (checkpointDate?: string) =>
         api.lotoCheckpointCreateScheduled(checkpointDate),
+      delete: (id: number) => api.lotoCheckpointDelete(id),
     },
     cashPrize: {
       create: (data: any) => api.lotoCashPrizeCreate(data),

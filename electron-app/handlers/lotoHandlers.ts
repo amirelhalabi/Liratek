@@ -81,6 +81,26 @@ export function registerLotoHandlers(): void {
     },
   );
 
+  ipcMain.handle("loto:get-uncheckpointed", async (e) => {
+    try {
+      const auth = requireRole(e.sender.id, ["admin"]);
+      if (!auth.ok) throw new Error(auth.error ?? "Admin access required");
+
+      const service = getLotoServiceInstance();
+      const tickets = service.getUncheckpointedTickets();
+      return { success: true, tickets };
+    } catch (error) {
+      lotoLogger.error({ error }, "loto:get-uncheckpointed failed");
+      return {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to get uncheckpointed tickets",
+      };
+    }
+  });
+
   ipcMain.handle("loto:update", async (e, id: number, data: any) => {
     try {
       const auth = requireRole(e.sender.id, ["admin"]);

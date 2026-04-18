@@ -791,12 +791,14 @@ CREATE TABLE IF NOT EXISTS loto_tickets (
     payment_method TEXT,
     currency TEXT DEFAULT 'LBP',
     note TEXT,
+    checkpoint_id INTEGER REFERENCES loto_checkpoints(id),
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_loto_tickets_sale_date ON loto_tickets(sale_date);
 CREATE INDEX IF NOT EXISTS idx_loto_tickets_is_winner ON loto_tickets(is_winner);
+CREATE INDEX IF NOT EXISTS idx_loto_tickets_checkpoint ON loto_tickets(checkpoint_id);
 
 -- Loto settings (commission rate, monthly fee, etc.)
 CREATE TABLE IF NOT EXISTS loto_settings (

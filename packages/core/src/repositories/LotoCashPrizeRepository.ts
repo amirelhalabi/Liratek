@@ -259,6 +259,20 @@ export class LotoCashPrizeRepository {
     `);
     return stmt.all(from, to) as LotoCashPrize[];
   }
+
+  /**
+   * Get all unreimbursed cash prizes that have no checkpoint yet (no date filter).
+   * This avoids the inverted date-range bug when two checkpoints happen on the same day.
+   */
+  getUnassigned(): LotoCashPrize[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM loto_cash_prizes 
+      WHERE checkpoint_id IS NULL 
+        AND is_reimbursed = 0
+      ORDER BY prize_date DESC
+    `);
+    return stmt.all() as LotoCashPrize[];
+  }
 }
 
 // =============================================================================

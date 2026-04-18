@@ -200,6 +200,7 @@ export type LotoCheckpointApi = {
   createScheduled: (
     checkpointDate?: string,
   ) => Promise<{ success: boolean; checkpoint?: any; error?: string }>;
+  delete: (id: number) => Promise<{ success: boolean; error?: string }>;
 };
 
 export type LotoCashPrizeApi = {
@@ -260,6 +261,11 @@ export type LotoApi = {
     from: string,
     to: string,
   ) => Promise<{ success: boolean; tickets?: any[]; error?: string }>;
+  getUncheckpointed: () => Promise<{
+    success: boolean;
+    tickets?: any[];
+    error?: string;
+  }>;
   update: (
     id: number,
     data: any,
