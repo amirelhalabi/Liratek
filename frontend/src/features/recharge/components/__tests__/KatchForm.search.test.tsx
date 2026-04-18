@@ -30,6 +30,24 @@ jest.mock("@liratek/ui", () => ({
   }),
 }));
 
+// Mock useSession (KatchForm uses it for customer sessions)
+jest.mock("@/features/sessions/context/SessionContext", () => ({
+  useSession: () => ({
+    activeSession: null,
+    allActiveSessions: [],
+    sessionTransactions: [],
+    isFloatingWindowOpen: false,
+    isFloatingWindowMinimized: true,
+    startSession: jest.fn(),
+    endSession: jest.fn(),
+    addTransactionToSession: jest.fn(),
+    toggleFloatingWindow: jest.fn(),
+    toggleMinimize: jest.fn(),
+    refreshActiveSessions: jest.fn(),
+    refreshSessionTransactions: jest.fn(),
+  }),
+}));
+
 // Mock SVG imports
 jest.mock("@/assets/logos/alfa.svg?react", () => ({
   __esModule: true,

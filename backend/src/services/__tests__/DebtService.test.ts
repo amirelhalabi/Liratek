@@ -118,6 +118,8 @@ describe("DebtService", () => {
         amount_lbp: 0,
         note: "Partial payment",
         created_by: 10,
+        paid_by_method: undefined,
+        payments: undefined,
       });
       expect(result).toEqual({ success: true, id: 123 });
     });
@@ -129,6 +131,7 @@ describe("DebtService", () => {
         clientId: 1,
         amountUSD: 100,
         amountLBP: 500000,
+        userId: 10,
       });
 
       expect(result).toEqual({ success: true, id: 456 });
@@ -139,6 +142,7 @@ describe("DebtService", () => {
         clientId: 0,
         amountUSD: 50,
         amountLBP: 0,
+        userId: 10,
       });
 
       expect(result).toEqual({
@@ -153,6 +157,7 @@ describe("DebtService", () => {
         clientId: 1,
         amountUSD: 0,
         amountLBP: 0,
+        userId: 10,
       });
 
       expect(result).toEqual({
@@ -167,6 +172,7 @@ describe("DebtService", () => {
         clientId: 1,
         amountUSD: -50,
         amountLBP: -1000,
+        userId: 10,
       });
 
       expect(result).toEqual({
@@ -184,6 +190,7 @@ describe("DebtService", () => {
         clientId: 1,
         amountUSD: 50,
         amountLBP: 0,
+        userId: 10,
       });
 
       expect(result).toEqual({ success: false, error: "DB error" });
@@ -196,6 +203,7 @@ describe("DebtService", () => {
         clientId: 1,
         amountUSD: 25,
         amountLBP: 0,
+        userId: 10,
       });
 
       expect(mockRepo.addRepayment).toHaveBeenCalledWith({
@@ -203,7 +211,9 @@ describe("DebtService", () => {
         amount_usd: 25,
         amount_lbp: 0,
         note: null,
-        created_by: null,
+        created_by: 10,
+        paid_by_method: undefined,
+        payments: undefined,
       });
     });
   });

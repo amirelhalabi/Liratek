@@ -2150,6 +2150,7 @@ export async function lotoReport(
     total_sales: number;
     total_commission: number;
     total_prizes: number;
+    total_cash_prizes: number;
     outstanding_prizes: number;
     total_fees: number;
   };
@@ -2165,6 +2166,7 @@ export async function lotoReport(
           total_sales: number;
           total_commission: number;
           total_prizes: number;
+          total_cash_prizes: number;
           outstanding_prizes: number;
           total_fees: number;
         };

@@ -676,6 +676,7 @@ export interface ElectronAPI {
         total_sales: number;
         total_commission: number;
         total_prizes: number;
+        total_cash_prizes: number;
         outstanding_prizes: number;
         total_fees: number;
       };
