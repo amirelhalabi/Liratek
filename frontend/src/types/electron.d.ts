@@ -1121,6 +1121,25 @@ export interface ElectronAPI {
     }>;
   };
 
+  // Database path management
+  database: {
+    isJoinInstallation: () => Promise<{
+      success: boolean;
+      isJoin: boolean;
+      error?: string;
+    }>;
+    browse: () => Promise<{
+      success: boolean;
+      canceled?: boolean;
+      path?: string;
+      error?: string;
+    }>;
+    changePath: (newPath: string) => Promise<{
+      success: boolean;
+      error?: string;
+    }>;
+  };
+
   // Report
   report: {
     generateDaily: (

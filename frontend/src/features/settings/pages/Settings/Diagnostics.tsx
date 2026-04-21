@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { FolderOpen } from "lucide-react";
+import { FolderOpen, Pencil } from "lucide-react";
 import UpdatesPanel from "./UpdatesPanel";
 import { appEvents, useApi } from "@liratek/ui";
 
@@ -48,6 +48,10 @@ export default function Diagnostics() {
   const [savingConfig, setSavingConfig] = useState(false);
   const [dbPath, setDbPath] = useState<string | null>(null);
   const [dbPathSource, setDbPathSource] = useState<string | null>(null);
+  const [isJoinInstallation, setIsJoinInstallation] = useState(false);
+  const [showDbPathEdit, setShowDbPathEdit] = useState(false);
+  const [newDbPath, setNewDbPath] = useState("");
+  const [dbPathChanging, setDbPathChanging] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -240,6 +244,52 @@ export default function Diagnostics() {
     }
   };
 
+  const browseDbPath = async () => {
+    try {
+      const result = await window.api.database.browse();
+      if (result.success && result.path) {
+        setNewDbPath(result.path);
+      }
+    } catch (e) {
+      appEvents.emit(
+        "notification:show",
+        e instanceof Error ? e.message : "Failed to browse",
+        "error",
+      );
+    }
+  };
+
+  const changeDbPath = async () => {
+    if (!newDbPath.trim()) return;
+    if (
+      !confirm(
+        "Changing the database path will restart the application. Continue?",
+      )
+    )
+      return;
+
+    setDbPathChanging(true);
+    try {
+      const result = await window.api.database.changePath(newDbPath.trim());
+      if (!result.success) {
+        appEvents.emit(
+          "notification:show",
+          result.error || "Failed to change database path",
+          "error",
+        );
+        setDbPathChanging(false);
+      }
+      // If successful, the app will relaunch
+    } catch (e) {
+      appEvents.emit(
+        "notification:show",
+        e instanceof Error ? e.message : "Failed to change database path",
+        "error",
+      );
+      setDbPathChanging(false);
+    }
+  };
+
   const saveBackupConfig = async () => {
     setSavingConfig(true);
     try {
@@ -297,6 +347,15 @@ export default function Diagnostics() {
       .catch(() => {
         setDbPath("IPC call failed");
       });
+    // Check if this is a join installation
+    window.api?.database
+      ?.isJoinInstallation?.()
+      .then((res) => {
+        if (res?.success) {
+          setIsJoinInstallation(res.isJoin);
+        }
+      })
+      .catch(() => {});
   }, []);
 
   return (
@@ -355,15 +414,30 @@ export default function Diagnostics() {
         {/* Info grid */}
         <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm bg-slate-900/50 rounded-lg p-4 border border-slate-700/50">
           <div className="text-slate-400">Database</div>
-          <div
-            className="text-slate-200 font-mono text-xs truncate"
-            title={dbPath ?? undefined}
-          >
-            {dbPath ?? "—"}
-            {dbPathSource && (
-              <span className="ml-2 text-slate-500 font-sans text-[10px]">
-                ({dbPathSource})
-              </span>
+          <div className="flex items-center gap-2">
+            <span
+              className="text-slate-200 font-mono text-xs truncate"
+              title={dbPath ?? undefined}
+            >
+              {dbPath ?? "—"}
+              {dbPathSource && (
+                <span className="ml-2 text-slate-500 font-sans text-[10px]">
+                  ({dbPathSource})
+                </span>
+              )}
+            </span>
+            {isJoinInstallation && (
+              <button
+                onClick={() => {
+                  setNewDbPath(dbPath ?? "");
+                  setShowDbPathEdit(true);
+                }}
+                className="inline-flex items-center gap-1 px-2 py-0.5 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white rounded transition-colors shrink-0"
+                title="Change database path"
+              >
+                <Pencil size={12} />
+                Edit
+              </button>
             )}
           </div>
 
@@ -549,6 +623,58 @@ export default function Diagnostics() {
           </table>
         </div>
       </div>
+
+      {/* Database Path Edit Modal */}
+      {showDbPathEdit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-slate-800 rounded-lg border border-slate-700 p-6 w-full max-w-lg shadow-xl space-y-4">
+            <h3 className="text-white font-semibold text-lg">
+              Change Database Path
+            </h3>
+            <p className="text-slate-400 text-sm">
+              Enter or browse for the new database file path. The application
+              will restart after the change.
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={newDbPath}
+                onChange={(e) => setNewDbPath(e.target.value)}
+                placeholder="/path/to/database.db"
+                className="flex-1 bg-slate-900 border border-slate-600 rounded px-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-violet-500"
+              />
+              <button
+                onClick={browseDbPath}
+                className="inline-flex items-center gap-1 px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white rounded transition-colors shrink-0 text-sm"
+              >
+                <FolderOpen size={14} />
+                Browse
+              </button>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                onClick={() => {
+                  setShowDbPathEdit(false);
+                  setNewDbPath("");
+                }}
+                disabled={dbPathChanging}
+                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded text-white text-sm transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={changeDbPath}
+                disabled={
+                  dbPathChanging || !newDbPath.trim() || newDbPath === dbPath
+                }
+                className="px-4 py-2 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 disabled:hover:bg-violet-600 rounded text-white text-sm transition-colors"
+              >
+                {dbPathChanging ? "Restarting..." : "Apply & Restart"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,5 +1,8 @@
-import { ipcMain } from "electron";
+import { ipcMain, app, dialog } from "electron";
 import { z } from "zod";
+import fs from "fs";
+import path from "path";
+import os from "os";
 import {
   getSettingsService,
   getExpenseService,
@@ -9,6 +12,7 @@ import {
   settingsLogger,
   expenseLogger,
   closingLogger,
+  logger,
 } from "@liratek/core";
 import { requireRole } from "../session.js";
 import { audit } from "./auditHelper.js";
@@ -399,5 +403,102 @@ export function registerDatabaseHandlers(): void {
   // Recent activity logs
   ipcMain.handle("activity:get-recent", (_e, limit?: number) => {
     return activityService.getRecentLogs(limit);
+  });
+
+  // ==================== DATABASE PATH MANAGEMENT ====================
+
+  const DB_PATH_FILE = "db-path.txt";
+  const DB_PATH_PREV_FILE = "db-path-prev.txt";
+  const configDir = path.join(os.homedir(), "Documents", "LiraTek");
+
+  // Check if this is a join installation (db-path.txt exists)
+  ipcMain.handle("database:isJoinInstallation", () => {
+    try {
+      const configFile = path.join(configDir, DB_PATH_FILE);
+      return { success: true, isJoin: fs.existsSync(configFile) };
+    } catch (err) {
+      logger.error({ err }, "database:isJoinInstallation failed");
+      return {
+        success: false,
+        isJoin: false,
+        error: err instanceof Error ? err.message : "Unknown error",
+      };
+    }
+  });
+
+  // Browse for a database file (reuses native file dialog)
+  ipcMain.handle("database:browse", async () => {
+    try {
+      const result = await dialog.showOpenDialog({
+        title: "Select LiraTek Database",
+        filters: [{ name: "Database", extensions: ["db", "sqlite"] }],
+        properties: ["openFile"],
+      });
+
+      if (result.canceled || result.filePaths.length === 0) {
+        return { success: false, canceled: true };
+      }
+
+      const selectedPath = result.filePaths[0];
+      if (!fs.existsSync(selectedPath)) {
+        return { success: false, error: "File does not exist" };
+      }
+
+      return { success: true, path: selectedPath };
+    } catch (err) {
+      logger.error({ err }, "database:browse failed");
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : "Unknown error",
+      };
+    }
+  });
+
+  // Change the database path: validate, save previous, write new, relaunch
+  ipcMain.handle("database:changePath", async (_e, newPath: string) => {
+    try {
+      if (!newPath || typeof newPath !== "string" || !newPath.trim()) {
+        return { success: false, error: "Path is required" };
+      }
+
+      const trimmedPath = newPath.trim();
+
+      // Check file exists
+      if (!fs.existsSync(trimmedPath)) {
+        return { success: false, error: "Database file does not exist" };
+      }
+
+      // Read current path to save as previous
+      const dbPathFile = path.join(configDir, DB_PATH_FILE);
+      const prevPathFile = path.join(configDir, DB_PATH_PREV_FILE);
+
+      fs.mkdirSync(configDir, { recursive: true });
+
+      // Save current path as previous (for rollback)
+      const resolved = resolveDatabasePath();
+      fs.writeFileSync(prevPathFile, resolved.path, "utf8");
+
+      // Write new path
+      fs.writeFileSync(dbPathFile, trimmedPath, "utf8");
+
+      logger.info(
+        { oldPath: resolved.path, newPath: trimmedPath },
+        "Database path changed, relaunching...",
+      );
+
+      // Relaunch after a short delay to let the response reach the renderer
+      setTimeout(() => {
+        app.relaunch();
+        app.exit(0);
+      }, 500);
+
+      return { success: true };
+    } catch (err) {
+      logger.error({ err }, "database:changePath failed");
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : "Unknown error",
+      };
+    }
   });
 }

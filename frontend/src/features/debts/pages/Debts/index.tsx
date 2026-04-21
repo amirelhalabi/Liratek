@@ -36,6 +36,11 @@ import {
   ImportCleanupModal,
   type ImportClient,
 } from "../../components/ImportCleanupModal";
+import {
+  ImportValidationModal,
+  type ListNameEntry,
+  type ParsedClientPage,
+} from "../../components/ImportValidationModal";
 import { getDebtAging } from "@/api/backendApi";
 
 type DebtAgingBuckets = {
@@ -61,6 +66,13 @@ export default function Debts() {
     null,
   );
   const [showCleanup, setShowCleanup] = useState(false);
+  const [showValidation, setShowValidation] = useState(false);
+  const [validationListNames, setValidationListNames] = useState<
+    ListNameEntry[] | null
+  >(null);
+  const [validationPages, setValidationPages] = useState<
+    ParsedClientPage[] | null
+  >(null);
 
   type DebtHistoryItem = DebtLedgerEntity & {
     itemNames?: string[];
@@ -432,19 +444,30 @@ export default function Debts() {
     setIsImporting(true);
 
     try {
-      const totalEntries = clients.reduce((s, c) => s + c.entries.length, 0);
-      const withoutPhone = clients.filter((c) => !c.phone).length;
+      // Filter out clients with no debt entries
+      const clientsWithEntries = clients.filter((c) => c.entries.length > 0);
+      const skippedEmpty = clients.length - clientsWithEntries.length;
+
+      if (clientsWithEntries.length === 0) {
+        alert("No clients with debt entries to import.");
+        setIsImporting(false);
+        return;
+      }
+
+      const clients_ = clientsWithEntries;
+      const totalEntries = clients_.reduce((s, c) => s + c.entries.length, 0);
+      const withoutPhone = clients_.filter((c) => !c.phone).length;
 
       if (
         !confirm(
-          `Final confirmation:\n• ${clients.length} clients (${withoutPhone} without phone)\n• ${totalEntries} debt/payment entries\n\nProceed with import?`,
+          `Final confirmation:\n• ${clients_.length} clients (${withoutPhone} without phone)${skippedEmpty > 0 ? `\n• ${skippedEmpty} clients skipped (no entries)` : ""}\n• ${totalEntries} debt/payment entries\n\nProceed with import?`,
         )
       ) {
         setIsImporting(false);
         return;
       }
 
-      const result = await window.api.clients.importDebts(clients);
+      const result = await window.api.clients.importDebts(clients_);
 
       if (result.success && result.result) {
         const r = result.result;
@@ -520,7 +543,7 @@ export default function Debts() {
           raw: true,
         });
 
-        type ImportEntry = {
+        type ImportEntryLocal = {
           date: string | null;
           amount_usd: number;
           amount_lbp: number;
@@ -528,7 +551,46 @@ export default function Debts() {
           type: "debt" | "payment";
         };
 
-        const clients: ImportClient[] = [];
+        // ---------------------------------------------------------------
+        // Parse "list name" sheet (master client list)
+        // ---------------------------------------------------------------
+        const listNameClients: ListNameEntry[] = [];
+        const listNameSheet =
+          workbook.Sheets[
+            workbook.SheetNames.find((s) => s.toLowerCase() === "list name") ??
+              ""
+          ];
+        if (listNameSheet) {
+          const listRows: unknown[][] = XLSX.utils.sheet_to_json(
+            listNameSheet,
+            { header: 1, defval: "", raw: true },
+          );
+          // Each row: col A (or B) = name, col B (or C/D) = phone
+          // Skip header row if present
+          const startRow =
+            listRows.length > 0 &&
+            String(listRows[0][0] ?? "")
+              .toLowerCase()
+              .includes("name")
+              ? 1
+              : 0;
+          for (let r = startRow; r < listRows.length; r++) {
+            const row = listRows[r];
+            if (!row) continue;
+            const name = String(row[0] ?? "").trim();
+            if (!name) continue;
+            // Col B = phone number
+            const phoneVal = String(row[1] ?? "").trim();
+            const phone =
+              phoneVal && /\d/.test(phoneVal) ? normalizePhone(phoneVal) : "";
+            listNameClients.push({ name, phone });
+          }
+        }
+
+        // ---------------------------------------------------------------
+        // Parse individual client pages
+        // ---------------------------------------------------------------
+        const pages: ParsedClientPage[] = [];
 
         for (const sheetName of workbook.SheetNames) {
           if (sheetName.toLowerCase() === "list name") continue;
@@ -563,7 +625,7 @@ export default function Debts() {
             if (phoneVal) clientPhone = normalizePhone(phoneVal);
           }
 
-          const entries: ImportEntry[] = [];
+          const entries: ImportEntryLocal[] = [];
 
           for (let r = 2; r < rows.length; r++) {
             const row = rows[r];
@@ -618,7 +680,8 @@ export default function Debts() {
             }
           }
 
-          clients.push({
+          pages.push({
+            sheetName,
             name: clientName,
             phone: clientPhone,
             entries,
@@ -626,26 +689,40 @@ export default function Debts() {
         }
 
         logger.info("Parsed Excel file", {
-          totalClients: clients.length,
-          totalEntries: clients.reduce((s, c) => s + c.entries.length, 0),
+          listNameCount: listNameClients.length,
+          totalPages: pages.length,
+          totalEntries: pages.reduce((s, p) => s + p.entries.length, 0),
         });
 
-        if (clients.length === 0) {
+        if (pages.length === 0 && listNameClients.length === 0) {
           alert("No client data found in the Excel file.");
           return;
         }
 
-        // Check if there are flagged clients (no phone)
-        const flagged = clients.filter((c) => !c.phone);
-        if (flagged.length > 0) {
-          // Show cleanup modal
-          setParsedClients(clients);
-          setShowCleanup(true);
+        // ---------------------------------------------------------------
+        // If we have a "list name" sheet, show the validation modal first
+        // ---------------------------------------------------------------
+        if (listNameClients.length > 0) {
+          setValidationListNames(listNameClients);
+          setValidationPages(pages);
+          setShowValidation(true);
           setIsImporting(false);
         } else {
-          // No issues — go straight to import
-          setIsImporting(false);
-          executeImport(clients);
+          // No list name sheet — use legacy flow
+          const clients: ImportClient[] = pages.map((p) => ({
+            name: p.name,
+            phone: p.phone,
+            entries: p.entries,
+          }));
+          const flagged = clients.filter((c) => !c.phone);
+          if (flagged.length > 0) {
+            setParsedClients(clients);
+            setShowCleanup(true);
+            setIsImporting(false);
+          } else {
+            setIsImporting(false);
+            executeImport(clients);
+          }
         }
       } catch (err) {
         logger.error("Excel import failed", { error: err });
@@ -1188,6 +1265,32 @@ export default function Debts() {
             onClose={() => {
               setShowServiceDetail(false);
               setServiceDetail(null);
+            }}
+          />
+        )}
+
+        {/* Import Validation Modal */}
+        {showValidation && validationListNames && validationPages && (
+          <ImportValidationModal
+            listNameEntries={validationListNames}
+            parsedPages={validationPages}
+            onConfirm={(resolvedClients) => {
+              setShowValidation(false);
+              setValidationListNames(null);
+              setValidationPages(null);
+              // Check if any resolved clients still lack phone → show cleanup modal
+              const flagged = resolvedClients.filter((c) => !c.phone);
+              if (flagged.length > 0) {
+                setParsedClients(resolvedClients);
+                setShowCleanup(true);
+              } else {
+                executeImport(resolvedClients);
+              }
+            }}
+            onCancel={() => {
+              setShowValidation(false);
+              setValidationListNames(null);
+              setValidationPages(null);
             }}
           />
         )}

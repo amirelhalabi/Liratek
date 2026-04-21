@@ -209,8 +209,28 @@ app.on("window-all-closed", () => {
  */
 function initializeDatabase() {
   const resolved = resolveDatabasePath();
-  const dbPath = resolved.path;
+  let dbPath = resolved.path;
   logger.info({ dbPath, source: resolved.source }, "Database path resolved");
+
+  // Rollback support: if the DB file doesn't exist and db-path-prev.txt does,
+  // restore the previous path automatically.
+  const configDir = path.join(os.homedir(), "Documents", "LiraTek");
+  const prevPathFile = path.join(configDir, "db-path-prev.txt");
+  const dbPathFile = path.join(configDir, "db-path.txt");
+
+  if (!fs.existsSync(dbPath) && fs.existsSync(prevPathFile)) {
+    const prevPath = fs.readFileSync(prevPathFile, "utf8").trim();
+    if (prevPath && fs.existsSync(prevPath)) {
+      logger.warn(
+        { failedPath: dbPath, restoredPath: prevPath },
+        "Database not found at configured path, rolling back to previous path",
+      );
+      // Restore previous path
+      fs.writeFileSync(dbPathFile, prevPath, "utf8");
+      fs.unlinkSync(prevPathFile);
+      dbPath = prevPath;
+    }
+  }
 
   const resolvedKey = resolveDatabaseKey();
 

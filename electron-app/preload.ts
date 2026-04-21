@@ -479,6 +479,14 @@ contextBridge.exposeInMainWorld("api", {
     getDbPath: () => ipcRenderer.invoke("diagnostics:getDbPath"),
   },
 
+  // Database path management
+  database: {
+    isJoinInstallation: () => ipcRenderer.invoke("database:isJoinInstallation"),
+    browse: () => ipcRenderer.invoke("database:browse"),
+    changePath: (newPath: string) =>
+      ipcRenderer.invoke("database:changePath", newPath),
+  },
+
   // Updater
   updater: {
     getStatus: () => ipcRenderer.invoke("updater:get-status"),
