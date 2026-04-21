@@ -2,30 +2,25 @@
  * Currency Utility Functions
  *
  * Shared utilities for currency-related calculations and display.
- * Uses new v30 schema: (to_code, market_rate, delta, is_stronger)
+ * Schema (v59): (to_code, market_rate, buy_rate, sell_rate, is_stronger)
  */
 
 export interface ExchangeRate {
   id?: number;
   to_code: string;
   market_rate: number;
-  delta: number;
+  buy_rate: number;
+  sell_rate: number;
   is_stronger: 1 | -1;
   updated_at?: string;
 }
 
 /**
- * Calculate profit spread for a currency (2 × delta in native units).
+ * Calculate profit spread for a currency (sell - buy).
  *
- * New schema: spread = 2 × delta (the full buy/sell range).
- *
- * @param rates - Array of exchange rates from database (new 4-column schema)
+ * @param rates - Array of exchange rates from database
  * @param currencyCode - Non-USD currency code (e.g. 'LBP', 'EUR')
- * @returns Spread (2×delta) or null if rate not found
- *
- * @example
- * calculateProfitSpread(rates, 'LBP');  // Returns 1000 (2 × 500 LBP)
- * calculateProfitSpread(rates, 'EUR');  // Returns 0.04 (2 × 0.02 USD)
+ * @returns Spread (sell - buy) or null if rate not found
  */
 export function calculateProfitSpread(
   rates: ExchangeRate[],
@@ -37,23 +32,21 @@ export function calculateProfitSpread(
   const row = rates.find((r) => r.to_code === currencyCode);
   if (!row) return null;
 
-  return row.delta * 2;
+  return row.sell_rate - row.buy_rate;
 }
 
 /**
- * Get effective buy rate for a currency (we pay customer — favorable to us, lower value).
- * buyRate = min(market + delta, market - delta)
+ * Get effective buy rate for a currency (we give — favorable to us).
  */
 export function getBuyRate(rate: ExchangeRate): number {
-  return Math.min(rate.market_rate + rate.delta, rate.market_rate - rate.delta);
+  return rate.buy_rate;
 }
 
 /**
- * Get effective sell rate for a currency (customer pays us — favorable to us, higher value).
- * sellRate = max(market + delta, market - delta)
+ * Get effective sell rate for a currency (customer gives — favorable to us).
  */
 export function getSellRate(rate: ExchangeRate): number {
-  return Math.max(rate.market_rate + rate.delta, rate.market_rate - rate.delta);
+  return rate.sell_rate;
 }
 
 /**

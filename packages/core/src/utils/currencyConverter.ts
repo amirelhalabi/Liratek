@@ -30,8 +30,9 @@ export type USDAction = typeof GIVE_USD | typeof TAKE_USD;
  */
 export interface CurrencyRate {
   to_code: string; // non-USD currency code (e.g. 'LBP', 'EUR')
-  market_rate: number; // mid-market rate
-  delta: number; // half-spread (buy/sell deviate from market by this amount)
+  market_rate: number; // mid-market rate (for display / audit)
+  buy_rate: number; // rate when we buy the currency (favorable to us)
+  sell_rate: number; // rate when we sell the currency (favorable to us)
   is_stronger: 1 | -1; // +1: USD stronger (rate = units per 1 USD, e.g. LBP)
   // -1: currency stronger (rate = USD per 1 unit, e.g. EUR)
 }
@@ -63,26 +64,28 @@ export interface CurrencyExchangeResult {
 // ─── Core Formula ─────────────────────────────────────────────────────────────
 
 /**
- * Universal rate formula.
+ * Universal rate lookup.
  *
- *   rate = market_rate + is_stronger × (action × delta)
+ * Uses buy_rate or sell_rate directly based on the action and currency strength.
  *
- * Examples (LBP: market=89500, delta=500, is_stronger=+1):
- *   TAKE_USD (-1): 89500 + 1×(-1×500) = 89,000  ← we take USD (give fewer LBP)
- *   GIVE_USD (+1): 89500 + 1×(+1×500) = 90,000  ← we give USD (charge more LBP)
+ * When is_stronger × action < 0 → buy_rate (favorable to us)
+ * When is_stronger × action > 0 → sell_rate (favorable to us)
  *
- * Examples (EUR: market=1.18, delta=0.02, is_stronger=-1):
- *   GIVE_USD (+1): 1.18 + (-1)×(+1×0.02) = 1.16  ← we buy EUR cheap
- *   TAKE_USD (-1): 1.18 + (-1)×(-1×0.02) = 1.20  ← we sell EUR expensive
+ * Examples (LBP: buy=89000, sell=90000, is_stronger=+1):
+ *   TAKE_USD (-1): 1×(-1) = -1 → buy_rate = 89,000  ← we give fewer LBP
+ *   GIVE_USD (+1): 1×(+1) = +1 → sell_rate = 90,000  ← customer gives more LBP
+ *
+ * Examples (EUR: buy=1.16, sell=1.20, is_stronger=-1):
+ *   GIVE_USD (+1): (-1)×(+1) = -1 → buy_rate = 1.16  ← we buy EUR cheap
+ *   TAKE_USD (-1): (-1)×(-1) = +1 → sell_rate = 1.20  ← we sell EUR expensive
  */
 export function computeRate(
   currencyRate: CurrencyRate,
   action: USDAction,
 ): number {
-  return (
-    currencyRate.market_rate +
-    currencyRate.is_stronger * (action * currencyRate.delta)
-  );
+  return currencyRate.is_stronger * action < 0
+    ? currencyRate.buy_rate
+    : currencyRate.sell_rate;
 }
 
 // ─── USD Conversions ──────────────────────────────────────────────────────────
@@ -139,14 +142,15 @@ export function computeLegProfitUsd(
   amountIn: number,
   currencyRate: CurrencyRate,
 ): number {
-  const { market_rate, delta, is_stronger } = currencyRate;
+  const { market_rate, buy_rate, sell_rate, is_stronger } = currencyRate;
+  const spread = sell_rate - buy_rate;
   if (is_stronger === 1) {
     // LBP-like: spread is in LBP terms, convert to USD
     const amountUsd = amountIn / market_rate;
-    return amountUsd * delta;
+    return amountUsd * (spread / 2);
   } else {
     // EUR-like: spread is already in USD terms
-    return amountIn * delta;
+    return amountIn * (spread / 2);
   }
 }
 

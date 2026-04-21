@@ -210,7 +210,8 @@ describe("ElectronApiAdapter (via backendApiAdapter)", () => {
     const data = {
       to_code: "LBP",
       market_rate: 89500,
-      delta: 0,
+      buy_rate: 89000,
+      sell_rate: 90000,
       is_stronger: -1 as const,
     };
     await backendApiAdapter.setRate(data);

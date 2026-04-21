@@ -43,14 +43,16 @@ function toCurrencyRates(
   rows: Array<{
     to_code: string;
     market_rate: number;
-    delta: number;
+    buy_rate: number;
+    sell_rate: number;
     is_stronger: number;
   }>,
 ): CurrencyRate[] {
   return rows.map((r) => ({
     to_code: r.to_code,
     market_rate: r.market_rate,
-    delta: r.delta,
+    buy_rate: r.buy_rate,
+    sell_rate: r.sell_rate,
     is_stronger: r.is_stronger as 1 | -1,
   }));
 }

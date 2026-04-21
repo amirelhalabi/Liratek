@@ -185,7 +185,8 @@ export class ElectronApiAdapter implements ApiAdapter {
   setRate = (data: {
     to_code: string;
     market_rate: number;
-    delta: number;
+    buy_rate: number;
+    sell_rate: number;
     is_stronger: 1 | -1;
   }) => api.setRate(data);
   deleteRate = (to_code: string) => api.deleteRate(to_code);

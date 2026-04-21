@@ -173,7 +173,8 @@ interface RateRow {
   id: number;
   to_code: string;
   market_rate: number;
-  delta: number;
+  buy_rate: number;
+  sell_rate: number;
   is_stronger: 1 | -1;
   updated_at: string;
 }
@@ -181,21 +182,21 @@ interface RateRow {
 interface RateFormData {
   to_code: string;
   market_rate: string;
-  delta: string;
+  buy_rate: string;
+  sell_rate: string;
   is_stronger: 1 | -1;
 }
 
 const defaultRateForm: RateFormData = {
   to_code: "",
   market_rate: "",
-  delta: "",
+  buy_rate: "",
+  sell_rate: "",
   is_stronger: 1,
 };
 
 function computeEffectiveRates(row: RateRow) {
-  const rateA = row.market_rate + row.delta;
-  const rateB = row.market_rate - row.delta;
-  return { buyRate: Math.min(rateA, rateB), sellRate: Math.max(rateA, rateB) };
+  return { buyRate: row.buy_rate, sellRate: row.sell_rate };
 }
 
 function formatRate(rate: number, isStronger: 1 | -1): string {
@@ -213,8 +214,8 @@ function ExchangeRatesSection() {
   const api = useApi();
   const [rates, setRates] = useState<RateRow[]>([]);
   const [loading, setLoading] = useState(false);
-  const [form, setForm] = useState<RateFormData>(defaultRateForm);
   const [editingRow, setEditingRow] = useState<RateRow | null>(null);
+  const [isAdding, setIsAdding] = useState(false);
   const [editForm, setEditForm] = useState<RateFormData>(defaultRateForm);
 
   const load = useCallback(async () => {
@@ -231,54 +232,55 @@ function ExchangeRatesSection() {
     load();
   }, [load]);
 
-  // ── Add / Update ────────────────────────────────────────────────────────
-  const handleAdd = async () => {
-    if (!form.to_code || !form.market_rate || !form.delta) {
-      return alert("Please fill in all fields.");
-    }
-    const market = parseFloat(form.market_rate);
-    const delta = parseFloat(form.delta);
-    if (isNaN(market) || market <= 0) return alert("Invalid market rate.");
-    if (isNaN(delta) || delta < 0)
-      return alert("Invalid delta (must be >= 0).");
-
-    const res = await api.setRate({
-      to_code: form.to_code.toUpperCase(),
-      market_rate: market,
-      delta,
-      is_stronger: form.is_stronger,
-    });
-    if (!res?.success) return alert(res?.error ?? "Failed to save rate.");
-    setForm(defaultRateForm);
-    load();
+  // ── Open modal for adding ───────────────────────────────────────────────
+  const handleAddOpen = () => {
+    setEditingRow(null);
+    setIsAdding(true);
+    setEditForm(defaultRateForm);
   };
 
-  // ── Edit ────────────────────────────────────────────────────────────────
+  // ── Open modal for editing ──────────────────────────────────────────────
   const handleEditOpen = (row: RateRow) => {
+    const { buyRate, sellRate } = computeEffectiveRates(row);
+    setIsAdding(false);
     setEditingRow(row);
     setEditForm({
       to_code: row.to_code,
       market_rate: String(row.market_rate),
-      delta: String(row.delta),
+      buy_rate: String(buyRate),
+      sell_rate: String(sellRate),
       is_stronger: row.is_stronger,
     });
   };
 
-  const handleEditSave = async () => {
-    if (!editingRow) return;
+  const handleModalClose = () => {
+    setEditingRow(null);
+    setIsAdding(false);
+  };
+
+  // ── Save (works for both add & edit) ────────────────────────────────────
+  const handleSave = async () => {
+    const toCode = isAdding
+      ? editForm.to_code.trim().toUpperCase()
+      : editingRow?.to_code;
+    if (!toCode) return alert("Please enter a currency code.");
     const market = parseFloat(editForm.market_rate);
-    const delta = parseFloat(editForm.delta);
+    const buy = parseFloat(editForm.buy_rate);
+    const sell = parseFloat(editForm.sell_rate);
     if (isNaN(market) || market <= 0) return alert("Invalid market rate.");
-    if (isNaN(delta) || delta < 0) return alert("Invalid delta.");
+    if (isNaN(buy) || buy <= 0) return alert("Invalid buy rate.");
+    if (isNaN(sell) || sell <= 0) return alert("Invalid sell rate.");
+    if (buy >= sell) return alert("Buy rate must be less than sell rate.");
 
     const res = await api.setRate({
-      to_code: editingRow.to_code,
+      to_code: toCode,
       market_rate: market,
-      delta,
+      buy_rate: buy,
+      sell_rate: sell,
       is_stronger: editForm.is_stronger,
     });
     if (!res?.success) return alert(res?.error ?? "Failed to save rate.");
-    setEditingRow(null);
+    handleModalClose();
     load();
   };
 
@@ -311,14 +313,12 @@ function ExchangeRatesSection() {
       <div className="flex items-start gap-3 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg text-sm text-blue-300">
         <Info size={16} className="mt-0.5 shrink-0 text-blue-400" />
         <div>
-          Enter the <strong>market (mid) rate</strong> and{" "}
-          <strong>delta</strong> (half-spread). The formula{" "}
-          <code className="bg-slate-800 px-1 rounded text-xs">
-            rate = market +/- delta
-          </code>{" "}
-          derives buy/sell rates automatically. Use <strong>stronger</strong>{" "}
-          for currencies worth more than 1 USD (EUR, GBP), and{" "}
-          <strong>weaker</strong> for currencies worth less (LBP, TRY).
+          Set the <strong>buy rate</strong> (what we give) and{" "}
+          <strong>sell rate</strong> (what the customer gives) directly. The
+          market rate is automatically calculated as the midpoint. Use{" "}
+          <strong>stronger</strong> for currencies worth more than 1 USD (EUR,
+          GBP), and <strong>weaker</strong> for currencies worth less (LBP,
+          TRY).
         </div>
       </div>
 
@@ -336,7 +336,7 @@ function ExchangeRatesSection() {
                   {lbpSpread.toLocaleString()} LBP
                 </p>
                 <p className="text-xs text-emerald-300/70">
-                  Per 1 USD exchanged (2 x delta)
+                  Per 1 USD exchanged (sell - buy)
                 </p>
               </div>
             </div>
@@ -354,7 +354,7 @@ function ExchangeRatesSection() {
                   ${eurSpread.toFixed(2)} USD
                 </p>
                 <p className="text-xs text-emerald-300/70">
-                  Per 1 EUR exchanged (2 x delta)
+                  Per 1 EUR exchanged (sell - buy)
                 </p>
               </div>
             </div>
@@ -362,80 +362,20 @@ function ExchangeRatesSection() {
         )}
       </div>
 
-      {/* ── Add / Update Rate Form ── */}
-      <div className="p-4 bg-slate-800 rounded-xl border border-slate-700">
-        <h4 className="text-sm font-semibold text-white mb-3">
-          Add / Update Currency Rate
-        </h4>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 items-end">
-          <div>
-            <label className="block text-xs text-slate-400 mb-1">
-              Currency Code
-            </label>
-            <input
-              value={form.to_code}
-              onChange={(e) =>
-                setForm({ ...form, to_code: e.target.value.toUpperCase() })
-              }
-              placeholder="e.g. LBP, EUR, GBP"
-              maxLength={5}
-              className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white text-sm font-mono uppercase"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-slate-400 mb-1">
-              Market Rate
-            </label>
-            <input
-              value={form.market_rate}
-              onChange={(e) =>
-                setForm({ ...form, market_rate: e.target.value })
-              }
-              placeholder="e.g. 89500 or 1.18"
-              type="number"
-              className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white text-sm"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-slate-400 mb-1">
-              Delta (half-spread)
-            </label>
-            <input
-              value={form.delta}
-              onChange={(e) => setForm({ ...form, delta: e.target.value })}
-              placeholder="e.g. 500 or 0.02"
-              type="number"
-              className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white text-sm"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-slate-400 mb-1">
-              Strength vs USD
-            </label>
-            <select
-              value={form.is_stronger}
-              onChange={(e) =>
-                setForm({
-                  ...form,
-                  is_stronger: Number(e.target.value) as 1 | -1,
-                })
-              }
-              className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white text-sm"
-            >
-              <option value={1}>Weaker than USD (e.g. LBP)</option>
-              <option value={-1}>Stronger than USD (e.g. EUR)</option>
-            </select>
-          </div>
-        </div>
+      {/* ── Add Rate Button + Rates Table ── */}
+      <div className="flex items-center justify-between">
+        <span className="text-sm text-slate-400">
+          {rates.length} rate{rates.length !== 1 ? "s" : ""} configured
+        </span>
         <button
-          onClick={handleAdd}
-          className="mt-3 px-5 py-2 bg-violet-600 hover:bg-violet-700 rounded text-white text-sm font-medium transition-colors"
+          onClick={handleAddOpen}
+          className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white transition-colors"
         >
-          Save Rate
+          <Plus size={14} />
+          Add Rate
         </button>
       </div>
 
-      {/* ── Rates Table ── */}
       <div className="border border-slate-700 rounded-xl overflow-hidden">
         <DataTable
           columns={[
@@ -443,7 +383,6 @@ function ExchangeRatesSection() {
             { header: "Market Rate" },
             { header: "Buy Rate (we give)" },
             { header: "Sell Rate (customer gives)" },
-            { header: "Delta" },
             { header: "Updated" },
             { header: "Actions" },
           ]}
@@ -494,11 +433,6 @@ function ExchangeRatesSection() {
                     Customer gives us this
                   </div>
                 </td>
-                <td className="p-3">
-                  <span className="font-mono text-amber-400">
-                    ±{formatRate(row.delta, row.is_stronger)}
-                  </span>
-                </td>
                 <td className="p-3 text-slate-400 text-xs">
                   {new Date(row.updated_at).toLocaleString()}
                 </td>
@@ -526,18 +460,64 @@ function ExchangeRatesSection() {
         />
       </div>
 
-      {/* ── Edit Modal ── */}
-      {editingRow && (
+      {/* ── Add / Edit Modal ── */}
+      {(editingRow || isAdding) && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
           <div className="bg-slate-800 rounded-xl border border-slate-700 p-6 w-[420px] shadow-2xl">
             <h3 className="text-lg font-bold text-white mb-4">
-              Edit Rate —{" "}
-              <span className="text-violet-400">{editingRow.to_code}</span>
+              {isAdding ? (
+                "Add Rate"
+              ) : (
+                <>
+                  Edit Rate —{" "}
+                  <span className="text-violet-400">{editingRow!.to_code}</span>
+                </>
+              )}
             </h3>
             <div className="space-y-4">
+              {isAdding && (
+                <>
+                  <div>
+                    <label className="block text-sm text-slate-400 mb-1">
+                      Currency Code
+                    </label>
+                    <input
+                      value={editForm.to_code}
+                      onChange={(e) =>
+                        setEditForm({
+                          ...editForm,
+                          to_code: e.target.value.toUpperCase(),
+                        })
+                      }
+                      placeholder="e.g. LBP, EUR, GBP"
+                      maxLength={5}
+                      className="w-full bg-slate-900 border border-slate-700 rounded px-4 py-2 text-white font-mono uppercase"
+                      autoFocus
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-slate-400 mb-1">
+                      Strength vs USD
+                    </label>
+                    <select
+                      value={editForm.is_stronger}
+                      onChange={(e) =>
+                        setEditForm({
+                          ...editForm,
+                          is_stronger: Number(e.target.value) as 1 | -1,
+                        })
+                      }
+                      className="w-full bg-slate-900 border border-slate-700 rounded px-4 py-2 text-white"
+                    >
+                      <option value={1}>Weaker than USD (e.g. LBP)</option>
+                      <option value={-1}>Stronger than USD (e.g. EUR)</option>
+                    </select>
+                  </div>
+                </>
+              )}
               <div>
                 <label className="block text-sm text-slate-400 mb-1">
-                  Market Rate (mid-market)
+                  Market Rate
                 </label>
                 <input
                   type="number"
@@ -546,91 +526,65 @@ function ExchangeRatesSection() {
                     setEditForm({ ...editForm, market_rate: e.target.value })
                   }
                   className="w-full bg-slate-900 border border-slate-700 rounded px-4 py-2 text-white font-mono"
-                  autoFocus
+                  autoFocus={!isAdding}
                 />
               </div>
               <div>
                 <label className="block text-sm text-slate-400 mb-1">
-                  Delta (half-spread)
+                  Buy Rate (we give)
                 </label>
                 <input
                   type="number"
-                  value={editForm.delta}
+                  value={editForm.buy_rate}
                   onChange={(e) =>
-                    setEditForm({ ...editForm, delta: e.target.value })
+                    setEditForm({ ...editForm, buy_rate: e.target.value })
                   }
                   className="w-full bg-slate-900 border border-slate-700 rounded px-4 py-2 text-white font-mono"
                 />
               </div>
               <div>
                 <label className="block text-sm text-slate-400 mb-1">
-                  Strength vs USD
+                  Sell Rate (customer gives)
                 </label>
-                <select
-                  value={editForm.is_stronger}
+                <input
+                  type="number"
+                  value={editForm.sell_rate}
                   onChange={(e) =>
-                    setEditForm({
-                      ...editForm,
-                      is_stronger: Number(e.target.value) as 1 | -1,
-                    })
+                    setEditForm({ ...editForm, sell_rate: e.target.value })
                   }
-                  className="w-full bg-slate-900 border border-slate-700 rounded px-4 py-2 text-white"
-                >
-                  <option value={1}>Weaker than USD (e.g. LBP)</option>
-                  <option value={-1}>Stronger than USD (e.g. EUR)</option>
-                </select>
+                  className="w-full bg-slate-900 border border-slate-700 rounded px-4 py-2 text-white font-mono"
+                />
               </div>
-
-              {/* Preview */}
-              {editForm.market_rate && editForm.delta && (
-                <div className="bg-slate-900/60 rounded-lg p-3 text-xs space-y-1">
-                  <div className="text-slate-400 font-semibold mb-2">
-                    Preview:
-                  </div>
-                  {(() => {
-                    const m = parseFloat(editForm.market_rate);
-                    const d = parseFloat(editForm.delta);
-                    const s = editForm.is_stronger;
-                    if (isNaN(m) || isNaN(d)) return null;
-                    const buy = Math.min(m + d, m - d);
-                    const sell = Math.max(m + d, m - d);
-                    return (
-                      <>
-                        <div className="flex justify-between">
-                          <span className="text-slate-400">Buy (we give):</span>
-                          <span className="text-emerald-400 font-mono">
-                            {formatRate(buy, s)}
-                          </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-slate-400">Market:</span>
-                          <span className="text-white font-mono">
-                            {formatRate(m, s)}
-                          </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-slate-400">
-                            Sell (customer gives):
-                          </span>
-                          <span className="text-red-400 font-mono">
-                            {formatRate(sell, s)}
-                          </span>
-                        </div>
-                      </>
-                    );
-                  })()}
+              {!isAdding && (
+                <div>
+                  <label className="block text-sm text-slate-400 mb-1">
+                    Strength vs USD
+                  </label>
+                  <select
+                    value={editForm.is_stronger}
+                    onChange={(e) =>
+                      setEditForm({
+                        ...editForm,
+                        is_stronger: Number(e.target.value) as 1 | -1,
+                      })
+                    }
+                    className="w-full bg-slate-900 border border-slate-700 rounded px-4 py-2 text-white"
+                  >
+                    <option value={1}>Weaker than USD (e.g. LBP)</option>
+                    <option value={-1}>Stronger than USD (e.g. EUR)</option>
+                  </select>
                 </div>
               )}
 
               <div className="flex gap-2 pt-2">
                 <button
-                  onClick={() => setEditingRow(null)}
+                  onClick={handleModalClose}
                   className="flex-1 px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded text-white transition-colors"
                 >
                   Cancel
                 </button>
                 <button
-                  onClick={handleEditSave}
+                  onClick={handleSave}
                   className="flex-1 px-4 py-2 bg-violet-600 hover:bg-violet-700 rounded text-white font-medium transition-colors"
                 >
                   Save

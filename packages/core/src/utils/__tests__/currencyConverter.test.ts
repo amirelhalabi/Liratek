@@ -16,12 +16,25 @@ import {
   GIVE_USD,
   TAKE_USD,
 } from "../currencyConverter.js";
+import type { CurrencyRate } from "../currencyConverter.js";
 
 // ─── Test Fixtures ─────────────────────────────────────────────────────────────
 
-const mockRates = [
-  { to_code: "LBP", market_rate: 89500, delta: 500, is_stronger: 1 as const },
-  { to_code: "EUR", market_rate: 1.18, delta: 0.02, is_stronger: -1 as const },
+const mockRates: CurrencyRate[] = [
+  {
+    to_code: "LBP",
+    market_rate: 89500,
+    buy_rate: 89000,
+    sell_rate: 90000,
+    is_stronger: 1,
+  },
+  {
+    to_code: "EUR",
+    market_rate: 1.18,
+    buy_rate: 1.16,
+    sell_rate: 1.2,
+    is_stronger: -1,
+  },
 ];
 
 const lbp = mockRates[0];
@@ -82,14 +95,14 @@ describe("convertFromUSD", () => {
 // ─── computeLegProfitUsd ──────────────────────────────────────────────────────
 
 describe("computeLegProfitUsd", () => {
-  it("LBP leg: profit = amountIn/market × delta", () => {
-    // 10 USD worth of LBP at market rate 89500
+  it("LBP leg: profit = amountIn/market × halfSpread", () => {
+    // 10 USD worth of LBP at market rate 89500, halfSpread = (90000-89000)/2 = 500
     const profit = computeLegProfitUsd(10, lbp);
     expect(profit).toBeCloseTo((10 * 500) / 89500, 8);
   });
 
-  it("EUR leg: profit = amountIn × delta", () => {
-    // 10 EUR, delta = 0.02
+  it("EUR leg: profit = amountIn × halfSpread", () => {
+    // 10 EUR, halfSpread = (1.20-1.16)/2 = 0.02
     const profit = computeLegProfitUsd(10, eur);
     expect(profit).toBeCloseTo(10 * 0.02, 8);
   });
@@ -224,33 +237,34 @@ describe("profit invariants", () => {
 // ─── N-currency extensibility ─────────────────────────────────────────────────
 
 describe("N-currency extensibility", () => {
-  const ratesWithGBP = [
+  const ratesWithGBP: CurrencyRate[] = [
     ...mockRates,
     {
       to_code: "GBP",
       market_rate: 1.28,
-      delta: 0.03,
-      is_stronger: -1 as const,
+      buy_rate: 1.25,
+      sell_rate: 1.31,
+      is_stronger: -1,
     },
   ];
 
   it("GBP→USD works with just a new rate row", () => {
     const r = calculateExchange("GBP", "USD", 10, ratesWithGBP);
     expect(r.legs).toHaveLength(1);
-    expect(r.totalAmountOut).toBeCloseTo(10 * (1.28 - 0.03), 4); // 10 × 1.25 = 12.5
+    expect(r.totalAmountOut).toBeCloseTo(10 * 1.25, 4); // 10 × buy_rate 1.25 = 12.5
   });
 
   it("USD→GBP works with just a new rate row", () => {
     const r = calculateExchange("USD", "GBP", 13.1, ratesWithGBP);
     expect(r.legs).toHaveLength(1);
-    expect(r.totalAmountOut).toBeCloseTo(13.1 / (1.28 + 0.03), 4); // 13.1 / 1.31 = 10
+    expect(r.totalAmountOut).toBeCloseTo(13.1 / 1.31, 4); // 13.1 / sell_rate 1.31 = 10
   });
 
   it("GBP→LBP: cross-currency, 2 legs, via USD", () => {
     const r = calculateExchange("GBP", "LBP", 1, ratesWithGBP);
     expect(r.legs).toHaveLength(2);
     expect(r.viaCurrency).toBe("USD");
-    expect(r.totalAmountOut).toBeCloseTo(1.25 * 89000, 0); // GBP buy × LBP sell
+    expect(r.totalAmountOut).toBeCloseTo(1.25 * 89000, 0); // GBP buy_rate × LBP buy_rate
   });
 
   it("GBP→EUR: cross-currency, 2 legs, via USD", () => {

@@ -912,7 +912,8 @@ export async function getRates() {
 export async function setRate(data: {
   to_code: string;
   market_rate: number;
-  delta: number;
+  buy_rate: number;
+  sell_rate: number;
   is_stronger: 1 | -1;
 }) {
   return ipcOrHttp(

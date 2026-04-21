@@ -2,7 +2,7 @@
  * Rate IPC Handlers
  *
  * Thin wrapper over RateService for IPC communication.
- * New schema (v30): one row per non-USD currency (to_code, market_rate, delta, is_stronger)
+ * Schema (v59): one row per non-USD currency (to_code, market_rate, buy_rate, sell_rate, is_stronger)
  */
 
 import { ipcMain, IpcMainInvokeEvent } from "electron";
@@ -20,7 +20,7 @@ export function registerRateHandlers(): void {
   });
 
   // Set / upsert a rate (admin only)
-  // Payload: { to_code, market_rate, delta, is_stronger }
+  // Payload: { to_code, market_rate, buy_rate, sell_rate, is_stronger }
   ipcMain.handle(
     "rates:set",
     (event: IpcMainInvokeEvent, data: SetRateData) => {
@@ -31,7 +31,8 @@ export function registerRateHandlers(): void {
         {
           toCode: data.to_code,
           marketRate: data.market_rate,
-          delta: data.delta,
+          buyRate: data.buy_rate,
+          sellRate: data.sell_rate,
           isStronger: data.is_stronger,
         },
         "Setting rate",
@@ -41,10 +42,11 @@ export function registerRateHandlers(): void {
         action: "update",
         entity_type: "exchange_rate",
         entity_id: data.to_code,
-        summary: `Set rate USD→${data.to_code}: market=${data.market_rate}, delta=${data.delta}`,
+        summary: `Set rate USD→${data.to_code}: market=${data.market_rate}, buy=${data.buy_rate}, sell=${data.sell_rate}`,
         new_values: {
           market_rate: data.market_rate,
-          delta: data.delta,
+          buy_rate: data.buy_rate,
+          sell_rate: data.sell_rate,
           is_stronger: data.is_stronger,
         },
       });

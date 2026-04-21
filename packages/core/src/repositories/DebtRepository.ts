@@ -102,16 +102,21 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
 
   /**
    * Get the current exchange rate for USD→LBP conversions.
-   * Computes effective sell rate using: market_rate + is_stronger * delta
+   * Computes effective sell rate using sell_rate column directly.
    * Falls back to 89500 if no rate found (logs warning instead of throwing).
    */
   private getExchangeRate(fromCode = "USD", toCode = "LBP"): number {
     const rateResult = this.db
       .prepare(
-        `SELECT market_rate, delta, is_stronger FROM exchange_rates WHERE to_code = ? LIMIT 1`,
+        `SELECT market_rate, buy_rate, sell_rate, is_stronger FROM exchange_rates WHERE to_code = ? LIMIT 1`,
       )
       .get(toCode) as
-      | { market_rate: number; delta: number; is_stronger: number }
+      | {
+          market_rate: number;
+          buy_rate: number;
+          sell_rate: number;
+          is_stronger: number;
+        }
       | undefined;
 
     if (!rateResult) {
@@ -121,10 +126,8 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       return 89500;
     }
 
-    // Compute effective sell rate: market_rate + is_stronger * delta (GIVE_USD = +1)
-    const effectiveRate =
-      rateResult.market_rate + rateResult.is_stronger * rateResult.delta;
-    return effectiveRate;
+    // Use sell_rate (customer gives us this rate)
+    return rateResult.sell_rate;
   }
 
   /**

@@ -521,7 +521,8 @@ export type ApiAdapter = {
   setRate: (data: {
     to_code: string;
     market_rate: number;
-    delta: number;
+    buy_rate: number;
+    sell_rate: number;
     is_stronger: 1 | -1;
   }) => Promise<ApiResult>;
   deleteRate: (to_code: string) => Promise<ApiResult>;

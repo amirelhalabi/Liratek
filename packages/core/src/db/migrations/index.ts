@@ -2417,6 +2417,74 @@ export const MIGRATIONS: Migration[] = [
       console.log("Migration v58 rolled back: cleared checkpoint_id");
     },
   },
+  {
+    version: 59,
+    name: "replace_delta_with_buy_sell_rates",
+    description:
+      "Replace delta column with buy_rate and sell_rate in exchange_rates for independent rate control",
+    type: "typescript",
+    up(db) {
+      // Add new columns
+      db.exec(`
+        ALTER TABLE exchange_rates ADD COLUMN buy_rate REAL;
+        ALTER TABLE exchange_rates ADD COLUMN sell_rate REAL;
+      `);
+
+      // Backfill: buy_rate = market - delta, sell_rate = market + delta
+      db.exec(`
+        UPDATE exchange_rates SET
+          buy_rate = market_rate - delta,
+          sell_rate = market_rate + delta;
+      `);
+
+      // Make NOT NULL now that data is backfilled
+      // SQLite doesn't support ALTER COLUMN, so we recreate the table
+      db.exec(`
+        CREATE TABLE exchange_rates_new (
+          id          INTEGER PRIMARY KEY AUTOINCREMENT,
+          to_code     TEXT    NOT NULL UNIQUE,
+          market_rate REAL    NOT NULL,
+          buy_rate    REAL    NOT NULL,
+          sell_rate   REAL    NOT NULL,
+          is_stronger INTEGER NOT NULL DEFAULT 1 CHECK(is_stronger IN (1, -1)),
+          updated_at  TEXT    DEFAULT (datetime('now'))
+        );
+
+        INSERT INTO exchange_rates_new (id, to_code, market_rate, buy_rate, sell_rate, is_stronger, updated_at)
+        SELECT id, to_code, market_rate, buy_rate, sell_rate, is_stronger, updated_at
+        FROM exchange_rates;
+
+        DROP TABLE exchange_rates;
+        ALTER TABLE exchange_rates_new RENAME TO exchange_rates;
+      `);
+
+      console.log(
+        "Migration v59: Replaced delta with buy_rate/sell_rate in exchange_rates",
+      );
+    },
+    down(db) {
+      // Recreate with delta column
+      db.exec(`
+        CREATE TABLE exchange_rates_old (
+          id          INTEGER PRIMARY KEY AUTOINCREMENT,
+          to_code     TEXT    NOT NULL UNIQUE,
+          market_rate REAL    NOT NULL,
+          delta       REAL    NOT NULL DEFAULT 0,
+          is_stronger INTEGER NOT NULL DEFAULT 1 CHECK(is_stronger IN (1, -1)),
+          updated_at  TEXT    DEFAULT (datetime('now'))
+        );
+
+        INSERT INTO exchange_rates_old (id, to_code, market_rate, delta, is_stronger, updated_at)
+        SELECT id, to_code, (sell_rate - buy_rate) / 2.0, is_stronger, updated_at
+        FROM exchange_rates;
+
+        DROP TABLE exchange_rates;
+        ALTER TABLE exchange_rates_old RENAME TO exchange_rates;
+      `);
+
+      console.log("Migration v59 rolled back: restored delta column");
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

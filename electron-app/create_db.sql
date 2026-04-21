@@ -113,23 +113,20 @@ CREATE TABLE IF NOT EXISTS exchange_rates (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     to_code     TEXT    NOT NULL UNIQUE,
     market_rate REAL    NOT NULL,
-    delta       REAL    NOT NULL DEFAULT 0,
+    buy_rate    REAL    NOT NULL,
+    sell_rate   REAL    NOT NULL,
     is_stronger INTEGER NOT NULL DEFAULT 1 CHECK(is_stronger IN (1, -1)),
     updated_at  TEXT    DEFAULT (datetime('now'))
 );
 
 -- Seed default exchange rates
--- LBP: 1 USD = 89,500 LBP at market, ±500 spread
---   USD→LBP (TAKE_USD): 89500 + 1×(-1×500) = 89,000 LBP  (customer gives USD)
---   LBP→USD (GIVE_USD): 89500 + 1×(+1×500) = 90,000 LBP  (customer gives LBP)
-INSERT OR IGNORE INTO exchange_rates (to_code, market_rate, delta, is_stronger)
-VALUES ('LBP', 89500, 500, 1);
+-- LBP: 1 USD = 89,500 LBP market, buy 89,000, sell 90,000
+INSERT OR IGNORE INTO exchange_rates (to_code, market_rate, buy_rate, sell_rate, is_stronger)
+VALUES ('LBP', 89500, 89000, 90000, 1);
 
--- EUR: 1 EUR = 1.18 USD at market, ±0.02 spread
---   EUR→USD (GIVE_USD): 1.18 + (-1)×(+1×0.02) = 1.16 USD  (customer gives EUR)
---   USD→EUR (TAKE_USD): 1.18 + (-1)×(-1×0.02) = 1.20 USD  (customer gives USD)
-INSERT OR IGNORE INTO exchange_rates (to_code, market_rate, delta, is_stronger)
-VALUES ('EUR', 1.18, 0.02, -1);
+-- EUR: 1 EUR = 1.18 USD market, buy 1.16, sell 1.20
+INSERT OR IGNORE INTO exchange_rates (to_code, market_rate, buy_rate, sell_rate, is_stronger)
+VALUES ('EUR', 1.18, 1.16, 1.20, -1);
 
 -- =============================================================================
 -- 2. Business Entity Tables
@@ -985,4 +982,6 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (54, 'create_audit_log'),
     (55, 'remove_login_transactions'),
     (56, 'add_cash_prize_entry_type'),
-    (57, 'link_cash_prizes_to_checkpoints');
+    (57, 'link_cash_prizes_to_checkpoints'),
+    (58, 'add_checkpoint_id_to_loto_tickets'),
+    (59, 'replace_delta_with_buy_sell_rates');

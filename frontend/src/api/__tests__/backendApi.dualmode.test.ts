@@ -296,7 +296,8 @@ describe("backendApi dual-mode routing", () => {
     await apiMod.setRate({
       to_code: "LBP",
       market_rate: 89000,
-      delta: 0,
+      buy_rate: 88500,
+      sell_rate: 89500,
       is_stronger: -1,
     });
 
