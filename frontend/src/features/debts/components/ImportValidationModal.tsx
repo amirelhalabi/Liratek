@@ -46,19 +46,31 @@ export type ImportClient = {
   entries: ImportEntry[];
 };
 
-type IssueCategory = 1 | 2 | 3 | 4;
+type IssueCategory = 1 | 2 | 3 | 4 | 5;
 
 interface ValidationIssue {
-  id: string; // unique key for React
+  id: string;
   category: IssueCategory;
   name: string;
   phone: string;
   entryCount: number;
   sourceType: "listName" | "page";
   sourceIndex: number;
+  /** Case 5: phones from both sources */
+  listPhone?: string;
+  pagePhone?: string;
+  pairedPageIndex?: number;
+  pairedListIndex?: number;
 }
 
-type ResolutionAction = "keep" | "discard" | "link" | "manual_phone" | "merge";
+type ResolutionAction =
+  | "keep"
+  | "discard"
+  | "link"
+  | "manual_phone"
+  | "merge"
+  | "use_list_phone"
+  | "use_page_phone";
 
 interface Resolution {
   action: ResolutionAction;
@@ -75,7 +87,7 @@ interface ImportValidationModalProps {
 }
 
 // ---------------------------------------------------------------------------
-// Name similarity helpers (same logic as ImportCleanupModal)
+// Name similarity helpers
 // ---------------------------------------------------------------------------
 
 function normalizeName(name: string): string {
@@ -143,6 +155,13 @@ const SECTION_CONFIG: Record<
     icon: PhoneOff,
     actions: ["manual_phone", "merge", "keep", "discard"],
   },
+  5: {
+    label: "Phone Mismatch (List vs Page)",
+    color: "text-cyan-400",
+    badgeColor: "bg-cyan-500/20 text-cyan-400",
+    icon: ArrowLeftRight,
+    actions: ["use_list_phone", "use_page_phone", "manual_phone", "discard"],
+  },
 };
 
 const ACTION_LABELS: Record<ResolutionAction, string> = {
@@ -151,6 +170,8 @@ const ACTION_LABELS: Record<ResolutionAction, string> = {
   link: "Link to...",
   manual_phone: "Enter phone",
   merge: "Merge into...",
+  use_list_phone: "Use list phone",
+  use_page_phone: "Use page phone",
 };
 
 const ACTION_COLORS: Record<ResolutionAction, string> = {
@@ -159,6 +180,8 @@ const ACTION_COLORS: Record<ResolutionAction, string> = {
   link: "bg-sky-500/20 text-sky-400 border-sky-500/40",
   manual_phone: "bg-amber-500/20 text-amber-400 border-amber-500/40",
   merge: "bg-violet-500/20 text-violet-400 border-violet-500/40",
+  use_list_phone: "bg-emerald-500/20 text-emerald-400 border-emerald-500/40",
+  use_page_phone: "bg-teal-500/20 text-teal-400 border-teal-500/40",
 };
 
 const ACTION_ICONS: Record<ResolutionAction, typeof Check> = {
@@ -167,6 +190,8 @@ const ACTION_ICONS: Record<ResolutionAction, typeof Check> = {
   link: Link2,
   manual_phone: Phone,
   merge: GitMerge,
+  use_list_phone: Check,
+  use_page_phone: Check,
 };
 
 // ---------------------------------------------------------------------------
@@ -184,8 +209,8 @@ export function ImportValidationModal({
   // -------------------------------------------------------------------------
 
   const { listToPageMap, pageToListMap } = useMemo(() => {
-    const l2p = new Map<number, number>(); // listIndex → pageIndex
-    const p2l = new Map<number, number>(); // pageIndex → listIndex
+    const l2p = new Map<number, number>();
+    const p2l = new Map<number, number>();
 
     for (let li = 0; li < listNameEntries.length; li++) {
       let bestPageIdx = -1;
@@ -202,7 +227,6 @@ export function ImportValidationModal({
       }
       if (bestPageIdx >= 0) {
         l2p.set(li, bestPageIdx);
-        // Only set if this page hasn't been claimed by a higher-similarity list entry
         if (!p2l.has(bestPageIdx)) {
           p2l.set(bestPageIdx, li);
         }
@@ -285,6 +309,28 @@ export function ImportValidationModal({
       }
     }
 
+    // Case 5: Phone mismatch — matched name but different phones
+    for (const [li, pi] of listToPageMap) {
+      const listPhone = listNameEntries[li].phone;
+      const pagePhone = parsedPages[pi].phone;
+      // Only flag if BOTH have a phone and they differ
+      if (listPhone && pagePhone && listPhone !== pagePhone) {
+        result.push({
+          id: `c5-${li}-${pi}`,
+          category: 5,
+          name: parsedPages[pi].name,
+          phone: pagePhone, // show page phone as primary
+          entryCount: parsedPages[pi].entries.length,
+          sourceType: "page",
+          sourceIndex: pi,
+          listPhone,
+          pagePhone,
+          pairedPageIndex: pi,
+          pairedListIndex: li,
+        });
+      }
+    }
+
     return result;
   }, [listNameEntries, parsedPages, listToPageMap, pageToListMap]);
 
@@ -295,6 +341,7 @@ export function ImportValidationModal({
       2: [],
       3: [],
       4: [],
+      5: [],
     };
     for (const issue of issues) {
       map[issue.category].push(issue);
@@ -310,8 +357,10 @@ export function ImportValidationModal({
     () => {
       const init = new Map<string, Resolution>();
       for (const issue of issues) {
-        const defaultAction: ResolutionAction =
-          issue.category === 2 ? "keep" : "discard";
+        let defaultAction: ResolutionAction;
+        if (issue.category === 2) defaultAction = "keep";
+        else if (issue.category === 5) defaultAction = "use_list_phone";
+        else defaultAction = "discard";
         init.set(issue.id, {
           action: defaultAction,
           manualPhone: "",
@@ -402,7 +451,7 @@ export function ImportValidationModal({
 
   const [expanded, setExpanded] = useState<Set<IssueCategory>>(() => {
     const initial = new Set<IssueCategory>();
-    for (const cat of [1, 2, 3, 4] as IssueCategory[]) {
+    for (const cat of [1, 2, 3, 4, 5] as IssueCategory[]) {
       if (issuesByCategory[cat].length > 0) initial.add(cat);
     }
     return initial;
@@ -422,21 +471,17 @@ export function ImportValidationModal({
   // -------------------------------------------------------------------------
 
   const handleConfirm = () => {
-    // Track which pages are included/excluded/modified
-    const pageIncluded = new Set<number>();
     const pageExcluded = new Set<number>();
-    const pagePhoneOverrides = new Map<number, string>(); // pageIndex → phone
-    const pageMergeTargets = new Map<number, number>(); // sourcePageIdx → targetPageIdx
-    const extraClients: ImportClient[] = []; // from Case 1 "keep"
+    const pagePhoneOverrides = new Map<number, string>();
+    const pageMergeTargets = new Map<number, number>();
+    const extraClients: ImportClient[] = [];
 
-    // Process issues by category
     for (const issue of issues) {
       const res = resolutions.get(issue.id);
       if (!res) continue;
 
       switch (issue.category) {
         case 1: {
-          // In list, no page
           if (res.action === "keep") {
             extraClients.push({
               name: issue.name,
@@ -444,25 +489,17 @@ export function ImportValidationModal({
               entries: [],
             });
           } else if (res.action === "link" && res.linkTargetIndex >= 0) {
-            // Link list entry to a page — apply list phone to page if page lacks phone
             const pageIdx = res.linkTargetIndex;
-            pageIncluded.add(pageIdx);
             if (!parsedPages[pageIdx].phone && issue.phone) {
               pagePhoneOverrides.set(pageIdx, issue.phone);
             }
           }
-          // discard: do nothing
           break;
         }
         case 2: {
-          // Page, not in list
           const pageIdx = issue.sourceIndex;
-          if (res.action === "keep") {
-            pageIncluded.add(pageIdx);
-          } else if (res.action === "link" && res.linkTargetIndex >= 0) {
-            // Link page to list entry — apply list phone if page lacks phone
+          if (res.action === "link" && res.linkTargetIndex >= 0) {
             const listIdx = res.linkTargetIndex;
-            pageIncluded.add(pageIdx);
             if (!parsedPages[pageIdx].phone && listNameEntries[listIdx].phone) {
               pagePhoneOverrides.set(pageIdx, listNameEntries[listIdx].phone);
             }
@@ -472,13 +509,11 @@ export function ImportValidationModal({
           break;
         }
         case 3: {
-          // List entry missing phone — find their matched page
           const matchedPageIdx = listToPageMap.get(issue.sourceIndex);
           if (res.action === "manual_phone" && res.manualPhone.trim()) {
             const phone = res.manualPhone.replace(/\D/g, "").trim();
             if (matchedPageIdx !== undefined) {
               pagePhoneOverrides.set(matchedPageIdx, phone);
-              pageIncluded.add(matchedPageIdx);
             } else {
               extraClients.push({ name: issue.name, phone, entries: [] });
             }
@@ -488,9 +523,7 @@ export function ImportValidationModal({
               pageExcluded.add(matchedPageIdx);
             }
           } else if (res.action === "keep") {
-            if (matchedPageIdx !== undefined) {
-              pageIncluded.add(matchedPageIdx);
-            } else {
+            if (matchedPageIdx === undefined) {
               extraClients.push({
                 name: issue.name,
                 phone: "",
@@ -505,17 +538,28 @@ export function ImportValidationModal({
           break;
         }
         case 4: {
-          // Page missing phone
           const pageIdx = issue.sourceIndex;
           if (res.action === "manual_phone" && res.manualPhone.trim()) {
             const phone = res.manualPhone.replace(/\D/g, "").trim();
             pagePhoneOverrides.set(pageIdx, phone);
-            pageIncluded.add(pageIdx);
           } else if (res.action === "merge" && res.mergeTargetIndex >= 0) {
             pageMergeTargets.set(pageIdx, res.mergeTargetIndex);
             pageExcluded.add(pageIdx);
-          } else if (res.action === "keep") {
-            pageIncluded.add(pageIdx);
+          } else if (res.action === "discard") {
+            pageExcluded.add(pageIdx);
+          }
+          break;
+        }
+        case 5: {
+          // Phone mismatch
+          const pageIdx = issue.pairedPageIndex!;
+          if (res.action === "use_list_phone") {
+            pagePhoneOverrides.set(pageIdx, issue.listPhone!);
+          } else if (res.action === "use_page_phone") {
+            // Keep page phone as-is (no override needed)
+          } else if (res.action === "manual_phone" && res.manualPhone.trim()) {
+            const phone = res.manualPhone.replace(/\D/g, "").trim();
+            pagePhoneOverrides.set(pageIdx, phone);
           } else if (res.action === "discard") {
             pageExcluded.add(pageIdx);
           }
@@ -524,11 +568,10 @@ export function ImportValidationModal({
       }
     }
 
-    // Build final clients array from pages
+    // Build final clients array
     const clients: ImportClient[] = [];
-    const mergedEntries = new Map<number, ImportEntry[]>(); // targetIdx → extra entries
+    const mergedEntries = new Map<number, ImportEntry[]>();
 
-    // Collect merge entries
     for (const [sourceIdx, targetIdx] of pageMergeTargets) {
       const existing = mergedEntries.get(targetIdx) ?? [];
       existing.push(...parsedPages[sourceIdx].entries);
@@ -540,18 +583,16 @@ export function ImportValidationModal({
 
       const page = parsedPages[pi];
       const phone = pagePhoneOverrides.get(pi) ?? page.phone;
-      const extraEntries = mergedEntries.get(pi) ?? [];
+      const extra = mergedEntries.get(pi) ?? [];
 
       clients.push({
         name: page.name,
         phone,
-        entries: [...page.entries, ...extraEntries],
+        entries: [...page.entries, ...extra],
       });
     }
 
-    // Add extra clients from Case 1 "keep" and Case 3 without matched page
     clients.push(...extraClients);
-
     onConfirm(clients);
   };
 
@@ -565,6 +606,8 @@ export function ImportValidationModal({
     let linked = 0;
     let manualPhone = 0;
     let merged = 0;
+    let useList = 0;
+    let usePage = 0;
     for (const [, res] of resolutions) {
       switch (res.action) {
         case "keep":
@@ -582,15 +625,20 @@ export function ImportValidationModal({
         case "merge":
           merged++;
           break;
+        case "use_list_phone":
+          useList++;
+          break;
+        case "use_page_phone":
+          usePage++;
+          break;
       }
     }
-    return { kept, discarded, linked, manualPhone, merged };
+    return { kept, discarded, linked, manualPhone, merged, useList, usePage };
   }, [resolutions]);
 
   const totalIssues = issues.length;
 
   if (totalIssues === 0) {
-    // No issues at all — shouldn't normally be shown, but handle gracefully
     onConfirm(
       parsedPages.map((p) => ({
         name: p.name,
@@ -654,7 +702,7 @@ export function ImportValidationModal({
             <span className="text-slate-500">Pages:</span>{" "}
             <span className="text-white font-medium">{parsedPages.length}</span>
           </div>
-          {([1, 2, 3, 4] as IssueCategory[]).map((cat) => (
+          {([1, 2, 3, 4, 5] as IssueCategory[]).map((cat) => (
             <div key={cat}>
               <span className="text-slate-500">Case {cat}:</span>{" "}
               <span
@@ -668,7 +716,7 @@ export function ImportValidationModal({
 
         {/* Accordion sections */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
-          {([1, 2, 3, 4] as IssueCategory[]).map((cat) => {
+          {([1, 2, 3, 4, 5] as IssueCategory[]).map((cat) => {
             const config = SECTION_CONFIG[cat];
             const sectionIssues = issuesByCategory[cat];
             const isExpanded = expanded.has(cat);
@@ -712,7 +760,9 @@ export function ImportValidationModal({
                       <thead>
                         <tr className="text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
                           <th className="px-4 py-2 pr-3">Client Name</th>
-                          <th className="px-4 py-2 pr-3 w-24">Phone</th>
+                          <th className="px-4 py-2 pr-3 w-24">
+                            {cat === 5 ? "Phones" : "Phone"}
+                          </th>
                           <th className="px-4 py-2 pr-3 w-20 text-center">
                             Entries
                           </th>
@@ -740,11 +790,22 @@ export function ImportValidationModal({
                                 </span>
                               </td>
                               <td className="px-4 py-2.5 pr-3">
-                                <span className="text-sm text-slate-400 font-mono">
-                                  {issue.phone || (
-                                    <span className="text-slate-600">—</span>
-                                  )}
-                                </span>
+                                {cat === 5 ? (
+                                  <div className="flex flex-col gap-0.5">
+                                    <span className="text-xs text-emerald-400 font-mono">
+                                      L: {issue.listPhone}
+                                    </span>
+                                    <span className="text-xs text-teal-400 font-mono">
+                                      P: {issue.pagePhone}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <span className="text-sm text-slate-400 font-mono">
+                                    {issue.phone || (
+                                      <span className="text-slate-600">—</span>
+                                    )}
+                                  </span>
+                                )}
                               </td>
                               <td className="px-4 py-2.5 pr-3 text-center">
                                 {issue.entryCount === 0 ? (
@@ -816,6 +877,12 @@ export function ImportValidationModal({
             <span>{summaryStats.linked} linked</span>
             <span>{summaryStats.manualPhone} manual phone</span>
             <span>{summaryStats.merged} merged</span>
+            {summaryStats.useList > 0 && (
+              <span>{summaryStats.useList} use list phone</span>
+            )}
+            {summaryStats.usePage > 0 && (
+              <span>{summaryStats.usePage} use page phone</span>
+            )}
           </div>
           <div className="flex gap-3">
             <button
@@ -881,9 +948,26 @@ function renderDetails(
     );
   }
 
+  if (res.action === "use_list_phone") {
+    return (
+      <span className="text-xs text-emerald-400">
+        Will use list phone:{" "}
+        <span className="font-mono">{issue.listPhone}</span>
+      </span>
+    );
+  }
+
+  if (res.action === "use_page_phone") {
+    return (
+      <span className="text-xs text-teal-400">
+        Will use page phone:{" "}
+        <span className="font-mono">{issue.pagePhone}</span>
+      </span>
+    );
+  }
+
   if (res.action === "link") {
     if (category === 1) {
-      // Link list entry to a page
       const sug = pageSuggestions.get(issue.sourceIndex) ?? [];
       return (
         <select
@@ -911,7 +995,6 @@ function renderDetails(
       );
     }
     if (category === 2) {
-      // Link page to list entry
       const sug = listSuggestions.get(issue.sourceIndex) ?? [];
       return (
         <select
