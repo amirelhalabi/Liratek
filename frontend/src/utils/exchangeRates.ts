@@ -40,11 +40,10 @@ export interface CurrencyPair {
  *
  * Supports TWO formats returned by api.getRates():
  *
- * **New 4-column schema** (current):
- *   { to_code, market_rate, delta, is_stronger }
- *   Formula: rate = market_rate + is_stronger × (action × delta)
- *     TAKE_USD (−1) → buyRate  (we buy USD from customer, lower rate)
- *     GIVE_USD (+1) → sellRate (we sell USD to customer, higher rate)
+ * **Current schema (v59+)**:
+ *   { to_code, market_rate, buy_rate, sell_rate, is_stronger }
+ *   buy_rate  = we buy USD from customer (lower rate, favorable to us)
+ *   sell_rate = we sell USD to customer (higher rate, favorable to us)
  *
  * **Legacy from/to schema** (fallback):
  *   { from_code, to_code, rate }
@@ -64,17 +63,17 @@ export function getExchangeRates(
   rates: Array<any>,
   fallbackRate: number = 89000,
 ): ExchangeRates {
-  // ── New 4-column schema: { to_code, market_rate, delta, is_stronger } ──────
+  // ── Current schema (v59+): { to_code, market_rate, buy_rate, sell_rate, is_stronger } ──
   const lbpRow = rates.find(
     (r) => r.to_code === "LBP" && r.market_rate !== undefined,
   );
   if (lbpRow) {
-    const { market_rate, delta } = lbpRow;
-    // buyRate = we pay customer less LBP per USD (lower, favorable to us)
-    // sellRate = customer pays us more LBP per USD (higher, favorable to us)
-    const buyRate = market_rate - delta;
-    const sellRate = market_rate + delta;
-    return { buyRate, sellRate };
+    // buy_rate = we buy USD from customer (lower, favorable to us)
+    // sell_rate = we sell USD to customer (higher, favorable to us)
+    return {
+      buyRate: lbpRow.buy_rate ?? lbpRow.market_rate,
+      sellRate: lbpRow.sell_rate ?? lbpRow.market_rate,
+    };
   }
 
   // ── Legacy from/to schema: { from_code, to_code, rate } ───────────────────
