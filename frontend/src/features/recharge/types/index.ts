@@ -37,6 +37,7 @@ export interface FinancialTransaction {
   commission: number;
   client_name?: string;
   reference_number?: string;
+  paid_by?: string | undefined;
   note?: string;
   created_at: string;
 }
@@ -48,6 +49,8 @@ export interface BinanceTransaction {
   currency_code: string;
   description: string | null;
   client_name: string | null;
+  commission: number;
+  paid_by: string | null;
   created_at: string;
 }
 
@@ -133,11 +136,11 @@ export const PROVIDER_CONFIGS: ProviderConfig[] = [
     module: "ipec_katch",
     drawer: "Whish_App",
     formMode: "financial",
-    color: "text-fuchsia-400",
-    bgTint: "bg-fuchsia-400/10",
-    activeBg: "bg-fuchsia-500",
+    color: "text-[#ff0a46]",
+    bgTint: "bg-[#ff0a46]/10",
+    activeBg: "bg-[#ff0a46]",
     activeText: "text-white",
-    badgeCls: "bg-fuchsia-400/10 text-fuchsia-400",
+    badgeCls: "bg-[#ff0a46]/10 text-[#ff0a46]",
     iconKey: "Zap",
     hasSupplier: true,
   },
@@ -147,11 +150,11 @@ export const PROVIDER_CONFIGS: ProviderConfig[] = [
     module: "ipec_katch",
     drawer: "OMT_App",
     formMode: "financial",
-    color: "text-lime-400",
-    bgTint: "bg-lime-400/10",
-    activeBg: "bg-lime-500",
-    activeText: "text-white",
-    badgeCls: "bg-lime-400/10 text-lime-400",
+    color: "text-[#ffde00]",
+    bgTint: "bg-[#ffde00]/10",
+    activeBg: "bg-[#ffde00]",
+    activeText: "text-black",
+    badgeCls: "bg-[#ffde00]/10 text-[#ffde00]",
     iconKey: "Zap",
     hasSupplier: true,
   },
@@ -163,7 +166,7 @@ export const PROVIDER_CONFIGS: ProviderConfig[] = [
     formMode: "crypto",
     color: "text-amber-400",
     bgTint: "bg-amber-400/10",
-    activeBg: "bg-amber-500",
+    activeBg: "bg-amber-600",
     activeText: "text-white",
     badgeCls: "bg-amber-400/10 text-amber-400",
     iconKey: "Bitcoin",

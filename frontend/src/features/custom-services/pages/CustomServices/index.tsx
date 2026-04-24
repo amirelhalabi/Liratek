@@ -24,6 +24,7 @@ import {
 import { PageHeader, Select, useApi } from "@liratek/ui";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useSession } from "@/features/sessions/context/SessionContext";
+import { useSessionAutoFill } from "@/features/sessions/hooks/useSessionAutoFill";
 import { useCustomServices } from "../../hooks/useCustomServices";
 import logger from "@/utils/logger";
 import { MultiPaymentInput, type PaymentLine } from "@liratek/ui";
@@ -49,7 +50,11 @@ function formatCurrency(usd: number, lbp: number): string {
 export default function CustomServices() {
   const api = useApi();
   const { methods } = usePaymentMethods();
-  const { activeSession, linkTransaction } = useSession();
+  const {
+    activeSession,
+    linkTransaction,
+    addToCart: addToSessionCart,
+  } = useSession();
   const {
     history,
     summary,
@@ -98,15 +103,11 @@ export default function CustomServices() {
     loadRate();
   }, [api]);
 
-  // Populate client name from session
-  useEffect(() => {
-    if (activeSession?.customer_name) {
-      setClientName(activeSession.customer_name);
-    }
-    if (activeSession?.customer_phone) {
-      setPhoneNumber(activeSession.customer_phone);
-    }
-  }, [activeSession]);
+  // Populate client name/phone from session, clear when session closes
+  useSessionAutoFill([
+    { select: (s) => s.customer_name, set: setClientName, clearValue: "" },
+    { select: (s) => s.customer_phone, set: setPhoneNumber, clearValue: "" },
+  ]);
 
   const searchClients = useCallback(
     async (query: string) => {
@@ -220,6 +221,39 @@ export default function CustomServices() {
       if (clientName.trim()) payload.client_name = clientName.trim();
       if (phoneNumber.trim()) payload.phone_number = phoneNumber.trim();
       if (note.trim()) payload.note = note.trim();
+
+      // If session is active, add to cart instead of submitting
+      if (activeSession) {
+        const amountLabel =
+          priceUsdVal > 0
+            ? `$${priceUsdVal.toFixed(2)}`
+            : priceLbpVal > 0
+              ? `${priceLbpVal.toLocaleString()} LBP`
+              : `$${costUsdVal.toFixed(2)}`;
+        const label = `Service: ${description.trim().substring(0, 40)} - ${amountLabel}`;
+
+        addToSessionCart({
+          module: "custom_service",
+          label,
+          amount: priceUsdVal || costUsdVal,
+          currency: priceUsdVal > 0 ? "USD" : priceLbpVal > 0 ? "LBP" : "USD",
+          ipcChannel: "customService:create",
+          formData: payload,
+        });
+
+        // Reset form
+        setDescription("");
+        setCostUsd("");
+        setCostLbp("");
+        setPriceUsd("");
+        setPriceLbp("");
+        setNote("");
+        setUseMultiPayment(false);
+        setPaymentLines([]);
+        clearClient();
+        setIsSubmitting(false);
+        return;
+      }
 
       const result = await api.addCustomService(payload);
 

@@ -127,9 +127,9 @@ export function registerSetupHandlers() {
         const MANDATORY_PMS = new Set(["CASH"]);
         const enabledPMs = new Set(payload.enabled_payment_methods);
 
-        const allPMs = db
-          .prepare("SELECT code FROM payment_methods WHERE is_system = 0")
-          .all() as { code: string }[];
+        const allPMs = db.prepare("SELECT code FROM payment_methods").all() as {
+          code: string;
+        }[];
 
         for (const pm of allPMs) {
           const shouldEnable =

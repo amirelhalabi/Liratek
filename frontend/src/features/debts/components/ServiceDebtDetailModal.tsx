@@ -11,6 +11,7 @@
  */
 
 import { X } from "lucide-react";
+import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -83,6 +84,7 @@ export function ServiceDebtDetailModal({
   debtAmount,
   onClose,
 }: Props) {
+  useModalFocusFix(true);
   const providerFee =
     fs.provider === "OMT" ? (fs.omt_fee ?? 0) : (fs.whish_fee ?? 0);
   const pmFee = fs.payment_method_fee ?? 0;
@@ -100,7 +102,7 @@ export function ServiceDebtDetailModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 animate-in fade-in duration-200"
       onClick={onClose}
     >
       <div

@@ -15,6 +15,7 @@ import {
 } from "@/features/sales/utils/receiptFormatter";
 import { useShopInfo } from "@/hooks/useShopName";
 import { ConfirmModal } from "@liratek/ui";
+import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 
 interface SaleItem {
   id: number;
@@ -56,6 +57,7 @@ export default function SaleDetailModal({
   onClose,
   onRefunded,
 }: SaleDetailModalProps) {
+  useModalFocusFix(true);
   const shopInfo = useShopInfo();
   const [sale, setSale] = useState<SaleDetail | null>(null);
   const [items, setItems] = useState<SaleItem[]>([]);
@@ -260,7 +262,7 @@ export default function SaleDetailModal({
 
   return (
     <div
-      className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-in fade-in duration-200"
+      className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200"
       role="presentation"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
@@ -497,7 +499,7 @@ export default function SaleDetailModal({
 
       {showRefundQuantity && selectedRefundItem && (
         <div
-          className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-[60] p-4"
+          className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60] p-4"
           onMouseDown={(e) => {
             if (e.target === e.currentTarget) {
               setShowRefundQuantity(false);

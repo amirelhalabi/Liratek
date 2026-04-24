@@ -13,12 +13,17 @@ import SaleDetailModal from "./components/SaleDetailModal";
 import { appEvents, useApi } from "@liratek/ui";
 import type { Product, CartItem, SaleRequest } from "@liratek/ui";
 import { useExchangeRate } from "@/hooks/useExchangeRate";
+import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { ConfirmModal } from "@liratek/ui";
 
 export default function POS() {
   const api = useApi();
-  const { activeSession, linkTransaction } = useSession();
+  const {
+    activeSession,
+    linkTransaction,
+    addToCart: addToSessionCart,
+  } = useSession();
   const { rate: defaultExchangeRate } = useExchangeRate("USD", "LBP");
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
@@ -39,6 +44,7 @@ export default function POS() {
     undefined,
   );
   const [isDraftsOpen, setIsDraftsOpen] = useState(false);
+  useModalFocusFix(isDraftsOpen);
   // Confirmation states
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   // Store checkout modal state for edit flow
@@ -149,6 +155,50 @@ export default function POS() {
     setCurrentDraftId(undefined);
     setShowClearConfirm(false);
   }, []);
+
+  // Add all POS cart items as a single session cart entry
+  const handleAddToSessionCart = useCallback(() => {
+    if (!activeSession || cartItems.length === 0) return;
+
+    const totalAmount = cartItems.reduce(
+      (sum, item) => sum + item.retail_price * item.quantity,
+      0,
+    );
+
+    const itemNames = cartItems
+      .map((item) => `${item.name} x${item.quantity}`)
+      .join(", ");
+    const label =
+      itemNames.length > 60
+        ? `POS Sale (${cartItems.length} items) - $${totalAmount.toFixed(2)}`
+        : `POS: ${itemNames}`;
+
+    addToSessionCart({
+      module: "pos",
+      label,
+      amount: totalAmount,
+      currency: "USD",
+      ipcChannel: "sales:create",
+      formData: {
+        status: "completed",
+        items: cartItems.map((item) => ({
+          product_id: item.id,
+          quantity: item.quantity,
+          price: item.retail_price,
+          imei: item.imei || "",
+        })),
+        total_amount: totalAmount,
+        discount: 0,
+        final_amount: totalAmount,
+        exchange_rate: defaultExchangeRate,
+      },
+    });
+
+    // Clear POS cart after adding to session
+    setCartItems([]);
+    setCurrentDraftId(undefined);
+    appEvents.emit("notification:show", "Added to session cart!", "success");
+  }, [activeSession, cartItems, addToSessionCart, defaultExchangeRate]);
 
   // Minimize current order
   const handleMinimizeOrder = useCallback(
@@ -539,6 +589,8 @@ export default function POS() {
             onCheckout={() => setIsCheckoutOpen(true)}
             onOpenDrafts={() => setIsDraftsOpen(true)}
             draftCount={drafts.length}
+            isSessionActive={!!activeSession}
+            onAddToSessionCart={handleAddToSessionCart}
           />
           {currentDraftId && (
             <div className="mt-2 text-center">
@@ -589,7 +641,7 @@ export default function POS() {
       {/* Drafts Modal */}
       {isDraftsOpen && (
         <div
-          className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-in fade-in duration-200"
+          className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200"
           role="presentation"
           onMouseDown={(e) => {
             if (e.target === e.currentTarget) {

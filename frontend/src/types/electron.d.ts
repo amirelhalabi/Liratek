@@ -535,7 +535,14 @@ export interface ElectronAPI {
       currency?: string;
     }) => Promise<{ success: boolean; error?: string }>;
     topUpApp: (data: {
-      provider: "MTC" | "Alfa" | "OMT_APP" | "WHISH_APP" | "iPick" | "Katsh";
+      provider:
+        | "MTC"
+        | "Alfa"
+        | "OMT_APP"
+        | "WHISH_APP"
+        | "iPick"
+        | "Katsh"
+        | "BINANCE";
       amount: number;
       currency: "USD" | "LBP";
       sourceDrawer: string;
@@ -1051,6 +1058,39 @@ export interface ElectronAPI {
       amountUsd: number;
       amountLbp: number;
     }) => Promise<{ success: boolean; linked: boolean; error?: string }>;
+    checkout: (data: {
+      sessionId: number;
+      cartItems: Array<{
+        id: string;
+        module: string;
+        label: string;
+        amount: number;
+        currency: string;
+        formData: Record<string, unknown>;
+        ipcChannel: string;
+      }>;
+      paidByMethod: string;
+      payments?: Array<{
+        method: string;
+        currency_code: string;
+        amount: number;
+      }>;
+      clientId?: number;
+      clientName?: string;
+      userId: number;
+    }) => Promise<{
+      success: boolean;
+      results?: Array<{
+        cartItemId: string;
+        module: string;
+        transactionId: number;
+        success: boolean;
+        error?: string;
+      }>;
+      checkoutTotal?: number;
+      itemCount?: number;
+      error?: string;
+    }>;
     getTransactions: (sessionId: number) => Promise<{
       success: boolean;
       transactions?: any[];
@@ -1248,6 +1288,9 @@ export interface ElectronAPI {
       whatsapp_api_key?: string;
     }) => Promise<{ success: boolean; error?: string }>;
     reset: () => Promise<{ success: boolean; error?: string }>;
+    testDatabasePath: (
+      path: string,
+    ) => Promise<{ success: boolean; error?: string }>;
     detectNetworkDb: () => Promise<{
       success: boolean;
       databases: Array<{ path: string; shopName: string }>;

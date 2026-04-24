@@ -23,6 +23,9 @@ export interface SetupPayload {
   extra_users: { username: string; password: string; role: string }[];
   whatsapp_phone: string;
   whatsapp_api_key: string;
+  // Step 3 - Database path (optional, network mode)
+  database_path?: string | null;
+  database_type?: "local" | "network";
   // Join flow (Step 0 → Step -1) — path to existing network DB
   join_db_path?: string | null;
 }

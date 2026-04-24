@@ -51,7 +51,10 @@ export function registerRechargeHandlers(): void {
         },
         "Processing recharge",
       );
-      const result = rechargeService.processRecharge(v.data as RechargeData);
+      const result = rechargeService.processRecharge({
+        ...v.data,
+        userId: auth.userId,
+      } as RechargeData);
       audit(event.sender.id, {
         action: "create",
         entity_type: "recharge",
@@ -97,7 +100,14 @@ export function registerRechargeHandlers(): void {
     (
       event: IpcMainInvokeEvent,
       data: {
-        provider: "MTC" | "Alfa" | "OMT_APP" | "WHISH_APP" | "iPick" | "Katsh";
+        provider:
+          | "MTC"
+          | "Alfa"
+          | "OMT_APP"
+          | "WHISH_APP"
+          | "iPick"
+          | "Katsh"
+          | "BINANCE";
         amount: number;
         currency: "USD" | "LBP";
         sourceDrawer: string;
@@ -115,7 +125,10 @@ export function registerRechargeHandlers(): void {
         },
         "Processing app top-up",
       );
-      const result = rechargeService.topUpApp({ ...data, userId: auth.userId });
+      const result = rechargeService.topUpApp({
+        ...data,
+        userId: auth.userId,
+      });
       audit(event.sender.id, {
         action: "create",
         entity_type: "recharge_topup",

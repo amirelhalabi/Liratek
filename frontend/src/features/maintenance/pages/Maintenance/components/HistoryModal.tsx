@@ -1,5 +1,6 @@
 import { Wrench, RefreshCw, X, Ban } from "lucide-react";
 import { DataTable } from "@liratek/ui";
+import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 
 type MaintenanceJob = {
   id: number;
@@ -49,9 +50,10 @@ export function HistoryModal({
   onVoid,
   onEdit,
 }: HistoryModalProps) {
+  useModalFocusFix(true);
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 animate-in fade-in duration-200"
       onClick={onClose}
     >
       <div
@@ -164,10 +166,18 @@ export function HistoryModal({
                     </span>
                   </td>
                   <td className="px-6 py-4 text-sm font-bold text-white text-right">
-                    ${job.price_usd?.toFixed(2)}
+                    $
+                    {job.price_usd?.toLocaleString(undefined, {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
                   </td>
                   <td className="px-6 py-4 text-sm text-emerald-400 text-right">
-                    ${job.paid_usd?.toFixed(2)}
+                    $
+                    {job.paid_usd?.toLocaleString(undefined, {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
                   </td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex items-center justify-end gap-2">

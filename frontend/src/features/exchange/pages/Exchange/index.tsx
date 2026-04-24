@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { PageHeader, useApi } from "@liratek/ui";
 import { useSession } from "@/features/sessions/context/SessionContext";
+import { useSessionAutoFill } from "@/features/sessions/hooks/useSessionAutoFill";
 import { useCurrencyContext } from "@/contexts/CurrencyContext";
 import { HistoryModal } from "./components/HistoryModal";
 import {
@@ -130,12 +131,13 @@ export default function Exchange() {
     }
   }, [currencies, fromCurrency, toCurrency]);
 
-  // Load history + auto-fill session customer
+  // Load history + auto-fill session customer, clear when session closes
+  useSessionAutoFill([
+    { select: (s) => s.customer_name, set: setClientName, clearValue: "" },
+  ]);
+
   useEffect(() => {
     loadHistory();
-    if (activeSession?.customer_name) {
-      setClientName(activeSession.customer_name);
-    }
   }, [activeSession]);
 
   // Load rates from DB (new 4-column schema)

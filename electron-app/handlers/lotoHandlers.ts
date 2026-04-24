@@ -6,6 +6,14 @@ import { ipcMain } from "electron";
 import { getLotoService, lotoLogger } from "@liratek/core";
 import { requireRole } from "../session.js";
 import { audit } from "./auditHelper.js";
+import {
+  LotoSellSchema,
+  LotoCashPrizeSchema,
+  LotoFeeSchema,
+  LotoCheckpointCreateSchema,
+  LotoCheckpointSettleSchema,
+  validatePayload,
+} from "../schemas/index.js";
 
 let lotoService: ReturnType<typeof getLotoService> | null = null;
 
@@ -19,19 +27,22 @@ function getLotoServiceInstance() {
 export function registerLotoHandlers(): void {
   lotoLogger.info("Registering Loto IPC handlers");
 
-  ipcMain.handle("loto:sell", async (e, data: any) => {
+  ipcMain.handle("loto:sell", async (e, data: unknown) => {
     try {
       const auth = requireRole(e.sender.id, ["admin"]);
       if (!auth.ok) throw new Error(auth.error ?? "Admin access required");
 
+      const v = validatePayload(LotoSellSchema, data);
+      if (!v.ok) throw new Error(v.error);
+
       const service = getLotoServiceInstance();
-      const ticket = service.sellTicket({ ...data, userId: auth.userId });
+      const ticket = service.sellTicket({ ...v.data, userId: auth.userId });
       audit(e.sender.id, {
         action: "create",
         entity_type: "loto_ticket",
         entity_id: String(ticket?.id ?? ""),
         summary: "Sold loto ticket",
-        metadata: data,
+        metadata: v.data as Record<string, unknown>,
       });
       return { success: true, ticket };
     } catch (error) {
@@ -163,13 +174,16 @@ export function registerLotoHandlers(): void {
     }
   });
 
-  ipcMain.handle("loto:fees:create", async (e, data: any) => {
+  ipcMain.handle("loto:fees:create", async (e, data: unknown) => {
     try {
       const auth = requireRole(e.sender.id, ["admin"]);
       if (!auth.ok) throw new Error(auth.error ?? "Admin access required");
 
+      const v = validatePayload(LotoFeeSchema, data);
+      if (!v.ok) throw new Error(v.error);
+
       const service = getLotoServiceInstance();
-      const fee = service.recordMonthlyFee(data);
+      const fee = service.recordMonthlyFee(v.data);
       audit(e.sender.id, {
         action: "create",
         entity_type: "loto_fee",
@@ -282,13 +296,16 @@ export function registerLotoHandlers(): void {
   );
 
   // Checkpoint handlers
-  ipcMain.handle("loto:checkpoint:create", async (e, data: any) => {
+  ipcMain.handle("loto:checkpoint:create", async (e, data: unknown) => {
     try {
       const auth = requireRole(e.sender.id, ["admin"]);
       if (!auth.ok) throw new Error(auth.error ?? "Admin access required");
 
+      const v = validatePayload(LotoCheckpointCreateSchema, data);
+      if (!v.ok) throw new Error(v.error);
+
       const service = getLotoServiceInstance();
-      const checkpoint = service.createCheckpoint(data);
+      const checkpoint = service.createCheckpoint(v.data);
       audit(e.sender.id, {
         action: "create",
         entity_type: "loto_checkpoint",
@@ -448,62 +465,47 @@ export function registerLotoHandlers(): void {
     },
   );
 
-  ipcMain.handle(
-    "loto:checkpoint:settle",
-    async (
-      e,
-      data: {
-        id: number;
-        totalSales: number;
-        totalCommission: number;
-        totalPrizes: number;
-        totalCashPrizes?: number; // DEPRECATED — now read from checkpoint
-        settledAt?: string;
-        payments?: Array<{
-          method: string;
-          currency_code: string;
-          amount: number;
-        }>;
-      },
-    ) => {
-      try {
-        const auth = requireRole(e.sender.id, ["admin"]);
-        if (!auth.ok) throw new Error(auth.error ?? "Admin access required");
+  ipcMain.handle("loto:checkpoint:settle", async (e, data: unknown) => {
+    try {
+      const auth = requireRole(e.sender.id, ["admin"]);
+      if (!auth.ok) throw new Error(auth.error ?? "Admin access required");
 
-        const service = getLotoServiceInstance();
-        const checkpoint = service.settleCheckpoint(
-          data.id,
-          data.totalSales,
-          data.totalCommission,
-          data.totalPrizes,
-          0, // deprecated — checkpoint reads its own total_cash_prizes
-          data.settledAt,
-          auth.userId,
-          data.payments,
-        );
-        audit(e.sender.id, {
-          action: "settle",
-          entity_type: "loto_checkpoint",
-          entity_id: String(data.id),
-          summary: `Settled loto checkpoint #${data.id}`,
-          metadata: {
-            totalSales: data.totalSales,
-            totalCommission: data.totalCommission,
-          },
-        });
-        return { success: true, checkpoint };
-      } catch (error) {
-        lotoLogger.error({ error }, "loto:checkpoint:settle failed");
-        return {
-          success: false,
-          error:
-            error instanceof Error
-              ? error.message
-              : "Failed to settle checkpoint",
-        };
-      }
-    },
-  );
+      const v = validatePayload(LotoCheckpointSettleSchema, data);
+      if (!v.ok) throw new Error(v.error);
+
+      const service = getLotoServiceInstance();
+      const checkpoint = service.settleCheckpoint(
+        v.data.id,
+        v.data.totalSales,
+        v.data.totalCommission,
+        v.data.totalPrizes,
+        0, // deprecated — checkpoint reads its own total_cash_prizes
+        v.data.settledAt,
+        auth.userId,
+        v.data.payments,
+      );
+      audit(e.sender.id, {
+        action: "settle",
+        entity_type: "loto_checkpoint",
+        entity_id: String(v.data.id),
+        summary: `Settled loto checkpoint #${v.data.id}`,
+        metadata: {
+          totalSales: v.data.totalSales,
+          totalCommission: v.data.totalCommission,
+        },
+      });
+      return { success: true, checkpoint };
+    } catch (error) {
+      lotoLogger.error({ error }, "loto:checkpoint:settle failed");
+      return {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to settle checkpoint",
+      };
+    }
+  });
 
   ipcMain.handle("loto:checkpoint:get-total-sales-unsettled", async (e) => {
     try {
@@ -638,13 +640,16 @@ export function registerLotoHandlers(): void {
   });
 
   // Cash prize handlers
-  ipcMain.handle("loto:cash-prize:create", async (e, data: any) => {
+  ipcMain.handle("loto:cash-prize:create", async (e, data: unknown) => {
     try {
       const auth = requireRole(e.sender.id, ["admin"]);
       if (!auth.ok) throw new Error(auth.error ?? "Admin access required");
 
+      const v = validatePayload(LotoCashPrizeSchema, data);
+      if (!v.ok) throw new Error(v.error);
+
       const service = getLotoServiceInstance();
-      const prize = service.recordCashPrize({ ...data, userId: auth.userId });
+      const prize = service.recordCashPrize({ ...v.data, userId: auth.userId });
       audit(e.sender.id, {
         action: "create",
         entity_type: "loto_cash_prize",

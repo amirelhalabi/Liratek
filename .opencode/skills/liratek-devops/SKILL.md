@@ -48,17 +48,61 @@ This skill contains modular rules organized by category:
 - `liratek-electron` - Electron build configuration
 - `liratek-testing` - Test automation in CI
 
-## Quick Start
+## Release Process (Step-by-Step)
+
+### Creating a New Release
 
 ```bash
-# Run CI checks locally
+# 1. Bump version in package.json FIRST
+# Edit package.json "version" field to new version (e.g., "1.18.47")
+
+# 2. Stage and commit all changes (including package.json)
+git add -A
+git commit -m "fix(scope): description - LIRA-XXX"
+
+# 3. Create the tag matching the version
+git tag v1.18.47
+
+# 4. Push commit and tag together
+git push
+git push --tags
+```
+
+### Amending a Release Commit
+
+If you need to amend the last commit after pushing (e.g., forgot package.json version bump):
+
+```bash
+# ⚠️ NEVER force-push tags — it triggers duplicate workflow runs
+# which causes electron-builder to skip asset uploads (existingType mismatch)
+
+# Instead: delete the remote tag first, then recreate
+git tag -d v1.18.47                    # delete local tag
+git push origin --delete v1.18.47      # delete remote tag
+gh release delete v1.18.47 --yes       # delete the GitHub release if created
+
+# Now amend and re-tag
+git add -A
+git commit --amend --no-edit
+git tag v1.18.47
+git push --force                       # force-push the amended commit
+git push --tags                        # push the new tag (triggers ONE workflow)
+```
+
+### ⚠️ Critical Rules
+
+1. **Always bump `package.json` version** before tagging — the tag version and package.json version must match
+2. **Never force-push tags** (`git push --tags --force`) — this triggers duplicate CI runs which causes electron-builder to fail uploading assets (`latest.yml`, `.exe`, `.blockmap`) because it finds a published release when expecting a draft
+3. **Delete tag before recreating** — if you need to re-tag, delete the old tag (local + remote) and the GitHub release first, then create fresh
+4. **One tag push = one workflow run** — the build workflow creates a draft release, uploads artifacts, then publishes. Two runs race and break this flow
+
+### Quick CI Checks (Local)
+
+```bash
 yarn typecheck
 yarn lint
 yarn build
 yarn test
-
-# Create release
-git tag v1.0.0 && git push origin v1.0.0
 ```
 
 ## Key Files

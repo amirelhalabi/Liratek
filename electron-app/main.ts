@@ -104,6 +104,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
+    show: false,
     icon: iconPath,
     autoHideMenuBar: true,
     webPreferences: {
@@ -113,6 +114,9 @@ function createWindow() {
       sandbox: true,
     },
   });
+
+  mainWindow.maximize();
+  mainWindow.show();
 
   // Suppress noisy Chromium DevTools protocol errors (Autofill.enable, etc.)
   mainWindow.webContents.on("console-message", (_event, _level, message) => {

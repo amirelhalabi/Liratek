@@ -11,6 +11,7 @@ import {
 } from "@/features/sales/utils/receiptFormatter";
 import type { Client, CartItem, SaleRequest } from "@liratek/ui";
 import { useSession } from "@/features/sessions/context/SessionContext";
+import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import {
   PAYMENT_TOLERANCE,
   RECEIPT_NUMBER_PREFIX,
@@ -115,6 +116,7 @@ export default function CheckoutModal({
   onRestoreDraftComplete,
   isDraft,
 }: CheckoutModalProps) {
+  useModalFocusFix(true);
   const api = useApi();
   const { activeSession } = useSession();
   const [isLoading, setIsLoading] = useState(false);
@@ -207,8 +209,12 @@ export default function CheckoutModal({
         setSecondaryInput(activeSession.customer_phone);
       }
       setIsAutoFilledFromSession(true);
+    } else if (!activeSession && isAutoFilledFromSession) {
+      setClientSearch("");
+      setSecondaryInput("");
+      setIsAutoFilledFromSession(false);
     }
-  }, [activeSession, draftData, clientSearch]);
+  }, [activeSession, draftData, clientSearch, isAutoFilledFromSession]);
 
   // Restore draft data when it's provided
   useEffect(() => {
@@ -305,6 +311,42 @@ export default function CheckoutModal({
     paidUSD + convertLBPToUSD(paidLBP, effectiveExchangeRate);
   const remaining = calculateRemaining(totalPaidInUSD, finalAmount);
   const change = calculateChange(totalPaidInUSD, finalAmount);
+
+  // LIRA-017: Auto-fill payment amount when modal opens (if no draft and amount is 0)
+  useEffect(() => {
+    if (draftData) return;
+    const hasNonZeroPayment = paymentLines.some((l) => l.amount > 0);
+    if (hasNonZeroPayment) return;
+
+    setPaymentLines((prev) => {
+      if (prev.length !== 1) return prev;
+      const line = prev[0];
+      if (line.currency_code === "LBP") {
+        return [
+          {
+            ...line,
+            amount: roundLBPUp(finalAmount * effectiveExchangeRate),
+          },
+        ];
+      }
+      return [{ ...line, amount: finalAmount }];
+    });
+  }, [finalAmount, effectiveExchangeRate, draftData]);
+
+  // LIRA-017: Auto-fill change given (USD integer + LBP remainder)
+  useEffect(() => {
+    if (change <= 0) {
+      setChangeGivenUSD(0);
+      setChangeGivenLBP(0);
+      return;
+    }
+    const integerUSD = Math.floor(change);
+    const fractionUSD = change - integerUSD;
+    const rawLBP = fractionUSD * effectiveExchangeRate;
+    const roundedLBP = roundLBPUp(rawLBP);
+    setChangeGivenUSD(integerUSD);
+    setChangeGivenLBP(roundedLBP);
+  }, [change, effectiveExchangeRate]);
 
   const getPaymentData = () => {
     // Determine effective client details
@@ -492,7 +534,7 @@ export default function CheckoutModal({
   return (
     <>
       <div
-        className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-in fade-in duration-200"
+        className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200"
         role="presentation"
         onMouseDown={(e) => {
           if (e.target === e.currentTarget && onClose) {
@@ -1060,12 +1102,11 @@ export default function CheckoutModal({
                       Change Due
                     </span>
                     <div className="text-right">
-                      <div className="text-emerald-400 font-bold text-xl">
-                        ${change.toFixed(2)}
+                      <div className="text-emerald-400 font-bold text-2xl">
+                        {(change * effectiveExchangeRate).toLocaleString()} LBP
                       </div>
-                      <div className="text-xs text-emerald-500/70">
-                        ≈ {(change * effectiveExchangeRate).toLocaleString()}{" "}
-                        LBP
+                      <div className="text-sm text-emerald-500/70">
+                        ${change.toFixed(2)} USD
                       </div>
                     </div>
                   </div>
@@ -1122,7 +1163,7 @@ export default function CheckoutModal({
                         </div>
                       </div>
 
-                      {/* Smart Change Logic */}
+                      {/* Smart Change Logic — LIRA-017: removed red "Remaining change" indicator; kept overpay warning */}
                       {(() => {
                         const totalGiven =
                           changeGivenUSD +
@@ -1135,35 +1176,12 @@ export default function CheckoutModal({
                           const integerUSD = Math.floor(change);
                           const fractionUSD = change - integerUSD;
                           const rawLBP = fractionUSD * effectiveExchangeRate;
-
-                          // Round LBP up to nearest 5,000 (smallest LBP bill)
                           const roundedLBP = roundLBPUp(rawLBP);
-
                           setChangeGivenUSD(integerUSD);
                           setChangeGivenLBP(roundedLBP);
                         };
 
-                        if (diff > PAYMENT_TOLERANCE) {
-                          // Underpaying change (Remaining to give)
-                          return (
-                            <div className="text-center text-xs text-red-400 font-medium bg-red-500/10 py-2 rounded flex items-center justify-center gap-2">
-                              <span>
-                                Remaining change to give: ${absDiff.toFixed(2)}{" "}
-                                ≈{" "}
-                                {(
-                                  absDiff * effectiveExchangeRate
-                                ).toLocaleString()}{" "}
-                                LBP
-                              </span>
-                              <button
-                                onClick={handleSmartFix}
-                                className="px-2 py-0.5 bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded text-[10px] uppercase font-bold tracking-wider transition-colors"
-                              >
-                                Fix
-                              </button>
-                            </div>
-                          );
-                        } else if (diff < -PAYMENT_TOLERANCE) {
+                        if (diff < -PAYMENT_TOLERANCE) {
                           // Overpaying change (Caution)
                           return (
                             <div className="text-center text-xs text-amber-400 font-medium bg-amber-500/10 py-2 rounded flex items-center justify-center gap-2">
@@ -1240,7 +1258,7 @@ export default function CheckoutModal({
       {/* Receipt Preview Modal */}
       {showReceiptPreview && (
         <div
-          className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 p-4"
+          className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4"
           role="presentation"
           onMouseDown={(e) => {
             if (e.target === e.currentTarget) {

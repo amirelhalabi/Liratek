@@ -1,10 +1,12 @@
 import { useState, useEffect } from "react";
 import { User, Phone } from "lucide-react";
 import { MultiPaymentInput, useApi, DoubleTab } from "@liratek/ui";
+import { useSession } from "@/features/sessions/context/SessionContext";
 import type { FinancialTransaction } from "../types";
 import { HistoryModal } from "./HistoryModal";
 import { getExchangeRates } from "@/utils/exchangeRates";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
+import logger from "@/utils/logger";
 
 type ServiceType = "SEND" | "RECEIVE";
 type ProviderKey = "OMT_APP" | "WISH_APP";
@@ -14,6 +16,10 @@ interface OmtWhishAppTransferFormProps {
   transactions: FinancialTransaction[];
   loadFinancialData: () => void;
   formatAmount: (val: number, currency: string) => string;
+  customerName?: string | undefined;
+  customerPhone?: string | undefined;
+  showHistory?: boolean;
+  onCloseHistory?: () => void;
 }
 
 export function OmtWhishAppTransferForm({
@@ -21,9 +27,18 @@ export function OmtWhishAppTransferForm({
   transactions,
   loadFinancialData,
   formatAmount,
+  customerName,
+  customerPhone,
+  showHistory: showHistoryProp,
+  onCloseHistory,
 }: OmtWhishAppTransferFormProps) {
   const api = useApi();
-  const { drawerAffectingMethods } = usePaymentMethods();
+  const {
+    activeSession,
+    linkTransaction,
+    addToCart: addToSessionCart,
+  } = useSession();
+  const { methods: allPaymentMethods } = usePaymentMethods();
   const [serviceType, setServiceType] = useState<ServiceType>("SEND");
   const [amount, setAmount] = useState("");
   const [senderName, setSenderName] = useState("");
@@ -31,12 +46,13 @@ export function OmtWhishAppTransferForm({
   const [receiverName, setReceiverName] = useState("");
   const [receiverPhone, setReceiverPhone] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
+  const showHistory = showHistoryProp ?? false;
   const [exchangeRate, setExchangeRate] = useState(89500);
-  const [useMultiPayment, setUseMultiPayment] = useState(false);
   const [paymentLines, setPaymentLines] = useState<any[]>([]);
+  const isSplitPayment = paymentLines.length > 1;
   const [paidByMethod, setPaidByMethod] = useState("CASH");
   const [optionalFeeEnabled, setOptionalFeeEnabled] = useState(false);
+  const [manualFee, setManualFee] = useState("");
 
   // Load exchange rate
   useEffect(() => {
@@ -46,28 +62,45 @@ export function OmtWhishAppTransferForm({
         const { sellRate } = getExchangeRates(rates);
         setExchangeRate(sellRate);
       } catch (error) {
-        console.error("Failed to load exchange rate:", error);
+        logger.error("Failed to load exchange rate:", error);
       }
     };
     loadRate();
   }, [api]);
 
+  // Autofill sender/receiver from customer session based on service type
+  useEffect(() => {
+    if (serviceType === "SEND") {
+      setSenderName(customerName || "");
+      setSenderPhone(customerPhone || "");
+    } else {
+      setReceiverName(customerName || "");
+      setReceiverPhone(customerPhone || "");
+    }
+  }, [serviceType, customerName, customerPhone]);
+
   // Calculate fees
   const calculateProviderFee = (): number => {
-    if (serviceType === "SEND") {
-      return 0;
-    }
-    if (activeProvider === "WISH_APP" && optionalFeeEnabled) {
+    // Manual fee takes priority if entered
+    const manual = parseFloat(manualFee || "0");
+    if (manual > 0) return manual;
+
+    if (
+      serviceType === "RECEIVE" &&
+      activeProvider === "WISH_APP" &&
+      optionalFeeEnabled
+    ) {
       return parseFloat(amount || "0") * 0.01;
     }
     return 0;
   };
 
   const providerFee = calculateProviderFee();
+  const parsedAmount = parseFloat(amount || "0");
   const totalAmount =
     serviceType === "SEND"
-      ? parseFloat(amount || "0") + providerFee
-      : parseFloat(amount || "0");
+      ? parsedAmount + providerFee
+      : parsedAmount - providerFee;
   const shopProfit = providerFee;
 
   const handleSubmit = async () => {
@@ -94,33 +127,86 @@ export function OmtWhishAppTransferForm({
       return;
     }
 
+    // If session is active, add to cart instead of submitting
+    if (activeSession) {
+      const providerLabel =
+        activeProvider === "OMT_APP" ? "OMT App" : "Whish App";
+      const clientLabel =
+        serviceType === "SEND" ? finalSenderName : finalReceiverName;
+      const label = `${providerLabel} ${serviceType} - ${clientLabel} - $${parseFloat(amount).toFixed(2)}`;
+
+      addToSessionCart({
+        module: activeProvider === "OMT_APP" ? "omt_app" : "whish_app",
+        label,
+        amount: serviceType === "SEND" ? totalAmount : -totalAmount,
+        currency: "USD",
+        ipcChannel: "financial:create",
+        formData: {
+          provider: activeProvider,
+          serviceType,
+          amount: parseFloat(amount),
+          currency: "USD",
+          commission: shopProfit,
+          ...(activeProvider === "OMT_APP" ? { omtFee: providerFee } : {}),
+          ...(activeProvider === "WISH_APP" ? { whishFee: providerFee } : {}),
+          clientName: clientLabel,
+          referenceNumber: "",
+          phoneNumber:
+            serviceType === "SEND" ? finalSenderPhone : finalReceiverPhone,
+          note: `${serviceType} transfer via ${providerLabel}`,
+          paidByMethod: isSplitPayment ? "MULTI" : paidByMethod,
+          payments: isSplitPayment ? paymentLines : undefined,
+        },
+      });
+
+      setAmount("");
+      setSenderName("");
+      setSenderPhone("");
+      setReceiverName("");
+      setReceiverPhone("");
+      setPaymentLines([]);
+      setManualFee("");
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
-      const paymentMethod = useMultiPayment ? "MULTI" : paidByMethod;
+      const paymentMethod = isSplitPayment ? "MULTI" : paidByMethod;
 
       const result = await api.addOMTTransaction({
         provider: activeProvider,
-        service_type: serviceType,
+        serviceType,
         amount: parseFloat(amount),
         currency: "USD",
         commission: shopProfit,
-        omt_fee: activeProvider === "OMT_APP" ? providerFee : null,
-        whish_fee: activeProvider === "WISH_APP" ? providerFee : null,
-        is_settled: 1,
-        client_name:
+        ...(activeProvider === "OMT_APP" ? { omtFee: providerFee } : {}),
+        ...(activeProvider === "WISH_APP" ? { whishFee: providerFee } : {}),
+        clientName:
           serviceType === "SEND" ? finalSenderName : finalReceiverName,
-        reference_number: "",
-        phone_number:
+        referenceNumber: "",
+        phoneNumber:
           serviceType === "SEND" ? finalSenderPhone : finalReceiverPhone,
-        omt_service_type: null,
         note: `${serviceType} transfer via ${activeProvider === "OMT_APP" ? "OMT App" : "Whish App"}`,
-        payment_method: paymentMethod,
-        payment_lines: useMultiPayment ? paymentLines : undefined,
-        exchange_rate: exchangeRate,
+        paidByMethod: paymentMethod,
+        payments: isSplitPayment ? paymentLines : undefined,
       });
 
       if (result.success) {
+        // Link to active customer session
+        if (activeSession && result.id) {
+          try {
+            await linkTransaction({
+              transactionType: "financial_service",
+              transactionId: result.id,
+              amountUsd: parseFloat(amount) || 0,
+              amountLbp: 0,
+            });
+          } catch (err) {
+            logger.error("Failed to link app transfer to session:", err);
+          }
+        }
+
         alert(
           `${activeProvider === "OMT_APP" ? "OMT App" : "Whish App"} transfer completed successfully!`,
         );
@@ -130,12 +216,13 @@ export function OmtWhishAppTransferForm({
         setReceiverName("");
         setReceiverPhone("");
         setPaymentLines([]);
+        setManualFee("");
         loadFinancialData();
       } else {
         alert(result.error || "Failed to process transfer");
       }
     } catch (error) {
-      console.error("Transfer failed:", error);
+      logger.error("Transfer failed:", error);
       alert("Failed to process transfer");
     } finally {
       setIsSubmitting(false);
@@ -143,19 +230,26 @@ export function OmtWhishAppTransferForm({
   };
 
   return (
-    <div className="flex flex-col gap-5 h-full">
+    <div className="flex flex-col gap-5 flex-1 min-h-0">
       {/* Header with SEND/RECEIVE Tabs */}
       <DoubleTab
-        leftOption={{ id: "SEND", label: "Money In", iconKey: "Send" }}
+        leftOption={{ id: "SEND", label: "Send", iconKey: "Send" }}
         rightOption={{
           id: "RECEIVE",
-          label: "Money Out",
+          label: "Receive",
           iconKey: "Package",
         }}
         value={serviceType}
         onChange={(val) => setServiceType(val as ServiceType)}
-        accentColor={activeProvider === "OMT_APP" ? "lime" : "violet"}
+        accentColor={activeProvider === "OMT_APP" ? "amber" : "red"}
+        customColor={activeProvider === "OMT_APP" ? "#ffde00" : "#ff0a46"}
+        customTextColor={activeProvider === "OMT_APP" ? "black" : "white"}
       />
+      <p className="text-xs text-slate-400 text-center -mt-3 mb-1">
+        {serviceType === "SEND"
+          ? "Sending transfer from shop to customer"
+          : "Shop receiving transfer from customer"}
+      </p>
 
       {/* Amount Input */}
       <div>
@@ -174,7 +268,7 @@ export function OmtWhishAppTransferForm({
             type="number"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-8 pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-lime-500 transition-all"
+            className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-8 pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
             placeholder="0.00"
             step="0.01"
             min="0"
@@ -187,6 +281,31 @@ export function OmtWhishAppTransferForm({
         <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-2">
           Fee Breakdown
         </h3>
+
+        {/* Manual Fee Input */}
+        <div>
+          <label
+            htmlFor="transfer-fee"
+            className="block text-xs text-slate-400 mb-1"
+          >
+            Fee Amount (USD) — Optional
+          </label>
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
+              $
+            </span>
+            <input
+              id="transfer-fee"
+              type="number"
+              value={manualFee}
+              onChange={(e) => setManualFee(e.target.value)}
+              className="w-full bg-slate-800 border border-slate-600 rounded-lg pl-8 pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
+              placeholder="0.00"
+              min="0"
+              step="0.01"
+            />
+          </div>
+        </div>
 
         {/* Provider Fee */}
         <div className="flex items-center justify-between text-xs">
@@ -205,7 +324,7 @@ export function OmtWhishAppTransferForm({
                 type="button"
                 onClick={() => setOptionalFeeEnabled(!optionalFeeEnabled)}
                 className={`relative w-8 h-4 rounded-full transition-colors ${
-                  optionalFeeEnabled ? "bg-violet-600" : "bg-slate-600"
+                  optionalFeeEnabled ? "bg-[#ff0a46]" : "bg-slate-600"
                 }`}
               >
                 <span
@@ -225,11 +344,25 @@ export function OmtWhishAppTransferForm({
           </div>
         )}
 
+        {/* Customer Receives (RECEIVE only, when fee is applied) */}
+        {serviceType === "RECEIVE" && providerFee > 0 && (
+          <div className="flex items-center justify-between text-sm pt-2 border-t border-slate-700/50">
+            <span className="text-emerald-300 font-semibold">
+              Customer Receives:
+            </span>
+            <span className="text-emerald-400 font-mono font-bold text-base">
+              ${totalAmount.toFixed(2)}
+            </span>
+          </div>
+        )}
+
         {/* Total */}
         <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-700/50">
-          <span className="text-slate-300 font-medium">Total:</span>
+          <span className="text-slate-300 font-medium">
+            {serviceType === "RECEIVE" ? "Gross Amount:" : "Total:"}
+          </span>
           <span className="text-emerald-400 font-mono font-bold">
-            ${totalAmount.toFixed(2)}
+            ${parsedAmount.toFixed(2)}
           </span>
         </div>
 
@@ -260,7 +393,7 @@ export function OmtWhishAppTransferForm({
                 type="text"
                 value={senderName}
                 onChange={(e) => setSenderName(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-lime-500 transition-all"
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
                 placeholder="Sender name"
               />
             </div>
@@ -276,7 +409,7 @@ export function OmtWhishAppTransferForm({
                 type="tel"
                 value={senderPhone}
                 onChange={(e) => setSenderPhone(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-lime-500 transition-all"
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
                 placeholder="Sender phone"
               />
             </div>
@@ -294,7 +427,7 @@ export function OmtWhishAppTransferForm({
                 type="text"
                 value={receiverName}
                 onChange={(e) => setReceiverName(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-lime-500 transition-all"
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
                 placeholder="Receiver name"
               />
             </div>
@@ -310,7 +443,7 @@ export function OmtWhishAppTransferForm({
                 type="tel"
                 value={receiverPhone}
                 onChange={(e) => setReceiverPhone(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-lime-500 transition-all"
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
                 placeholder="Receiver phone"
               />
             </div>
@@ -330,7 +463,7 @@ export function OmtWhishAppTransferForm({
               type="text"
               value={receiverName}
               onChange={(e) => setReceiverName(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-lime-500 transition-all"
+              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
               placeholder="Receiver name"
             />
           </div>
@@ -346,7 +479,7 @@ export function OmtWhishAppTransferForm({
               type="tel"
               value={receiverPhone}
               onChange={(e) => setReceiverPhone(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-lime-500 transition-all"
+              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
               placeholder="Receiver phone"
             />
           </div>
@@ -360,48 +493,29 @@ export function OmtWhishAppTransferForm({
       <div className="sticky bottom-0 bg-slate-800 rounded-xl border border-slate-700/50 p-4 shadow-2xl">
         <div className="flex items-center gap-4">
           <div className="flex-1">
-            <div className="flex items-center justify-between mb-1">
-              <label className="text-xs text-slate-400">Payment Method</label>
-              <button
-                type="button"
-                onClick={() => setUseMultiPayment(!useMultiPayment)}
-                className="text-xs px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
-              >
-                {useMultiPayment ? "Single Payment" : "Split Payment"}
-              </button>
-            </div>
-            {!useMultiPayment ? (
-              <select
-                value={paidByMethod}
-                onChange={(e) => setPaidByMethod(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-lime-500"
-              >
-                {drawerAffectingMethods.map((m) => (
-                  <option key={m.code} value={m.code}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <MultiPaymentInput
-                totalAmount={totalAmount}
-                currency="USD"
-                onChange={setPaymentLines}
-                requiresClientForDebt={true}
-                hasClient={
-                  serviceType === "SEND"
-                    ? !!(senderName || senderPhone)
-                    : !!(receiverName || receiverPhone)
+            <MultiPaymentInput
+              totalAmount={totalAmount}
+              currency="USD"
+              onChange={(lines) => {
+                setPaymentLines(lines);
+                if (lines.length === 1) {
+                  setPaidByMethod(lines[0].method);
                 }
-                showPmFee={false}
-                paymentMethods={drawerAffectingMethods}
-                currencies={[
-                  { code: "USD", symbol: "$" },
-                  { code: "LBP", symbol: "LBP" },
-                ]}
-                exchangeRate={exchangeRate}
-              />
-            )}
+              }}
+              requiresClientForDebt={true}
+              hasClient={
+                serviceType === "SEND"
+                  ? !!(senderName || senderPhone)
+                  : !!(receiverName || receiverPhone)
+              }
+              showPmFee={false}
+              paymentMethods={allPaymentMethods}
+              currencies={[
+                { code: "USD", symbol: "$" },
+                { code: "LBP", symbol: "LBP" },
+              ]}
+              exchangeRate={exchangeRate}
+            />
           </div>
 
           <div className="text-right min-w-[150px]">
@@ -418,8 +532,8 @@ export function OmtWhishAppTransferForm({
               isSubmitting || !amount || parseFloat(amount) <= 0
                 ? "bg-slate-600 text-slate-400 cursor-not-allowed"
                 : activeProvider === "OMT_APP"
-                  ? "bg-lime-600 hover:bg-lime-500 shadow-lg shadow-lime-500/20"
-                  : "bg-violet-600 hover:bg-violet-500 shadow-lg shadow-violet-500/20"
+                  ? "bg-[#ffde00] hover:bg-[#ffde00]/80 text-black shadow-lg shadow-[#ffde00]/20"
+                  : "bg-[#ff0a46] hover:bg-[#ff0a46]/80 shadow-lg shadow-[#ff0a46]/20"
             }`}
           >
             {isSubmitting ? "Processing..." : "Submit"}
@@ -432,9 +546,10 @@ export function OmtWhishAppTransferForm({
         <HistoryModal
           transactions={transactions}
           provider={activeProvider === "OMT_APP" ? "OMT App" : "Whish App"}
-          onClose={() => setShowHistory(false)}
+          onClose={() => onCloseHistory?.()}
           onRefresh={loadFinancialData}
           formatAmount={formatAmount}
+          showFeeAndProfit
         />
       )}
     </div>

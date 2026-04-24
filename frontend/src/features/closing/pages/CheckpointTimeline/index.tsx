@@ -74,10 +74,12 @@ export default function CheckpointTimeline() {
   };
 
   const formatCurrency = (amount: number, code: string) => {
-    if (code === "USD") return `$${amount.toFixed(2)}`;
-    if (code === "EUR") return `€${amount.toFixed(2)}`;
+    if (code === "USD")
+      return `$${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    if (code === "EUR")
+      return `€${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     if (code === "LBP") return `${amount.toLocaleString()} LBP`;
-    return `${amount.toFixed(2)} ${code}`;
+    return `${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${code}`;
   };
 
   const getTypeBadgeClass = (type: string) => {
@@ -112,7 +114,6 @@ export default function CheckpointTimeline() {
       <PageHeader
         icon={Clock}
         title="Checkpoint Timeline"
-        subtitle="Opening & Closing balance checkpoints"
       />
 
       {/* Filters */}

@@ -4,6 +4,7 @@ import { useSession } from "../context/SessionContext";
 import { User, X } from "lucide-react";
 import { useApi } from "@liratek/ui";
 import type { Client } from "@liratek/ui";
+import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 
 interface StartSessionModalProps {
   isOpen: boolean;
@@ -11,6 +12,7 @@ interface StartSessionModalProps {
 }
 
 export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
+  useModalFocusFix(isOpen);
   const { startSession } = useSession();
   const api = useApi();
   const [clients, setClients] = useState<Client[]>([]);
@@ -89,7 +91,7 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 animate-in fade-in duration-200">
       {/* Backdrop */}
       <div className="absolute inset-0" role="presentation" onClick={onClose} />
 

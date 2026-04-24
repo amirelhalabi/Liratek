@@ -10,6 +10,7 @@ import logger from "@/utils/logger";
 import OpeningModal from "../Opening";
 import ClosingModal from "../Closing";
 import { useApi } from "@liratek/ui";
+import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 
 interface CheckpointModalProps {
   isOpen: boolean;
@@ -20,6 +21,7 @@ export default function CheckpointModal({
   isOpen,
   onClose,
 }: CheckpointModalProps) {
+  useModalFocusFix(isOpen);
   const api = useApi();
   const [mode, setMode] = useState<"CHECKING" | "OPENING" | "CLOSING">(
     "CHECKING",
@@ -51,7 +53,7 @@ export default function CheckpointModal({
   if (mode === "CHECKING") {
     return (
       <div
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
         role="presentation"
       >
         <div className="bg-slate-900 border border-slate-700 rounded-xl p-8 shadow-2xl">

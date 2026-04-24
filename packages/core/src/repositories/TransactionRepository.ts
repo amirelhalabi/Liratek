@@ -37,6 +37,8 @@ export interface TransactionEntity extends BaseEntity {
   amount_lbp: number;
   exchange_rate: number | null;
   client_id: number | null;
+  client_name: string | null;
+  client_phone: string | null;
   reverses_id: number | null;
   summary: string | null;
   metadata_json: string | null;
@@ -63,6 +65,8 @@ export interface CreateTransactionInput {
   amount_lbp?: number;
   exchange_rate?: number | null;
   client_id?: number | null;
+  client_name?: string | null;
+  client_phone?: string | null;
   summary?: string;
   metadata_json?: Record<string, unknown>;
   device_id?: string;
@@ -138,6 +142,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       "amount_lbp",
       "exchange_rate",
       "client_id",
+      "client_name",
+      "client_phone",
       "reverses_id",
       "summary",
       "metadata_json",
@@ -161,8 +167,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     const result = this.execute(
       `INSERT INTO transactions
         (type, source_table, source_id, user_id, amount_usd, amount_lbp,
-         exchange_rate, client_id, summary, metadata_json, device_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         exchange_rate, client_id, client_name, client_phone, summary, metadata_json, device_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       data.type,
       data.source_table,
       data.source_id,
@@ -171,6 +177,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       data.amount_lbp ?? 0,
       data.exchange_rate ?? null,
       data.client_id ?? null,
+      data.client_name ?? null,
+      data.client_phone ?? null,
       data.summary ?? null,
       metadataStr,
       data.device_id ?? null,
@@ -227,10 +235,11 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     return this.query<TransactionWithUser>(
       `SELECT t.id, t.type, t.status, t.source_table, t.source_id,
               t.user_id, t.amount_usd, t.amount_lbp, t.exchange_rate,
-              t.client_id, t.reverses_id, t.summary, t.metadata_json,
+              t.client_id, t.client_phone,
+              t.reverses_id, t.summary, t.metadata_json,
               t.device_id, t.created_at,
               u.username,
-              c.full_name AS client_name
+              COALESCE(t.client_name, c.full_name) AS client_name
        FROM transactions t
        LEFT JOIN users u ON u.id = t.user_id
        LEFT JOIN clients c ON c.id = t.client_id

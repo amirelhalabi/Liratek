@@ -1,7 +1,7 @@
 ---
 description: Principal Engineer Agent for LiraTek POS - orchestrates all software engineering tasks and delegates to subagents
 mode: primary
-model: alibaba-coding-plan/qwen3.5-plus
+model: github-copilot/claude-opus-4.6
 color: "#3B82F6"
 skills:
   - liratek-backend

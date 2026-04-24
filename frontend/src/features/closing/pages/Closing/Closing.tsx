@@ -16,6 +16,7 @@ import { AlertBanner } from "../../components/AlertBanner";
 import { appEvents, useApi } from "@liratek/ui";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { useModules } from "@/contexts/ModuleContext";
+import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { generateClosingReport } from "../../utils/closingReportGenerator";
 import { X, ChevronLeft, ChevronRight } from "lucide-react";
 
@@ -38,6 +39,7 @@ const DRAWER_MODULE_MAP: Partial<Record<string, string>> = {
 };
 
 export default function Closing({ isOpen, onClose }: ClosingProps) {
+  useModalFocusFix(isOpen);
   const api = useApi();
   const { user } = useAuth();
   const { isModuleEnabled } = useModules();
@@ -289,7 +291,7 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       role="presentation"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) {
@@ -474,7 +476,7 @@ export default function Closing({ isOpen, onClose }: ClosingProps) {
                             .slice(0, 4)
                             .map(
                               (f) =>
-                                `${f.drawer} ${f.currency} ${f.variance > 0 ? "+" : ""}${f.variance.toFixed(2)} (${f.pct.toFixed(1)}%)`,
+                                `${f.drawer} ${f.currency} ${f.variance > 0 ? "+" : ""}${f.variance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${f.pct.toFixed(1)}%)`,
                             )
                             .join(" • ")}
                           {flagged.length > 4 ? " • ..." : ""}

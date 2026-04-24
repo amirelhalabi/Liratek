@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import logger from "@/utils/logger";
 import { Wrench, Plus, DollarSign, History } from "lucide-react";
 import CheckoutModal from "@/features/sales/pages/POS/components/CheckoutModal";
@@ -24,7 +24,12 @@ type MaintenanceJob = {
 
 export default function Maintenance() {
   const api = useApi();
-  const { activeSession, linkTransaction } = useSession();
+  const {
+    activeSession,
+    linkTransaction,
+    addToCart: addToSessionCart,
+  } = useSession();
+  const deviceNameRef = useRef<HTMLInputElement>(null);
   const [jobs, setJobs] = useState<MaintenanceJob[]>([]);
   const [filter, _setFilter] = useState("All");
 
@@ -41,6 +46,24 @@ export default function Maintenance() {
 
   // Checkout State
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
+
+  // Focus device name input on mount and when form resets
+  useEffect(() => {
+    deviceNameRef.current?.focus();
+  }, [editingJob]);
+
+  // Autofill client name/phone from active customer session, clear when session closes
+  useEffect(() => {
+    if (!editingJob && activeSession?.customer_name) {
+      setClientName(activeSession.customer_name);
+      if (activeSession.customer_phone) {
+        setClientPhone(activeSession.customer_phone);
+      }
+    } else if (!activeSession && !editingJob) {
+      setClientName("");
+      setClientPhone("");
+    }
+  }, [activeSession, editingJob]);
 
   useEffect(() => {
     let cancelled = false;
@@ -142,6 +165,24 @@ export default function Maintenance() {
       status: "Delivered_Paid" as Status,
     };
 
+    // If session is active, add to cart instead of submitting
+    if (activeSession) {
+      const label = `Maintenance: ${deviceName || "Device"} - $${(paymentData.final_amount || parseFloat(price) || 0).toFixed(2)}`;
+
+      addToSessionCart({
+        module: "maintenance",
+        label,
+        amount: paymentData.final_amount || parseFloat(price) || 0,
+        currency: "USD",
+        ipcChannel: "maintenance:save",
+        formData: jobData,
+      });
+
+      setIsCheckoutOpen(false);
+      handleNewJob();
+      return;
+    }
+
     const result = await api.saveMaintenanceJob(jobData);
     if (result.success) {
       if (activeSession && result.id) {
@@ -207,9 +248,7 @@ export default function Maintenance() {
                 onChange={(e) => setDeviceName(e.target.value)}
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-white focus:border-violet-500 focus:ring-2 focus:ring-violet-500/50 outline-none transition-all"
                 placeholder="e.g., iPhone 13 Pro Max"
-                ref={(el) => {
-                  el?.focus();
-                }}
+                ref={deviceNameRef}
               />
             </div>
 

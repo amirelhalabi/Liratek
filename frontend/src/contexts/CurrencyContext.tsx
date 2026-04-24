@@ -93,7 +93,10 @@ export const CurrencyProvider: React.FC<{ children: React.ReactNode }> = ({
       const safeAmt = isNaN(safe) ? 0 : safe;
       const decimals = getDecimals(currencyCode);
       const sym = getSymbol(currencyCode);
-      const formatted = safeAmt.toFixed(decimals);
+      const formatted = safeAmt.toLocaleString(undefined, {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals,
+      });
       // Prefix-style for $, €, £; suffix-style for LBP, USDT, etc.
       if (["$", "€", "£"].includes(sym)) return `${sym}${formatted}`;
       return `${formatted} ${sym}`;

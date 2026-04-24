@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import logger from "@/utils/logger";
 import { X, Save, MessageCircle, Send } from "lucide-react";
 import type { Client } from "@liratek/ui";
+import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 
 interface ClientFormProps {
   onClose: () => void;
@@ -14,6 +15,7 @@ export default function ClientForm({
   onSave,
   client,
 }: ClientFormProps) {
+  useModalFocusFix(true);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [isSending, setIsSending] = useState(false);
@@ -121,7 +123,7 @@ export default function ClientForm({
 
   return (
     <div
-      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
       role="presentation"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) {

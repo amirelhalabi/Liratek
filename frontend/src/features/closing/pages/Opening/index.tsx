@@ -14,6 +14,7 @@ import { useDrawerAmounts } from "../../hooks/useDrawerAmounts";
 import { useModules } from "@/contexts/ModuleContext";
 import { DrawerCard } from "../../components/DrawerCard";
 import { X } from "lucide-react";
+import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 
 interface OpeningProps {
   isOpen: boolean;
@@ -46,6 +47,7 @@ export default function Opening({
   viewOnly = false,
   checkpointData = null,
 }: OpeningProps) {
+  useModalFocusFix(isOpen);
   const api = useApi();
   const { user } = useAuth();
   const { isModuleEnabled } = useModules();
@@ -214,7 +216,7 @@ export default function Opening({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       role="presentation"
       onMouseDown={(e) => {
         // In view-only mode, don't close on backdrop click

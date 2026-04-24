@@ -89,6 +89,7 @@ export default function MultiPaymentInput({
   );
 
   const safeExchangeRate = exchangeRate || 89000;
+  const effectiveRate = parseFloat(customExchangeRate) || safeExchangeRate;
 
   // Update custom rate when exchange rate prop changes
   useEffect(() => {
@@ -97,18 +98,36 @@ export default function MultiPaymentInput({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [safeExchangeRate]);
 
-  // In single mode, auto-sync the line amount with totalAmount
+  // Track single-mode line currency for auto-sync dependency
+  const singleLineCurrency =
+    !isSplitMode && paymentLines.length === 1
+      ? paymentLines[0].currencyCode
+      : null;
+
+  // In single mode, auto-sync the line amount with totalAmount (currency-aware)
   useEffect(() => {
     if (!isSplitMode && paymentLines.length === 1) {
       const line = paymentLines[0];
-      if (line.amount !== totalAmount) {
-        const updated = [{ ...line, amount: totalAmount }];
+      // Convert totalAmount (in totalAmountCurrency) to the line's currency
+      let converted = totalAmount;
+      if (line.currencyCode !== totalAmountCurrency) {
+        if (totalAmountCurrency === "USD" && line.currencyCode === "LBP") {
+          converted = totalAmount * effectiveRate;
+        } else if (
+          totalAmountCurrency === "LBP" &&
+          line.currencyCode === "USD"
+        ) {
+          converted = totalAmount / effectiveRate;
+        }
+      }
+      if (line.amount !== converted) {
+        const updated = [{ ...line, amount: converted }];
         setPaymentLines(updated);
         onChange(updated);
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [totalAmount, isSplitMode]);
+  }, [totalAmount, isSplitMode, effectiveRate, singleLineCurrency]);
 
   const handleLinesChange = (newLines: PaymentLine[]) => {
     setPaymentLines(newLines);
@@ -190,8 +209,6 @@ export default function MultiPaymentInput({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pmFeesKey]);
 
-  const effectiveRate = parseFloat(customExchangeRate) || safeExchangeRate;
-
   /** Convert a payment line amount into the totalAmountCurrency.
    *  - If the line currency matches totalAmountCurrency → no conversion.
    *  - LBP → USD: divide by rate.   USD → LBP: multiply by rate. */
@@ -222,9 +239,24 @@ export default function MultiPaymentInput({
     return curr?.symbol || "$";
   };
 
-  // Summary formatting helpers
-  const targetSymbol = getSymbol(totalAmountCurrency);
-  const targetDecimals = totalAmountCurrency === "LBP" ? 0 : 2;
+  // Summary formatting helpers — in single mode, display in the line's currency
+  const displayCurrency =
+    !isSplitMode && paymentLines.length === 1
+      ? paymentLines[0].currencyCode
+      : totalAmountCurrency;
+  const targetSymbol = getSymbol(displayCurrency);
+  const targetDecimals = displayCurrency === "LBP" ? 0 : 2;
+
+  /** Convert a value from totalAmountCurrency to displayCurrency for summary */
+  const toDisplayCurrency = (v: number): number => {
+    if (displayCurrency === totalAmountCurrency) return v;
+    if (totalAmountCurrency === "USD" && displayCurrency === "LBP")
+      return v * effectiveRate;
+    if (totalAmountCurrency === "LBP" && displayCurrency === "USD")
+      return v / effectiveRate;
+    return v;
+  };
+
   const fmtTarget = (v: number) => {
     const formatted = Math.abs(v).toFixed(targetDecimals);
     // Prefix symbols ($, €, £) go before the number, others (LBP) go after
@@ -415,14 +447,15 @@ export default function MultiPaymentInput({
           ))}
         </div>
       ) : (
-        <>
-          <div className="flex gap-2">
+        <div className="grid grid-cols-12 gap-2 items-center">
+          {/* Payment Method */}
+          <div className="col-span-5">
             <select
               value={paymentLines[0]?.method || "CASH"}
               onChange={(e) =>
                 updatePaymentLine(paymentLines[0]?.id, "method", e.target.value)
               }
-              className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
+              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
             >
               {paymentMethods.map((pm) => (
                 <option key={pm.code} value={pm.code}>
@@ -430,6 +463,10 @@ export default function MultiPaymentInput({
                 </option>
               ))}
             </select>
+          </div>
+
+          {/* Currency */}
+          <div className="col-span-3">
             <select
               value={paymentLines[0]?.currencyCode || currency}
               onChange={(e) =>
@@ -439,7 +476,7 @@ export default function MultiPaymentInput({
                   e.target.value,
                 )
               }
-              className="w-24 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
+              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
             >
               {currencies.map((curr) => (
                 <option key={curr.code} value={curr.code}>
@@ -448,24 +485,40 @@ export default function MultiPaymentInput({
               ))}
             </select>
           </div>
-          <div className="mt-2">
-            <label className="text-xs text-slate-500 mb-1 block">Paid</label>
-            <input
-              type="number"
-              value={paymentLines[0]?.amount || ""}
-              onChange={(e) =>
-                updatePaymentLine(
-                  paymentLines[0]?.id,
-                  "amount",
-                  parseFloat(e.target.value) || 0,
-                )
-              }
-              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-violet-500"
-              placeholder="0"
-              step="0.01"
-            />
+
+          {/* Amount */}
+          <div className="col-span-4">
+            <div className="relative">
+              {["$", "€", "£"].includes(
+                getSymbol(paymentLines[0]?.currencyCode || currency),
+              ) && (
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs">
+                  {getSymbol(paymentLines[0]?.currencyCode || currency)}
+                </span>
+              )}
+              <input
+                type="number"
+                value={paymentLines[0]?.amount || ""}
+                onChange={(e) =>
+                  updatePaymentLine(
+                    paymentLines[0]?.id,
+                    "amount",
+                    parseFloat(e.target.value) || 0,
+                  )
+                }
+                className={`w-full bg-slate-950 border border-slate-700 rounded-lg pr-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-violet-500 ${
+                  ["$", "€", "£"].includes(
+                    getSymbol(paymentLines[0]?.currencyCode || currency),
+                  )
+                    ? "pl-7"
+                    : "pl-3"
+                }`}
+                placeholder="0"
+                step="0.01"
+              />
+            </div>
           </div>
-        </>
+        </div>
       )}
 
       {/* Summary
@@ -480,19 +533,19 @@ export default function MultiPaymentInput({
             <div className="flex justify-between text-xs">
               <span className="text-slate-400">Send Amount</span>
               <span className="font-mono text-white">
-                {fmtTarget(totalAmount - providerFee)}
+                {fmtTarget(toDisplayCurrency(totalAmount - providerFee))}
               </span>
             </div>
             <div className="flex justify-between text-xs">
               <span className="text-amber-400">Provider Fee</span>
               <span className="font-mono text-amber-300">
-                +{fmtTarget(providerFee)}
+                +{fmtTarget(toDisplayCurrency(providerFee))}
               </span>
             </div>
             <div className="flex justify-between text-xs border-t border-slate-700/40 pt-1">
               <span className="text-slate-300 font-medium">Total to Pay</span>
               <span className="font-mono text-slate-200 font-medium">
-                {fmtTarget(totalAmount)}
+                {fmtTarget(toDisplayCurrency(totalAmount))}
               </span>
             </div>
           </>
@@ -501,7 +554,7 @@ export default function MultiPaymentInput({
           <div className="flex justify-between text-xs">
             <span className="text-slate-400">Total Amount</span>
             <span className="font-mono text-white">
-              {fmtTarget(totalAmount)}
+              {fmtTarget(toDisplayCurrency(totalAmount))}
             </span>
           </div>
         )}
@@ -510,7 +563,7 @@ export default function MultiPaymentInput({
           <span
             className={`font-mono ${Math.abs(totalPaid - totalAmount) < matchTolerance ? "text-emerald-400" : "text-red-400"}`}
           >
-            {fmtTarget(totalPaid)}
+            {fmtTarget(toDisplayCurrency(totalPaid))}
           </span>
         </div>
         {Math.abs(totalPaid - totalAmount) > matchTolerance && (
@@ -525,7 +578,7 @@ export default function MultiPaymentInput({
             <span
               className={`font-mono font-bold ${totalPaid < totalAmount ? "text-red-400" : "text-amber-400"}`}
             >
-              {fmtTarget(Math.abs(totalPaid - totalAmount))}
+              {fmtTarget(toDisplayCurrency(Math.abs(totalPaid - totalAmount)))}
             </span>
           </div>
         )}
@@ -536,13 +589,13 @@ export default function MultiPaymentInput({
                 Wallet Surcharge (PM fees)
               </span>
               <span className="font-mono text-violet-300">
-                +{fmtTarget(totalPmFees)}
+                +{fmtTarget(toDisplayCurrency(totalPmFees))}
               </span>
             </div>
             <div className="flex justify-between text-xs">
               <span className="text-white font-semibold">Grand Total</span>
               <span className="font-mono text-white font-semibold">
-                {fmtTarget(totalPaid + totalPmFees)}
+                {fmtTarget(toDisplayCurrency(totalPaid + totalPmFees))}
               </span>
             </div>
           </>

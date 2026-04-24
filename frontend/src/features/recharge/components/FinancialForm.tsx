@@ -1,7 +1,9 @@
 import { useState, useEffect } from "react";
 import { ChevronDown, Search, X } from "lucide-react";
 import { MultiPaymentInput, useApi, DoubleTab } from "@liratek/ui";
+import { useSession } from "@/features/sessions/context/SessionContext";
 import type { ServiceItem, ProviderKey } from "../hooks/useMobileServiceItems";
+import { getCategoryColor } from "../utils/categoryColors";
 import type {
   FinancialTransaction,
   ServiceType,
@@ -10,6 +12,7 @@ import type {
 } from "../types";
 import { HistoryModal } from "./HistoryModal";
 import { getExchangeRates } from "@/utils/exchangeRates";
+import logger from "@/utils/logger";
 
 interface CartLineItem {
   item: ServiceItem;
@@ -27,8 +30,6 @@ interface FinancialFormProps {
   methods: { code: string; label: string }[];
   clientName: string;
   setClientName: (val: string) => void;
-  handleFinancialSubmit: () => void;
-  isSubmitting: boolean;
   loadFinancialData: () => void;
   formatAmount: (val: number, currency: string) => string;
   showHistory: boolean;
@@ -46,22 +47,26 @@ export function FinancialForm({
   methods,
   clientName,
   setClientName,
-  handleFinancialSubmit,
-  isSubmitting,
   loadFinancialData,
   formatAmount,
   showHistory,
   setShowHistory,
 }: FinancialFormProps) {
   const api = useApi();
+  const {
+    activeSession,
+    linkTransaction,
+    addToCart: addToSessionCart,
+  } = useSession();
   const [cart, setCart] = useState<Map<string, CartLineItem>>(new Map());
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(
     new Set(),
   );
-  const [useMultiPayment, setUseMultiPayment] = useState<boolean>(false);
-  const [_paymentLines, setPaymentLines] = useState<any[]>([]); // Used by MultiPaymentInput onChange callback
+  const [paymentLines, setPaymentLines] = useState<any[]>([]);
   const [paymentMethod, setPaymentMethod] = useState("CASH");
+  const isSplitPayment = paymentLines.length > 1;
+  const [localSubmitting, setLocalSubmitting] = useState(false);
   const [rates, setRates] = useState({ buyRate: 89000, sellRate: 89500 });
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -154,13 +159,145 @@ export function FinancialForm({
   );
 
   const handleSubmit = async () => {
-    if (cart.size === 0) return;
-    await handleFinancialSubmit();
-    if (cart.size === 0) {
+    if (cart.size === 0 || localSubmitting) return;
+
+    // If session is active, add all cart items as one session cart entry
+    if (activeSession) {
+      const cartItems = Array.from(cart.values());
+      const itemLabels = cartItems
+        .map((line) => `${line.item.label} x${line.quantity}`)
+        .join(", ");
+      const providerLabel =
+        activeConfig?.label || activeProvider || "Financial";
+      const label =
+        itemLabels.length > 60
+          ? `${providerLabel} (${cartItems.length} items) - ${totalPrice.toLocaleString()} LBP`
+          : `${providerLabel}: ${itemLabels}`;
+
+      const finalPaymentMethod = isSplitPayment ? "MULTI" : paymentMethod;
+      const paymentsPayload = isSplitPayment
+        ? paymentLines.map((l: any) => ({
+            method: l.method,
+            currencyCode: l.currencyCode,
+            amount: l.amount,
+          }))
+        : undefined;
+
+      // Store each line item for replay at checkout
+      const formDataItems = cartItems.flatMap((line) => {
+        const sellPrice = line.item.catalogSellPrice ?? 0;
+        const cost = line.item.catalogCost ?? 0;
+        const commission = sellPrice - cost;
+        return Array.from({ length: line.quantity }, () => ({
+          provider: activeProvider,
+          serviceType: serviceType || "SEND",
+          amount: sellPrice,
+          cost,
+          currency: "LBP",
+          commission: Math.max(0, commission),
+          paidByMethod: finalPaymentMethod,
+          payments: paymentsPayload,
+          clientName: clientName || undefined,
+          itemKey: line.item.key,
+          itemCategory: line.item.category,
+          note: `${line.item.label} (${line.item.subcategory})`,
+        }));
+      });
+
+      addToSessionCart({
+        module: activeProvider === "WISH_APP" ? "whish_app" : "omt_app",
+        label,
+        amount: totalPrice,
+        currency: "LBP",
+        ipcChannel: "financial:create",
+        formData: {
+          _batch: true,
+          items: formDataItems,
+        },
+      });
+
+      // Reset form
+      setCart(new Map());
+      setClientName("");
+      setExpandedKeys(new Set());
+      setSearchQuery("");
+      return;
+    }
+
+    setLocalSubmitting(true);
+
+    const cartItems = Array.from(cart.values());
+    const finalPaymentMethod = isSplitPayment ? "MULTI" : paymentMethod;
+    const paymentsPayload = isSplitPayment
+      ? paymentLines.map((l: any) => ({
+          method: l.method,
+          currencyCode: l.currencyCode,
+          amount: l.amount,
+        }))
+      : undefined;
+
+    let allSucceeded = true;
+
+    for (const line of cartItems) {
+      const sellPrice = line.item.catalogSellPrice ?? 0;
+      const cost = line.item.catalogCost ?? 0;
+      const commission = sellPrice - cost;
+
+      for (let i = 0; i < line.quantity; i++) {
+        try {
+          const result = await api.addOMTTransaction({
+            provider: activeProvider,
+            serviceType: serviceType || "SEND",
+            amount: sellPrice,
+            cost,
+            currency: "LBP",
+            commission: Math.max(0, commission),
+            paidByMethod: finalPaymentMethod,
+            payments: paymentsPayload,
+            clientName: clientName || undefined,
+            itemKey: line.item.key,
+            itemCategory: line.item.category,
+            note: `${line.item.label} (${line.item.subcategory})`,
+          });
+
+          if (result?.success) {
+            // Link to active customer session
+            if (activeSession && result.id) {
+              try {
+                await linkTransaction({
+                  transactionType: "financial_service",
+                  transactionId: result.id,
+                  amountUsd: 0,
+                  amountLbp: sellPrice,
+                });
+              } catch (err) {
+                logger.error("Failed to link financial tx to session:", err);
+              }
+            }
+          } else {
+            logger.error("Financial submit failed:", result?.error);
+            alert(result?.error || "Failed to process item");
+            allSucceeded = false;
+            break;
+          }
+        } catch (err) {
+          logger.error("Financial submit error:", err);
+          alert("Failed to process item");
+          allSucceeded = false;
+          break;
+        }
+      }
+      if (!allSucceeded) break;
+    }
+
+    if (allSucceeded) {
+      setCart(new Map());
       setClientName("");
       setExpandedKeys(new Set());
       setSearchQuery("");
     }
+    loadFinancialData();
+    setLocalSubmitting(false);
   };
 
   // Filter items by search query
@@ -177,7 +314,7 @@ export function FinancialForm({
 
   return (
     <>
-      <div className="flex flex-col gap-5 h-full">
+      <div className="flex flex-col gap-5 flex-1 min-h-0">
         {/* Header with SEND/RECEIVE Tabs - hidden for Whish App and MTC */}
         {activeProvider !== "WISH_APP" && activeProvider !== "MTC" && (
           <div className="flex-1">
@@ -193,10 +330,10 @@ export function FinancialForm({
               accentColor={
                 activeProvider === "iPick" || activeProvider === "Katsh"
                   ? "orange"
-                  : activeProvider === "OMT_APP"
-                    ? "lime"
-                    : "violet"
+                  : "violet"
               }
+              customColor={activeProvider === "OMT_APP" ? "#ffde00" : undefined}
+              customTextColor={activeProvider === "OMT_APP" ? "black" : "white"}
             />
           </div>
         )}
@@ -229,7 +366,7 @@ export function FinancialForm({
 
         {/* Card Grid - hidden for OMT_APP (no items) */}
         {activeProvider !== "OMT_APP" && (
-          <div className="flex-1 min-h-0 overflow-auto space-y-6">
+          <div className="flex-1 min-h-0 overflow-auto space-y-6 pb-2">
             {categories.map((category) => {
               const categoryItems = getServiceItems(
                 activeProvider as ProviderKey,
@@ -247,7 +384,11 @@ export function FinancialForm({
                     onClick={() => toggleCategoryCollapse(category)}
                     className="flex items-center justify-between cursor-pointer select-none"
                   >
-                    <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">
+                    <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+                      <span
+                        className="inline-block w-2.5 h-2.5 rounded-full"
+                        style={{ backgroundColor: getCategoryColor(category) }}
+                      />
                       {category}
                     </h3>
                     <ChevronDown
@@ -270,9 +411,12 @@ export function FinancialForm({
                             <div
                               className={`w-full p-3 rounded-lg border transition-all ${
                                 qty > 0
-                                  ? "border-violet-500/40 bg-violet-500/5"
-                                  : "border-slate-700 bg-slate-800 hover:border-slate-600"
+                                  ? "border-violet-500/40 ring-1 ring-violet-500/30"
+                                  : "border-white/10 hover:border-white/20"
                               } ${isExpanded ? "ring-2 ring-violet-500/50" : ""}`}
+                              style={{
+                                backgroundColor: `${getCategoryColor(item.category)}18`,
+                              }}
                             >
                               <div
                                 onClick={() => handleCardClick(item)}
@@ -353,47 +497,28 @@ export function FinancialForm({
           </div>
         )}
 
-        {/* Sticky Bottom Bar */}
-        <div className="sticky bottom-0 bg-slate-800 rounded-xl border border-slate-700/50 p-4 shadow-2xl">
+        {/* Bottom Bar */}
+        <div className="shrink-0 bg-slate-800 rounded-xl border border-slate-700/50 p-4 shadow-2xl">
           <div className="flex items-center gap-4">
             <div className="flex-1">
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-xs text-slate-400">Payment Method</label>
-                <button
-                  type="button"
-                  onClick={() => setUseMultiPayment(!useMultiPayment)}
-                  className="text-xs px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
-                >
-                  {useMultiPayment ? "Single Payment" : "Split Payment"}
-                </button>
-              </div>
-              {useMultiPayment ? (
-                <MultiPaymentInput
-                  totalAmount={totalPrice}
-                  totalAmountCurrency="LBP"
-                  currency="LBP"
-                  onChange={setPaymentLines}
-                  showPmFee={false}
-                  paymentMethods={methods}
-                  currencies={[
-                    { code: "USD", symbol: "$" },
-                    { code: "LBP", symbol: "LBP" },
-                  ]}
-                  exchangeRate={exchangeRate}
-                />
-              ) : (
-                <select
-                  value={paymentMethod}
-                  onChange={(e) => setPaymentMethod(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-violet-500"
-                >
-                  {methods.map((m) => (
-                    <option key={m.code} value={m.code}>
-                      {m.label}
-                    </option>
-                  ))}
-                </select>
-              )}
+              <MultiPaymentInput
+                totalAmount={totalPrice}
+                totalAmountCurrency="LBP"
+                currency="LBP"
+                onChange={(lines) => {
+                  setPaymentLines(lines);
+                  if (lines.length === 1) {
+                    setPaymentMethod(lines[0].method);
+                  }
+                }}
+                showPmFee={false}
+                paymentMethods={methods}
+                currencies={[
+                  { code: "USD", symbol: "$" },
+                  { code: "LBP", symbol: "LBP" },
+                ]}
+                exchangeRate={exchangeRate}
+              />
             </div>
 
             <div className="text-right">
@@ -427,14 +552,18 @@ export function FinancialForm({
 
             <button
               onClick={handleSubmit}
-              disabled={isSubmitting || totalItems === 0}
-              className={`px-6 py-3 rounded-lg font-bold text-white transition-all ${
-                isSubmitting || totalItems === 0
+              disabled={localSubmitting || totalItems === 0}
+              className={`px-6 py-3 rounded-lg font-bold transition-all ${
+                localSubmitting || totalItems === 0
                   ? "bg-slate-600 text-slate-400 cursor-not-allowed"
-                  : "bg-violet-600 hover:bg-violet-500 shadow-lg shadow-violet-500/20"
+                  : activeProvider === "WISH_APP"
+                    ? "bg-[#ff0a46] hover:bg-[#ff0a46]/80 text-white shadow-lg shadow-[#ff0a46]/20"
+                    : activeProvider === "OMT_APP"
+                      ? "bg-[#ffde00] hover:bg-[#ffde00]/80 text-black shadow-lg shadow-[#ffde00]/20"
+                      : "bg-violet-600 hover:bg-violet-500 text-white shadow-lg shadow-violet-500/20"
               }`}
             >
-              {isSubmitting ? "Processing..." : "Submit"}
+              {localSubmitting ? "Processing..." : "Submit"}
             </button>
           </div>
         </div>
@@ -448,6 +577,7 @@ export function FinancialForm({
           onClose={() => setShowHistory(false)}
           onRefresh={loadFinancialData}
           formatAmount={formatAmount}
+          showFeeAndProfit
         />
       )}
     </>

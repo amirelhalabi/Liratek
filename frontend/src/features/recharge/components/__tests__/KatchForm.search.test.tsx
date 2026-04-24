@@ -71,6 +71,7 @@ const mockServiceItems: ServiceItem[] = [
     label: "Alfa Go Premium",
     catalogCost: 697000,
     catalogSellPrice: 0,
+    sortOrder: 0,
   },
   {
     key: "iPick/alfa/Alfa Go/Alfa Go+",
@@ -80,6 +81,7 @@ const mockServiceItems: ServiceItem[] = [
     label: "Alfa Go Plus",
     catalogCost: 1212000,
     catalogSellPrice: 0,
+    sortOrder: 1,
   },
   {
     key: "iPick/alfa/Mobile Internet/1GB",
@@ -89,6 +91,7 @@ const mockServiceItems: ServiceItem[] = [
     label: "1GB Data",
     catalogCost: 340000,
     catalogSellPrice: 0,
+    sortOrder: 0,
   },
   {
     key: "iPick/alfa/Mobile Internet/3GB",
@@ -98,6 +101,7 @@ const mockServiceItems: ServiceItem[] = [
     label: "3GB Data",
     catalogCost: 900000,
     catalogSellPrice: 0,
+    sortOrder: 1,
   },
   // Gaming category items - unique labels
   {
@@ -108,6 +112,7 @@ const mockServiceItems: ServiceItem[] = [
     label: "60 UC",
     catalogCost: 82340,
     catalogSellPrice: 0,
+    sortOrder: 0,
   },
   {
     key: "iPick/Gaming/Pubg direct/325 UC",
@@ -117,6 +122,7 @@ const mockServiceItems: ServiceItem[] = [
     label: "325 UC Pack",
     catalogCost: 454000,
     catalogSellPrice: 0,
+    sortOrder: 1,
   },
   {
     key: "iPick/Gaming/Free Fire direct/100 +10 diamonds",
@@ -126,6 +132,7 @@ const mockServiceItems: ServiceItem[] = [
     label: "100 Diamonds",
     catalogCost: 97000,
     catalogSellPrice: 0,
+    sortOrder: 0,
   },
   // MTC category items - unique labels
   {
@@ -136,6 +143,7 @@ const mockServiceItems: ServiceItem[] = [
     label: "3 USD Credit",
     catalogCost: 280000,
     catalogSellPrice: 0,
+    sortOrder: 0,
   },
   {
     key: "iPick/mtc/Validity/10 days",
@@ -145,6 +153,7 @@ const mockServiceItems: ServiceItem[] = [
     label: "10 Days Validity",
     catalogCost: 65000,
     catalogSellPrice: 0,
+    sortOrder: 0,
   },
 ];
 
@@ -183,8 +192,6 @@ const mockProps = {
     return mockServiceItems.filter((item) => item.category === category);
   },
   methods: [{ code: "CASH", label: "Cash" }],
-  handleFinancialSubmit: jest.fn(),
-  isSubmitting: false,
   loadFinancialData: jest.fn(),
   formatAmount: (val: number) => val.toLocaleString(),
   alfaCreditSellRate: 100,

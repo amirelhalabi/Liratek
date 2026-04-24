@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useApi, DataTable } from "@liratek/ui";
+import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import {
   Calendar,
   RefreshCw,
@@ -46,6 +47,7 @@ interface CheckpointHistoryProps {
 }
 
 export function CheckpointHistory({ onClose }: CheckpointHistoryProps) {
+  useModalFocusFix(true);
   const api = useApi();
   const [checkpoints, setCheckpoints] = useState<LotoCheckpoint[]>([]);
   const [selectedCheckpoint, setSelectedCheckpoint] =
@@ -130,7 +132,7 @@ export function CheckpointHistory({ onClose }: CheckpointHistoryProps) {
     <>
       {/* Main History Modal */}
       <div
-        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200"
+        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 animate-in fade-in duration-200"
         onClick={onClose}
       >
         <div
@@ -330,7 +332,7 @@ export function CheckpointHistory({ onClose }: CheckpointHistoryProps) {
       {/* Report Modal (nested) */}
       {selectedCheckpoint && (
         <div
-          className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 animate-in fade-in duration-200"
           onClick={() => setSelectedCheckpoint(null)}
         >
           <div

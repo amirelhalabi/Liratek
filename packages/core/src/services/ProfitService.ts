@@ -128,8 +128,9 @@ export interface ProfitSummary {
 }
 
 export interface ProfitByClient {
-  client_id: number;
+  client_id: number | null;
   client_name: string;
+  client_phone: string | null;
   revenue_usd: number;
   revenue_lbp: number;
   profit_usd: number;
@@ -999,7 +1000,8 @@ export class ProfitService {
         .prepare(
           `SELECT
             t.client_id,
-            COALESCE(c.full_name, 'Walk-in') AS client_name,
+            COALESCE(t.client_name, c.full_name, 'Walk-in') AS client_name,
+            COALESCE(t.client_phone, c.phone_number) AS client_phone,
             -- Revenue: only count realized/collected amounts (same logic as getByUser)
             SUM(CASE
               WHEN t.type = 'FINANCIAL_SERVICE' THEN (
@@ -1045,7 +1047,10 @@ export class ProfitService {
               SELECT SUM(fs2.commission)
               FROM financial_services fs2
               JOIN transactions t2 ON t2.source_table = 'financial_services' AND t2.source_id = fs2.id
-              WHERE t2.client_id = t.client_id
+              WHERE (
+                (t.client_id IS NOT NULL AND t2.client_id = t.client_id)
+                OR (t.client_id IS NULL AND t2.client_name = t.client_name)
+              )
                 AND fs2.is_settled = 0
                 AND fs2.commission > 0
                 AND fs2.created_at >= ? AND fs2.created_at <= ?
@@ -1055,7 +1060,7 @@ export class ProfitService {
           WHERE t.status = 'ACTIVE'
             AND t.type IN ('SALE', 'FINANCIAL_SERVICE', 'RECHARGE', 'CUSTOM_SERVICE', 'MAINTENANCE')
             AND t.created_at >= ? AND t.created_at <= ?
-          GROUP BY COALESCE(t.client_id, 0)
+          GROUP BY t.client_id, COALESCE(t.client_name, c.full_name), COALESCE(t.client_phone, c.phone_number)
           ORDER BY profit_usd DESC
           LIMIT ?`,
         )

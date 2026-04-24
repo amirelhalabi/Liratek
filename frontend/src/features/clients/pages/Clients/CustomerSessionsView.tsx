@@ -8,6 +8,7 @@ import {
   Smartphone,
   Wrench,
 } from "lucide-react";
+import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 
 interface SessionTransaction {
   id: number;
@@ -65,6 +66,7 @@ export default function CustomerSessionsView({
   customerPhone,
   onClose,
 }: CustomerSessionsViewProps) {
+  useModalFocusFix(true);
   const [sessions, setSessions] = useState<SessionWithDetails[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedSession, setExpandedSession] = useState<number | null>(null);
@@ -115,7 +117,7 @@ export default function CustomerSessionsView({
 
   if (loading) {
     return (
-      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
         <div className="bg-slate-900 border border-slate-700 rounded-2xl p-8 max-w-2xl w-full">
           <div className="text-center text-slate-400 animate-pulse">
             Loading sessions...
@@ -127,7 +129,7 @@ export default function CustomerSessionsView({
 
   return (
     <div
-      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}

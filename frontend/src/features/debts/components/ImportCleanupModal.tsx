@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import {
   AlertTriangle,
   Check,
@@ -92,6 +93,7 @@ export function ImportCleanupModal({
   onConfirm,
   onCancel,
 }: ImportCleanupModalProps) {
+  useModalFocusFix(true);
   // Separate flagged (no phone) and valid (has phone) clients
   const flaggedIndices = useMemo(
     () => clients.map((c, i) => (!c.phone ? i : -1)).filter((i) => i >= 0),
@@ -221,7 +223,7 @@ export function ImportCleanupModal({
 
   return (
     <div
-      className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
       role="presentation"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onCancel();

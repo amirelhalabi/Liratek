@@ -38,7 +38,11 @@ export function StatsCards({
         <TrendingUp className="w-4 h-4 shrink-0 text-[#ffde00]" />
         <span className="font-medium whitespace-nowrap">Today</span>
         <span className="font-bold text-[#ffde00]">
-          ${todayCommission.toFixed(2)}
+          $
+          {todayCommission.toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}
         </span>
       </div>
 
@@ -47,7 +51,11 @@ export function StatsCards({
         <Calendar className="w-4 h-4 shrink-0 text-blue-400" />
         <span className="font-medium whitespace-nowrap">Month</span>
         <span className="font-bold text-blue-400">
-          ${monthCommission.toFixed(2)}
+          $
+          {monthCommission.toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}
         </span>
       </div>
 
@@ -58,11 +66,15 @@ export function StatsCards({
           <span
             className={`font-bold ${getBalanceColor(owedByProvider.OMT.usd ?? 0)}`}
           >
-            ${Math.abs(owedByProvider.OMT.usd ?? 0).toFixed(2)}
+            $
+            {Math.abs(owedByProvider.OMT.usd ?? 0).toLocaleString(undefined, {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}
           </span>
           {getBalanceLabel(owedByProvider.OMT.usd ?? 0) && (
             <span
-              className={`text-xs ${getBalanceColor(owedByProvider.OMT.usd ?? 0)} opacity-70`}
+              className={`text-sm ${getBalanceColor(owedByProvider.OMT.usd ?? 0)} opacity-70`}
             >
               {getBalanceLabel(owedByProvider.OMT.usd ?? 0)}
             </span>
@@ -77,11 +89,15 @@ export function StatsCards({
           <span
             className={`font-bold ${getBalanceColor(owedByProvider.WHISH.usd ?? 0)}`}
           >
-            ${Math.abs(owedByProvider.WHISH.usd ?? 0).toFixed(2)}
+            $
+            {Math.abs(owedByProvider.WHISH.usd ?? 0).toLocaleString(undefined, {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}
           </span>
           {getBalanceLabel(owedByProvider.WHISH.usd ?? 0) && (
             <span
-              className={`text-xs ${getBalanceColor(owedByProvider.WHISH.usd ?? 0)} opacity-70`}
+              className={`text-sm ${getBalanceColor(owedByProvider.WHISH.usd ?? 0)} opacity-70`}
             >
               {getBalanceLabel(owedByProvider.WHISH.usd ?? 0)}
             </span>

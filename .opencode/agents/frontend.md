@@ -1,7 +1,7 @@
 ---
 description: Frontend specialist for LiraTek POS - focuses on React components, TypeScript, UI/UX, and frontend architecture
 mode: subagent
-model: alibaba-coding-plan/qwen3.5-plus
+model: github-copilot/claude-sonnet-4.6
 color: "#8B5CF6"
 skills:
   - liratek-frontend

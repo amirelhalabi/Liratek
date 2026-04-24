@@ -4,6 +4,8 @@ import { useCurrencyContext } from "@/contexts/CurrencyContext";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { useSession } from "@/features/sessions/context/SessionContext";
+import { useSessionAutoFill } from "@/features/sessions/hooks/useSessionAutoFill";
+import { getExchangeRates } from "@/utils/exchangeRates";
 import type { PaymentLine } from "@liratek/ui";
 import {
   useMobileServiceItems,
@@ -35,7 +37,11 @@ export default function MobileRecharge() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const { methods } = usePaymentMethods();
-  const { activeSession } = useSession();
+  const {
+    activeSession,
+    linkTransaction,
+    addToCart: addToSessionCart,
+  } = useSession();
   const { getCategoriesForProvider, getItems: getServiceItems } =
     useMobileServiceItems();
 
@@ -90,19 +96,30 @@ export default function MobileRecharge() {
   >("");
   const [giftAmountUsd, setGiftAmountUsd] = useState("");
   const [giftPriceLbp, setGiftPriceLbp] = useState("");
-  const [useMultiPayment, setUseMultiPayment] = useState<boolean>(false);
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
 
   const [cryptoType, setCryptoType] = useState<"SEND" | "RECEIVE">("SEND");
   const [cryptoAmount, setCryptoAmount] = useState("");
   const [cryptoClientName, setCryptoClientName] = useState("");
   const [cryptoDescription, setCryptoDescription] = useState("");
+  const [cryptoFee, setCryptoFee] = useState("");
+  const [cryptoPaymentLines, setCryptoPaymentLines] = useState<PaymentLine[]>(
+    [],
+  );
+  const [cryptoPaidBy, setCryptoPaidBy] = useState("CASH");
 
   const [showHistory, setShowHistory] = useState(false);
   const [rechargeHistory, setRechargeHistory] = useState<any[]>([]);
   const [showTopUpModal, setShowTopUpModal] = useState(false);
   const [topUpData, setTopUpData] = useState<{
-    provider: "MTC" | "Alfa" | "OMT_APP" | "WHISH_APP" | "iPick" | "Katsh";
+    provider:
+      | "MTC"
+      | "Alfa"
+      | "OMT_APP"
+      | "WHISH_APP"
+      | "iPick"
+      | "Katsh"
+      | "BINANCE";
     destinationDrawer: string;
     defaultSourceDrawer: string;
     availableDrawers: Array<{
@@ -113,20 +130,30 @@ export default function MobileRecharge() {
   } | null>(null);
 
   // Alfa credit sell rate for "Only Days" returned credits calculation
-  const [alfaCreditSellRate, setAlfaCreditSellRate] = useState(100);
+  const [alfaCreditSellRate, setAlfaCreditSellRate] = useState(100000);
+  const [alfaCreditCostRate, setAlfaCreditCostRate] = useState(85000);
+  const [exchangeRate, setExchangeRate] = useState(89500);
 
   // Whish App mode: 'bills' (card grid) or 'transfer' (send/receive money)
   const [whishAppMode, setWhishAppMode] = useState<"bills" | "transfer">(
     "bills",
   );
 
-  // Autofill client name from active customer session
-  useEffect(() => {
-    if (activeSession?.customer_name) {
-      setClientName(activeSession.customer_name);
-      setTelecomClientName(activeSession.customer_name);
-    }
-  }, [activeSession]);
+  // Autofill client name from active customer session, clear when session closes
+  useSessionAutoFill([
+    { select: (s) => s.customer_name, set: setClientName, clearValue: "" },
+    {
+      select: (s) => s.customer_name,
+      set: setTelecomClientName,
+      clearValue: "",
+    },
+    {
+      select: (s) => s.customer_name,
+      set: setCryptoClientName,
+      clearValue: "",
+    },
+    { select: () => undefined, set: setTelecomClientId, clearValue: null },
+  ]);
 
   useEffect(() => {
     const loadRate = async () => {
@@ -140,7 +167,15 @@ export default function MobileRecharge() {
         );
         const rate =
           Number(settingsMap.get("alfa_credit_sell_rate_lbp")) || 100000;
-        setAlfaCreditSellRate(rate / 1000);
+        setAlfaCreditSellRate(rate);
+        const costRate =
+          Number(settingsMap.get("alfa_credit_cost_rate_lbp")) || 85000;
+        setAlfaCreditCostRate(costRate);
+
+        // Load exchange rate for MultiPaymentInput
+        const rates = await api.getRates();
+        const { sellRate } = getExchangeRates(rates);
+        setExchangeRate(sellRate);
       } catch (error) {
         console.error("Failed to load alfa credit sell rate:", error);
       }
@@ -148,11 +183,13 @@ export default function MobileRecharge() {
     loadRate();
   }, [api]);
 
-  // Reset Whish App mode when provider changes
+  // Reset form state when provider changes
   useEffect(() => {
     if (activeProvider === "WISH_APP") {
       setWhishAppMode("bills");
     }
+    // Reset rechargeType to avoid showing tabs that don't exist for the new provider
+    setRechargeType("CREDIT_TRANSFER");
   }, [activeProvider]);
 
   const activeConfig = PROVIDER_CONFIGS.find(
@@ -187,6 +224,8 @@ export default function MobileRecharge() {
           currency_code: tx.currency,
           description: tx.note || null,
           client_name: tx.client_name || null,
+          commission: tx.commission ?? 0,
+          paid_by: tx.paid_by || null,
           created_at: tx.created_at,
         })),
       );
@@ -251,32 +290,102 @@ export default function MobileRecharge() {
     setShowClientSearch(false);
   }, []);
 
-  const handleFinancialSubmit = useCallback(async () => {
-    if (!activeProvider) return;
-    setIsSubmitting(true);
-    try {
-      loadFinancialData();
-    } catch (err) {
-      console.error("Failed to submit financial transaction:", err);
-    } finally {
-      setIsSubmitting(false);
-    }
-  }, [activeProvider, loadFinancialData]);
-
   const handleTelecomSubmit = useCallback(async () => {
     if (!activeProvider || !telecomAmount) return;
+
+    const amount = parseFloat(telecomAmount);
+    const price = parseFloat(telecomPrice) || amount * alfaCreditSellRate;
+    const cost = amount * (alfaCreditCostRate || 85000);
+
+    // If session is active, add to cart instead of submitting
+    if (activeSession) {
+      const providerLabel = activeProvider === "MTC" ? "MTC" : "Alfa";
+      const typeLabel =
+        rechargeType === "CREDIT_TRANSFER"
+          ? "Recharge"
+          : rechargeType.replace(/_/g, " ");
+      const label = phoneNumber
+        ? `${providerLabel} ${typeLabel} - ${phoneNumber} - ${price.toLocaleString()} LBP`
+        : `${providerLabel} ${typeLabel} - ${price.toLocaleString()} LBP`;
+
+      addToSessionCart({
+        module: activeProvider === "MTC" ? "recharge_mtc" : "recharge_alfa",
+        label,
+        amount: price,
+        currency: "LBP",
+        ipcChannel: "recharge:create",
+        formData: {
+          provider: activeProvider,
+          type: rechargeType,
+          phoneNumber:
+            rechargeType === "CREDIT_TRANSFER" ? phoneNumber : undefined,
+          amount,
+          cost,
+          price,
+          currency: "LBP",
+          paid_by_method: paidBy,
+          payments:
+            paymentLines.length > 0
+              ? paymentLines.map((l) => ({
+                  method: l.method,
+                  currencyCode: l.currencyCode,
+                  amount: l.amount,
+                }))
+              : undefined,
+          clientId: telecomClientId || undefined,
+          clientName: telecomClientName || undefined,
+        },
+      });
+
+      // Reset form
+      setTelecomAmount("");
+      setTelecomPrice("");
+      setPhoneNumber("");
+      return;
+    }
+
     setIsSubmitting(true);
     try {
-      await api.processRecharge({
+      const result = await api.processRecharge({
         provider: activeProvider,
-        rechargeType,
+        type: rechargeType,
         phoneNumber:
           rechargeType === "CREDIT_TRANSFER" ? phoneNumber : undefined,
-        amount: parseFloat(telecomAmount),
-        price: parseFloat(telecomPrice) || undefined,
-        paidBy,
-        clientId: telecomClientId,
+        amount,
+        cost,
+        price,
+        currency: "LBP",
+        paid_by_method: paidBy,
+        payments:
+          paymentLines.length > 0
+            ? paymentLines.map((l) => ({
+                method: l.method,
+                currencyCode: l.currencyCode,
+                amount: l.amount,
+              }))
+            : undefined,
+        clientId: telecomClientId || undefined,
+        clientName: telecomClientName || undefined,
       });
+      if (result && !result.success) {
+        alert(result.error || "Failed to process recharge");
+        return;
+      }
+
+      // Link to active customer session
+      if (activeSession && result?.id) {
+        try {
+          await linkTransaction({
+            transactionType: "recharge",
+            transactionId: result.id,
+            amountUsd: 0,
+            amountLbp: price,
+          });
+        } catch (err) {
+          console.error("Failed to link recharge to session:", err);
+        }
+      }
+
       setTelecomAmount("");
       setTelecomPrice("");
       setPhoneNumber("");
@@ -293,9 +402,15 @@ export default function MobileRecharge() {
     rechargeType,
     phoneNumber,
     paidBy,
+    paymentLines,
     telecomClientId,
+    telecomClientName,
+    alfaCreditSellRate,
+    alfaCreditCostRate,
     api,
     loadFinancialData,
+    activeSession,
+    linkTransaction,
   ]);
 
   const loadRechargeHistory = useCallback(async () => {
@@ -320,7 +435,14 @@ export default function MobileRecharge() {
       {
         drawer: string;
         defaultSource: string;
-        type: "MTC" | "Alfa" | "OMT_APP" | "WHISH_APP" | "iPick" | "Katsh";
+        type:
+          | "MTC"
+          | "Alfa"
+          | "OMT_APP"
+          | "WHISH_APP"
+          | "iPick"
+          | "Katsh"
+          | "BINANCE";
       }
     > = {
       MTC: { drawer: "MTC", defaultSource: "General", type: "MTC" },
@@ -337,6 +459,7 @@ export default function MobileRecharge() {
       },
       iPick: { drawer: "iPick", defaultSource: "General", type: "iPick" },
       Katsh: { drawer: "Katsh", defaultSource: "General", type: "Katsh" },
+      BINANCE: { drawer: "Binance", defaultSource: "General", type: "BINANCE" },
     };
 
     const config = providerConfig[activeProvider];
@@ -389,6 +512,8 @@ export default function MobileRecharge() {
       // Reload financial data to show updated balances
       if (activeConfig?.formMode === "financial") {
         loadFinancialData();
+      } else if (activeConfig?.formMode === "crypto") {
+        loadBinanceData();
       }
 
       const providerLabels: Record<string, string> = {
@@ -398,6 +523,7 @@ export default function MobileRecharge() {
         WHISH_APP: "Whish App",
         iPick: "iPick",
         Katsh: "Katsh",
+        BINANCE: "Binance",
       };
 
       alert(
@@ -429,19 +555,92 @@ export default function MobileRecharge() {
   }, [giftTierKey, giftAmountUsd, giftPriceLbp, api]);
 
   const handleCryptoSubmit = useCallback(async () => {
+    const fee = parseFloat(cryptoFee) || 0;
+    const amount = parseFloat(cryptoAmount);
+    const isSplitPayment = cryptoPaymentLines.length > 1;
+    const paidByMethod =
+      cryptoPaymentLines.length === 1
+        ? cryptoPaymentLines[0].method
+        : cryptoPaidBy;
+
+    // If session is active, add to cart instead of submitting
+    if (activeSession) {
+      const isSend = cryptoType === "SEND";
+      const label = `Binance ${isSend ? "Send" : "Receive"} - $${amount} USDT${cryptoClientName ? ` - ${cryptoClientName}` : ""}`;
+
+      addToSessionCart({
+        module: isSend ? "binance_send" : "binance_receive",
+        label,
+        amount: isSend ? amount + fee : -(amount - fee),
+        currency: "USDT",
+        ipcChannel: "financial:create",
+        formData: {
+          provider: "BINANCE",
+          serviceType: cryptoType,
+          amount,
+          currency: "USDT",
+          clientName: cryptoClientName,
+          referenceNumber: cryptoDescription,
+          commission: fee,
+          paidByMethod: isSplitPayment ? "MULTI" : paidByMethod,
+          payments: isSplitPayment
+            ? cryptoPaymentLines.map((l) => ({
+                method: l.method,
+                currencyCode: l.currencyCode,
+                amount: l.amount,
+              }))
+            : undefined,
+        },
+      });
+
+      // Reset form
+      setCryptoAmount("");
+      setCryptoClientName("");
+      setCryptoDescription("");
+      setCryptoFee("");
+      setCryptoPaymentLines([]);
+      return;
+    }
+
     setIsSubmitting(true);
     try {
-      await api.addOMTTransaction({
+      const result = await api.addOMTTransaction({
         provider: "BINANCE",
         serviceType: cryptoType,
         amount: parseFloat(cryptoAmount),
         currency: "USDT",
         clientName: cryptoClientName,
         referenceNumber: cryptoDescription,
+        commission: fee,
+        paidByMethod: isSplitPayment ? "MULTI" : paidByMethod,
+        payments: isSplitPayment
+          ? cryptoPaymentLines.map((l) => ({
+              method: l.method,
+              currencyCode: l.currencyCode,
+              amount: l.amount,
+            }))
+          : undefined,
       });
+
+      // Link to active customer session
+      if (activeSession && result?.id) {
+        try {
+          await linkTransaction({
+            transactionType: "financial_service",
+            transactionId: result.id,
+            amountUsd: parseFloat(cryptoAmount) || 0,
+            amountLbp: 0,
+          });
+        } catch (err) {
+          console.error("Failed to link crypto transaction to session:", err);
+        }
+      }
+
       setCryptoAmount("");
       setCryptoClientName("");
       setCryptoDescription("");
+      setCryptoFee("");
+      setCryptoPaymentLines([]);
       loadBinanceData();
     } catch (err) {
       console.error("Failed to submit crypto transaction:", err);
@@ -453,13 +652,23 @@ export default function MobileRecharge() {
     cryptoAmount,
     cryptoClientName,
     cryptoDescription,
+    cryptoFee,
+    cryptoPaymentLines,
+    cryptoPaidBy,
     api,
     loadBinanceData,
+    activeSession,
+    linkTransaction,
+    addToSessionCart,
   ]);
 
-  const handleQuickAmount = useCallback((val: number) => {
-    setTelecomAmount(val.toString());
-  }, []);
+  const handleQuickAmount = useCallback(
+    (val: number) => {
+      setTelecomAmount(val.toString());
+      setTelecomPrice((val * alfaCreditSellRate).toString());
+    },
+    [alfaCreditSellRate],
+  );
 
   const resolveVoucherImage = useCallback(
     (provider: string, amount: number) => {
@@ -554,7 +763,8 @@ export default function MobileRecharge() {
               activeConfig.key === "OMT_APP" ||
               activeConfig.key === "WISH_APP" ||
               activeConfig.key === "iPick" ||
-              activeConfig.key === "Katsh") && (
+              activeConfig.key === "Katsh" ||
+              activeConfig.key === "BINANCE") && (
               <button
                 onClick={handleTopUpClick}
                 className="px-4 py-2 rounded-lg font-medium text-sm bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 hover:text-white transition-all"
@@ -566,165 +776,184 @@ export default function MobileRecharge() {
         )}
       </div>
 
-      {activeConfig?.formMode === "telecom" && (
-        <TelecomForm
-          isMTC={isMTC}
-          rechargeType={rechargeType}
-          setRechargeType={setRechargeType}
-          isSubmitting={isSubmitting}
-          handleQuickAmount={handleQuickAmount}
-          showHistory={showHistory}
-          setShowHistory={setShowHistory}
-          rechargeHistory={rechargeHistory}
-          telecomAmount={telecomAmount}
-          setTelecomAmount={setTelecomAmount}
-          telecomPrice={telecomPrice}
-          setTelecomPrice={setTelecomPrice}
-          phoneNumber={phoneNumber}
-          setPhoneNumber={setPhoneNumber}
-          paidBy={paidBy}
-          setPaidBy={setPaidBy}
-          methods={methods}
-          showClientSearch={showClientSearch}
-          setShowClientSearch={setShowClientSearch}
-          telecomClientId={telecomClientId}
-          setTelecomClientId={setTelecomClientId}
-          telecomClientName={telecomClientName}
-          setTelecomClientName={setTelecomClientName}
-          searchClients={searchClients}
-          clientSearchResults={clientSearchResults}
-          selectClient={selectClient}
-          resolveVoucherImage={resolveVoucherImage}
-          activeProvider={activeProvider}
-          activeConfig={activeConfig}
-          handleTelecomSubmit={handleTelecomSubmit}
-          giftTierKey={giftTierKey}
-          setGiftTierKey={setGiftTierKey}
-          giftAmountUsd={giftAmountUsd}
-          setGiftAmountUsd={setGiftAmountUsd}
-          giftPriceLbp={giftPriceLbp}
-          setGiftPriceLbp={setGiftPriceLbp}
-          handleAlfaGiftSubmit={handleAlfaGiftSubmit}
-          useMultiPayment={useMultiPayment}
-          setUseMultiPayment={setUseMultiPayment}
-          paymentLines={paymentLines}
-          setPaymentLines={setPaymentLines}
-          clientName={clientName}
-          setClientName={setClientName}
-          voucherItems={mtcVoucherItems}
-        />
-      )}
-
-      {activeConfig?.formMode === "financial" &&
-        (activeProvider === "OMT_APP" ? (
-          // OMT App - Transfer only (no cards)
-          <OmtWhishAppTransferForm
-            activeProvider="OMT_APP"
-            transactions={finTransactions}
-            loadFinancialData={loadFinancialData}
-            formatAmount={formatAmount}
-          />
-        ) : activeProvider === "WISH_APP" ? (
-          // Whish App - Bills (cards) or Transfer (send/receive)
-          <>
-            {/* Mode Tabs - DoubleTab Component */}
-            <DoubleTab
-              leftOption={{ id: "bills", label: "Bills", iconKey: "FileText" }}
-              rightOption={{
-                id: "transfer",
-                label: "Transfer",
-                iconKey: "ArrowLeftRight",
-              }}
-              value={whishAppMode}
-              onChange={(val) => setWhishAppMode(val as "bills" | "transfer")}
-              accentColor="violet"
-              className="mb-4"
-            />
-
-            {whishAppMode === "bills" ? (
-              <FinancialForm
-                activeConfig={activeConfig}
-                finTransactions={finTransactions}
-                activeProvider={activeProvider}
-                serviceType={serviceType}
-                setServiceType={setServiceType}
-                getCategoriesForProvider={getCategoriesForProvider}
-                getServiceItems={getServiceItems}
-                methods={methods}
-                clientName={clientName}
-                setClientName={setClientName}
-                handleFinancialSubmit={() => handleFinancialSubmit()}
-                isSubmitting={isSubmitting}
-                loadFinancialData={loadFinancialData}
-                formatAmount={formatAmount}
-                showHistory={showHistory}
-                setShowHistory={setShowHistory}
-              />
-            ) : (
-              <OmtWhishAppTransferForm
-                activeProvider="WISH_APP"
-                transactions={finTransactions}
-                loadFinancialData={loadFinancialData}
-                formatAmount={formatAmount}
-              />
-            )}
-          </>
-        ) : activeProvider === "Katsh" || activeProvider === "iPick" ? (
-          <KatchForm
-            activeConfig={activeConfig}
-            finTransactions={finTransactions}
-            activeProvider={activeProvider as ProviderKey}
-            getCategoriesForProvider={getCategoriesForProvider}
-            getServiceItems={getServiceItems}
-            methods={methods}
-            handleFinancialSubmit={handleFinancialSubmit}
+      {/* Scrollable content area */}
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        {activeConfig?.formMode === "telecom" && (
+          <TelecomForm
+            isMTC={isMTC}
+            rechargeType={rechargeType}
+            setRechargeType={setRechargeType}
             isSubmitting={isSubmitting}
-            loadFinancialData={loadFinancialData}
-            formatAmount={formatAmount}
-            alfaCreditSellRate={alfaCreditSellRate}
+            handleQuickAmount={handleQuickAmount}
             showHistory={showHistory}
             setShowHistory={setShowHistory}
-          />
-        ) : (
-          <FinancialForm
-            activeConfig={activeConfig}
-            finTransactions={finTransactions}
-            activeProvider={activeProvider}
-            serviceType={serviceType}
-            setServiceType={setServiceType}
-            getCategoriesForProvider={getCategoriesForProvider}
-            getServiceItems={getServiceItems}
+            rechargeHistory={rechargeHistory}
+            telecomAmount={telecomAmount}
+            setTelecomAmount={setTelecomAmount}
+            telecomPrice={telecomPrice}
+            setTelecomPrice={setTelecomPrice}
+            phoneNumber={phoneNumber}
+            setPhoneNumber={setPhoneNumber}
+            paidBy={paidBy}
+            setPaidBy={setPaidBy}
             methods={methods}
+            showClientSearch={showClientSearch}
+            setShowClientSearch={setShowClientSearch}
+            telecomClientId={telecomClientId}
+            setTelecomClientId={setTelecomClientId}
+            telecomClientName={telecomClientName}
+            setTelecomClientName={setTelecomClientName}
+            searchClients={searchClients}
+            clientSearchResults={clientSearchResults}
+            selectClient={selectClient}
+            resolveVoucherImage={resolveVoucherImage}
+            activeProvider={activeProvider}
+            activeConfig={activeConfig}
+            handleTelecomSubmit={handleTelecomSubmit}
+            giftTierKey={giftTierKey}
+            setGiftTierKey={setGiftTierKey}
+            giftAmountUsd={giftAmountUsd}
+            setGiftAmountUsd={setGiftAmountUsd}
+            giftPriceLbp={giftPriceLbp}
+            setGiftPriceLbp={setGiftPriceLbp}
+            handleAlfaGiftSubmit={handleAlfaGiftSubmit}
+            paymentLines={paymentLines}
+            setPaymentLines={setPaymentLines}
             clientName={clientName}
             setClientName={setClientName}
-            handleFinancialSubmit={() => handleFinancialSubmit()}
+            voucherItems={mtcVoucherItems}
+            alfaCreditCostRate={alfaCreditCostRate}
+          />
+        )}
+
+        {activeConfig?.formMode === "financial" &&
+          (activeProvider === "OMT_APP" ? (
+            // OMT App - Transfer only (no cards)
+            <OmtWhishAppTransferForm
+              activeProvider="OMT_APP"
+              transactions={finTransactions}
+              loadFinancialData={loadFinancialData}
+              formatAmount={formatAmount}
+              customerName={activeSession?.customer_name}
+              customerPhone={activeSession?.customer_phone}
+              showHistory={showHistory}
+              onCloseHistory={() => setShowHistory(false)}
+            />
+          ) : activeProvider === "WISH_APP" ? (
+            // Whish App - Bills (cards) or Transfer (send/receive)
+            <>
+              {/* Mode Tabs - DoubleTab Component */}
+              <DoubleTab
+                leftOption={{
+                  id: "bills",
+                  label: "Bills",
+                  iconKey: "FileText",
+                }}
+                rightOption={{
+                  id: "transfer",
+                  label: "Transfer",
+                  iconKey: "ArrowLeftRight",
+                }}
+                value={whishAppMode}
+                onChange={(val) => setWhishAppMode(val as "bills" | "transfer")}
+                accentColor="red"
+                customColor="#ff0a46"
+                className="mb-4"
+              />
+
+              {whishAppMode === "bills" ? (
+                <FinancialForm
+                  activeConfig={activeConfig}
+                  finTransactions={finTransactions}
+                  activeProvider={activeProvider}
+                  serviceType={serviceType}
+                  setServiceType={setServiceType}
+                  getCategoriesForProvider={getCategoriesForProvider}
+                  getServiceItems={getServiceItems}
+                  methods={methods}
+                  clientName={clientName}
+                  setClientName={setClientName}
+                  loadFinancialData={loadFinancialData}
+                  formatAmount={formatAmount}
+                  showHistory={showHistory}
+                  setShowHistory={setShowHistory}
+                />
+              ) : (
+                <OmtWhishAppTransferForm
+                  activeProvider="WISH_APP"
+                  transactions={finTransactions}
+                  loadFinancialData={loadFinancialData}
+                  formatAmount={formatAmount}
+                  customerName={activeSession?.customer_name}
+                  customerPhone={activeSession?.customer_phone}
+                  showHistory={showHistory}
+                  onCloseHistory={() => setShowHistory(false)}
+                />
+              )}
+            </>
+          ) : activeProvider === "Katsh" || activeProvider === "iPick" ? (
+            <KatchForm
+              activeConfig={activeConfig}
+              finTransactions={finTransactions}
+              activeProvider={activeProvider as ProviderKey}
+              getCategoriesForProvider={getCategoriesForProvider}
+              getServiceItems={getServiceItems}
+              methods={methods}
+              loadFinancialData={loadFinancialData}
+              formatAmount={formatAmount}
+              alfaCreditSellRate={alfaCreditSellRate}
+              showHistory={showHistory}
+              setShowHistory={setShowHistory}
+            />
+          ) : (
+            <FinancialForm
+              activeConfig={activeConfig}
+              finTransactions={finTransactions}
+              activeProvider={activeProvider}
+              serviceType={serviceType}
+              setServiceType={setServiceType}
+              getCategoriesForProvider={getCategoriesForProvider}
+              getServiceItems={getServiceItems}
+              methods={methods}
+              clientName={clientName}
+              setClientName={setClientName}
+              loadFinancialData={loadFinancialData}
+              formatAmount={formatAmount}
+              showHistory={showHistory}
+              setShowHistory={setShowHistory}
+            />
+          ))}
+
+        {activeConfig?.formMode === "crypto" && (
+          <CryptoForm
+            activeConfig={activeConfig}
+            cryptoType={cryptoType}
+            setCryptoType={setCryptoType}
+            cryptoAmount={cryptoAmount}
+            setCryptoAmount={setCryptoAmount}
+            cryptoClientName={cryptoClientName}
+            setCryptoClientName={setCryptoClientName}
+            cryptoDescription={cryptoDescription}
+            setCryptoDescription={setCryptoDescription}
+            cryptoFee={cryptoFee}
+            setCryptoFee={setCryptoFee}
+            handleCryptoSubmit={handleCryptoSubmit}
             isSubmitting={isSubmitting}
-            loadFinancialData={loadFinancialData}
-            formatAmount={formatAmount}
+            binanceTransactions={binanceTransactions}
+            loadCryptoData={loadBinanceData}
             showHistory={showHistory}
             setShowHistory={setShowHistory}
+            paymentMethods={methods}
+            onPaymentLinesChange={(lines) => {
+              setCryptoPaymentLines(lines);
+              if (lines.length === 1) {
+                setCryptoPaidBy(lines[0].method);
+              }
+            }}
+            exchangeRate={exchangeRate}
           />
-        ))}
-
-      {activeConfig?.formMode === "crypto" && (
-        <CryptoForm
-          activeConfig={activeConfig}
-          cryptoType={cryptoType}
-          setCryptoType={setCryptoType}
-          cryptoAmount={cryptoAmount}
-          setCryptoAmount={setCryptoAmount}
-          cryptoClientName={cryptoClientName}
-          setCryptoClientName={setCryptoClientName}
-          cryptoDescription={cryptoDescription}
-          setCryptoDescription={setCryptoDescription}
-          handleCryptoSubmit={handleCryptoSubmit}
-          isSubmitting={isSubmitting}
-          binanceTransactions={binanceTransactions}
-          loadCryptoData={loadBinanceData}
-          showHistory={showHistory}
-          setShowHistory={setShowHistory}
-        />
-      )}
+        )}
+      </div>
 
       {/* Top-Up Modal for OMT App and Whish App */}
       {topUpData && (

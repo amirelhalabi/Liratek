@@ -40,6 +40,10 @@ export interface DoubleTabProps {
     | "lime"
     | "amber"
     | "emerald";
+  /** Custom hex color (e.g. "#ffde00"). Overrides accentColor when provided. */
+  customColor?: string | undefined;
+  /** Text color for active state when using customColor. Defaults to "white". */
+  customTextColor?: string | undefined;
   className?: string;
 }
 
@@ -49,6 +53,8 @@ export default function DoubleTab({
   value,
   onChange,
   accentColor = "violet",
+  customColor,
+  customTextColor = "white",
   className = "",
 }: DoubleTabProps) {
   const accentClasses = {
@@ -87,6 +93,32 @@ export default function DoubleTab({
   const renderButton = (option: DoubleTabOption) => {
     const active = value === option.id;
     const Icon = option.iconKey ? ICON_COMPONENTS[option.iconKey] : null;
+
+    // Custom hex color: use inline style for bg + shadow
+    if (customColor) {
+      return (
+        <button
+          onClick={() => onChange(option.id)}
+          className={`flex-1 h-full py-3 px-2 rounded-xl font-semibold text-sm transition-all flex items-center justify-center gap-2 ${
+            active
+              ? "shadow-lg"
+              : "text-slate-400 hover:text-white hover:bg-slate-700/60"
+          }`}
+          style={
+            active
+              ? {
+                  backgroundColor: customColor,
+                  color: customTextColor,
+                  boxShadow: `0 10px 15px -3px ${customColor}33`,
+                }
+              : undefined
+          }
+        >
+          {Icon && <Icon size={16} />}
+          {option.label}
+        </button>
+      );
+    }
 
     return (
       <button

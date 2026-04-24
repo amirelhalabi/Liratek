@@ -25,11 +25,13 @@ export function CompactStats({
     return (
       <div className="flex flex-wrap gap-2">
         {isAdmin && (
-          <div className="px-3 py-1.5 rounded-lg font-medium text-xs bg-slate-800 border border-slate-700">
-            <span className="text-slate-400 text-[10px] block mb-0.5">
+          <div
+            className={`px-3 py-1.5 rounded-lg font-medium text-xs ${activeConfig?.activeBg} ${activeConfig?.activeText}`}
+          >
+            <span className="text-white/70 text-[10px] block mb-0.5">
               Profit
             </span>
-            <span className="text-emerald-400 font-bold">
+            <span className="font-bold">
               ${(todayCommission ?? 0).toFixed(2)}
             </span>
           </div>

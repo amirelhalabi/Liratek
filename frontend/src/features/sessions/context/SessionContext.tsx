@@ -4,10 +4,12 @@ import React, {
   useState,
   useCallback,
   useEffect,
+  useRef,
 } from "react";
 import logger from "@/utils/logger";
 import { useApi } from "@liratek/ui";
 import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
+import type { CartItem, CartTotals } from "../types/cart";
 
 interface CustomerSession {
   id: number;
@@ -37,6 +39,14 @@ interface SessionContextValue {
   sessionTransactions: SessionTransaction[];
   isFloatingWindowOpen: boolean;
   isFloatingWindowMinimized: boolean;
+
+  // Cart state
+  cartItems: CartItem[];
+  addToCart: (item: Omit<CartItem, "id">) => void;
+  removeFromCart: (itemId: string) => void;
+  clearCart: () => void;
+  getCartTotals: () => CartTotals;
+  cartItemCount: number;
 
   // Actions
   startSession: (data: {
@@ -95,6 +105,69 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [isFloatingWindowOpen, setIsFloatingWindowOpen] = useState(false);
   const [isFloatingWindowMinimized, setIsFloatingWindowMinimized] =
     useState(true); // Default to minimized
+
+  // Cart state: Map of sessionId -> CartItem[] for multi-session support
+  const cartsBySession = useRef<Map<number, CartItem[]>>(new Map());
+  const [cartItems, setCartItems] = useState<CartItem[]>([]);
+
+  // Sync cartItems state when activeSession changes
+  useEffect(() => {
+    if (activeSession) {
+      const items = cartsBySession.current.get(activeSession.id) || [];
+      setCartItems(items);
+    } else {
+      setCartItems([]);
+    }
+  }, [activeSession?.id]);
+
+  const addToCart = useCallback(
+    (item: Omit<CartItem, "id">) => {
+      if (!activeSession) return;
+      const newItem: CartItem = {
+        ...item,
+        id: crypto.randomUUID(),
+      };
+      const sessionId = activeSession.id;
+      const existing = cartsBySession.current.get(sessionId) || [];
+      const updated = [...existing, newItem];
+      cartsBySession.current.set(sessionId, updated);
+      setCartItems(updated);
+      logger.info(
+        `Added item to cart: ${item.module} - ${item.label} (session ${sessionId})`,
+      );
+    },
+    [activeSession],
+  );
+
+  const removeFromCart = useCallback(
+    (itemId: string) => {
+      if (!activeSession) return;
+      const sessionId = activeSession.id;
+      const existing = cartsBySession.current.get(sessionId) || [];
+      const updated = existing.filter((i) => i.id !== itemId);
+      cartsBySession.current.set(sessionId, updated);
+      setCartItems(updated);
+    },
+    [activeSession],
+  );
+
+  const clearCart = useCallback(() => {
+    if (!activeSession) return;
+    cartsBySession.current.set(activeSession.id, []);
+    setCartItems([]);
+  }, [activeSession]);
+
+  const getCartTotals = useCallback((): CartTotals => {
+    return cartItems.reduce(
+      (totals, item) => {
+        if (item.currency === "USD") totals.usd += item.amount;
+        else if (item.currency === "LBP") totals.lbp += item.amount;
+        else if (item.currency === "USDT") totals.usdt += item.amount;
+        return totals;
+      },
+      { usd: 0, lbp: 0, usdt: 0 },
+    );
+  }, [cartItems]);
 
   // Load active sessions on mount (only when customer sessions feature is enabled)
   useEffect(() => {
@@ -206,8 +279,11 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     try {
       const result = await api.closeSession(activeSession.id);
       if (result.success) {
+        // Clear cart for this session
+        cartsBySession.current.delete(activeSession.id);
         setActiveSession(null);
         setSessionTransactions([]);
+        setCartItems([]);
         setIsFloatingWindowOpen(false);
         await refreshActiveSessions();
       } else if (result.error) {
@@ -224,11 +300,14 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       try {
         const result = await api.closeSession(sessionId);
         if (result.success) {
+          // Clear cart for closed session
+          cartsBySession.current.delete(sessionId);
           await refreshActiveSessions();
           // If we closed the active session, clear it
           if (activeSession?.id === sessionId) {
             setActiveSession(null);
             setSessionTransactions([]);
+            setCartItems([]);
           }
         } else if (result.error) {
           throw new Error(result.error);
@@ -297,6 +376,14 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     sessionTransactions,
     isFloatingWindowOpen,
     isFloatingWindowMinimized,
+
+    // Cart
+    cartItems,
+    addToCart,
+    removeFromCart,
+    clearCart,
+    getCartTotals,
+    cartItemCount: cartItems.length,
 
     startSession,
     switchToSession,

@@ -13,6 +13,7 @@ import {
 } from "@liratek/core";
 import { requireRole } from "../session.js";
 import { audit } from "./auditHelper.js";
+import { ClientCreateSchema, validatePayload } from "../schemas/index.js";
 
 interface ClientData {
   id?: number;
@@ -39,13 +40,17 @@ export function registerClientHandlers(): void {
   ipcMain.handle("clients:create", (event, client: ClientData) => {
     const auth = requireRole(event.sender.id, ["admin", "staff"]);
     if (!auth.ok) return { success: false, error: auth.error };
-    clientLogger.debug({ name: client.full_name }, "Creating client");
+
+    const v = validatePayload(ClientCreateSchema, client);
+    if (!v.ok) return { success: false, error: v.error };
+
+    clientLogger.debug({ name: v.data.full_name }, "Creating client");
     const result = clientService.createClient(
       {
-        full_name: client.full_name,
-        phone_number: client.phone_number,
-        whatsapp_opt_in: client.whatsapp_opt_in,
-        ...(client.notes != null ? { notes: client.notes } : {}),
+        full_name: v.data.full_name,
+        phone_number: v.data.phone_number,
+        whatsapp_opt_in: v.data.whatsapp_opt_in,
+        ...(v.data.notes != null ? { notes: v.data.notes } : {}),
       },
       auth.userId,
     );
@@ -53,7 +58,7 @@ export function registerClientHandlers(): void {
       action: "create",
       entity_type: "client",
       entity_id: String((result as any)?.id ?? ""),
-      summary: `Created client "${client.full_name}"`,
+      summary: `Created client "${v.data.full_name}"`,
     });
     return result;
   });
@@ -62,24 +67,28 @@ export function registerClientHandlers(): void {
   ipcMain.handle("clients:update", (event, client: ClientData) => {
     const auth = requireRole(event.sender.id, ["admin", "staff"]);
     if (!auth.ok) return { success: false, error: auth.error };
-    if (!client.id) {
+
+    const v = validatePayload(ClientCreateSchema, client);
+    if (!v.ok) return { success: false, error: v.error };
+
+    if (!v.data.id) {
       return { success: false, error: "Client ID required" };
     }
     const result = clientService.updateClient(
-      client.id,
+      v.data.id,
       {
-        full_name: client.full_name,
-        phone_number: client.phone_number,
-        whatsapp_opt_in: client.whatsapp_opt_in,
-        ...(client.notes != null ? { notes: client.notes } : {}),
+        full_name: v.data.full_name,
+        phone_number: v.data.phone_number,
+        whatsapp_opt_in: v.data.whatsapp_opt_in,
+        ...(v.data.notes != null ? { notes: v.data.notes } : {}),
       },
       auth.userId,
     );
     audit(event.sender.id, {
       action: "update",
       entity_type: "client",
-      entity_id: String(client.id),
-      summary: `Updated client "${client.full_name}"`,
+      entity_id: String(v.data.id),
+      summary: `Updated client "${v.data.full_name}"`,
     });
     return result;
   });

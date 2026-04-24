@@ -4,10 +4,13 @@ import AlfaLogo from "@/assets/logos/alfa.svg?react";
 import MtcLogo from "@/assets/logos/mtc.svg?react";
 import { MultiPaymentInput, type PaymentLine, useApi } from "@liratek/ui";
 import { useSession } from "@/features/sessions/context/SessionContext";
+import { useSessionAutoFill } from "@/features/sessions/hooks/useSessionAutoFill";
 import type { ProviderConfig, FinancialTransaction } from "../types";
 import type { ServiceItem, ProviderKey } from "../hooks/useMobileServiceItems";
+import { getCategoryColor } from "../utils/categoryColors";
 import { HistoryModal } from "./HistoryModal";
 import { getExchangeRates } from "@/utils/exchangeRates";
+import logger from "@/utils/logger";
 
 interface CartLineItem {
   item: ServiceItem;
@@ -23,14 +26,6 @@ interface KatchFormProps {
   getCategoriesForProvider: (provider: ProviderKey) => string[];
   getServiceItems: (provider: ProviderKey, category: string) => ServiceItem[];
   methods: { code: string; label: string }[];
-  handleFinancialSubmit: (
-    cart: CartLineItem[],
-    paymentMethod: string,
-    clientName: string,
-    referenceNumber: string,
-    paymentLines?: PaymentLine[],
-  ) => Promise<void>;
-  isSubmitting: boolean;
   loadFinancialData: () => void;
   formatAmount: (val: number, currency: string) => string;
   alfaCreditSellRate: number;
@@ -45,8 +40,6 @@ export function KatchForm({
   getCategoriesForProvider,
   getServiceItems,
   methods,
-  handleFinancialSubmit,
-  isSubmitting,
   loadFinancialData,
   formatAmount,
   alfaCreditSellRate,
@@ -54,24 +47,27 @@ export function KatchForm({
   setShowHistory,
 }: KatchFormProps) {
   const api = useApi();
+  const {
+    activeSession,
+    linkTransaction,
+    addToCart: addToSessionCart,
+  } = useSession();
   const [cart, setCart] = useState<Map<string, CartLineItem>>(new Map());
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(
     new Set(),
   );
   const [clientName, setClientName] = useState("");
-  const { activeSession } = useSession();
+  const [localSubmitting, setLocalSubmitting] = useState(false);
 
-  // Autofill client name from active customer session
-  useEffect(() => {
-    if (activeSession?.customer_name) {
-      setClientName(activeSession.customer_name);
-    }
-  }, [activeSession]);
+  // Autofill client name from active customer session, clear when session closes
+  useSessionAutoFill([
+    { select: (s) => s.customer_name, set: setClientName, clearValue: "" },
+  ]);
 
   const [paymentMethod, setPaymentMethod] = useState("CASH");
-  const [useMultiPayment, setUseMultiPayment] = useState<boolean>(false);
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
+  const isSplitPayment = paymentLines.length > 1;
   const [searchQuery, setSearchQuery] = useState("");
   const [rates, setRates] = useState({ buyRate: 89000, sellRate: 89500 });
 
@@ -240,18 +236,150 @@ export function KatchForm({
   );
 
   const handleSubmit = async () => {
-    if (cart.size === 0) return;
-    await handleFinancialSubmit(
-      Array.from(cart.values()),
-      paymentMethod,
-      clientName,
-      "",
-      useMultiPayment ? paymentLines : undefined,
-    );
-    if (cart.size === 0) {
+    if (cart.size === 0 || localSubmitting) return;
+
+    // If session is active, add all cart items as one session cart entry
+    if (activeSession) {
+      const cartItems = Array.from(cart.values());
+      const providerLabel = activeProvider === "Katsh" ? "Katsh" : "iPick";
+      const itemLabels = cartItems
+        .map((line) => `${line.item.label} x${line.quantity}`)
+        .join(", ");
+      const label =
+        itemLabels.length > 60
+          ? `${providerLabel} (${cartItems.length} items) - ${totalPrice.toLocaleString()} LBP`
+          : `${providerLabel}: ${itemLabels}`;
+
+      const finalPaymentMethod = isSplitPayment ? "MULTI" : paymentMethod;
+      const paymentsPayload = isSplitPayment
+        ? paymentLines.map((l) => ({
+            method: l.method,
+            currencyCode: l.currencyCode,
+            amount: l.amount,
+          }))
+        : undefined;
+
+      // Store each line item for replay at checkout
+      const formDataItems = cartItems.flatMap((line) => {
+        const sellPrice = calculatePrice(
+          line.item,
+          line.onlyDays,
+          line.returnedCreditsUsd,
+        );
+        const cost = line.item.catalogCost ?? 0;
+        const commission = sellPrice - cost;
+        return Array.from({ length: line.quantity }, () => ({
+          provider: activeProvider,
+          serviceType: "SEND",
+          amount: sellPrice,
+          cost,
+          currency: "LBP",
+          commission: Math.max(0, commission),
+          paidByMethod: finalPaymentMethod,
+          payments: paymentsPayload,
+          clientName: clientName || undefined,
+          itemKey: line.item.key,
+          itemCategory: line.item.category,
+          note: `${line.item.label} (${line.item.subcategory})${line.onlyDays ? " [Only Days]" : ""}`,
+        }));
+      });
+
+      addToSessionCart({
+        module: activeProvider === "Katsh" ? "katsh" : "ipick",
+        label,
+        amount: totalPrice,
+        currency: "LBP",
+        ipcChannel: "financial:create",
+        formData: {
+          _batch: true,
+          items: formDataItems,
+        },
+      });
+
+      // Reset form
+      setCart(new Map());
+      setClientName("");
+      setExpandedKeys(new Set());
+      return;
+    }
+
+    setLocalSubmitting(true);
+
+    const cartItems = Array.from(cart.values());
+    const finalPaymentMethod = isSplitPayment ? "MULTI" : paymentMethod;
+    const paymentsPayload = isSplitPayment
+      ? paymentLines.map((l) => ({
+          method: l.method,
+          currencyCode: l.currencyCode,
+          amount: l.amount,
+        }))
+      : undefined;
+
+    let allSucceeded = true;
+
+    for (const line of cartItems) {
+      const sellPrice = calculatePrice(
+        line.item,
+        line.onlyDays,
+        line.returnedCreditsUsd,
+      );
+      const cost = line.item.catalogCost ?? 0;
+      const commission = sellPrice - cost;
+
+      for (let i = 0; i < line.quantity; i++) {
+        try {
+          const result = await api.addOMTTransaction({
+            provider: activeProvider,
+            serviceType: "SEND",
+            amount: sellPrice,
+            cost,
+            currency: "LBP",
+            commission: Math.max(0, commission),
+            paidByMethod: finalPaymentMethod,
+            payments: paymentsPayload,
+            clientName: clientName || undefined,
+            itemKey: line.item.key,
+            itemCategory: line.item.category,
+            note: `${line.item.label} (${line.item.subcategory})${line.onlyDays ? " [Only Days]" : ""}`,
+          });
+
+          if (result?.success) {
+            // Link to active customer session
+            if (activeSession && result.id) {
+              try {
+                await linkTransaction({
+                  transactionType: "financial_service",
+                  transactionId: result.id,
+                  amountUsd: 0,
+                  amountLbp: sellPrice,
+                });
+              } catch (err) {
+                logger.error("Failed to link Katch tx to session:", err);
+              }
+            }
+          } else {
+            logger.error("Katch submit failed:", result?.error);
+            alert(result?.error || "Failed to process item");
+            allSucceeded = false;
+            break;
+          }
+        } catch (err) {
+          logger.error("Katch submit error:", err);
+          alert("Failed to process item");
+          allSucceeded = false;
+          break;
+        }
+      }
+      if (!allSucceeded) break;
+    }
+
+    if (allSucceeded) {
+      setCart(new Map());
       setClientName("");
       setExpandedKeys(new Set());
     }
+    loadFinancialData();
+    setLocalSubmitting(false);
   };
 
   const filterProviderTransactions = (txs: FinancialTransaction[]) => {
@@ -261,7 +389,7 @@ export function KatchForm({
   const providerTransactions = filterProviderTransactions(finTransactions);
 
   return (
-    <div className="flex flex-col gap-5 h-full">
+    <div className="flex flex-col gap-5 flex-1 min-h-0">
       {/* Search Bar */}
       <div className="relative">
         <input
@@ -309,7 +437,7 @@ export function KatchForm({
       </div>
 
       {/* Card Grid */}
-      <div className="flex-1 min-h-0 overflow-auto space-y-6">
+      <div className="flex-1 min-h-0 overflow-auto space-y-6 pb-2">
         {categories.map((category) => {
           const allCategoryItems = getServiceItems(activeProvider, category);
           const categoryItems = filterItemsBySearch(allCategoryItems);
@@ -326,7 +454,11 @@ export function KatchForm({
                 onClick={() => toggleCategoryCollapse(category)}
                 className="flex items-center justify-between cursor-pointer select-none"
               >
-                <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">
+                <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+                  <span
+                    className="inline-block w-2.5 h-2.5 rounded-full"
+                    style={{ backgroundColor: getCategoryColor(category) }}
+                  />
                   {category}
                 </h3>
                 <ChevronDown
@@ -350,9 +482,12 @@ export function KatchForm({
                         <div
                           className={`w-full p-3 rounded-lg border transition-all ${
                             qty > 0
-                              ? "border-orange-500/40 bg-orange-500/5"
-                              : "border-slate-700 bg-slate-800 hover:border-slate-600"
+                              ? "border-orange-500/40 ring-1 ring-orange-500/30"
+                              : "border-white/10 hover:border-white/20"
                           } ${isExpanded ? "ring-2 ring-orange-500/50" : ""}`}
+                          style={{
+                            backgroundColor: `${getCategoryColor(item.category)}18`,
+                          }}
                         >
                           {/* Card Header - clickable area */}
                           <div
@@ -482,47 +617,28 @@ export function KatchForm({
         })}
       </div>
 
-      {/* Sticky Bottom Bar */}
-      <div className="sticky bottom-0 bg-slate-800 rounded-xl border border-slate-700/50 p-4 shadow-2xl">
+      {/* Bottom Bar */}
+      <div className="shrink-0 bg-slate-800 rounded-xl border border-slate-700/50 p-4 shadow-2xl">
         <div className="flex items-center gap-4">
           <div className="flex-1">
-            <div className="flex items-center justify-between mb-1">
-              <label className="text-xs text-slate-400">Payment Method</label>
-              <button
-                type="button"
-                onClick={() => setUseMultiPayment(!useMultiPayment)}
-                className="text-xs px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
-              >
-                {useMultiPayment ? "Single Payment" : "Split Payment"}
-              </button>
-            </div>
-            {useMultiPayment ? (
-              <MultiPaymentInput
-                totalAmount={totalPrice}
-                totalAmountCurrency="LBP"
-                currency="LBP"
-                onChange={setPaymentLines}
-                showPmFee={false}
-                paymentMethods={methods}
-                currencies={[
-                  { code: "USD", symbol: "$" },
-                  { code: "LBP", symbol: "LBP" },
-                ]}
-                exchangeRate={exchangeRate}
-              />
-            ) : (
-              <select
-                value={paymentMethod}
-                onChange={(e) => setPaymentMethod(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500"
-              >
-                {methods.map((m) => (
-                  <option key={m.code} value={m.code}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
-            )}
+            <MultiPaymentInput
+              totalAmount={totalPrice}
+              totalAmountCurrency="LBP"
+              currency="LBP"
+              onChange={(lines) => {
+                setPaymentLines(lines);
+                if (lines.length === 1) {
+                  setPaymentMethod(lines[0].method);
+                }
+              }}
+              showPmFee={false}
+              paymentMethods={methods}
+              currencies={[
+                { code: "USD", symbol: "$" },
+                { code: "LBP", symbol: "LBP" },
+              ]}
+              exchangeRate={exchangeRate}
+            />
           </div>
 
           <div className="text-right">
@@ -549,14 +665,14 @@ export function KatchForm({
 
           <button
             onClick={handleSubmit}
-            disabled={isSubmitting || totalItems === 0}
+            disabled={localSubmitting || totalItems === 0}
             className={`px-6 py-3 rounded-lg font-bold text-white transition-all ${
-              isSubmitting || totalItems === 0
+              localSubmitting || totalItems === 0
                 ? "bg-slate-600 text-slate-400 cursor-not-allowed"
                 : "bg-orange-500 hover:bg-orange-600 shadow-lg shadow-orange-500/20"
             }`}
           >
-            {isSubmitting ? "Processing..." : "Submit"}
+            {localSubmitting ? "Processing..." : "Submit"}
           </button>
         </div>
       </div>

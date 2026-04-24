@@ -52,6 +52,15 @@ export function usePaymentMethods(): UsePaymentMethodsResult {
     refresh();
   }, [refresh]);
 
+  // Re-fetch when payment methods are changed elsewhere (e.g. Settings)
+  useEffect(() => {
+    const handler = () => {
+      refresh();
+    };
+    window.addEventListener("payment-methods-changed", handler);
+    return () => window.removeEventListener("payment-methods-changed", handler);
+  }, [refresh]);
+
   const drawerAffectingMethods = methods.filter((m) => m.affects_drawer === 1);
 
   return {

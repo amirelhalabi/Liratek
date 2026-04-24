@@ -9,6 +9,7 @@ import { ipcMain } from "electron";
 import { getDebtService, debtLogger } from "@liratek/core";
 import { requireRole } from "../session.js";
 import { audit } from "./auditHelper.js";
+import { DebtRepaymentSchema, validatePayload } from "../schemas/index.js";
 
 interface RepaymentPaymentLeg {
   method: string;
@@ -51,23 +52,30 @@ export function registerDebtHandlers(): void {
   ipcMain.handle("debt:add-repayment", (event, data: RepaymentData) => {
     const auth = requireRole(event.sender.id, ["admin", "staff"]);
     if (!auth.ok) return { success: false, error: auth.error };
+
+    const v = validatePayload(DebtRepaymentSchema, data);
+    if (!v.ok) return { success: false, error: v.error };
+
     debtLogger.info(
       {
-        clientId: data.clientId,
-        amountUSD: data.amountUSD,
-        amountLBP: data.amountLBP,
+        clientId: v.data.clientId,
+        amountUSD: v.data.amountUSD,
+        amountLBP: v.data.amountLBP,
       },
       "Adding repayment",
     );
-    const result = debtService.addRepayment({ ...data, userId: auth.userId });
+    const result = debtService.addRepayment({
+      ...(v.data as RepaymentData),
+      userId: auth.userId,
+    });
     audit(event.sender.id, {
       action: "create",
       entity_type: "repayment",
-      summary: `Repayment for client #${data.clientId}: $${data.amountUSD} + ${data.amountLBP} LBP`,
+      summary: `Repayment for client #${v.data.clientId}: $${v.data.amountUSD} + ${v.data.amountLBP} LBP`,
       metadata: {
-        clientId: data.clientId,
-        amountUSD: data.amountUSD,
-        amountLBP: data.amountLBP,
+        clientId: v.data.clientId,
+        amountUSD: v.data.amountUSD,
+        amountLBP: v.data.amountLBP,
       },
     });
     return result;

@@ -44,6 +44,8 @@ export interface ServiceItem {
   savedCost?: number;
   /** Saved voucher image (base64 or URL) */
   imageData?: string;
+  /** Sort order from DB */
+  sortOrder: number;
 }
 
 /** Shape of a row returned by the item-costs API */
@@ -60,6 +62,35 @@ interface VoucherImageRow {
   category: string;
   item_key: string;
   image_data: string;
+}
+
+// ─── Sorting ───────────────────────────────────────────────────────────────
+
+/** Extract the leading number from a label string.
+ *  "3.6" → 3.6, "1GB" → 1, "10 days" → 10, "3$" → 3,
+ *  "credit only 1.67$" → 1.67, "Alfa Go" → NaN */
+function extractNumber(label: string): number {
+  // Try parsing the whole label first (handles "3.6", "10", etc.)
+  const direct = parseFloat(label);
+  if (!isNaN(direct)) return direct;
+  // Extract first number sequence (handles "credit only 1.67$", etc.)
+  const match = label.match(/(\d+(?:\.\d+)?)/);
+  return match ? parseFloat(match[1]) : NaN;
+}
+
+/** Sort items ascending: numeric labels first (by value), then non-numeric (by sortOrder) */
+function sortItems(items: ServiceItem[]): ServiceItem[] {
+  return [...items].sort((a, b) => {
+    const numA = extractNumber(a.label);
+    const numB = extractNumber(b.label);
+    const aIsNum = !isNaN(numA);
+    const bIsNum = !isNaN(numB);
+
+    if (aIsNum && bIsNum) return numA - numB;
+    if (aIsNum && !bIsNum) return -1;
+    if (!aIsNum && bIsNum) return 1;
+    return a.sortOrder - b.sortOrder;
+  });
 }
 
 // ─── Hook ──────────────────────────────────────────────────────────────────
@@ -115,6 +146,7 @@ export function useMobileServiceItems() {
       label: item.label,
       catalogCost: item.cost_lbp,
       catalogSellPrice: item.sell_lbp,
+      sortOrder: item.sort_order,
     }));
 
     if (!itemCosts.length && !voucherImages.length) return baseItems;
@@ -171,12 +203,14 @@ export function useMobileServiceItems() {
     [itemsByProvider],
   );
 
-  // Get items for a provider + category
+  // Get items for a provider + category (sorted ascending by numeric label)
   const getItems = useCallback(
     (provider: ProviderKey, category?: string): ServiceItem[] => {
       const provItems = itemsByProvider[provider] || [];
-      if (!category) return provItems;
-      return provItems.filter((i) => i.category === category);
+      const filtered = category
+        ? provItems.filter((i) => i.category === category)
+        : provItems;
+      return sortItems(filtered);
     },
     [itemsByProvider],
   );

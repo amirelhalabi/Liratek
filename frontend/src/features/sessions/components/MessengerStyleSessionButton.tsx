@@ -2,11 +2,13 @@ import { useState } from "react";
 import { UserPlus } from "lucide-react";
 import { StartSessionModal } from "./StartSessionModal";
 import { useSession } from "../context/SessionContext";
+import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 
 export function MessengerStyleSessionButton() {
   const { allActiveSessions, activeSession, switchToSession } = useSession();
   const [isExpanded, setIsExpanded] = useState(false);
   const [showNewSessionModal, setShowNewSessionModal] = useState(false);
+  useModalFocusFix(isExpanded);
 
   const getInitials = (name?: string) => {
     if (!name) return "?";
@@ -55,7 +57,7 @@ export function MessengerStyleSessionButton() {
       {/* Background Overlay when expanded */}
       {isExpanded && (
         <div
-          className="fixed inset-0 bg-black/30 backdrop-blur-sm z-40 transition-opacity duration-200"
+          className="fixed inset-0 bg-black/30 z-40 transition-opacity duration-200"
           role="presentation"
           onClick={() => setIsExpanded(false)}
         />

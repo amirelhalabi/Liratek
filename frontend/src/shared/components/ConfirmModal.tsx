@@ -1,5 +1,6 @@
 import React from "react";
 import { X, AlertTriangle } from "lucide-react";
+import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 
 interface ConfirmModalProps {
   isOpen: boolean;
@@ -22,6 +23,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   onCancel,
   variant = "danger",
 }) => {
+  useModalFocusFix(isOpen);
   if (!isOpen) return null;
 
   const variantClasses = {
@@ -38,7 +40,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4 animate-in fade-in duration-200"
+      className="fixed inset-0 bg-black/80 flex items-center justify-center z-[100] p-4 animate-in fade-in duration-200"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onCancel();
       }}

@@ -1,7 +1,7 @@
 ---
 description: Database specialist for LiraTek POS - focuses on SQLite schema design, migrations, queries optimization, and data integrity
 mode: subagent
-model: alibaba-coding-plan/qwen3.5-plus
+model: github-copilot/claude-sonnet-4.6
 color: "#F59E0B"
 skills:
   - liratek-database

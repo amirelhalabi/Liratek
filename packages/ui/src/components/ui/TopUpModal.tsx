@@ -7,7 +7,8 @@ export type TopUpProvider =
   | "OMT_APP"
   | "WHISH_APP"
   | "iPick"
-  | "Katsh";
+  | "Katsh"
+  | "BINANCE";
 
 export interface DrawerBalanceWithBalance {
   name: string;
@@ -38,6 +39,20 @@ export default function TopUpModal({
   destinationDrawer,
   defaultSourceDrawer,
 }: TopUpModalProps) {
+  // Fix Electron/Windows focus bug: nudge window focus when modal closes
+  useEffect(() => {
+    if (!isOpen) return;
+    const isWindows = navigator.userAgent.includes("Windows");
+    if (!isWindows) return;
+    return () => {
+      try {
+        (window as any).api?.display?.fixFocus?.();
+      } catch {
+        /* ignore */
+      }
+    };
+  }, [isOpen]);
+
   const [amount, setAmount] = useState<string>("");
   const [currency, setCurrency] = useState<"USD" | "LBP">("USD");
   const [sourceDrawer, setSourceDrawer] = useState<string>(defaultSourceDrawer);
@@ -50,6 +65,7 @@ export default function TopUpModal({
     WHISH_APP: "Whish App",
     iPick: "iPick",
     Katsh: "Katsh",
+    BINANCE: "Binance",
   };
 
   const getProviderLabel = () => {
@@ -110,7 +126,7 @@ export default function TopUpModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 animate-in fade-in duration-200"
       onClick={onClose}
     >
       <div

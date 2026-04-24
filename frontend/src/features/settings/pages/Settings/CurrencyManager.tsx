@@ -866,7 +866,8 @@ export default function CurrencyManager() {
   };
 
   const handleToggle = async (id: number, active: number) => {
-    await api.updateCurrency(id, { is_active: active ? 0 : 1 });
+    const res = await api.updateCurrency(id, { is_active: active ? 0 : 1 });
+    if (res && !res.success) alert(res.error || "Failed to update currency");
     load();
   };
 

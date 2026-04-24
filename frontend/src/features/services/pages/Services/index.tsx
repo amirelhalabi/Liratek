@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import logger from "@/utils/logger";
+import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import {
   Send,
   ArrowDownToLine,
@@ -98,7 +99,8 @@ const WHISH_FEE_TIERS: Array<{ maxAmount: number; fee: number }> = [
   { maxAmount: 4000, fee: 20 },
   { maxAmount: 5000, fee: 25 },
 ];
-const WHISH_COMMISSION_RATE = 0.1; // 10% of WHISH fee
+// WHISH commission rate kept for reference (fees hidden per LIRA-023)
+// const WHISH_COMMISSION_RATE = 0.1;
 
 function lookupWhishFee(amt: number): number | null {
   const tier = WHISH_FEE_TIERS.find((t) => amt <= t.maxAmount);
@@ -184,10 +186,12 @@ const INPUT_CLASS =
   "w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-violet-500 transition-colors";
 
 function formatAmount(amount: number, currency: string): string {
-  if (currency === "USD") return `$${amount.toFixed(2)}`;
+  if (currency === "USD")
+    return `$${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   if (currency === "LBP") return `${amount.toLocaleString()} LBP`;
-  if (currency === "EUR") return `\u20ac${amount.toFixed(2)}`;
-  return `${amount} ${currency}`;
+  if (currency === "EUR")
+    return `\u20ac${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `${amount.toLocaleString()} ${currency}`;
 }
 
 interface Analytics {
@@ -227,8 +231,12 @@ interface SupplierOwed {
 
 export default function Services() {
   const api = useApi();
-  const { activeSession, linkTransaction } = useSession();
-  const { drawerAffectingMethods } = usePaymentMethods();
+  const {
+    activeSession,
+    linkTransaction,
+    addToCart: addToSessionCart,
+  } = useSession();
+  const { methods: allPaymentMethods } = usePaymentMethods();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [analytics, setAnalytics] = useState<Analytics>({
     today: { commission: 0, pending_commission: 0, count: 0 },
@@ -269,13 +277,14 @@ export default function Services() {
   const [payFee, setPayFee] = useState<boolean>(false); // Charge fee to customer
   const [binanceSupplier, setBinanceSupplier] = useState<string>(""); // Supplier account
 
-  // Phase 3: Multi-payment support
-  const [useMultiPayment, setUseMultiPayment] = useState<boolean>(false);
+  // Payment lines (MultiPaymentInput manages single/split internally)
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
+  const isSplitPayment = paymentLines.length > 1;
   const [includingFees, setIncludingFees] = useState<boolean>(false); // For SEND: amount includes fees
 
   // History modal
   const [showHistory, setShowHistory] = useState(false);
+  useModalFocusFix(showHistory);
 
   // Exchange rate for multi-currency payments (loaded from database)
   const [exchangeRate, setExchangeRate] = useState(89500);
@@ -302,15 +311,19 @@ export default function Services() {
 
   // Derived: whether PM fee applies (SEND + non-cash + single payment)
   const pmFeeApplies =
-    serviceType === "SEND" && !useMultiPayment && isNonCashMethod(paidByMethod);
+    serviceType === "SEND" &&
+    !isSplitPayment &&
+    isNonCashMethod(paidByMethod) &&
+    provider !== "WHISH";
 
   // For multi-payment: PM fee applies on SEND transactions
-  const multiPmFeeApplies = serviceType === "SEND" && useMultiPayment;
+  const multiPmFeeApplies =
+    serviceType === "SEND" && isSplitPayment && provider !== "WHISH";
 
   // Render-level provider fee — mirrors the logic in handleSubmit for display purposes
   const renderProviderFee = (() => {
     const amtVal = parseFloat(amount) || 0;
-    if (!amtVal) return 0;
+    if (!amtVal || provider === "WHISH") return 0;
     if (provider === "OMT" && omtServiceType === "INTRA") {
       for (const tier of INTRA_FEE_TIERS) {
         if (amtVal <= tier.maxAmount) return tier.fee;
@@ -318,11 +331,6 @@ export default function Services() {
     }
     if (provider === "OMT" && omtServiceType === "WESTERN_UNION") {
       for (const tier of WESTERN_UNION_FEE_TIERS) {
-        if (amtVal <= tier.maxAmount) return tier.fee;
-      }
-    }
-    if (provider === "WHISH") {
-      for (const tier of WHISH_FEE_TIERS) {
         if (amtVal <= tier.maxAmount) return tier.fee;
       }
     }
@@ -389,7 +397,7 @@ export default function Services() {
   useEffect(() => {
     loadData();
 
-    // Auto-fill sender/receiver from active session based on service type
+    // Auto-fill sender/receiver from active session based on service type, clear when session closes
     if (activeSession) {
       if (serviceType === "SEND") {
         // Session customer is the sender
@@ -400,6 +408,11 @@ export default function Services() {
         setReceiverName(activeSession.customer_name || "");
         setReceiverPhone(activeSession.customer_phone || "");
       }
+    } else {
+      setSenderName("");
+      setSenderPhone("");
+      setReceiverName("");
+      setReceiverPhone("");
     }
   }, [activeSession, serviceType, loadData]);
 
@@ -510,8 +523,8 @@ export default function Services() {
   const handleSubmit = useCallback(async () => {
     // Validate: client name + phone required when debt is used (single or split)
     const hasDebtLeg =
-      (!useMultiPayment && paidByMethod === "DEBT") ||
-      (useMultiPayment && paymentLines.some((p) => p.method === "DEBT"));
+      (!isSplitPayment && paidByMethod === "DEBT") ||
+      (isSplitPayment && paymentLines.some((p) => p.method === "DEBT"));
     // For SEND: check sender; for RECEIVE: check receiver
     const primaryName = serviceType === "SEND" ? senderName : receiverName;
     const primaryPhone = serviceType === "SEND" ? senderPhone : receiverPhone;
@@ -574,7 +587,7 @@ export default function Services() {
       // Determine PM fee for non-cash single payments on SEND
       const activePmFeeApplies =
         serviceType === "SEND" &&
-        !useMultiPayment &&
+        !isSplitPayment &&
         isNonCashMethod(paidByMethod);
 
       // PM fee: user-entered USD amount (auto-filled at 1% but fully editable)
@@ -637,7 +650,7 @@ export default function Services() {
         }
       }
 
-      const result = await api.addOMTTransaction({
+      const apiPayload = {
         provider,
         serviceType,
         amount: sentAmount,
@@ -660,7 +673,7 @@ export default function Services() {
         ...(payFee ? { payFee: true } : {}),
         ...(binanceSupplier ? { itemKey: binanceSupplier } : {}),
         includingFees: serviceType === "SEND" ? includingFees : false,
-        ...(useMultiPayment && paymentLines.length > 0
+        ...(isSplitPayment && paymentLines.length > 0
           ? {
               payments: paymentLines.map((p) => ({
                 method: p.method,
@@ -691,7 +704,45 @@ export default function Services() {
               }
             : {}),
         note: note || `${provider} - ${serviceType}`,
-      });
+      };
+
+      // If session is active, add to cart instead of submitting
+      if (activeSession) {
+        const clientLabel = serviceType === "SEND" ? senderName : receiverName;
+        const label = `${provider} ${serviceType} - ${clientLabel || "Unknown"} - $${sentAmount.toFixed(2)}`;
+
+        addToSessionCart({
+          module: provider === "OMT" ? "omt_system" : "whish_system",
+          label,
+          amount: serviceType === "SEND" ? sentAmount : -sentAmount,
+          currency: "USD",
+          ipcChannel: "financial:create",
+          formData: apiPayload,
+        });
+
+        // Reset form
+        setAmount("");
+        setSenderName("");
+        setSenderPhone("");
+        setReceiverName("");
+        setReceiverPhone("");
+        setReferenceNumber("");
+        setOmtServiceType("INTRA" as OmtServiceType);
+        setOmtFee("");
+        setWhishFee("");
+        setProfitRate(0.0025);
+        setPayFee(false);
+        setBinanceSupplier("");
+        setPaymentLines([]);
+        setIncludingFees(false);
+        setPmFeeAmount("");
+        setMultiPmFees({});
+        setNote("");
+        setIsSubmitting(false);
+        return;
+      }
+
+      const result = await api.addOMTTransaction(apiPayload);
 
       if (result.success) {
         // Link to active session if exists
@@ -728,7 +779,6 @@ export default function Services() {
         setProfitRate(0.0025);
         setPayFee(false);
         setBinanceSupplier("");
-        setUseMultiPayment(false);
         setPaymentLines([]);
         setIncludingFees(false);
         setPmFeeAmount("");
@@ -768,7 +818,7 @@ export default function Services() {
     paidByMethod,
     payFee,
     binanceSupplier,
-    useMultiPayment,
+    isSplitPayment,
     paymentLines,
     includingFees,
     pmFeeAmount,
@@ -779,6 +829,7 @@ export default function Services() {
     api,
     activeSession,
     linkTransaction,
+    addToSessionCart,
     loadData,
   ]);
 
@@ -933,33 +984,23 @@ export default function Services() {
                 </div>
               </div>
 
-              {/* Including Fees Checkbox (SEND only - for both OMT and WHISH) */}
+              {/* Including Fees Checkbox (SEND only - OMT only, WHISH has no fees per LIRA-023) */}
               {serviceType === "SEND" &&
+                provider !== "WHISH" &&
                 (() => {
                   const amtVal = parseFloat(amount) || 0;
                   const autoFee =
-                    provider === "OMT" &&
                     omtServiceType &&
                     omtServiceType !== "OMT_WALLET" &&
                     omtServiceType !== "ONLINE_BROKERAGE" &&
                     amtVal > 0
                       ? lookupOmtFee(omtServiceType as OmtServiceType, amtVal)
-                      : provider === "WHISH" && amtVal > 0
-                        ? lookupWhishFee(amtVal)
-                        : null;
-                  const feeLabel =
-                    provider === "WHISH" ? "WHISH fee" : "OMT fee";
-                  // For the breakdown display: prefer user-entered fee only if it's
-                  // a valid positive number AND differs meaningfully from auto (i.e. user typed it).
-                  // Always fall back to auto-looked-up fee from the table.
+                      : null;
+                  const feeLabel = "OMT fee";
                   const userEnteredFee =
-                    provider === "WHISH"
-                      ? whishFee && parseFloat(whishFee) > 0
-                        ? parseFloat(whishFee)
-                        : null
-                      : omtFee && parseFloat(omtFee) > 0
-                        ? parseFloat(omtFee)
-                        : null;
+                    omtFee && parseFloat(omtFee) > 0
+                      ? parseFloat(omtFee)
+                      : null;
                   const feeVal = userEnteredFee ?? autoFee ?? 0;
 
                   // PM fee for breakdown display — use the live user-entered value
@@ -983,14 +1024,11 @@ export default function Services() {
                     pmFeeDisplay > 0
                   ) {
                     const feeTiers =
-                      provider === "OMT" && omtServiceType === "INTRA"
+                      omtServiceType === "INTRA"
                         ? INTRA_FEE_TIERS
-                        : provider === "OMT" &&
-                            omtServiceType === "WESTERN_UNION"
+                        : omtServiceType === "WESTERN_UNION"
                           ? WESTERN_UNION_FEE_TIERS
-                          : provider === "WHISH"
-                            ? WHISH_FEE_TIERS
-                            : null;
+                          : null;
                     if (feeTiers) {
                       const calc = calcMaxSentAmountWithPmFee(
                         amtVal,
@@ -1145,7 +1183,7 @@ export default function Services() {
                       </div>
                       {/* Auto-fee hint */}
                       {autoFee != null && !omtFee && (
-                        <p className="text-xs text-slate-400 mt-1">
+                        <p className="text-sm text-slate-400 mt-1">
                           Auto-calculated fee:{" "}
                           <span className="text-white font-medium">
                             ${autoFee.toFixed(2)}
@@ -1155,7 +1193,7 @@ export default function Services() {
                       )}
                       {/* Live profit preview */}
                       {feeVal > 0 && (
-                        <p className="text-xs text-emerald-400 mt-1 font-medium">
+                        <p className="text-sm text-emerald-400 mt-1 font-medium">
                           Your profit:{" "}
                           <span className="font-mono">
                             ${profit.toFixed(4)}
@@ -1169,62 +1207,7 @@ export default function Services() {
                 })()}
 
               {/* WHISH Fee Input — shown for WHISH SEND */}
-              {provider === "WHISH" &&
-                serviceType === "SEND" &&
-                (() => {
-                  const amtVal = parseFloat(amount) || 0;
-                  const autoFee = amtVal > 0 ? lookupWhishFee(amtVal) : null;
-                  const feeVal = whishFee
-                    ? parseFloat(whishFee)
-                    : (autoFee ?? 0);
-                  const profit = feeVal * WHISH_COMMISSION_RATE;
-                  return (
-                    <div>
-                      <label
-                        htmlFor="service-whish-fee"
-                        className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
-                      >
-                        WHISH Fee (charged by WHISH)
-                      </label>
-                      <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
-                          $
-                        </span>
-                        <input
-                          id="service-whish-fee"
-                          type="number"
-                          value={whishFee}
-                          onChange={(e) => setWhishFee(e.target.value)}
-                          className={INPUT_CLASS + " pl-8"}
-                          placeholder={
-                            autoFee != null
-                              ? autoFee.toFixed(2) + " (auto)"
-                              : "0.00"
-                          }
-                          step="0.01"
-                        />
-                      </div>
-                      {autoFee != null && !whishFee && (
-                        <p className="text-xs text-slate-400 mt-1">
-                          Auto-calculated fee:{" "}
-                          <span className="text-white font-medium">
-                            ${autoFee.toFixed(2)}
-                          </span>{" "}
-                          based on amount
-                        </p>
-                      )}
-                      {feeVal > 0 && (
-                        <p className="text-xs text-emerald-400 mt-1 font-medium">
-                          Your profit:{" "}
-                          <span className="font-mono">
-                            ${profit.toFixed(4)}
-                          </span>{" "}
-                          (10% of ${feeVal.toFixed(2)} WHISH fee)
-                        </p>
-                      )}
-                    </div>
-                  );
-                })()}
+              {/* WHISH Fee Input — hidden per LIRA-023 (Whish System has no fees) */}
 
               {/* Online Brokerage Profit Rate Selector */}
               {provider === "OMT" && omtServiceType === "ONLINE_BROKERAGE" && (
@@ -1247,7 +1230,7 @@ export default function Services() {
                     Typical: 0.25% (UNICEF, etc.)
                   </p>
                   {amount && parseFloat(amount) > 0 && (
-                    <p className="text-xs text-emerald-400 mt-1 font-medium">
+                    <p className="text-sm text-emerald-400 mt-1 font-medium">
                       Profit: ${(parseFloat(amount) * profitRate).toFixed(2)}
                     </p>
                   )}
@@ -1274,60 +1257,38 @@ export default function Services() {
 
               {/* Payment Method */}
               <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider">
-                    Payment Method
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => setUseMultiPayment(!useMultiPayment)}
-                    className="text-xs px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
-                  >
-                    {useMultiPayment ? "Single Payment" : "Split Payment"}
-                  </button>
-                </div>
-
-                {!useMultiPayment ? (
-                  <Select
-                    value={paidByMethod}
-                    onChange={setPaidByMethod}
-                    options={[
-                      ...drawerAffectingMethods.map((m) => ({
-                        value: m.code,
-                        label: m.label,
-                      })),
-                      // DEBT is not drawer-affecting but is a valid single payment method
-                      { value: "DEBT", label: "Debt (Client owes)" },
-                    ]}
-                  />
-                ) : (
-                  <MultiPaymentInput
-                    totalAmount={
-                      // On SEND, the customer must pay amount + providerFee.
-                      // The payment lines must sum to this full number.
-                      serviceType === "SEND"
-                        ? (parseFloat(amount) || 0) + renderProviderFee
-                        : parseFloat(amount) || 0
+                <MultiPaymentInput
+                  totalAmount={
+                    // On SEND, the customer must pay amount + providerFee.
+                    // The payment lines must sum to this full number.
+                    serviceType === "SEND"
+                      ? (parseFloat(amount) || 0) + renderProviderFee
+                      : parseFloat(amount) || 0
+                  }
+                  currency="USD"
+                  onChange={(lines) => {
+                    setPaymentLines(lines);
+                    // Sync paidByMethod from single-payment line for legacy logic
+                    if (lines.length === 1) {
+                      setPaidByMethod(lines[0].method);
                     }
-                    currency="USD"
-                    onChange={setPaymentLines}
-                    requiresClientForDebt={true}
-                    hasClient={
-                      !!(serviceType === "SEND" ? senderName : receiverName) ||
-                      !!(serviceType === "SEND" ? senderPhone : receiverPhone)
-                    }
-                    showPmFee={multiPmFeeApplies}
-                    pmFeeRate={PM_FEE_DEFAULT_RATE}
-                    onPmFeesChange={setMultiPmFees}
-                    providerFee={serviceType === "SEND" ? renderProviderFee : 0}
-                    paymentMethods={drawerAffectingMethods}
-                    currencies={[
-                      { code: "USD", symbol: "$" },
-                      { code: "LBP", symbol: "LBP" },
-                    ]}
-                    exchangeRate={exchangeRate}
-                  />
-                )}
+                  }}
+                  requiresClientForDebt={true}
+                  hasClient={
+                    !!(serviceType === "SEND" ? senderName : receiverName) ||
+                    !!(serviceType === "SEND" ? senderPhone : receiverPhone)
+                  }
+                  showPmFee={multiPmFeeApplies}
+                  pmFeeRate={PM_FEE_DEFAULT_RATE}
+                  onPmFeesChange={setMultiPmFees}
+                  providerFee={serviceType === "SEND" ? renderProviderFee : 0}
+                  paymentMethods={allPaymentMethods}
+                  currencies={[
+                    { code: "USD", symbol: "$" },
+                    { code: "LBP", symbol: "LBP" },
+                  ]}
+                  exchangeRate={exchangeRate}
+                />
               </div>
 
               {/* PM Fee Amount Input — shown for SEND with non-cash single payment */}
@@ -1643,7 +1604,7 @@ export default function Services() {
       {/* History Modal — full-screen overlay, checkout-modal style */}
       {showHistory && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 animate-in fade-in duration-200"
           onClick={() => setShowHistory(false)}
         >
           <div

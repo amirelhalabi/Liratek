@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { UserPlus, Users, X, Save } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { UserPlus, Users, X, Save, Pencil, Check } from "lucide-react";
 import { StartSessionModal } from "./StartSessionModal";
 import { useSession } from "../context/SessionContext";
 import { useApi, appEvents } from "@liratek/ui";
@@ -11,13 +11,22 @@ import logger from "@/utils/logger";
  * Replaces the floating circles with an embedded button
  */
 export function CustomerSessionButton() {
-  const { allActiveSessions, activeSession, switchToSession, closeSession } =
-    useSession();
+  const {
+    allActiveSessions,
+    activeSession,
+    switchToSession,
+    closeSession,
+    updateSessionInfo,
+  } = useSession();
   const api = useApi();
   const [showDropdown, setShowDropdown] = useState(false);
   const [showNewSessionModal, setShowNewSessionModal] = useState(false);
   const [existingClients, setExistingClients] = useState<any[]>([]);
   const [isLoadingClients, setIsLoadingClients] = useState(true);
+  const [editingSessionId, setEditingSessionId] = useState<number | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editPhone, setEditPhone] = useState("");
+  const editNameRef = useRef<HTMLInputElement>(null);
 
   const getInitials = (name?: string) => {
     if (!name) return "?";
@@ -151,6 +160,35 @@ export function CustomerSessionButton() {
     setShowNewSessionModal(true);
   };
 
+  const handleEditSession = (e: React.MouseEvent, session: any) => {
+    e.stopPropagation();
+    setEditingSessionId(session.id);
+    setEditName(session.customer_name || "");
+    setEditPhone(session.customer_phone || "");
+    setTimeout(() => editNameRef.current?.focus(), 50);
+  };
+
+  const handleSaveEdit = async (e: React.MouseEvent, sessionId: number) => {
+    e.stopPropagation();
+    try {
+      // Switch to this session so updateSessionInfo works on it
+      await switchToSession(sessionId);
+      const updates: { customer_name?: string; customer_phone?: string } = {};
+      if (editName.trim()) updates.customer_name = editName.trim();
+      if (editPhone.trim()) updates.customer_phone = editPhone.trim();
+      await updateSessionInfo(updates);
+      setEditingSessionId(null);
+    } catch (err) {
+      logger.error("Failed to update session:", err);
+      appEvents.emit("notification:show", "Failed to update session", "error");
+    }
+  };
+
+  const handleCancelEdit = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingSessionId(null);
+  };
+
   const activeCount = allActiveSessions.length;
   const hasActiveSession = !!activeSession;
 
@@ -264,38 +302,91 @@ export function CustomerSessionButton() {
                           </span>
                         </div>
                         <div className="flex-1 text-left">
-                          <p
-                            className={`text-sm font-medium ${
-                              activeSession?.id === session.id
-                                ? "text-violet-300"
-                                : "text-white group-hover:text-violet-300"
-                            }`}
-                          >
-                            {session.customer_name || "Unknown Customer"}
-                          </p>
-                          <p className="text-xs text-slate-400">
-                            {session.customer_phone}
-                          </p>
+                          {editingSessionId === session.id ? (
+                            <div className="flex flex-col gap-1">
+                              <input
+                                ref={editNameRef}
+                                value={editName}
+                                onChange={(e) => setEditName(e.target.value)}
+                                onClick={(e) => e.stopPropagation()}
+                                className="bg-slate-900 border border-slate-600 rounded px-2 py-0.5 text-sm text-white w-full focus:outline-none focus:ring-1 focus:ring-violet-500"
+                                placeholder="Name"
+                              />
+                              <input
+                                value={editPhone}
+                                onChange={(e) => setEditPhone(e.target.value)}
+                                onClick={(e) => e.stopPropagation()}
+                                className="bg-slate-900 border border-slate-600 rounded px-2 py-0.5 text-xs text-white w-full focus:outline-none focus:ring-1 focus:ring-violet-500"
+                                placeholder="Phone"
+                              />
+                            </div>
+                          ) : (
+                            <>
+                              <p
+                                className={`text-sm font-medium ${
+                                  activeSession?.id === session.id
+                                    ? "text-violet-300"
+                                    : "text-white group-hover:text-violet-300"
+                                }`}
+                              >
+                                {session.customer_name || "Unknown Customer"}
+                              </p>
+                              <p className="text-xs text-slate-400">
+                                {session.customer_phone}
+                              </p>
+                            </>
+                          )}
                         </div>
                         <div className="flex items-center gap-1">
-                          {/* Save button - only show if client doesn't exist and has phone */}
-                          {!clientExists && session.customer_phone && (
-                            <button
-                              onClick={(e) => handleSaveClient(e, session)}
-                              className="p-1 text-slate-400 hover:text-emerald-400 hover:bg-emerald-900/20 rounded transition-all"
-                              title="Save as client"
-                            >
-                              <Save size={16} />
-                            </button>
+                          {editingSessionId === session.id ? (
+                            <>
+                              <button
+                                onClick={(e) => handleSaveEdit(e, session.id)}
+                                className="p-1 text-slate-400 hover:text-green-400 hover:bg-green-900/20 rounded transition-all"
+                                title="Save"
+                              >
+                                <Check size={16} />
+                              </button>
+                              <button
+                                onClick={handleCancelEdit}
+                                className="p-1 text-slate-400 hover:text-red-400 hover:bg-red-900/20 rounded transition-all"
+                                title="Cancel"
+                              >
+                                <X size={16} />
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              {/* Edit button */}
+                              <button
+                                onClick={(e) => handleEditSession(e, session)}
+                                className="p-1 text-slate-400 hover:text-violet-400 hover:bg-violet-900/20 rounded transition-all"
+                                title="Edit session"
+                              >
+                                <Pencil size={14} />
+                              </button>
+                              {/* Save button - only show if client doesn't exist and has phone */}
+                              {!clientExists && session.customer_phone && (
+                                <button
+                                  onClick={(e) => handleSaveClient(e, session)}
+                                  className="p-1 text-slate-400 hover:text-emerald-400 hover:bg-emerald-900/20 rounded transition-all"
+                                  title="Save as client"
+                                >
+                                  <Save size={16} />
+                                </button>
+                              )}
+                              {/* Close button */}
+                              <button
+                                onClick={(e) =>
+                                  handleCloseSession(e, session.id)
+                                }
+                                className="p-1 text-slate-400 hover:text-red-400 hover:bg-red-900/20 rounded transition-all"
+                                title="Close session"
+                              >
+                                <X size={16} />
+                              </button>
+                            </>
                           )}
-                          {/* Close button */}
-                          <button
-                            onClick={(e) => handleCloseSession(e, session.id)}
-                            className="p-1 text-slate-400 hover:text-red-400 hover:bg-red-900/20 rounded transition-all"
-                            title="Close session"
-                          >
-                            <X size={16} />
-                          </button>
                         </div>
                       </div>
                     );

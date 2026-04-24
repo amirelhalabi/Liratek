@@ -1,4 +1,11 @@
-import { Trash2, Plus, Minus, CreditCard, History } from "lucide-react";
+import {
+  Trash2,
+  Plus,
+  Minus,
+  CreditCard,
+  History,
+  ShoppingBag,
+} from "lucide-react";
 import type { CartItem } from "@liratek/ui";
 
 interface CartProps {
@@ -10,6 +17,10 @@ interface CartProps {
   onCheckout: () => void;
   onOpenDrafts: () => void;
   draftCount: number;
+  /** When true, checkout button becomes "Add to Cart" for session batching */
+  isSessionActive?: boolean;
+  /** Called instead of onCheckout when session is active */
+  onAddToSessionCart?: () => void;
 }
 
 export default function Cart({
@@ -21,6 +32,8 @@ export default function Cart({
   onCheckout,
   onOpenDrafts,
   draftCount,
+  isSessionActive = false,
+  onAddToSessionCart,
 }: CartProps) {
   const totalAmount = items.reduce(
     (sum, item) => sum + item.retail_price * item.quantity,
@@ -156,14 +169,25 @@ export default function Cart({
             </span>
           </div>
 
-          <button
-            onClick={onCheckout}
-            disabled={items.length === 0}
-            className="w-full bg-violet-600 hover:bg-violet-500 disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed text-white py-4 rounded-xl font-bold text-lg shadow-lg shadow-violet-900/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
-          >
-            <CreditCard size={20} />
-            Proceed to Checkout
-          </button>
+          {isSessionActive && onAddToSessionCart ? (
+            <button
+              onClick={onAddToSessionCart}
+              disabled={items.length === 0}
+              className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed text-white py-4 rounded-xl font-bold text-lg shadow-lg shadow-emerald-900/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+            >
+              <ShoppingBag size={20} />
+              Add to Session Cart
+            </button>
+          ) : (
+            <button
+              onClick={onCheckout}
+              disabled={items.length === 0}
+              className="w-full bg-violet-600 hover:bg-violet-500 disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed text-white py-4 rounded-xl font-bold text-lg shadow-lg shadow-violet-900/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+            >
+              <CreditCard size={20} />
+              Proceed to Checkout
+            </button>
+          )}
         </div>
       </div>
     </div>

@@ -9,6 +9,10 @@ import { getCustomServiceService, customServiceLogger } from "@liratek/core";
 import { requireRole } from "../session.js";
 import { audit } from "./auditHelper.js";
 import type { CreateCustomServiceInput } from "@liratek/core";
+import {
+  CustomServiceCreateSchema,
+  validatePayload,
+} from "../schemas/index.js";
 
 export function registerCustomServiceHandlers(): void {
   const service = getCustomServiceService();
@@ -41,16 +45,22 @@ export function registerCustomServiceHandlers(): void {
       const auth = requireRole(event.sender.id, ["admin"]);
       if (!auth.ok) return { success: false, error: auth.error };
 
+      const v = validatePayload(CustomServiceCreateSchema, data);
+      if (!v.ok) return { success: false, error: v.error };
+
       customServiceLogger.info(
-        { description: data.description, paid_by: data.paid_by },
+        { description: v.data.description, paid_by: v.data.paid_by },
         "Adding custom service",
       );
-      const result = service.addService(data);
+      const result = service.addService(v.data as CreateCustomServiceInput);
       audit(event.sender.id, {
         action: "create",
         entity_type: "custom_service",
-        summary: `Custom service: ${data.description}`,
-        metadata: { description: data.description, paid_by: data.paid_by },
+        summary: `Custom service: ${v.data.description}`,
+        metadata: {
+          description: v.data.description,
+          paid_by: v.data.paid_by,
+        },
       });
       return result;
     },

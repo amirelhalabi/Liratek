@@ -47,6 +47,8 @@ export interface RechargeData {
   }>;
   phoneNumber?: string;
   clientId?: number;
+  clientName?: string;
+  userId?: number;
 }
 
 export interface RechargeEntity {
@@ -369,7 +371,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         const note = `${data.provider} ${data.type} - ${data.phoneNumber || "No Number"}`;
         const paidBy = data.paid_by_method || "CASH";
         const currency = data.currency ?? "USD";
-        const createdBy = 1;
+        const createdBy = data.userId ?? 1;
 
         // 1. Create Recharge Record (goes into recharges table, not sales)
         const clientName = data.clientId
@@ -377,8 +379,10 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
               this.db
                 .prepare("SELECT name FROM clients WHERE id = ?")
                 .get(data.clientId) as { name: string } | undefined
-            )?.name ?? null)
-          : null;
+            )?.name ??
+            data.clientName ??
+            null)
+          : (data.clientName ?? null);
 
         const insertRecharge = this.db.prepare(`
           INSERT INTO recharges (
@@ -408,15 +412,18 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           source_table: "recharges",
           source_id: rechargeId,
           user_id: createdBy,
-          amount_usd: data.price,
+          amount_usd: currency === "USD" ? data.price : 0,
+          amount_lbp: currency === "LBP" ? data.price : 0,
           client_id: data.clientId ?? null,
-          summary: `Recharge: ${data.provider} ${data.type} $${data.price}`,
+          client_name: clientName ?? null,
+          summary: `Recharge: ${data.provider} ${data.type} ${currency === "LBP" ? "" : "$"}${data.price.toLocaleString()} ${currency}`,
           metadata_json: {
             provider: data.provider,
             type: data.type,
             amount: data.amount,
             cost: data.cost,
             price: data.price,
+            currency,
             paid_by: paidBy,
             phone: data.phoneNumber,
           },
@@ -483,18 +490,18 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           hasDebt = true;
         }
 
-        // Telecom balance consumed (shop number stock)
+        // Telecom balance consumed (shop number stock — always in USD credits)
         const stockDelta = -Math.abs(data.amount);
         insertPayment.run(
           txnId,
           data.provider === "MTC" ? "MTC" : "Alfa",
           providerDrawerName,
-          currency,
+          "USD",
           stockDelta,
           "Telecom balance sent",
           createdBy,
         );
-        upsertBalanceDelta.run(providerDrawerName, currency, stockDelta);
+        upsertBalanceDelta.run(providerDrawerName, "USD", stockDelta);
 
         // Debt: create ledger entry when paid by DEBT
         if (hasDebt) {
@@ -535,7 +542,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           price: data.price,
           paidBy: data.paid_by_method || "CASH",
         },
-        `${data.provider} ${data.type}: ${data.amount} @ $${data.price}`,
+        `${data.provider} ${data.type}: ${data.amount} credits @ ${data.price.toLocaleString()} ${data.currency ?? "USD"}`,
       );
 
       return { success: true, id: result };

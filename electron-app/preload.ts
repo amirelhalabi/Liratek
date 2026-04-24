@@ -159,7 +159,14 @@ contextBridge.exposeInMainWorld("api", {
       toCurrency: string;
       amountIn: number;
       amountOut: number;
-      rate: number;
+      leg1Rate: number;
+      leg1MarketRate: number;
+      leg1ProfitUsd: number;
+      leg2Rate?: number;
+      leg2MarketRate?: number;
+      leg2ProfitUsd?: number;
+      viaCurrency?: string;
+      totalProfitUsd: number;
       clientName?: string;
       note?: string;
     }) => ipcRenderer.invoke("exchange:add-transaction", data),
@@ -177,15 +184,41 @@ contextBridge.exposeInMainWorld("api", {
         | "iPick"
         | "Katsh"
         | "WISH_APP"
-        | "OMT_APP";
+        | "OMT_APP"
+        | "BINANCE";
       serviceType: "SEND" | "RECEIVE";
-      amountUSD: number;
-      amountLBP: number;
-      commissionUSD: number;
-      commissionLBP: number;
+      amount: number;
+      currency?: string;
+      commission?: number;
+      cost?: number;
+      price?: number;
+      paidByMethod?: string;
+      payments?: Array<{
+        method: string;
+        currencyCode: string;
+        amount: number;
+      }>;
+      clientId?: number;
       clientName?: string;
       referenceNumber?: string;
+      phoneNumber?: string;
+      senderName?: string;
+      senderPhone?: string;
+      receiverName?: string;
+      receiverPhone?: string;
+      senderClientId?: number;
+      receiverClientId?: number;
+      omtServiceType?: string;
+      omtFee?: number;
+      whishFee?: number;
+      profitRate?: number;
+      payFee?: boolean;
+      itemKey?: string;
+      itemCategory?: string;
       note?: string;
+      includingFees?: boolean;
+      paymentMethodFee?: number;
+      paymentMethodFeeRate?: number;
     }) => ipcRenderer.invoke("omt:add-transaction", data),
     getHistory: (provider?: string) =>
       ipcRenderer.invoke("omt:get-history", provider),
@@ -209,6 +242,9 @@ contextBridge.exposeInMainWorld("api", {
       price: number;
       paid_by_method?: string;
       phoneNumber?: string;
+      clientId?: number;
+      clientName?: string;
+      currency?: string;
     }) => ipcRenderer.invoke("recharge:process", data),
     topUp: (data: {
       provider: "MTC" | "Alfa";
@@ -216,7 +252,7 @@ contextBridge.exposeInMainWorld("api", {
       currency?: string;
     }) => ipcRenderer.invoke("recharge:top-up", data),
     topUpApp: (data: {
-      provider: "OMT_APP" | "WHISH_APP";
+      provider: "OMT_APP" | "WHISH_APP" | "iPick" | "Katsh" | "BINANCE";
       amount: number;
       currency: "USD" | "LBP";
       sourceDrawer: string;
@@ -723,6 +759,27 @@ contextBridge.exposeInMainWorld("api", {
       amountUsd: number;
       amountLbp: number;
     }) => ipcRenderer.invoke("session:linkTransaction", data),
+    checkout: (data: {
+      sessionId: number;
+      cartItems: Array<{
+        id: string;
+        module: string;
+        label: string;
+        amount: number;
+        currency: string;
+        formData: Record<string, unknown>;
+        ipcChannel: string;
+      }>;
+      paidByMethod: string;
+      payments?: Array<{
+        method: string;
+        currency_code: string;
+        amount: number;
+      }>;
+      clientId?: number;
+      clientName?: string;
+      userId: number;
+    }) => ipcRenderer.invoke("session:checkout", data),
   },
 
   // Item Costs

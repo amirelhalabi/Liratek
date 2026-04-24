@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
 import logger from "@/utils/logger";
-import { X, Save, Printer, Minus } from "lucide-react";
+import { X, Save, Printer, Minus, Sparkles } from "lucide-react";
 import { useApi, appEvents } from "@liratek/ui";
 import type { Product } from "@liratek/ui";
 import JsBarcode from "jsbarcode";
+import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 
 interface ProductFormProps {
   onClose: () => void;
@@ -45,6 +46,7 @@ export default function ProductForm({
   onMinimize,
   initialFormData,
 }: ProductFormProps) {
+  useModalFocusFix(true);
   const api = useApi();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
@@ -136,6 +138,65 @@ export default function ProductForm({
     }));
   };
 
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  const handleGenerateBarcode = useCallback(async () => {
+    setIsGenerating(true);
+    try {
+      // Get shop name from settings to derive prefix
+      let prefix = "LT";
+      try {
+        const settings = await api.getAllSettings();
+        const shopSetting = settings.find(
+          (s: any) => s.key_name === "shop_name",
+        );
+        if (shopSetting?.value) {
+          // Extract first letters of each word, e.g. "Corner Tech" → "CT"
+          const words = shopSetting.value.trim().split(/\s+/);
+          const initials = words
+            .map((w: string) => w.charAt(0).toUpperCase())
+            .join("");
+          if (initials.length >= 1) prefix = initials;
+        }
+      } catch {
+        // Use default prefix
+      }
+
+      const now = new Date();
+      const mm = String(now.getMonth() + 1).padStart(2, "0");
+      const yy = String(now.getFullYear()).slice(-2);
+      const datePart = `${mm}${yy}`;
+
+      // Try up to 10 times to find a unique barcode
+      for (let attempt = 0; attempt < 10; attempt++) {
+        const random = String(Math.floor(10000 + Math.random() * 90000)); // 5-digit
+        const barcode = `${prefix}-${datePart}-${random}`;
+
+        // Check if barcode already exists
+        try {
+          const existing =
+            await window.api?.inventory?.getProductByBarcode?.(barcode);
+          if (!existing) {
+            setFormData((prev) => ({ ...prev, barcode }));
+            return;
+          }
+        } catch {
+          // If check fails, assume it's unique
+          setFormData((prev) => ({ ...prev, barcode }));
+          return;
+        }
+      }
+
+      // Fallback: use timestamp-based barcode
+      const fallback = `${prefix}-${datePart}-${Date.now().toString().slice(-5)}`;
+      setFormData((prev) => ({ ...prev, barcode: fallback }));
+    } catch (err) {
+      logger.error("Failed to generate barcode", { error: err });
+    } finally {
+      setIsGenerating(false);
+    }
+  }, [api]);
+
   const [printCopies, setPrintCopies] = useState(1);
 
   const handlePrintBarcode = useCallback(async () => {
@@ -150,13 +211,13 @@ export default function ProductForm({
     try {
       JsBarcode(svgEl, barcode, {
         format: "CODE128",
-        width: 1.0,
-        height: 40,
+        width: 0.8,
+        height: 30,
         displayValue: true,
-        fontSize: 12,
+        fontSize: 10,
         fontOptions: "bold",
-        margin: 2,
-        textMargin: 2,
+        margin: 1,
+        textMargin: 1,
       });
     } catch {
       logger.error("Failed to generate barcode", { barcode });
@@ -186,15 +247,15 @@ export default function ProductForm({
     align-items: center;
     justify-content: center;
     overflow: hidden;
-    padding: 0;
+    padding: 1mm 2mm;
   }
   
   /* Barcode SVG scales to fill the label without pixelation */
   svg { 
-    width: 100%;
+    width: auto;
     height: auto;
-    max-width: 58mm;
-    max-height: 30mm;
+    max-width: 54mm;
+    max-height: 26mm;
     display: block;
     margin: 0 auto;
   }
@@ -334,7 +395,7 @@ ${labels}
 
   return (
     <div
-      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
       role="presentation"
     >
       <div
@@ -443,19 +504,30 @@ ${labels}
               >
                 Barcode
               </label>
-              <input
-                id="product-barcode"
-                name="barcode"
-                type="text"
-                value={formData.barcode}
-                onChange={handleChange}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                  }
-                }}
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
-              />
+              <div className="flex gap-2">
+                <input
+                  id="product-barcode"
+                  name="barcode"
+                  type="text"
+                  value={formData.barcode}
+                  onChange={handleChange}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                    }
+                  }}
+                  className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
+                />
+                <button
+                  type="button"
+                  onClick={handleGenerateBarcode}
+                  disabled={isGenerating}
+                  title="Generate barcode"
+                  className="px-3 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1 text-sm"
+                >
+                  <Sparkles size={16} />
+                </button>
+              </div>
             </div>
             <div>
               <label

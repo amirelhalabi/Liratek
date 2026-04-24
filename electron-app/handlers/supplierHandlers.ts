@@ -2,6 +2,12 @@ import { ipcMain } from "electron";
 import { getSupplierService, getFinancialService } from "@liratek/core";
 import { requireRole } from "../session.js";
 import { audit } from "./auditHelper.js";
+import {
+  SupplierCreateSchema,
+  SupplierLedgerEntrySchema,
+  SupplierSettleSchema,
+  validatePayload,
+} from "../schemas/index.js";
 
 export function registerSupplierHandlers(): void {
   const service = getSupplierService();
@@ -21,71 +27,51 @@ export function registerSupplierHandlers(): void {
     },
   );
 
-  ipcMain.handle(
-    "suppliers:create",
-    (
-      e,
-      data: {
-        name: string;
-        contact_name?: string;
-        phone?: string;
-        note?: string;
-        module_key?: string;
-        provider?: string;
-      },
-    ) => {
-      try {
-        const auth = requireRole(e.sender.id, ["admin"]);
-        if (!auth.ok) return { success: false, error: auth.error };
-      } catch {}
-
-      const result = service.createSupplier(data);
-      audit(e.sender.id, {
-        action: "create",
-        entity_type: "supplier",
-        summary: `Created supplier "${data.name}"`,
-        metadata: {
-          name: data.name,
-          module_key: data.module_key,
-          provider: data.provider,
-        },
-      });
-      return result;
-    },
-  );
-
-  ipcMain.handle(
-    "suppliers:add-ledger-entry",
-    (
-      e,
-      data: {
-        supplier_id: number;
-        entry_type: "TOP_UP" | "PAYMENT" | "ADJUSTMENT";
-        amount_usd: number;
-        amount_lbp: number;
-        note?: string;
-        drawer_name?: string;
-      },
-    ) => {
+  ipcMain.handle("suppliers:create", (e, data: unknown) => {
+    try {
       const auth = requireRole(e.sender.id, ["admin"]);
       if (!auth.ok) return { success: false, error: auth.error };
+    } catch {}
 
-      const result = service.addLedgerEntry({
-        ...data,
-        created_by: auth.userId,
-      });
-      audit(e.sender.id, {
-        action: "create",
-        entity_type: "supplier_ledger",
-        summary: `Supplier ledger ${data.entry_type}: $${data.amount_usd} + ${data.amount_lbp} LBP`,
-        metadata: {
-          supplier_id: data.supplier_id,
-          entry_type: data.entry_type,
-        },
-      });
-      return result;
-    },
-  );
+    const v = validatePayload(SupplierCreateSchema, data);
+    if (!v.ok) return { success: false, error: v.error };
+
+    const result = service.createSupplier(v.data);
+    audit(e.sender.id, {
+      action: "create",
+      entity_type: "supplier",
+      summary: `Created supplier "${v.data.name}"`,
+      metadata: {
+        name: v.data.name,
+        module_key: v.data.module_key,
+        provider: v.data.provider,
+      },
+    });
+    return result;
+  });
+
+  ipcMain.handle("suppliers:add-ledger-entry", (e, data: unknown) => {
+    const auth = requireRole(e.sender.id, ["admin"]);
+    if (!auth.ok) return { success: false, error: auth.error };
+
+    const v = validatePayload(SupplierLedgerEntrySchema, data);
+    if (!v.ok) return { success: false, error: v.error };
+
+    const result = service.addLedgerEntry({
+      ...v.data,
+      created_by: auth.userId,
+    });
+    audit(e.sender.id, {
+      action: "create",
+      entity_type: "supplier_ledger",
+      summary: `Supplier ledger ${v.data.entry_type}: $${v.data.amount_usd} + ${v.data.amount_lbp} LBP`,
+      metadata: {
+        supplier_id: v.data.supplier_id,
+        entry_type: v.data.entry_type,
+      },
+    });
+    return result;
+  });
 
   // ── Settlement handlers ────────────────────────────────────────────────────
 
@@ -100,43 +86,26 @@ export function registerSupplierHandlers(): void {
   });
 
   /** Settle a batch of transactions with a supplier (admin only) */
-  ipcMain.handle(
-    "suppliers:settle-transactions",
-    (
-      e,
-      data: {
-        supplier_id: number;
-        financial_service_ids: number[];
-        amount_usd: number;
-        amount_lbp: number;
-        commission_usd: number;
-        commission_lbp: number;
-        drawer_name: string;
-        note?: string;
-        payments?: Array<{
-          method: string;
-          currency_code: string;
-          amount: number;
-        }>;
-      },
-    ) => {
-      const auth = requireRole(e.sender.id, ["admin"]);
-      if (!auth.ok) return { success: false, error: auth.error };
+  ipcMain.handle("suppliers:settle-transactions", (e, data: unknown) => {
+    const auth = requireRole(e.sender.id, ["admin"]);
+    if (!auth.ok) return { success: false, error: auth.error };
 
-      const result = service.settleTransactions({
-        ...data,
-        created_by: auth.userId,
-      });
-      audit(e.sender.id, {
-        action: "settle",
-        entity_type: "supplier_settlement",
-        summary: `Settled ${data.financial_service_ids.length} transactions for supplier #${data.supplier_id}`,
-        metadata: {
-          supplier_id: data.supplier_id,
-          count: data.financial_service_ids.length,
-        },
-      });
-      return result;
-    },
-  );
+    const v = validatePayload(SupplierSettleSchema, data);
+    if (!v.ok) return { success: false, error: v.error };
+
+    const result = service.settleTransactions({
+      ...v.data,
+      created_by: auth.userId,
+    });
+    audit(e.sender.id, {
+      action: "settle",
+      entity_type: "supplier_settlement",
+      summary: `Settled ${v.data.financial_service_ids.length} transactions for supplier #${v.data.supplier_id}`,
+      metadata: {
+        supplier_id: v.data.supplier_id,
+        count: v.data.financial_service_ids.length,
+      },
+    });
+    return result;
+  });
 }

@@ -87,7 +87,10 @@ export function VarianceCard({
                       <Minus className="w-4 h-4" />
                     )}
                     {variance > 0 ? "+" : ""}
-                    {variance.toFixed(2)}
+                    {variance.toLocaleString(undefined, {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
                   </span>
                 )}
               </div>
@@ -95,13 +98,19 @@ export function VarianceCard({
                 <div>
                   <span className="text-slate-500">Expected:</span>
                   <span className="text-white font-mono ml-2">
-                    {expected.toFixed(2)}
+                    {expected.toLocaleString(undefined, {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
                   </span>
                 </div>
                 <div>
                   <span className="text-slate-500">Physical:</span>
                   <span className="text-white font-mono ml-2">
-                    {physical.toFixed(2)}
+                    {physical.toLocaleString(undefined, {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
                   </span>
                 </div>
               </div>

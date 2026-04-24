@@ -7,6 +7,8 @@ import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useApi, PageHeader } from "@liratek/ui";
 import { MultiPaymentInput, type PaymentLine } from "@liratek/ui";
 import { getExchangeRates } from "@/utils/exchangeRates";
+import { useSession } from "@/features/sessions/context/SessionContext";
+import logger from "@/utils/logger";
 import { Ticket, Plus, History, ClipboardCheck, Trophy } from "lucide-react";
 import { StatsCards } from "../../components/StatsCards";
 import { CheckpointHistory } from "../../components/CheckpointHistory";
@@ -28,6 +30,11 @@ interface TodayStats {
 
 export function LotoPage() {
   const api = useApi();
+  const {
+    activeSession,
+    linkTransaction,
+    addToCart: addToSessionCart,
+  } = useSession();
   // Tab state: "sell" or "cashPrize"
   const [activeTab, setActiveTab] = useState<"sell" | "cashPrize">("sell");
 
@@ -190,24 +197,51 @@ export function LotoPage() {
       return;
     }
 
+    const ticketData = {
+      sale_amount: parseFloat(saleAmount),
+      commission_rate: commissionRate,
+      commission_amount: commissionAmount,
+      sale_date: new Date().toISOString().split("T")[0],
+      payment_method:
+        _paymentLines.length > 1 ? "SPLIT" : _paymentLines[0]?.method || "CASH",
+      currency: "LBP",
+    };
+
+    // If session is active, add to cart instead of submitting
+    if (activeSession) {
+      addToSessionCart({
+        module: "loto_ticket",
+        label: `Loto Ticket - ${parseFloat(saleAmount).toLocaleString()} LBP`,
+        amount: parseFloat(saleAmount),
+        currency: "LBP",
+        ipcChannel: "loto:sell",
+        formData: ticketData,
+      });
+
+      setSaleAmount("");
+      setPaymentLines([]);
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
-      const ticketData = {
-        sale_amount: parseFloat(saleAmount),
-        commission_rate: commissionRate,
-        commission_amount: commissionAmount,
-        sale_date: new Date().toISOString().split("T")[0],
-        payment_method:
-          _paymentLines.length > 1
-            ? "SPLIT"
-            : _paymentLines[0]?.method || "CASH",
-        currency: "LBP",
-      };
-
       const result = await lotoApi.sell(ticketData);
 
       if (result.success) {
+        // Link to active customer session
+        if (activeSession && result.ticket?.id) {
+          try {
+            await linkTransaction({
+              transactionType: "loto",
+              transactionId: result.ticket.id,
+              amountUsd: 0,
+              amountLbp: parseFloat(saleAmount) || 0,
+            });
+          } catch (err) {
+            logger.error("Failed to link loto ticket to session:", err);
+          }
+        }
         alert("Ticket sold successfully!");
         // Reset form
         setSaleAmount("");
@@ -236,18 +270,47 @@ export function LotoPage() {
       return;
     }
 
+    const prizeData = {
+      prize_amount: parseFloat(cashPrizeAmount),
+      prize_date: new Date().toISOString().split("T")[0],
+      ticket_number: cashPrizeTicketNumber.trim() || undefined,
+    };
+
+    // If session is active, add to cart instead of submitting
+    if (activeSession) {
+      addToSessionCart({
+        module: "loto_prize",
+        label: `Loto Prize - ${parseFloat(cashPrizeAmount).toLocaleString()} LBP${cashPrizeTicketNumber.trim() ? ` (#${cashPrizeTicketNumber.trim()})` : ""}`,
+        amount: -parseFloat(cashPrizeAmount),
+        currency: "LBP",
+        ipcChannel: "loto:cashPrize:create",
+        formData: prizeData,
+      });
+
+      setCashPrizeAmount("");
+      setCashPrizeTicketNumber("");
+      return;
+    }
+
     setIsSubmittingCashPrize(true);
 
     try {
-      const prizeData = {
-        prize_amount: parseFloat(cashPrizeAmount),
-        prize_date: new Date().toISOString().split("T")[0],
-        ticket_number: cashPrizeTicketNumber.trim() || undefined,
-      };
-
       const result = await lotoApi.cashPrize.create(prizeData);
 
       if (result.success) {
+        // Link to active customer session
+        if (activeSession && result.prize?.id) {
+          try {
+            await linkTransaction({
+              transactionType: "loto_cash_prize",
+              transactionId: result.prize.id,
+              amountUsd: 0,
+              amountLbp: parseFloat(cashPrizeAmount) || 0,
+            });
+          } catch (err) {
+            logger.error("Failed to link loto cash prize to session:", err);
+          }
+        }
         alert("Cash prize recorded successfully!");
         // Reset form
         setCashPrizeTicketNumber("");

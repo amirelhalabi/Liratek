@@ -2485,6 +2485,85 @@ export const MIGRATIONS: Migration[] = [
       console.log("Migration v59 rolled back: restored delta column");
     },
   },
+  {
+    version: 60,
+    name: "add_client_name_phone_to_transactions",
+    description:
+      "Add client_name and client_phone columns to transactions so session-only customers (not saved in clients table) are tracked for profits-by-client reporting",
+    type: "typescript",
+    up(db) {
+      // Check if columns already exist (may have been added in a prior dev run)
+      const cols = db.prepare("PRAGMA table_info(transactions)").all() as {
+        name: string;
+      }[];
+      const colNames = new Set(cols.map((c) => c.name));
+      if (!colNames.has("client_name")) {
+        db.exec(`ALTER TABLE transactions ADD COLUMN client_name TEXT;`);
+      }
+      if (!colNames.has("client_phone")) {
+        db.exec(`ALTER TABLE transactions ADD COLUMN client_phone TEXT;`);
+      }
+
+      // Backfill from existing clients table where client_id is set
+      db.exec(`
+        UPDATE transactions
+        SET client_name = (SELECT c.full_name FROM clients c WHERE c.id = transactions.client_id),
+            client_phone = (SELECT c.phone_number FROM clients c WHERE c.id = transactions.client_id)
+        WHERE client_id IS NOT NULL;
+      `);
+
+      console.log(
+        "Migration v60: Added client_name and client_phone to transactions",
+      );
+    },
+    down(db) {
+      // SQLite doesn't support DROP COLUMN before 3.35.0, but we can leave them
+      // as they are nullable and harmless
+      db.exec(`
+        UPDATE transactions SET client_name = NULL, client_phone = NULL;
+      `);
+
+      console.log(
+        "Migration v60 rolled back: cleared client_name and client_phone",
+      );
+    },
+  },
+  {
+    version: 61,
+    name: "add_checkout_columns_to_customer_sessions",
+    description:
+      "Add checkout_at, checkout_total, checkout_currency columns to customer_sessions for batch checkout (LIRA-014)",
+    type: "typescript",
+    up(db) {
+      const cols = db.prepare("PRAGMA table_info(customer_sessions)").all() as {
+        name: string;
+      }[];
+      const colNames = new Set(cols.map((c) => c.name));
+
+      if (!colNames.has("checkout_at")) {
+        db.exec(`ALTER TABLE customer_sessions ADD COLUMN checkout_at TEXT;`);
+      }
+      if (!colNames.has("checkout_total")) {
+        db.exec(
+          `ALTER TABLE customer_sessions ADD COLUMN checkout_total REAL;`,
+        );
+      }
+      if (!colNames.has("checkout_currency")) {
+        db.exec(
+          `ALTER TABLE customer_sessions ADD COLUMN checkout_currency TEXT DEFAULT 'USD';`,
+        );
+      }
+
+      console.log("Migration v61: Added checkout columns to customer_sessions");
+    },
+    down(db) {
+      db.exec(`
+        UPDATE customer_sessions
+        SET checkout_at = NULL, checkout_total = NULL, checkout_currency = 'USD';
+      `);
+      console.log("Migration v61 rolled back: cleared checkout columns");
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

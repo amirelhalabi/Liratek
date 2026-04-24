@@ -14,6 +14,7 @@ import {
 import type { CreateFinancialServiceData } from "@liratek/core";
 import { requireRole } from "../session.js";
 import { audit } from "./auditHelper.js";
+import { FinancialServiceSchema, validatePayload } from "../schemas/index.js";
 
 export function registerOMTHandlers(): void {
   const financialService = getFinancialService();
@@ -24,6 +25,10 @@ export function registerOMTHandlers(): void {
     (event, data: CreateFinancialServiceData) => {
       const auth = requireRole(event.sender.id, ["admin", "staff"]);
       if (!auth.ok) return { success: false, error: auth.error };
+
+      const v = validatePayload(FinancialServiceSchema, data);
+      if (!v.ok) return { success: false, error: v.error };
+
       financialLogger.info(
         {
           provider: data.provider,
@@ -33,7 +38,9 @@ export function registerOMTHandlers(): void {
         },
         "Processing financial service transaction",
       );
-      const result = financialService.addTransaction(data);
+      const result = financialService.addTransaction(
+        v.data as CreateFinancialServiceData,
+      );
       audit(event.sender.id, {
         action: "create",
         entity_type: "financial_transaction",

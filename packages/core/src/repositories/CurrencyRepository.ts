@@ -90,7 +90,12 @@ export class CurrencyRepository extends BaseRepository<CurrencyEntity> {
    * Update a currency
    */
   updateCurrency(id: number, data: UpdateCurrencyData): boolean {
-    const current = this.findById(id);
+    // Use direct query — don't filter by is_active since we may be activating an inactive currency
+    const current = this.db
+      .prepare(
+        "SELECT id, code, name, symbol, decimal_places, is_active FROM currencies WHERE id = ?",
+      )
+      .get(id) as CurrencyEntity | undefined;
     if (!current) return false;
 
     const code = (data.code ?? current.code).toUpperCase();

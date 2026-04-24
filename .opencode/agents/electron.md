@@ -1,7 +1,7 @@
 ---
 description: Electron specialist for LiraTek POS - focuses on Electron main process, IPC communication, preload scripts, and desktop integration
 mode: subagent
-model: alibaba-coding-plan/qwen3.5-plus
+model: github-copilot/claude-sonnet-4.6
 color: "#EF4444"
 skills:
   - liratek-electron

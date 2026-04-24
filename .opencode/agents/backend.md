@@ -1,7 +1,7 @@
 ---
 description: Backend specialist for LiraTek POS - focuses on repositories, services, business logic, and database operations in packages/core
 mode: subagent
-model: alibaba-coding-plan/qwen3.5-plus
+model: github-copilot/claude-sonnet-4.6
 color: "#10B981"
 skills:
   - liratek-backend

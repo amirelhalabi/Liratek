@@ -1,7 +1,7 @@
 ---
 description: DevOps specialist for LiraTek POS - focuses on CI/CD pipelines, GitHub Actions, build automation, release management, and deployment
 mode: subagent
-model: alibaba-coding-plan/qwen3.5-plus
+model: github-copilot/claude-sonnet-4.6
 color: "#06B6D4"
 skills:
   - liratek-devops

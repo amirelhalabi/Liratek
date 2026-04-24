@@ -125,8 +125,9 @@ interface UserRow {
 }
 
 interface ClientRow {
-  client_id: number;
+  client_id: number | null;
   client_name: string;
+  client_phone: string | null;
   revenue_usd: number;
   profit_usd: number;
   transaction_count: number;
@@ -1177,12 +1178,19 @@ export default function Profits() {
               emptyMessage="No data for this period"
               renderRow={(row, i) => (
                 <tr
-                  key={row.client_id ?? `walk-in-${i}`}
+                  key={row.client_id ?? `session-${row.client_name}-${i}`}
                   className="border-b border-gray-700/50 hover:bg-gray-700/30"
                 >
                   <td className="px-4 py-3 text-gray-500 text-xs">{i + 1}</td>
-                  <td className="px-4 py-3 font-medium text-white">
-                    {row.client_name}
+                  <td className="px-4 py-3">
+                    <div className="font-medium text-white">
+                      {row.client_name}
+                    </div>
+                    {row.client_phone && (
+                      <div className="text-xs text-gray-500">
+                        {row.client_phone}
+                      </div>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-right text-white">
                     {formatAmount(row.revenue_usd, "USD")}

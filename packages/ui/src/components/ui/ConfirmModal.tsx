@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { X, AlertTriangle } from "lucide-react";
 
 export interface ConfirmModalProps {
@@ -22,6 +22,20 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   onCancel,
   variant = "danger",
 }) => {
+  // Fix Electron/Windows focus bug: nudge window focus when modal closes
+  useEffect(() => {
+    if (!isOpen) return;
+    const isWindows = navigator.userAgent.includes("Windows");
+    if (!isWindows) return;
+    return () => {
+      try {
+        (window as any).api?.display?.fixFocus?.();
+      } catch {
+        /* ignore */
+      }
+    };
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   const variantClasses = {
@@ -38,7 +52,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4 animate-in fade-in duration-200"
+      className="fixed inset-0 bg-black/80 flex items-center justify-center z-[100] p-4 animate-in fade-in duration-200"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onCancel();
       }}

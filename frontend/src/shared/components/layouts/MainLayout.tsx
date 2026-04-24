@@ -4,6 +4,7 @@ import HomeViewLayout from "./HomeViewLayout";
 import { NotificationCenter, appEvents } from "@liratek/ui";
 
 import CheckpointModal from "@/features/closing/pages/Checkpoint";
+import { SessionFloatingWindow } from "@/features/sessions/components/SessionFloatingWindow";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
 
@@ -82,6 +83,8 @@ export default function MainLayout({ children }: MainLayoutProps) {
     <>
       {layoutContent}
       <NotificationCenter />
+      {/* Session Floating Window (customer session tracker) */}
+      {flags.customerSessions && <SessionFloatingWindow />}
       {/* Checkpoint Modal (unified Opening/Closing) */}
       {isAdmin && isCheckpointModalOpen && (
         <CheckpointModal

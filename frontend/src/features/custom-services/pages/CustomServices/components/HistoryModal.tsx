@@ -1,5 +1,6 @@
 import { History, RefreshCw, X, Ban, User, Phone } from "lucide-react";
 import { DataTable } from "@liratek/ui";
+import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import type { CustomServiceEntry } from "../../../hooks/useCustomServices";
 
 function formatTime(dateStr: string): string {
@@ -41,9 +42,10 @@ export function HistoryModal({
   onRefresh,
   onVoid,
 }: HistoryModalProps) {
+  useModalFocusFix(true);
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 animate-in fade-in duration-200"
       onClick={onClose}
     >
       <div

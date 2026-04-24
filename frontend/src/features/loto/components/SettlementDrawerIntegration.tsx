@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useApi } from "@liratek/ui";
+import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import {
   Wallet,
   TrendingDown,
@@ -35,6 +36,7 @@ export function SettlementDrawerIntegration({
   onClose,
 }: SettlementDrawerIntegrationProps) {
   const api = useApi();
+  const { methods } = usePaymentMethods();
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -209,9 +211,11 @@ export function SettlementDrawerIntegration({
                   className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   disabled={isProcessing}
                 >
-                  <option value="CASH">Cash</option>
-                  <option value="BANK">Bank Transfer</option>
-                  <option value="CHECK">Check</option>
+                  {methods.map((m) => (
+                    <option key={m.code} value={m.code}>
+                      {m.label}
+                    </option>
+                  ))}
                 </select>
               </div>
               <div>

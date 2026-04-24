@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import logger from "@/utils/logger";
+import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import * as XLSX from "xlsx";
 import {
   Search,
@@ -100,6 +101,7 @@ export default function Debts() {
   const [history, setHistory] = useState<DebtHistoryItem[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [showRepaymentModal, setShowRepaymentModal] = useState(false);
+  useModalFocusFix(showRepaymentModal);
   const [totalDebt, setTotalDebt] = useState(0);
   const [debtFilter, setDebtFilter] = useState<DebtFilter>("ongoing");
   const [selectedSale, setSelectedSale] = useState<SaleDetail | null>(null);
@@ -1314,7 +1316,7 @@ export default function Debts() {
         {/* Repayment Modal */}
         {showRepaymentModal && (
           <div
-            className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
             role="presentation"
             onMouseDown={(e) => {
               if (e.target === e.currentTarget) {

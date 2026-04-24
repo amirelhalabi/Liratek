@@ -1,11 +1,6 @@
 import { useState, useEffect } from "react";
-import { Phone, Wallet, User, Search, X, CheckCircle } from "lucide-react";
-import {
-  Select,
-  ServiceTypeTabs,
-  type ServiceTypeOption,
-  useApi,
-} from "@liratek/ui";
+import { Phone, User, Search, X, CheckCircle } from "lucide-react";
+import { ServiceTypeTabs, type ServiceTypeOption, useApi } from "@liratek/ui";
 import type { ProviderConfig, RechargeType } from "../types";
 import { TELECOM_SERVICE_TYPES, ALFA_GIFT_TIERS } from "../types";
 import { HistoryModal } from "./HistoryModal";
@@ -56,13 +51,12 @@ interface TelecomFormProps {
   giftPriceLbp: string;
   setGiftPriceLbp: (val: string) => void;
   handleAlfaGiftSubmit: () => void;
-  useMultiPayment: boolean;
-  setUseMultiPayment: (val: boolean) => void;
   paymentLines: PaymentLine[];
   setPaymentLines: (lines: PaymentLine[]) => void;
   clientName: string;
   setClientName: (val: string) => void;
   voucherItems?: VoucherItem[];
+  alfaCreditCostRate?: number;
 }
 
 export function TelecomForm({
@@ -80,7 +74,7 @@ export function TelecomForm({
   setTelecomPrice,
   phoneNumber,
   setPhoneNumber,
-  paidBy,
+  paidBy: _paidBy,
   setPaidBy,
   methods,
   showClientSearch,
@@ -103,12 +97,12 @@ export function TelecomForm({
   giftPriceLbp,
   setGiftPriceLbp,
   handleAlfaGiftSubmit,
-  useMultiPayment,
-  setUseMultiPayment,
+  paymentLines,
   setPaymentLines,
   clientName,
   setClientName,
   voucherItems,
+  alfaCreditCostRate = 85000,
 }: TelecomFormProps) {
   const api = useApi();
   const [rates, setRates] = useState({ buyRate: 89000, sellRate: 89500 });
@@ -145,13 +139,14 @@ export function TelecomForm({
   const exchangeRate = rates.sellRate;
 
   // Required for API compatibility but not used in this component
+  void _paidBy;
   void clientName;
   void setClientName;
 
   const accent = isMTC ? "cyan" : "red";
 
   return (
-    <div className="flex flex-col gap-5 h-full">
+    <div className="flex flex-col gap-5 flex-1 min-h-0">
       {/* Service Type Tabs */}
       <ServiceTypeTabs
         options={
@@ -170,9 +165,9 @@ export function TelecomForm({
 
       {rechargeType === "ALFA_GIFT" ? (
         /* Alfa Gift Form - Card Grid Selection */
-        <div className="flex flex-col gap-5 h-full">
+        <div className="flex flex-col gap-5 flex-1 min-h-0">
           {/* Tier Grid */}
-          <div className="flex-1 min-h-0 overflow-auto">
+          <div className="flex-1 min-h-0 overflow-auto pb-2">
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 mt-3">
               {Object.entries(ALFA_GIFT_TIERS).map(([key, tier]) => {
                 const isSelected = giftTierKey === key;
@@ -217,13 +212,13 @@ export function TelecomForm({
                     </div>
 
                     {/* Price Preview */}
-                    <div className="text-xs text-emerald-400 font-mono mb-1">
+                    <div className="text-sm text-emerald-400 font-mono mb-1">
                       Price: {parseFloat(priceLbp).toLocaleString()} LBP
                     </div>
 
                     {/* Profit Preview */}
                     <div
-                      className={`text-xs font-mono ${profitLbp >= 0 ? "text-green-400" : "text-red-400"}`}
+                      className={`text-sm font-mono ${profitLbp >= 0 ? "text-green-400" : "text-red-400"}`}
                     >
                       Profit: {profitLbp.toLocaleString()} LBP
                     </div>
@@ -234,48 +229,27 @@ export function TelecomForm({
           </div>
 
           {/* Sticky Bottom Bar */}
-          <div className="sticky bottom-0 bg-slate-800 rounded-xl border border-slate-700/50 p-4 shadow-2xl">
+          <div className="shrink-0 bg-slate-800 rounded-xl border border-slate-700/50 p-4 shadow-2xl">
             <div className="flex items-center gap-4">
               <div className="flex-1">
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs text-slate-400">
-                    Payment Method
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => setUseMultiPayment(!useMultiPayment)}
-                    className="text-xs px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
-                  >
-                    {useMultiPayment ? "Single Payment" : "Split Payment"}
-                  </button>
-                </div>
-                {useMultiPayment ? (
-                  <MultiPaymentInput
-                    totalAmount={parseFloat(giftPriceLbp) || 0}
-                    totalAmountCurrency="LBP"
-                    currency="LBP"
-                    onChange={setPaymentLines}
-                    showPmFee={false}
-                    paymentMethods={methods}
-                    currencies={[
-                      { code: "USD", symbol: "$" },
-                      { code: "LBP", symbol: "LBP" },
-                    ]}
-                    exchangeRate={exchangeRate}
-                  />
-                ) : (
-                  <select
-                    value={paidBy}
-                    onChange={(e) => setPaidBy(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-red-500"
-                  >
-                    {methods.map((m) => (
-                      <option key={m.code} value={m.code}>
-                        {m.label}
-                      </option>
-                    ))}
-                  </select>
-                )}
+                <MultiPaymentInput
+                  totalAmount={parseFloat(giftPriceLbp) || 0}
+                  totalAmountCurrency="LBP"
+                  currency="LBP"
+                  onChange={(lines) => {
+                    setPaymentLines(lines);
+                    if (lines.length === 1) {
+                      setPaidBy(lines[0].method);
+                    }
+                  }}
+                  showPmFee={false}
+                  paymentMethods={methods}
+                  currencies={[
+                    { code: "USD", symbol: "$" },
+                    { code: "LBP", symbol: "LBP" },
+                  ]}
+                  exchangeRate={exchangeRate}
+                />
               </div>
 
               <div className="text-right">
@@ -319,9 +293,9 @@ export function TelecomForm({
         </div>
       ) : rechargeType === "VOUCHER" && isMTC ? (
         /* Voucher Form - MTC Card Grid */
-        <div className="flex flex-col gap-5 h-full">
+        <div className="flex flex-col gap-5 flex-1 min-h-0">
           {/* MTC Voucher Card Grid - loaded from DB */}
-          <div className="flex-1 min-h-0 overflow-auto">
+          <div className="flex-1 min-h-0 overflow-auto pb-2">
             <div className="text-sm text-slate-400 mb-3">
               Select MTC Voucher:
             </div>
@@ -342,7 +316,7 @@ export function TelecomForm({
                   <div className="text-xs text-slate-400">
                     Cost: {item.cost_lbp.toLocaleString()} LBP
                   </div>
-                  <div className="text-xs text-emerald-400 font-mono">
+                  <div className="text-sm text-emerald-400 font-mono">
                     Sell: {item.sell_lbp.toLocaleString()} LBP
                   </div>
                 </div>
@@ -351,26 +325,38 @@ export function TelecomForm({
           </div>
 
           {/* Sticky Bottom Bar */}
-          <div className="sticky bottom-0 bg-slate-800 rounded-xl border border-slate-700/50 p-4 shadow-2xl">
+          <div className="shrink-0 bg-slate-800 rounded-xl border border-slate-700/50 p-4 shadow-2xl">
             <div className="flex items-center gap-4">
               <div className="flex-1">
-                <label className="text-xs text-slate-400">Payment Method</label>
-                <select
-                  value={paidBy}
-                  onChange={(e) => setPaidBy(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500 mt-1"
-                >
-                  {methods.map((method) => (
-                    <option key={method.code} value={method.code}>
-                      {method.label}
-                    </option>
-                  ))}
-                </select>
+                <MultiPaymentInput
+                  totalAmount={
+                    telecomAmount
+                      ? ((voucherItems ?? []).find(
+                          (v) => v.label === telecomAmount,
+                        )?.sell_lbp ?? 0)
+                      : 0
+                  }
+                  totalAmountCurrency="LBP"
+                  currency="LBP"
+                  onChange={(lines) => {
+                    setPaymentLines(lines);
+                    if (lines.length === 1) {
+                      setPaidBy(lines[0].method);
+                    }
+                  }}
+                  showPmFee={false}
+                  paymentMethods={methods}
+                  currencies={[
+                    { code: "USD", symbol: "$" },
+                    { code: "LBP", symbol: "LBP" },
+                  ]}
+                  exchangeRate={exchangeRate}
+                />
               </div>
 
               <div className="text-right">
                 <div className="text-xs text-slate-400">Amount:</div>
-                <div className="text-sm text-emerald-400 font-mono font-bold">
+                <div className="text-base text-emerald-400 font-mono font-bold">
                   {telecomAmount || "0"}
                 </div>
               </div>
@@ -472,7 +458,7 @@ export function TelecomForm({
                   Quick Amount
                 </span>
                 <div className="grid grid-cols-4 gap-3">
-                  {[5, 10, 15, 20, 25, 30, 50, 100].map((amt) => (
+                  {[3, 6, 9, 12, 15, 18, 21, 30].map((amt) => (
                     <button
                       key={amt}
                       onClick={() => handleQuickAmount(amt)}
@@ -491,32 +477,32 @@ export function TelecomForm({
           </div>
           <div className="col-span-5 bg-slate-800 rounded-2xl border border-slate-700/50 p-6 flex flex-col gap-5">
             <div>
-              <label
-                htmlFor="telecom-paid-by"
-                className="block text-xs font-medium text-slate-500 mb-2 uppercase tracking-wider flex items-center gap-1.5"
-              >
-                <Wallet size={12} />
-                Paid By
-              </label>
-              <Select
-                value={paidBy}
-                onChange={(value) => {
-                  setPaidBy(value);
-                  if (value !== "DEBT") {
-                    setShowClientSearch(false);
+              <MultiPaymentInput
+                totalAmount={
+                  telecomPrice
+                    ? parseFloat(telecomPrice)
+                    : parseFloat(telecomAmount || "0") * alfaCreditCostRate
+                }
+                totalAmountCurrency="LBP"
+                currency="LBP"
+                onChange={(lines) => {
+                  setPaymentLines(lines);
+                  if (lines.length === 1) {
+                    setPaidBy(lines[0].method);
                   }
                 }}
-                options={methods.map((m) => ({
-                  value: m.code,
-                  label: m.label,
-                }))}
-                ringColor={`ring-${accent}-500`}
-                buttonClassName="py-3 text-sm font-bold rounded-xl"
+                showPmFee={false}
+                paymentMethods={methods}
+                currencies={[
+                  { code: "USD", symbol: "$" },
+                  { code: "LBP", symbol: "LBP" },
+                ]}
+                exchangeRate={exchangeRate}
               />
             </div>
 
             {/* Client selector for DEBT */}
-            {paidBy === "DEBT" && (
+            {paymentLines.some((l) => l.method === "DEBT") && (
               <div className="relative">
                 <label
                   htmlFor="telecom-debt-client"
@@ -601,7 +587,7 @@ export function TelecomForm({
                       <p className="text-sm font-semibold text-white">
                         {activeConfig?.label} Voucher
                       </p>
-                      <p className={`text-xs font-mono ${activeConfig?.color}`}>
+                      <p className={`text-sm font-mono ${activeConfig?.color}`}>
                         ${telecomAmount}
                       </p>
                     </div>
@@ -640,15 +626,23 @@ export function TelecomForm({
               </label>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-emerald-400">
-                  $
+                  LBP
                 </span>
                 <input
                   id="telecom-price"
-                  type="number"
-                  value={telecomPrice}
-                  onChange={(e) => setTelecomPrice(e.target.value)}
-                  className="w-full bg-slate-900/80 border border-slate-600 rounded-xl pl-9 pr-4 py-3 text-emerald-400 font-bold focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30 transition-all"
-                  placeholder="0.00"
+                  type="text"
+                  inputMode="decimal"
+                  value={
+                    telecomPrice ? Number(telecomPrice).toLocaleString() : ""
+                  }
+                  onChange={(e) => {
+                    const cleaned = e.target.value.replace(/,/g, "");
+                    if (/^[0-9]*\.?[0-9]*$/.test(cleaned)) {
+                      setTelecomPrice(cleaned);
+                    }
+                  }}
+                  className="w-full bg-slate-900/80 border border-slate-600 rounded-xl pl-14 pr-4 py-3 text-emerald-400 font-bold focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30 transition-all"
+                  placeholder="0"
                 />
               </div>
             </div>
@@ -658,16 +652,18 @@ export function TelecomForm({
                   <span className="text-slate-400">Profit</span>
                   <span
                     className={`font-bold font-mono ${
-                      parseFloat(telecomPrice) - parseFloat(telecomAmount) >= 0
+                      parseFloat(telecomPrice) -
+                        parseFloat(telecomAmount) * alfaCreditCostRate >=
+                      0
                         ? "text-emerald-400"
                         : "text-red-400"
                     }`}
                   >
-                    $
                     {(
                       parseFloat(telecomPrice || "0") -
-                      parseFloat(telecomAmount || "0")
-                    ).toFixed(2)}
+                      parseFloat(telecomAmount || "0") * alfaCreditCostRate
+                    ).toLocaleString()}{" "}
+                    LBP
                   </span>
                 </div>
               </div>
@@ -702,7 +698,7 @@ export function TelecomForm({
             provider: r.carrier,
             service_type: "SEND" as const,
             amount: r.amount,
-            currency: r.currency_code,
+            currency: r.currency_code || "USD",
             cost: r.cost,
             commission: r.price - r.cost,
             client_name: r.client_name,
@@ -710,9 +706,15 @@ export function TelecomForm({
             created_at: r.created_at,
           }))}
           provider={isMTC ? "MTC" : "Alfa"}
+          amountLabel="Credits"
+          amountAlwaysUsd
           onClose={() => setShowHistory(false)}
           onRefresh={() => {}}
-          formatAmount={(val, currency) => `${val.toFixed(2)} ${currency}`}
+          formatAmount={(val, currency) =>
+            currency === "LBP"
+              ? `${val.toLocaleString()} LBP`
+              : `$${val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+          }
         />
       )}
     </div>

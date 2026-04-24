@@ -104,6 +104,7 @@ export default function PaymentMethodsManager() {
         }
       }
       setShowForm(false);
+      window.dispatchEvent(new Event("payment-methods-changed"));
       await load();
     } catch (e: any) {
       setError(e.message || "Operation failed");
@@ -119,6 +120,7 @@ export default function PaymentMethodsManager() {
         alert(res.error || "Failed to delete");
         return;
       }
+      window.dispatchEvent(new Event("payment-methods-changed"));
       await load();
     } catch (e: any) {
       alert(e.message || "Delete failed");
@@ -130,6 +132,7 @@ export default function PaymentMethodsManager() {
       await api.updatePaymentMethod(m.id, {
         is_active: m.is_active ? 0 : 1,
       });
+      window.dispatchEvent(new Event("payment-methods-changed"));
       await load();
     } catch {
       // Silently fail

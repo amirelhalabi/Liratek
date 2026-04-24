@@ -9,6 +9,10 @@ import { getExchangeService, exchangeLogger } from "@liratek/core";
 import type { CreateExchangeData } from "@liratek/core";
 import { requireRole } from "../session.js";
 import { audit } from "./auditHelper.js";
+import {
+  ExchangeTransactionSchema,
+  validatePayload,
+} from "../schemas/index.js";
 
 export function registerExchangeHandlers(): void {
   const exchangeService = getExchangeService();
@@ -19,6 +23,10 @@ export function registerExchangeHandlers(): void {
     (event, data: CreateExchangeData) => {
       const auth = requireRole(event.sender.id, ["admin", "staff"]);
       if (!auth.ok) return { success: false, error: auth.error };
+
+      const v = validatePayload(ExchangeTransactionSchema, data);
+      if (!v.ok) return { success: false, error: v.error };
+
       exchangeLogger.info(
         {
           fromCurrency: data.fromCurrency,
@@ -27,7 +35,9 @@ export function registerExchangeHandlers(): void {
         },
         "Processing exchange",
       );
-      const result = exchangeService.addTransaction(data);
+      const result = exchangeService.addTransaction(
+        v.data as CreateExchangeData,
+      );
       audit(event.sender.id, {
         action: "create",
         entity_type: "exchange_transaction",

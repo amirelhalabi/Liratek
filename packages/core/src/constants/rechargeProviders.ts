@@ -12,6 +12,7 @@ export const TOP_UP_PROVIDERS = [
   "WHISH_APP",
   "iPick",
   "Katsh",
+  "BINANCE",
 ] as const;
 
 export type TopUpProvider = (typeof TOP_UP_PROVIDERS)[number];
@@ -26,6 +27,7 @@ export const TOP_UP_PROVIDER_DRAWERS: Record<TopUpProvider, string> = {
   WHISH_APP: "Whish_App",
   iPick: "iPick",
   Katsh: "Katsh",
+  BINANCE: "Binance",
 };
 
 /**
@@ -38,6 +40,7 @@ export const TOP_UP_PROVIDER_DEFAULT_SOURCES: Record<TopUpProvider, string> = {
   WHISH_APP: "General",
   iPick: "General",
   Katsh: "General",
+  BINANCE: "General",
 };
 
 /**
@@ -50,6 +53,7 @@ export const TOP_UP_PROVIDER_LABELS: Record<TopUpProvider, string> = {
   WHISH_APP: "Whish App",
   iPick: "iPick",
   Katsh: "Katsh",
+  BINANCE: "Binance",
 };
 
 /**

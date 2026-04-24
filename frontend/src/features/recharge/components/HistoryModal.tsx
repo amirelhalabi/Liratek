@@ -1,5 +1,6 @@
 import { History, RefreshCw, X, Send, ArrowDownToLine } from "lucide-react";
 import { DataTable } from "@liratek/ui";
+import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import type { FinancialTransaction, ServiceType } from "../types";
 import { FINANCIAL_SERVICE_ICONS } from "../types";
 
@@ -21,6 +22,14 @@ interface HistoryModalProps {
   onClose: () => void;
   onRefresh: () => void;
   formatAmount?: (val: number, currency: string) => string;
+  amountLabel?: string;
+  /** Override the "Profit" column header (e.g. "Fees" for financial services) */
+  profitLabel?: string;
+  /** When true, show separate "Fee" and "Profit" columns instead of a single column.
+   *  Fee = commission when cost is 0 (transfers), Profit = commission when cost > 0 (bills) */
+  showFeeAndProfit?: boolean;
+  /** When true, the amount (credits) column always displays in USD regardless of the transaction currency */
+  amountAlwaysUsd?: boolean;
 }
 
 export function HistoryModal({
@@ -28,11 +37,17 @@ export function HistoryModal({
   provider,
   onClose,
   onRefresh,
-  formatAmount = (val, currency) => `${val.toFixed(2)} ${currency}`,
+  formatAmount = (val, currency) =>
+    `${val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`,
+  amountLabel = "Amount",
+  profitLabel = "Profit",
+  showFeeAndProfit = false,
+  amountAlwaysUsd = false,
 }: HistoryModalProps) {
+  useModalFocusFix(true);
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 animate-in fade-in duration-200"
       onClick={onClose}
     >
       <div
@@ -73,7 +88,7 @@ export function HistoryModal({
                 sortKey: "service_type",
               },
               {
-                header: "Amount",
+                header: amountLabel,
                 className: "px-5 py-3",
                 sortKey: "amount",
               },
@@ -82,15 +97,35 @@ export function HistoryModal({
                 className: "px-5 py-3",
                 sortKey: "cost",
               },
-              {
-                header: "Profit",
-                className: "px-5 py-3",
-                sortKey: "commission",
-              },
+              ...(showFeeAndProfit
+                ? [
+                    {
+                      header: "Fee",
+                      className: "px-5 py-3",
+                      sortKey: "commission",
+                    },
+                    {
+                      header: "Profit",
+                      className: "px-5 py-3",
+                      sortKey: "commission",
+                    },
+                  ]
+                : [
+                    {
+                      header: profitLabel,
+                      className: "px-5 py-3",
+                      sortKey: "commission",
+                    },
+                  ]),
               {
                 header: "Client",
                 className: "px-5 py-3",
                 sortKey: "client_name",
+              },
+              {
+                header: "Payment",
+                className: "px-5 py-3",
+                sortKey: "paid_by",
               },
               {
                 header: "Time",
@@ -124,16 +159,37 @@ export function HistoryModal({
                     </div>
                   </td>
                   <td className="px-5 py-3 text-sm font-medium text-white">
-                    {formatAmount(tx.amount, tx.currency)}
+                    {formatAmount(
+                      tx.amount,
+                      amountAlwaysUsd ? "USD" : tx.currency,
+                    )}
                   </td>
                   <td className="px-5 py-3 text-sm text-slate-300">
                     {formatAmount(tx.cost ?? 0, tx.currency)}
                   </td>
-                  <td className="px-5 py-3 text-sm font-bold text-emerald-400">
-                    {formatAmount(tx.commission, tx.currency)}
-                  </td>
+                  {showFeeAndProfit ? (
+                    <>
+                      <td className="px-5 py-3 text-sm font-bold text-amber-400">
+                        {(tx.cost ?? 0) === 0 && tx.commission !== 0
+                          ? formatAmount(tx.commission, tx.currency)
+                          : "—"}
+                      </td>
+                      <td className="px-5 py-3 text-sm font-bold text-emerald-400">
+                        {(tx.cost ?? 0) > 0
+                          ? formatAmount(tx.commission, tx.currency)
+                          : "—"}
+                      </td>
+                    </>
+                  ) : (
+                    <td className="px-5 py-3 text-sm font-bold text-emerald-400">
+                      {formatAmount(tx.commission, tx.currency)}
+                    </td>
+                  )}
                   <td className="px-5 py-3 text-sm text-slate-300">
                     {tx.client_name || "—"}
+                  </td>
+                  <td className="px-5 py-3 text-sm text-slate-300">
+                    {tx.paid_by || "—"}
                   </td>
                   <td className="px-5 py-3 text-sm text-slate-400">
                     {new Date(tx.created_at).toLocaleTimeString([], {
