@@ -276,14 +276,6 @@ describe("backendApi dual-mode routing", () => {
     await apiMod.getSystemExpectedBalancesDynamic();
     await apiMod.hasOpeningBalanceToday();
     await apiMod.getDailyStatsSnapshot();
-    await apiMod.setOpeningBalances({
-      closing_date: "2026-01-01",
-      amounts: [],
-    });
-    await apiMod.createDailyClosing({
-      closing_date: "2026-01-01",
-      amounts: [],
-    });
     await apiMod.updateDailyClosing(1, {});
 
     await apiMod.getSuppliers("");

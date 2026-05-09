@@ -10,6 +10,7 @@ import {
   financialLogger,
   getFinancialServiceRepository,
   getTransactionRepository,
+  getUserRepository,
 } from "@liratek/core";
 import type { CreateFinancialServiceData } from "@liratek/core";
 import { requireRole } from "../session.js";
@@ -62,8 +63,8 @@ export function registerOMTHandlers(): void {
   });
 
   // Get Analytics (Today & Month totals)
-  ipcMain.handle("omt:get-analytics", () => {
-    return financialService.getAnalytics();
+  ipcMain.handle("omt:get-analytics", (_event, providers?: string[]) => {
+    return financialService.getAnalytics(providers);
   });
 
   // Get a single financial service record by ID (for debt detail eye button)
@@ -78,6 +79,69 @@ export function registerOMTHandlers(): void {
       return getTransactionRepository().getPaymentsByTransactionId(
         transactionId,
       );
+    },
+  );
+
+  // Update financial service metadata (staff and admin)
+  ipcMain.handle(
+    "financial:update-metadata",
+    (
+      event,
+      data: {
+        id: number;
+        client_name?: string;
+        phone_number?: string;
+        sender_name?: string;
+        sender_phone?: string;
+        receiver_name?: string;
+        receiver_phone?: string;
+        note?: string;
+      },
+    ) => {
+      const auth = requireRole(event.sender.id, ["admin", "staff"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+
+      let editedBy = `user-${auth.userId}`;
+      try {
+        const userRepo = getUserRepository();
+        const user = userRepo.findById(auth.userId);
+        if (user) editedBy = user.username;
+      } catch {
+        // fallback to user-{id}
+      }
+
+      const result = financialService.updateFinancialServiceMetadata(
+        data.id,
+        {
+          client_name: data.client_name,
+          phone_number: data.phone_number,
+          sender_name: data.sender_name,
+          sender_phone: data.sender_phone,
+          receiver_name: data.receiver_name,
+          receiver_phone: data.receiver_phone,
+          note: data.note,
+        },
+        editedBy,
+      );
+
+      if (
+        result.success &&
+        result.oldValues &&
+        Object.keys(result.oldValues).length > 0
+      ) {
+        audit(event.sender.id, {
+          action: "edit_metadata",
+          entity_type: "financial_service",
+          entity_id: String(data.id),
+          summary: `Edited financial service #${data.id} metadata`,
+          old_values: result.oldValues,
+          new_values: data,
+        });
+      }
+
+      return result.success
+        ? { success: true, data: result.entity }
+        : { success: false, error: result.error };
     },
   );
 }

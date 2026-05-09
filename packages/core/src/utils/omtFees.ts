@@ -28,10 +28,10 @@ export const OMT_COMMISSION_RATES: Record<OmtServiceType, number> = {
   WESTERN_UNION: 0.1, // 10% of OMT fee
   CASH_TO_BUSINESS: 0.25, // 25% of OMT fee
   CASH_TO_GOV: 0.25, // 25% of OMT fee (bills: darayeb, water, meliye)
-  OMT_WALLET: 0.0, // NO FEES
+  OMT_WALLET: 0.001, // 0.1% of transfer amount (no fee to customer)
   OMT_CARD: 0.1, // 10% of OMT fee
   OGERO_MECANIQUE: 0.25, // 25% of OMT fee
-  ONLINE_BROKERAGE: 0.0, // Special case - uses direct amount %
+  ONLINE_BROKERAGE: 0.0, // Flat $3 per transaction (special case)
 };
 
 // =============================================================================
@@ -63,6 +63,21 @@ export const INTRA_FEE_TIERS: FeeTier[] = [
 ];
 
 /**
+ * INTRA LBP fee calculation.
+ * - Amounts up to 5,000,000 LBP: flat 50,000 LBP fee
+ * - Above 5,000,000: +10,000 LBP per additional 1,000,000 LBP bracket
+ * - Max amount: 50,000,000 LBP
+ *
+ * Formula: max(50000, ceil(amount / 1,000,000) * 10,000)
+ */
+export const INTRA_LBP_MAX_AMOUNT = 50_000_000;
+
+export function lookupIntraLbpFee(amount: number): number | null {
+  if (amount <= 0 || amount > INTRA_LBP_MAX_AMOUNT) return null;
+  return Math.max(50_000, Math.ceil(amount / 1_000_000) * 10_000);
+}
+
+/**
  * Western Union fee schedule (USD amounts → OMT fee in USD)
  */
 export const WESTERN_UNION_FEE_TIERS: FeeTier[] = [
@@ -89,19 +104,31 @@ export const ONLINE_BROKERAGE_MAX_RATE = 0.004; // 0.4%
  * Returns null for service types that don't have a fee table (fee must be entered manually).
  *
  * @param omtServiceType - The OMT service type
- * @param amount - Transaction amount in USD
- * @returns The OMT fee in USD, or null if no table is available for this service type
+ * @param amount - Transaction amount
+ * @param currency - Currency code ("USD" or "LBP"), defaults to "USD"
+ * @returns The OMT fee, or null if no table is available for this service type
  *
  * @example
- * lookupOmtFee("INTRA", 100)         // Returns 1   ($1 fee for $1–$100)
- * lookupOmtFee("INTRA", 150)         // Returns 2   ($2 fee for $101–$150)
- * lookupOmtFee("WESTERN_UNION", 100) // Returns 10  ($10 fee for $50.01–$200)
- * lookupOmtFee("CASH_TO_BUSINESS", 200) // Returns null (no table)
+ * lookupOmtFee("INTRA", 100)              // Returns 1   ($1 fee for $1–$100)
+ * lookupOmtFee("INTRA", 150)              // Returns 2   ($2 fee for $101–$150)
+ * lookupOmtFee("INTRA", 3000000, "LBP")   // Returns 50000 (LBP 50,000 for up to 5M)
+ * lookupOmtFee("WESTERN_UNION", 100)      // Returns 10  ($10 fee for $50.01–$200)
+ * lookupOmtFee("CASH_TO_BUSINESS", 200)   // Returns null (no table)
  */
 export function lookupOmtFee(
   omtServiceType: OmtServiceType,
   amount: number,
+  currency: string = "USD",
 ): number | null {
+  if (currency === "LBP") {
+    // Only INTRA supports LBP fee lookup
+    if (omtServiceType === "INTRA") {
+      return lookupIntraLbpFee(amount);
+    }
+    // Western Union is USD only; other types have no fee table
+    return null;
+  }
+
   let tiers: Array<{ maxAmount: number; fee: number }> | null = null;
 
   if (omtServiceType === "INTRA") {
@@ -131,15 +158,17 @@ export function lookupOmtFee(
 export function calculateCommission(
   omtServiceType: OmtServiceType,
   omtFee: number,
+  amount?: number,
 ): number {
   if (omtServiceType === "OMT_WALLET") {
-    return 0; // No fees for OMT Wallet
+    // OMT Wallet: no fee to customer, shop earns 0.1% of transfer amount
+    const transferAmount = amount ?? 0;
+    return Number((transferAmount * 0.001).toFixed(4));
   }
 
   if (omtServiceType === "ONLINE_BROKERAGE") {
-    throw new Error(
-      "Use calculateOnlineBrokerageProfit() for ONLINE_BROKERAGE service type",
-    );
+    // Flat $3 per transaction
+    return 3;
   }
 
   const rate = OMT_COMMISSION_RATES[omtServiceType];

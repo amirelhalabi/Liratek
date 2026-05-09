@@ -36,6 +36,12 @@ contextBridge.exposeInMainWorld("api", {
     }) => ipcRenderer.invoke("db:add-expense", data),
     getToday: () => ipcRenderer.invoke("db:get-today-expenses"),
     delete: (id: number) => ipcRenderer.invoke("db:delete-expense", id),
+    updateMetadata: (data: {
+      id: number;
+      description?: string;
+      category?: string;
+      note?: string;
+    }) => ipcRenderer.invoke("expenses:update-metadata", data),
   },
 
   // Inventory
@@ -113,6 +119,8 @@ contextBridge.exposeInMainWorld("api", {
       }),
     getByDateRange: (startDate: string, endDate: string) =>
       ipcRenderer.invoke("sales:get-by-date-range", startDate, endDate),
+    updateMetadata: (data: { id: number; note?: string }) =>
+      ipcRenderer.invoke("sales:update-metadata", data),
   },
 
   // Dashboard
@@ -143,6 +151,8 @@ contextBridge.exposeInMainWorld("api", {
       userId?: number;
       paidByMethod?: string;
     }) => ipcRenderer.invoke("debt:add-repayment", data),
+    updateMetadata: (data: { id: number; note?: string }) =>
+      ipcRenderer.invoke("debts:update-metadata", data),
   },
 
   // Financial
@@ -150,6 +160,16 @@ contextBridge.exposeInMainWorld("api", {
     getMonthlyPL: (month: string) =>
       ipcRenderer.invoke("financial:get-monthly-pl", month),
     getDrawerNames: () => ipcRenderer.invoke("financial:get-drawer-names"),
+    updateMetadata: (data: {
+      id: number;
+      customer_name?: string;
+      phone_number?: string;
+      sender_name?: string;
+      sender_phone?: string;
+      receiver_name?: string;
+      receiver_phone?: string;
+      note?: string;
+    }) => ipcRenderer.invoke("financial:update-metadata", data),
   },
 
   // Exchange
@@ -171,6 +191,11 @@ contextBridge.exposeInMainWorld("api", {
       note?: string;
     }) => ipcRenderer.invoke("exchange:add-transaction", data),
     getHistory: () => ipcRenderer.invoke("exchange:get-history"),
+    updateMetadata: (data: {
+      id: number;
+      client_name?: string;
+      note?: string;
+    }) => ipcRenderer.invoke("exchange:update-metadata", data),
   },
 
   // OMT/Whish Financial Services
@@ -222,7 +247,8 @@ contextBridge.exposeInMainWorld("api", {
     }) => ipcRenderer.invoke("omt:add-transaction", data),
     getHistory: (provider?: string) =>
       ipcRenderer.invoke("omt:get-history", provider),
-    getAnalytics: () => ipcRenderer.invoke("omt:get-analytics"),
+    getAnalytics: (providers?: string[]) =>
+      ipcRenderer.invoke("omt:get-analytics", providers),
     getById: (id: number) => ipcRenderer.invoke("omt:get-by-id", id),
     getPaymentsByTransaction: (transactionId: number) =>
       ipcRenderer.invoke("omt:get-payments-by-transaction", transactionId),
@@ -257,6 +283,12 @@ contextBridge.exposeInMainWorld("api", {
       currency: "USD" | "LBP";
       sourceDrawer: string;
     }) => ipcRenderer.invoke("recharge:top-up-app", data),
+    updateMetadata: (data: {
+      id: number;
+      phone_number?: string;
+      client_name?: string;
+      note?: string;
+    }) => ipcRenderer.invoke("recharge:update-metadata", data),
   },
 
   // Suppliers
@@ -407,6 +439,8 @@ contextBridge.exposeInMainWorld("api", {
       update: (key: string, value: string) =>
         ipcRenderer.invoke("loto:settings:update", key, value),
     },
+    updateMetadata: (data: { id: number; note?: string }) =>
+      ipcRenderer.invoke("loto:update-metadata", data),
   },
 
   // Maintenance
@@ -415,56 +449,65 @@ contextBridge.exposeInMainWorld("api", {
     getJobs: (statusFilter?: string) =>
       ipcRenderer.invoke("maintenance:get-jobs", statusFilter),
     delete: (id: number) => ipcRenderer.invoke("maintenance:delete", id),
+    updateMetadata: (data: {
+      id: number;
+      client_name?: string;
+      device_name?: string;
+      issue_description?: string;
+      note?: string;
+    }) => ipcRenderer.invoke("maintenance:update-metadata", data),
   },
 
   // Closing
   closing: {
     getSystemExpectedBalancesDynamic: () =>
       ipcRenderer.invoke("closing:get-system-expected-balances-dynamic"),
-    hasOpeningBalanceToday: () =>
-      ipcRenderer.invoke("closing:has-opening-balance-today"),
     getCheckpointTimeline: (filters: {
       date?: string;
-      type?: "OPENING" | "CLOSING" | "ALL";
+      type?: "OPENING" | "CLOSING" | "CHECKPOINT" | "ALL";
       drawer_name?: string;
       user_id?: number;
     }) => ipcRenderer.invoke("closing:getCheckpointTimeline", filters),
-    createDailyClosing: (data: {
-      closing_date: string;
-      amounts: Array<{
-        drawer_name: string;
-        currency_code: string;
-        physical_amount: number;
-        opening_amount?: number;
-      }>;
-      user_id?: number;
-      variance_notes?: string;
-      report_path?: string;
-    }) => ipcRenderer.invoke("closing:create-daily-closing", data),
-    updateDailyClosing: (data: {
-      id: number;
-      physical_usd?: number;
-      physical_lbp?: number;
-      physical_eur?: number;
-      system_expected_usd?: number;
-      system_expected_lbp?: number;
-      variance_usd?: number;
-      notes?: string;
-      report_path?: string;
-      user_id?: number;
-    }) => ipcRenderer.invoke("closing:update-daily-closing", data),
     getDailyStatsSnapshot: () =>
       ipcRenderer.invoke("closing:get-daily-stats-snapshot"),
     recalculateDrawerBalances: () =>
       ipcRenderer.invoke("closing:recalculate-drawer-balances"),
-    setOpeningBalances: (data: {
-      closing_date: string;
+    // Unified checkpoint API
+    createCheckpoint: (data: {
+      user_id: number;
+      notes?: string;
+      report_path?: string;
       amounts: Array<{
         drawer_name: string;
         currency_code: string;
-        opening_amount: number;
+        expected_amount: number;
+        physical_amount: number;
       }>;
-    }) => ipcRenderer.invoke("closing:set-opening-balances", data),
+    }) => ipcRenderer.invoke("closing:create-checkpoint", data),
+    getLastCheckpointActuals: () =>
+      ipcRenderer.invoke("closing:get-last-checkpoint-actuals"),
+    hasOpeningBalanceToday: () =>
+      ipcRenderer.invoke("closing:has-opening-balance-today"),
+    updateDailyClosing: (data: any) =>
+      ipcRenderer.invoke("closing:update-daily-closing", data),
+  },
+
+  // Drawer Top-Up
+  drawerTopUp: {
+    create: (data: {
+      amount_usd: number;
+      amount_lbp: number;
+      notes?: string;
+    }) => ipcRenderer.invoke("drawer-topup:create", data),
+    createFromDrawer: (data: {
+      amount_usd: number;
+      amount_lbp: number;
+      source_drawer: string;
+      notes?: string;
+    }) => ipcRenderer.invoke("drawer-topup:create-from-drawer", data),
+    getSourceDrawers: () => ipcRenderer.invoke("drawer-topup:source-drawers"),
+    getHistory: (limit?: number) =>
+      ipcRenderer.invoke("drawer-topup:history", { limit }),
   },
 
   // Settings
@@ -703,6 +746,8 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("modules:setEnabled", key, enabled),
     bulkSetEnabled: (updates: { key: string; is_enabled: boolean }[]) =>
       ipcRenderer.invoke("modules:bulkSetEnabled", updates),
+    reorder: (orderedKeys: string[]) =>
+      ipcRenderer.invoke("modules:reorder", orderedKeys),
   },
 
   // Payment Methods
@@ -737,8 +782,10 @@ contextBridge.exposeInMainWorld("api", {
       customer_phone?: string;
       customer_notes?: string;
       started_by: string;
+      user_id?: number;
     }) => ipcRenderer.invoke("session:start", data),
     getActive: () => ipcRenderer.invoke("session:getActive"),
+    getActiveSessions: () => ipcRenderer.invoke("session:getActiveSessions"),
     get: (sessionId: number) =>
       ipcRenderer.invoke("session:getDetails", sessionId),
     update: (
@@ -751,8 +798,14 @@ contextBridge.exposeInMainWorld("api", {
     ) => ipcRenderer.invoke("session:update", sessionId, data),
     close: (sessionId: number, closedBy: string) =>
       ipcRenderer.invoke("session:close", sessionId, closedBy),
+    delete: (sessionId: number) =>
+      ipcRenderer.invoke("session:delete", sessionId),
     list: (limit: number, offset: number) =>
       ipcRenderer.invoke("session:list", limit, offset),
+    getTodaySessions: () => ipcRenderer.invoke("session:today"),
+    getTodayAllSessions: () => ipcRenderer.invoke("session:todayAll"),
+    getByDateRange: (from: string, to: string) =>
+      ipcRenderer.invoke("session:byDateRange", from, to),
     linkTransaction: (data: {
       transactionType: string;
       transactionId: number;
@@ -780,6 +833,33 @@ contextBridge.exposeInMainWorld("api", {
       clientName?: string;
       userId: number;
     }) => ipcRenderer.invoke("session:checkout", data),
+
+    // Cart persistence
+    cartAdd: (
+      sessionId: number,
+      item: {
+        item_id: string;
+        module: string;
+        label: string;
+        amount: number;
+        currency: string;
+        form_data: string;
+        ipc_channel: string;
+        user_id?: number;
+      },
+    ) => ipcRenderer.invoke("session:cart:add", sessionId, item),
+    cartGet: (sessionId: number) =>
+      ipcRenderer.invoke("session:cart:get", sessionId),
+    cartRemove: (sessionId: number, itemId: string) =>
+      ipcRenderer.invoke("session:cart:remove", sessionId, itemId),
+    cartClear: (sessionId: number) =>
+      ipcRenderer.invoke("session:cart:clear", sessionId),
+
+    // Aliases / additional bindings
+    getTransactions: (sessionId: number) =>
+      ipcRenderer.invoke("session:getDetails", sessionId),
+    getByCustomer: (data: { customerName: string; customerPhone?: string }) =>
+      ipcRenderer.invoke("session:getByCustomer", data),
   },
 
   // Item Costs
@@ -884,6 +964,13 @@ contextBridge.exposeInMainWorld("api", {
       note?: string;
     }) => ipcRenderer.invoke("custom-services:add", data),
     delete: (id: number) => ipcRenderer.invoke("custom-services:delete", id),
+    updateMetadata: (data: {
+      id: number;
+      description?: string;
+      client_name?: string;
+      phone_number?: string;
+      note?: string;
+    }) => ipcRenderer.invoke("custom-services:update-metadata", data),
   },
 
   // Setup Wizard

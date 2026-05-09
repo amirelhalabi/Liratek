@@ -33,6 +33,26 @@ export function useDrawerAmounts({ currencies }: UseDrawerAmountsProps) {
     setAmounts(init);
   }, [currencies]);
 
+  // Initialize amounts pre-filled with system expected balances
+  const initializeFromExpected = useCallback(
+    (expected: Record<string, Record<string, number>>) => {
+      const init: Record<DrawerType, DrawerBalances> = {} as Record<
+        DrawerType,
+        DrawerBalances
+      >;
+
+      DRAWER_ORDER.forEach((drawer) => {
+        init[drawer] = {};
+        currencies.forEach((currency) => {
+          init[drawer][currency.code] = expected[drawer]?.[currency.code] ?? 0;
+        });
+      });
+
+      setAmounts(init);
+    },
+    [currencies],
+  );
+
   // Update a specific amount
   const updateAmount = useCallback(
     (drawer: DrawerType, currencyCode: string, value: number) => {
@@ -82,12 +102,12 @@ export function useDrawerAmounts({ currencies }: UseDrawerAmountsProps) {
     };
   }, [amounts, currencies]);
 
-  // Check if any amounts have been entered
+  // Check if any amounts have been entered (non-zero)
   const hasAnyAmounts = useMemo(() => {
     return DRAWER_ORDER.some((drawer) =>
       currencies.some((currency) => {
         const value = amounts[drawer]?.[currency.code];
-        return value !== undefined && value > 0;
+        return value !== undefined && value !== 0;
       }),
     );
   }, [amounts, currencies]);
@@ -105,5 +125,6 @@ export function useDrawerAmounts({ currencies }: UseDrawerAmountsProps) {
     hasAnyAmounts,
     reset,
     initializeAmounts,
+    initializeFromExpected,
   };
 }

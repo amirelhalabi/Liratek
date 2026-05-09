@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { useApi, DataTable } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
+import { useDateRangeFilter } from "@/shared/hooks/useDateRangeFilter";
+import { DateRangeFilter } from "@/shared/components/DateRangeFilter";
 import {
   Calendar,
   RefreshCw,
@@ -10,6 +12,8 @@ import {
   TrendingUp,
   Package,
   Trash2,
+  Pencil,
+  Check,
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -30,6 +34,8 @@ interface LotoCheckpoint {
   note: string | null;
   created_at: string;
   updated_at: string;
+  is_refunded?: number;
+  refunded_at?: string | null;
 }
 
 interface CheckpointReportData {
@@ -50,6 +56,10 @@ export function CheckpointHistory({ onClose }: CheckpointHistoryProps) {
   useModalFocusFix(true);
   const api = useApi();
   const [checkpoints, setCheckpoints] = useState<LotoCheckpoint[]>([]);
+  const { filteredData, from, to, setFrom, setTo } = useDateRangeFilter(
+    checkpoints,
+    "checkpoint_date",
+  );
   const [selectedCheckpoint, setSelectedCheckpoint] =
     useState<LotoCheckpoint | null>(null);
   const [reportData, setReportData] = useState<CheckpointReportData | null>(
@@ -57,6 +67,34 @@ export function CheckpointHistory({ onClose }: CheckpointHistoryProps) {
   );
   const [loading, setLoading] = useState(true);
   const [reportLoading, setReportLoading] = useState(false);
+
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editNoteValue, setEditNoteValue] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
+
+  function startEdit(checkpoint: LotoCheckpoint) {
+    setEditingId(checkpoint.id);
+    setEditNoteValue(checkpoint.note ?? "");
+  }
+
+  async function handleSaveEdit() {
+    if (editingId === null) return;
+    setEditSaving(true);
+    try {
+      const result = await window.api.loto.updateMetadata({
+        id: editingId,
+        ...(editNoteValue !== undefined && { note: editNoteValue }),
+      });
+      if (result.success) {
+        setEditingId(null);
+        await loadCheckpoints();
+      } else {
+        alert(result.error ?? "Failed to save");
+      }
+    } finally {
+      setEditSaving(false);
+    }
+  }
 
   useEffect(() => {
     loadCheckpoints();
@@ -145,10 +183,16 @@ export function CheckpointHistory({ onClose }: CheckpointHistoryProps) {
               <Calendar className="text-slate-400" size={18} />
               Checkpoint History
               <span className="text-xs text-slate-500 font-normal ml-1">
-                ({checkpoints.length} records)
+                ({filteredData.length} records)
               </span>
             </h2>
             <div className="flex items-center gap-2">
+              <DateRangeFilter
+                from={from}
+                to={to}
+                onFromChange={setFrom}
+                onToChange={setTo}
+              />
               <button
                 onClick={onClose}
                 className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
@@ -247,7 +291,7 @@ export function CheckpointHistory({ onClose }: CheckpointHistoryProps) {
                     className: "px-4 py-3 text-center",
                   },
                 ]}
-                data={checkpoints}
+                data={filteredData}
                 exportExcel
                 exportPdf
                 exportFilename="loto-checkpoint-history"
@@ -255,74 +299,144 @@ export function CheckpointHistory({ onClose }: CheckpointHistoryProps) {
                 theadClassName="bg-slate-900/50 text-left text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0"
                 tbodyClassName="divide-y divide-slate-700/50"
                 emptyMessage="No checkpoints found."
-                renderRow={(checkpoint) => (
-                  <tr
-                    key={checkpoint.id}
-                    className="hover:bg-slate-700/20 transition-colors"
-                  >
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2 text-sm text-white font-medium">
-                        <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                        {format(
-                          new Date(checkpoint.checkpoint_date),
-                          "MMM dd, yyyy",
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="text-xs text-slate-400">
-                        {format(new Date(checkpoint.period_start), "MMM dd")} -{" "}
-                        {format(
-                          new Date(checkpoint.period_end),
-                          "MMM dd, yyyy",
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-right text-sm font-medium text-white font-mono">
-                      {checkpoint.total_tickets}
-                    </td>
-                    <td className="px-4 py-3 text-right text-sm font-bold text-red-400 font-mono">
-                      {checkpoint.total_sales.toLocaleString()}
-                    </td>
-                    <td className="px-4 py-3 text-right text-sm font-bold text-green-400 font-mono">
-                      {checkpoint.total_commission.toLocaleString()}
-                    </td>
-                    <td className="px-4 py-3 text-right text-sm font-bold text-white font-mono">
-                      {(checkpoint.total_cash_prizes || 0).toLocaleString()}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <span
-                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          checkpoint.is_settled
-                            ? "bg-green-900/60 text-green-300"
-                            : "bg-yellow-900/60 text-yellow-300"
-                        }`}
+                renderRow={(checkpoint) => {
+                  const isRefunded = Boolean(checkpoint.is_refunded);
+                  const isEditing = editingId === checkpoint.id;
+                  return (
+                    <>
+                      <tr
+                        key={checkpoint.id}
+                        className={`hover:bg-slate-700/20 transition-colors${isRefunded ? " opacity-50" : ""}`}
                       >
-                        {checkpoint.is_settled ? "Settled" : "Unsettled"}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <div className="flex items-center justify-center gap-1">
-                        <button
-                          onClick={() => handleViewReport(checkpoint)}
-                          className="p-1.5 text-slate-400 hover:text-blue-400 hover:bg-blue-400/10 rounded-lg transition-colors"
-                          title="View report"
-                        >
-                          <FileText size={16} />
-                        </button>
-                        {!checkpoint.is_settled && (
-                          <button
-                            onClick={() => handleDeleteCheckpoint(checkpoint)}
-                            className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-colors"
-                            title="Delete checkpoint"
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2 text-sm text-white font-medium">
+                            <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                            {format(
+                              new Date(checkpoint.checkpoint_date),
+                              "MMM dd, yyyy",
+                            )}
+                            {isRefunded && (
+                              <span className="ml-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                                Refunded
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="text-xs text-slate-400">
+                            {format(
+                              new Date(checkpoint.period_start),
+                              "MMM dd",
+                            )}{" "}
+                            -{" "}
+                            {format(
+                              new Date(checkpoint.period_end),
+                              "MMM dd, yyyy",
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-right text-sm font-medium text-white font-mono">
+                          {checkpoint.total_tickets}
+                        </td>
+                        <td className="px-4 py-3 text-right text-sm font-bold text-red-400 font-mono">
+                          {checkpoint.total_sales.toLocaleString()}
+                        </td>
+                        <td className="px-4 py-3 text-right text-sm font-bold text-green-400 font-mono">
+                          {checkpoint.total_commission.toLocaleString()}
+                        </td>
+                        <td className="px-4 py-3 text-right text-sm font-bold text-white font-mono">
+                          {(checkpoint.total_cash_prizes || 0).toLocaleString()}
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <span
+                            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                              checkpoint.is_settled
+                                ? "bg-green-900/60 text-green-300"
+                                : "bg-yellow-900/60 text-yellow-300"
+                            }`}
                           >
-                            <Trash2 size={16} />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                )}
+                            {checkpoint.is_settled ? "Settled" : "Unsettled"}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <div className="flex items-center justify-center gap-1">
+                            <button
+                              onClick={() => handleViewReport(checkpoint)}
+                              className="p-1.5 text-slate-400 hover:text-blue-400 hover:bg-blue-400/10 rounded-lg transition-colors"
+                              title="View report"
+                            >
+                              <FileText size={16} />
+                            </button>
+                            {isEditing ? (
+                              <>
+                                <button
+                                  onClick={handleSaveEdit}
+                                  disabled={editSaving}
+                                  className="p-1.5 text-emerald-400 hover:bg-emerald-400/10 rounded-lg transition-colors disabled:opacity-50"
+                                  title="Save"
+                                >
+                                  <Check size={15} />
+                                </button>
+                                <button
+                                  onClick={() => setEditingId(null)}
+                                  className="p-1.5 text-slate-400 hover:bg-slate-700 rounded-lg transition-colors"
+                                  title="Cancel"
+                                >
+                                  <X size={15} />
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                onClick={() => startEdit(checkpoint)}
+                                className="p-1.5 text-slate-500 hover:text-orange-400 hover:bg-orange-400/10 rounded-lg transition-colors"
+                                title="Edit note"
+                              >
+                                <Pencil size={14} />
+                              </button>
+                            )}
+                            {!checkpoint.is_settled && (
+                              <button
+                                onClick={() =>
+                                  handleDeleteCheckpoint(checkpoint)
+                                }
+                                className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-colors"
+                                title="Delete checkpoint"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                      {isEditing && (
+                        <tr className="bg-slate-800/60 border-b border-slate-700/50">
+                          <td colSpan={8} className="px-4 py-3">
+                            <div className="flex items-end gap-3">
+                              <div className="flex-1">
+                                <label className="text-xs text-slate-400 block mb-1">
+                                  Note
+                                </label>
+                                <input
+                                  autoFocus
+                                  value={editNoteValue}
+                                  onChange={(e) =>
+                                    setEditNoteValue(e.target.value)
+                                  }
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") handleSaveEdit();
+                                    if (e.key === "Escape") setEditingId(null);
+                                  }}
+                                  className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500"
+                                  placeholder="Add a note for this checkpoint..."
+                                />
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </>
+                  );
+                }}
               />
             )}
           </div>

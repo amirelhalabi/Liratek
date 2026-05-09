@@ -51,17 +51,18 @@ export interface DailyStatsSnapshot {
   totalProfitUSD: number;
 }
 
-export interface OpeningBalanceAmount {
+export interface CheckpointAmount {
   drawer_name: string;
   currency_code: string;
-  opening_amount: number;
+  expected_amount: number;
+  physical_amount: number;
 }
 
-export interface ClosingAmount {
-  drawer_name: string;
-  currency_code: string;
-  physical_amount: number;
-  opening_amount?: number;
+export interface CreateCheckpointData {
+  user_id: number;
+  notes?: string;
+  report_path?: string;
+  amounts: CheckpointAmount[];
 }
 
 export interface CheckpointCurrency {
@@ -75,7 +76,7 @@ export interface CheckpointRecord {
   id: number;
   closing_date: string;
   drawer_name: string;
-  checkpoint_type: "OPENING" | "CLOSING";
+  checkpoint_type: "OPENING" | "CLOSING" | "CHECKPOINT";
   created_at: string;
   created_by: number;
   user_name: string;
@@ -85,7 +86,7 @@ export interface CheckpointRecord {
 
 export interface CheckpointFilters {
   date?: string;
-  type?: "OPENING" | "CLOSING" | "ALL";
+  type?: "OPENING" | "CLOSING" | "CHECKPOINT" | "ALL";
   drawer_name?: string;
   user_id?: number;
 }
@@ -98,235 +99,6 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
   // Override getColumns() to use explicit columns instead of SELECT *
   protected getColumns(): string {
     return "id, closing_date, drawer_name, opening_balance_usd, opening_balance_lbp, physical_usd, physical_lbp, physical_eur, system_expected_usd, system_expected_lbp, variance_usd, notes";
-  }
-
-  /**
-   * Find existing closing record for a date
-   */
-  findByDate(closingDate: string): DailyClosingEntity | undefined {
-    return this.db
-      .prepare(
-        `SELECT id FROM daily_closings WHERE closing_date = ? AND drawer_name = 'AGGREGATED'`,
-      )
-      .get(closingDate) as DailyClosingEntity | undefined;
-  }
-
-  /**
-   * Set opening balances for a date
-   */
-  setOpeningBalances(
-    closingDate: string,
-    amounts: OpeningBalanceAmount[],
-    userId: number,
-  ): { success: boolean; id?: number | bigint; error?: string } {
-    try {
-      const exists = this.findByDate(closingDate);
-
-      const upsertAmounts = this.db.prepare(`
-        INSERT INTO daily_closing_amounts (closing_id, drawer_name, currency_code, opening_amount, physical_amount)
-        VALUES (?, ?, ?, ?, 0)
-        ON CONFLICT(closing_id, drawer_name, currency_code) DO UPDATE SET opening_amount=excluded.opening_amount
-      `);
-
-      if (exists && exists.id) {
-        const tx = this.db.transaction((rows: OpeningBalanceAmount[]) => {
-          for (const r of rows) {
-            upsertAmounts.run(
-              exists.id,
-              r.drawer_name,
-              r.currency_code,
-              r.opening_amount,
-            );
-          }
-        });
-        tx(amounts);
-
-        // Create unified transaction row for opening balances
-        getTransactionRepository().createTransaction({
-          type: TRANSACTION_TYPES.OPENING,
-          source_table: "daily_closings",
-          source_id: exists.id as number,
-          user_id: userId,
-          amount_usd: 0,
-          amount_lbp: 0,
-          summary: `Opening balances set for ${closingDate}`,
-          metadata_json: { opening: amounts },
-        });
-        return { success: true, id: exists.id };
-      } else {
-        const stmt = this.db.prepare(`
-          INSERT INTO daily_closings (
-            closing_date, drawer_name, opening_balance_usd, opening_balance_lbp, physical_eur, notes
-          ) VALUES (?, 'AGGREGATED', 0, 0, 0, 'Opening set')
-        `);
-        const res = stmt.run(closingDate);
-
-        const tx = this.db.transaction((rows: OpeningBalanceAmount[]) => {
-          for (const r of rows) {
-            upsertAmounts.run(
-              res.lastInsertRowid,
-              r.drawer_name,
-              r.currency_code,
-              r.opening_amount,
-            );
-          }
-        });
-        tx(amounts);
-
-        // Create unified transaction row for opening balances
-        getTransactionRepository().createTransaction({
-          type: TRANSACTION_TYPES.OPENING,
-          source_table: "daily_closings",
-          source_id: Number(res.lastInsertRowid),
-          user_id: userId,
-          amount_usd: 0,
-          amount_lbp: 0,
-          summary: `Opening balances set for ${closingDate}`,
-          metadata_json: { opening: amounts },
-        });
-
-        return { success: true, id: res.lastInsertRowid };
-      }
-    } catch (error) {
-      closingLogger.error(
-        { error, closingDate, amounts },
-        "Failed to set opening balances",
-      );
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
-  }
-
-  /**
-   * Create a daily closing record
-   */
-  createDailyClosing(
-    closingDate: string,
-    amounts: ClosingAmount[],
-    systemExpectedUsd: number,
-    systemExpectedLbp: number,
-    varianceNotes: string | undefined,
-    reportPath: string | undefined,
-    userId: number,
-  ): { success: boolean; id?: number | bigint; error?: string } {
-    try {
-      const stmt = this.db.prepare(`
-        INSERT INTO daily_closings (
-          closing_date, drawer_name, opening_balance_usd, opening_balance_lbp,
-          physical_usd, physical_lbp, physical_eur, system_expected_usd,
-          system_expected_lbp, variance_usd, notes, report_path
-        ) VALUES (?, 'AGGREGATED', 0, 0, 0, 0, 0, ?, ?, 0, ?, ?)
-      `);
-      const result = stmt.run(
-        closingDate,
-        systemExpectedUsd || 0,
-        systemExpectedLbp || 0,
-        varianceNotes || null,
-        reportPath || null,
-      );
-
-      const upsertAmounts = this.db.prepare(`
-        INSERT INTO daily_closing_amounts (closing_id, drawer_name, currency_code, opening_amount, physical_amount)
-        VALUES (?, ?, ?, COALESCE(?,0), COALESCE(?,0))
-        ON CONFLICT(closing_id, drawer_name, currency_code) DO UPDATE SET 
-          physical_amount=excluded.physical_amount, 
-          opening_amount=COALESCE(daily_closing_amounts.opening_amount, excluded.opening_amount)
-      `);
-
-      const tx = this.db.transaction((rows: ClosingAmount[]) => {
-        for (const r of rows) {
-          upsertAmounts.run(
-            result.lastInsertRowid,
-            r.drawer_name,
-            r.currency_code,
-            r.opening_amount,
-            r.physical_amount,
-          );
-        }
-      });
-      tx(amounts);
-
-      // Create unified transaction row for daily closing
-      getTransactionRepository().createTransaction({
-        type: TRANSACTION_TYPES.CLOSING,
-        source_table: "daily_closings",
-        source_id: Number(result.lastInsertRowid),
-        user_id: userId,
-        amount_usd: systemExpectedUsd || 0,
-        amount_lbp: systemExpectedLbp || 0,
-        summary: `Daily closing for ${closingDate}`,
-        metadata_json: { amounts },
-      });
-
-      closingLogger.info(
-        { closingDate, id: result.lastInsertRowid },
-        `Daily closing created for ${closingDate}`,
-      );
-      return { success: true, id: result.lastInsertRowid };
-    } catch (error) {
-      closingLogger.error(
-        { error, closingDate, amounts },
-        "Failed to create daily closing",
-      );
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
-  }
-
-  /**
-   * Update an existing daily closing
-   */
-  updateDailyClosing(
-    id: number,
-    data: Partial<DailyClosingEntity>,
-  ): { success: boolean; error?: string } {
-    try {
-      const current = this.db
-        .prepare(`SELECT ${this.getColumns()} FROM daily_closings WHERE id = ?`)
-        .get(id);
-      if (!current) return { success: false, error: "Not found" };
-
-      const stmt = this.db.prepare(`
-        UPDATE daily_closings SET
-          physical_usd = COALESCE(?, physical_usd),
-          physical_lbp = COALESCE(?, physical_lbp),
-          physical_eur = COALESCE(?, physical_eur),
-          system_expected_usd = COALESCE(?, system_expected_usd),
-          system_expected_lbp = COALESCE(?, system_expected_lbp),
-          variance_usd = COALESCE(?, variance_usd),
-          notes = COALESCE(?, notes),
-          report_path = COALESCE(?, report_path),
-          updated_by = ?,
-          updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `);
-      stmt.run(
-        data.physical_usd,
-        data.physical_lbp,
-        data.physical_eur,
-        data.system_expected_usd,
-        data.system_expected_lbp,
-        data.variance_usd,
-        data.notes,
-        data.report_path,
-        data.updated_by ?? null,
-        id,
-      );
-      return { success: true };
-    } catch (error) {
-      closingLogger.error(
-        { error, id, data },
-        "Failed to update daily closing",
-      );
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
   }
 
   /**
@@ -383,17 +155,108 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
   }
 
   /**
-   * Check if opening balance exists for a specific date
+   * Get the actual amounts from the most recent checkpoint.
+   * Returns Record<drawerName, Record<currencyCode, physicalAmount>>
+   * Used as baseline for the next checkpoint.
    */
-  hasOpeningBalanceForDate(date: string): boolean {
-    const sql = `
-      SELECT COUNT(*) as count 
-      FROM daily_closing_amounts ca
-      JOIN daily_closings dc ON dc.id = ca.closing_id
-      WHERE dc.closing_date = ? AND ca.opening_amount IS NOT NULL
-    `;
-    const result = this.db.prepare(sql).get(date) as { count: number };
-    return result.count > 0;
+  getLastCheckpointActuals(): Record<string, Record<string, number>> {
+    const lastCheckpoint = this.db
+      .prepare(`SELECT id FROM daily_closings ORDER BY created_at DESC LIMIT 1`)
+      .get() as { id: number } | undefined;
+
+    if (!lastCheckpoint) return {};
+
+    const amounts = this.db
+      .prepare(
+        `SELECT drawer_name, currency_code, physical_amount
+         FROM daily_closing_amounts
+         WHERE closing_id = ? AND physical_amount > 0`,
+      )
+      .all(lastCheckpoint.id) as {
+      drawer_name: string;
+      currency_code: string;
+      physical_amount: number;
+    }[];
+
+    const result: Record<string, Record<string, number>> = {};
+    for (const row of amounts) {
+      if (!result[row.drawer_name]) result[row.drawer_name] = {};
+      result[row.drawer_name][row.currency_code] = row.physical_amount;
+    }
+    return result;
+  }
+
+  /**
+   * Create a unified checkpoint record.
+   * Records both expected and actual (physical) amounts per drawer/currency.
+   */
+  createCheckpoint(data: CreateCheckpointData): {
+    success: boolean;
+    id?: number | bigint;
+    error?: string;
+  } {
+    try {
+      const closingDate = new Date().toISOString().split("T")[0];
+
+      const stmt = this.db.prepare(`
+        INSERT INTO daily_closings (
+          closing_date, drawer_name, opening_balance_usd, opening_balance_lbp,
+          physical_usd, physical_lbp, physical_eur, system_expected_usd,
+          system_expected_lbp, variance_usd, notes, report_path, created_by
+        ) VALUES (?, 'AGGREGATED', 0, 0, 0, 0, 0, 0, 0, 0, ?, ?, ?)
+      `);
+      const result = stmt.run(
+        closingDate,
+        data.notes || null,
+        data.report_path || null,
+        data.user_id,
+      );
+
+      const upsertAmounts = this.db.prepare(`
+        INSERT INTO daily_closing_amounts (closing_id, drawer_name, currency_code, opening_amount, physical_amount)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(closing_id, drawer_name, currency_code) DO UPDATE SET
+          opening_amount = excluded.opening_amount,
+          physical_amount = excluded.physical_amount
+      `);
+
+      const tx = this.db.transaction((rows: CheckpointAmount[]) => {
+        for (const r of rows) {
+          upsertAmounts.run(
+            result.lastInsertRowid,
+            r.drawer_name,
+            r.currency_code,
+            r.expected_amount,
+            r.physical_amount,
+          );
+        }
+      });
+      tx(data.amounts);
+
+      // Create unified transaction row
+      getTransactionRepository().createTransaction({
+        type: TRANSACTION_TYPES.CHECKPOINT,
+        source_table: "daily_closings",
+        source_id: Number(result.lastInsertRowid),
+        user_id: data.user_id,
+        amount_usd: 0,
+        amount_lbp: 0,
+        summary: `Checkpoint for ${closingDate}`,
+        metadata_json: { amounts: data.amounts },
+      });
+
+      closingLogger.info(
+        { closingDate, id: result.lastInsertRowid },
+        `Checkpoint created for ${closingDate}`,
+      );
+      return { success: true, id: result.lastInsertRowid };
+    } catch (error) {
+      closingLogger.error({ error, data }, "Failed to create checkpoint");
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   /**
@@ -515,6 +378,76 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
   }
 
   /**
+   * Check if there is at least one checkpoint record in daily_closings for today's date.
+   */
+  hasOpeningBalanceToday(): boolean {
+    const today = new Date().toISOString().split("T")[0];
+    const row = this.db
+      .prepare(`SELECT 1 FROM daily_closings WHERE closing_date = ? LIMIT 1`)
+      .get(today);
+    return row !== undefined;
+  }
+
+  /**
+   * Update an existing daily_closings record by id.
+   */
+  updateDailyClosing(data: {
+    id: number;
+    physical_usd?: number;
+    physical_lbp?: number;
+    physical_eur?: number;
+    system_expected_usd?: number;
+    system_expected_lbp?: number;
+    variance_usd?: number;
+    notes?: string;
+    report_path?: string;
+    user_id?: number;
+  }): { success: boolean; error?: string } {
+    try {
+      const stmt = this.db.prepare(`
+        UPDATE daily_closings SET
+          physical_usd          = COALESCE(?, physical_usd),
+          physical_lbp          = COALESCE(?, physical_lbp),
+          physical_eur          = COALESCE(?, physical_eur),
+          system_expected_usd   = COALESCE(?, system_expected_usd),
+          system_expected_lbp   = COALESCE(?, system_expected_lbp),
+          variance_usd          = COALESCE(?, variance_usd),
+          notes                 = COALESCE(?, notes),
+          report_path           = COALESCE(?, report_path),
+          updated_by            = COALESCE(?, updated_by),
+          updated_at            = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `);
+
+      const result = stmt.run(
+        data.physical_usd ?? null,
+        data.physical_lbp ?? null,
+        data.physical_eur ?? null,
+        data.system_expected_usd ?? null,
+        data.system_expected_lbp ?? null,
+        data.variance_usd ?? null,
+        data.notes ?? null,
+        data.report_path ?? null,
+        data.user_id ?? null,
+        data.id,
+      );
+
+      if (result.changes === 0) {
+        return { success: false, error: `No record found with id ${data.id}` };
+      }
+
+      closingLogger.info({ id: data.id }, "Daily closing updated");
+      return { success: true };
+    } catch (error) {
+      closingLogger.error({ error, data }, "Failed to update daily closing");
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
    * Get checkpoint timeline for a date
    */
   getCheckpointTimeline(filters: CheckpointFilters = {}): CheckpointRecord[] {
@@ -537,7 +470,8 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
         CASE 
           WHEN t.type = 'OPENING' THEN 'OPENING'
           WHEN t.type = 'CLOSING' THEN 'CLOSING'
-          ELSE 'UNKNOWN'
+          WHEN t.type = 'CHECKPOINT' THEN 'CHECKPOINT'
+          ELSE 'CHECKPOINT'
         END as checkpoint_type
       FROM daily_closings dc
       LEFT JOIN users u ON u.id = dc.created_by

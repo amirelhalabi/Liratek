@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import logger from "@/utils/logger";
 import { X, User, Printer, Inbox, Pencil, Minus } from "lucide-react";
-import { roundLBPUp, useApi, appEvents } from "@liratek/ui";
+import { NumInput, roundLBPUp, useApi, appEvents } from "@liratek/ui";
 import { useDynamicExchangeRate } from "@/hooks/useDynamicExchangeRate";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useShopInfo } from "@/hooks/useShopName";
@@ -103,6 +103,85 @@ const printReceiptContent = async (content: string, targetPrinter?: string) => {
   }
 };
 
+/** Extracted component to avoid IIFE remount issues with NumInput state */
+type PaymentCurrencyCode = "USD" | "LBP";
+type PaymentLine = {
+  id: string;
+  method: string;
+  currency_code: PaymentCurrencyCode;
+  amount: number;
+};
+
+function SimplePaymentFields({
+  singleMethod,
+  paymentLines,
+  setPaymentLines,
+  paidUSD,
+  paidLBP,
+}: {
+  singleMethod: { code: string; label: string };
+  paymentLines: PaymentLine[];
+  setPaymentLines: React.Dispatch<React.SetStateAction<PaymentLine[]>>;
+  paidUSD: number;
+  paidLBP: number;
+}) {
+  const usdLine = paymentLines.find((l) => l.currency_code === "USD");
+  const lbpLine = paymentLines.find((l) => l.currency_code === "LBP");
+
+  const updateSimpleLine = (currency: "USD" | "LBP", val: number) => {
+    setPaymentLines((prev) => {
+      const existing = prev.find((l) => l.currency_code === currency);
+      const other = prev.filter((l) => l.currency_code !== currency);
+      const updated = {
+        id: existing?.id ?? crypto.randomUUID(),
+        method: singleMethod.code,
+        currency_code: currency,
+        amount: val,
+      };
+      return [...other, updated];
+    });
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="text-sm font-medium text-slate-400 uppercase tracking-wider">
+        {singleMethod.label}
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <div className="flex items-center bg-slate-900 border border-slate-700 rounded-xl p-1 focus-within:ring-2 focus-within:ring-violet-600 transition-all h-[52px]">
+            <span className="pl-3 text-slate-400 text-sm shrink-0">$</span>
+            <NumInput
+              value={usdLine?.amount || 0}
+              onChange={(v) => updateSimpleLine("USD", v)}
+              className="bg-transparent border-none text-white w-full px-3 focus:outline-none font-mono"
+              placeholder="0.00"
+            />
+          </div>
+        </div>
+        <div>
+          <div className="flex items-center bg-slate-900 border border-slate-700 rounded-xl p-1 focus-within:ring-2 focus-within:ring-violet-600 transition-all h-[52px]">
+            <NumInput
+              value={lbpLine?.amount || 0}
+              onChange={(v) => updateSimpleLine("LBP", v)}
+              className="bg-transparent border-none text-white w-full px-4 focus:outline-none font-mono"
+              placeholder="0"
+            />
+            <span className="pr-3 text-slate-400 text-xs shrink-0">LBP</span>
+          </div>
+        </div>
+      </div>
+      <div className="text-xs text-slate-500 text-right">
+        Paid:{" "}
+        <span className="font-mono text-slate-300">
+          ${paidUSD.toFixed(2)} USD
+          {paidLBP > 0 && ` + ${paidLBP.toLocaleString()} LBP`}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 export default function CheckoutModal({
   items,
   totalAmount,
@@ -127,14 +206,6 @@ export default function CheckoutModal({
 
   // Payment State
   const [discount, setDiscount] = useState(0);
-
-  type PaymentCurrencyCode = "USD" | "LBP";
-  type PaymentLine = {
-    id: string;
-    method: string;
-    currency_code: PaymentCurrencyCode;
-    amount: number;
-  };
 
   const { allMethods: paymentMethodOptions } = usePaymentMethods();
   const shopInfo = useShopInfo();
@@ -315,6 +386,8 @@ export default function CheckoutModal({
   // LIRA-017: Auto-fill payment amount when modal opens (if no draft and amount is 0)
   useEffect(() => {
     if (draftData) return;
+    // Respect the POS autofill payment setting
+    if (localStorage.getItem("pos_autofill_payment") === "false") return;
     const hasNonZeroPayment = paymentLines.some((l) => l.amount > 0);
     if (hasNonZeroPayment) return;
 
@@ -749,12 +822,9 @@ export default function CheckoutModal({
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">
                       $
                     </span>
-                    <input
-                      type="number"
-                      value={discount || ""}
-                      onChange={(e) =>
-                        setDiscount(parseFloat(e.target.value) || 0)
-                      }
+                    <NumInput
+                      value={discount}
+                      onChange={(v) => setDiscount(v)}
                       className="w-full bg-slate-800 border border-slate-700 rounded-xl pl-7 pr-3 py-2 text-white font-mono focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500/30 text-right"
                       placeholder="0"
                     />
@@ -784,10 +854,11 @@ export default function CheckoutModal({
               <div className="flex items-center gap-4">
                 <div className="flex items-center gap-2">
                   <label className="text-xs text-slate-500">1 USD =</label>
-                  <input
-                    type="number"
-                    value={customExchangeRate}
-                    onChange={(e) => setCustomExchangeRate(e.target.value)}
+                  <NumInput
+                    value={parseFloat(customExchangeRate) || 0}
+                    onChange={(v) =>
+                      setCustomExchangeRate(v ? v.toString() : "")
+                    }
                     className="w-28 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1 text-white font-mono text-xs focus:outline-none focus:border-violet-500"
                     placeholder={exchangeRate.toString()}
                   />
@@ -834,94 +905,13 @@ export default function CheckoutModal({
                   Multiple PMs: full payment-lines UI with + Add line              */}
               {paymentMethodOptions.length === 1 ? (
                 /* ── Simple mode: two independent currency fields ─────────────── */
-                (() => {
-                  const singleMethod = paymentMethodOptions[0];
-                  // Find or create persistent line IDs for USD and LBP
-                  const usdLine = paymentLines.find(
-                    (l) => l.currency_code === "USD",
-                  );
-                  const lbpLine = paymentLines.find(
-                    (l) => l.currency_code === "LBP",
-                  );
-                  const updateSimpleLine = (
-                    currency: "USD" | "LBP",
-                    val: number,
-                  ) => {
-                    setPaymentLines((prev) => {
-                      const existing = prev.find(
-                        (l) => l.currency_code === currency,
-                      );
-                      const other = prev.filter(
-                        (l) => l.currency_code !== currency,
-                      );
-                      const updated = {
-                        id: existing?.id ?? crypto.randomUUID(),
-                        method: singleMethod.code,
-                        currency_code: currency,
-                        amount: val,
-                      };
-                      // Keep both lines; filter out zero-amount lines only on submit
-                      return [...other, updated];
-                    });
-                  };
-                  return (
-                    <div className="space-y-3">
-                      <div className="text-sm font-medium text-slate-400 uppercase tracking-wider">
-                        {singleMethod.label}
-                      </div>
-                      <div className="grid grid-cols-2 gap-2">
-                        {/* USD */}
-                        <div>
-                          <div className="flex items-center bg-slate-900 border border-slate-700 rounded-xl p-1 focus-within:ring-2 focus-within:ring-violet-600 transition-all h-[52px]">
-                            <span className="pl-3 text-slate-400 text-sm shrink-0">
-                              $
-                            </span>
-                            <input
-                              type="number"
-                              value={usdLine?.amount || ""}
-                              onChange={(e) =>
-                                updateSimpleLine(
-                                  "USD",
-                                  parseFloat(e.target.value) || 0,
-                                )
-                              }
-                              className="bg-transparent border-none text-white w-full px-3 focus:outline-none font-mono"
-                              placeholder="0.00"
-                              step="0.01"
-                            />
-                          </div>
-                        </div>
-                        {/* LBP */}
-                        <div>
-                          <div className="flex items-center bg-slate-900 border border-slate-700 rounded-xl p-1 focus-within:ring-2 focus-within:ring-violet-600 transition-all h-[52px]">
-                            <input
-                              type="number"
-                              value={lbpLine?.amount || ""}
-                              onChange={(e) =>
-                                updateSimpleLine(
-                                  "LBP",
-                                  parseFloat(e.target.value) || 0,
-                                )
-                              }
-                              className="bg-transparent border-none text-white w-full px-4 focus:outline-none font-mono"
-                              placeholder="0"
-                            />
-                            <span className="pr-3 text-slate-400 text-xs shrink-0">
-                              LBP
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="text-xs text-slate-500 text-right">
-                        Paid:{" "}
-                        <span className="font-mono text-slate-300">
-                          ${paidUSD.toFixed(2)} USD
-                          {paidLBP > 0 && ` + ${paidLBP.toLocaleString()} LBP`}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })()
+                <SimplePaymentFields
+                  singleMethod={paymentMethodOptions[0]}
+                  paymentLines={paymentLines}
+                  setPaymentLines={setPaymentLines}
+                  paidUSD={paidUSD}
+                  paidLBP={paidLBP}
+                />
               ) : (
                 /* ── Multi-line mode ──────────────────────────────────────────── */
                 <div className="bg-slate-900/40 border border-slate-700/50 rounded-xl p-4">
@@ -1002,19 +992,13 @@ export default function CheckoutModal({
                             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs">
                               {line.currency_code === "USD" ? "$" : "LBP"}
                             </span>
-                            <input
-                              type="number"
-                              value={line.amount || ""}
-                              onChange={(e) =>
+                            <NumInput
+                              key={`line-${line.id}`}
+                              value={line.amount}
+                              onChange={(v) =>
                                 setPaymentLines((prev) =>
                                   prev.map((p, i) =>
-                                    i === idx
-                                      ? {
-                                          ...p,
-                                          amount:
-                                            parseFloat(e.target.value) || 0,
-                                        }
-                                      : p,
+                                    i === idx ? { ...p, amount: v } : p,
                                   ),
                                 )
                               }
@@ -1130,14 +1114,23 @@ export default function CheckoutModal({
                             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">
                               $
                             </span>
-                            <input
-                              type="number"
-                              value={changeGivenUSD || ""}
-                              onChange={(e) =>
-                                setChangeGivenUSD(
-                                  parseFloat(e.target.value) || 0,
-                                )
-                              }
+                            <NumInput
+                              value={changeGivenUSD}
+                              onChange={(v) => {
+                                setChangeGivenUSD(v);
+                                // Auto-fill LBP with remaining change due
+                                const remainingChangeUSD = change - v;
+                                if (remainingChangeUSD > 0) {
+                                  setChangeGivenLBP(
+                                    roundLBPUp(
+                                      remainingChangeUSD *
+                                        effectiveExchangeRate,
+                                    ),
+                                  );
+                                } else {
+                                  setChangeGivenLBP(0);
+                                }
+                              }}
                               className="w-full bg-slate-900 border border-slate-600 rounded-lg pl-8 pr-3 py-2 text-white focus:outline-none focus:border-violet-500"
                               placeholder="USD"
                             />
@@ -1148,14 +1141,9 @@ export default function CheckoutModal({
                             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs">
                               LBP
                             </span>
-                            <input
-                              type="number"
-                              value={changeGivenLBP || ""}
-                              onChange={(e) =>
-                                setChangeGivenLBP(
-                                  parseFloat(e.target.value) || 0,
-                                )
-                              }
+                            <NumInput
+                              value={changeGivenLBP}
+                              onChange={(v) => setChangeGivenLBP(v)}
                               className="w-full bg-slate-900 border border-slate-600 rounded-lg pl-3 pr-10 py-2 text-white focus:outline-none focus:border-violet-500"
                               placeholder="LBP"
                             />

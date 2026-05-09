@@ -575,12 +575,14 @@ export async function getOMTHistory(provider?: string) {
   return res.history;
 }
 
-export async function getOMTAnalytics() {
+export async function getOMTAnalytics(providers?: string[]) {
   if (isElectron()) {
-    return (window as any).api.omt.getAnalytics();
+    return (window as any).api.omt.getAnalytics(providers);
   }
+  const qs = new URLSearchParams();
+  if (providers) qs.set("providers", providers.join(","));
   const res = await requestJson<{ success: boolean; analytics: any }>(
-    `/api/services/analytics`,
+    `/api/services/analytics?${qs.toString()}`,
   );
   return res.analytics;
 }
@@ -710,44 +712,6 @@ export async function getCheckpointTimeline(filters?: {
   return requestJson<{ success: boolean; checkpoints?: any[]; error?: string }>(
     "/api/closing/checkpoint-timeline",
     { method: "POST", body: filters },
-  );
-}
-
-export async function setOpeningBalances(data: {
-  closing_date: string;
-  amounts: any[];
-  user_id?: number;
-}) {
-  if (isElectron()) {
-    return (window as any).api.closing.setOpeningBalances(data);
-  }
-  return requestJson<{ success: boolean; error?: string }>(
-    "/api/closing/opening-balances",
-    {
-      method: "POST",
-      body: data,
-    },
-  );
-}
-
-export async function createDailyClosing(data: {
-  closing_date: string;
-  amounts: any[];
-  variance_notes?: string;
-  report_path?: string;
-  system_expected_usd?: number;
-  system_expected_lbp?: number;
-  user_id?: number;
-}) {
-  if (isElectron()) {
-    return (window as any).api.closing.createDailyClosing(data);
-  }
-  return requestJson<{ success: boolean; id?: number; error?: string }>(
-    "/api/closing/daily-closing",
-    {
-      method: "POST",
-      body: data,
-    },
   );
 }
 
@@ -1454,6 +1418,20 @@ export async function setModuleEnabled(key: string, enabled: boolean) {
   );
 }
 
+export async function reorderModules(orderedKeys: string[]) {
+  return ipcOrHttp(
+    async () => getElectronApi().modules.reorder(orderedKeys),
+    async () =>
+      requestJson<{ success: boolean; error?: string }>(
+        `/api/modules/reorder`,
+        {
+          method: "POST",
+          body: { orderedKeys },
+        },
+      ),
+  );
+}
+
 // ==================== Payment Method API ====================
 
 export type PaymentMethodEntity = {
@@ -1841,6 +1819,8 @@ export async function linkTransactionToSession(data: {
   transactionId: number;
   amountUsd: number;
   amountLbp: number;
+  profitUsd?: number;
+  profitLbp?: number;
 }) {
   return ipcOrHttp(
     async () => {

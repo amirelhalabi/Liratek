@@ -8,7 +8,7 @@
  * payment methods — not just DEBT.
  */
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import {
   Briefcase,
   Plus,
@@ -20,14 +20,15 @@ import {
   X,
   RefreshCw,
   UserPlus,
+  Package,
 } from "lucide-react";
-import { PageHeader, Select, useApi } from "@liratek/ui";
+import { PageHeader, useApi } from "@liratek/ui";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { useSessionAutoFill } from "@/features/sessions/hooks/useSessionAutoFill";
 import { useCustomServices } from "../../hooks/useCustomServices";
 import logger from "@/utils/logger";
-import { MultiPaymentInput, type PaymentLine } from "@liratek/ui";
+import { MultiPaymentInput, type PaymentLine, SearchBar } from "@liratek/ui";
 import { HistoryModal } from "./components/HistoryModal";
 import { StatsCards } from "../../components/StatsCards";
 import { getExchangeRates } from "@/utils/exchangeRates";
@@ -35,6 +36,14 @@ import { getExchangeRates } from "@/utils/exchangeRates";
 // =============================================================================
 // Helper
 // =============================================================================
+
+interface ProductSearchResult {
+  id: number;
+  name: string;
+  cost_price: number;
+  retail_price: number;
+  barcode: string;
+}
 
 function formatCurrency(usd: number, lbp: number): string {
   const parts: string[] = [];
@@ -50,11 +59,7 @@ function formatCurrency(usd: number, lbp: number): string {
 export default function CustomServices() {
   const api = useApi();
   const { methods } = usePaymentMethods();
-  const {
-    activeSession,
-    linkTransaction,
-    addToCart: addToSessionCart,
-  } = useSession();
+  const { activeSession, addToCart: addToSessionCart } = useSession();
   const {
     history,
     summary,
@@ -68,13 +73,18 @@ export default function CustomServices() {
   const [costLbp, setCostLbp] = useState("");
   const [priceUsd, setPriceUsd] = useState("");
   const [priceLbp, setPriceLbp] = useState("");
-  const [paidBy, setPaidBy] = useState("CASH");
   const [note, setNote] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // ─── Multi-payment support ───
-  const [useMultiPayment, setUseMultiPayment] = useState(false);
+  // ─── Payment lines (always multi-payment) ───
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
+
+  // ─── Item Selector ───
+  const [selectedProduct, setSelectedProduct] = useState<{
+    id: number;
+    name: string;
+  } | null>(null);
+  const productSearchRef = useRef<HTMLDivElement>(null);
 
   // ─── History Modal ───
   const [showHistoryModal, setShowHistoryModal] = useState(false);
@@ -102,6 +112,11 @@ export default function CustomServices() {
     };
     loadRate();
   }, [api]);
+
+  // ─── Product Search ───
+  const clearProduct = () => {
+    setSelectedProduct(null);
+  };
 
   // Populate client name/phone from session, clear when session closes
   useSessionAutoFill([
@@ -166,7 +181,8 @@ export default function CustomServices() {
       alert("Please enter a cost or price.");
       return;
     }
-    if (paidBy === "DEBT" && !clientId) {
+    const hasDebtLine = paymentLines.some((l) => l.method === "DEBT");
+    if (hasDebtLine && !clientId) {
       alert("Please select a client for debt payment.");
       return;
     }
@@ -201,13 +217,18 @@ export default function CustomServices() {
         }
       }
 
+      // Derive paid_by from first payment line for backend compatibility
+      const primaryMethod =
+        paymentLines.length > 0 ? paymentLines[0].method : "CASH";
+
       const payload: Parameters<typeof api.addCustomService>[0] = {
         description: description.trim(),
         cost_usd: costUsdVal,
         cost_lbp: costLbpVal,
         price_usd: priceUsdVal,
         price_lbp: priceLbpVal,
-        ...(useMultiPayment && paymentLines.length > 0
+        paid_by: primaryMethod,
+        ...(paymentLines.length > 0
           ? {
               payments: paymentLines.map((p) => ({
                 method: p.method,
@@ -215,7 +236,7 @@ export default function CustomServices() {
                 amount: p.amount,
               })),
             }
-          : { paid_by: paidBy }),
+          : {}),
       };
       if (finalClientId) payload.client_id = finalClientId;
       if (clientName.trim()) payload.client_name = clientName.trim();
@@ -248,8 +269,8 @@ export default function CustomServices() {
         setPriceUsd("");
         setPriceLbp("");
         setNote("");
-        setUseMultiPayment(false);
         setPaymentLines([]);
+        clearProduct();
         clearClient();
         setIsSubmitting(false);
         return;
@@ -258,19 +279,6 @@ export default function CustomServices() {
       const result = await api.addCustomService(payload);
 
       if (result.success) {
-        // Link to session if active
-        if (activeSession && result.id) {
-          try {
-            await linkTransaction({
-              transactionType: "custom_service",
-              transactionId: result.id,
-              amountUsd: priceUsdVal || costUsdVal,
-              amountLbp: priceLbpVal || costLbpVal,
-            });
-          } catch (err) {
-            logger.error("Failed to link to session:", err);
-          }
-        }
         // Reset form
         setDescription("");
         setCostUsd("");
@@ -278,8 +286,8 @@ export default function CustomServices() {
         setPriceUsd("");
         setPriceLbp("");
         setNote("");
-        setUseMultiPayment(false);
         setPaymentLines([]);
+        clearProduct();
         clearClient();
         reload();
       } else {
@@ -346,23 +354,106 @@ export default function CustomServices() {
           </h2>
 
           <div className="space-y-4">
-            {/* Description */}
+            {/* Search Bar / Item Selector — replaces description field */}
             <div>
-              <label
-                htmlFor="svc-description"
-                className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
-              >
-                Description *
+              <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
+                <Package size={12} className="inline mr-1" />
+                Search Item or Service *
               </label>
-              <input
-                id="svc-description"
-                type="text"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-white focus:border-teal-500 focus:ring-2 focus:ring-teal-500/50 outline-none transition-all"
-                placeholder="e.g., Phone screen repair, SIM activation"
-                maxLength={500}
-              />
+              {selectedProduct ? (
+                /* Product selected — show selection chip */
+                <div className="flex items-center gap-2 bg-teal-500/10 border border-teal-500/30 rounded-lg px-4 py-2.5">
+                  <Package size={14} className="text-teal-400" />
+                  <span className="text-white font-medium text-sm flex-1">
+                    {selectedProduct.name}
+                  </span>
+                  <button
+                    onClick={() => {
+                      clearProduct();
+                      setDescription("");
+                      setCostUsd("");
+                      setPriceUsd("");
+                    }}
+                    className="text-slate-400 hover:text-white transition-colors"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ) : !description ? (
+                /* No selection yet — show SearchBar */
+                <div ref={productSearchRef}>
+                  <SearchBar<ProductSearchResult>
+                    placeholder="Search inventory by name or barcode..."
+                    onSearch={async (query) => {
+                      const results =
+                        await window.api.inventory.getProducts(query);
+                      return results.slice(0, 8).map((p: any) => ({
+                        id: p.id as number,
+                        name: p.name as string,
+                        cost_price: (p.cost_price ??
+                          p.cost_price_usd ??
+                          0) as number,
+                        retail_price: (p.retail_price ??
+                          p.selling_price_usd ??
+                          0) as number,
+                        barcode: (p.barcode ?? "") as string,
+                      }));
+                    }}
+                    onSelect={(product) => {
+                      setSelectedProduct({
+                        id: product.id,
+                        name: product.name,
+                      });
+                      setDescription(product.name);
+                      setCostUsd(
+                        product.cost_price > 0
+                          ? String(product.cost_price)
+                          : "",
+                      );
+                      setPriceUsd(
+                        product.retail_price > 0
+                          ? String(product.retail_price)
+                          : "",
+                      );
+                    }}
+                    onFreeText={(text) => {
+                      setDescription(text);
+                    }}
+                    renderItem={(item) => (
+                      <div className="flex items-center justify-between w-full">
+                        <span className="font-medium">{item.name}</span>
+                        <span className="text-slate-400 text-xs">
+                          Cost: ${item.cost_price.toFixed(2)} | Price: $
+                          {item.retail_price.toFixed(2)}
+                        </span>
+                      </div>
+                    )}
+                    getKey={(item) => item.id}
+                    ringColor="ring-teal-500/50"
+                    noResultsMessage="No items found. Press Enter to use as description."
+                  />
+                </div>
+              ) : (
+                /* Free text description entered (no product match) */
+                <div className="relative">
+                  <input
+                    id="svc-description"
+                    type="text"
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-white focus:border-teal-500 focus:ring-2 focus:ring-teal-500/50 outline-none transition-all"
+                    placeholder="e.g., Phone screen repair, SIM activation"
+                    maxLength={500}
+                  />
+                  <button
+                    onClick={() => setDescription("")}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+                    type="button"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Cost & Price — Dual Currency */}
@@ -486,52 +577,29 @@ export default function CustomServices() {
 
             {/* Payment Method */}
             <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider">
-                  Payment Method
-                </label>
-                <button
-                  type="button"
-                  onClick={() => setUseMultiPayment(!useMultiPayment)}
-                  className="text-xs px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
-                >
-                  {useMultiPayment ? "Single Payment" : "Split Payment"}
-                </button>
-              </div>
-
-              {!useMultiPayment ? (
-                <Select
-                  value={paidBy}
-                  onChange={(value) => setPaidBy(value)}
-                  options={methods.map((m) => ({
-                    value: m.code,
-                    label: m.label,
-                  }))}
-                  ringColor="ring-teal-500"
-                  buttonClassName="py-2.5 text-sm font-bold rounded-lg"
-                />
-              ) : (
-                <MultiPaymentInput
-                  totalAmount={priceUsdVal || costUsdVal}
-                  currency="USD"
-                  onChange={setPaymentLines}
-                  requiresClientForDebt={true}
-                  hasClient={!!clientId || !!clientName}
-                  paymentMethods={methods}
-                  currencies={[
-                    { code: "USD", symbol: "$" },
-                    { code: "LBP", symbol: "LBP" },
-                  ]}
-                  exchangeRate={exchangeRate}
-                />
-              )}
+              <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">
+                Payment Method
+              </label>
+              <MultiPaymentInput
+                totalAmount={priceUsdVal || costUsdVal}
+                currency="USD"
+                onChange={setPaymentLines}
+                requiresClientForDebt={true}
+                hasClient={!!clientId || !!clientName}
+                paymentMethods={methods}
+                currencies={[
+                  { code: "USD", symbol: "$" },
+                  { code: "LBP", symbol: "LBP" },
+                ]}
+                exchangeRate={exchangeRate}
+              />
             </div>
 
             {/* Customer Details — available for ALL payment methods */}
             <div className="p-4 rounded-xl bg-slate-900/50 border border-slate-700/50 space-y-3">
               <span className="block text-xs font-medium text-slate-400 uppercase tracking-wider flex items-center gap-1">
                 <User size={12} /> Customer Details
-                {paidBy === "DEBT" && (
+                {paymentLines.some((l) => l.method === "DEBT") && (
                   <span className="text-red-400 ml-1">(required for DEBT)</span>
                 )}
               </span>

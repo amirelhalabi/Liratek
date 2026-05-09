@@ -1,9 +1,8 @@
 import {
   ClosingRepository,
-  OpeningBalanceAmount,
-  ClosingAmount,
   DynamicSystemExpectedBalances,
   DailyStatsSnapshot,
+  CreateCheckpointData,
   getClosingRepository,
 } from "../repositories/ClosingRepository.js";
 import { closingLogger } from "../utils/logger.js";
@@ -13,89 +12,11 @@ export interface ClosingResult {
   error?: string;
 }
 
-export interface SetOpeningBalancesData {
-  closing_date: string;
-  user_id: number;
-  amounts: OpeningBalanceAmount[];
-}
-
-export interface CreateClosingData {
-  closing_date: string;
-  user_id: number;
-  variance_notes?: string;
-  report_path?: string;
-  system_expected_usd?: number;
-  system_expected_lbp?: number;
-  amounts: ClosingAmount[];
-}
-
-export interface UpdateClosingData {
-  id: number;
-  physical_usd?: number;
-  physical_lbp?: number;
-  physical_eur?: number;
-  system_expected_usd?: number;
-  system_expected_lbp?: number;
-  variance_usd?: number;
-  notes?: string;
-  report_path?: string;
-  user_id: number;
-}
-
 export class ClosingService {
   private repo: ClosingRepository;
 
   constructor(repo?: ClosingRepository) {
     this.repo = repo ?? getClosingRepository();
-  }
-
-  /**
-   * Set opening balances for a date
-   */
-  setOpeningBalances(data: SetOpeningBalancesData): ClosingResult {
-    return this.repo.setOpeningBalances(
-      data.closing_date,
-      data.amounts,
-      data.user_id!,
-    );
-  }
-
-  /**
-   * Create a daily closing record
-   */
-  createDailyClosing(data: CreateClosingData): ClosingResult {
-    return this.repo.createDailyClosing(
-      data.closing_date,
-      data.amounts,
-      data.system_expected_usd || 0,
-      data.system_expected_lbp || 0,
-      data.variance_notes,
-      data.report_path,
-      data.user_id,
-    );
-  }
-
-  /**
-   * Update an existing daily closing
-   */
-  updateDailyClosing(data: UpdateClosingData): ClosingResult {
-    const patch: any = {
-      ...(data.physical_usd != null ? { physical_usd: data.physical_usd } : {}),
-      ...(data.physical_lbp != null ? { physical_lbp: data.physical_lbp } : {}),
-      ...(data.physical_eur != null ? { physical_eur: data.physical_eur } : {}),
-      ...(data.system_expected_usd != null
-        ? { system_expected_usd: data.system_expected_usd }
-        : {}),
-      ...(data.system_expected_lbp != null
-        ? { system_expected_lbp: data.system_expected_lbp }
-        : {}),
-      ...(data.variance_usd != null ? { variance_usd: data.variance_usd } : {}),
-      ...(data.notes != null ? { notes: data.notes } : {}),
-      ...(data.report_path != null ? { report_path: data.report_path } : {}),
-      ...(data.user_id != null ? { updated_by: data.user_id } : {}),
-    };
-
-    return this.repo.updateDailyClosing(data.id, patch);
   }
 
   /**
@@ -114,14 +35,6 @@ export class ClosingService {
         error: error instanceof Error ? error.message : String(error),
       };
     }
-  }
-
-  /**
-   * Check if opening balance has been set for today
-   */
-  hasOpeningBalanceToday(): boolean {
-    const today = new Date().toISOString().split("T")[0];
-    return this.repo.hasOpeningBalanceForDate(today);
   }
 
   /**
@@ -180,6 +93,151 @@ export class ClosingService {
       closingLogger.error(
         { error, filters },
         "ClosingService.getCheckpointTimeline error",
+      );
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * Get the actual amounts from the most recent checkpoint (baseline for next checkpoint).
+   * Returns Record<drawerName, Record<currencyCode, amount>>
+   */
+  getLastCheckpointActuals(): Record<string, Record<string, number>> {
+    try {
+      return this.repo.getLastCheckpointActuals();
+    } catch (error) {
+      closingLogger.error(
+        { error },
+        "ClosingService.getLastCheckpointActuals error",
+      );
+      return {};
+    }
+  }
+
+  /**
+   * Check if there is at least one checkpoint record for today's date.
+   */
+  hasOpeningBalanceToday(): boolean {
+    try {
+      return this.repo.hasOpeningBalanceToday();
+    } catch (error) {
+      closingLogger.error(
+        { error },
+        "ClosingService.hasOpeningBalanceToday error",
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Update an existing daily_closings record by id.
+   */
+  updateDailyClosing(data: {
+    id: number;
+    physical_usd?: number;
+    physical_lbp?: number;
+    physical_eur?: number;
+    system_expected_usd?: number;
+    system_expected_lbp?: number;
+    variance_usd?: number;
+    notes?: string;
+    report_path?: string;
+    user_id?: number;
+  }): { success: boolean; error?: string } {
+    try {
+      return this.repo.updateDailyClosing(data);
+    } catch (error) {
+      closingLogger.error(
+        { error, data },
+        "ClosingService.updateDailyClosing error",
+      );
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * Set opening balances for a closing date.
+   * Creates a checkpoint record of type OPENING.
+   */
+  setOpeningBalances(data: {
+    closingDate?: string;
+    userId?: number;
+    amounts?: Array<{
+      drawer_name: string;
+      currency_code: string;
+      expected_amount: number;
+      physical_amount: number;
+    }>;
+  }): ClosingResult {
+    try {
+      return this.repo.createCheckpoint({
+        user_id: data.userId ?? 0,
+        notes: `Opening balances for ${data.closingDate ?? new Date().toISOString().split("T")[0]}`,
+        amounts: data.amounts ?? [],
+      });
+    } catch (error) {
+      closingLogger.error(
+        { error, data },
+        "ClosingService.setOpeningBalances error",
+      );
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * Create a daily closing record (legacy — delegates to createCheckpoint).
+   */
+  createDailyClosing(data: {
+    closingDate?: string;
+    userId?: number;
+    amounts?: Array<{
+      drawer_name: string;
+      currency_code: string;
+      expected_amount: number;
+      physical_amount: number;
+    }>;
+    notes?: string;
+  }): ClosingResult {
+    try {
+      return this.repo.createCheckpoint({
+        user_id: data.userId ?? 0,
+        notes:
+          data.notes ??
+          `Daily closing for ${data.closingDate ?? new Date().toISOString().split("T")[0]}`,
+        amounts: data.amounts ?? [],
+      });
+    } catch (error) {
+      closingLogger.error(
+        { error, data },
+        "ClosingService.createDailyClosing error",
+      );
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * Create a unified checkpoint (replaces both opening and closing).
+   * Records expected vs actual per drawer/currency.
+   */
+  createCheckpoint(data: CreateCheckpointData): ClosingResult {
+    try {
+      return this.repo.createCheckpoint(data);
+    } catch (error) {
+      closingLogger.error(
+        { error, data },
+        "ClosingService.createCheckpoint error",
       );
       return {
         success: false,

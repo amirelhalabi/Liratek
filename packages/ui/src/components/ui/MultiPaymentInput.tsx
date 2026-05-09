@@ -49,9 +49,31 @@ export interface MultiPaymentInputProps {
   exchangeRate?: number;
   /** Callback when exchange rate changes */
   onRateChange?: (rate: number) => void;
+  /** Show an optional discount field that reduces the amount the customer pays.
+   *  Discount is subtracted from totalAmount before payment matching. */
+  showDiscount?: boolean;
+  /** Maximum allowed discount (in totalAmountCurrency). Cannot exceed cost. */
+  maxDiscount?: number;
+  /** Callback when discount changes. Receives discount normalized to totalAmountCurrency. */
+  onDiscountChange?: (discount: number) => void;
 }
 
 const CASH_EQUIVALENT_METHODS = new Set(["CASH", "DEBT"]);
+
+/** Format a number with commas (e.g. 3600000 → "3,600,000", 150.50 → "150.50") */
+function fmtNum(value: number | string): string {
+  if (value === "" || value === 0) return "";
+  const num = typeof value === "string" ? parseFloat(value) : value;
+  if (isNaN(num)) return "";
+  const parts = num.toString().split(".");
+  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return parts.join(".");
+}
+
+/** Strip commas and parse to number */
+function parseNum(formatted: string): number {
+  return parseFloat(formatted.replace(/,/g, "")) || 0;
+}
 
 export default function MultiPaymentInput({
   totalAmount,
@@ -69,8 +91,13 @@ export default function MultiPaymentInput({
   currencies = [],
   exchangeRate,
   onRateChange,
+  showDiscount = true,
+  maxDiscount,
+  onDiscountChange,
 }: MultiPaymentInputProps) {
   const [isSplitMode, setIsSplitMode] = useState(false);
+  const [discountRaw, setDiscountRaw] = useState<string>("");
+  const [discountCurrency, setDiscountCurrency] = useState<string>(currency);
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([
     {
       id: crypto.randomUUID(),
@@ -91,6 +118,42 @@ export default function MultiPaymentInput({
   const safeExchangeRate = exchangeRate || 89000;
   const effectiveRate = parseFloat(customExchangeRate) || safeExchangeRate;
 
+  // --- Discount logic ---
+  const discountAmount = parseNum(discountRaw);
+
+  /** Normalize discount from discountCurrency to totalAmountCurrency */
+  const normalizeDiscount = (amt: number, fromCurr: string): number => {
+    if (fromCurr === totalAmountCurrency) return amt;
+    if (fromCurr === "LBP" && totalAmountCurrency === "USD")
+      return amt / effectiveRate;
+    if (fromCurr === "USD" && totalAmountCurrency === "LBP")
+      return amt * effectiveRate;
+    return amt;
+  };
+
+  const discountNormalized = normalizeDiscount(
+    discountAmount,
+    discountCurrency,
+  );
+  const clampedDiscount =
+    maxDiscount !== undefined
+      ? Math.min(discountNormalized, maxDiscount)
+      : discountNormalized;
+  const effectiveTotalAmount = Math.max(0, totalAmount - clampedDiscount);
+
+  // Auto-sync discount currency with single payment line currency
+  useEffect(() => {
+    if (!isSplitMode && paymentLines.length === 1) {
+      setDiscountCurrency(paymentLines[0].currencyCode);
+    }
+  }, [isSplitMode, paymentLines]);
+
+  // Emit discount to parent
+  useEffect(() => {
+    onDiscountChange?.(clampedDiscount);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clampedDiscount]);
+
   // Update custom rate when exchange rate prop changes
   useEffect(() => {
     setCustomExchangeRate(safeExchangeRate.toString());
@@ -104,20 +167,20 @@ export default function MultiPaymentInput({
       ? paymentLines[0].currencyCode
       : null;
 
-  // In single mode, auto-sync the line amount with totalAmount (currency-aware)
+  // In single mode, auto-sync the line amount with effectiveTotalAmount (currency-aware)
   useEffect(() => {
     if (!isSplitMode && paymentLines.length === 1) {
       const line = paymentLines[0];
-      // Convert totalAmount (in totalAmountCurrency) to the line's currency
-      let converted = totalAmount;
+      // Convert effectiveTotalAmount (in totalAmountCurrency) to the line's currency
+      let converted = effectiveTotalAmount;
       if (line.currencyCode !== totalAmountCurrency) {
         if (totalAmountCurrency === "USD" && line.currencyCode === "LBP") {
-          converted = totalAmount * effectiveRate;
+          converted = effectiveTotalAmount * effectiveRate;
         } else if (
           totalAmountCurrency === "LBP" &&
           line.currencyCode === "USD"
         ) {
-          converted = totalAmount / effectiveRate;
+          converted = effectiveTotalAmount / effectiveRate;
         }
       }
       if (line.amount !== converted) {
@@ -127,7 +190,13 @@ export default function MultiPaymentInput({
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [totalAmount, isSplitMode, effectiveRate, singleLineCurrency]);
+  }, [
+    totalAmount,
+    isSplitMode,
+    effectiveRate,
+    singleLineCurrency,
+    clampedDiscount,
+  ]);
 
   const handleLinesChange = (newLines: PaymentLine[]) => {
     setPaymentLines(newLines);
@@ -135,13 +204,28 @@ export default function MultiPaymentInput({
   };
 
   const addPaymentLine = () => {
+    // Calculate remaining in totalAmountCurrency, then convert to the new line's currency
+    const remaining = effectiveTotalAmount - totalPaid;
+    const newCurrency = currency;
+    let autoAmount = 0;
+    if (remaining > 0) {
+      if (newCurrency === totalAmountCurrency) {
+        autoAmount = remaining;
+      } else if (newCurrency === "LBP" && totalAmountCurrency === "USD") {
+        autoAmount = Math.round(remaining * effectiveRate);
+      } else if (newCurrency === "USD" && totalAmountCurrency === "LBP") {
+        autoAmount = parseFloat((remaining / effectiveRate).toFixed(2));
+      } else {
+        autoAmount = remaining;
+      }
+    }
     handleLinesChange([
       ...paymentLines,
       {
         id: crypto.randomUUID(),
         method: "CASH",
-        currencyCode: currency,
-        amount: 0,
+        currencyCode: newCurrency,
+        amount: autoAmount,
       },
     ]);
   };
@@ -157,9 +241,23 @@ export default function MultiPaymentInput({
     field: keyof PaymentLine,
     value: string | number,
   ) => {
-    const updatedLines = paymentLines.map((line) =>
-      line.id === id ? { ...line, [field]: value } : line,
-    );
+    const updatedLines = paymentLines.map((line) => {
+      if (line.id !== id) return line;
+      const updated = { ...line, [field]: value };
+
+      // Convert amount when currency changes
+      if (field === "currencyCode" && value !== line.currencyCode) {
+        const oldCurr = line.currencyCode;
+        const newCurr = value as string;
+        if (oldCurr === "USD" && newCurr === "LBP") {
+          updated.amount = Math.round(line.amount * effectiveRate);
+        } else if (oldCurr === "LBP" && newCurr === "USD") {
+          updated.amount = parseFloat((line.amount / effectiveRate).toFixed(2));
+        }
+      }
+
+      return updated;
+    });
 
     // Handle PM fee clearing when method changes to/from CASH
     if (field === "method") {
@@ -258,7 +356,11 @@ export default function MultiPaymentInput({
   };
 
   const fmtTarget = (v: number) => {
-    const formatted = Math.abs(v).toFixed(targetDecimals);
+    const abs = Math.abs(v);
+    const fixed = abs.toFixed(targetDecimals);
+    const parts = fixed.split(".");
+    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    const formatted = parts.join(".");
     // Prefix symbols ($, €, £) go before the number, others (LBP) go after
     if (["$", "€", "£"].includes(targetSymbol)) {
       return `${targetSymbol}${formatted}`;
@@ -274,7 +376,7 @@ export default function MultiPaymentInput({
           id: crypto.randomUUID(),
           method: paymentLines[0]?.method || "CASH",
           currencyCode: paymentLines[0]?.currencyCode || currency,
-          amount: totalAmount,
+          amount: effectiveTotalAmount,
         },
       ];
       setPaymentLines(singleLine);
@@ -284,63 +386,97 @@ export default function MultiPaymentInput({
   };
 
   return (
-    <div className="bg-slate-900/40 border border-slate-700/50 rounded-xl p-4">
-      <div className="flex items-center justify-between mb-3">
-        <div className="text-sm font-medium text-slate-300">
-          {isSplitMode ? "Payment Split" : "Payment Method"}
-        </div>
-        <div className="flex items-center gap-3">
-          {isSplitMode && (
+    <div className="bg-slate-900/50 border border-slate-700/50 rounded-2xl overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700/40">
+        <span className="text-sm font-semibold text-slate-200 tracking-wide">
+          {isSplitMode ? "Payment Split" : "Payment"}
+        </span>
+        <button
+          type="button"
+          onClick={toggleSplitMode}
+          className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full transition-all ${
+            isSplitMode
+              ? "bg-violet-500/20 text-violet-300 border border-violet-500/40"
+              : "bg-slate-800 text-slate-400 border border-slate-600 hover:text-slate-200 hover:border-slate-500"
+          }`}
+        >
+          {isSplitMode ? (
             <>
-              <div className="flex items-center gap-2">
-                <label className="text-xs text-slate-500">1 USD =</label>
-                <input
-                  type="number"
-                  value={customExchangeRate}
-                  onChange={(e) => {
-                    setCustomExchangeRate(e.target.value);
-                    const newRate =
-                      parseFloat(e.target.value) || safeExchangeRate;
-                    onRateChange?.(newRate);
-                    onExchangeRateChange?.(newRate);
-                  }}
-                  className="w-28 bg-slate-950 border border-slate-700 rounded-lg px-3 py-1 text-white font-mono text-xs focus:outline-none focus:border-violet-500"
-                  placeholder={safeExchangeRate.toString()}
-                />
-                <label className="text-xs text-slate-500">LBP</label>
-              </div>
-              <button
-                type="button"
-                onClick={addPaymentLine}
-                className="text-xs px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors"
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
               >
-                + Add Payment Method
-              </button>
+                <path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5" />
+              </svg>
+              Split Active
+            </>
+          ) : (
+            <>
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <path d="M16 3h5v5M4 20L21 3" />
+              </svg>
+              Split
             </>
           )}
-          <button
-            type="button"
-            onClick={toggleSplitMode}
-            className="text-xs px-3 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
-          >
-            {isSplitMode ? "Single Payment" : "Split Payment"}
-          </button>
-        </div>
+        </button>
       </div>
 
-      {isSplitMode ? (
-        <div className="space-y-2">
-          {paymentLines.map((line) => (
-            <div key={line.id}>
-              <div className="grid grid-cols-12 gap-2 items-center">
-                {/* Payment Method */}
-                <div className="col-span-5">
+      {/* Exchange Rate (split mode only) */}
+      {isSplitMode && (
+        <div className="flex items-center justify-center gap-2 px-4 py-2 bg-slate-800/40 border-b border-slate-700/30">
+          <span className="text-xs text-slate-500">1 USD =</span>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={fmtNum(customExchangeRate)}
+            onChange={(e) => {
+              const raw = e.target.value.replace(/,/g, "");
+              setCustomExchangeRate(raw);
+              const newRate = parseFloat(raw) || safeExchangeRate;
+              onRateChange?.(newRate);
+              onExchangeRateChange?.(newRate);
+            }}
+            className="w-28 bg-slate-900 border border-slate-600 rounded-lg px-3 py-1 text-white font-mono text-xs text-center focus:outline-none focus:border-violet-500 transition-colors"
+            placeholder={fmtNum(safeExchangeRate)}
+          />
+          <span className="text-xs text-slate-500">LBP</span>
+        </div>
+      )}
+
+      {/* Payment Lines */}
+      <div className="px-4 py-3 space-y-2">
+        {isSplitMode ? (
+          <>
+            {paymentLines.map((line, idx) => (
+              <div
+                key={line.id}
+                className="bg-slate-800/60 border border-slate-700/40 rounded-xl p-3 space-y-2"
+              >
+                <div className="flex items-center gap-2">
+                  {/* Line number badge */}
+                  <span className="flex-shrink-0 w-5 h-5 rounded-full bg-slate-700 text-slate-300 text-[10px] font-bold flex items-center justify-center">
+                    {idx + 1}
+                  </span>
+
+                  {/* Payment Method */}
                   <select
                     value={line.method}
                     onChange={(e) =>
                       updatePaymentLine(line.id, "method", e.target.value)
                     }
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
+                    className="flex-1 min-w-0 bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500 transition-colors"
                   >
                     {paymentMethods.map((pm) => (
                       <option key={pm.code} value={pm.code}>
@@ -348,16 +484,14 @@ export default function MultiPaymentInput({
                       </option>
                     ))}
                   </select>
-                </div>
 
-                {/* Currency */}
-                <div className="col-span-3">
+                  {/* Currency */}
                   <select
                     value={line.currencyCode}
                     onChange={(e) =>
                       updatePaymentLine(line.id, "currencyCode", e.target.value)
                     }
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
+                    className="w-20 bg-slate-900 border border-slate-600 rounded-lg px-2 py-2 text-white text-sm focus:outline-none focus:border-violet-500 transition-colors"
                   >
                     {currencies.map((curr) => (
                       <option key={curr.code} value={curr.code}>
@@ -365,60 +499,54 @@ export default function MultiPaymentInput({
                       </option>
                     ))}
                   </select>
-                </div>
 
-                {/* Amount */}
-                <div className="col-span-3">
-                  <div className="relative">
-                    {/* Show prefix symbols ($, €, £) */}
+                  {/* Amount */}
+                  <div className="relative w-32">
                     {["$", "€", "£"].includes(getSymbol(line.currencyCode)) && (
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs">
                         {getSymbol(line.currencyCode)}
                       </span>
                     )}
                     <input
-                      type="number"
-                      value={line.amount || ""}
+                      type="text"
+                      inputMode="decimal"
+                      value={fmtNum(line.amount)}
                       onChange={(e) =>
                         updatePaymentLine(
                           line.id,
                           "amount",
-                          parseFloat(e.target.value) || 0,
+                          parseNum(e.target.value),
                         )
                       }
-                      className={`w-full bg-slate-950 border border-slate-700 rounded-lg pr-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-violet-500 ${
+                      className={`w-full bg-slate-900 border border-slate-600 rounded-lg pr-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-violet-500 transition-colors ${
                         ["$", "€", "£"].includes(getSymbol(line.currencyCode))
                           ? "pl-7"
                           : "pl-3"
                       }`}
                       placeholder="0"
-                      step="0.01"
                     />
                   </div>
-                </div>
 
-                {/* Remove Button */}
-                <div className="col-span-1 flex justify-end">
+                  {/* Remove */}
                   <button
                     type="button"
                     disabled={paymentLines.length === 1}
                     onClick={() => removePaymentLine(line.id)}
-                    className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
-                    title="Remove payment line"
+                    className="flex-shrink-0 p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-500/10 disabled:opacity-20 disabled:hover:bg-transparent disabled:hover:text-slate-500 transition-all"
+                    title="Remove"
                   >
-                    <X size={16} />
+                    <X size={14} />
                   </button>
                 </div>
-              </div>
 
-              {/* PM Fee Row */}
-              {showPmFee && !CASH_EQUIVALENT_METHODS.has(line.method) && (
-                <div className="grid grid-cols-12 gap-2 items-center mt-1 ml-0 pl-0">
-                  <div className="col-span-5" />
-                  <div className="col-span-3" />
-                  <div className="col-span-3">
-                    <div className="relative bg-violet-950/40 border border-violet-700/50 rounded-lg px-3 py-2">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-violet-400 text-xs">
+                {/* PM Fee sub-line */}
+                {showPmFee && !CASH_EQUIVALENT_METHODS.has(line.method) && (
+                  <div className="flex items-center gap-2 ml-7 pl-3 border-l-2 border-violet-500/30">
+                    <span className="text-[11px] text-violet-400 whitespace-nowrap">
+                      PM fee
+                    </span>
+                    <div className="relative w-24">
+                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-violet-400 text-[10px]">
                         $
                       </span>
                       <input
@@ -432,30 +560,35 @@ export default function MultiPaymentInput({
                           newOverrides[line.id] = e.target.value;
                           setPmFeeOverrides(newOverrides);
                         }}
-                        className="w-full bg-transparent text-violet-200 text-sm font-mono focus:outline-none pl-7 pr-3 py-0"
+                        className="w-full bg-violet-950/40 border border-violet-700/40 rounded-md pl-5 pr-2 py-1 text-violet-200 text-xs font-mono focus:outline-none focus:border-violet-500"
                         placeholder="0.00"
                         step="0.01"
                       />
                     </div>
                   </div>
-                  <div className="col-span-1 flex justify-start">
-                    <label className="text-xs text-violet-400">PM fee:</label>
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="grid grid-cols-12 gap-2 items-center">
-          {/* Payment Method */}
-          <div className="col-span-5">
+                )}
+              </div>
+            ))}
+
+            {/* Add payment line button */}
+            <button
+              type="button"
+              onClick={addPaymentLine}
+              className="w-full py-2 border-2 border-dashed border-slate-700 rounded-xl text-xs font-medium text-slate-400 hover:text-slate-200 hover:border-slate-500 transition-all"
+            >
+              + Add Payment Line
+            </button>
+          </>
+        ) : (
+          /* Single payment mode */
+          <div className="flex items-center gap-2">
+            {/* Payment Method */}
             <select
               value={paymentLines[0]?.method || "CASH"}
               onChange={(e) =>
                 updatePaymentLine(paymentLines[0]?.id, "method", e.target.value)
               }
-              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
+              className="flex-1 min-w-0 bg-slate-800/80 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-violet-500 transition-colors"
             >
               {paymentMethods.map((pm) => (
                 <option key={pm.code} value={pm.code}>
@@ -463,10 +596,8 @@ export default function MultiPaymentInput({
                 </option>
               ))}
             </select>
-          </div>
 
-          {/* Currency */}
-          <div className="col-span-3">
+            {/* Currency */}
             <select
               value={paymentLines[0]?.currencyCode || currency}
               onChange={(e) =>
@@ -476,7 +607,7 @@ export default function MultiPaymentInput({
                   e.target.value,
                 )
               }
-              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
+              className="w-20 bg-slate-800/80 border border-slate-600 rounded-lg px-2 py-2.5 text-white text-sm focus:outline-none focus:border-violet-500 transition-colors"
             >
               {currencies.map((curr) => (
                 <option key={curr.code} value={curr.code}>
@@ -484,29 +615,28 @@ export default function MultiPaymentInput({
                 </option>
               ))}
             </select>
-          </div>
 
-          {/* Amount */}
-          <div className="col-span-4">
-            <div className="relative">
+            {/* Amount */}
+            <div className="relative w-36">
               {["$", "€", "£"].includes(
                 getSymbol(paymentLines[0]?.currencyCode || currency),
               ) && (
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm">
                   {getSymbol(paymentLines[0]?.currencyCode || currency)}
                 </span>
               )}
               <input
-                type="number"
-                value={paymentLines[0]?.amount || ""}
+                type="text"
+                inputMode="decimal"
+                value={fmtNum(paymentLines[0]?.amount)}
                 onChange={(e) =>
                   updatePaymentLine(
                     paymentLines[0]?.id,
                     "amount",
-                    parseFloat(e.target.value) || 0,
+                    parseNum(e.target.value),
                   )
                 }
-                className={`w-full bg-slate-950 border border-slate-700 rounded-lg pr-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-violet-500 ${
+                className={`w-full bg-slate-800/80 border border-slate-600 rounded-lg pr-3 py-2.5 text-white text-sm font-mono focus:outline-none focus:border-violet-500 transition-colors ${
                   ["$", "€", "£"].includes(
                     getSymbol(paymentLines[0]?.currencyCode || currency),
                   )
@@ -514,20 +644,15 @@ export default function MultiPaymentInput({
                     : "pl-3"
                 }`}
                 placeholder="0"
-                step="0.01"
               />
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
-      {/* Summary
-          totalAmount = sentAmount + providerFee (what customer must physically pay)
-          totalPaid   = sum of all payment lines (must equal totalAmount)
-          PM fees     = extra wallet surcharge on top (baked into non-cash lines by parent)
-      */}
-      <div className="mt-3 pt-3 border-t border-slate-700/50 space-y-1">
-        {/* Breakdown: where the customer's money goes */}
+      {/* Summary */}
+      <div className="px-4 py-3 bg-slate-800/30 border-t border-slate-700/40 space-y-1.5">
+        {/* Provider fee breakdown */}
         {providerFee > 0 && (
           <>
             <div className="flex justify-between text-xs">
@@ -542,8 +667,8 @@ export default function MultiPaymentInput({
                 +{fmtTarget(toDisplayCurrency(providerFee))}
               </span>
             </div>
-            <div className="flex justify-between text-xs border-t border-slate-700/40 pt-1">
-              <span className="text-slate-300 font-medium">Total to Pay</span>
+            <div className="flex justify-between text-xs pt-1 border-t border-slate-700/30">
+              <span className="text-slate-300 font-medium">Subtotal</span>
               <span className="font-mono text-slate-200 font-medium">
                 {fmtTarget(toDisplayCurrency(totalAmount))}
               </span>
@@ -558,54 +683,201 @@ export default function MultiPaymentInput({
             </span>
           </div>
         )}
-        <div className="flex justify-between text-xs">
-          <span className="text-slate-400">Total Paid</span>
-          <span
-            className={`font-mono ${Math.abs(totalPaid - totalAmount) < matchTolerance ? "text-emerald-400" : "text-red-400"}`}
-          >
-            {fmtTarget(toDisplayCurrency(totalPaid))}
-          </span>
-        </div>
-        {Math.abs(totalPaid - totalAmount) > matchTolerance && (
-          <div className="flex justify-between text-xs">
-            <span
-              className={
-                totalPaid < totalAmount ? "text-red-400" : "text-amber-400"
-              }
-            >
-              {totalPaid < totalAmount ? "Remaining (Debt)" : "Overpaid"}
+
+        {/* Discount */}
+        {showDiscount && (
+          <div className="flex items-center justify-between gap-2 py-1">
+            <span className="text-xs text-emerald-400 font-medium">
+              Discount
             </span>
-            <span
-              className={`font-mono font-bold ${totalPaid < totalAmount ? "text-red-400" : "text-amber-400"}`}
-            >
-              {fmtTarget(toDisplayCurrency(Math.abs(totalPaid - totalAmount)))}
+            <div className="flex items-center gap-1.5">
+              {isSplitMode && currencies.length > 1 && (
+                <select
+                  value={discountCurrency}
+                  onChange={(e) => setDiscountCurrency(e.target.value)}
+                  className="bg-slate-900 border border-emerald-700/40 rounded-md px-1.5 py-0.5 text-emerald-300 text-[11px] focus:outline-none focus:border-emerald-500"
+                >
+                  {currencies.map((curr) => (
+                    <option key={curr.code} value={curr.code}>
+                      {curr.code}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {!isSplitMode && (
+                <span className="text-[11px] text-emerald-400/60">
+                  {discountCurrency}
+                </span>
+              )}
+              <div className="relative">
+                {["$", "€", "£"].includes(getSymbol(discountCurrency)) && (
+                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-emerald-400 text-xs">
+                    {getSymbol(discountCurrency)}
+                  </span>
+                )}
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={discountRaw}
+                  onChange={(e) => {
+                    const raw = e.target.value.replace(/,/g, "");
+                    if (raw === "" || /^\d*\.?\d*$/.test(raw)) {
+                      setDiscountRaw(raw);
+                    }
+                  }}
+                  className={`w-24 bg-emerald-950/30 border rounded-md px-2 py-1 text-emerald-200 text-xs font-mono focus:outline-none focus:border-emerald-500 transition-colors ${
+                    maxDiscount !== undefined &&
+                    discountNormalized > maxDiscount
+                      ? "border-red-500"
+                      : "border-emerald-700/40"
+                  } ${
+                    ["$", "€", "£"].includes(getSymbol(discountCurrency))
+                      ? "pl-5"
+                      : "pl-2"
+                  }`}
+                  placeholder="0"
+                />
+              </div>
+              {discountAmount > 0 && (
+                <span className="font-mono text-emerald-400 text-xs">
+                  -{fmtTarget(toDisplayCurrency(clampedDiscount))}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* After discount */}
+        {showDiscount && clampedDiscount > 0 && (
+          <div className="flex justify-between text-xs pt-1 border-t border-emerald-700/20">
+            <span className="text-emerald-300 font-medium">After Discount</span>
+            <span className="font-mono text-emerald-200 font-medium">
+              {fmtTarget(toDisplayCurrency(effectiveTotalAmount))}
             </span>
           </div>
         )}
+
+        {/* Discount cap warning */}
+        {showDiscount &&
+          maxDiscount !== undefined &&
+          discountNormalized > maxDiscount && (
+            <div className="text-[11px] text-red-400">
+              Capped to max ({fmtTarget(toDisplayCurrency(maxDiscount))})
+            </div>
+          )}
+
+        {/* Total Paid */}
+        <div className="flex justify-between items-center text-xs pt-1.5 border-t border-slate-700/40">
+          <span className="text-slate-300 font-medium">Paid</span>
+          <span className="flex items-center gap-1.5">
+            {Math.abs(totalPaid - effectiveTotalAmount) < matchTolerance ? (
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="3"
+                className="text-emerald-400"
+              >
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            ) : (
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="3"
+                className="text-red-400"
+              >
+                <circle cx="12" cy="12" r="10" strokeWidth="2" />
+                <line x1="12" y1="8" x2="12" y2="12" />
+                <line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+            )}
+            <span
+              className={`font-mono font-semibold ${
+                Math.abs(totalPaid - effectiveTotalAmount) < matchTolerance
+                  ? "text-emerald-400"
+                  : "text-red-400"
+              }`}
+            >
+              {fmtTarget(toDisplayCurrency(totalPaid))}
+            </span>
+          </span>
+        </div>
+
+        {/* Remaining / Overpaid warning */}
+        {Math.abs(totalPaid - effectiveTotalAmount) > matchTolerance && (
+          <div
+            className={`flex justify-between text-xs px-2 py-1 rounded-md ${
+              totalPaid < effectiveTotalAmount
+                ? "bg-red-500/10 border border-red-500/20"
+                : "bg-amber-500/10 border border-amber-500/20"
+            }`}
+          >
+            <span
+              className={
+                totalPaid < effectiveTotalAmount
+                  ? "text-red-400"
+                  : "text-amber-400"
+              }
+            >
+              {totalPaid < effectiveTotalAmount
+                ? "Remaining (Debt)"
+                : "Overpaid"}
+            </span>
+            <span
+              className={`font-mono font-bold ${
+                totalPaid < effectiveTotalAmount
+                  ? "text-red-400"
+                  : "text-amber-400"
+              }`}
+            >
+              {fmtTarget(
+                toDisplayCurrency(Math.abs(totalPaid - effectiveTotalAmount)),
+              )}
+            </span>
+          </div>
+        )}
+
+        {/* PM Fees & Grand Total */}
         {showPmFee && totalPmFees > 0 && (
-          <>
-            <div className="flex justify-between text-xs border-t border-violet-700/30 pt-1">
-              <span className="text-violet-400">
-                Wallet Surcharge (PM fees)
-              </span>
+          <div className="pt-1.5 mt-1 border-t border-violet-700/30 space-y-1">
+            <div className="flex justify-between text-xs">
+              <span className="text-violet-400">Wallet Surcharge</span>
               <span className="font-mono text-violet-300">
                 +{fmtTarget(toDisplayCurrency(totalPmFees))}
               </span>
             </div>
-            <div className="flex justify-between text-xs">
+            <div className="flex justify-between text-sm">
               <span className="text-white font-semibold">Grand Total</span>
-              <span className="font-mono text-white font-semibold">
+              <span className="font-mono text-white font-bold">
                 {fmtTarget(toDisplayCurrency(totalPaid + totalPmFees))}
               </span>
             </div>
-          </>
+          </div>
         )}
       </div>
 
       {/* Validation Messages */}
       {hasDebt && requiresClientForDebt && !hasClient && (
-        <div className="mt-3 text-xs text-red-400 bg-red-500/10 px-3 py-2 rounded border border-red-500/30">
-          ⚠️ Client is required when using DEBT payment method
+        <div className="mx-4 mb-3 text-xs text-red-400 bg-red-500/10 px-3 py-2 rounded-lg border border-red-500/20 flex items-center gap-2">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+            <line x1="12" y1="9" x2="12" y2="13" />
+            <line x1="12" y1="17" x2="12.01" y2="17" />
+          </svg>
+          Client is required when using DEBT payment method
         </div>
       )}
     </div>

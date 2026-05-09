@@ -1,21 +1,45 @@
 /**
  * Unified Checkpoint Modal
  *
- * Smart modal that auto-detects whether to show Opening or Closing form
- * based on whether an opening balance has been set for today.
+ * Single checkpoint flow that can be performed at any time, any number of times per day.
+ * Records physical counts vs system-expected per drawer/currency.
+ * Previous checkpoint's actuals become next checkpoint's baseline.
  */
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import logger from "@/utils/logger";
-import OpeningModal from "../Opening";
-import ClosingModal from "../Closing";
-import { useApi } from "@liratek/ui";
+import type { DrawerType } from "../../types";
+import { DRAWER_ORDER } from "../../config/drawers";
+import { useCurrencies } from "../../hooks/useCurrencies";
+import { useDrawerAmounts } from "../../hooks/useDrawerAmounts";
+import { useSystemExpected } from "../../hooks/useSystemExpected";
+import { DrawerCard } from "../../components/DrawerCard";
+import { VarianceCard } from "../../components/VarianceCard";
+import { AlertBanner } from "../../components/AlertBanner";
+import { appEvents, useApi } from "@liratek/ui";
+import { useAuth } from "@/features/auth/context/AuthContext";
+import { useModules } from "@/contexts/ModuleContext";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
+import { generateClosingReport } from "../../utils/closingReportGenerator";
+import { X, ChevronLeft, ChevronRight } from "lucide-react";
 
 interface CheckpointModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
+
+/** Map each drawer to the module key that must be enabled for it to appear */
+const DRAWER_MODULE_MAP: Partial<Record<string, string>> = {
+  OMT_App: "ipec_katch",
+  OMT_System: "ipec_katch",
+  Whish_App: "ipec_katch",
+  Whish_System: "ipec_katch",
+  Binance: "binance",
+  MTC: "recharge",
+  Alfa: "recharge",
+  iPick: "ipec_katch",
+  Katsh: "ipec_katch",
+};
 
 export default function CheckpointModal({
   isOpen,
@@ -23,57 +47,560 @@ export default function CheckpointModal({
 }: CheckpointModalProps) {
   useModalFocusFix(isOpen);
   const api = useApi();
-  const [mode, setMode] = useState<"CHECKING" | "OPENING" | "CLOSING">(
-    "CHECKING",
-  );
+  const { user } = useAuth();
+  const { isModuleEnabled } = useModules();
 
-  // Check if opening exists when modal opens
+  const activeDrawerOrder = DRAWER_ORDER.filter((drawer) => {
+    const requiredModule = DRAWER_MODULE_MAP[drawer];
+    return !requiredModule || isModuleEnabled(requiredModule);
+  });
+
+  const {
+    currencies,
+    loading: currenciesLoading,
+    error: currenciesError,
+  } = useCurrencies();
+  const drawerAmounts = useDrawerAmounts({ currencies });
+  const {
+    systemExpected,
+    loading: systemLoading,
+    error: systemError,
+    fetchSystemExpected,
+  } = useSystemExpected();
+
+  const [step, setStep] = useState(1);
+  const [notes, setNotes] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [stepError, setStepError] = useState<string | null>(null);
+  const [varianceThresholdPct, setVarianceThresholdPct] = useState(5);
+
+  /** Configured currencies per drawer from currency_drawers table */
+  const [drawerCurrencyConfig, setDrawerCurrencyConfig] = useState<
+    Record<string, string[]>
+  >({});
+
+  // Load drawer-currency config and system expected when modal opens
   useEffect(() => {
     if (isOpen) {
-      setMode("CHECKING");
-
       api
-        .hasOpeningBalanceToday()
-        .then((exists) => {
-          setMode(exists ? "CLOSING" : "OPENING");
-        })
-        .catch((error) => {
-          logger.error("[Checkpoint] Failed to check opening balance:", error);
-          setMode("OPENING"); // Default to opening if check fails
-        });
+        .getAllDrawerCurrencies()
+        .then(setDrawerCurrencyConfig)
+        .catch(() => {});
+      fetchSystemExpected();
     }
-  }, [isOpen, api]);
+  }, [isOpen]);
 
-  const handleClose = () => {
-    setMode("CHECKING");
-    onClose();
+  // Initialize amounts with system expected values when data is ready
+  useEffect(() => {
+    if (currencies.length > 0 && isOpen && systemExpected) {
+      drawerAmounts.initializeFromExpected(systemExpected);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currencies, isOpen, systemExpected]);
+
+  // Reset state when modal closes
+  useEffect(() => {
+    if (!isOpen) {
+      setStep(1);
+      setNotes("");
+      setStepError(null);
+      drawerAmounts.reset();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+
+  const handleAmountChange = (
+    drawer: DrawerType,
+    code: string,
+    value: string,
+  ) => {
+    const numValue = value === "" || value === "-" ? 0 : parseFloat(value);
+    drawerAmounts.updateAmount(drawer, code, isNaN(numValue) ? 0 : numValue);
   };
 
-  // Show loading state while checking
-  if (mode === "CHECKING") {
-    return (
+  const handleNextStep = async () => {
+    setStepError(null);
+
+    if (step === 1) {
+      const validation = drawerAmounts.validate();
+      if (!validation.isValid) {
+        setStepError(validation.errors.join(", "));
+        return;
+      }
+
+      if (!drawerAmounts.hasAnyAmounts) {
+        setStepError("Please enter at least one amount before proceeding.");
+        return;
+      }
+
+      setStep(2);
+      // Refresh expected balances for variance calculation
+      await fetchSystemExpected();
+
+      // Load variance threshold
+      try {
+        const settings = await api.getAllSettings();
+        const map = new Map(settings.map((s: any) => [s.key_name, s.value]));
+        const pct = Number(map.get("closing_variance_threshold_pct") ?? 5);
+        if (isFinite(pct) && pct >= 0) setVarianceThresholdPct(pct);
+      } catch (e) {
+        logger.error("[Checkpoint] Failed to load variance threshold:", e);
+      }
+    } else if (step === 2) {
+      setStep(3);
+    }
+  };
+
+  const handlePreviousStep = () => {
+    if (step > 1) {
+      setStep((prev) => prev - 1);
+      setStepError(null);
+    }
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    setStepError(null);
+
+    // Build amounts with expected + physical
+    const amounts = activeDrawerOrder.flatMap((drawer) => {
+      const allowed = drawerCurrencyConfig[drawer];
+      const drawerCurrencies = allowed
+        ? currencies.filter((c) => allowed.includes(c.code))
+        : currencies;
+
+      return drawerCurrencies.map((currency) => ({
+        drawer_name: drawer,
+        currency_code: currency.code,
+        expected_amount: systemExpected?.[drawer]?.[currency.code] ?? 0,
+        physical_amount: drawerAmounts.amounts[drawer]?.[currency.code] ?? 0,
+      }));
+    });
+
+    const escapeHtml = (s: string): string =>
+      s
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+
+    try {
+      // 1) Create checkpoint
+      const checkpointData: Parameters<
+        typeof window.api.closing.createCheckpoint
+      >[0] = {
+        user_id: user?.id ?? 0,
+        amounts,
+      };
+      if (notes) checkpointData.notes = notes;
+      const result = await window.api.closing.createCheckpoint(checkpointData);
+
+      if (!result.success) {
+        setStepError(result.error || "Failed to save checkpoint");
+        return;
+      }
+
+      // 2) Generate and attach report PDF (non-blocking)
+      if (result.id != null) {
+        try {
+          const dailyStats = await api.getDailyStatsSnapshot();
+          const sumByCurrency = (code: string): number =>
+            amounts
+              .filter((a) => a.currency_code === code)
+              .reduce((acc, a) => acc + a.physical_amount, 0);
+          const sumExpectedByCurrency = (code: string): number =>
+            amounts
+              .filter((a) => a.currency_code === code)
+              .reduce((acc, a) => acc + a.expected_amount, 0);
+
+          const reportText = generateClosingReport(
+            {
+              closing_date: new Date().toISOString().split("T")[0],
+              drawer_name: "AGGREGATED",
+              physical: Object.fromEntries(
+                currencies.map((c) => [c.code, sumByCurrency(c.code)]),
+              ),
+              systemExpected: Object.fromEntries(
+                currencies.map((c) => [c.code, sumExpectedByCurrency(c.code)]),
+              ),
+              physical_usd: sumByCurrency("USD"),
+              system_expected_usd: sumExpectedByCurrency("USD"),
+              physical_lbp: sumByCurrency("LBP"),
+              system_expected_lbp: sumExpectedByCurrency("LBP"),
+              physical_eur: sumByCurrency("EUR"),
+              system_expected_eur: sumExpectedByCurrency("EUR"),
+            },
+            dailyStats,
+          );
+
+          const html = `<!doctype html><html><head><meta charset="utf-8" /><title>Checkpoint Report</title></head><body><pre style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; white-space: pre-wrap;">${escapeHtml(reportText)}</pre></body></html>`;
+
+          const pdfRes = await api.generatePDF(
+            html,
+            `checkpoint_${new Date().toISOString().split("T")[0]}_${Date.now()}.pdf`,
+          );
+
+          if (pdfRes?.success && pdfRes.path) {
+            await api.updateDailyClosing(Number(result.id), {
+              report_path: pdfRes.path,
+              ...(user?.id != null ? { user_id: user.id } : {}),
+            });
+          }
+        } catch (reportError) {
+          logger.error("[Checkpoint] Report generation error:", reportError);
+        }
+      }
+
+      alert("Checkpoint saved successfully!");
+      appEvents.emit("closing:completed", result);
+      onClose();
+    } catch (error) {
+      logger.error("[Checkpoint] Save error:", error);
+      setStepError(
+        error instanceof Error ? error.message : "An unexpected error occurred",
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCancel = () => {
+    if (step > 1 || drawerAmounts.hasAnyAmounts) {
+      if (
+        confirm("You have unsaved changes. Are you sure you want to close?")
+      ) {
+        onClose();
+      }
+    } else {
+      onClose();
+    }
+  };
+
+  if (!isOpen) return null;
+
+  const totalSteps = 3;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      role="presentation"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) {
+          handleCancel();
+        }
+      }}
+    >
       <div
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+        className="bg-slate-900 border border-slate-700 rounded-xl overflow-hidden w-full max-w-6xl max-h-[90vh] flex flex-col shadow-2xl"
         role="presentation"
+        onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="bg-slate-900 border border-slate-700 rounded-xl p-8 shadow-2xl">
-          <div className="flex items-center gap-3">
-            <div className="w-6 h-6 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
-            <p className="text-white font-medium">Loading checkpoint...</p>
+        {/* Header */}
+        <div className="flex justify-between items-center p-6 border-b border-slate-700 bg-slate-800">
+          <div>
+            <h2 className="text-2xl font-bold text-white">New Checkpoint</h2>
+            <p className="text-slate-400 text-sm mt-1">
+              Step {step} of {totalSteps}:{" "}
+              {step === 1
+                ? "Physical Count"
+                : step === 2
+                  ? "Variance Review"
+                  : "Notes & Confirmation"}
+            </p>
+          </div>
+          <button
+            onClick={handleCancel}
+            disabled={saving}
+            className="text-slate-400 hover:text-white transition-colors disabled:opacity-50"
+          >
+            <X size={24} />
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+          {currenciesLoading && (
+            <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
+              <p className="text-blue-200 text-sm">Loading currencies...</p>
+            </div>
+          )}
+
+          {currenciesError && (
+            <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
+              <p className="text-red-200 text-sm">Error: {currenciesError}</p>
+            </div>
+          )}
+
+          {stepError && (
+            <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
+              <p className="text-red-200 text-sm">{stepError}</p>
+            </div>
+          )}
+
+          {/* Step 1: Physical Count */}
+          {step === 1 &&
+            !currenciesLoading &&
+            !currenciesError &&
+            currencies.length === 0 && (
+              <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
+                <p className="text-yellow-200 text-sm">
+                  No active currencies found. Please enable at least one
+                  currency in Settings → Currency Manager.
+                </p>
+              </div>
+            )}
+
+          {step === 1 &&
+            !currenciesLoading &&
+            !currenciesError &&
+            currencies.length > 0 && (
+              <>
+                <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
+                  <p className="text-slate-300 text-sm">
+                    Count the physical cash in each drawer. Enter the actual
+                    amounts you see.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {activeDrawerOrder.map((drawer) => {
+                    const allowed = drawerCurrencyConfig[drawer];
+                    const drawerCurrencies = allowed
+                      ? currencies.filter((c) => allowed.includes(c.code))
+                      : currencies;
+
+                    // For drawer cards, only show core currencies (USD, LBP, EUR)
+                    const coreCurrencies = drawerCurrencies.filter((c) =>
+                      ["USD", "LBP", "EUR"].includes(c.code),
+                    );
+
+                    // Other currencies only for General drawer
+                    const otherCurrencies =
+                      drawer === "General"
+                        ? drawerCurrencies.filter(
+                            (c) => !["USD", "LBP", "EUR"].includes(c.code),
+                          )
+                        : undefined;
+
+                    if (coreCurrencies.length === 0) return null;
+
+                    return (
+                      <DrawerCard
+                        key={drawer}
+                        drawer={drawer}
+                        currencies={coreCurrencies}
+                        {...(otherCurrencies ? { otherCurrencies } : {})}
+                        getDisplayValue={(d, c) =>
+                          drawerAmounts.getDisplayValue(d, c)
+                        }
+                        onAmountChange={handleAmountChange}
+                        disabled={saving}
+                        focusRingColor="violet-500"
+                      />
+                    );
+                  })}
+                </div>
+              </>
+            )}
+
+          {/* Step 2: Variance Review */}
+          {step === 2 && (
+            <>
+              <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
+                <p className="text-slate-300 text-sm">
+                  Review variances between your physical count and system
+                  expected balances.
+                </p>
+              </div>
+
+              {systemLoading && (
+                <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
+                  <p className="text-blue-200 text-sm">
+                    Calculating expected balances...
+                  </p>
+                </div>
+              )}
+
+              {systemError && (
+                <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
+                  <p className="text-red-200 text-sm">Error: {systemError}</p>
+                </div>
+              )}
+
+              {!systemLoading &&
+                !systemError &&
+                systemExpected &&
+                (() => {
+                  const flagged: Array<{
+                    drawer: DrawerType;
+                    currency: string;
+                    variance: number;
+                    expected: number;
+                    pct: number;
+                  }> = [];
+
+                  for (const drawer of activeDrawerOrder) {
+                    const allowed = drawerCurrencyConfig[drawer];
+                    const drawerCurrencies = allowed
+                      ? currencies.filter((c) => allowed.includes(c.code))
+                      : currencies;
+
+                    const expectedObj = systemExpected[drawer];
+
+                    for (const currency of drawerCurrencies) {
+                      const expected = expectedObj?.[currency.code] || 0;
+                      const physical =
+                        drawerAmounts.amounts[drawer]?.[currency.code] ?? 0;
+                      const variance = physical - expected;
+                      const pct =
+                        expected !== 0
+                          ? (Math.abs(variance) / expected) * 100
+                          : 0;
+
+                      if (
+                        varianceThresholdPct > 0 &&
+                        pct >= varianceThresholdPct &&
+                        Math.abs(variance) > 0.01
+                      ) {
+                        flagged.push({
+                          drawer,
+                          currency: currency.code,
+                          variance,
+                          expected,
+                          pct,
+                        });
+                      }
+                    }
+                  }
+
+                  return (
+                    <>
+                      {flagged.length > 0 && (
+                        <AlertBanner type="warning">
+                          Variance threshold exceeded ({varianceThresholdPct}
+                          %+):{" "}
+                          {flagged
+                            .slice(0, 4)
+                            .map(
+                              (f) =>
+                                `${f.drawer} ${f.currency} ${f.variance > 0 ? "+" : ""}${f.variance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${f.pct.toFixed(1)}%)`,
+                            )
+                            .join(" • ")}
+                          {flagged.length > 4 ? " • ..." : ""}
+                        </AlertBanner>
+                      )}
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {activeDrawerOrder.map((drawer) => {
+                          const allowed = drawerCurrencyConfig[drawer];
+                          const drawerCurrencies = allowed
+                            ? currencies.filter((c) => allowed.includes(c.code))
+                            : currencies;
+
+                          return (
+                            <VarianceCard
+                              key={drawer}
+                              drawer={drawer}
+                              currencies={drawerCurrencies}
+                              physicalAmounts={
+                                drawerAmounts.amounts[drawer] || {}
+                              }
+                              getExpectedAmount={(currencyCode: string) => {
+                                const expected = systemExpected[drawer];
+                                if (!expected) return 0;
+                                return expected[currencyCode] || 0;
+                              }}
+                            />
+                          );
+                        })}
+                      </div>
+                    </>
+                  );
+                })()}
+            </>
+          )}
+
+          {/* Step 3: Notes & Confirmation */}
+          {step === 3 && (
+            <>
+              <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
+                <p className="text-slate-300 text-sm">
+                  Add any notes to explain variances or issues before saving
+                  this checkpoint.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label
+                  htmlFor="checkpoint-notes"
+                  className="block text-sm font-medium text-slate-300"
+                >
+                  Notes (Optional)
+                </label>
+                <textarea
+                  id="checkpoint-notes"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  disabled={saving}
+                  rows={4}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-white focus:ring-2 focus:ring-violet-600 focus:border-transparent transition-all disabled:opacity-50 resize-none"
+                  placeholder="Explain any variances or issues..."
+                />
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="border-t border-slate-700 p-6 bg-slate-800">
+          <div className="flex justify-between items-center">
+            <button
+              type="button"
+              onClick={handleCancel}
+              disabled={saving}
+              className="px-4 py-2 rounded-lg text-slate-300 hover:text-white hover:bg-slate-700 transition-colors disabled:opacity-50"
+            >
+              Cancel
+            </button>
+
+            <div className="flex items-center gap-3">
+              {step > 1 && (
+                <button
+                  type="button"
+                  onClick={handlePreviousStep}
+                  disabled={saving}
+                  className="px-4 py-2 rounded-lg text-slate-300 hover:text-white hover:bg-slate-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+                >
+                  <ChevronLeft size={16} />
+                  Previous
+                </button>
+              )}
+
+              {step < totalSteps ? (
+                <button
+                  type="button"
+                  onClick={handleNextStep}
+                  disabled={saving || currenciesLoading}
+                  className="px-6 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  Next Step
+                  <ChevronRight size={16} />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleSave}
+                  disabled={saving}
+                  className="px-6 py-2 bg-green-600 hover:bg-green-500 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {saving ? "Saving..." : "Save Checkpoint"}
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
-    );
-  }
-
-  // Render appropriate modal based on mode
-  if (mode === "OPENING") {
-    return <OpeningModal isOpen={isOpen} onClose={handleClose} />;
-  }
-
-  if (mode === "CLOSING") {
-    return <ClosingModal isOpen={isOpen} onClose={handleClose} />;
-  }
-
-  return null;
+    </div>
+  );
 }

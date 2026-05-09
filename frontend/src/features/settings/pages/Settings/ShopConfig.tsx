@@ -54,6 +54,9 @@ export default function ShopConfig() {
   const [posShowImages, setPosShowImages] = useState(
     () => localStorage.getItem("pos_show_images") !== "false",
   );
+  const [posAutofillPayment, setPosAutofillPayment] = useState(
+    () => localStorage.getItem("pos_autofill_payment") !== "false",
+  );
   const [uiScale, setUiScale] = useState(() => {
     const saved = localStorage.getItem("ui_scale");
     return saved ? parseFloat(saved) : 1.0;
@@ -78,6 +81,11 @@ export default function ShopConfig() {
     setPosShowImages(show);
     localStorage.setItem("pos_show_images", String(show));
     window.dispatchEvent(new Event("pos-display-changed"));
+  };
+
+  const handlePosAutofillPaymentChange = (enabled: boolean) => {
+    setPosAutofillPayment(enabled);
+    localStorage.setItem("pos_autofill_payment", String(enabled));
   };
 
   const handleUiScaleChange = (scale: number) => {
@@ -437,6 +445,36 @@ export default function ShopConfig() {
               className={clsx(
                 "absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform",
                 voiceBotEnabled ? "translate-x-5" : "translate-x-0.5",
+              )}
+            />
+          </div>
+        </label>
+
+        <label className="flex items-center justify-between cursor-pointer group">
+          <div className="flex items-center gap-3">
+            <div>
+              <span className="text-sm text-white">
+                Auto-fill Payment Amount
+              </span>
+              <p className="text-xs text-slate-500">
+                Automatically fill the payment amount in POS checkout when the
+                modal opens
+              </p>
+            </div>
+          </div>
+          <div
+            className={clsx(
+              "relative w-10 h-5 rounded-full transition-colors",
+              posAutofillPayment ? "bg-violet-600" : "bg-slate-600",
+            )}
+            onClick={() =>
+              handlePosAutofillPaymentChange(!posAutofillPayment)
+            }
+          >
+            <div
+              className={clsx(
+                "absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform",
+                posAutofillPayment ? "translate-x-5" : "translate-x-0.5",
               )}
             />
           </div>

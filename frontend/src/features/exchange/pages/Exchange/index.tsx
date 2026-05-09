@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import logger from "@/utils/logger";
 import {
   RefreshCw,
@@ -6,6 +6,7 @@ import {
   ArrowRight,
   AlertCircle,
   History,
+  ChevronDown,
 } from "lucide-react";
 import { PageHeader, useApi } from "@liratek/ui";
 import { useSession } from "@/features/sessions/context/SessionContext";
@@ -17,6 +18,10 @@ import {
   type CurrencyRate,
   type CurrencyExchangeResult,
 } from "@liratek/core";
+import {
+  fetchLiveCurrencyRates,
+  CURRENCY_NAMES,
+} from "@/utils/liveExchangeRates";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -88,16 +93,188 @@ function formatAmount(amount: number, currency: string, decimals = 2): string {
   return `${amount.toLocaleString(undefined, { maximumFractionDigits: d })} ${currency}`;
 }
 
+// ─── Currency Selector ────────────────────────────────────────────────────────
+
+/** Currency symbols for common currencies */
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  EUR: "€",
+  GBP: "£",
+  JPY: "¥",
+  CHF: "Fr",
+  CAD: "C$",
+  AUD: "A$",
+  TRY: "₺",
+  INR: "₹",
+  CNY: "¥",
+  KRW: "₩",
+  BRL: "R$",
+  MXN: "$",
+  ZAR: "R",
+  SEK: "kr",
+  NOK: "kr",
+  DKK: "kr",
+  PLN: "zł",
+  CZK: "Kč",
+  HUF: "Ft",
+  ILS: "₪",
+  SGD: "S$",
+  HKD: "HK$",
+  NZD: "NZ$",
+  PHP: "₱",
+  IDR: "Rp",
+  MYR: "RM",
+  RUB: "₽",
+  NGN: "₦",
+  EGP: "E£",
+  UAH: "₴",
+};
+
+function getCurrencySymbol(code: string): string {
+  return CURRENCY_SYMBOLS[code] || code;
+}
+
+interface CurrencySelectorProps {
+  selected: string;
+  onSelect: (code: string) => void;
+  currencies: Array<{ id: number; code: string }>; // from CurrencyContext (USD, LBP, EUR)
+  liveCurrencyRates: CurrencyRate[];
+}
+
+/**
+ * Currency selector with USD + LBP as fixed buttons, and a searchable dropdown
+ * for EUR (from settings) + all other live currencies from the public API.
+ */
+function CurrencySelector({
+  selected,
+  onSelect,
+  currencies,
+  liveCurrencyRates,
+}: CurrencySelectorProps) {
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [search, setSearch] = useState("");
+
+  // Fixed currencies always shown as buttons
+  const fixedCodes = ["USD", "LBP"];
+  // EUR and other currencies go in the dropdown
+  const eurCurrency = currencies.find((c) => c.code === "EUR");
+  const dropdownOptions = useMemo(
+    () => [
+      ...(eurCurrency ? [{ code: "EUR", symbol: "€" }] : []),
+      ...liveCurrencyRates.map((r) => ({
+        code: r.to_code,
+        symbol: getCurrencySymbol(r.to_code),
+      })),
+    ],
+    [eurCurrency, liveCurrencyRates],
+  );
+
+  // Filter options by search
+  const filteredOptions = useMemo(() => {
+    if (!search.trim()) return dropdownOptions;
+    const q = search.toLowerCase();
+    return dropdownOptions.filter(
+      (opt) =>
+        opt.code.toLowerCase().includes(q) ||
+        opt.symbol.toLowerCase().includes(q),
+    );
+  }, [dropdownOptions, search]);
+
+  // Is the selected currency one from the dropdown?
+  const isDropdownSelection = selected && !fixedCodes.includes(selected);
+  const dropdownLabel = isDropdownSelection ? selected : "More";
+
+  return (
+    <div className="flex gap-1 bg-slate-900 p-1 rounded-lg relative">
+      {fixedCodes.map((code) => (
+        <button
+          key={code}
+          onClick={() => {
+            onSelect(code);
+            setDropdownOpen(false);
+          }}
+          className={`flex-1 py-2 rounded text-xs font-bold transition-all ${
+            selected === code
+              ? "bg-slate-700 text-white shadow"
+              : "text-slate-500 hover:text-slate-300"
+          }`}
+        >
+          {code}
+        </button>
+      ))}
+
+      {/* Dropdown trigger for other currencies */}
+      <div className="relative flex-1">
+        <button
+          onClick={() => {
+            setDropdownOpen(!dropdownOpen);
+            if (!dropdownOpen) setSearch("");
+          }}
+          className={`w-full py-2 rounded text-xs font-bold transition-all flex items-center justify-center gap-1 ${
+            isDropdownSelection
+              ? "bg-slate-700 text-white shadow"
+              : "text-slate-500 hover:text-slate-300"
+          }`}
+        >
+          {dropdownLabel}
+          <ChevronDown
+            size={12}
+            className={`transition-transform ${dropdownOpen ? "rotate-180" : ""}`}
+          />
+        </button>
+
+        {dropdownOpen && (
+          <div className="absolute top-full left-0 mt-1 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-50 w-48">
+            {/* Search input */}
+            <div className="p-2 border-b border-slate-700/50">
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search currency..."
+                className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-violet-500"
+                autoFocus
+              />
+            </div>
+
+            {/* Options list */}
+            <div className="max-h-52 overflow-y-auto">
+              {filteredOptions.map((opt) => (
+                <button
+                  key={opt.code}
+                  onClick={() => {
+                    onSelect(opt.code);
+                    setDropdownOpen(false);
+                    setSearch("");
+                  }}
+                  className={`w-full px-3 py-2 text-left text-xs font-medium transition-colors flex items-center justify-between ${
+                    selected === opt.code
+                      ? "bg-violet-600/30 text-violet-300"
+                      : "text-slate-300 hover:bg-slate-700"
+                  }`}
+                >
+                  <span>{opt.code}</span>
+                  <span className="text-slate-500">{opt.symbol}</span>
+                </button>
+              ))}
+              {filteredOptions.length === 0 && (
+                <div className="px-3 py-2 text-xs text-slate-500">
+                  {dropdownOptions.length === 0 ? "Loading..." : "No match"}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function Exchange() {
   const api = useApi();
   const { activeSession, linkTransaction } = useSession();
-  const {
-    activeCurrencies: currencies,
-    getSymbol,
-    getDecimals,
-  } = useCurrencyContext();
+  const { activeCurrencies: currencies, getDecimals } = useCurrencyContext();
 
   const [transactions, setTransactions] = useState<ExchangeTx[]>([]);
   const [fromCurrency, setFromCurrency] = useState<string>("");
@@ -106,6 +283,9 @@ export default function Exchange() {
   const [amountIn, setAmountIn] = useState<string>("");
   const [amountOut, setAmountOut] = useState<string>("");
   const [rates, setRates] = useState<CurrencyRate[]>([]);
+  const [liveCurrencyRates, setLiveCurrencyRates] = useState<CurrencyRate[]>(
+    [],
+  );
   const [clientName, setClientName] = useState("");
 
   // Live calculation result (auto from DB rates)
@@ -153,6 +333,30 @@ export default function Exchange() {
     load();
   }, []);
 
+  // Fetch live exchange rates from public API
+  useEffect(() => {
+    const loadLive = async () => {
+      try {
+        const live = await fetchLiveCurrencyRates();
+        setLiveCurrencyRates(live);
+      } catch (e) {
+        logger.error("Failed to load live rates", e);
+      }
+    };
+    loadLive();
+  }, []);
+
+  // Combined rates: local DB rates + selected live currency rate (if applicable)
+  const effectiveRates = useMemo(() => {
+    const localCodes = new Set(rates.map((r) => r.to_code));
+    // Find live rates for currencies not in local DB
+    const selectedCodes = [fromCurrency, toCurrency];
+    const extras = liveCurrencyRates.filter(
+      (lr) => selectedCodes.includes(lr.to_code) && !localCodes.has(lr.to_code),
+    );
+    return [...rates, ...extras];
+  }, [rates, liveCurrencyRates, fromCurrency, toCurrency]);
+
   // Reset custom rate overrides when currencies change
   useEffect(() => {
     setCustomRates({});
@@ -176,7 +380,7 @@ export default function Exchange() {
         const customRate = parseFloat(customRates[i] ?? "");
         if (isNaN(customRate) || customRate <= 0) return leg;
 
-        const cr = rates.find(
+        const cr = effectiveRates.find(
           (r) =>
             r.to_code ===
             (leg.fromCurrency === "USD" ? leg.toCurrency : leg.fromCurrency),
@@ -223,7 +427,7 @@ export default function Exchange() {
       if (isCross && legs[1]) {
         const leg1Out = legs[0].amountOut;
         const leg2 = legs[1];
-        const cr = rates.find(
+        const cr = effectiveRates.find(
           (r) =>
             r.to_code ===
             (leg2.fromCurrency === "USD" ? leg2.toCurrency : leg2.fromCurrency),
@@ -260,7 +464,7 @@ export default function Exchange() {
       const totalProfitUsd = legs.reduce((s, l) => s + l.profitUsd, 0);
       return { ...base, legs, totalAmountOut, totalProfitUsd };
     },
-    [customRates, rateOverridden, rates],
+    [customRates, rateOverridden, effectiveRates],
   );
 
   // Effective result (base calc + any custom rate overrides)
@@ -283,11 +487,16 @@ export default function Exchange() {
       setAmountOut("");
       return;
     }
-    if (!rates.length) return;
+    if (!effectiveRates.length) return;
 
     try {
       if (!isNaN(val) && val > 0) {
-        const result = calculateExchange(fromCurrency, toCurrency, val, rates);
+        const result = calculateExchange(
+          fromCurrency,
+          toCurrency,
+          val,
+          effectiveRates,
+        );
         setCalcResult(result);
         setCalcError(null);
         const decimals = getDecimals(toCurrency);
@@ -319,7 +528,7 @@ export default function Exchange() {
       setAmountOut("");
       setProfitWarning(null);
     }
-  }, [amountIn, fromCurrency, toCurrency, rates, getDecimals]);
+  }, [amountIn, fromCurrency, toCurrency, effectiveRates, getDecimals]);
 
   useEffect(() => {
     recalculate();
@@ -386,6 +595,8 @@ export default function Exchange() {
         totalProfitUsd: effectiveResult.totalProfitUsd,
         clientName: clientName || undefined,
         note: `Exchange ${fromCurrency} → ${toCurrency}${effectiveResult.viaCurrency ? ` via ${effectiveResult.viaCurrency}` : ""}`,
+        fromCurrencyName: CURRENCY_NAMES[fromCurrency] ?? fromCurrency,
+        toCurrencyName: CURRENCY_NAMES[toCurrency] ?? toCurrency,
       });
 
       if (result.success) {
@@ -398,6 +609,7 @@ export default function Exchange() {
                 fromCurrency === "USD" ? inp : toCurrency === "USD" ? out : 0,
               amountLbp:
                 fromCurrency === "LBP" ? inp : toCurrency === "LBP" ? out : 0,
+              profitUsd: effectiveResult.totalProfitUsd,
             });
           } catch (err) {
             logger.error("Failed to link exchange to session:", err);
@@ -448,21 +660,12 @@ export default function Exchange() {
               <span className="block text-xs font-medium text-slate-400 mb-1 uppercase">
                 From
               </span>
-              <div className="grid grid-cols-3 gap-1 bg-slate-900 p-1 rounded-lg">
-                {currencies.map((c) => (
-                  <button
-                    key={c.id}
-                    onClick={() => setFromCurrency(c.code)}
-                    className={`py-2 rounded text-xs font-bold transition-all ${
-                      fromCurrency === c.code
-                        ? "bg-slate-700 text-white shadow"
-                        : "text-slate-500 hover:text-slate-300"
-                    }`}
-                  >
-                    {c.code}
-                  </button>
-                ))}
-              </div>
+              <CurrencySelector
+                selected={fromCurrency}
+                onSelect={setFromCurrency}
+                currencies={currencies}
+                liveCurrencyRates={liveCurrencyRates}
+              />
             </div>
 
             <button
@@ -476,21 +679,12 @@ export default function Exchange() {
               <span className="block text-xs font-medium text-slate-400 mb-1 uppercase">
                 To
               </span>
-              <div className="grid grid-cols-3 gap-1 bg-slate-900 p-1 rounded-lg">
-                {currencies.map((c) => (
-                  <button
-                    key={c.id}
-                    onClick={() => setToCurrency(c.code)}
-                    className={`py-2 rounded text-xs font-bold transition-all ${
-                      toCurrency === c.code
-                        ? "bg-slate-700 text-white shadow"
-                        : "text-slate-500 hover:text-slate-300"
-                    }`}
-                  >
-                    {c.code}
-                  </button>
-                ))}
-              </div>
+              <CurrencySelector
+                selected={toCurrency}
+                onSelect={setToCurrency}
+                currencies={currencies}
+                liveCurrencyRates={liveCurrencyRates}
+              />
             </div>
           </div>
 
@@ -566,7 +760,7 @@ export default function Exchange() {
                         leg.fromCurrency,
                         leg.toCurrency,
                         leg.rate,
-                        rates,
+                        effectiveRates,
                       )
                         .split(" ")
                         .slice(1)
@@ -612,7 +806,7 @@ export default function Exchange() {
                         effectiveResult.legs[0].fromCurrency,
                         effectiveResult.legs[0].toCurrency,
                         effectiveResult.legs[0].rate,
-                        rates,
+                        effectiveRates,
                       )
                         .split(" ")
                         .slice(1)
@@ -650,14 +844,14 @@ export default function Exchange() {
                 You Receive ({fromCurrency})
               </label>
               <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-500 font-bold">
-                  {getSymbol(fromCurrency)}
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-emerald-500 font-bold">
+                  {getCurrencySymbol(fromCurrency)}
                 </span>
                 <input
                   type="number"
                   value={amountIn}
                   onChange={(e) => setAmountIn(e.target.value)}
-                  className="w-full bg-slate-800 border border-slate-600 rounded-lg pl-10 pr-4 py-4 text-xl font-bold text-white focus:outline-none focus:border-emerald-500 transition-colors"
+                  className="w-full bg-slate-800/50 border border-slate-700 rounded-lg pl-14 pr-4 py-4 text-xl font-bold text-white focus:outline-none focus:border-emerald-500 transition-colors"
                   placeholder="0.00"
                 />
               </div>
@@ -674,14 +868,14 @@ export default function Exchange() {
                 Customer Gets ({toCurrency})
               </label>
               <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-red-400 font-bold">
-                  {getSymbol(toCurrency)}
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-red-400 font-bold">
+                  {getCurrencySymbol(toCurrency)}
                 </span>
                 <input
                   type="number"
                   value={amountOut}
                   readOnly
-                  className="w-full bg-slate-800/50 border border-slate-700 rounded-lg pl-10 pr-4 py-4 text-xl font-bold text-slate-300 cursor-not-allowed"
+                  className="w-full bg-slate-800/50 border border-slate-700 rounded-lg pl-14 pr-4 py-4 text-xl font-bold text-slate-300 cursor-not-allowed"
                   placeholder="0.00"
                 />
               </div>

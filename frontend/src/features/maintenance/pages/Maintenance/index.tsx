@@ -1,6 +1,13 @@
 import { useState, useEffect, useRef } from "react";
 import logger from "@/utils/logger";
-import { Wrench, Plus, DollarSign, History } from "lucide-react";
+import {
+  Wrench,
+  Plus,
+  DollarSign,
+  History,
+  Clock,
+  ChevronRight,
+} from "lucide-react";
 import CheckoutModal from "@/features/sales/pages/POS/components/CheckoutModal";
 import { PageHeader, useApi } from "@liratek/ui";
 import { useSession } from "@/features/sessions/context/SessionContext";
@@ -24,11 +31,7 @@ type MaintenanceJob = {
 
 export default function Maintenance() {
   const api = useApi();
-  const {
-    activeSession,
-    linkTransaction,
-    addToCart: addToSessionCart,
-  } = useSession();
+  const { activeSession, addToCart: addToSessionCart } = useSession();
   const deviceNameRef = useRef<HTMLInputElement>(null);
   const [jobs, setJobs] = useState<MaintenanceJob[]>([]);
   const [filter, _setFilter] = useState("All");
@@ -104,6 +107,39 @@ export default function Maintenance() {
     setPrice(job.price_usd?.toString() || "");
     setClientName(job.client_name || "");
     setClientPhone(job.client_phone || "");
+  };
+
+  const handleStatusTransition = async (
+    job: MaintenanceJob,
+    e: React.MouseEvent,
+  ) => {
+    e.stopPropagation();
+    const nextStatus: Record<string, Status> = {
+      Received: "In_Progress",
+      In_Progress: "Ready",
+      Ready: "Ready",
+    };
+    const newStatus = nextStatus[job.status];
+    if (!newStatus || newStatus === job.status) return;
+
+    const result = await api.saveMaintenanceJob({
+      id: job.id,
+      device_name: job.device_name,
+      issue_description: job.issue_description,
+      cost_usd: job.cost_usd ?? 0,
+      price_usd: job.price_usd ?? 0,
+      client_name: job.client_name || "",
+      client_phone: job.client_phone || "",
+      status: newStatus,
+      paid_usd: job.paid_usd || 0,
+      paid_lbp: job.paid_lbp || 0,
+      discount_usd: job.discount_usd || 0,
+      final_amount_usd: job.price_usd ?? 0,
+    });
+    if (result.success) {
+      const data = await api.getMaintenanceJobs(filter);
+      setJobs(data);
+    }
   };
 
   const handleVoid = async (id: number) => {
@@ -185,19 +221,6 @@ export default function Maintenance() {
 
     const result = await api.saveMaintenanceJob(jobData);
     if (result.success) {
-      if (activeSession && result.id) {
-        try {
-          await linkTransaction({
-            transactionType: "maintenance",
-            transactionId: result.id,
-            amountUsd: paymentData.final_amount || 0,
-            amountLbp: 0,
-          });
-        } catch (err) {
-          logger.error("Failed to link maintenance to session:", err);
-        }
-      }
-
       setIsCheckoutOpen(false);
       handleNewJob();
       const data = await api.getMaintenanceJobs(filter);
@@ -224,7 +247,94 @@ export default function Maintenance() {
       />
 
       {/* Main Content: Form */}
-      <div className="flex-1 min-h-0">
+      <div className="flex-1 min-h-0 overflow-auto">
+        {/* Ongoing Jobs List */}
+        {(() => {
+          const ongoingJobs = jobs.filter((j) =>
+            ["Received", "In_Progress", "Ready"].includes(j.status),
+          );
+          if (ongoingJobs.length === 0) return null;
+          return (
+            <div className="w-full max-w-2xl mx-auto mb-4">
+              <div className="bg-slate-800/60 rounded-xl border border-slate-700/50 p-4">
+                <h3 className="text-sm font-semibold text-slate-300 mb-3 flex items-center gap-2">
+                  <Clock size={14} className="text-amber-400" />
+                  Ongoing Jobs ({ongoingJobs.length})
+                </h3>
+                <div className="space-y-2 max-h-48 overflow-auto custom-scrollbar">
+                  {ongoingJobs.map((job) => (
+                    <button
+                      key={job.id}
+                      onClick={() => handleEdit(job)}
+                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-all hover:bg-slate-700/70 ${
+                        editingJob?.id === job.id
+                          ? "bg-violet-600/20 border border-violet-500/50"
+                          : "bg-slate-900/50 border border-slate-700/40"
+                      }`}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-white truncate">
+                            {job.device_name}
+                          </span>
+                          <span
+                            className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                              job.status === "Ready"
+                                ? "bg-emerald-500/20 text-emerald-400"
+                                : job.status === "In_Progress"
+                                  ? "bg-amber-500/20 text-amber-400"
+                                  : "bg-blue-500/20 text-blue-400"
+                            }`}
+                          >
+                            {job.status.replace("_", " ")}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          {job.client_name && (
+                            <span className="text-xs text-slate-500 truncate">
+                              {job.client_name}
+                            </span>
+                          )}
+                          {job.created_at && (
+                            <span className="text-[10px] text-slate-600">
+                              {new Date(job.created_at).toLocaleDateString()}
+                            </span>
+                          )}
+                        </div>
+                        {job.issue_description && (
+                          <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+                            {job.issue_description.length > 60
+                              ? job.issue_description.slice(0, 60) + "..."
+                              : job.issue_description}
+                          </p>
+                        )}
+                      </div>
+                      {job.status !== "Ready" && (
+                        <button
+                          onClick={(e) => handleStatusTransition(job, e)}
+                          className="text-[10px] px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors whitespace-nowrap"
+                          title={
+                            job.status === "Received"
+                              ? "Mark In Progress"
+                              : "Mark Ready"
+                          }
+                        >
+                          {job.status === "Received" ? "Start" : "Ready"}
+                        </button>
+                      )}
+                      {(job.price_usd ?? 0) > 0 && (
+                        <span className="text-xs font-mono text-emerald-400">
+                          ${job.price_usd?.toFixed(2)}
+                        </span>
+                      )}
+                      <ChevronRight size={14} className="text-slate-600" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
         {/* New/Edit Job Form */}
         <div className="w-full max-w-2xl mx-auto bg-slate-800 rounded-xl border border-slate-700/50 shadow-xl p-5 flex flex-col overflow-hidden">
           <h2 className="text-lg font-bold text-white mb-6 flex items-center gap-2">

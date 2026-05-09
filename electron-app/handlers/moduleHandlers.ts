@@ -80,4 +80,23 @@ export function registerModuleHandlers(): void {
       return result;
     },
   );
+
+  // Reorder modules (admin only) — accepts ordered array of module keys
+  ipcMain.handle(
+    "modules:reorder",
+    (event: IpcMainInvokeEvent, orderedKeys: string[]) => {
+      const auth = requireRole(event.sender.id, ["admin"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+
+      settingsLogger.info({ count: orderedKeys.length }, "Reordering modules");
+      const result = moduleService.reorderModules(orderedKeys);
+      audit(event.sender.id, {
+        action: "update",
+        entity_type: "module",
+        summary: `Reordered ${orderedKeys.length} modules`,
+        metadata: { orderedKeys },
+      });
+      return result;
+    },
+  );
 }

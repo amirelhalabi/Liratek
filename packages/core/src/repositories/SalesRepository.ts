@@ -31,6 +31,8 @@ export interface SaleEntity {
   note: string | null;
   created_at: string;
   created_by?: number;
+  edited_by: string | null;
+  edited_at: string | null;
 }
 
 export interface SaleItemEntity {
@@ -172,7 +174,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
 
   // Override getColumns() to use explicit columns instead of SELECT *
   protected getColumns(): string {
-    return "id, client_id, total_amount_usd, discount_usd, final_amount_usd, paid_usd, paid_lbp, change_given_usd, change_given_lbp, exchange_rate_snapshot, status, note, created_at, drawer_name";
+    return "id, client_id, total_amount_usd, discount_usd, final_amount_usd, paid_usd, paid_lbp, change_given_usd, change_given_lbp, exchange_rate_snapshot, status, note, created_at, drawer_name, edited_by, edited_at";
   }
 
   // ---------------------------------------------------------------------------
@@ -295,6 +297,16 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         }
 
         // Create unified transaction row
+        // Calculate profit from items (sold_price - cost_price) × quantity
+        let saleProfitUsd = 0;
+        for (const item of sale.items) {
+          const costRow = db
+            .prepare("SELECT cost_price_usd FROM products WHERE id = ?")
+            .get(item.product_id) as { cost_price_usd: number } | undefined;
+          const costPrice = costRow?.cost_price_usd ?? 0;
+          saleProfitUsd += (item.price - costPrice) * item.quantity;
+        }
+
         const txnId = getTransactionRepository().createTransaction({
           type: TRANSACTION_TYPES.SALE,
           source_table: "sales",
@@ -302,6 +314,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           user_id: userId,
           amount_usd: sale.final_amount,
           amount_lbp: sale.payment_lbp || 0,
+          profit_usd: saleProfitUsd,
           exchange_rate: sale.exchange_rate,
           client_id: finalClientId ?? null,
           summary: `Sale #${saleId}: $${sale.final_amount}`,
@@ -1202,6 +1215,39 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         cause: error,
       });
     }
+  }
+
+  /**
+   * Update non-financial metadata on a sale record.
+   * Only metadata fields are allowed — financial data is immutable.
+   */
+  updateMetadata(
+    id: number,
+    data: { note?: string },
+    editedBy: string,
+  ): SaleEntity | null {
+    const existing = this.findById(id);
+    if (!existing) return null;
+
+    const fields: string[] = [];
+    const values: unknown[] = [];
+
+    if (data.note !== undefined) {
+      fields.push("note = ?");
+      values.push(data.note);
+    }
+
+    if (fields.length === 0) return existing;
+
+    fields.push("edited_by = ?", "edited_at = CURRENT_TIMESTAMP");
+    values.push(editedBy);
+    values.push(id);
+
+    this.db
+      .prepare(`UPDATE sales SET ${fields.join(", ")} WHERE id = ?`)
+      .run(...values);
+
+    return this.findById(id);
   }
 }
 

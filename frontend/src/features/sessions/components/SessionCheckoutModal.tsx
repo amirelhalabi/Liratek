@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import {
   ShoppingCart,
   X,
@@ -7,13 +7,12 @@ import {
   Loader2,
 } from "lucide-react";
 import logger from "@/utils/logger";
-import { appEvents } from "@liratek/ui";
+import { appEvents, useApi } from "@liratek/ui";
 import { useSession } from "../context/SessionContext";
 import { useAuth } from "@/features/auth/context/AuthContext";
-import {
-  MultiPaymentInput,
-  type PaymentLine,
-} from "@/shared/components/MultiPaymentInput";
+import { MultiPaymentInput, type PaymentLine } from "@liratek/ui";
+import { usePaymentMethods } from "@/hooks/usePaymentMethods";
+import { useCurrencyContext } from "@/contexts/CurrencyContext";
 import type { CartItem } from "../types/cart";
 
 interface SessionCheckoutModalProps {
@@ -59,26 +58,52 @@ export function SessionCheckoutModal({
     cartItems,
     clearCart,
     getCartTotals,
-    refreshSessionTransactions,
+    refreshActiveSessions,
   } = useSession();
   const { user } = useAuth();
+  const { allMethods } = usePaymentMethods();
+  const { activeCurrencies } = useCurrencyContext();
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [exchangeRate, setExchangeRate] = useState(90000);
+
+  // Load exchange rate from database
+  const api = useApi();
+  useEffect(() => {
+    const loadRate = async () => {
+      try {
+        const rates = await api.getRates();
+        const usdLbp = rates.find(
+          (r: { from_code: string; to_code: string }) =>
+            r.from_code === "USD" && r.to_code === "LBP",
+        );
+        if (usdLbp) setExchangeRate(usdLbp.rate);
+      } catch {
+        // keep fallback
+      }
+    };
+    loadRate();
+  }, [api]);
 
   const totals = useMemo(() => getCartTotals(), [cartItems, getCartTotals]);
 
-  // Primary total for payment matching — use USD if any USD items, else LBP
-  const primaryTotal = useMemo(() => {
-    if (totals.usd !== 0)
-      return { amount: totals.usd, currency: "USD" as const };
-    if (totals.lbp !== 0)
-      return { amount: totals.lbp, currency: "LBP" as const };
-    if (totals.usdt !== 0)
-      return { amount: totals.usdt, currency: "USDT" as const };
-    return { amount: 0, currency: "USD" as const };
-  }, [totals]);
+  // Compute a unified total in USD: convert LBP and USDT to USD using the exchange rate
+  const unifiedTotalUsd = useMemo(() => {
+    let total = totals.usd;
+    if (totals.lbp !== 0 && exchangeRate > 0) {
+      total += totals.lbp / exchangeRate;
+    }
+    if (totals.usdt !== 0) {
+      total += totals.usdt; // USDT ≈ USD
+    }
+    return total;
+  }, [totals, exchangeRate]);
+
+  const handleExchangeRateChange = useCallback((rate: number) => {
+    setExchangeRate(rate);
+  }, []);
 
   // Group items by module for display
   const groupedItems = useMemo(() => {
@@ -135,7 +160,7 @@ export function SessionCheckoutModal({
       if (result.success) {
         logger.info(`Session checkout completed: ${result.itemCount} items`);
         clearCart();
-        await refreshSessionTransactions();
+        await refreshActiveSessions();
         appEvents.emit(
           "notification:show",
           `Checkout complete — ${result.itemCount} items processed`,
@@ -164,7 +189,7 @@ export function SessionCheckoutModal({
       />
 
       {/* Modal */}
-      <div className="relative bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col overflow-hidden">
+      <div className="relative bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700/50">
           <div className="flex items-center gap-3">
@@ -229,7 +254,7 @@ export function SessionCheckoutModal({
 
           {/* Totals */}
           <div className="bg-slate-800/50 border border-slate-700/40 rounded-lg p-3 space-y-1">
-            <h3 className="text-sm font-medium text-slate-300 mb-2">
+            <h3 className="text-sm font-medium mb-2 text-emerald-400">
               Cart Totals
             </h3>
             {totals.usd !== 0 && (
@@ -262,11 +287,21 @@ export function SessionCheckoutModal({
           <div>
             <h3 className="text-sm font-medium text-slate-300 mb-2">Payment</h3>
             <MultiPaymentInput
-              totalAmount={primaryTotal.amount}
-              currency={primaryTotal.currency}
-              totalAmountCurrency={primaryTotal.currency}
+              totalAmount={unifiedTotalUsd}
+              currency="USD"
+              totalAmountCurrency="USD"
               onChange={setPaymentLines}
-              transactionType="SALE"
+              onExchangeRateChange={handleExchangeRateChange}
+              showDiscount={false}
+              paymentMethods={allMethods.map((m) => ({
+                code: m.code,
+                label: m.label,
+              }))}
+              currencies={activeCurrencies.map((c) => ({
+                code: c.code,
+                symbol: c.symbol,
+              }))}
+              exchangeRate={exchangeRate}
             />
           </div>
 

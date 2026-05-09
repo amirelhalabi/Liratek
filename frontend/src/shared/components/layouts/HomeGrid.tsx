@@ -20,6 +20,7 @@ import {
   Briefcase,
   Circle,
   Clock,
+  UserCheck,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import clsx from "clsx";
@@ -45,6 +46,7 @@ const iconMap: Record<string, LucideIcon> = {
   Briefcase,
   Settings,
   SquareActivity,
+  UserCheck,
 };
 
 /** Accent color per module key — badge bg, icon text, hover border, top accent, tinted shadow */
@@ -155,6 +157,13 @@ const accentMap: Record<
     border: "hover:border-slate-500/60",
     topBorder: "border-t-slate-500/60",
     shadow: "hover:shadow-slate-900/20",
+  },
+  customer_sessions: {
+    bg: "bg-teal-400/10",
+    text: "text-teal-400",
+    border: "hover:border-teal-500/60",
+    topBorder: "border-t-teal-500/60",
+    shadow: "hover:shadow-teal-900/20",
   },
 };
 

@@ -9,6 +9,7 @@ import {
   getMaintenanceService,
   getCustomerSessionRepository,
   getDatabase,
+  getUserRepository,
 } from "@liratek/core";
 import { requireRole } from "../session.js";
 import { audit } from "./auditHelper.js";
@@ -103,12 +104,14 @@ function processCartItem(
       };
     }
 
-    case "omt:add-transaction": {
+    case "omt:add-transaction":
+    case "financial:create": {
       // FinancialService.addTransaction(data) — data includes paidByMethod, payments
+      // NOTE: Do NOT inject checkout-level payments into financial items.
+      // Each financial item already has its own paidByMethod (and optionally its own
+      // payments array for split-payment). Injecting the session-total payment lines
+      // would cause every item to record the FULL checkout total as drawer movements.
       data.paidByMethod = data.paidByMethod || paidByMethod;
-      if (payments && payments.length > 0 && !data.payments) {
-        data.payments = payments;
-      }
       const financialService = getFinancialService();
       const result = financialService.addTransaction(data as any);
       if (!result.success || !result.id) {
@@ -223,7 +226,16 @@ export function registerSessionHandlers() {
     ) => {
       const auth = requireRole(event.sender.id, ["admin", "staff"]);
       if (!auth.ok) return { success: false, error: auth.error };
-      const result = sessionService.startSession(data);
+
+      // Look up username server-side instead of trusting frontend
+      const user = getUserRepository().findByIdSafe(auth.userId);
+      const started_by = user?.username || data.started_by || "unknown";
+
+      const result = sessionService.startSession({
+        ...data,
+        started_by,
+        user_id: auth.userId,
+      });
       audit(event.sender.id, {
         action: "create",
         entity_type: "customer_session",
@@ -236,6 +248,20 @@ export function registerSessionHandlers() {
   // Get active session
   ipcMain.handle("session:getActive", async () => {
     return sessionService.getActiveSession();
+  });
+
+  // Get all active sessions (for multi-PC polling)
+  ipcMain.handle("session:getActiveSessions", async () => {
+    try {
+      const repo = getCustomerSessionRepository();
+      const sessions = repo.getActiveSessions();
+      return { success: true, sessions };
+    } catch (err: any) {
+      return {
+        success: false,
+        error: err?.message || "Failed to get active sessions",
+      };
+    }
   });
 
   // Get session details
@@ -278,6 +304,22 @@ export function registerSessionHandlers() {
     },
   );
 
+  // Delete session permanently
+  ipcMain.handle("session:delete", async (event, sessionId: number) => {
+    const auth = requireRole(event.sender.id, ["admin", "staff"]);
+    if (!auth.ok) return { success: false, error: auth.error };
+    const result = await sessionService.deleteSession(sessionId);
+    if (result.success) {
+      audit(event.sender.id, {
+        action: "delete",
+        entity_type: "customer_session",
+        entity_id: String(sessionId),
+        summary: `Deleted customer session #${sessionId}`,
+      });
+    }
+    return result;
+  });
+
   // List sessions
   ipcMain.handle(
     "session:list",
@@ -285,6 +327,30 @@ export function registerSessionHandlers() {
       return sessionService.listSessions(limit, offset);
     },
   );
+
+  // Get sessions by date range
+  ipcMain.handle(
+    "session:byDateRange",
+    async (event, from: string, to: string) => {
+      const auth = requireRole(event.sender.id, ["admin", "staff"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+      return sessionService.getSessionsByDateRange(from, to);
+    },
+  );
+
+  // Get today's sessions
+  ipcMain.handle("session:today", async (event) => {
+    const auth = requireRole(event.sender.id, ["admin", "staff"]);
+    if (!auth.ok) return { success: false, error: auth.error };
+    return sessionService.getTodaySessions();
+  });
+
+  // Get today's sessions (active + closed) for session list UI
+  ipcMain.handle("session:todayAll", async (event) => {
+    const auth = requireRole(event.sender.id, ["admin", "staff"]);
+    if (!auth.ok) return { success: false, error: auth.error };
+    return sessionService.getTodayAllSessions();
+  });
 
   // Link transaction to active session (helper for other modules)
   ipcMain.handle(
@@ -297,6 +363,8 @@ export function registerSessionHandlers() {
         transactionId: number;
         amountUsd: number;
         amountLbp: number;
+        profitUsd?: number;
+        profitLbp?: number;
       },
     ) => {
       const auth = requireRole(event.sender.id, ["admin", "staff"]);
@@ -308,6 +376,8 @@ export function registerSessionHandlers() {
           data.transactionId,
           data.amountUsd,
           data.amountLbp,
+          data.profitUsd ?? 0,
+          data.profitLbp ?? 0,
         );
       }
       return sessionService.linkTransactionToActiveSession(
@@ -315,6 +385,8 @@ export function registerSessionHandlers() {
         data.transactionId,
         data.amountUsd,
         data.amountLbp,
+        data.profitUsd ?? 0,
+        data.profitLbp ?? 0,
       );
     },
   );
@@ -366,7 +438,30 @@ export function registerSessionHandlers() {
         const db = getDatabase();
         const repo = getCustomerSessionRepository();
         const itemResults: CheckoutItemResult[] = [];
-        let checkoutTotal = 0;
+        let checkoutTotalUsd = 0;
+        let checkoutTotalLbp = 0;
+        let checkoutProfitUsd = 0;
+        let checkoutProfitLbp = 0;
+
+        // Inject session customer_name into cart items that lack a client name
+        const sessionCustomerName =
+          sessionResult.session.customer_name || undefined;
+        if (sessionCustomerName) {
+          for (const item of cartItems) {
+            const fd = item.formData;
+            if (fd._batch && Array.isArray(fd.items)) {
+              for (const sub of fd.items as Record<string, unknown>[]) {
+                if (!sub.clientName && !sub.senderName && !sub.client_name) {
+                  sub.clientName = sessionCustomerName;
+                }
+              }
+            } else {
+              if (!fd.clientName && !fd.senderName && !fd.client_name) {
+                fd.clientName = sessionCustomerName;
+              }
+            }
+          }
+        }
 
         // Wrap everything in a DB transaction for atomicity
         const runCheckout = db.transaction(() => {
@@ -382,7 +477,25 @@ export function registerSessionHandlers() {
                   payments,
                   userId,
                 );
-                for (const result of batchResults) {
+                // Compute per-sub-item profit from formData
+                const batchItems = item.formData.items as
+                  | Array<Record<string, unknown>>
+                  | undefined;
+                for (let bi = 0; bi < batchResults.length; bi++) {
+                  const result = batchResults[bi];
+                  let subProfitUsd = 0;
+                  let subProfitLbp = 0;
+                  if (batchItems && batchItems[bi]) {
+                    const sub = batchItems[bi];
+                    const comm = Number(sub.commission) || 0;
+                    const subCurrency =
+                      (sub.currency as string) || item.currency || "USD";
+                    if (subCurrency === "LBP") {
+                      subProfitLbp = comm;
+                    } else {
+                      subProfitUsd = comm;
+                    }
+                  }
                   // Link each sub-transaction to the session
                   repo.linkTransaction(
                     sessionId,
@@ -394,6 +507,8 @@ export function registerSessionHandlers() {
                     item.currency === "LBP"
                       ? item.amount / batchResults.length
                       : 0,
+                    subProfitUsd,
+                    subProfitLbp,
                   );
                   itemResults.push({
                     cartItemId: item.id,
@@ -411,6 +526,25 @@ export function registerSessionHandlers() {
                   userId,
                 );
 
+                // Compute per-item profit from formData
+                let itemProfitUsd = 0;
+                let itemProfitLbp = 0;
+                const comm =
+                  Number(item.formData.commission) ||
+                  Number(item.formData.totalProfitUsd) ||
+                  Number(item.formData.profitUsd) ||
+                  0;
+                const commLbp =
+                  Number(item.formData.profitLbp) ||
+                  Number(item.formData.commissionLbp) ||
+                  0;
+                if (item.currency === "LBP") {
+                  itemProfitLbp = comm || commLbp;
+                } else {
+                  itemProfitUsd = comm;
+                  itemProfitLbp = commLbp;
+                }
+
                 // Link transaction to session
                 repo.linkTransaction(
                   sessionId,
@@ -418,6 +552,8 @@ export function registerSessionHandlers() {
                   result.transactionId,
                   item.currency === "USD" ? item.amount : 0,
                   item.currency === "LBP" ? item.amount : 0,
+                  itemProfitUsd,
+                  itemProfitLbp,
                 );
 
                 itemResults.push({
@@ -428,7 +564,45 @@ export function registerSessionHandlers() {
                 });
               }
 
-              checkoutTotal += item.amount;
+              // Accumulate totals by currency
+              if (item.currency === "LBP") {
+                checkoutTotalLbp += item.amount;
+              } else {
+                checkoutTotalUsd += item.amount;
+              }
+
+              // Extract profit/commission from formData
+              if (item.formData._batch && Array.isArray(item.formData.items)) {
+                for (const sub of item.formData.items as Array<
+                  Record<string, unknown>
+                >) {
+                  const comm = Number(sub.commission) || 0;
+                  const subCurrency =
+                    (sub.currency as string) || item.currency || "USD";
+                  if (subCurrency === "LBP") {
+                    checkoutProfitLbp += comm;
+                  } else {
+                    checkoutProfitUsd += comm;
+                  }
+                }
+              } else {
+                // Check multiple profit field names used by different modules
+                const comm =
+                  Number(item.formData.commission) ||
+                  Number(item.formData.totalProfitUsd) ||
+                  Number(item.formData.profitUsd) ||
+                  0;
+                const commLbp =
+                  Number(item.formData.profitLbp) ||
+                  Number(item.formData.commissionLbp) ||
+                  0;
+                if (item.currency === "LBP") {
+                  checkoutProfitLbp += comm || commLbp;
+                } else {
+                  checkoutProfitUsd += comm;
+                  checkoutProfitLbp += commLbp;
+                }
+              }
             } catch (err: any) {
               // If any item fails, the transaction will be rolled back
               throw new Error(
@@ -437,20 +611,32 @@ export function registerSessionHandlers() {
             }
           }
 
-          // Update session with checkout info
-          const checkoutCurrency = cartItems[0]?.currency || "USD";
           db.prepare(
             `
             UPDATE customer_sessions
             SET checkout_at = datetime('now'),
                 checkout_total = ?,
                 checkout_currency = ?,
+                checkout_total_usd = ?,
+                checkout_total_lbp = ?,
+                checkout_profit_usd = ?,
+                checkout_profit_lbp = ?,
                 is_active = 0,
                 closed_at = datetime('now'),
                 closed_by = ?
             WHERE id = ?
           `,
-          ).run(checkoutTotal, checkoutCurrency, String(userId), sessionId);
+          ).run(
+            checkoutTotalUsd + checkoutTotalLbp, // legacy field
+            cartItems[0]?.currency || "USD", // legacy field
+            checkoutTotalUsd,
+            checkoutTotalLbp,
+            checkoutProfitUsd,
+            checkoutProfitLbp,
+            getUserRepository().findByIdSafe(auth.userId)?.username ||
+              String(userId),
+            sessionId,
+          );
         });
 
         // Execute the transaction
@@ -460,13 +646,16 @@ export function registerSessionHandlers() {
           action: "update",
           entity_type: "customer_session",
           entity_id: String(sessionId),
-          summary: `Session checkout: ${cartItems.length} items, total ${checkoutTotal.toFixed(2)} ${cartItems[0]?.currency || "USD"}`,
+          summary: `Session checkout: ${cartItems.length} items, USD ${checkoutTotalUsd.toFixed(2)}, LBP ${checkoutTotalLbp.toFixed(0)}`,
         });
 
         return {
           success: true,
           results: itemResults,
-          checkoutTotal,
+          checkoutTotalUsd,
+          checkoutTotalLbp,
+          checkoutProfitUsd,
+          checkoutProfitLbp,
           itemCount: cartItems.length,
         };
       } catch (err: any) {
@@ -477,4 +666,82 @@ export function registerSessionHandlers() {
       }
     },
   );
+
+  // ── Cart persistence ──────────────────────────────────────────────
+
+  ipcMain.handle(
+    "session:cart:add",
+    async (
+      event,
+      sessionId: number,
+      item: {
+        item_id: string;
+        module: string;
+        label: string;
+        amount: number;
+        currency: string;
+        form_data: string;
+        ipc_channel: string;
+      },
+    ) => {
+      try {
+        const auth = requireRole(event.sender.id, ["admin", "staff"]);
+        if (!auth.ok) return { success: false, error: auth.error };
+        const repo = getCustomerSessionRepository();
+        const id = repo.addCartItem(sessionId, {
+          ...item,
+          user_id: auth.userId,
+        });
+        return { success: true, id };
+      } catch (err: any) {
+        return {
+          success: false,
+          error: err?.message || "Failed to add cart item",
+        };
+      }
+    },
+  );
+
+  ipcMain.handle("session:cart:get", async (_event, sessionId: number) => {
+    try {
+      const repo = getCustomerSessionRepository();
+      const items = repo.getCartItems(sessionId);
+      return { success: true, items };
+    } catch (err: any) {
+      return {
+        success: false,
+        error: err?.message || "Failed to get cart items",
+      };
+    }
+  });
+
+  ipcMain.handle(
+    "session:cart:remove",
+    async (event, sessionId: number, itemId: string) => {
+      try {
+        const auth = requireRole(event.sender.id, ["admin", "staff"]);
+        if (!auth.ok) return { success: false, error: auth.error };
+        const repo = getCustomerSessionRepository();
+        repo.removeCartItem(sessionId, itemId);
+        return { success: true };
+      } catch (err: any) {
+        return {
+          success: false,
+          error: err?.message || "Failed to remove cart item",
+        };
+      }
+    },
+  );
+
+  ipcMain.handle("session:cart:clear", async (event, sessionId: number) => {
+    try {
+      const auth = requireRole(event.sender.id, ["admin", "staff"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+      const repo = getCustomerSessionRepository();
+      repo.clearCart(sessionId);
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err?.message || "Failed to clear cart" };
+    }
+  });
 }

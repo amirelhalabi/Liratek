@@ -1,5 +1,11 @@
 import { TrendingUp, Calendar } from "lucide-react";
 
+interface CurrencyStats {
+  currency: string;
+  commission: number;
+  count: number;
+}
+
 interface OwedByProvider {
   usd?: number;
   lbp?: number;
@@ -8,10 +14,29 @@ interface OwedByProvider {
 interface StatsCardsProps {
   todayCommission: number;
   monthCommission: number;
+  todayByCurrency?: CurrencyStats[] | undefined;
+  monthByCurrency?: CurrencyStats[] | undefined;
   owedByProvider: {
     OMT?: OwedByProvider;
     WHISH?: OwedByProvider;
   };
+}
+
+function formatCurrencyAmount(amount: number, currency: string): string {
+  if (currency === "LBP") {
+    return `${Math.round(amount).toLocaleString()} LBP`;
+  }
+  return `$${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function formatByCurrency(byCurrency: CurrencyStats[]): string {
+  if (byCurrency.length === 0) return "$0.00";
+  return (
+    byCurrency
+      .filter((c) => c.commission !== 0)
+      .map((c) => formatCurrencyAmount(c.commission, c.currency))
+      .join(" + ") || "$0.00"
+  );
 }
 
 function getBalanceColor(usd: number): string {
@@ -29,6 +54,8 @@ function getBalanceLabel(usd: number): string {
 export function StatsCards({
   todayCommission,
   monthCommission,
+  todayByCurrency,
+  monthByCurrency,
   owedByProvider,
 }: StatsCardsProps) {
   return (
@@ -38,11 +65,12 @@ export function StatsCards({
         <TrendingUp className="w-4 h-4 shrink-0 text-[#ffde00]" />
         <span className="font-medium whitespace-nowrap">Today</span>
         <span className="font-bold text-[#ffde00]">
-          $
-          {todayCommission.toLocaleString(undefined, {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2,
-          })}
+          {todayByCurrency && todayByCurrency.length > 0
+            ? formatByCurrency(todayByCurrency)
+            : `$${todayCommission.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}`}
         </span>
       </div>
 
@@ -51,11 +79,12 @@ export function StatsCards({
         <Calendar className="w-4 h-4 shrink-0 text-blue-400" />
         <span className="font-medium whitespace-nowrap">Month</span>
         <span className="font-bold text-blue-400">
-          $
-          {monthCommission.toLocaleString(undefined, {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2,
-          })}
+          {monthByCurrency && monthByCurrency.length > 0
+            ? formatByCurrency(monthByCurrency)
+            : `$${monthCommission.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}`}
         </span>
       </div>
 

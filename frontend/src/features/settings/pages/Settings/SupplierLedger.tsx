@@ -770,6 +770,7 @@ export default function SupplierLedger() {
                 currency="USD"
                 onChange={setSettlePaymentLines}
                 showPmFee={false}
+                showDiscount={false}
                 paymentMethods={methods}
                 currencies={[
                   { code: "USD", symbol: "$" },

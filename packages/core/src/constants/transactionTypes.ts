@@ -26,14 +26,16 @@ export const TRANSACTION_TYPES = {
   // Outflows
   EXPENSE: "EXPENSE",
 
+  // Drawer adjustments
+  DRAWER_TOPUP: "DRAWER_TOPUP",
+
   // Debt & supplier
   DEBT_REPAYMENT: "DEBT_REPAYMENT",
   SUPPLIER_PAYMENT: "SUPPLIER_PAYMENT",
   SUPPLIER_SETTLEMENT: "SUPPLIER_SETTLEMENT",
 
-  // Closing / Opening
-  CLOSING: "CLOSING",
-  OPENING: "OPENING",
+  // Closing / Checkpoint
+  CHECKPOINT: "CHECKPOINT",
 
   // Reversal
   REFUND: "REFUND",

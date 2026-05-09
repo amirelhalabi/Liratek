@@ -44,6 +44,8 @@ export interface DebtLedgerEntity {
   note: string | null;
   created_at: string;
   created_by: number | null;
+  edited_by: string | null;
+  edited_at: string | null;
 }
 
 export interface DebtorSummary {
@@ -93,7 +95,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
 
   // Override getColumns() to use explicit columns instead of SELECT *
   protected getColumns(): string {
-    return "id, client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_at, created_by";
+    return "id, client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_at, created_by, edited_by, edited_at";
   }
 
   // ---------------------------------------------------------------------------
@@ -508,6 +510,39 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
       totalDebtLbp: totalDebtResult?.totalDebtLbp || 0,
       topDebtors,
     };
+  }
+
+  /**
+   * Update non-financial metadata on a debt ledger entry.
+   * Only metadata fields are allowed — financial data is immutable.
+   */
+  updateMetadata(
+    id: number,
+    data: { note?: string },
+    editedBy: string,
+  ): DebtLedgerEntity | null {
+    const existing = this.findById(id);
+    if (!existing) return null;
+
+    const fields: string[] = [];
+    const values: unknown[] = [];
+
+    if (data.note !== undefined) {
+      fields.push("note = ?");
+      values.push(data.note);
+    }
+
+    if (fields.length === 0) return existing;
+
+    fields.push("edited_by = ?", "edited_at = CURRENT_TIMESTAMP");
+    values.push(editedBy);
+    values.push(id);
+
+    this.db
+      .prepare(`UPDATE debt_ledger SET ${fields.join(", ")} WHERE id = ?`)
+      .run(...values);
+
+    return this.findById(id);
   }
 }
 

@@ -25,6 +25,7 @@ import {
   ClipboardList,
   Circle,
   Shield,
+  UserCheck,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import clsx from "clsx";
@@ -54,6 +55,7 @@ const iconMap: Record<string, LucideIcon> = {
   SquareActivity,
   BarChart2,
   ClipboardList,
+  UserCheck,
 };
 
 interface SidebarProps {
@@ -217,17 +219,7 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
       </nav>
 
       <div className="p-4 border-t border-slate-700 text-center text-xs text-slate-500 overflow-hidden">
-        {!isCollapsed ? (
-          <>
-            <p>System Online</p>
-            <p className="mt-1">v{__APP_VERSION__}</p>
-          </>
-        ) : (
-          <div
-            className="w-2 h-2 bg-emerald-500 rounded-full mx-auto"
-            title="System Online"
-          />
-        )}
+        <p>v{__APP_VERSION__}</p>
       </div>
     </aside>
   );

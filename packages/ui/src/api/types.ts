@@ -416,7 +416,7 @@ export type ApiAdapter = {
   // Services (OMT / Whish / BOB)
   // ---------------------------------------------------------------------------
   getOMTHistory: (provider?: string) => Promise<any[]>;
-  getOMTAnalytics: () => Promise<any>;
+  getOMTAnalytics: (providers?: string[]) => Promise<any>;
   addOMTTransaction: (payload: any) => Promise<ApiResult & { id?: number }>;
 
   // ---------------------------------------------------------------------------
@@ -448,20 +448,6 @@ export type ApiAdapter = {
   hasOpeningBalanceToday: () => Promise<boolean>;
   getDailyStatsSnapshot: () => Promise<any>;
   recalculateDrawerBalances: () => Promise<ApiResult>;
-  setOpeningBalances: (data: {
-    closing_date: string;
-    amounts: any[];
-    user_id?: number;
-  }) => Promise<ApiResult>;
-  createDailyClosing: (data: {
-    closing_date: string;
-    amounts: any[];
-    variance_notes?: string;
-    report_path?: string;
-    system_expected_usd?: number;
-    system_expected_lbp?: number;
-    user_id?: number;
-  }) => Promise<ApiResult & { id?: number }>;
   updateDailyClosing: (
     id: number,
     data: {
@@ -564,6 +550,7 @@ export type ApiAdapter = {
   getEnabledModules: () => Promise<any[]>;
   getToggleableModules: () => Promise<any[]>;
   setModuleEnabled: (key: string, enabled: boolean) => Promise<ApiResult>;
+  reorderModules: (orderedKeys: string[]) => Promise<ApiResult>;
 
   // ---------------------------------------------------------------------------
   // Payment Methods

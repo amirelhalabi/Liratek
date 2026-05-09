@@ -29,6 +29,8 @@ export interface LotoTicket {
   checkpoint_id: number | null;
   created_at: string;
   updated_at: string;
+  edited_by: string | null;
+  edited_at: string | null;
 }
 
 export interface LotoTicketCreate {
@@ -100,6 +102,7 @@ export class LotoTicketRepository {
         user_id: data.userId,
         amount_usd: 0, // Loto is LBP only for now
         amount_lbp: data.sale_amount,
+        profit_lbp: data.commission_amount,
         exchange_rate: 100000, // Default rate
         summary: `Loto ticket sale: ${data.ticket_number || "#" + ticketId}`,
         metadata_json: {
@@ -375,6 +378,39 @@ export class LotoTicketRepository {
       totalCommission: number;
       totalPrizes: number;
     };
+  }
+
+  /**
+   * Update non-financial metadata on a loto ticket.
+   * Only metadata fields are allowed — financial data is immutable.
+   */
+  updateMetadata(
+    id: number,
+    data: { note?: string },
+    editedBy: string,
+  ): LotoTicket | null {
+    const existing = this.getTicketById(id);
+    if (!existing) return null;
+
+    const fields: string[] = [];
+    const values: unknown[] = [];
+
+    if (data.note !== undefined) {
+      fields.push("note = ?");
+      values.push(data.note);
+    }
+
+    if (fields.length === 0) return existing;
+
+    fields.push("edited_by = ?", "edited_at = CURRENT_TIMESTAMP");
+    values.push(editedBy);
+    values.push(id);
+
+    this.db
+      .prepare(`UPDATE loto_tickets SET ${fields.join(", ")} WHERE id = ?`)
+      .run(...values);
+
+    return this.getTicketById(id);
   }
 }
 

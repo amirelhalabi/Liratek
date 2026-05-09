@@ -150,12 +150,7 @@ export {
   getClosingService,
   resetClosingService,
 } from "./ClosingService.js";
-export type {
-  ClosingResult,
-  SetOpeningBalancesData,
-  CreateClosingData,
-  UpdateClosingData,
-} from "./ClosingService.js";
+export type { ClosingResult } from "./ClosingService.js";
 
 // Activity Service (legacy adapter — delegates to TransactionService)
 export {
@@ -279,3 +274,11 @@ export type {
 
 // Audit utilities
 export { diffObjects } from "../utils/audit.js";
+
+// Drawer Top-Up Service
+export {
+  DrawerTopUpService,
+  getDrawerTopUpService,
+  resetDrawerTopUpService,
+} from "./DrawerTopUpService.js";
+export type { DrawerTopUpResult } from "./DrawerTopUpService.js";

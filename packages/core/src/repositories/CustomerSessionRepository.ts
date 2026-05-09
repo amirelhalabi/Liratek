@@ -6,6 +6,7 @@ export interface CustomerSession {
   customer_name?: string;
   customer_phone?: string;
   customer_notes?: string;
+  user_id?: number;
   started_at: string; // ISO datetime
   closed_at?: string; // ISO datetime
   started_by: string; // username
@@ -18,6 +19,21 @@ export interface CreateCustomerSessionData {
   customer_phone?: string;
   customer_notes?: string;
   started_by: string;
+  user_id?: number;
+}
+
+export interface SessionCartItem {
+  id: number;
+  session_id: number;
+  item_id: string; // UUID from frontend
+  module: string;
+  label: string;
+  amount: number;
+  currency: string;
+  form_data: string; // JSON string
+  ipc_channel: string;
+  user_id?: number;
+  created_at: string;
 }
 
 export interface SessionTransaction {
@@ -36,12 +52,15 @@ export class CustomerSessionRepository {
   private db: Database.Database;
   private tableName = "customer_sessions";
   private transactionsTableName = "customer_session_transactions";
+  private cartTableName = "session_cart_items";
 
   // Define explicit columns instead of SELECT *
   private readonly columns =
-    "id, customer_name, customer_phone, customer_notes, started_at, closed_at, started_by, closed_by, is_active";
+    "id, customer_name, customer_phone, customer_notes, user_id, started_at, closed_at, started_by, closed_by, is_active";
   private readonly transactionColumns =
     "id, session_id, transaction_type, transaction_id, amount_usd, amount_lbp, created_at";
+  private readonly cartColumns =
+    "id, session_id, item_id, module, label, amount, currency, form_data, ipc_channel, user_id, created_at";
 
   constructor(db?: Database.Database) {
     this.db = db ?? getDatabase();
@@ -52,18 +71,42 @@ export class CustomerSessionRepository {
    */
   createSession(data: CreateCustomerSessionData): number {
     const insert = this.db.prepare(`
-      INSERT INTO ${this.tableName} (customer_name, customer_phone, customer_notes, started_by, started_at, is_active)
-      VALUES (?, ?, ?, ?, datetime('now'), 1)
+      INSERT INTO ${this.tableName} (customer_name, customer_phone, customer_notes, user_id, started_by, started_at, is_active)
+      VALUES (?, ?, ?, ?, ?, datetime('now'), 1)
     `);
 
     const result = insert.run(
       data.customer_name ?? null,
       data.customer_phone ?? null,
       data.customer_notes ?? null,
+      data.user_id ?? null,
       data.started_by,
     );
 
     return result.lastInsertRowid as number;
+  }
+
+  /**
+   * Atomically check for duplicate active session and create if none exists.
+   * Returns { sessionId } on success, or { error } if a duplicate is found.
+   */
+  createSessionIfNotActive(
+    data: CreateCustomerSessionData,
+  ): { sessionId: number } | { error: string } {
+    return this.db.transaction(() => {
+      if (data.customer_name) {
+        const existing = this.getActiveSessionByCustomerName(
+          data.customer_name,
+        );
+        if (existing) {
+          return {
+            error: `An active session already exists for "${data.customer_name}". Please close or switch to that session first.`,
+          };
+        }
+      }
+      const sessionId = this.createSession(data);
+      return { sessionId };
+    })();
   }
 
   /**
@@ -87,6 +130,18 @@ export class CustomerSessionRepository {
       LIMIT 1
     `);
     return (query.get() as CustomerSession | undefined) ?? null;
+  }
+
+  /**
+   * Get all active sessions (for multi-PC polling)
+   */
+  getActiveSessions(): CustomerSession[] {
+    const query = this.db.prepare(`
+      SELECT ${this.columns} FROM ${this.tableName}
+      WHERE is_active = 1
+      ORDER BY started_at DESC
+    `);
+    return query.all() as CustomerSession[];
   }
 
   /**
@@ -116,6 +171,37 @@ export class CustomerSessionRepository {
   }
 
   /**
+   * Permanently delete a session and all related data (cart items, transactions)
+   */
+  deleteSession(sessionId: number): void {
+    this.db.transaction(() => {
+      this.db
+        .prepare(`DELETE FROM ${this.cartTableName} WHERE session_id = ?`)
+        .run(sessionId);
+      this.db
+        .prepare(
+          `DELETE FROM ${this.transactionsTableName} WHERE session_id = ?`,
+        )
+        .run(sessionId);
+      this.db
+        .prepare(`DELETE FROM ${this.tableName} WHERE id = ?`)
+        .run(sessionId);
+    })();
+  }
+
+  /**
+   * Get today's sessions (both active and closed) for the session list UI
+   */
+  getTodayAllSessions(): CustomerSession[] {
+    const query = this.db.prepare(`
+      SELECT ${this.columns} FROM ${this.tableName}
+      WHERE date(started_at, 'localtime') = date('now', 'localtime')
+      ORDER BY is_active DESC, started_at DESC
+    `);
+    return query.all() as CustomerSession[];
+  }
+
+  /**
    * Link a transaction to a session
    */
   linkTransaction(
@@ -124,12 +210,22 @@ export class CustomerSessionRepository {
     transactionId: number,
     amountUsd: number,
     amountLbp: number,
+    profitUsd: number = 0,
+    profitLbp: number = 0,
   ): void {
     const insert = this.db.prepare(`
-      INSERT INTO ${this.transactionsTableName} (session_id, transaction_type, transaction_id, amount_usd, amount_lbp, created_at)
-      VALUES (?, ?, ?, ?, ?, datetime('now'))
+      INSERT INTO ${this.transactionsTableName} (session_id, transaction_type, transaction_id, amount_usd, amount_lbp, profit_usd, profit_lbp, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
     `);
-    insert.run(sessionId, transactionType, transactionId, amountUsd, amountLbp);
+    insert.run(
+      sessionId,
+      transactionType,
+      transactionId,
+      amountUsd,
+      amountLbp,
+      profitUsd,
+      profitLbp,
+    );
   }
 
   /**
@@ -192,6 +288,130 @@ export class CustomerSessionRepository {
   }
 
   /**
+   * Get sessions within a date range, with checkout/cart summary data
+   */
+  getSessionsByDateRange(
+    from: string,
+    to: string,
+  ): Array<
+    CustomerSession & {
+      checkout_total_usd: number;
+      checkout_total_lbp: number;
+      checkout_profit_usd: number;
+      checkout_profit_lbp: number;
+      item_count: number;
+      total_usd: number;
+      total_lbp: number;
+      total_profit_usd: number;
+      total_profit_lbp: number;
+    }
+  > {
+    const query = this.db.prepare(`
+      SELECT cs.${this.columns},
+             COALESCE(cs.checkout_total_usd, 0) as checkout_total_usd,
+             COALESCE(cs.checkout_total_lbp, 0) as checkout_total_lbp,
+             COALESCE(cs.checkout_profit_usd, 0) as checkout_profit_usd,
+             COALESCE(cs.checkout_profit_lbp, 0) as checkout_profit_lbp,
+             COALESCE(cart.item_count, 0) as item_count,
+             COALESCE(t.total_usd, 0) as total_usd,
+             COALESCE(t.total_lbp, 0) as total_lbp,
+             COALESCE(t.total_profit_usd, 0) as total_profit_usd,
+             COALESCE(t.total_profit_lbp, 0) as total_profit_lbp
+      FROM ${this.tableName} cs
+      LEFT JOIN (
+        SELECT session_id, COUNT(*) as item_count
+        FROM ${this.cartTableName}
+        GROUP BY session_id
+      ) cart ON cart.session_id = cs.id
+      LEFT JOIN (
+        SELECT session_id,
+               SUM(amount_usd) as total_usd,
+               SUM(amount_lbp) as total_lbp,
+               SUM(profit_usd) as total_profit_usd,
+               SUM(profit_lbp) as total_profit_lbp
+        FROM ${this.transactionsTableName}
+        GROUP BY session_id
+      ) t ON t.session_id = cs.id
+      WHERE date(cs.started_at, 'localtime') >= ?
+        AND date(cs.started_at, 'localtime') <= ?
+      ORDER BY cs.started_at DESC
+    `);
+    return query.all(from, to) as Array<
+      CustomerSession & {
+        checkout_total_usd: number;
+        checkout_total_lbp: number;
+        checkout_profit_usd: number;
+        checkout_profit_lbp: number;
+        item_count: number;
+        total_usd: number;
+        total_lbp: number;
+        total_profit_usd: number;
+        total_profit_lbp: number;
+      }
+    >;
+  }
+
+  /**
+   * Get all sessions started today (both active and closed), with their transactions and cart totals
+   */
+  getTodaySessions(): Array<
+    CustomerSession & {
+      checkout_total_usd: number;
+      checkout_total_lbp: number;
+      checkout_profit_usd: number;
+      checkout_profit_lbp: number;
+      item_count: number;
+      total_usd: number;
+      total_lbp: number;
+      total_profit_usd: number;
+      total_profit_lbp: number;
+    }
+  > {
+    const query = this.db.prepare(`
+      SELECT cs.${this.columns},
+             COALESCE(cs.checkout_total_usd, 0) as checkout_total_usd,
+             COALESCE(cs.checkout_total_lbp, 0) as checkout_total_lbp,
+             COALESCE(cs.checkout_profit_usd, 0) as checkout_profit_usd,
+             COALESCE(cs.checkout_profit_lbp, 0) as checkout_profit_lbp,
+             COALESCE(cart.item_count, 0) as item_count,
+             COALESCE(t.total_usd, 0) as total_usd,
+             COALESCE(t.total_lbp, 0) as total_lbp,
+             COALESCE(t.total_profit_usd, 0) as total_profit_usd,
+             COALESCE(t.total_profit_lbp, 0) as total_profit_lbp
+      FROM ${this.tableName} cs
+      LEFT JOIN (
+        SELECT session_id, COUNT(*) as item_count
+        FROM ${this.cartTableName}
+        GROUP BY session_id
+      ) cart ON cart.session_id = cs.id
+      LEFT JOIN (
+        SELECT session_id,
+               SUM(amount_usd) as total_usd,
+               SUM(amount_lbp) as total_lbp,
+               SUM(profit_usd) as total_profit_usd,
+               SUM(profit_lbp) as total_profit_lbp
+        FROM ${this.transactionsTableName}
+        GROUP BY session_id
+      ) t ON t.session_id = cs.id
+      WHERE date(cs.started_at, 'localtime') = date('now', 'localtime')
+      ORDER BY cs.started_at DESC
+    `);
+    return query.all() as Array<
+      CustomerSession & {
+        checkout_total_usd: number;
+        checkout_total_lbp: number;
+        checkout_profit_usd: number;
+        checkout_profit_lbp: number;
+        item_count: number;
+        total_usd: number;
+        total_lbp: number;
+        total_profit_usd: number;
+        total_profit_lbp: number;
+      }
+    >;
+  }
+
+  /**
    * Get all sessions for a specific customer (by name or phone)
    */
   getSessionsByCustomer(
@@ -240,6 +460,76 @@ export class CustomerSessionRepository {
     );
 
     return { session, transactions, total_usd, total_lbp };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Cart methods
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Add an item to the session cart
+   */
+  addCartItem(
+    sessionId: number,
+    item: {
+      item_id: string;
+      module: string;
+      label: string;
+      amount: number;
+      currency: string;
+      form_data: string;
+      ipc_channel: string;
+      user_id?: number;
+    },
+  ): number {
+    const stmt = this.db.prepare(`
+      INSERT INTO ${this.cartTableName} (session_id, item_id, module, label, amount, currency, form_data, ipc_channel, user_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const result = stmt.run(
+      sessionId,
+      item.item_id,
+      item.module,
+      item.label,
+      item.amount,
+      item.currency,
+      item.form_data,
+      item.ipc_channel,
+      item.user_id ?? null,
+    );
+    return result.lastInsertRowid as number;
+  }
+
+  /**
+   * Get all cart items for a session
+   */
+  getCartItems(sessionId: number): SessionCartItem[] {
+    const stmt = this.db.prepare(`
+      SELECT ${this.cartColumns} FROM ${this.cartTableName}
+      WHERE session_id = ?
+      ORDER BY created_at ASC
+    `);
+    return stmt.all(sessionId) as SessionCartItem[];
+  }
+
+  /**
+   * Remove a specific cart item by its frontend UUID
+   */
+  removeCartItem(sessionId: number, itemId: string): void {
+    this.db
+      .prepare(
+        `DELETE FROM ${this.cartTableName} WHERE session_id = ? AND item_id = ?`,
+      )
+      .run(sessionId, itemId);
+  }
+
+  /**
+   * Remove all cart items for a session
+   */
+  clearCart(sessionId: number): void {
+    this.db
+      .prepare(`DELETE FROM ${this.cartTableName} WHERE session_id = ?`)
+      .run(sessionId);
   }
 }
 

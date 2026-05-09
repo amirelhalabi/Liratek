@@ -112,9 +112,13 @@ export interface ElectronAPI {
       }>
     >;
     delete: (id: number) => Promise<{ success: boolean; error?: string }>;
+    updateMetadata: (data: {
+      id: number;
+      description?: string;
+      category?: string;
+      note?: string;
+    }) => Promise<{ success: boolean; data?: unknown; error?: string }>;
   };
-
-  // Inventory
   inventory: {
     getProducts: (
       search?: string,
@@ -306,6 +310,10 @@ export interface ElectronAPI {
         item_count: number;
       }>
     >;
+    updateMetadata: (data: {
+      id: number;
+      note?: string;
+    }) => Promise<{ success: boolean; data?: unknown; error?: string }>;
   };
 
   // Dashboard
@@ -374,6 +382,10 @@ export interface ElectronAPI {
       }>;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     getClientTotal: (clientId: number) => Promise<number>;
+    updateMetadata: (data: {
+      id: number;
+      note?: string;
+    }) => Promise<{ success: boolean; data?: unknown; error?: string }>;
   };
 
   // Financial
@@ -389,6 +401,16 @@ export interface ElectronAPI {
       netProfitLBP: number;
     }>;
     getDrawerNames: () => Promise<string[]>;
+    updateMetadata: (data: {
+      id: number;
+      customer_name?: string;
+      phone_number?: string;
+      sender_name?: string;
+      sender_phone?: string;
+      receiver_name?: string;
+      receiver_phone?: string;
+      note?: string;
+    }) => Promise<{ success: boolean; data?: unknown; error?: string }>;
   };
 
   // Exchange
@@ -413,6 +435,11 @@ export interface ElectronAPI {
         amount_out: number;
       }>
     >;
+    updateMetadata: (data: {
+      id: number;
+      client_name?: string;
+      note?: string;
+    }) => Promise<{ success: boolean; data?: unknown; error?: string }>;
   };
 
   // Binance
@@ -518,6 +545,8 @@ export interface ElectronAPI {
         note: string | null;
         created_at: string;
         created_by: number;
+        edited_by: string | null;
+        edited_at: string | null;
       }>
     >;
     process: (data: {
@@ -554,6 +583,12 @@ export interface ElectronAPI {
         lbpBalance: number;
       }>
     >;
+    updateMetadata: (data: {
+      id: number;
+      phone_number?: string;
+      client_name?: string;
+      note?: string;
+    }) => Promise<{ success: boolean; data?: unknown; error?: string }>;
   };
 
   // Suppliers
@@ -855,6 +890,10 @@ export interface ElectronAPI {
         error?: string;
       }>;
     };
+    updateMetadata: (data: {
+      id: number;
+      note?: string;
+    }) => Promise<{ success: boolean; data?: unknown; error?: string }>;
   };
 
   // Maintenance
@@ -891,6 +930,13 @@ export interface ElectronAPI {
       }>
     >;
     delete: (id: number) => Promise<{ success: boolean; error?: string }>;
+    updateMetadata: (data: {
+      id: number;
+      client_name?: string;
+      device_name?: string;
+      issue_description?: string;
+      note?: string;
+    }) => Promise<{ success: boolean; data?: unknown; error?: string }>;
   };
 
   // Settings
@@ -957,42 +1003,6 @@ export interface ElectronAPI {
     getSystemExpectedBalancesDynamic: () => Promise<
       Record<string, Record<string, number>>
     >;
-    hasOpeningBalanceToday: () => Promise<boolean>;
-    setOpeningBalances: (data: {
-      closing_date: string;
-      amounts: Array<{
-        drawer_name: string;
-        currency_code: string;
-        opening_amount: number;
-      }>;
-      user_id?: number;
-    }) => Promise<{ success: boolean; id?: number; error?: string }>;
-    createDailyClosing: (data: {
-      closing_date: string;
-      amounts: Array<{
-        drawer_name: string;
-        currency_code: string;
-        physical_amount: number;
-        opening_amount?: number;
-      }>;
-      user_id?: number;
-      variance_notes?: string;
-      report_path?: string;
-      system_expected_usd?: number;
-      system_expected_lbp?: number;
-    }) => Promise<{ success: boolean; id?: number; error?: string }>;
-    updateDailyClosing: (data: {
-      id: number;
-      physical_usd?: number;
-      physical_lbp?: number;
-      physical_eur?: number;
-      system_expected_usd?: number;
-      system_expected_lbp?: number;
-      variance_usd?: number;
-      notes?: string;
-      report_path?: string;
-      user_id?: number;
-    }) => Promise<{ success: boolean; error?: string }>;
     getDailyStatsSnapshot: () => Promise<{
       salesCount: number;
       totalSalesUSD: number;
@@ -1009,7 +1019,7 @@ export interface ElectronAPI {
     }>;
     getCheckpointTimeline: (filters: {
       date?: string;
-      type?: "OPENING" | "CLOSING" | "ALL";
+      type?: "OPENING" | "CLOSING" | "CHECKPOINT" | "ALL";
       drawer_name?: string;
       user_id?: number;
     }) => Promise<{
@@ -1018,7 +1028,7 @@ export interface ElectronAPI {
         id: number;
         closing_date: string;
         drawer_name: string;
-        checkpoint_type: "OPENING" | "CLOSING";
+        checkpoint_type: "OPENING" | "CLOSING" | "CHECKPOINT";
         created_at: string;
         created_by: number;
         user_name: string;
@@ -1032,6 +1042,59 @@ export interface ElectronAPI {
       }>;
       error?: string;
     }>;
+    // Unified checkpoint API
+    createCheckpoint: (data: {
+      user_id: number;
+      notes?: string;
+      report_path?: string;
+      amounts: Array<{
+        drawer_name: string;
+        currency_code: string;
+        expected_amount: number;
+        physical_amount: number;
+      }>;
+    }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    getLastCheckpointActuals: () => Promise<{
+      success: boolean;
+      data?: Record<string, Record<string, number>>;
+      error?: string;
+    }>;
+  };
+
+  // Drawer Top-Up
+  drawerTopUp: {
+    create: (data: {
+      amount_usd: number;
+      amount_lbp: number;
+      notes?: string;
+    }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    createFromDrawer: (data: {
+      amount_usd: number;
+      amount_lbp: number;
+      source_drawer: string;
+      notes?: string;
+    }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    getSourceDrawers: () => Promise<{
+      success: boolean;
+      data?: Array<{
+        drawer_name: string;
+        balance_usd: number;
+        balance_lbp: number;
+      }>;
+      error?: string;
+    }>;
+    getHistory: (limit?: number) => Promise<{
+      success: boolean;
+      data?: Array<{
+        id: number;
+        amount_usd: number;
+        amount_lbp: number;
+        notes: string | null;
+        created_by: number;
+        created_at: string;
+      }>;
+      error?: string;
+    }>;
   };
 
   // Session
@@ -1040,8 +1103,32 @@ export interface ElectronAPI {
       customer_name?: string;
       customer_phone?: string;
       customer_notes?: string;
-    }) => Promise<{ success: boolean; id?: number; error?: string }>;
-    close: (sessionId: number) => Promise<{ success: boolean; error?: string }>;
+      started_by: string;
+      user_id?: number;
+    }) => Promise<{ success: boolean; sessionId?: number; error?: string }>;
+    getActiveSessions: () => Promise<{
+      success: boolean;
+      sessions?: Array<{
+        id: number;
+        customer_name?: string;
+        customer_phone?: string;
+        customer_notes?: string;
+        user_id?: number;
+        started_at: string;
+        closed_at?: string;
+        started_by: string;
+        closed_by?: string;
+        is_active: 1 | 0;
+      }>;
+      error?: string;
+    }>;
+    close: (
+      sessionId: number,
+      closedBy: string,
+    ) => Promise<{ success: boolean; error?: string }>;
+    delete: (
+      sessionId: number,
+    ) => Promise<{ success: boolean; error?: string }>;
     update: (
       sessionId: number,
       data: {
@@ -1096,10 +1183,115 @@ export interface ElectronAPI {
       transactions?: any[];
       error?: string;
     }>;
+    getTodaySessions: () => Promise<{
+      success: boolean;
+      sessions?: Array<{
+        id: number;
+        customer_name?: string;
+        customer_phone?: string;
+        customer_notes?: string;
+        started_at: string;
+        closed_at?: string;
+        started_by: string;
+        closed_by?: string;
+        is_active: 0 | 1;
+        checkout_total_usd: number;
+        checkout_total_lbp: number;
+        checkout_profit_usd: number;
+        checkout_profit_lbp: number;
+        item_count: number;
+        total_usd: number;
+        total_lbp: number;
+        total_profit_usd: number;
+        total_profit_lbp: number;
+      }>;
+      error?: string;
+    }>;
+    getTodayAllSessions: () => Promise<{
+      success: boolean;
+      sessions?: Array<{
+        id: number;
+        customer_name?: string;
+        customer_phone?: string;
+        customer_notes?: string;
+        started_at: string;
+        closed_at?: string;
+        started_by: string;
+        closed_by?: string;
+        is_active: 0 | 1;
+      }>;
+      error?: string;
+    }>;
+    getByDateRange: (
+      from: string,
+      to: string,
+    ) => Promise<{
+      success: boolean;
+      sessions?: Array<{
+        id: number;
+        customer_name?: string;
+        customer_phone?: string;
+        customer_notes?: string;
+        started_at: string;
+        closed_at?: string;
+        started_by: string;
+        closed_by?: string;
+        is_active: 0 | 1;
+        checkout_total_usd: number;
+        checkout_total_lbp: number;
+        checkout_profit_usd: number;
+        checkout_profit_lbp: number;
+        item_count: number;
+        total_usd: number;
+        total_lbp: number;
+        total_profit_usd: number;
+        total_profit_lbp: number;
+      }>;
+      error?: string;
+    }>;
     getByCustomer: (data: {
       customerName: string;
       customerPhone?: string | undefined;
     }) => Promise<{ success: boolean; sessions?: any[]; error?: string }>;
+
+    // Cart persistence
+    cartAdd: (
+      sessionId: number,
+      item: {
+        item_id: string;
+        module: string;
+        label: string;
+        amount: number;
+        currency: string;
+        form_data: string;
+        ipc_channel: string;
+        user_id?: number;
+      },
+    ) => Promise<{ success: boolean; id?: number; error?: string }>;
+    cartGet: (sessionId: number) => Promise<{
+      success: boolean;
+      items?: Array<{
+        id: number;
+        session_id: number;
+        item_id: string;
+        module: string;
+        label: string;
+        amount: number;
+        currency: string;
+        form_data: string;
+        ipc_channel: string;
+        user_id?: number;
+        created_at: string;
+      }>;
+      error?: string;
+    }>;
+    cartRemove: (
+      sessionId: number,
+      itemId: string,
+    ) => Promise<{ success: boolean; error?: string }>;
+    cartClear: (
+      sessionId: number,
+    ) => Promise<{ success: boolean; error?: string }>;
   };
 
   // Currencies
@@ -1493,6 +1685,13 @@ export interface ElectronAPI {
       note?: string;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     delete: (id: number) => Promise<{ success: boolean; error?: string }>;
+    updateMetadata: (data: {
+      id: number;
+      description?: string;
+      client_name?: string;
+      phone_number?: string;
+      note?: string;
+    }) => Promise<{ success: boolean; data?: unknown; error?: string }>;
   };
 
   // Audit Log

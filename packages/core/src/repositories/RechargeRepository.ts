@@ -66,6 +66,8 @@ export interface RechargeEntity {
   note: string | null;
   created_at: string;
   created_by: number;
+  edited_by: string | null;
+  edited_at: string | null;
 }
 
 // =============================================================================
@@ -78,7 +80,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
   }
 
   protected getColumns(): string {
-    return "id, carrier, recharge_type, amount, cost, price, currency_code, paid_by, phone_number, client_id, client_name, note, created_at, created_by";
+    return "id, carrier, recharge_type, amount, cost, price, currency_code, paid_by, phone_number, client_id, client_name, note, created_at, created_by, edited_by, edited_at";
   }
 
   /**
@@ -407,6 +409,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         const rechargeId = Number(rechargeResult.lastInsertRowid);
 
         // 2. Create unified transaction row
+        const rechargeCommission = data.price - data.cost;
         const txnId = getTransactionRepository().createTransaction({
           type: TRANSACTION_TYPES.RECHARGE,
           source_table: "recharges",
@@ -414,6 +417,8 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           user_id: createdBy,
           amount_usd: currency === "USD" ? data.price : 0,
           amount_lbp: currency === "LBP" ? data.price : 0,
+          profit_usd: currency === "USD" ? rechargeCommission : 0,
+          profit_lbp: currency === "LBP" ? rechargeCommission : 0,
           client_id: data.clientId ?? null,
           client_name: clientName ?? null,
           summary: `Recharge: ${data.provider} ${data.type} ${currency === "LBP" ? "" : "$"}${data.price.toLocaleString()} ${currency}`,
@@ -553,6 +558,47 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         error: error instanceof Error ? error.message : String(error),
       };
     }
+  }
+
+  /**
+   * Update non-financial metadata on a recharge record.
+   * Only metadata fields are allowed — financial data is immutable.
+   */
+  updateMetadata(
+    id: number,
+    data: { phone_number?: string; client_name?: string; note?: string },
+    editedBy: string,
+  ): RechargeEntity | null {
+    const existing = this.findById(id);
+    if (!existing) return null;
+
+    const fields: string[] = [];
+    const values: unknown[] = [];
+
+    if (data.phone_number !== undefined) {
+      fields.push("phone_number = ?");
+      values.push(data.phone_number);
+    }
+    if (data.client_name !== undefined) {
+      fields.push("client_name = ?");
+      values.push(data.client_name);
+    }
+    if (data.note !== undefined) {
+      fields.push("note = ?");
+      values.push(data.note);
+    }
+
+    if (fields.length === 0) return existing;
+
+    fields.push("edited_by = ?", "edited_at = CURRENT_TIMESTAMP");
+    values.push(editedBy);
+    values.push(id);
+
+    this.db
+      .prepare(`UPDATE recharges SET ${fields.join(", ")} WHERE id = ?`)
+      .run(...values);
+
+    return this.findById(id);
   }
 }
 

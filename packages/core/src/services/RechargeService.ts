@@ -101,6 +101,65 @@ export class RechargeService {
   }> {
     return this.rechargeRepo.getDrawerBalances();
   }
+
+  /**
+   * Update non-financial metadata on a recharge.
+   * Records old/new values for audit trail.
+   */
+  updateRechargeMetadata(
+    id: number,
+    data: { phone_number?: string; client_name?: string; note?: string },
+    editedBy: string,
+  ): {
+    success: boolean;
+    entity?: RechargeEntity;
+    oldValues?: Record<string, unknown>;
+    error?: string;
+  } {
+    const existing = this.rechargeRepo.findById(id);
+    if (!existing) {
+      return { success: false, error: "Recharge not found" };
+    }
+
+    // Capture old values for audit
+    const oldValues: Record<string, unknown> = {};
+    const newValues: Record<string, unknown> = {};
+
+    if (
+      data.phone_number !== undefined &&
+      data.phone_number !== existing.phone_number
+    ) {
+      oldValues.phone_number = existing.phone_number;
+      newValues.phone_number = data.phone_number;
+    }
+    if (
+      data.client_name !== undefined &&
+      data.client_name !== existing.client_name
+    ) {
+      oldValues.client_name = existing.client_name;
+      newValues.client_name = data.client_name;
+    }
+    if (data.note !== undefined && data.note !== existing.note) {
+      oldValues.note = existing.note;
+      newValues.note = data.note;
+    }
+
+    if (Object.keys(newValues).length === 0) {
+      return { success: true, entity: existing }; // No actual changes
+    }
+
+    const updated = this.rechargeRepo.updateMetadata(id, data, editedBy);
+    if (!updated) {
+      return { success: false, error: "Failed to update" };
+    }
+
+    rechargeLogger.info(
+      { id, editedBy, oldValues, newValues },
+      "Recharge metadata updated",
+    );
+
+    return { success: true, entity: updated, oldValues };
+  }
 }
 
 // =============================================================================

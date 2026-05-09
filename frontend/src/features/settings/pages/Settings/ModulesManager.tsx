@@ -2,7 +2,7 @@
  * Modules Manager
  *
  * Settings > Modules & Drawers tab — allows admins to enable/disable sidebar features,
- * view configured drawers, and manage payment methods.
+ * view configured drawers, manage payment methods, and reorder modules via drag.
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -56,6 +56,12 @@ export default function ModulesManager() {
     ProviderCurrencyRow[]
   >([]);
   const [loading, setLoading] = useState(true);
+
+  // Reorder state
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [overIdx, setOverIdx] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const loadModules = useCallback(async () => {
     setLoading(true);
@@ -124,16 +130,200 @@ export default function ModulesManager() {
     window.dispatchEvent(new Event("modules-changed"));
   };
 
+  // ── Reorder helpers ──
+
+  const moveModule = useCallback(
+    async (fromIndex: number, toIndex: number) => {
+      if (fromIndex === toIndex) return;
+      const updated = [...modules];
+      const [moved] = updated.splice(fromIndex, 1);
+      updated.splice(toIndex, 0, moved);
+      setModules(updated);
+      setSelectedKey(moved.key);
+
+      // Persist
+      setSaving(true);
+      try {
+        const orderedKeys = updated.map((m) => m.key);
+        await api.reorderModules(orderedKeys);
+        window.dispatchEvent(new Event("modules-changed"));
+      } catch (e) {
+        logger.error("Failed to reorder modules", { error: e });
+        appEvents.emit("notification:show", "Failed to reorder", "error");
+        loadModules(); // revert
+      } finally {
+        setSaving(false);
+      }
+    },
+    [modules, api, loadModules],
+  );
+
+  const moveUp = useCallback(() => {
+    if (!selectedKey) return;
+    const idx = modules.findIndex((m) => m.key === selectedKey);
+    if (idx > 0) moveModule(idx, idx - 1);
+  }, [selectedKey, modules, moveModule]);
+
+  const moveDown = useCallback(() => {
+    if (!selectedKey) return;
+    const idx = modules.findIndex((m) => m.key === selectedKey);
+    if (idx < modules.length - 1) moveModule(idx, idx + 1);
+  }, [selectedKey, modules, moveModule]);
+
+  // Keyboard handler for arrow keys
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (!selectedKey) return;
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        moveUp();
+      } else if (e.key === "ArrowDown") {
+        e.preventDefault();
+        moveDown();
+      } else if (e.key === "Escape") {
+        setSelectedKey(null);
+      }
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [selectedKey, moveUp, moveDown]);
+
+  // ── Drag handlers ──
+
+  const handleDragStart = (idx: number) => {
+    setDragIdx(idx);
+    setSelectedKey(modules[idx].key);
+  };
+
+  const handleDragOver = (e: React.DragEvent, idx: number) => {
+    e.preventDefault();
+    setOverIdx(idx);
+  };
+
+  const handleDrop = (toIdx: number) => {
+    if (dragIdx !== null && dragIdx !== toIdx) {
+      moveModule(dragIdx, toIdx);
+    }
+    setDragIdx(null);
+    setOverIdx(null);
+  };
+
+  const handleDragEnd = () => {
+    setDragIdx(null);
+    setOverIdx(null);
+  };
+
+  // ── Render helpers ──
+
+  const rechargeModuleKeys = ["recharge", "ipec_katch", "binance"];
+
+  // Split modules into non-recharge and recharge groups, preserving order
+  const nonRechargeModules = modules.filter(
+    (m) => !rechargeModuleKeys.includes(m.key),
+  );
+  const rechargeModules = modules.filter((m) =>
+    rechargeModuleKeys.includes(m.key),
+  );
+
+  const renderModuleRow = (m: ModuleRow, globalIdx: number) => {
+    const isSelected = selectedKey === m.key;
+    const isDragging = dragIdx !== null && modules[dragIdx]?.key === m.key;
+    const isOver = overIdx !== null && modules[overIdx]?.key === m.key;
+
+    return (
+      <tr
+        key={m.key}
+        draggable
+        onDragStart={() => handleDragStart(globalIdx)}
+        onDragOver={(e) => handleDragOver(e, globalIdx)}
+        onDrop={() => handleDrop(globalIdx)}
+        onDragEnd={handleDragEnd}
+        onClick={() => setSelectedKey(isSelected ? null : m.key)}
+        className={`border-t border-slate-800 cursor-pointer transition-all duration-150 ${
+          isDragging
+            ? "opacity-40"
+            : isOver
+              ? "border-t-2 border-t-violet-500"
+              : ""
+        } ${
+          isSelected
+            ? "bg-violet-600/15 ring-1 ring-violet-500/40 scale-[1.01] z-10 relative"
+            : "hover:bg-slate-800/40"
+        }`}
+      >
+        {/* Drag handle */}
+        <td className="py-2 px-2 w-8 text-slate-500 select-none">
+          <span className="cursor-grab active:cursor-grabbing text-lg leading-none">
+            ⠿
+          </span>
+        </td>
+        <td className="py-2 px-3 text-white font-medium">{m.label}</td>
+        <td className="py-2 px-3 text-slate-400 font-mono text-xs">
+          {m.route || "—"}
+        </td>
+        <td className="py-2 px-3 text-slate-300">
+          {m.enabledCurrencies?.length ? m.enabledCurrencies.join(", ") : "—"}
+        </td>
+        <td className="py-2 px-3">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              handleToggle(m.key, m.is_enabled);
+            }}
+            className={`px-3 py-1 rounded text-xs font-medium ${
+              m.is_enabled
+                ? "bg-green-600/20 text-green-400 hover:bg-green-600/30"
+                : "bg-red-600/20 text-red-400 hover:bg-red-600/30"
+            }`}
+          >
+            {m.is_enabled ? "Enabled" : "Disabled"}
+          </button>
+        </td>
+      </tr>
+    );
+  };
+
   if (loading) {
     return <div className="text-slate-400">Loading modules...</div>;
   }
 
   return (
     <div className="space-y-4">
-      <p className="text-slate-400 text-sm">
-        Enable or disable feature modules. Disabled modules are removed from the
-        sidebar for all users.
-      </p>
+      <div className="flex items-center justify-between">
+        <p className="text-slate-400 text-sm">
+          Enable or disable feature modules. Drag rows or select &amp; use arrow
+          keys to reorder.
+        </p>
+        {selectedKey && (
+          <div className="flex items-center gap-1">
+            <button
+              onClick={moveUp}
+              disabled={saving}
+              className="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-white text-sm disabled:opacity-40"
+              title="Move up (↑)"
+            >
+              ↑
+            </button>
+            <button
+              onClick={moveDown}
+              disabled={saving}
+              className="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-white text-sm disabled:opacity-40"
+              title="Move down (↓)"
+            >
+              ↓
+            </button>
+            <button
+              onClick={() => setSelectedKey(null)}
+              className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 text-xs ml-1"
+            >
+              Deselect
+            </button>
+            {saving && (
+              <span className="text-xs text-slate-500 ml-2">Saving...</span>
+            )}
+          </div>
+        )}
+      </div>
       <div className="border border-slate-700 rounded-lg overflow-hidden">
         <ExportBar
           exportExcel
@@ -145,6 +335,7 @@ export default function ModulesManager() {
         <table ref={tableRef} className="w-full text-sm text-left">
           <thead className="bg-slate-900 text-slate-400 text-xs uppercase">
             <tr>
+              <th className="py-2 px-2 w-8"></th>
               <th className="py-2 px-3">Module</th>
               <th className="py-2 px-3">Route</th>
               <th className="py-2 px-3">Enabled Currencies</th>
@@ -153,26 +344,100 @@ export default function ModulesManager() {
           </thead>
           <tbody>
             {/* Non-recharge modules */}
-            {modules
-              .filter(
-                (m) => !["recharge", "ipec_katch", "binance"].includes(m.key),
-              )
-              .map((m) => (
-                <tr key={m.key} className="border-t border-slate-800">
-                  <td className="py-2 px-3 text-white font-medium">
+            {nonRechargeModules.map((m) => {
+              const globalIdx = modules.findIndex((mod) => mod.key === m.key);
+              return renderModuleRow(m, globalIdx);
+            })}
+
+            {/* Recharge group header */}
+            {rechargeModules.length > 0 && (
+              <tr className="border-t-2 border-slate-600 bg-slate-800/30">
+                <td className="py-2 px-2"></td>
+                <td className="py-2 px-3 text-white font-semibold" colSpan={2}>
+                  Recharge Providers
+                </td>
+                <td className="py-2 px-3 text-slate-400 text-xs" colSpan={2}>
+                  {(() => {
+                    const enabledCount = rechargeModules.filter(
+                      (m) => m.is_enabled,
+                    ).length;
+                    if (enabledCount === 0)
+                      return (
+                        <span className="px-2 py-0.5 rounded text-xs bg-red-600/20 text-red-400">
+                          All Disabled
+                        </span>
+                      );
+                    if (enabledCount === rechargeModules.length)
+                      return (
+                        <span className="px-2 py-0.5 rounded text-xs bg-green-600/20 text-green-400">
+                          All Enabled
+                        </span>
+                      );
+                    return (
+                      <span className="px-2 py-0.5 rounded text-xs bg-amber-600/20 text-amber-400">
+                        Partially Enabled
+                      </span>
+                    );
+                  })()}
+                </td>
+              </tr>
+            )}
+            {/* Individual recharge module toggles */}
+            {rechargeModules.map((m) => {
+              const globalIdx = modules.findIndex((mod) => mod.key === m.key);
+              const providers = RECHARGE_PROVIDERS.filter(
+                (p) => p.module === m.key,
+              );
+              const prov = providerCurrencies.filter((p) => p.module === m.key);
+              const isSelected = selectedKey === m.key;
+              const isDragging =
+                dragIdx !== null && modules[dragIdx]?.key === m.key;
+              const isOver =
+                overIdx !== null && modules[overIdx]?.key === m.key;
+
+              return (
+                <tr
+                  key={m.key}
+                  draggable
+                  onDragStart={() => handleDragStart(globalIdx)}
+                  onDragOver={(e) => handleDragOver(e, globalIdx)}
+                  onDrop={() => handleDrop(globalIdx)}
+                  onDragEnd={handleDragEnd}
+                  onClick={() => setSelectedKey(isSelected ? null : m.key)}
+                  className={`border-t border-slate-800 bg-slate-800/20 cursor-pointer transition-all duration-150 ${
+                    isDragging
+                      ? "opacity-40"
+                      : isOver
+                        ? "border-t-2 border-t-violet-500"
+                        : ""
+                  } ${
+                    isSelected
+                      ? "bg-violet-600/15 ring-1 ring-violet-500/40 scale-[1.01] z-10 relative"
+                      : "hover:bg-slate-800/40"
+                  }`}
+                >
+                  <td className="py-2 px-2 w-8 text-slate-500 select-none">
+                    <span className="cursor-grab active:cursor-grabbing text-lg leading-none">
+                      ⠿
+                    </span>
+                  </td>
+                  <td className="py-2 px-3 pl-6 text-slate-200 font-medium">
                     {m.label}
                   </td>
-                  <td className="py-2 px-3 text-slate-400 font-mono text-xs">
-                    {m.route || "—"}
+                  <td className="py-2 px-3 text-slate-500 font-mono text-xs">
+                    {providers.map((p) => p.drawer).join(", ")}
                   </td>
-                  <td className="py-2 px-3 text-slate-300">
-                    {m.enabledCurrencies?.length
-                      ? m.enabledCurrencies.join(", ")
-                      : "—"}
+                  <td className="py-2 px-3 text-slate-400 text-xs">
+                    {prov
+                      .map((p) => `${p.label}: ${p.currencies.join("/")}`)
+                      .join(" · ") || "—"}
                   </td>
                   <td className="py-2 px-3">
                     <button
-                      onClick={() => handleToggle(m.key, m.is_enabled)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleToggle(m.key, m.is_enabled);
+                      }}
                       className={`px-3 py-1 rounded text-xs font-medium ${
                         m.is_enabled
                           ? "bg-green-600/20 text-green-400 hover:bg-green-600/30"
@@ -183,85 +448,8 @@ export default function ModulesManager() {
                     </button>
                   </td>
                 </tr>
-              ))}
-
-            {/* Recharge group header */}
-            <tr className="border-t-2 border-slate-600 bg-slate-800/30">
-              <td className="py-2 px-3 text-white font-semibold" colSpan={2}>
-                Recharge Providers
-              </td>
-              <td className="py-2 px-3 text-slate-400 text-xs" colSpan={2}>
-                {/* derive status from modules state */}
-                {(() => {
-                  const rechargeModules = modules.filter((m) =>
-                    ["recharge", "ipec_katch", "binance"].includes(m.key),
-                  );
-                  const enabledCount = rechargeModules.filter(
-                    (m) => m.is_enabled,
-                  ).length;
-                  if (enabledCount === 0)
-                    return (
-                      <span className="px-2 py-0.5 rounded text-xs bg-red-600/20 text-red-400">
-                        All Disabled
-                      </span>
-                    );
-                  if (enabledCount === rechargeModules.length)
-                    return (
-                      <span className="px-2 py-0.5 rounded text-xs bg-green-600/20 text-green-400">
-                        All Enabled
-                      </span>
-                    );
-                  return (
-                    <span className="px-2 py-0.5 rounded text-xs bg-amber-600/20 text-amber-400">
-                      Partially Enabled
-                    </span>
-                  );
-                })()}
-              </td>
-            </tr>
-            {/* Individual recharge module toggles */}
-            {modules
-              .filter((m) =>
-                ["recharge", "ipec_katch", "binance"].includes(m.key),
-              )
-              .map((m) => {
-                const providers = RECHARGE_PROVIDERS.filter(
-                  (p) => p.module === m.key,
-                );
-                const prov = providerCurrencies.filter(
-                  (p) => p.module === m.key,
-                );
-                return (
-                  <tr
-                    key={m.key}
-                    className="border-t border-slate-800 bg-slate-800/20"
-                  >
-                    <td className="py-2 px-3 pl-6 text-slate-200 font-medium">
-                      {m.label}
-                    </td>
-                    <td className="py-2 px-3 text-slate-500 font-mono text-xs">
-                      {providers.map((p) => p.drawer).join(", ")}
-                    </td>
-                    <td className="py-2 px-3 text-slate-400 text-xs">
-                      {prov
-                        .map((p) => `${p.label}: ${p.currencies.join("/")}`)
-                        .join(" · ") || "—"}
-                    </td>
-                    <td className="py-2 px-3">
-                      <button
-                        onClick={() => handleToggle(m.key, m.is_enabled)}
-                        className={`px-3 py-1 rounded text-xs font-medium ${
-                          m.is_enabled
-                            ? "bg-green-600/20 text-green-400 hover:bg-green-600/30"
-                            : "bg-red-600/20 text-red-400 hover:bg-red-600/30"
-                        }`}
-                      >
-                        {m.is_enabled ? "Enabled" : "Disabled"}
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
+              );
+            })}
           </tbody>
         </table>
       </div>

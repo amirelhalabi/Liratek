@@ -120,9 +120,9 @@ export class FinancialService {
    * Get comprehensive analytics (today, month, by provider)
    * commission = realized (settled); pending_commission = pending settlement
    */
-  getAnalytics(): FinancialServiceAnalytics {
+  getAnalytics(providers?: string[]): FinancialServiceAnalytics {
     try {
-      return this.fsRepo.getAnalytics();
+      return this.fsRepo.getAnalytics(providers);
     } catch (error) {
       financialLogger.error({ error }, "Failed to get analytics");
       return {
@@ -174,6 +174,70 @@ export class FinancialService {
       financialLogger.error({ error }, "Failed to get unsettled summary");
       return [];
     }
+  }
+
+  /**
+   * Update non-financial metadata on a financial service record.
+   * Records old/new values for audit trail.
+   */
+  updateFinancialServiceMetadata(
+    id: number,
+    data: {
+      client_name?: string;
+      phone_number?: string;
+      sender_name?: string;
+      sender_phone?: string;
+      receiver_name?: string;
+      receiver_phone?: string;
+      note?: string;
+    },
+    editedBy: string,
+  ): {
+    success: boolean;
+    entity?: FinancialServiceEntity;
+    oldValues?: Record<string, unknown>;
+    error?: string;
+  } {
+    const existing = this.fsRepo.findById(id);
+    if (!existing) {
+      return { success: false, error: "Financial service record not found" };
+    }
+
+    const oldValues: Record<string, unknown> = {};
+    const newValues: Record<string, unknown> = {};
+
+    const fields = [
+      "client_name",
+      "phone_number",
+      "sender_name",
+      "sender_phone",
+      "receiver_name",
+      "receiver_phone",
+      "note",
+    ] as const;
+
+    for (const field of fields) {
+      if (data[field] !== undefined && data[field] !== existing[field]) {
+        oldValues[field] = existing[field];
+        newValues[field] = data[field];
+      }
+    }
+
+    if (Object.keys(newValues).length === 0) {
+      return { success: true, entity: existing };
+    }
+
+    const updated = this.fsRepo.updateMetadata(id, data, editedBy);
+    if (!updated) {
+      return { success: false, error: "Failed to update" };
+    }
+
+    financialLogger.info(
+      { id, editedBy, oldValues, newValues },
+      "Financial service metadata updated",
+    );
+
+    return { success: true, entity: updated, oldValues };
   }
 }
 

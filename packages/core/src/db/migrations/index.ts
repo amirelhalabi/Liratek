@@ -2564,6 +2564,375 @@ export const MIGRATIONS: Migration[] = [
       console.log("Migration v61 rolled back: cleared checkout columns");
     },
   },
+  {
+    version: 62,
+    name: "add_session_cart_items",
+    description:
+      "Add session_cart_items table for persisting cart items tied to a customer session",
+    type: "typescript",
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS session_cart_items (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          session_id INTEGER NOT NULL,
+          item_id TEXT NOT NULL,
+          module TEXT NOT NULL,
+          label TEXT NOT NULL,
+          amount REAL NOT NULL,
+          currency TEXT NOT NULL DEFAULT 'USD',
+          form_data TEXT NOT NULL DEFAULT '{}',
+          ipc_channel TEXT NOT NULL,
+          created_at TEXT DEFAULT (datetime('now')),
+          FOREIGN KEY (session_id) REFERENCES customer_sessions(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_session_cart_items_session ON session_cart_items(session_id);
+      `);
+
+      console.log("Migration v62: Added session_cart_items table");
+    },
+    down(db) {
+      db.exec(`DROP TABLE IF EXISTS session_cart_items;`);
+      console.log("Migration v62 rolled back: dropped session_cart_items");
+    },
+  },
+  {
+    version: 63,
+    name: "add_user_id_to_sessions_and_cart",
+    description:
+      "Add user_id column to customer_sessions and session_cart_items for multi-PC user tracking",
+    type: "typescript",
+    up(db) {
+      // Check if columns already exist (create_db.sql may have created them)
+      const sessionCols = db.pragma("table_info(customer_sessions)") as {
+        name: string;
+      }[];
+      const cartCols = db.pragma("table_info(session_cart_items)") as {
+        name: string;
+      }[];
+
+      const sessionHasUserId = sessionCols.some((c) => c.name === "user_id");
+      const cartHasUserId = cartCols.some((c) => c.name === "user_id");
+
+      if (!sessionHasUserId) {
+        db.exec(
+          `ALTER TABLE customer_sessions ADD COLUMN user_id INTEGER REFERENCES users(id);`,
+        );
+      }
+      if (!cartHasUserId) {
+        db.exec(
+          `ALTER TABLE session_cart_items ADD COLUMN user_id INTEGER REFERENCES users(id);`,
+        );
+      }
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_customer_sessions_user ON customer_sessions(user_id);
+        CREATE INDEX IF NOT EXISTS idx_session_cart_items_user ON session_cart_items(user_id);
+      `);
+      console.log(
+        "Migration v63: Added user_id to customer_sessions and session_cart_items",
+      );
+    },
+    down(db) {
+      // SQLite doesn't support DROP COLUMN before 3.35.0, so recreate tables
+      // For simplicity, just drop the indexes
+      db.exec(`
+        DROP INDEX IF EXISTS idx_customer_sessions_user;
+        DROP INDEX IF EXISTS idx_session_cart_items_user;
+      `);
+      console.log("Migration v63 rolled back: dropped user_id indexes");
+    },
+  },
+  {
+    version: 64,
+    name: "add_customer_sessions_module",
+    description: "Add customer_sessions module to modules table",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.prepare(
+        `
+        INSERT OR IGNORE INTO modules (key, label, icon, route, sort_order, is_enabled, admin_only, is_system)
+        VALUES ('customer_sessions', 'Sessions', 'UserCheck', '/customer-sessions', 14, 1, 0, 0)
+      `,
+      ).run();
+      console.log("Migration v64: Added customer_sessions module");
+    },
+    down(db: Database.Database) {
+      db.prepare(`DELETE FROM modules WHERE key = 'customer_sessions'`).run();
+      console.log(
+        "Migration v64 rolled back: removed customer_sessions module",
+      );
+    },
+  },
+  {
+    version: 65,
+    name: "session_checkout_currency_split_and_profit",
+    description:
+      "Split checkout_total into USD/LBP and add profit columns to customer_sessions",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      const cols = db.pragma("table_info(customer_sessions)") as {
+        name: string;
+      }[];
+      const colNames = new Set(cols.map((c) => c.name));
+
+      const toAdd = [
+        { col: "checkout_total_usd", def: "REAL NOT NULL DEFAULT 0" },
+        { col: "checkout_total_lbp", def: "REAL NOT NULL DEFAULT 0" },
+        { col: "checkout_profit_usd", def: "REAL NOT NULL DEFAULT 0" },
+        { col: "checkout_profit_lbp", def: "REAL NOT NULL DEFAULT 0" },
+      ];
+      for (const { col, def } of toAdd) {
+        if (!colNames.has(col)) {
+          db.exec(`ALTER TABLE customer_sessions ADD COLUMN ${col} ${def};`);
+        }
+      }
+      // Back-fill existing rows from the old checkout_total + checkout_currency
+      db.exec(`
+        UPDATE customer_sessions
+        SET checkout_total_usd = CASE WHEN checkout_currency != 'LBP' THEN COALESCE(checkout_total, 0) ELSE 0 END,
+            checkout_total_lbp = CASE WHEN checkout_currency  = 'LBP' THEN COALESCE(checkout_total, 0) ELSE 0 END
+        WHERE checkout_total IS NOT NULL;
+      `);
+      console.log(
+        "Migration v65: Added split checkout totals and profit columns",
+      );
+    },
+    down(db: Database.Database) {
+      // SQLite < 3.35 can't DROP COLUMN; just leave the columns
+      console.log("Migration v65 rolled back (columns remain)");
+    },
+  },
+  {
+    version: 66,
+    name: "add_drawer_topups_table",
+    description:
+      "Create drawer_topups table for tracking cash top-ups to drawers",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS drawer_topups (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          amount_usd REAL DEFAULT 0,
+          amount_lbp REAL DEFAULT 0,
+          notes TEXT,
+          created_by INTEGER,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      console.log("Migration v66: Created drawer_topups table");
+    },
+    down(db: Database.Database) {
+      db.exec(`DROP TABLE IF EXISTS drawer_topups`);
+      console.log("Migration v66 rolled back: dropped drawer_topups table");
+    },
+  },
+  {
+    version: 67,
+    name: "add_source_drawer_to_drawer_topups",
+    description:
+      "Add source_drawer column to drawer_topups for drawer-to-drawer transfers",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.exec(`
+        ALTER TABLE drawer_topups ADD COLUMN source_drawer TEXT DEFAULT NULL
+      `);
+      console.log("Migration v67: Added source_drawer column to drawer_topups");
+    },
+    down(db: Database.Database) {
+      // SQLite doesn't support DROP COLUMN before 3.35.0, rebuild table
+      db.exec(`
+        CREATE TABLE drawer_topups_backup AS SELECT id, amount_usd, amount_lbp, notes, created_by, created_at, updated_at FROM drawer_topups;
+        DROP TABLE drawer_topups;
+        CREATE TABLE drawer_topups (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          amount_usd REAL DEFAULT 0,
+          amount_lbp REAL DEFAULT 0,
+          notes TEXT,
+          created_by INTEGER,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+        INSERT INTO drawer_topups SELECT * FROM drawer_topups_backup;
+        DROP TABLE drawer_topups_backup;
+      `);
+      console.log(
+        "Migration v67 rolled back: removed source_drawer from drawer_topups",
+      );
+    },
+  },
+  {
+    version: 68,
+    name: "add_is_refunded_to_source_tables",
+    description:
+      "Add is_refunded and refunded_at columns to all module source tables for refund/void propagation",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      const tables = [
+        "recharges",
+        "financial_services",
+        "exchange_transactions",
+        "custom_services",
+        "maintenance",
+        "expenses",
+        "loto_tickets",
+        "debt_ledger",
+      ];
+      for (const table of tables) {
+        db.exec(`
+          ALTER TABLE ${table} ADD COLUMN is_refunded INTEGER DEFAULT 0;
+        `);
+        db.exec(`
+          ALTER TABLE ${table} ADD COLUMN refunded_at TEXT DEFAULT NULL;
+        `);
+      }
+      console.log(
+        "Migration v68: Added is_refunded + refunded_at to all source tables",
+      );
+    },
+    down(db: Database.Database) {
+      // SQLite < 3.35 can't DROP COLUMN; leave columns in place
+      console.log("Migration v68 rolled back (columns remain)");
+    },
+  },
+  {
+    version: 69,
+    name: "add_edited_by_edited_at_to_source_tables",
+    description:
+      "Add edited_by and edited_at columns to all module source tables for metadata editing support",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      const tables = [
+        "sales",
+        "recharges",
+        "financial_services",
+        "exchange_transactions",
+        "custom_services",
+        "maintenance",
+        "expenses",
+        "loto_tickets",
+        "debt_ledger",
+      ];
+      for (const table of tables) {
+        db.exec(`
+          ALTER TABLE ${table} ADD COLUMN edited_by TEXT DEFAULT NULL;
+        `);
+        db.exec(`
+          ALTER TABLE ${table} ADD COLUMN edited_at TEXT DEFAULT NULL;
+        `);
+      }
+      console.log(
+        "Migration v69: Added edited_by + edited_at to all source tables",
+      );
+    },
+    down(_db: Database.Database) {
+      // SQLite < 3.35 can't DROP COLUMN; leave columns in place
+      console.log("Migration v69 rolled back (columns remain)");
+    },
+  },
+  {
+    version: 70,
+    name: "add_note_to_expenses",
+    description:
+      "Add note column to expenses table for metadata editing support",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.exec(`ALTER TABLE expenses ADD COLUMN note TEXT DEFAULT NULL;`);
+      console.log("Migration v70: Added note column to expenses table");
+    },
+    down(_db: Database.Database) {
+      console.log("Migration v70 rolled back (column remains)");
+    },
+  },
+  {
+    version: 71,
+    name: "add_profit_columns_to_transactions_and_session_transactions",
+    description:
+      "Add profit_usd and profit_lbp columns to transactions and customer_session_transactions tables " +
+      "so that profit is tracked per-transaction at the point of creation.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      // 1. Add profit columns to unified transactions ledger
+      db.exec(`
+        ALTER TABLE transactions ADD COLUMN profit_usd REAL NOT NULL DEFAULT 0;
+        ALTER TABLE transactions ADD COLUMN profit_lbp REAL NOT NULL DEFAULT 0;
+      `);
+
+      // 2. Add profit columns to customer_session_transactions
+      db.exec(`
+        ALTER TABLE customer_session_transactions ADD COLUMN profit_usd REAL NOT NULL DEFAULT 0;
+        ALTER TABLE customer_session_transactions ADD COLUMN profit_lbp REAL NOT NULL DEFAULT 0;
+      `);
+
+      // 3. Backfill exchange transactions profit into unified ledger
+      db.exec(`
+        UPDATE transactions
+        SET profit_usd = COALESCE((
+          SELECT COALESCE(et.leg1_profit_usd, 0) + COALESCE(et.leg2_profit_usd, 0)
+          FROM exchange_transactions et
+          WHERE et.id = transactions.source_id
+        ), 0)
+        WHERE source_table = 'exchange_transactions';
+      `);
+
+      // 4. Backfill customer_session_transactions profit from exchange_transactions
+      db.exec(`
+        UPDATE customer_session_transactions
+        SET profit_usd = COALESCE((
+          SELECT COALESCE(et.leg1_profit_usd, 0) + COALESCE(et.leg2_profit_usd, 0)
+          FROM exchange_transactions et
+          WHERE et.id = customer_session_transactions.transaction_id
+        ), 0)
+        WHERE transaction_type = 'exchange';
+      `);
+
+      // 5. Backfill sale profits into unified ledger
+      db.exec(`
+        UPDATE transactions
+        SET profit_usd = COALESCE((
+          SELECT SUM((si.sold_price_usd - si.cost_price_snapshot_usd) * si.quantity)
+          FROM sale_items si
+          WHERE si.sale_id = transactions.source_id AND si.is_refunded = 0
+        ), 0)
+        WHERE source_table = 'sales';
+      `);
+
+      // 6. Backfill financial_services commissions into unified ledger
+      db.exec(`
+        UPDATE transactions
+        SET profit_usd = COALESCE((
+          SELECT CASE WHEN fs.currency = 'USD' THEN fs.commission ELSE 0 END
+          FROM financial_services fs WHERE fs.id = transactions.source_id
+        ), 0),
+        profit_lbp = COALESCE((
+          SELECT CASE WHEN fs.currency = 'LBP' THEN fs.commission ELSE 0 END
+          FROM financial_services fs WHERE fs.id = transactions.source_id
+        ), 0)
+        WHERE source_table = 'financial_services';
+      `);
+
+      // 7. Backfill recharge commissions into unified ledger
+      db.exec(`
+        UPDATE transactions
+        SET profit_lbp = COALESCE((
+          SELECT CASE WHEN r.currency_code = 'LBP' THEN (r.price - r.cost) ELSE 0 END
+          FROM recharges r WHERE r.id = transactions.source_id
+        ), 0),
+        profit_usd = COALESCE((
+          SELECT CASE WHEN r.currency_code != 'LBP' THEN (r.price - r.cost) ELSE 0 END
+          FROM recharges r WHERE r.id = transactions.source_id
+        ), 0)
+        WHERE source_table = 'recharges';
+      `);
+
+      console.log(
+        "Migration v71: Added profit_usd/profit_lbp to transactions and customer_session_transactions with backfill",
+      );
+    },
+    down(db: Database.Database) {
+      // SQLite doesn't support DROP COLUMN before 3.35, so just leave columns
+      console.log("Migration v71 rolled back (columns remain)");
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

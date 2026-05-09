@@ -5,7 +5,11 @@
  */
 
 import { ipcMain, IpcMainInvokeEvent } from "electron";
-import { getCustomServiceService, customServiceLogger } from "@liratek/core";
+import {
+  getCustomServiceService,
+  customServiceLogger,
+  getUserRepository,
+} from "@liratek/core";
 import { requireRole } from "../session.js";
 import { audit } from "./auditHelper.js";
 import type { CreateCustomServiceInput } from "@liratek/core";
@@ -82,6 +86,63 @@ export function registerCustomServiceHandlers(): void {
         summary: `Deleted custom service #${id}`,
       });
       return result;
+    },
+  );
+
+  // Update custom service metadata (staff and admin)
+  ipcMain.handle(
+    "custom-services:update-metadata",
+    (
+      event: IpcMainInvokeEvent,
+      data: {
+        id: number;
+        description?: string;
+        client_name?: string;
+        phone_number?: string;
+        note?: string;
+      },
+    ) => {
+      const auth = requireRole(event.sender.id, ["admin", "staff"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+
+      let editedBy = `user-${auth.userId}`;
+      try {
+        const userRepo = getUserRepository();
+        const user = userRepo.findById(auth.userId);
+        if (user) editedBy = user.username;
+      } catch {
+        // fallback to user-{id}
+      }
+
+      const result = service.updateCustomServiceMetadata(
+        data.id,
+        {
+          description: data.description,
+          client_name: data.client_name,
+          phone_number: data.phone_number,
+          note: data.note,
+        },
+        editedBy,
+      );
+
+      if (
+        result.success &&
+        result.oldValues &&
+        Object.keys(result.oldValues).length > 0
+      ) {
+        audit(event.sender.id, {
+          action: "edit_metadata",
+          entity_type: "custom_service",
+          entity_id: String(data.id),
+          summary: `Edited custom service #${data.id} metadata`,
+          old_values: result.oldValues,
+          new_values: data,
+        });
+      }
+
+      return result.success
+        ? { success: true, data: result.entity }
+        : { success: false, error: result.error };
     },
   );
 }

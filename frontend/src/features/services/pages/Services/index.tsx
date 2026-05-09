@@ -11,6 +11,8 @@ import {
   RefreshCw,
   AlertTriangle,
   X,
+  Pencil,
+  Check,
 } from "lucide-react";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
@@ -79,7 +81,22 @@ const WESTERN_UNION_FEE_TIERS: Array<{ maxAmount: number; fee: number }> = [
   { maxAmount: 7500, fee: 100 },
 ];
 
-function lookupOmtFee(serviceType: OmtServiceType, amt: number): number | null {
+const INTRA_LBP_MAX_AMOUNT = 50_000_000;
+
+function lookupIntraLbpFee(amount: number): number | null {
+  if (amount <= 0 || amount > INTRA_LBP_MAX_AMOUNT) return null;
+  return Math.max(50_000, Math.ceil(amount / 1_000_000) * 10_000);
+}
+
+function lookupOmtFee(
+  serviceType: OmtServiceType,
+  amt: number,
+  cur: string = "USD",
+): number | null {
+  if (cur === "LBP") {
+    if (serviceType === "INTRA") return lookupIntraLbpFee(amt);
+    return null; // Western Union is USD only
+  }
   let tiers: Array<{ maxAmount: number; fee: number }> | null = null;
   if (serviceType === "INTRA") tiers = INTRA_FEE_TIERS;
   else if (serviceType === "WESTERN_UNION") tiers = WESTERN_UNION_FEE_TIERS;
@@ -99,24 +116,10 @@ const WHISH_FEE_TIERS: Array<{ maxAmount: number; fee: number }> = [
   { maxAmount: 4000, fee: 20 },
   { maxAmount: 5000, fee: 25 },
 ];
-// WHISH commission rate kept for reference (fees hidden per LIRA-023)
+// Kept for includingFees back-calculation (calcMaxSentAmountWithPmFee)
 // const WHISH_COMMISSION_RATE = 0.1;
 
-function lookupWhishFee(amt: number): number | null {
-  const tier = WHISH_FEE_TIERS.find((t) => amt <= t.maxAmount);
-  return tier ? tier.fee : null;
-}
-
-// Online Brokerage profit rate options
-const ONLINE_BROKERAGE_RATES = [
-  { value: 0.001, label: "0.1%" },
-  { value: 0.0015, label: "0.15%" },
-  { value: 0.002, label: "0.2%" },
-  { value: 0.0025, label: "0.25% (Default)" },
-  { value: 0.003, label: "0.3%" },
-  { value: 0.0035, label: "0.35%" },
-  { value: 0.004, label: "0.4%" },
-];
+// Online Brokerage: flat $3 profit per transaction (no rate needed)
 
 const PM_FEE_DEFAULT_RATE = 0.01;
 
@@ -194,9 +197,25 @@ function formatAmount(amount: number, currency: string): string {
   return `${amount.toLocaleString()} ${currency}`;
 }
 
+interface CurrencyStats {
+  currency: string;
+  commission: number;
+  count: number;
+}
+
 interface Analytics {
-  today: { commission: number; pending_commission: number; count: number };
-  month: { commission: number; pending_commission: number; count: number };
+  today: {
+    commission: number;
+    pending_commission: number;
+    count: number;
+    byCurrency?: CurrencyStats[];
+  };
+  month: {
+    commission: number;
+    pending_commission: number;
+    count: number;
+    byCurrency?: CurrencyStats[];
+  };
   byProvider: {
     provider: string;
     commission: number;
@@ -239,8 +258,8 @@ export default function Services() {
   const { methods: allPaymentMethods } = usePaymentMethods();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [analytics, setAnalytics] = useState<Analytics>({
-    today: { commission: 0, pending_commission: 0, count: 0 },
-    month: { commission: 0, pending_commission: 0, count: 0 },
+    today: { commission: 0, pending_commission: 0, count: 0, byCurrency: [] },
+    month: { commission: 0, pending_commission: 0, count: 0, byCurrency: [] },
     byProvider: [],
   });
   const [owedByProvider, setOwedByProvider] = useState<
@@ -255,6 +274,7 @@ export default function Services() {
   const [provider, setProvider] = useState<Provider>("OMT");
   const [paidByMethod, setPaidByMethod] = useState("CASH");
   const [serviceType, setServiceType] = useState<ServiceType>("SEND");
+  const [currency, setCurrency] = useState<"USD" | "LBP">("USD");
   const [amount, setAmount] = useState<string>("");
   // Sender/Receiver fields (Phase 2)
   const [senderName, setSenderName] = useState("");
@@ -271,7 +291,7 @@ export default function Services() {
   // New fields for Phase 2
   const [omtFee, setOmtFee] = useState<string>("");
   const [whishFee, setWhishFee] = useState<string>("");
-  const [profitRate, setProfitRate] = useState<number>(0.0025); // 0.25% default
+  // Online Brokerage: flat $3 profit (no profitRate state needed)
 
   // BINANCE-specific fields
   const [payFee, setPayFee] = useState<boolean>(false); // Charge fee to customer
@@ -285,6 +305,42 @@ export default function Services() {
   // History modal
   const [showHistory, setShowHistory] = useState(false);
   useModalFocusFix(showHistory);
+
+  // ── Inline edit state for history ──────────────────────────────────
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editForm, setEditForm] = useState({
+    client_name: "",
+    phone_number: "",
+    note: "",
+  });
+  const [editSaving, setEditSaving] = useState(false);
+
+  function startEditTx(tx: Transaction) {
+    setEditingId(tx.id);
+    setEditForm({
+      client_name: tx.client_name || "",
+      phone_number: tx.phone_number || "",
+      note: tx.note || "",
+    });
+  }
+
+  async function saveEditTx(id: number) {
+    setEditSaving(true);
+    try {
+      const result = await window.api.financial.updateMetadata({
+        id,
+        ...(editForm.client_name && { customer_name: editForm.client_name }),
+        ...(editForm.phone_number && { phone_number: editForm.phone_number }),
+        ...(editForm.note && { note: editForm.note }),
+      });
+      if (result.success) {
+        setEditingId(null);
+        loadData();
+      }
+    } finally {
+      setEditSaving(false);
+    }
+  }
 
   // Exchange rate for multi-currency payments (loaded from database)
   const [exchangeRate, setExchangeRate] = useState(89500);
@@ -325,6 +381,9 @@ export default function Services() {
     const amtVal = parseFloat(amount) || 0;
     if (!amtVal || provider === "WHISH") return 0;
     if (provider === "OMT" && omtServiceType === "INTRA") {
+      if (currency === "LBP") {
+        return lookupIntraLbpFee(amtVal) ?? 0;
+      }
       for (const tier of INTRA_FEE_TIERS) {
         if (amtVal <= tier.maxAmount) return tier.fee;
       }
@@ -358,8 +417,8 @@ export default function Services() {
     setLoadError(null);
     try {
       const [history, stats, suppliers, balances] = await Promise.all([
-        api.getOMTHistory(),
-        api.getOMTAnalytics(),
+        api.getOMTHistory(provider),
+        api.getOMTAnalytics(["OMT", "WHISH"]),
         api.getSuppliers(),
         api.getSupplierBalances(),
       ]);
@@ -392,7 +451,7 @@ export default function Services() {
     } finally {
       setIsLoading(false);
     }
-  }, [api]);
+  }, [api, provider]);
 
   useEffect(() => {
     loadData();
@@ -554,7 +613,8 @@ export default function Services() {
     try {
       const amtVal = parseFloat(amount) || 0;
 
-      // Resolve the OMT fee: user-entered or auto-looked-up from the fee table
+      // Resolve the OMT fee: prefer user-entered value, fall back to auto-lookup.
+      // If the user explicitly typed a value (even "0"), use it as-is.
       let resolvedOmtFee: number | undefined;
       if (
         provider === "OMT" &&
@@ -562,21 +622,24 @@ export default function Services() {
         omtServiceType !== "OMT_WALLET" &&
         omtServiceType !== "ONLINE_BROKERAGE"
       ) {
-        if (omtFee && parseFloat(omtFee) > 0) {
-          resolvedOmtFee = parseFloat(omtFee);
+        if (omtFee !== "") {
+          resolvedOmtFee = parseFloat(omtFee) || 0;
         } else {
           resolvedOmtFee =
-            lookupOmtFee(omtServiceType as OmtServiceType, amtVal) ?? undefined;
+            lookupOmtFee(omtServiceType as OmtServiceType, amtVal, currency) ??
+            undefined;
         }
       }
 
-      // Resolve the WHISH fee: user-entered or auto-looked-up from the WHISH fee table
+      // Resolve the WHISH fee: user-entered only.
+      // Per LIRA-023, Whish System has no fees — the fee input is hidden,
+      // so we never auto-lookup. Only use a fee if the user explicitly entered one.
       let resolvedWhishFee: number | undefined;
       if (provider === "WHISH") {
         if (whishFee && parseFloat(whishFee) > 0) {
           resolvedWhishFee = parseFloat(whishFee);
         } else {
-          resolvedWhishFee = lookupWhishFee(amtVal) ?? undefined;
+          resolvedWhishFee = 0;
         }
       }
 
@@ -617,36 +680,61 @@ export default function Services() {
           // sentAmount = totalBudget - providerFee - pmFee
           // But pmFee was auto-calculated on amtVal (the budget), so we need to iterate.
           // Use the stored pmFee as an approximation and subtract from budget:
-          const feeTiers =
-            provider === "OMT" && omtServiceType === "INTRA"
-              ? INTRA_FEE_TIERS
-              : provider === "OMT" && omtServiceType === "WESTERN_UNION"
-                ? WESTERN_UNION_FEE_TIERS
-                : provider === "WHISH"
-                  ? WHISH_FEE_TIERS
-                  : null;
 
-          if (feeTiers) {
-            // Use the pmFee rate derived from user input for the back-calculation
-            const calc = calcMaxSentAmountWithPmFee(
-              amtVal,
-              resolvedPmFeeRate,
-              feeTiers,
+          if (
+            currency === "LBP" &&
+            provider === "OMT" &&
+            omtServiceType === "INTRA"
+          ) {
+            // LBP formula-based: sentAmount = (total - lbpFee(total)) / (1 + pmFeeRate)
+            const lbpFee = lookupIntraLbpFee(amtVal) ?? 0;
+            sentAmount = Math.floor(
+              (amtVal - lbpFee) / (1 + resolvedPmFeeRate),
             );
-            if (calc) {
-              sentAmount = calc.sentAmount;
-              finalPmFee = calc.pmFee;
-            } else {
-              sentAmount = amtVal - resolvedFee - resolvedPmFee;
-            }
+            finalPmFee = parseFloat(
+              (sentAmount * resolvedPmFeeRate).toFixed(2),
+            );
           } else {
-            // No tiered table: straightforward subtraction
-            sentAmount = amtVal - resolvedFee - resolvedPmFee;
-            sentAmount = Math.max(0, Math.floor(sentAmount * 100) / 100);
+            const feeTiers =
+              provider === "OMT" && omtServiceType === "INTRA"
+                ? INTRA_FEE_TIERS
+                : provider === "OMT" && omtServiceType === "WESTERN_UNION"
+                  ? WESTERN_UNION_FEE_TIERS
+                  : provider === "WHISH"
+                    ? WHISH_FEE_TIERS
+                    : null;
+
+            if (feeTiers) {
+              // Use the pmFee rate derived from user input for the back-calculation
+              const calc = calcMaxSentAmountWithPmFee(
+                amtVal,
+                resolvedPmFeeRate,
+                feeTiers,
+              );
+              if (calc) {
+                sentAmount = calc.sentAmount;
+                finalPmFee = calc.pmFee;
+              } else {
+                sentAmount = amtVal - resolvedFee - resolvedPmFee;
+              }
+            } else {
+              // No tiered table: straightforward subtraction
+              sentAmount = amtVal - resolvedFee - resolvedPmFee;
+              sentAmount = Math.max(0, Math.floor(sentAmount * 100) / 100);
+            }
           }
         } else {
           // Cash payment with includingFees: simple fee subtraction
-          sentAmount = amtVal - resolvedFee;
+          if (
+            currency === "LBP" &&
+            provider === "OMT" &&
+            omtServiceType === "INTRA"
+          ) {
+            const lbpFee = lookupIntraLbpFee(amtVal) ?? resolvedFee ?? 0;
+            sentAmount = amtVal - lbpFee;
+          } else {
+            sentAmount = amtVal - resolvedFee;
+          }
         }
       }
 
@@ -654,7 +742,7 @@ export default function Services() {
         provider,
         serviceType,
         amount: sentAmount,
-        currency: "USD",
+        currency: currency,
         // For backward compatibility: set primary client based on service type
         ...(serviceType === "SEND"
           ? { clientName: senderName, phoneNumber: senderPhone }
@@ -667,9 +755,8 @@ export default function Services() {
         receiverPhone,
         ...(provider === "OMT" && omtServiceType ? { omtServiceType } : {}),
         // Always pass the resolved fee so backend can record it correctly
-        ...(resolvedOmtFee ? { omtFee: resolvedOmtFee } : {}),
-        ...(resolvedWhishFee ? { whishFee: resolvedWhishFee } : {}),
-        ...(omtServiceType === "ONLINE_BROKERAGE" ? { profitRate } : {}),
+        ...(resolvedOmtFee != null ? { omtFee: resolvedOmtFee } : {}),
+        ...(resolvedWhishFee != null ? { whishFee: resolvedWhishFee } : {}),
         ...(payFee ? { payFee: true } : {}),
         ...(binanceSupplier ? { itemKey: binanceSupplier } : {}),
         includingFees: serviceType === "SEND" ? includingFees : false,
@@ -709,13 +796,30 @@ export default function Services() {
       // If session is active, add to cart instead of submitting
       if (activeSession) {
         const clientLabel = serviceType === "SEND" ? senderName : receiverName;
-        const label = `${provider} ${serviceType} - ${clientLabel || "Unknown"} - $${sentAmount.toFixed(2)}`;
+        const feeTotal = (resolvedFee ?? 0) + finalPmFee;
+        const feeLabelStr =
+          currency === "LBP"
+            ? feeTotal > 0
+              ? ` + ${feeTotal.toLocaleString()} LBP fees`
+              : ""
+            : feeTotal > 0
+              ? ` + $${feeTotal.toFixed(2)} fees`
+              : "";
+        const amountStr =
+          currency === "LBP"
+            ? `${sentAmount.toLocaleString()} LBP`
+            : `$${sentAmount.toFixed(2)}`;
+        const label = `${provider} ${serviceType} - ${clientLabel || "Unknown"} - ${amountStr}${feeLabelStr}`;
+        // Customer total: includingFees means amtVal IS the total; otherwise add fees on top
+        const customerTotal = includingFees
+          ? amtVal
+          : sentAmount + (resolvedFee ?? 0) + finalPmFee;
 
         addToSessionCart({
           module: provider === "OMT" ? "omt_system" : "whish_system",
           label,
-          amount: serviceType === "SEND" ? sentAmount : -sentAmount,
-          currency: "USD",
+          amount: serviceType === "SEND" ? customerTotal : -customerTotal,
+          currency: currency,
           ipcChannel: "financial:create",
           formData: apiPayload,
         });
@@ -730,7 +834,6 @@ export default function Services() {
         setOmtServiceType("INTRA" as OmtServiceType);
         setOmtFee("");
         setWhishFee("");
-        setProfitRate(0.0025);
         setPayFee(false);
         setBinanceSupplier("");
         setPaymentLines([]);
@@ -748,10 +851,13 @@ export default function Services() {
         // Link to active session if exists
         if (activeSession && result.id) {
           try {
+            const linkTotal = includingFees
+              ? amtVal
+              : sentAmount + (resolvedFee ?? 0) + finalPmFee;
             await linkTransaction({
               transactionType: "financial_service",
               transactionId: result.id,
-              amountUsd: parseFloat(amount),
+              amountUsd: linkTotal,
               amountLbp: 0,
             });
           } catch (err) {
@@ -776,7 +882,6 @@ export default function Services() {
         setOmtServiceType("INTRA" as OmtServiceType);
         setOmtFee("");
         setWhishFee("");
-        setProfitRate(0.0025);
         setPayFee(false);
         setBinanceSupplier("");
         setPaymentLines([]);
@@ -804,12 +909,12 @@ export default function Services() {
     }
   }, [
     amount,
+    currency,
     provider,
     serviceType,
     omtServiceType,
     omtFee,
     whishFee,
-    profitRate,
     senderName,
     senderPhone,
     receiverName,
@@ -863,6 +968,8 @@ export default function Services() {
             <StatsCards
               todayCommission={analytics.today.commission}
               monthCommission={analytics.month.commission}
+              todayByCurrency={analytics.today.byCurrency}
+              monthByCurrency={analytics.month.byCurrency}
               owedByProvider={owedByProvider}
             />
             <button
@@ -912,6 +1019,7 @@ export default function Services() {
                         setPaidByMethod(
                           PROVIDER_DEFAULT_METHOD[prov] || "CASH",
                         );
+                        setCurrency("USD");
                       }}
                       className={`flex-1 py-3 font-bold text-sm tracking-wide transition-all flex items-center justify-center gap-1.5 border-r border-slate-700/40 last:border-r-0 ${
                         isActive
@@ -951,7 +1059,10 @@ export default function Services() {
                     }
                     options={[
                       { value: "", label: "— Select service —" },
-                      ...OMT_SERVICE_OPTIONS,
+                      ...OMT_SERVICE_OPTIONS.filter(
+                        (o) =>
+                          !(currency === "LBP" && o.value === "WESTERN_UNION"),
+                      ),
                     ]}
                   />
                 </div>
@@ -959,27 +1070,61 @@ export default function Services() {
 
               {/* Amount Field */}
               <div>
-                <label
-                  htmlFor="service-amount"
-                  className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
-                >
-                  Amount
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label
+                    htmlFor="service-amount"
+                    className="block text-xs font-medium text-slate-400 uppercase tracking-wider"
+                  >
+                    Amount
+                  </label>
+                  {/* Currency selector */}
+                  <div className="flex items-center gap-1 bg-slate-900 rounded-lg border border-slate-600 p-0.5">
+                    {(["USD", "LBP"] as const).map((cur) => (
+                      <button
+                        key={cur}
+                        type="button"
+                        onClick={() => {
+                          setCurrency(cur);
+                          setAmount("");
+                          // If switching to LBP and WU is selected, reset to INTRA
+                          if (
+                            cur === "LBP" &&
+                            omtServiceType === "WESTERN_UNION"
+                          ) {
+                            setOmtServiceType("INTRA");
+                          }
+                        }}
+                        className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all ${
+                          currency === cur
+                            ? "bg-violet-600 text-white"
+                            : "text-slate-400 hover:text-slate-200"
+                        }`}
+                      >
+                        {cur}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
-                    $
-                  </span>
+                  {currency === "USD" && (
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
+                      $
+                    </span>
+                  )}
                   <input
                     id="service-amount"
                     type="number"
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
-                    className={INPUT_CLASS + " pl-8 pr-16"}
-                    placeholder="0.00"
-                    step="0.01"
+                    className={
+                      INPUT_CLASS +
+                      (currency === "USD" ? " pl-8 pr-16" : " pl-4 pr-16")
+                    }
+                    placeholder={currency === "LBP" ? "0" : "0.00"}
+                    step={currency === "LBP" ? "1000" : "0.01"}
                   />
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs font-medium">
-                    USD
+                    {currency}
                   </span>
                 </div>
               </div>
@@ -994,7 +1139,11 @@ export default function Services() {
                     omtServiceType !== "OMT_WALLET" &&
                     omtServiceType !== "ONLINE_BROKERAGE" &&
                     amtVal > 0
-                      ? lookupOmtFee(omtServiceType as OmtServiceType, amtVal)
+                      ? lookupOmtFee(
+                          omtServiceType as OmtServiceType,
+                          amtVal,
+                          currency,
+                        )
                       : null;
                   const feeLabel = "OMT fee";
                   const userEnteredFee =
@@ -1023,37 +1172,59 @@ export default function Services() {
                     showPmFee &&
                     pmFeeDisplay > 0
                   ) {
-                    const feeTiers =
-                      omtServiceType === "INTRA"
-                        ? INTRA_FEE_TIERS
-                        : omtServiceType === "WESTERN_UNION"
-                          ? WESTERN_UNION_FEE_TIERS
-                          : null;
-                    if (feeTiers) {
-                      const calc = calcMaxSentAmountWithPmFee(
-                        amtVal,
-                        pmFeeRateForCalc,
-                        feeTiers,
+                    if (currency === "LBP" && omtServiceType === "INTRA") {
+                      // LBP formula: sentAmount = (total - lbpFee(total)) / (1 + pmFeeRate)
+                      const lbpFee = lookupIntraLbpFee(amtVal) ?? 0;
+                      breakdownSent = Math.floor(
+                        (amtVal - lbpFee) / (1 + pmFeeRateForCalc),
                       );
-                      if (calc) {
-                        breakdownSent = calc.sentAmount;
-                        breakdownPmFee = calc.pmFee;
+                      breakdownPmFee = parseFloat(
+                        (breakdownSent * pmFeeRateForCalc).toFixed(2),
+                      );
+                    } else {
+                      const feeTiers =
+                        omtServiceType === "INTRA"
+                          ? INTRA_FEE_TIERS
+                          : omtServiceType === "WESTERN_UNION"
+                            ? WESTERN_UNION_FEE_TIERS
+                            : null;
+                      if (feeTiers) {
+                        const calc = calcMaxSentAmountWithPmFee(
+                          amtVal,
+                          pmFeeRateForCalc,
+                          feeTiers,
+                        );
+                        if (calc) {
+                          breakdownSent = calc.sentAmount;
+                          breakdownPmFee = calc.pmFee;
+                        } else {
+                          breakdownSent = Math.max(
+                            0,
+                            amtVal - feeVal - pmFeeDisplay,
+                          );
+                        }
                       } else {
                         breakdownSent = Math.max(
                           0,
                           amtVal - feeVal - pmFeeDisplay,
                         );
                       }
-                    } else {
-                      breakdownSent = Math.max(
-                        0,
-                        amtVal - feeVal - pmFeeDisplay,
-                      );
                     }
                   } else if (includingFees && feeVal > 0) {
-                    breakdownSent = amtVal - feeVal;
+                    if (currency === "LBP" && omtServiceType === "INTRA") {
+                      const lbpFee = lookupIntraLbpFee(amtVal) ?? feeVal;
+                      breakdownSent = amtVal - lbpFee;
+                    } else {
+                      breakdownSent = amtVal - feeVal;
+                    }
                     breakdownPmFee = 0;
                   }
+
+                  // Format helpers for LBP vs USD
+                  const fmtAmt = (v: number) =>
+                    currency === "LBP"
+                      ? `${v.toLocaleString()} LBP`
+                      : `$${v.toFixed(2)}`;
 
                   return (
                     <div className="rounded-lg bg-slate-900/60 border border-slate-700 p-3 space-y-2">
@@ -1075,13 +1246,13 @@ export default function Services() {
                               <p className="text-slate-400">
                                 Customer paid:{" "}
                                 <span className="text-white font-mono font-medium">
-                                  ${amtVal.toFixed(2)}
+                                  {fmtAmt(amtVal)}
                                 </span>
                               </p>
                               <p className="text-slate-400">
                                 {feeLabel}:{" "}
                                 <span className="text-amber-400 font-mono font-medium">
-                                  -${feeVal.toFixed(2)}
+                                  -{fmtAmt(feeVal)}
                                 </span>
                               </p>
                               {showPmFee && breakdownPmFee > 0 && (
@@ -1095,7 +1266,7 @@ export default function Services() {
                               <p className="text-slate-400">
                                 Sent to recipient:{" "}
                                 <span className="text-emerald-400 font-mono font-medium">
-                                  ${breakdownSent.toFixed(2)}
+                                  {fmtAmt(breakdownSent)}
                                 </span>
                               </p>
                             </>
@@ -1104,13 +1275,13 @@ export default function Services() {
                               <p className="text-slate-400">
                                 Sent amount:{" "}
                                 <span className="text-white font-mono font-medium">
-                                  ${amtVal.toFixed(2)}
+                                  {fmtAmt(amtVal)}
                                 </span>
                               </p>
                               <p className="text-slate-400">
                                 {feeLabel} (extra):{" "}
                                 <span className="text-amber-400 font-mono font-medium">
-                                  +${feeVal.toFixed(2)}
+                                  +{fmtAmt(feeVal)}
                                 </span>
                               </p>
                               {showPmFee && pmFeeDisplay > 0 && (
@@ -1124,12 +1295,11 @@ export default function Services() {
                               <p className="text-slate-400">
                                 Customer pays total:{" "}
                                 <span className="text-emerald-400 font-mono font-medium">
-                                  $
-                                  {(
+                                  {fmtAmt(
                                     amtVal +
-                                    feeVal +
-                                    (showPmFee ? pmFeeDisplay : 0)
-                                  ).toFixed(2)}
+                                      feeVal +
+                                      (showPmFee ? pmFeeDisplay : 0),
+                                  )}
                                 </span>
                               </p>
                             </>
@@ -1150,11 +1320,16 @@ export default function Services() {
                   const amtVal = parseFloat(amount) || 0;
                   const autoFee =
                     amtVal > 0 && omtServiceType
-                      ? lookupOmtFee(omtServiceType as OmtServiceType, amtVal)
+                      ? lookupOmtFee(
+                          omtServiceType as OmtServiceType,
+                          amtVal,
+                          currency,
+                        )
                       : null;
                   const feeVal = omtFee ? parseFloat(omtFee) : (autoFee ?? 0);
                   const rate = OMT_COMMISSION_RATES[omtServiceType] ?? 0;
                   const profit = feeVal * rate;
+                  const isLbp = currency === "LBP";
                   return (
                     <div>
                       <label
@@ -1164,21 +1339,27 @@ export default function Services() {
                         OMT Fee (charged by OMT)
                       </label>
                       <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
-                          $
-                        </span>
+                        {!isLbp && (
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
+                            $
+                          </span>
+                        )}
                         <input
                           id="service-omt-fee"
                           type="number"
                           value={omtFee}
                           onChange={(e) => setOmtFee(e.target.value)}
-                          className={INPUT_CLASS + " pl-8"}
+                          className={INPUT_CLASS + (isLbp ? "" : " pl-8")}
                           placeholder={
                             autoFee != null
-                              ? autoFee.toFixed(2) + " (auto)"
-                              : "0.00"
+                              ? isLbp
+                                ? autoFee.toLocaleString() + " (auto)"
+                                : autoFee.toFixed(2) + " (auto)"
+                              : isLbp
+                                ? "0"
+                                : "0.00"
                           }
-                          step="0.01"
+                          step={isLbp ? "1000" : "0.01"}
                         />
                       </div>
                       {/* Auto-fee hint */}
@@ -1186,7 +1367,9 @@ export default function Services() {
                         <p className="text-sm text-slate-400 mt-1">
                           Auto-calculated fee:{" "}
                           <span className="text-white font-medium">
-                            ${autoFee.toFixed(2)}
+                            {isLbp
+                              ? autoFee.toLocaleString() + " LBP"
+                              : "$" + autoFee.toFixed(2)}
                           </span>{" "}
                           based on amount
                         </p>
@@ -1196,9 +1379,14 @@ export default function Services() {
                         <p className="text-sm text-emerald-400 mt-1 font-medium">
                           Your profit:{" "}
                           <span className="font-mono">
-                            ${profit.toFixed(4)}
+                            {isLbp
+                              ? Math.round(profit).toLocaleString() + " LBP"
+                              : "$" + profit.toFixed(4)}
                           </span>{" "}
-                          ({(rate * 100).toFixed(0)}% of ${feeVal.toFixed(2)}{" "}
+                          ({(rate * 100).toFixed(0)}% of{" "}
+                          {isLbp
+                            ? feeVal.toLocaleString() + " LBP"
+                            : "$" + feeVal.toFixed(2)}{" "}
                           OMT fee)
                         </p>
                       )}
@@ -1209,31 +1397,21 @@ export default function Services() {
               {/* WHISH Fee Input — shown for WHISH SEND */}
               {/* WHISH Fee Input — hidden per LIRA-023 (Whish System has no fees) */}
 
-              {/* Online Brokerage Profit Rate Selector */}
+              {/* Online Brokerage — Flat $3 Profit */}
               {provider === "OMT" && omtServiceType === "ONLINE_BROKERAGE" && (
-                <div>
-                  <label
-                    htmlFor="service-profit-rate"
-                    className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
-                  >
-                    Profit Rate (% of Amount)
-                  </label>
-                  <Select
-                    value={profitRate.toString()}
-                    onChange={(v) => setProfitRate(parseFloat(v))}
-                    options={ONLINE_BROKERAGE_RATES.map((r) => ({
-                      value: r.value.toString(),
-                      label: r.label,
-                    }))}
-                  />
-                  <p className="text-xs text-slate-500 mt-1">
-                    Typical: 0.25% (UNICEF, etc.)
-                  </p>
-                  {amount && parseFloat(amount) > 0 && (
-                    <p className="text-sm text-emerald-400 mt-1 font-medium">
-                      Profit: ${(parseFloat(amount) * profitRate).toFixed(2)}
-                    </p>
-                  )}
+                <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="text-sm font-semibold text-emerald-400 mb-1">
+                        Online Brokerage — Flat $3 Profit
+                      </h4>
+                      <p className="text-xs text-slate-400">
+                        Shop earns a flat $3.00 commission per transaction
+                        (UNICEF, etc.)
+                      </p>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -1244,16 +1422,122 @@ export default function Services() {
                     <AlertTriangle className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
                     <div>
                       <h4 className="text-sm font-semibold text-blue-400 mb-1">
-                        OMT Wallet - No Fees
+                        OMT Wallet - No Fees to Customer
                       </h4>
                       <p className="text-xs text-blue-300/80">
-                        Internal OMT transfers have zero fees. No commission
-                        will be earned on this transaction.
+                        No fee charged to customer. Shop earns 0.1% of transfer
+                        amount as commission.
                       </p>
                     </div>
                   </div>
                 </div>
               )}
+
+              {/* Sender/Receiver Info — single 4-column row */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                <div>
+                  <label
+                    htmlFor="service-sender-name"
+                    className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+                  >
+                    <User size={12} /> Sender{" "}
+                    {activeSession && serviceType === "SEND" && "• Session"}
+                  </label>
+                  <input
+                    id="service-sender-name"
+                    type="text"
+                    value={senderName}
+                    onChange={(e) => setSenderName(e.target.value)}
+                    className={INPUT_CLASS}
+                    placeholder={
+                      activeSession && serviceType === "SEND"
+                        ? "From session"
+                        : "Sender name"
+                    }
+                  />
+                </div>
+                <div>
+                  <label
+                    htmlFor="service-sender-phone"
+                    className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+                  >
+                    <Phone size={12} /> Sender Phone{" "}
+                    {activeSession && serviceType === "SEND" && "• Session"}
+                  </label>
+                  <input
+                    id="service-sender-phone"
+                    type="tel"
+                    value={senderPhone}
+                    onChange={(e) => setSenderPhone(e.target.value)}
+                    className={INPUT_CLASS}
+                    placeholder={
+                      activeSession && serviceType === "SEND"
+                        ? "From session"
+                        : "Sender phone"
+                    }
+                  />
+                </div>
+                <div>
+                  <label
+                    htmlFor="service-receiver-name"
+                    className="block text-xs font-medium text-emerald-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+                  >
+                    <User size={12} /> Receiver{" "}
+                    {activeSession && serviceType === "RECEIVE" && "• Session"}
+                  </label>
+                  <input
+                    id="service-receiver-name"
+                    type="text"
+                    value={receiverName}
+                    onChange={(e) => setReceiverName(e.target.value)}
+                    className={INPUT_CLASS}
+                    placeholder={
+                      activeSession && serviceType === "RECEIVE"
+                        ? "From session"
+                        : "Receiver name"
+                    }
+                  />
+                </div>
+                <div>
+                  <label
+                    htmlFor="service-receiver-phone"
+                    className="block text-xs font-medium text-emerald-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+                  >
+                    <Phone size={12} /> Receiver Phone{" "}
+                    {activeSession && serviceType === "RECEIVE" && "• Session"}
+                  </label>
+                  <input
+                    id="service-receiver-phone"
+                    type="tel"
+                    value={receiverPhone}
+                    onChange={(e) => setReceiverPhone(e.target.value)}
+                    className={INPUT_CLASS}
+                    placeholder={
+                      activeSession && serviceType === "RECEIVE"
+                        ? "From session"
+                        : "Receiver phone"
+                    }
+                  />
+                </div>
+              </div>
+
+              {/* Reference Number */}
+              <div>
+                <label
+                  htmlFor="service-reference"
+                  className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+                >
+                  <Hash size={12} /> Reference #
+                </label>
+                <input
+                  id="service-reference"
+                  type="text"
+                  value={referenceNumber}
+                  onChange={(e) => setReferenceNumber(e.target.value)}
+                  className={INPUT_CLASS}
+                  placeholder="Optional"
+                />
+              </div>
 
               {/* Payment Method */}
               <div>
@@ -1327,183 +1611,6 @@ export default function Services() {
                   )}
                 </div>
               )}
-
-              {/* Sender/Receiver Info - changes based on service type */}
-              {serviceType === "SEND" ? (
-                <>
-                  {/* Sender Fields (auto-filled from session) */}
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label
-                        htmlFor="service-sender-name"
-                        className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
-                      >
-                        <User size={12} /> Sender{" "}
-                        {activeSession && "• From Session"}
-                      </label>
-                      <input
-                        id="service-sender-name"
-                        type="text"
-                        value={senderName}
-                        onChange={(e) => setSenderName(e.target.value)}
-                        className={INPUT_CLASS}
-                        placeholder={
-                          activeSession ? "From session" : "Sender name"
-                        }
-                      />
-                    </div>
-                    <div>
-                      <label
-                        htmlFor="service-sender-phone"
-                        className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
-                      >
-                        <Phone size={12} /> Sender Phone
-                      </label>
-                      <input
-                        id="service-sender-phone"
-                        type="tel"
-                        value={senderPhone}
-                        onChange={(e) => setSenderPhone(e.target.value)}
-                        className={INPUT_CLASS}
-                        placeholder={
-                          activeSession ? "From session" : "Sender phone"
-                        }
-                      />
-                    </div>
-                  </div>
-                  {/* Receiver Fields */}
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label
-                        htmlFor="service-receiver-name"
-                        className="block text-xs font-medium text-emerald-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
-                      >
-                        <User size={12} /> Receiver
-                      </label>
-                      <input
-                        id="service-receiver-name"
-                        type="text"
-                        value={receiverName}
-                        onChange={(e) => setReceiverName(e.target.value)}
-                        className={INPUT_CLASS}
-                        placeholder="Receiver name"
-                      />
-                    </div>
-                    <div>
-                      <label
-                        htmlFor="service-receiver-phone"
-                        className="block text-xs font-medium text-emerald-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
-                      >
-                        <Phone size={12} /> Receiver Phone
-                      </label>
-                      <input
-                        id="service-receiver-phone"
-                        type="tel"
-                        value={receiverPhone}
-                        onChange={(e) => setReceiverPhone(e.target.value)}
-                        className={INPUT_CLASS}
-                        placeholder="Receiver phone"
-                      />
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <>
-                  {/* Sender Fields (for RECEIVE) */}
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label
-                        htmlFor="service-sender-name-receive"
-                        className="block text-xs font-medium text-emerald-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
-                      >
-                        <User size={12} /> Sender
-                      </label>
-                      <input
-                        id="service-sender-name-receive"
-                        type="text"
-                        value={senderName}
-                        onChange={(e) => setSenderName(e.target.value)}
-                        className={INPUT_CLASS}
-                        placeholder="Sender name"
-                      />
-                    </div>
-                    <div>
-                      <label
-                        htmlFor="service-sender-phone-receive"
-                        className="block text-xs font-medium text-emerald-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
-                      >
-                        <Phone size={12} /> Sender Phone
-                      </label>
-                      <input
-                        id="service-sender-phone-receive"
-                        type="tel"
-                        value={senderPhone}
-                        onChange={(e) => setSenderPhone(e.target.value)}
-                        className={INPUT_CLASS}
-                        placeholder="Sender phone"
-                      />
-                    </div>
-                  </div>
-                  {/* Receiver Fields (auto-filled from session) */}
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label
-                        htmlFor="service-receiver-name-receive"
-                        className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
-                      >
-                        <User size={12} /> Receiver{" "}
-                        {activeSession && "• From Session"}
-                      </label>
-                      <input
-                        id="service-receiver-name-receive"
-                        type="text"
-                        value={receiverName}
-                        onChange={(e) => setReceiverName(e.target.value)}
-                        className={INPUT_CLASS}
-                        placeholder={
-                          activeSession ? "From session" : "Receiver name"
-                        }
-                      />
-                    </div>
-                    <div>
-                      <label
-                        htmlFor="service-receiver-phone-receive"
-                        className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
-                      >
-                        <Phone size={12} /> Receiver Phone
-                      </label>
-                      <input
-                        id="service-receiver-phone-receive"
-                        type="tel"
-                        value={receiverPhone}
-                        onChange={(e) => setReceiverPhone(e.target.value)}
-                        className={INPUT_CLASS}
-                        placeholder={
-                          activeSession ? "From session" : "Receiver phone"
-                        }
-                      />
-                    </div>
-                  </div>
-                </>
-              )}
-
-              {/* Reference Number */}
-              <div>
-                <label
-                  htmlFor="service-reference"
-                  className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
-                >
-                  <Hash size={12} /> Reference #
-                </label>
-                <input
-                  id="service-reference"
-                  type="text"
-                  value={referenceNumber}
-                  onChange={(e) => setReferenceNumber(e.target.value)}
-                  className={INPUT_CLASS}
-                  placeholder="Optional"
-                />
-              </div>
 
               {/* BINANCE-specific fields */}
               {provider === "OMT" && omtServiceType === "ONLINE_BROKERAGE" && (
@@ -1678,6 +1785,10 @@ export default function Services() {
                     className: "px-6 py-3",
                     sortKey: "created_at",
                   },
+                  {
+                    header: "",
+                    className: "px-3 py-3 w-10",
+                  },
                 ]}
                 data={transactions}
                 exportExcel
@@ -1752,12 +1863,43 @@ export default function Services() {
                         )}
                       </td>
                       <td className="px-6 py-4 text-sm text-slate-300">
-                        {tx.client_name || "-"}
-                        {tx.phone_number && (
-                          <div className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
-                            <Phone size={10} />
-                            {tx.phone_number}
+                        {editingId === tx.id ? (
+                          <div className="space-y-1">
+                            <input
+                              type="text"
+                              value={editForm.client_name}
+                              onChange={(e) =>
+                                setEditForm((f) => ({
+                                  ...f,
+                                  client_name: e.target.value,
+                                }))
+                              }
+                              className="w-full bg-slate-900 border border-slate-600 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-orange-500"
+                              placeholder="Client name"
+                            />
+                            <input
+                              type="text"
+                              value={editForm.phone_number}
+                              onChange={(e) =>
+                                setEditForm((f) => ({
+                                  ...f,
+                                  phone_number: e.target.value,
+                                }))
+                              }
+                              className="w-full bg-slate-900 border border-slate-600 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-orange-500"
+                              placeholder="Phone"
+                            />
                           </div>
+                        ) : (
+                          <>
+                            {tx.client_name || "-"}
+                            {tx.phone_number && (
+                              <div className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
+                                <Phone size={10} />
+                                {tx.phone_number}
+                              </div>
+                            )}
+                          </>
                         )}
                       </td>
                       <td className="px-6 py-4 text-sm text-slate-400">
@@ -1768,6 +1910,36 @@ export default function Services() {
                         <div className="text-xs text-slate-500">
                           {new Date(tx.created_at).toLocaleDateString()}
                         </div>
+                      </td>
+                      <td className="px-3 py-4">
+                        {editingId === tx.id ? (
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => saveEditTx(tx.id)}
+                              disabled={editSaving}
+                              className="p-1.5 rounded bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-400 transition-colors disabled:opacity-50"
+                              title="Save"
+                            >
+                              <Check size={13} />
+                            </button>
+                            <button
+                              onClick={() => setEditingId(null)}
+                              disabled={editSaving}
+                              className="p-1.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-400 transition-colors"
+                              title="Cancel"
+                            >
+                              <X size={13} />
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => startEditTx(tx)}
+                            className="p-1.5 rounded hover:bg-slate-700 text-slate-500 hover:text-slate-300 transition-colors"
+                            title="Edit metadata"
+                          >
+                            <Pencil size={13} />
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );

@@ -22,12 +22,32 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
   const [customerNotes, setCustomerNotes] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [todaySessionNames, setTodaySessionNames] = useState<string[]>([]);
+  const [loadingNames, setLoadingNames] = useState(false);
   const nameInputRef = useRef<HTMLInputElement>(null);
 
-  // Focus name input when modal opens
+  // Focus name input and fetch today's session names when modal opens
   useEffect(() => {
-    if (isOpen && nameInputRef.current) {
-      nameInputRef.current.focus();
+    if (isOpen) {
+      nameInputRef.current?.focus();
+      setLoadingNames(true);
+      const fetchTodayNames = async () => {
+        try {
+          const result = await window.api.session.getTodaySessions();
+          if (result.success && result.sessions) {
+            setTodaySessionNames(
+              result.sessions
+                .map((s) => s.customer_name?.trim().toLowerCase())
+                .filter((n): n is string => !!n),
+            );
+          }
+        } catch {
+          // Silently ignore — non-critical
+        } finally {
+          setLoadingNames(false);
+        }
+      };
+      fetchTodayNames();
     }
   }, [isOpen]);
 
@@ -55,14 +75,24 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
       setCustomerNotes("");
       setSelectedClient(null);
       setError(null);
+      setTodaySessionNames([]);
     }
   }, [isOpen]);
+
+  const isDuplicateName =
+    customerName.trim().length > 0 &&
+    todaySessionNames.includes(customerName.trim().toLowerCase());
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
 
     if (!customerName.trim()) {
       setError("Customer name is required");
+      return;
+    }
+
+    if (isDuplicateName) {
+      setError("A session with this name already exists today");
       return;
     }
 
@@ -128,6 +158,15 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
           {error && (
             <div className="p-3 bg-red-900/30 border border-red-700 rounded-md">
               <p className="text-sm text-red-400">{error}</p>
+            </div>
+          )}
+
+          {isDuplicateName && (
+            <div className="p-3 bg-amber-900/30 border border-amber-700 rounded-md">
+              <p className="text-sm text-amber-400">
+                A session with this name already exists today. Please use a
+                different name.
+              </p>
             </div>
           )}
 
@@ -254,7 +293,12 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
             <button
               type="submit"
               className="px-4 py-2 text-sm font-medium text-white bg-violet-600 hover:bg-violet-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              disabled={loading || !customerName.trim()}
+              disabled={
+                loading ||
+                loadingNames ||
+                !customerName.trim() ||
+                isDuplicateName
+              }
             >
               {loading ? "Starting..." : "Start Session"}
             </button>

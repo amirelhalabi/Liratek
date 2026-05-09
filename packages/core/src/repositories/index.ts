@@ -190,7 +190,10 @@ export type {
 
 // Maintenance Repository
 export { MaintenanceRepository } from "./MaintenanceRepository.js";
-export type { MaintenanceJob } from "./MaintenanceRepository.js";
+export type {
+  MaintenanceJob,
+  MaintenanceRow,
+} from "./MaintenanceRepository.js";
 
 // Settings Repository
 export {
@@ -232,8 +235,10 @@ export type {
   ClosingAmountEntity,
   DynamicSystemExpectedBalances,
   DailyStatsSnapshot,
-  OpeningBalanceAmount,
-  ClosingAmount,
+  CheckpointAmount,
+  CreateCheckpointData,
+  CheckpointRecord,
+  CheckpointFilters,
 } from "./ClosingRepository.js";
 
 // Customer Session Repository
@@ -246,6 +251,7 @@ export type {
   CustomerSession,
   CreateCustomerSessionData,
   SessionTransaction,
+  SessionCartItem,
 } from "./CustomerSessionRepository.js";
 
 // Item Cost Repository
@@ -394,3 +400,16 @@ export type {
   CreateAuditLogData,
   AuditFilters,
 } from "./AuditRepository.js";
+
+// Drawer Top-Up Repository
+export {
+  DrawerTopUpRepository,
+  getDrawerTopUpRepository,
+  resetDrawerTopUpRepository,
+} from "./DrawerTopUpRepository.js";
+export type {
+  DrawerTopUpEntity,
+  CreateDrawerTopUpData,
+  CreateDrawerTopUpFromDrawerData,
+  SourceDrawerBalance,
+} from "./DrawerTopUpRepository.js";

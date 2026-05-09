@@ -10,7 +10,9 @@ import {
   TrendingUp,
   AlertTriangle,
   LayoutDashboard,
+  Plus,
 } from "lucide-react";
+import { DrawerTopUpModal } from "../components/DrawerTopUpModal";
 import { useCurrencyContext } from "@/contexts/CurrencyContext";
 import { useModules } from "@/contexts/ModuleContext";
 
@@ -107,6 +109,7 @@ export default function Dashboard() {
   const [unsettledSummary, setUnsettledSummary] = useState<UnsettledSummary[]>(
     [],
   );
+  const [showTopUpModal, setShowTopUpModal] = useState(false);
 
   // State for dynamic Y-axis domains
   const [maxUsdSales, setMaxUsdSales] = useState(0);
@@ -273,7 +276,7 @@ export default function Dashboard() {
     MTC: () => isModuleEnabled("recharge"),
     Alfa: () => isModuleEnabled("recharge"),
     iPick: () => isModuleEnabled("ipec_katch"),
-    Katsh: () => isModuleEnabled("ipec_katch"),
+    Katsh: () => false, // Katsh drawer is internal cost-tracking only — never show on dashboard
   };
 
   // Drawer Balances (Row 2) — dynamic from drawer_balances table
@@ -373,10 +376,19 @@ export default function Dashboard() {
           {/* Drawer Balances — separate section */}
           {drawerCards.length > 0 && (
             <div>
-              <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-                <Wallet className="text-sky-400" />
-                Drawer Balances
-              </h2>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                  <Wallet className="text-sky-400" />
+                  Drawer Balances
+                </h2>
+                <button
+                  onClick={() => setShowTopUpModal(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium rounded-lg transition-colors"
+                >
+                  <Plus size={14} />
+                  Top Up
+                </button>
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 {drawerCards.map((stat) => (
                   <div
@@ -607,6 +619,15 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      <DrawerTopUpModal
+        isOpen={showTopUpModal}
+        onClose={() => setShowTopUpModal(false)}
+        onSuccess={() => {
+          setShowTopUpModal(false);
+          loadData();
+        }}
+      />
     </>
   );
 }

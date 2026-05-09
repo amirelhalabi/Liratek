@@ -1,11 +1,16 @@
 import { useState, useEffect } from "react";
-import { Phone, User, Search, X, CheckCircle } from "lucide-react";
-import { ServiceTypeTabs, type ServiceTypeOption, useApi } from "@liratek/ui";
+import { Phone, User, Search, X, CheckCircle, CreditCard } from "lucide-react";
+import {
+  ServiceTypeTabs,
+  type ServiceTypeOption,
+  useApi,
+  type PaymentLine,
+} from "@liratek/ui";
 import type { ProviderConfig, RechargeType } from "../types";
 import { TELECOM_SERVICE_TYPES, ALFA_GIFT_TIERS } from "../types";
 import { HistoryModal } from "./HistoryModal";
-import { MultiPaymentInput, type PaymentLine } from "@liratek/ui";
 import { getExchangeRates } from "@/utils/exchangeRates";
+import { PaymentSheet } from "./PaymentSheet";
 
 interface VoucherItem {
   label: string;
@@ -57,6 +62,9 @@ interface TelecomFormProps {
   setClientName: (val: string) => void;
   voucherItems?: VoucherItem[];
   alfaCreditCostRate?: number;
+  onDiscountChange?: (discount: number) => void;
+  /** Called after a successful metadata edit to reload the history list */
+  onRefreshHistory?: () => void;
 }
 
 export function TelecomForm({
@@ -103,10 +111,15 @@ export function TelecomForm({
   setClientName,
   voucherItems,
   alfaCreditCostRate = 85000,
+  onDiscountChange,
+  onRefreshHistory,
 }: TelecomFormProps) {
   const api = useApi();
   const [rates, setRates] = useState({ buyRate: 89000, sellRate: 89500 });
   const [costRate, setCostRate] = useState(85000);
+  const [discount, setDiscount] = useState(0);
+  void discount; // surfaced to parent via onDiscountChange; kept locally for future use
+  const [sheetOpen, setSheetOpen] = useState(false);
 
   // Fetch exchange rates and cost rate on mount
   useEffect(() => {
@@ -137,6 +150,11 @@ export function TelecomForm({
   // Alfa Gift is always money IN (customer pays us)
   // So we always use SELL rate
   const exchangeRate = rates.sellRate;
+
+  const handleDiscountChange = (d: number) => {
+    setDiscount(d);
+    onDiscountChange?.(d);
+  };
 
   // Required for API compatibility but not used in this component
   void _paidBy;
@@ -228,31 +246,10 @@ export function TelecomForm({
             </div>
           </div>
 
-          {/* Sticky Bottom Bar */}
+          {/* Sticky Trigger Bar */}
           <div className="shrink-0 bg-slate-800 rounded-xl border border-slate-700/50 p-4 shadow-2xl">
             <div className="flex items-center gap-4">
-              <div className="flex-1">
-                <MultiPaymentInput
-                  totalAmount={parseFloat(giftPriceLbp) || 0}
-                  totalAmountCurrency="LBP"
-                  currency="LBP"
-                  onChange={(lines) => {
-                    setPaymentLines(lines);
-                    if (lines.length === 1) {
-                      setPaidBy(lines[0].method);
-                    }
-                  }}
-                  showPmFee={false}
-                  paymentMethods={methods}
-                  currencies={[
-                    { code: "USD", symbol: "$" },
-                    { code: "LBP", symbol: "LBP" },
-                  ]}
-                  exchangeRate={exchangeRate}
-                />
-              </div>
-
-              <div className="text-right">
+              <div className="text-right flex-1">
                 <div className="text-xs text-slate-400">
                   Value:{" "}
                   <span className="text-white font-bold">
@@ -267,29 +264,67 @@ export function TelecomForm({
                 </div>
               </div>
 
-              <div className="flex flex-col gap-2 min-w-[200px]">
-                <input
-                  type="text"
-                  value={clientName}
-                  onChange={(e) => setTelecomClientName(e.target.value)}
-                  placeholder="Client name (optional)"
-                  className="w-full bg-slate-900 border border-slate-600 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-red-500"
-                />
-              </div>
-
               <button
-                onClick={handleAlfaGiftSubmit}
-                disabled={isSubmitting || !giftTierKey}
-                className={`px-6 py-3 rounded-lg font-bold text-white transition-all ${
-                  isSubmitting || !giftTierKey
+                onClick={() => setSheetOpen(true)}
+                disabled={!giftTierKey}
+                className={`px-6 py-3 rounded-lg font-bold text-white transition-all flex items-center gap-2 ${
+                  !giftTierKey
                     ? "bg-slate-600 text-slate-400 cursor-not-allowed"
                     : "bg-red-600 hover:bg-red-500 shadow-lg shadow-red-500/20"
                 }`}
               >
-                {isSubmitting ? "Processing..." : "Submit"}
+                <CreditCard size={18} />
+                Pay
               </button>
             </div>
           </div>
+
+          {/* Payment Sheet */}
+          <PaymentSheet
+            open={sheetOpen}
+            onClose={() => setSheetOpen(false)}
+            onConfirm={handleAlfaGiftSubmit}
+            isSubmitting={isSubmitting}
+            title="Alfa Gift Payment"
+            {...(giftTierKey && ALFA_GIFT_TIERS[giftTierKey]?.label
+              ? { subtitle: ALFA_GIFT_TIERS[giftTierKey].label }
+              : {})}
+            accentColor="bg-red-600 hover:bg-red-500 text-white"
+            totalAmount={parseFloat(giftPriceLbp) || 0}
+            totalAmountCurrency="LBP"
+            currency="LBP"
+            paymentMethods={methods}
+            exchangeRate={exchangeRate}
+            showDiscount={true}
+            maxDiscount={Math.max(
+              0,
+              (parseFloat(giftPriceLbp) || 0) -
+                parseFloat(giftAmountUsd || "0") * costRate,
+            )}
+            onPaymentChange={(lines) => {
+              setPaymentLines(lines);
+              if (lines.length === 1) {
+                setPaidBy(lines[0].method);
+              }
+            }}
+            onDiscountChange={handleDiscountChange}
+            summary={[
+              { label: "Value", value: `$${giftAmountUsd || "0"}` },
+              {
+                label: "Price",
+                value: `${parseFloat(giftPriceLbp || "0").toLocaleString()} LBP`,
+                color: "text-emerald-400",
+              },
+            ]}
+          >
+            <input
+              type="text"
+              value={clientName}
+              onChange={(e) => setTelecomClientName(e.target.value)}
+              placeholder="Client name (optional)"
+              className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-red-500"
+            />
+          </PaymentSheet>
         </div>
       ) : rechargeType === "VOUCHER" && isMTC ? (
         /* Voucher Form - MTC Card Grid */
@@ -324,37 +359,10 @@ export function TelecomForm({
             </div>
           </div>
 
-          {/* Sticky Bottom Bar */}
+          {/* Sticky Trigger Bar */}
           <div className="shrink-0 bg-slate-800 rounded-xl border border-slate-700/50 p-4 shadow-2xl">
             <div className="flex items-center gap-4">
-              <div className="flex-1">
-                <MultiPaymentInput
-                  totalAmount={
-                    telecomAmount
-                      ? ((voucherItems ?? []).find(
-                          (v) => v.label === telecomAmount,
-                        )?.sell_lbp ?? 0)
-                      : 0
-                  }
-                  totalAmountCurrency="LBP"
-                  currency="LBP"
-                  onChange={(lines) => {
-                    setPaymentLines(lines);
-                    if (lines.length === 1) {
-                      setPaidBy(lines[0].method);
-                    }
-                  }}
-                  showPmFee={false}
-                  paymentMethods={methods}
-                  currencies={[
-                    { code: "USD", symbol: "$" },
-                    { code: "LBP", symbol: "LBP" },
-                  ]}
-                  exchangeRate={exchangeRate}
-                />
-              </div>
-
-              <div className="text-right">
+              <div className="text-right flex-1">
                 <div className="text-xs text-slate-400">Amount:</div>
                 <div className="text-base text-emerald-400 font-mono font-bold">
                   {telecomAmount || "0"}
@@ -362,18 +370,65 @@ export function TelecomForm({
               </div>
 
               <button
-                onClick={handleTelecomSubmit}
-                disabled={isSubmitting || !telecomAmount}
-                className={`px-6 py-3 rounded-lg font-bold text-white transition-all ${
-                  isSubmitting || !telecomAmount
+                onClick={() => setSheetOpen(true)}
+                disabled={!telecomAmount}
+                className={`px-6 py-3 rounded-lg font-bold text-white transition-all flex items-center gap-2 ${
+                  !telecomAmount
                     ? "bg-slate-600 text-slate-400 cursor-not-allowed"
                     : "bg-cyan-600 hover:bg-cyan-500 shadow-lg shadow-cyan-500/20"
                 }`}
               >
-                {isSubmitting ? "Processing..." : "Submit"}
+                <CreditCard size={18} />
+                Pay
               </button>
             </div>
           </div>
+
+          {/* Payment Sheet */}
+          <PaymentSheet
+            open={sheetOpen}
+            onClose={() => setSheetOpen(false)}
+            onConfirm={handleTelecomSubmit}
+            isSubmitting={isSubmitting}
+            title="MTC Voucher Payment"
+            {...(telecomAmount ? { subtitle: telecomAmount } : {})}
+            accentColor="bg-cyan-600 hover:bg-cyan-500 text-white"
+            totalAmount={
+              telecomAmount
+                ? ((voucherItems ?? []).find((v) => v.label === telecomAmount)
+                    ?.sell_lbp ?? 0)
+                : 0
+            }
+            totalAmountCurrency="LBP"
+            currency="LBP"
+            paymentMethods={methods}
+            exchangeRate={exchangeRate}
+            showDiscount={true}
+            maxDiscount={Math.max(
+              0,
+              (() => {
+                const v = (voucherItems ?? []).find(
+                  (item) => item.label === telecomAmount,
+                );
+                return v ? v.sell_lbp - v.cost_lbp : 0;
+              })(),
+            )}
+            onPaymentChange={(lines) => {
+              setPaymentLines(lines);
+              if (lines.length === 1) {
+                setPaidBy(lines[0].method);
+              }
+            }}
+            onDiscountChange={handleDiscountChange}
+            summary={[
+              { label: "Voucher", value: telecomAmount || "—" },
+              {
+                label: "Sell Price",
+                value: `${((voucherItems ?? []).find((v) => v.label === telecomAmount)?.sell_lbp ?? 0).toLocaleString()} LBP`,
+                color: "text-emerald-400",
+              },
+            ]}
+          />
         </div>
       ) : rechargeType === "VOUCHER" ? (
         /* Voucher Form - Only for MTC (fallback) */
@@ -477,124 +532,6 @@ export function TelecomForm({
           </div>
           <div className="col-span-5 bg-slate-800 rounded-2xl border border-slate-700/50 p-6 flex flex-col gap-5">
             <div>
-              <MultiPaymentInput
-                totalAmount={
-                  telecomPrice
-                    ? parseFloat(telecomPrice)
-                    : parseFloat(telecomAmount || "0") * alfaCreditCostRate
-                }
-                totalAmountCurrency="LBP"
-                currency="LBP"
-                onChange={(lines) => {
-                  setPaymentLines(lines);
-                  if (lines.length === 1) {
-                    setPaidBy(lines[0].method);
-                  }
-                }}
-                showPmFee={false}
-                paymentMethods={methods}
-                currencies={[
-                  { code: "USD", symbol: "$" },
-                  { code: "LBP", symbol: "LBP" },
-                ]}
-                exchangeRate={exchangeRate}
-              />
-            </div>
-
-            {/* Client selector for DEBT */}
-            {paymentLines.some((l) => l.method === "DEBT") && (
-              <div className="relative">
-                <label
-                  htmlFor="telecom-debt-client"
-                  className="block text-xs font-medium text-orange-400 mb-2 uppercase tracking-wider flex items-center gap-1.5"
-                >
-                  <User size={12} />
-                  Client (required for debt)
-                </label>
-                {telecomClientId ? (
-                  <div className="flex items-center gap-2 bg-orange-500/10 border border-orange-500/30 rounded-xl px-4 py-3">
-                    <User size={16} className="text-orange-400" />
-                    <span className="text-white font-medium flex-1">
-                      {telecomClientName}
-                    </span>
-                    <button
-                      onClick={() => {
-                        setTelecomClientId(null);
-                        setTelecomClientName("");
-                      }}
-                      className="text-slate-400 hover:text-white transition-colors"
-                    >
-                      <X size={16} />
-                    </button>
-                  </div>
-                ) : (
-                  <div className="relative">
-                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">
-                      <Search size={16} />
-                    </div>
-                    <input
-                      type="text"
-                      value={telecomClientName}
-                      onChange={(e) => {
-                        setTelecomClientName(e.target.value);
-                        setShowClientSearch(true);
-                        searchClients(e.target.value);
-                      }}
-                      onFocus={() => {
-                        if (telecomClientName.length >= 2) {
-                          setShowClientSearch(true);
-                          searchClients(telecomClientName);
-                        }
-                      }}
-                      className="w-full bg-slate-900/80 border border-orange-500/30 rounded-xl pl-10 pr-4 py-3 text-white focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500/30 transition-all"
-                      placeholder="Search client by name..."
-                    />
-                    {showClientSearch && clientSearchResults.length > 0 && (
-                      <div className="absolute z-10 top-full mt-1 w-full bg-slate-800 border border-slate-600 rounded-xl shadow-2xl max-h-48 overflow-auto">
-                        {clientSearchResults.map((c: any) => (
-                          <button
-                            key={c.id}
-                            onClick={() => selectClient(c)}
-                            className="w-full text-left px-4 py-2.5 hover:bg-slate-700 text-sm text-white transition-colors first:rounded-t-xl last:rounded-b-xl"
-                          >
-                            {c.name}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Voucher Image Preview */}
-            {rechargeType === ("VOUCHER" as RechargeType) &&
-              telecomAmount &&
-              (() => {
-                const imgPath = resolveVoucherImage(
-                  activeProvider || "",
-                  parseFloat(telecomAmount),
-                );
-                if (!imgPath) return null;
-                return (
-                  <div className="flex items-center gap-3 bg-slate-900/60 rounded-xl p-3 border border-slate-700/50">
-                    <img
-                      src={imgPath}
-                      alt={`${activeConfig?.label} ${telecomAmount} voucher`}
-                      className="w-24 h-16 object-contain rounded-lg border border-slate-600 bg-white/5"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-white">
-                        {activeConfig?.label} Voucher
-                      </p>
-                      <p className={`text-sm font-mono ${activeConfig?.color}`}>
-                        ${telecomAmount}
-                      </p>
-                    </div>
-                  </div>
-                );
-              })()}
-            <div>
               <label
                 htmlFor="telecom-amount"
                 className="block text-xs font-medium text-slate-500 mb-2 uppercase tracking-wider"
@@ -668,24 +605,154 @@ export function TelecomForm({
                 </div>
               </div>
             )}
+
+            {/* Voucher Image Preview */}
+            {rechargeType === ("VOUCHER" as RechargeType) &&
+              telecomAmount &&
+              (() => {
+                const imgPath = resolveVoucherImage(
+                  activeProvider || "",
+                  parseFloat(telecomAmount),
+                );
+                if (!imgPath) return null;
+                return (
+                  <div className="flex items-center gap-3 bg-slate-900/60 rounded-xl p-3 border border-slate-700/50">
+                    <img
+                      src={imgPath}
+                      alt={`${activeConfig?.label} ${telecomAmount} voucher`}
+                      className="w-24 h-16 object-contain rounded-lg border border-slate-600 bg-white/5"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-white">
+                        {activeConfig?.label} Voucher
+                      </p>
+                      <p className={`text-sm font-mono ${activeConfig?.color}`}>
+                        ${telecomAmount}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })()}
+
             <button
-              onClick={handleTelecomSubmit}
-              disabled={isSubmitting}
+              onClick={() => setSheetOpen(true)}
+              disabled={isSubmitting || !telecomAmount}
               className={`w-full mt-auto py-4 rounded-xl font-bold text-lg text-white shadow-lg active:scale-[0.98] transition-all flex items-center justify-center gap-2 ${
-                isSubmitting
+                isSubmitting || !telecomAmount
                   ? "bg-slate-600 cursor-not-allowed"
                   : `bg-${accent}-600 hover:bg-${accent}-500`
               }`}
             >
-              {isSubmitting ? (
-                "Processing..."
-              ) : (
-                <>
-                  <CheckCircle size={20} />
-                  Confirm Recharge
-                </>
-              )}
+              <CreditCard size={20} />
+              Proceed to Pay
             </button>
+
+            {/* Payment Sheet */}
+            <PaymentSheet
+              open={sheetOpen}
+              onClose={() => setSheetOpen(false)}
+              onConfirm={handleTelecomSubmit}
+              isSubmitting={isSubmitting}
+              title={`${isMTC ? "MTC" : "Alfa"} ${rechargeType === "CREDIT_TRANSFER" ? "Credit Transfer" : "Voucher"}`}
+              accentColor={`bg-${accent}-600 hover:bg-${accent}-500 text-white`}
+              totalAmount={
+                telecomPrice
+                  ? parseFloat(telecomPrice)
+                  : parseFloat(telecomAmount || "0") * alfaCreditCostRate
+              }
+              totalAmountCurrency="LBP"
+              currency="LBP"
+              paymentMethods={methods}
+              exchangeRate={exchangeRate}
+              showDiscount={true}
+              maxDiscount={Math.max(
+                0,
+                (telecomPrice ? parseFloat(telecomPrice) : 0) -
+                  parseFloat(telecomAmount || "0") * alfaCreditCostRate,
+              )}
+              onPaymentChange={(lines) => {
+                setPaymentLines(lines);
+                if (lines.length === 1) {
+                  setPaidBy(lines[0].method);
+                }
+              }}
+              onDiscountChange={handleDiscountChange}
+              hasClient={!!telecomClientId}
+              summary={[
+                { label: "Amount", value: `$${telecomAmount || "0"}` },
+                {
+                  label: "Price",
+                  value: `${(telecomPrice ? parseFloat(telecomPrice) : parseFloat(telecomAmount || "0") * alfaCreditCostRate).toLocaleString()} LBP`,
+                  color: "text-emerald-400",
+                },
+              ]}
+            >
+              {/* Client selector for DEBT */}
+              {paymentLines.some((l) => l.method === "DEBT") && (
+                <div className="relative">
+                  <label
+                    htmlFor="telecom-debt-client"
+                    className="block text-xs font-medium text-orange-400 mb-2 uppercase tracking-wider flex items-center gap-1.5"
+                  >
+                    <User size={12} />
+                    Client (required for debt)
+                  </label>
+                  {telecomClientId ? (
+                    <div className="flex items-center gap-2 bg-orange-500/10 border border-orange-500/30 rounded-xl px-4 py-3">
+                      <User size={16} className="text-orange-400" />
+                      <span className="text-white font-medium flex-1">
+                        {telecomClientName}
+                      </span>
+                      <button
+                        onClick={() => {
+                          setTelecomClientId(null);
+                          setTelecomClientName("");
+                        }}
+                        className="text-slate-400 hover:text-white transition-colors"
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="relative">
+                      <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">
+                        <Search size={16} />
+                      </div>
+                      <input
+                        type="text"
+                        value={telecomClientName}
+                        onChange={(e) => {
+                          setTelecomClientName(e.target.value);
+                          setShowClientSearch(true);
+                          searchClients(e.target.value);
+                        }}
+                        onFocus={() => {
+                          if (telecomClientName.length >= 2) {
+                            setShowClientSearch(true);
+                            searchClients(telecomClientName);
+                          }
+                        }}
+                        className="w-full bg-slate-900/80 border border-orange-500/30 rounded-xl pl-10 pr-4 py-3 text-white focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500/30 transition-all"
+                        placeholder="Search client by name..."
+                      />
+                      {showClientSearch && clientSearchResults.length > 0 && (
+                        <div className="absolute z-10 top-full mt-1 w-full bg-slate-800 border border-slate-600 rounded-xl shadow-2xl max-h-48 overflow-auto">
+                          {clientSearchResults.map((c: any) => (
+                            <button
+                              key={c.id}
+                              onClick={() => selectClient(c)}
+                              className="w-full text-left px-4 py-2.5 hover:bg-slate-700 text-sm text-white transition-colors first:rounded-t-xl last:rounded-b-xl"
+                            >
+                              {c.name}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </PaymentSheet>
           </div>
         </div>
       )}
@@ -702,6 +769,10 @@ export function TelecomForm({
             cost: r.cost,
             commission: r.price - r.cost,
             client_name: r.client_name,
+            phone_number: r.phone_number ?? null,
+            note: r.note ?? undefined,
+            edited_by: r.edited_by ?? null,
+            edited_at: r.edited_at ?? null,
             reference_number: r.phone_number || undefined,
             created_at: r.created_at,
           }))}
@@ -709,12 +780,22 @@ export function TelecomForm({
           amountLabel="Credits"
           amountAlwaysUsd
           onClose={() => setShowHistory(false)}
-          onRefresh={() => {}}
+          onRefresh={onRefreshHistory ?? (() => {})}
           formatAmount={(val, currency) =>
             currency === "LBP"
               ? `${val.toLocaleString()} LBP`
               : `$${val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
           }
+          onUpdateMetadata={async (id, data) => {
+            const result = await window.api.recharge.updateMetadata({
+              id,
+              ...data,
+            });
+            if (result.success) {
+              onRefreshHistory?.();
+            }
+            return result;
+          }}
         />
       )}
     </div>

@@ -50,7 +50,27 @@ This skill contains modular rules organized by category:
 
 ## Release Process (Step-by-Step)
 
-### Creating a New Release
+### Automated Release (Recommended)
+
+Use the `release` script to bump version, commit, tag, and push in one command:
+
+```bash
+yarn release              # bump patch  (1.18.48 → 1.18.49)
+yarn release minor        # bump minor  (1.18.48 → 1.19.0)
+yarn release major        # bump major  (1.18.48 → 2.0.0)
+yarn release 2.0.0        # set exact version
+```
+
+**What the script does** (`scripts/release.cjs`):
+
+1. Checks that the target tag doesn't already exist (prevents duplicate CI runs)
+2. Bumps `version` in `package.json`
+3. Stages all changes (`git add -A`)
+4. Commits with message `"release: vX.Y.Z"`
+5. Creates git tag `vX.Y.Z`
+6. Pushes commit and tag (triggers the CI build workflow)
+
+### Manual Release (if needed)
 
 ```bash
 # 1. Bump version in package.json FIRST
@@ -58,7 +78,7 @@ This skill contains modular rules organized by category:
 
 # 2. Stage and commit all changes (including package.json)
 git add -A
-git commit -m "fix(scope): description - LIRA-XXX"
+git commit -m "release: v1.18.47"
 
 # 3. Create the tag matching the version
 git tag v1.18.47
@@ -110,6 +130,7 @@ yarn test
 - `.github/workflows/ci.yml` - CI pipeline
 - `.github/workflows/build.yml` - Build & Release
 - `.github/actions/setup/` - Reusable setup action
+- `scripts/release.cjs` - Automated release script
 - `package.json` - Build scripts
 - `electron-builder.yml` - Electron build config
 

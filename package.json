@@ -4,7 +4,7 @@
   "description": "Electron",
   "author": "Amir <amir@liratek.com>",
   "private": true,
-  "version": "1.18.48",
+  "version": "1.18.49",
   "type": "module",
   "main": "dist-electron/main.js",
   "workspaces": [
@@ -47,7 +47,8 @@
     "postinstall": "npm run rebuild:native",
     "rebuild:native": "node scripts/rebuild-native-deps.cjs",
     "install:all": "npm install && cd frontend && npm install && cd ../backend && npm install && cd ../electron-app && npm install",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "release": "node scripts/release.cjs"
   },
   "dependencies": {
     "@liratek/core": "workspace:*",

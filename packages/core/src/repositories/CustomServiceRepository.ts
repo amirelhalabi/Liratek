@@ -37,6 +37,8 @@ export interface CustomServiceEntity {
   note: string | null;
   created_by: number | null;
   created_at: string;
+  edited_by: string | null;
+  edited_at: string | null;
 }
 
 export interface CustomServiceSummary {
@@ -59,7 +61,7 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
   }
 
   protected getColumns(): string {
-    return "id, description, cost_usd, cost_lbp, price_usd, price_lbp, profit_usd, profit_lbp, paid_by, status, client_id, client_name, phone_number, note, created_by, created_at";
+    return "id, description, cost_usd, cost_lbp, price_usd, price_lbp, profit_usd, profit_lbp, paid_by, status, client_id, client_name, phone_number, note, created_by, created_at, edited_by, edited_at";
   }
 
   /**
@@ -103,6 +105,8 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
           user_id: createdBy,
           amount_usd: data.price_usd ?? 0,
           amount_lbp: data.price_lbp ?? 0,
+          profit_usd: (data.price_usd ?? 0) - (data.cost_usd ?? 0),
+          profit_lbp: (data.price_lbp ?? 0) - (data.cost_lbp ?? 0),
           client_id: data.client_id ?? null,
           summary: `Custom Service: ${data.description}`,
           metadata_json: {
@@ -400,6 +404,56 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
       .get() as CustomServiceSummary;
 
     return row;
+  }
+
+  /**
+   * Update non-financial metadata on a custom service record.
+   * Only metadata fields are allowed — financial data is immutable.
+   */
+  updateMetadata(
+    id: number,
+    data: {
+      description?: string;
+      client_name?: string;
+      phone_number?: string;
+      note?: string;
+    },
+    editedBy: string,
+  ): CustomServiceEntity | null {
+    const existing = this.findById(id);
+    if (!existing) return null;
+
+    const fields: string[] = [];
+    const values: unknown[] = [];
+
+    if (data.description !== undefined) {
+      fields.push("description = ?");
+      values.push(data.description);
+    }
+    if (data.client_name !== undefined) {
+      fields.push("client_name = ?");
+      values.push(data.client_name);
+    }
+    if (data.phone_number !== undefined) {
+      fields.push("phone_number = ?");
+      values.push(data.phone_number);
+    }
+    if (data.note !== undefined) {
+      fields.push("note = ?");
+      values.push(data.note);
+    }
+
+    if (fields.length === 0) return existing;
+
+    fields.push("edited_by = ?", "edited_at = CURRENT_TIMESTAMP");
+    values.push(editedBy);
+    values.push(id);
+
+    this.db
+      .prepare(`UPDATE custom_services SET ${fields.join(", ")} WHERE id = ?`)
+      .run(...values);
+
+    return this.findById(id);
   }
 }
 

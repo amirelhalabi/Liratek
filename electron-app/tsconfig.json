@@ -12,7 +12,12 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "allowSyntheticDefaultImports": true,
-    "types": ["node", "better-sqlite3"]
+    "types": ["node", "better-sqlite3"],
+    "baseUrl": ".",
+    "paths": {
+      "@liratek/core": ["../packages/core/dist/index.d.ts"],
+      "@liratek/core/*": ["../packages/core/dist/*"]
+    }
   },
   "include": [
     "*.ts",

@@ -55,7 +55,7 @@ export function registerAuditHandlers(): void {
     "audit:get-by-entity",
     (e, entityType: string, entityId: string) => {
       try {
-        const auth = requireRole(e.sender.id, ["admin"]);
+        const auth = requireRole(e.sender.id, ["admin", "staff"]);
         if (!auth.ok) return { success: false, error: auth.error };
 
         const service = getAuditService();

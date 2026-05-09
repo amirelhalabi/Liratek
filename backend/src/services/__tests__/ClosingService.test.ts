@@ -17,9 +17,6 @@ import {
   ClosingService,
   getClosingService,
   resetClosingService,
-  SetOpeningBalancesData,
-  CreateClosingData,
-  UpdateClosingData,
   DailyStatsSnapshot,
   getClosingRepository,
 } from "@liratek/core";
@@ -32,13 +29,14 @@ describe("ClosingService", () => {
     jest.clearAllMocks();
     resetClosingService();
 
-    // Create mock repository
+    // Create mock repository matching the current ClosingRepository API
     mockRepo = {
-      setOpeningBalances: jest.fn(),
-      createDailyClosing: jest.fn(),
-      updateDailyClosing: jest.fn(),
+      recalculateDrawerBalances: jest.fn(),
       getSystemExpectedBalancesDynamic: jest.fn(),
       getDailyStatsSnapshot: jest.fn(),
+      getCheckpointTimeline: jest.fn(),
+      getLastCheckpointActuals: jest.fn(),
+      createCheckpoint: jest.fn(),
     };
 
     (getClosingRepository as jest.Mock).mockReturnValue(mockRepo);
@@ -47,255 +45,68 @@ describe("ClosingService", () => {
   });
 
   // ===========================================================================
-  // setOpeningBalances Tests
+  // recalculateDrawerBalances Tests
   // ===========================================================================
 
-  describe("setOpeningBalances", () => {
-    it("should set opening balances successfully", () => {
-      const data: SetOpeningBalancesData = {
-        closing_date: "2025-01-15",
-        user_id: 1,
-        amounts: [
-          {
-            drawer_name: "General_Drawer_A",
-            currency_code: "USD",
-            opening_amount: 500,
-          },
-          {
-            drawer_name: "General_Drawer_A",
-            currency_code: "LBP",
-            opening_amount: 45000000,
-          },
-          {
-            drawer_name: "OMT_Drawer",
-            currency_code: "USD",
-            opening_amount: 200,
-          },
-        ],
-      };
-      mockRepo.setOpeningBalances.mockReturnValue({ success: true, id: 1 });
+  describe("recalculateDrawerBalances", () => {
+    it("should return success when recalculation succeeds", () => {
+      mockRepo.recalculateDrawerBalances.mockReturnValue({ success: true });
 
-      const result = service.setOpeningBalances(data);
+      const result = service.recalculateDrawerBalances();
 
-      expect(result).toEqual({ success: true, id: 1 });
-      expect(mockRepo.setOpeningBalances).toHaveBeenCalledWith(
-        "2025-01-15",
-        data.amounts,
-        1,
-      );
+      expect(result).toEqual({ success: true });
+      expect(mockRepo.recalculateDrawerBalances).toHaveBeenCalled();
     });
 
-    it("should pass user_id to repository", () => {
-      const data: SetOpeningBalancesData = {
-        closing_date: "2025-01-15",
-        user_id: 1,
-        amounts: [
-          {
-            drawer_name: "General",
-            currency_code: "USD",
-            opening_amount: 300,
-          },
-        ],
-      };
-      mockRepo.setOpeningBalances.mockReturnValue({ success: true, id: 2 });
-
-      service.setOpeningBalances(data);
-
-      expect(mockRepo.setOpeningBalances).toHaveBeenCalledWith(
-        "2025-01-15",
-        data.amounts,
-        1,
-      );
-    });
-
-    it("should handle error from repository", () => {
-      const data: SetOpeningBalancesData = {
-        closing_date: "2025-01-15",
-        user_id: 1,
-        amounts: [],
-      };
-      mockRepo.setOpeningBalances.mockReturnValue({
+    it("should return error result when repository returns error", () => {
+      mockRepo.recalculateDrawerBalances.mockReturnValue({
         success: false,
-        error: "Invalid amounts",
+        error: "Recalculation failed",
       });
 
-      const result = service.setOpeningBalances(data);
+      const result = service.recalculateDrawerBalances();
 
-      expect(result).toEqual({ success: false, error: "Invalid amounts" });
+      expect(result).toEqual({ success: false, error: "Recalculation failed" });
+    });
+
+    it("should return failure result when repository throws", () => {
+      mockRepo.recalculateDrawerBalances.mockImplementation(() => {
+        throw new Error("DB error");
+      });
+
+      const result = service.recalculateDrawerBalances();
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe("DB error");
     });
   });
 
   // ===========================================================================
-  // createDailyClosing Tests
+  // getSystemExpectedBalancesDynamic Tests
   // ===========================================================================
 
-  describe("createDailyClosing", () => {
-    it("should create daily closing successfully", () => {
-      const data: CreateClosingData = {
-        closing_date: "2025-01-15",
-        user_id: 1,
-        variance_notes: "All balanced",
-        system_expected_usd: 1000,
-        system_expected_lbp: 90000000,
-        amounts: [
-          {
-            drawer_name: "General_Drawer_A",
-            currency_code: "USD",
-            physical_amount: 1000,
-          },
-          {
-            drawer_name: "General_Drawer_A",
-            currency_code: "LBP",
-            physical_amount: 90000000,
-          },
-        ],
+  describe("getSystemExpectedBalancesDynamic", () => {
+    it("should return dynamic balances keyed by drawer and currency", () => {
+      const mockBalances = {
+        General: { USD: 1000, LBP: 90000000 },
+        OMT: { USD: 500 },
       };
-      mockRepo.createDailyClosing.mockReturnValue({ success: true, id: 1 });
+      mockRepo.getSystemExpectedBalancesDynamic.mockReturnValue(mockBalances);
 
-      const result = service.createDailyClosing(data);
+      const result = service.getSystemExpectedBalancesDynamic();
 
-      expect(result).toEqual({ success: true, id: 1 });
-      expect(mockRepo.createDailyClosing).toHaveBeenCalledWith(
-        "2025-01-15",
-        data.amounts,
-        1000,
-        90000000,
-        "All balanced",
-        undefined,
-        1,
-      );
+      expect(result).toEqual(mockBalances);
+      expect(mockRepo.getSystemExpectedBalancesDynamic).toHaveBeenCalled();
     });
 
-    it("should use default values for optional fields", () => {
-      const data: CreateClosingData = {
-        closing_date: "2025-01-15",
-        user_id: 1,
-        amounts: [
-          {
-            drawer_name: "General_Drawer_A",
-            currency_code: "USD",
-            physical_amount: 500,
-          },
-        ],
-      };
-      mockRepo.createDailyClosing.mockReturnValue({ success: true, id: 2 });
-
-      service.createDailyClosing(data);
-
-      expect(mockRepo.createDailyClosing).toHaveBeenCalledWith(
-        "2025-01-15",
-        data.amounts,
-        0, // default system_expected_usd
-        0, // default system_expected_lbp
-        undefined, // variance_notes
-        undefined,
-        1, // user_id
-      );
-    });
-
-    it("should handle error from repository", () => {
-      const data: CreateClosingData = {
-        closing_date: "2025-01-15",
-        user_id: 1,
-        amounts: [],
-      };
-      mockRepo.createDailyClosing.mockReturnValue({
-        success: false,
-        error: "Closing already exists",
+    it("should return empty object when repository throws", () => {
+      mockRepo.getSystemExpectedBalancesDynamic.mockImplementation(() => {
+        throw new Error("Query failed");
       });
 
-      const result = service.createDailyClosing(data);
+      const result = service.getSystemExpectedBalancesDynamic();
 
-      expect(result).toEqual({
-        success: false,
-        error: "Closing already exists",
-      });
-    });
-  });
-
-  // ===========================================================================
-  // updateDailyClosing Tests
-  // ===========================================================================
-
-  describe("updateDailyClosing", () => {
-    it("should update daily closing successfully", () => {
-      const data: UpdateClosingData = {
-        id: 1,
-        physical_usd: 1050,
-        physical_lbp: 92000000,
-        variance_usd: 50,
-        notes: "Found extra cash",
-        user_id: 1,
-      };
-      mockRepo.updateDailyClosing.mockReturnValue({ success: true });
-
-      const result = service.updateDailyClosing(data);
-
-      expect(result).toEqual({ success: true });
-      expect(mockRepo.updateDailyClosing).toHaveBeenCalledWith(1, {
-        physical_usd: 1050,
-        physical_lbp: 92000000,
-        physical_eur: undefined,
-        system_expected_usd: undefined,
-        system_expected_lbp: undefined,
-        variance_usd: 50,
-        notes: "Found extra cash",
-        report_path: undefined,
-        updated_by: 1,
-      });
-    });
-
-    it("should update only provided fields", () => {
-      const data: UpdateClosingData = {
-        id: 2,
-        notes: "Updated notes",
-        user_id: 1,
-      };
-      mockRepo.updateDailyClosing.mockReturnValue({ success: true });
-
-      const result = service.updateDailyClosing(data);
-
-      expect(result).toEqual({ success: true });
-      expect(mockRepo.updateDailyClosing).toHaveBeenCalledWith(2, {
-        physical_usd: undefined,
-        physical_lbp: undefined,
-        physical_eur: undefined,
-        system_expected_usd: undefined,
-        system_expected_lbp: undefined,
-        variance_usd: undefined,
-        notes: "Updated notes",
-        report_path: undefined,
-        updated_by: 1,
-      });
-    });
-
-    it("should handle update with report path", () => {
-      const data: UpdateClosingData = {
-        id: 3,
-        report_path: "/reports/closing_2025-01-15.pdf",
-        user_id: 1,
-      };
-      mockRepo.updateDailyClosing.mockReturnValue({ success: true });
-
-      const result = service.updateDailyClosing(data);
-
-      expect(result).toEqual({ success: true });
-    });
-
-    it("should handle error from repository", () => {
-      const data: UpdateClosingData = {
-        id: 999,
-        notes: "Test",
-        user_id: 1,
-      };
-      mockRepo.updateDailyClosing.mockReturnValue({
-        success: false,
-        error: "Not found",
-      });
-
-      const result = service.updateDailyClosing(data);
-
-      expect(result).toEqual({ success: false, error: "Not found" });
+      expect(result).toEqual({});
     });
   });
 
@@ -358,6 +169,133 @@ describe("ClosingService", () => {
       const result = service.getDailyStatsSnapshot();
 
       expect(result).toEqual(mockStats);
+    });
+  });
+
+  // ===========================================================================
+  // getLastCheckpointActuals Tests
+  // ===========================================================================
+
+  describe("getLastCheckpointActuals", () => {
+    it("should return last checkpoint actuals per drawer/currency", () => {
+      const mockActuals = {
+        General: { USD: 950, LBP: 88000000 },
+        OMT: { USD: 480 },
+      };
+      mockRepo.getLastCheckpointActuals.mockReturnValue(mockActuals);
+
+      const result = service.getLastCheckpointActuals();
+
+      expect(result).toEqual(mockActuals);
+      expect(mockRepo.getLastCheckpointActuals).toHaveBeenCalled();
+    });
+
+    it("should return empty object when repository throws", () => {
+      mockRepo.getLastCheckpointActuals.mockImplementation(() => {
+        throw new Error("Query failed");
+      });
+
+      const result = service.getLastCheckpointActuals();
+
+      expect(result).toEqual({});
+    });
+  });
+
+  // ===========================================================================
+  // createCheckpoint Tests
+  // ===========================================================================
+
+  describe("createCheckpoint", () => {
+    it("should create a checkpoint successfully", () => {
+      const data = {
+        user_id: 1,
+        notes: "End of day",
+        amounts: [
+          {
+            drawer_name: "General",
+            currency_code: "USD",
+            expected_amount: 1000,
+            physical_amount: 1000,
+          },
+          {
+            drawer_name: "General",
+            currency_code: "LBP",
+            expected_amount: 90000000,
+            physical_amount: 90000000,
+          },
+        ],
+      };
+      mockRepo.createCheckpoint.mockReturnValue({ success: true, id: 5 });
+
+      const result = service.createCheckpoint(data);
+
+      expect(result).toEqual({ success: true, id: 5 });
+      expect(mockRepo.createCheckpoint).toHaveBeenCalledWith(data);
+    });
+
+    it("should return failure result when repository throws", () => {
+      mockRepo.createCheckpoint.mockImplementation(() => {
+        throw new Error("Insert failed");
+      });
+
+      const result = service.createCheckpoint({
+        user_id: 1,
+        amounts: [],
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe("Insert failed");
+    });
+  });
+
+  // ===========================================================================
+  // getCheckpointTimeline Tests
+  // ===========================================================================
+
+  describe("getCheckpointTimeline", () => {
+    it("should return checkpoints for a given date", async () => {
+      const mockCheckpoints = [
+        {
+          id: 1,
+          closing_date: "2025-01-15",
+          drawer_name: "General",
+          checkpoint_type: "CLOSING",
+          created_at: "2025-01-15T20:00:00",
+          created_by: 1,
+          user_name: "Admin",
+          currencies: [],
+        },
+      ];
+      mockRepo.getCheckpointTimeline.mockReturnValue(mockCheckpoints);
+
+      const result = await service.getCheckpointTimeline({
+        date: "2025-01-15",
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.checkpoints).toEqual(mockCheckpoints);
+    });
+
+    it("should return all checkpoints when no filters provided", async () => {
+      mockRepo.getCheckpointTimeline.mockReturnValue([]);
+
+      const result = await service.getCheckpointTimeline();
+
+      expect(result.success).toBe(true);
+      expect(result.checkpoints).toEqual([]);
+    });
+
+    it("should return failure result when repository throws", async () => {
+      mockRepo.getCheckpointTimeline.mockImplementation(() => {
+        throw new Error("Timeline query failed");
+      });
+
+      const result = await service.getCheckpointTimeline({
+        date: "2025-01-15",
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe("Timeline query failed");
     });
   });
 

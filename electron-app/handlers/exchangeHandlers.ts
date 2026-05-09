@@ -5,7 +5,11 @@
  */
 
 import { ipcMain } from "electron";
-import { getExchangeService, exchangeLogger } from "@liratek/core";
+import {
+  getExchangeService,
+  exchangeLogger,
+  getUserRepository,
+} from "@liratek/core";
 import type { CreateExchangeData } from "@liratek/core";
 import { requireRole } from "../session.js";
 import { audit } from "./auditHelper.js";
@@ -14,9 +18,16 @@ import {
   validatePayload,
 } from "../schemas/index.js";
 
-export function registerExchangeHandlers(): void {
-  const exchangeService = getExchangeService();
+let _exchangeService: ReturnType<typeof getExchangeService> | null = null;
 
+function getExchangeServiceInstance() {
+  if (!_exchangeService) {
+    _exchangeService = getExchangeService();
+  }
+  return _exchangeService;
+}
+
+export function registerExchangeHandlers(): void {
   // Add Transaction (Drawer B - General Drawer)
   ipcMain.handle(
     "exchange:add-transaction",
@@ -35,7 +46,7 @@ export function registerExchangeHandlers(): void {
         },
         "Processing exchange",
       );
-      const result = exchangeService.addTransaction(
+      const result = getExchangeServiceInstance().addDirectTransaction(
         v.data as CreateExchangeData,
       );
       audit(event.sender.id, {
@@ -54,6 +65,56 @@ export function registerExchangeHandlers(): void {
 
   // Get History (last 50 transactions)
   ipcMain.handle("exchange:get-history", () => {
-    return exchangeService.getHistory();
+    return getExchangeServiceInstance().getHistory();
   });
+
+  // Update exchange metadata (staff and admin)
+  ipcMain.handle(
+    "exchange:update-metadata",
+    (
+      event,
+      data: {
+        id: number;
+        client_name?: string;
+        note?: string;
+      },
+    ) => {
+      const auth = requireRole(event.sender.id, ["admin", "staff"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+
+      let editedBy = `user-${auth.userId}`;
+      try {
+        const userRepo = getUserRepository();
+        const user = userRepo.findById(auth.userId);
+        if (user) editedBy = user.username;
+      } catch {
+        // fallback to user-{id}
+      }
+
+      const result = getExchangeServiceInstance().updateExchangeMetadata(
+        data.id,
+        { client_name: data.client_name, note: data.note },
+        editedBy,
+      );
+
+      if (
+        result.success &&
+        result.oldValues &&
+        Object.keys(result.oldValues).length > 0
+      ) {
+        audit(event.sender.id, {
+          action: "edit_metadata",
+          entity_type: "exchange_transaction",
+          entity_id: String(data.id),
+          summary: `Edited exchange #${data.id} metadata`,
+          old_values: result.oldValues,
+          new_values: data,
+        });
+      }
+
+      return result.success
+        ? { success: true, data: result.entity }
+        : { success: false, error: result.error };
+    },
+  );
 }

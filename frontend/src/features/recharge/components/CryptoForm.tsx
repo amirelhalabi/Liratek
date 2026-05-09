@@ -1,5 +1,8 @@
+import { useState } from "react";
 import { User, Hash } from "lucide-react";
-import { MultiPaymentInput, DoubleTab, type PaymentLine } from "@liratek/ui";
+import { DoubleTab, type PaymentLine } from "@liratek/ui";
+import { PaymentSheet } from "./PaymentSheet";
+import { useSession } from "@/features/sessions/context/SessionContext";
 import type {
   ProviderConfig,
   BinanceTransaction,
@@ -27,6 +30,7 @@ interface CryptoFormProps {
   setShowHistory: (show: boolean) => void;
   paymentMethods: Array<{ code: string; label: string; drawer_name?: string }>;
   onPaymentLinesChange: (lines: PaymentLine[]) => void;
+  onDiscountChange?: (discount: number) => void;
   exchangeRate: number;
 }
 
@@ -50,8 +54,12 @@ export function CryptoForm({
   setShowHistory,
   paymentMethods,
   onPaymentLinesChange,
+  onDiscountChange,
   exchangeRate,
 }: CryptoFormProps) {
+  const [showPaymentSheet, setShowPaymentSheet] = useState(false);
+  const { activeSession } = useSession();
+
   if (!activeConfig) return null;
 
   const parsedAmount = parseFloat(cryptoAmount || "0");
@@ -158,7 +166,7 @@ export function CryptoForm({
             htmlFor="crypto-client"
             className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
           >
-            <User size={12} /> Client Name
+            <User size={12} /> Client Name {activeSession && "• Session"}
           </label>
           <input
             id="crypto-client"
@@ -190,46 +198,103 @@ export function CryptoForm({
       {/* Spacer */}
       <div className="flex-1" />
 
-      {/* Sticky Bottom Bar - Payment Method + Submit */}
-      <div className="sticky bottom-0 bg-slate-800 rounded-xl border border-slate-700/50 p-4 shadow-2xl">
-        <div className="flex items-center gap-4">
-          <div className="flex-1">
-            <MultiPaymentInput
-              totalAmount={parsedAmount + fee}
-              currency="USD"
-              onChange={onPaymentLinesChange}
-              requiresClientForDebt={true}
-              hasClient={!!cryptoClientName}
-              showPmFee={false}
-              paymentMethods={paymentMethods}
-              currencies={[
-                { code: "USD", symbol: "$" },
-                { code: "LBP", symbol: "LBP" },
-              ]}
-              exchangeRate={exchangeRate}
-            />
+      {/* Sticky Bottom Trigger Bar */}
+      <div className="sticky bottom-0 bg-slate-800/95 backdrop-blur-sm rounded-xl border border-slate-700/50 p-3 shadow-2xl">
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-xs text-slate-400">
+            {cryptoType === "RECEIVE" ? "Payout" : "Total"}:{" "}
+            <span className="text-emerald-400 font-mono font-semibold">
+              $
+              {cryptoType === "RECEIVE"
+                ? (parsedAmount - fee).toFixed(2)
+                : (parsedAmount + fee).toFixed(2)}
+            </span>
           </div>
-
-          <div className="text-right min-w-[150px]">
-            <div className="text-xs text-slate-400">Total:</div>
-            <div className="text-sm text-emerald-400 font-mono font-bold">
-              ${(parsedAmount + fee).toFixed(2)}
-            </div>
-          </div>
-
           <button
-            onClick={handleCryptoSubmit}
-            disabled={isSubmitting || !cryptoAmount || parsedAmount <= 0}
-            className={`px-6 py-3 rounded-lg font-bold text-white transition-all min-w-[140px] ${
-              isSubmitting || !cryptoAmount || parsedAmount <= 0
+            type="button"
+            onClick={() => setShowPaymentSheet(true)}
+            disabled={!cryptoAmount || parsedAmount <= 0}
+            className={`px-5 py-2.5 rounded-lg font-bold text-sm transition-all ${
+              !cryptoAmount || parsedAmount <= 0
                 ? "bg-slate-600 text-slate-400 cursor-not-allowed"
-                : "bg-amber-600 hover:bg-amber-500 shadow-lg shadow-amber-500/20"
+                : "bg-amber-600 hover:bg-amber-500 text-white shadow-lg shadow-amber-500/20"
             }`}
           >
-            {isSubmitting ? "Processing..." : "Submit"}
+            {cryptoType === "RECEIVE" ? "Confirm Payout" : "Proceed to Pay"}
           </button>
         </div>
       </div>
+
+      <PaymentSheet
+        open={showPaymentSheet}
+        onClose={() => setShowPaymentSheet(false)}
+        onConfirm={handleCryptoSubmit}
+        isSubmitting={isSubmitting}
+        title={cryptoType === "RECEIVE" ? "Confirm Payout" : "Confirm Payment"}
+        subtitle={
+          cryptoType === "RECEIVE"
+            ? `Crypto Receive — Payout $${(parsedAmount - fee).toFixed(2)}`
+            : `Crypto — $${(parsedAmount + fee).toFixed(2)}`
+        }
+        accentColor="bg-amber-600 hover:bg-amber-500 text-white"
+        confirmLabel={
+          cryptoType === "RECEIVE"
+            ? `Confirm Payout $${(parsedAmount - fee).toFixed(2)}`
+            : `Pay $${(parsedAmount + fee).toFixed(2)}`
+        }
+        summary={
+          cryptoType === "RECEIVE"
+            ? [
+                {
+                  label: "Crypto Received",
+                  value: `$${parsedAmount.toFixed(2)}`,
+                },
+                ...(fee > 0
+                  ? [
+                      {
+                        label: "Shop Fee",
+                        value: `−$${fee.toFixed(2)}`,
+                        color: "text-emerald-400",
+                      },
+                    ]
+                  : []),
+                {
+                  label: "Customer Payout",
+                  value: `$${(parsedAmount - fee).toFixed(2)}`,
+                },
+              ]
+            : [
+                { label: "Amount", value: `$${parsedAmount.toFixed(2)}` },
+                ...(fee > 0
+                  ? [
+                      {
+                        label: "Fee",
+                        value: `$${fee.toFixed(2)}`,
+                        color: "text-amber-400",
+                      },
+                    ]
+                  : []),
+                {
+                  label: "Total",
+                  value: `$${(parsedAmount + fee).toFixed(2)}`,
+                },
+              ]
+        }
+        totalAmount={
+          cryptoType === "RECEIVE" ? parsedAmount - fee : parsedAmount + fee
+        }
+        currency="USD"
+        paymentMethods={paymentMethods}
+        exchangeRate={exchangeRate}
+        showDiscount={true}
+        maxDiscount={fee}
+        onDiscountChange={(d) => {
+          onDiscountChange?.(d);
+        }}
+        requiresClientForDebt={true}
+        hasClient={!!cryptoClientName}
+        onPaymentChange={onPaymentLinesChange}
+      />
 
       {/* History Modal */}
       {showHistory && (
@@ -254,6 +319,19 @@ export function CryptoForm({
           onClose={() => setShowHistory(false)}
           onRefresh={loadCryptoData}
           profitLabel="Fees"
+          onUpdateMetadata={async (id, data) => {
+            const result = await window.api.financial.updateMetadata({
+              id,
+              ...(data.client_name !== undefined && {
+                customer_name: data.client_name,
+              }),
+              ...(data.phone_number !== undefined && {
+                phone_number: data.phone_number,
+              }),
+              ...(data.note !== undefined && { note: data.note }),
+            });
+            return result;
+          }}
         />
       )}
     </div>

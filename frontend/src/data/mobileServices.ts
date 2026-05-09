@@ -19,10 +19,15 @@ export type ServiceCatalog = Record<string, ServiceCategory>;
 const mobileServices: Record<string, ServiceCatalog | Record<string, never>> = {
   iPick: {
     alfa: {
-      "Alfa Go": {
-        "Alfa Go": { cost: "697000", sell: "0" },
-        "Alfa Go+": { cost: "1212000", sell: "0" },
-        "Alfa Go Max": { cost: "1717000", sell: "0" },
+      Prepaid: {
+        "1.22": { cost: "140000", sell: "0" },
+        "3.03": { cost: "322000", sell: "0" },
+        "4.5": { cost: "466000", sell: "0" },
+        "7.58": { cost: "770000", sell: "0" },
+        "10": { cost: "1000000", sell: "0" },
+        "15.15": { cost: "1515000", sell: "0" },
+        "22.73": { cost: "2273000", sell: "0" },
+        "77.28": { cost: "7728000", sell: "0" },
       },
       "Mobile Internet": {
         "1GB": { cost: "340000", sell: "0" },
@@ -34,15 +39,10 @@ const mobileServices: Record<string, ServiceCatalog | Record<string, never>> = {
         "111GB": { cost: "10000000", sell: "0" },
         "444GB": { cost: "30000000", sell: "0" },
       },
-      Prepaid: {
-        "1.22": { cost: "140000", sell: "0" },
-        "3.03": { cost: "322000", sell: "0" },
-        "4.5": { cost: "466000", sell: "0" },
-        "7.58": { cost: "770000", sell: "0" },
-        "10": { cost: "1000000", sell: "0" },
-        "15.15": { cost: "1515000", sell: "0" },
-        "22.73": { cost: "2273000", sell: "0" },
-        "77.28": { cost: "7728000", sell: "0" },
+      "Alfa Go": {
+        "Alfa Go": { cost: "697000", sell: "0" },
+        "Alfa Go+": { cost: "1212000", sell: "0" },
+        "Alfa Go Max": { cost: "1717000", sell: "0" },
       },
       "Weekly data": {
         "500MB": { cost: "50000", sell: "0" },
@@ -312,8 +312,8 @@ const mobileServices: Record<string, ServiceCatalog | Record<string, never>> = {
     },
   },
   Katsh: {
-    "Mobile topups": {
-      alfa: {
+    alfa: {
+      Prepaid: {
         "3.6": { cost: "318978", sell: "355000" },
         "5.24": { cost: "462075", sell: "500000" },
         "8.65": { cost: "765007", sell: "800000" },
@@ -322,7 +322,9 @@ const mobileServices: Record<string, ServiceCatalog | Record<string, never>> = {
         "25.47": { cost: "2256769", sell: "2400000" },
         "86": { cost: "7620030", sell: "8000000" },
       },
-      mtc: {
+    },
+    mtc: {
+      Prepaid: {
         "1.35": { cost: "119617", sell: "150000" },
         "2.10": { cost: "186071", sell: "235000" },
         "4.45": { cost: "398723", sell: "440000" },
@@ -338,70 +340,7 @@ const mobileServices: Record<string, ServiceCatalog | Record<string, never>> = {
         super: { cost: "1360973", sell: "1450000" },
       },
     },
-    "Gaming cards": {
-      "Pubg voucher": {
-        "60UC": { cost: "82340", sell: "100000" },
-        "300UC +25 free": { cost: "411700", sell: "450000" },
-        "600UC +60 free": { cost: "823400", sell: "890000" },
-        "1500UC +300 free": { cost: "2058500", sell: "2240000" },
-        "3000UC +850 free": { cost: "4117000", sell: "4450000" },
-        "6000UC +2100 free": { cost: "8234000", sell: "8900000" },
-        "12000UC +4200 free": { cost: "16468000", sell: "17800000" },
-        "18000UC +6300 free": { cost: "24702000", sell: "26000000" },
-        "24000UC +8400 free": { cost: "32936000", sell: "33000000" },
-      },
-      Blizzard: {
-        "10$": { cost: "895000", sell: "950000" },
-        "20$": { cost: "1790000", sell: "1900000" },
-        "50$": { cost: "4475000", sell: "4575000" },
-      },
-      "Freefire voucher": {
-        "100 diamonds": { cost: "89500", sell: "100000" },
-        "210 diamonds": { cost: "179000", sell: "220000" },
-        "530 diamonds": { cost: "447500", sell: "500000" },
-        "1080 diamonds": { cost: "895000", sell: "950000" },
-        "2200 diamonds": { cost: "1790000", sell: "1890000" },
-      },
-      Roblox: {
-        "10$": { cost: "895000", sell: "950000" },
-        "15$": { cost: "1342500", sell: "1450000" },
-        "20$": { cost: "1790000", sell: "1900000" },
-        "25$": { cost: "2237500", sell: "2350000" },
-        "50$": { cost: "4475000", sell: "4600000" },
-        "75$": { cost: "6712500", sell: "6850000" },
-        "100$": { cost: "8950000", sell: "9200000" },
-        "150$": { cost: "13425000", sell: "13600000" },
-      },
-      "PlayStation USA": {
-        "10$ PSN": { cost: "832350", sell: "895000" },
-        "20$ PSN": { cost: "1692000", sell: "1800000" },
-        "25$ PSN": { cost: "2103250", sell: "2250000" },
-        "50$ PSN": { cost: "4206500", sell: "4450000" },
-        "75$ PSN": { cost: "6309750", sell: "6700000" },
-        "100$ PSN": { cost: "8413000", sell: "9000000" },
-      },
-      "PlayStation LEB": {
-        "10$ PSN": { cost: "841300", sell: "895000" },
-        "20$ PSN": { cost: "1682600", sell: "1800000" },
-        "25$ PSN": { cost: "2115000", sell: "2250000" },
-        "40$ PSN": { cost: "3365200", sell: "3600000" },
-        "50$ PSN": { cost: "4206500", sell: "4450000" },
-        "60$ PSN": { cost: "5047800", sell: "5350000" },
-        "70$ PSN": { cost: "5889100", sell: "6300000" },
-        "100$ PSN": { cost: "8413000", sell: "9000000" },
-      },
-      "PlayStation UAE": {
-        "10$ PSN": { cost: "859200", sell: "895000" },
-        "20$ PSN": { cost: "1736300", sell: "1800000" },
-        "25$ PSN": { cost: "2115000", sell: "2250000" },
-        "40$ PSN": { cost: "3472600", sell: "3600000" },
-        "50$ PSN": { cost: "4340750", sell: "4450000" },
-        "60$ PSN": { cost: "5208900", sell: "5350000" },
-        "70$ PSN": { cost: "6077050", sell: "6300000" },
-        "100$ PSN": { cost: "8681500", sell: "9000000" },
-      },
-    },
-    "DSL cards": {
+    internet: {
       Idm: {
         "ADSL Pause Card": { cost: "169376", sell: "240000" },
         "ADSL 4Mbps/80GB": { cost: "558059", sell: "630000" },
@@ -507,10 +446,73 @@ const mobileServices: Record<string, ServiceCatalog | Record<string, never>> = {
         "DSL OS 1000GB": { cost: "2079991", sell: "2149991" },
       },
     },
+    Gaming: {
+      "Pubg voucher": {
+        "60UC": { cost: "82340", sell: "100000" },
+        "300UC +25 free": { cost: "411700", sell: "450000" },
+        "600UC +60 free": { cost: "823400", sell: "890000" },
+        "1500UC +300 free": { cost: "2058500", sell: "2240000" },
+        "3000UC +850 free": { cost: "4117000", sell: "4450000" },
+        "6000UC +2100 free": { cost: "8234000", sell: "8900000" },
+        "12000UC +4200 free": { cost: "16468000", sell: "17800000" },
+        "18000UC +6300 free": { cost: "24702000", sell: "26000000" },
+        "24000UC +8400 free": { cost: "32936000", sell: "33000000" },
+      },
+      Blizzard: {
+        "10$": { cost: "895000", sell: "950000" },
+        "20$": { cost: "1790000", sell: "1900000" },
+        "50$": { cost: "4475000", sell: "4575000" },
+      },
+      "Freefire voucher": {
+        "100 diamonds": { cost: "89500", sell: "100000" },
+        "210 diamonds": { cost: "179000", sell: "220000" },
+        "530 diamonds": { cost: "447500", sell: "500000" },
+        "1080 diamonds": { cost: "895000", sell: "950000" },
+        "2200 diamonds": { cost: "1790000", sell: "1890000" },
+      },
+      Roblox: {
+        "10$": { cost: "895000", sell: "950000" },
+        "15$": { cost: "1342500", sell: "1450000" },
+        "20$": { cost: "1790000", sell: "1900000" },
+        "25$": { cost: "2237500", sell: "2350000" },
+        "50$": { cost: "4475000", sell: "4600000" },
+        "75$": { cost: "6712500", sell: "6850000" },
+        "100$": { cost: "8950000", sell: "9200000" },
+        "150$": { cost: "13425000", sell: "13600000" },
+      },
+      "PlayStation USA": {
+        "10$ PSN": { cost: "832350", sell: "895000" },
+        "20$ PSN": { cost: "1692000", sell: "1800000" },
+        "25$ PSN": { cost: "2103250", sell: "2250000" },
+        "50$ PSN": { cost: "4206500", sell: "4450000" },
+        "75$ PSN": { cost: "6309750", sell: "6700000" },
+        "100$ PSN": { cost: "8413000", sell: "9000000" },
+      },
+      "PlayStation LEB": {
+        "10$ PSN": { cost: "841300", sell: "895000" },
+        "20$ PSN": { cost: "1682600", sell: "1800000" },
+        "25$ PSN": { cost: "2115000", sell: "2250000" },
+        "40$ PSN": { cost: "3365200", sell: "3600000" },
+        "50$ PSN": { cost: "4206500", sell: "4450000" },
+        "60$ PSN": { cost: "5047800", sell: "5350000" },
+        "70$ PSN": { cost: "5889100", sell: "6300000" },
+        "100$ PSN": { cost: "8413000", sell: "9000000" },
+      },
+      "PlayStation UAE": {
+        "10$ PSN": { cost: "859200", sell: "895000" },
+        "20$ PSN": { cost: "1736300", sell: "1800000" },
+        "25$ PSN": { cost: "2115000", sell: "2250000" },
+        "40$ PSN": { cost: "3472600", sell: "3600000" },
+        "50$ PSN": { cost: "4340750", sell: "4450000" },
+        "60$ PSN": { cost: "5208900", sell: "5350000" },
+        "70$ PSN": { cost: "6077050", sell: "6300000" },
+        "100$ PSN": { cost: "8681500", sell: "9000000" },
+      },
+    },
   },
   WISH_APP: {
-    "Mobile topups": {
-      alfa: {
+    alfa: {
+      Prepaid: {
         "3.6": { cost: "318978", sell: "355000" },
         "5.24": { cost: "462075", sell: "500000" },
         "8.65": { cost: "765007", sell: "800000" },
@@ -519,7 +521,9 @@ const mobileServices: Record<string, ServiceCatalog | Record<string, never>> = {
         "25.47": { cost: "2256769", sell: "2400000" },
         "86": { cost: "7620030", sell: "8000000" },
       },
-      mtc: {
+    },
+    mtc: {
+      Prepaid: {
         "1.35": { cost: "119617", sell: "150000" },
         "2.10": { cost: "186071", sell: "235000" },
         "4.45": { cost: "398723", sell: "440000" },

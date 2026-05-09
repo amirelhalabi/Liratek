@@ -79,6 +79,54 @@ export class ExpenseService {
       return { success: false, error: toErrorString(error) };
     }
   }
+
+  /**
+   * Update non-financial metadata on an expense record.
+   * Records old/new values for audit trail.
+   */
+  updateExpenseMetadata(
+    id: number,
+    data: { description?: string; category?: string; note?: string },
+    editedBy: string,
+  ): {
+    success: boolean;
+    entity?: ExpenseEntity;
+    oldValues?: Record<string, unknown>;
+    error?: string;
+  } {
+    const existing = this.repo.findById(id);
+    if (!existing) {
+      return { success: false, error: "Expense not found" };
+    }
+
+    const oldValues: Record<string, unknown> = {};
+    const newValues: Record<string, unknown> = {};
+
+    const fields = ["description", "category", "note"] as const;
+
+    for (const field of fields) {
+      if (data[field] !== undefined && data[field] !== existing[field]) {
+        oldValues[field] = existing[field];
+        newValues[field] = data[field];
+      }
+    }
+
+    if (Object.keys(newValues).length === 0) {
+      return { success: true, entity: existing };
+    }
+
+    const updated = this.repo.updateMetadata(id, data, editedBy);
+    if (!updated) {
+      return { success: false, error: "Failed to update" };
+    }
+
+    expenseLogger.info(
+      { id, editedBy, oldValues, newValues },
+      "Expense metadata updated",
+    );
+
+    return { success: true, entity: updated, oldValues };
+  }
 }
 
 // Singleton instance

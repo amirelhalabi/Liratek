@@ -1,6 +1,9 @@
-import { Wrench, RefreshCw, X, Ban } from "lucide-react";
+import { Wrench, RefreshCw, X, Ban, Pencil } from "lucide-react";
 import { DataTable } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
+import { useDateRangeFilter } from "@/shared/hooks/useDateRangeFilter";
+import { DateRangeFilter } from "@/shared/components/DateRangeFilter";
+import { EditHistoryPopover } from "@/shared/components/EditHistoryPopover";
 
 type MaintenanceJob = {
   id: number;
@@ -16,6 +19,10 @@ type MaintenanceJob = {
   paid_lbp?: number;
   discount_usd?: number;
   final_amount_usd?: number;
+  is_refunded?: number;
+  refunded_at?: string | null;
+  edited_by?: string | null;
+  edited_at?: string | null;
 };
 
 interface HistoryModalProps {
@@ -51,6 +58,10 @@ export function HistoryModal({
   onEdit,
 }: HistoryModalProps) {
   useModalFocusFix(true);
+  const { filteredData, from, to, setFrom, setTo } = useDateRangeFilter(
+    jobs,
+    "created_at",
+  );
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 animate-in fade-in duration-200"
@@ -65,10 +76,16 @@ export function HistoryModal({
             <Wrench className="text-slate-400" size={18} />
             Maintenance History
             <span className="text-xs text-slate-500 font-normal ml-1">
-              ({jobs.length} records)
+              ({filteredData.length} records)
             </span>
           </h2>
           <div className="flex items-center gap-2">
+            <DateRangeFilter
+              from={from}
+              to={to}
+              onFromChange={setFrom}
+              onToChange={setTo}
+            />
             <button
               onClick={onRefresh}
               className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
@@ -122,7 +139,7 @@ export function HistoryModal({
                 { header: "Paid", className: "px-6 py-3 text-right" },
                 { header: "Actions", className: "px-6 py-3 text-right" },
               ]}
-              data={jobs}
+              data={filteredData}
               exportExcel
               exportPdf
               exportFilename="maintenance-history"
@@ -130,74 +147,94 @@ export function HistoryModal({
               theadClassName="bg-slate-900/50 text-left text-xs font-medium text-slate-400 uppercase tracking-wider sticky top-0"
               tbodyClassName="divide-y divide-slate-700/50"
               emptyMessage="No maintenance jobs found."
-              renderRow={(job) => (
-                <tr
-                  key={job.id}
-                  className="hover:bg-slate-700/20 transition-colors group"
-                >
-                  <td className="px-6 py-4 text-sm text-slate-400 whitespace-nowrap">
-                    {job.created_at
-                      ? new Date(job.created_at).toLocaleDateString()
-                      : ""}
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="text-sm font-medium text-white">
-                      {job.client_name || "Unknown"}
-                    </div>
-                    {job.client_phone && (
-                      <div className="text-xs text-slate-500">
-                        {job.client_phone}
+              renderRow={(job) => {
+                const isRefunded = Boolean(job.is_refunded);
+                return (
+                  <tr
+                    key={job.id}
+                    className={`hover:bg-slate-700/20 transition-colors group${isRefunded ? " opacity-50" : ""}`}
+                  >
+                    <td className="px-6 py-4 text-sm text-slate-400 whitespace-nowrap">
+                      {job.created_at
+                        ? new Date(job.created_at).toLocaleDateString()
+                        : ""}
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="text-sm font-medium text-white flex items-center gap-1">
+                        {job.client_name || "Unknown"}
+                        {isRefunded && (
+                          <span className="ml-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                            Refunded
+                          </span>
+                        )}
+                        {job.edited_by && (
+                          <EditHistoryPopover
+                            entityType="maintenance"
+                            entityId={job.id}
+                            trigger={
+                              <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-yellow-500/10 border border-yellow-500/30 px-1.5 py-0.5 text-[10px] font-medium text-yellow-400 cursor-pointer hover:bg-yellow-500/20 transition-colors">
+                                <Pencil size={8} />
+                                Edited
+                              </span>
+                            }
+                          />
+                        )}
                       </div>
-                    )}
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="text-sm font-bold text-white">
-                      {job.device_name}
-                    </div>
-                    <div className="text-xs text-slate-400 truncate max-w-[200px]">
-                      {job.issue_description}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(job.status || "")}`}
-                    >
-                      {(job.status || "").replace("_", " ")}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-sm font-bold text-white text-right">
-                    $
-                    {job.price_usd?.toLocaleString(undefined, {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-emerald-400 text-right">
-                    $
-                    {job.paid_usd?.toLocaleString(undefined, {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        onClick={() => onEdit(job)}
-                        className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded"
+                      {job.client_phone && (
+                        <div className="text-xs text-slate-500">
+                          {job.client_phone}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="text-sm font-bold text-white">
+                        {job.device_name}
+                      </div>
+                      <div className="text-xs text-slate-400 truncate max-w-[200px]">
+                        {job.issue_description}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <span
+                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(job.status || "")}`}
                       >
-                        <Wrench size={16} />
-                      </button>
-                      <button
-                        onClick={() => onVoid(job.id)}
-                        className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-700 rounded"
-                        title="Void job"
-                      >
-                        <Ban size={16} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              )}
+                        {(job.status || "").replace("_", " ")}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-sm font-bold text-white text-right">
+                      $
+                      {job.price_usd?.toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-emerald-400 text-right">
+                      $
+                      {job.paid_usd?.toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => onEdit(job)}
+                          className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded"
+                        >
+                          <Wrench size={16} />
+                        </button>
+                        <button
+                          onClick={() => onVoid(job.id)}
+                          className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-700 rounded"
+                          title="Void job"
+                        >
+                          <Ban size={16} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              }}
             />
           )}
         </div>

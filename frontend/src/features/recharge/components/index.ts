@@ -7,3 +7,4 @@ export { ProviderTabs } from "./ProviderTabs";
 export { HistoryModal } from "./HistoryModal";
 export { ProviderStats } from "./ProviderStats";
 export { OmtWhishAppTransferForm } from "./OmtWhishAppTransferForm";
+export { PaymentSheet } from "./PaymentSheet";

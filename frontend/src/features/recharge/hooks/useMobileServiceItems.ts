@@ -66,6 +66,15 @@ interface VoucherImageRow {
 
 // ─── Sorting ───────────────────────────────────────────────────────────────
 
+/** Preferred category display order (categories not listed go to the end) */
+const CATEGORY_ORDER: string[] = ["alfa", "mtc", "internet", "Gaming"];
+
+/** Return the sort index for a category (unlisted categories sort last) */
+function categoryIndex(cat: string): number {
+  const idx = CATEGORY_ORDER.indexOf(cat);
+  return idx >= 0 ? idx : CATEGORY_ORDER.length;
+}
+
 /** Extract the leading number from a label string.
  *  "3.6" → 3.6, "1GB" → 1, "10 days" → 10, "3$" → 3,
  *  "credit only 1.67$" → 1.67, "Alfa Go" → NaN */
@@ -79,7 +88,7 @@ function extractNumber(label: string): number {
 }
 
 /** Sort items ascending: numeric labels first (by value), then non-numeric (by sortOrder) */
-function sortItems(items: ServiceItem[]): ServiceItem[] {
+function sortItemsWithinSubcategory(items: ServiceItem[]): ServiceItem[] {
   return [...items].sort((a, b) => {
     const numA = extractNumber(a.label);
     const numB = extractNumber(b.label);
@@ -91,6 +100,40 @@ function sortItems(items: ServiceItem[]): ServiceItem[] {
     if (!aIsNum && bIsNum) return 1;
     return a.sortOrder - b.sortOrder;
   });
+}
+
+/**
+ * Group items by subcategory preserving the original subcategory order
+ * (based on the lowest sortOrder in each group), then sort items
+ * numerically within each subcategory.
+ */
+function sortItems(items: ServiceItem[]): ServiceItem[] {
+  // Build subcategory groups preserving first-seen order (by min sortOrder)
+  const groups = new Map<string, ServiceItem[]>();
+  const groupMinOrder = new Map<string, number>();
+
+  for (const item of items) {
+    const key = item.subcategory;
+    if (!groups.has(key)) {
+      groups.set(key, []);
+      groupMinOrder.set(key, item.sortOrder);
+    }
+    groups.get(key)!.push(item);
+    const cur = groupMinOrder.get(key)!;
+    if (item.sortOrder < cur) groupMinOrder.set(key, item.sortOrder);
+  }
+
+  // Sort subcategory keys by their minimum sortOrder
+  const orderedKeys = [...groups.keys()].sort(
+    (a, b) => groupMinOrder.get(a)! - groupMinOrder.get(b)!,
+  );
+
+  // Sort items within each subcategory, then concatenate
+  const result: ServiceItem[] = [];
+  for (const key of orderedKeys) {
+    result.push(...sortItemsWithinSubcategory(groups.get(key)!));
+  }
+  return result;
 }
 
 // ─── Hook ──────────────────────────────────────────────────────────────────
@@ -198,7 +241,8 @@ export function useMobileServiceItems() {
   const getCategoriesForProvider = useCallback(
     (provider: ProviderKey): string[] => {
       const provItems = itemsByProvider[provider] || [];
-      return [...new Set(provItems.map((i) => i.category))];
+      const cats = [...new Set(provItems.map((i) => i.category))];
+      return cats.sort((a, b) => categoryIndex(a) - categoryIndex(b));
     },
     [itemsByProvider],
   );

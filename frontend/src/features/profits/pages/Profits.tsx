@@ -46,6 +46,17 @@ interface ProfitSummary {
     revenue_lbp: number;
     commission_usd: number;
     commission_lbp: number;
+    pending_commission_usd: number;
+    pending_commission_lbp: number;
+    count: number;
+  };
+  mobile_services: {
+    revenue_usd: number;
+    revenue_lbp: number;
+    cost_usd: number;
+    cost_lbp: number;
+    profit_usd: number;
+    profit_lbp: number;
     count: number;
   };
   recharges: {
@@ -69,6 +80,11 @@ interface ProfitSummary {
   maintenance: {
     revenue_usd: number;
     cost_usd: number;
+    profit_usd: number;
+    count: number;
+  };
+  exchange: {
+    revenue_usd: number;
     profit_usd: number;
     count: number;
   };
@@ -430,7 +446,7 @@ export default function Profits() {
     { key: "overview", label: "Overview", icon: TrendingUp },
     { key: "by-module", label: "By Module", icon: BarChart2 },
     { key: "by-date", label: "By Date", icon: Calendar },
-    { key: "by-payment", label: "By Payment", icon: CreditCard },
+    { key: "by-payment", label: "By Payment Method", icon: CreditCard },
     { key: "by-user", label: "By Cashier", icon: UserCheck },
     { key: "by-client", label: "By Client", icon: Users },
     { key: "pending", label: "Pending Profit", icon: Clock },
@@ -559,7 +575,7 @@ export default function Profits() {
                 </div>
                 <div className="text-xs text-gray-400 space-y-1">
                   <div className="flex justify-between">
-                    <span>Revenue</span>
+                    <span>Total Sales</span>
                     <span className="text-white">
                       {formatAmount(summary.sales.revenue_usd, "USD")}
                     </span>
@@ -591,7 +607,7 @@ export default function Profits() {
                 </div>
                 <div className="text-xs text-gray-400 space-y-1">
                   <div className="flex justify-between">
-                    <span>Revenue (USD)</span>
+                    <span>Transaction Amount (USD)</span>
                     <span className="text-white">
                       {formatAmount(
                         summary.financial_services.revenue_usd,
@@ -601,7 +617,7 @@ export default function Profits() {
                   </div>
                   {summary.financial_services.revenue_lbp > 0 && (
                     <div className="flex justify-between">
-                      <span>Revenue (LBP)</span>
+                      <span>Transaction Amount (LBP)</span>
                       <span className="text-white">
                         {formatAmount(
                           summary.financial_services.revenue_lbp,
@@ -619,8 +635,74 @@ export default function Profits() {
                       )}
                     </span>
                   </div>
+                  {(summary.financial_services.pending_commission_usd > 0 ||
+                    summary.financial_services.pending_commission_lbp > 0) && (
+                    <div className="flex justify-between">
+                      <span className="text-yellow-400">Pending</span>
+                      <span className="text-yellow-400">
+                        {formatAmount(
+                          summary.financial_services.pending_commission_usd,
+                          "USD",
+                        )}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
+
+              {/* Mobile Services (iPick, KATCH, BOB) */}
+              {summary.mobile_services && (
+                <div className="bg-gray-800/50 rounded-xl border border-gray-700 p-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-white">
+                      Mobile Services
+                    </span>
+                    <span className="text-xs bg-pink-500/20 text-pink-400 px-2 py-0.5 rounded-full">
+                      {summary.mobile_services.count} txns
+                    </span>
+                  </div>
+                  <div className="text-xs text-gray-400 space-y-1">
+                    <div className="flex justify-between">
+                      <span>Charged Amount</span>
+                      <span className="text-white">
+                        {formatAmount(
+                          summary.mobile_services.revenue_lbp > 0
+                            ? summary.mobile_services.revenue_lbp
+                            : summary.mobile_services.revenue_usd,
+                          summary.mobile_services.revenue_lbp > 0
+                            ? "LBP"
+                            : "USD",
+                        )}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Cost</span>
+                      <span className="text-red-400">
+                        -
+                        {formatAmount(
+                          summary.mobile_services.cost_lbp > 0
+                            ? summary.mobile_services.cost_lbp
+                            : summary.mobile_services.cost_usd,
+                          summary.mobile_services.cost_lbp > 0 ? "LBP" : "USD",
+                        )}
+                      </span>
+                    </div>
+                    <div className="flex justify-between border-t border-gray-700 pt-1">
+                      <span className="font-semibold">Profit</span>
+                      <span className="text-emerald-400 font-semibold">
+                        {formatAmount(
+                          summary.mobile_services.profit_lbp > 0
+                            ? summary.mobile_services.profit_lbp
+                            : summary.mobile_services.profit_usd,
+                          summary.mobile_services.profit_lbp > 0
+                            ? "LBP"
+                            : "USD",
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Custom Services */}
               <div className="bg-gray-800/50 rounded-xl border border-gray-700 p-4 space-y-2">
@@ -634,7 +716,7 @@ export default function Profits() {
                 </div>
                 <div className="text-xs text-gray-400 space-y-1">
                   <div className="flex justify-between">
-                    <span>Revenue</span>
+                    <span>Charged Amount</span>
                     <span className="text-white">
                       {formatAmount(summary.custom_services.revenue_usd, "USD")}
                     </span>
@@ -667,7 +749,7 @@ export default function Profits() {
                   </div>
                   <div className="text-xs text-gray-400 space-y-1">
                     <div className="flex justify-between">
-                      <span>Revenue</span>
+                      <span>Charged Amount</span>
                       <span className="text-white">
                         {formatAmount(summary.recharges.revenue_usd, "USD")}
                       </span>
@@ -700,7 +782,7 @@ export default function Profits() {
                 </div>
                 <div className="text-xs text-gray-400 space-y-1">
                   <div className="flex justify-between">
-                    <span>Revenue</span>
+                    <span>Charged Amount</span>
                     <span className="text-white">
                       {formatAmount(summary.maintenance.revenue_usd, "USD")}
                     </span>
@@ -719,6 +801,34 @@ export default function Profits() {
                   </div>
                 </div>
               </div>
+
+              {/* Exchange */}
+              {summary.exchange && summary.exchange.count > 0 && (
+                <div className="bg-gray-800/50 rounded-xl border border-gray-700 p-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-white">
+                      Currency Exchange
+                    </span>
+                    <span className="text-xs bg-cyan-500/20 text-cyan-400 px-2 py-0.5 rounded-full">
+                      {summary.exchange.count} txns
+                    </span>
+                  </div>
+                  <div className="text-xs text-gray-400 space-y-1">
+                    <div className="flex justify-between">
+                      <span>Volume</span>
+                      <span className="text-white">
+                        {formatAmount(summary.exchange.revenue_usd, "USD")}
+                      </span>
+                    </div>
+                    <div className="flex justify-between border-t border-gray-700 pt-1">
+                      <span className="font-semibold">Profit</span>
+                      <span className="text-emerald-400 font-semibold">
+                        {formatAmount(summary.exchange.profit_usd, "USD")}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Expense breakdown */}

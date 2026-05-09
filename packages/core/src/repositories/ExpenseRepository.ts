@@ -14,9 +14,12 @@ export interface ExpenseEntity {
   amount_usd: number;
   amount_lbp: number;
   expense_date: string;
+  note: string | null;
   status?: string;
   created_at?: string;
   updated_at?: string;
+  edited_by: string | null;
+  edited_at: string | null;
 }
 
 export interface CreateExpenseData {
@@ -35,7 +38,7 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
 
   // Override getColumns() to use explicit columns instead of SELECT *
   protected getColumns(): string {
-    return "id, description, category, amount_usd, amount_lbp, expense_date, paid_by_method, status";
+    return "id, description, category, amount_usd, amount_lbp, expense_date, paid_by_method, note, status, edited_by, edited_at";
   }
 
   /**
@@ -170,6 +173,47 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
         .prepare("UPDATE expenses SET status = 'voided' WHERE id = ?")
         .run(id);
     })();
+  }
+
+  /**
+   * Update non-financial metadata on an expense record.
+   * Only metadata fields are allowed — financial data is immutable.
+   */
+  updateMetadata(
+    id: number,
+    data: { description?: string; category?: string; note?: string },
+    editedBy: string,
+  ): ExpenseEntity | null {
+    const existing = this.findById(id);
+    if (!existing) return null;
+
+    const fields: string[] = [];
+    const values: unknown[] = [];
+
+    if (data.description !== undefined) {
+      fields.push("description = ?");
+      values.push(data.description);
+    }
+    if (data.category !== undefined) {
+      fields.push("category = ?");
+      values.push(data.category);
+    }
+    if (data.note !== undefined) {
+      fields.push("note = ?");
+      values.push(data.note);
+    }
+
+    if (fields.length === 0) return existing;
+
+    fields.push("edited_by = ?", "edited_at = CURRENT_TIMESTAMP");
+    values.push(editedBy);
+    values.push(id);
+
+    this.db
+      .prepare(`UPDATE expenses SET ${fields.join(", ")} WHERE id = ?`)
+      .run(...values);
+
+    return this.findById(id);
   }
 }
 

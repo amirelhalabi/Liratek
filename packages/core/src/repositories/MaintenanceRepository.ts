@@ -33,7 +33,7 @@ export interface MaintenanceJob {
   updated_at?: string;
 }
 
-interface MaintenanceRow {
+export interface MaintenanceRow {
   id: number;
   client_id: number | null;
   client_name: string | null;
@@ -51,6 +51,8 @@ interface MaintenanceRow {
   note: string | null;
   created_at: string;
   updated_at: string;
+  edited_by: string | null;
+  edited_at: string | null;
 }
 
 export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
@@ -60,7 +62,7 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
 
   // Override getColumns() to use explicit columns instead of SELECT *
   protected getColumns(): string {
-    return "id, client_id, client_name, device_name, issue_description, cost_usd, price_usd, discount_usd, final_amount_usd, paid_usd, paid_lbp, exchange_rate, status, paid_by, note, created_at, updated_at";
+    return "id, client_id, client_name, device_name, issue_description, cost_usd, price_usd, discount_usd, final_amount_usd, paid_usd, paid_lbp, exchange_rate, status, paid_by, note, created_at, updated_at, edited_by, edited_at";
   }
 
   /**
@@ -162,6 +164,7 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
     paymentLines: MaintenancePaymentLine[],
     opts: {
       finalAmount: number;
+      profitUsd?: number;
       exchangeRate: number;
       clientId: number | null;
       changeUsd?: number;
@@ -178,6 +181,7 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
       source_id: jobId,
       user_id: createdBy,
       amount_usd: opts.finalAmount,
+      profit_usd: opts.profitUsd ?? 0,
       client_id: opts.clientId ?? null,
       exchange_rate: opts.exchangeRate,
       summary: `Maintenance Job #${jobId}: $${opts.finalAmount}`,
@@ -330,5 +334,55 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
    */
   withTransaction<T>(fn: () => T): T {
     return this.db.transaction(fn)();
+  }
+
+  /**
+   * Update non-financial metadata on a maintenance job.
+   * Only metadata fields are allowed — financial data is immutable.
+   */
+  updateMetadata(
+    id: number,
+    data: {
+      client_name?: string;
+      device_name?: string;
+      issue_description?: string;
+      note?: string;
+    },
+    editedBy: string,
+  ): MaintenanceRow | null {
+    const existing = this.findById(id);
+    if (!existing) return null;
+
+    const fields: string[] = [];
+    const values: unknown[] = [];
+
+    if (data.client_name !== undefined) {
+      fields.push("client_name = ?");
+      values.push(data.client_name);
+    }
+    if (data.device_name !== undefined) {
+      fields.push("device_name = ?");
+      values.push(data.device_name);
+    }
+    if (data.issue_description !== undefined) {
+      fields.push("issue_description = ?");
+      values.push(data.issue_description);
+    }
+    if (data.note !== undefined) {
+      fields.push("note = ?");
+      values.push(data.note);
+    }
+
+    if (fields.length === 0) return existing;
+
+    fields.push("edited_by = ?", "edited_at = CURRENT_TIMESTAMP");
+    values.push(editedBy);
+    values.push(id);
+
+    this.db
+      .prepare(`UPDATE maintenance SET ${fields.join(", ")} WHERE id = ?`)
+      .run(...values);
+
+    return this.findById(id);
   }
 }

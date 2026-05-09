@@ -8,7 +8,6 @@ import { useApi, PageHeader } from "@liratek/ui";
 import { MultiPaymentInput, type PaymentLine } from "@liratek/ui";
 import { getExchangeRates } from "@/utils/exchangeRates";
 import { useSession } from "@/features/sessions/context/SessionContext";
-import logger from "@/utils/logger";
 import { Ticket, Plus, History, ClipboardCheck, Trophy } from "lucide-react";
 import { StatsCards } from "../../components/StatsCards";
 import { CheckpointHistory } from "../../components/CheckpointHistory";
@@ -30,11 +29,7 @@ interface TodayStats {
 
 export function LotoPage() {
   const api = useApi();
-  const {
-    activeSession,
-    linkTransaction,
-    addToCart: addToSessionCart,
-  } = useSession();
+  const { activeSession, addToCart: addToSessionCart } = useSession();
   // Tab state: "sell" or "cashPrize"
   const [activeTab, setActiveTab] = useState<"sell" | "cashPrize">("sell");
 
@@ -229,19 +224,6 @@ export function LotoPage() {
       const result = await lotoApi.sell(ticketData);
 
       if (result.success) {
-        // Link to active customer session
-        if (activeSession && result.ticket?.id) {
-          try {
-            await linkTransaction({
-              transactionType: "loto",
-              transactionId: result.ticket.id,
-              amountUsd: 0,
-              amountLbp: parseFloat(saleAmount) || 0,
-            });
-          } catch (err) {
-            logger.error("Failed to link loto ticket to session:", err);
-          }
-        }
         alert("Ticket sold successfully!");
         // Reset form
         setSaleAmount("");
@@ -298,19 +280,6 @@ export function LotoPage() {
       const result = await lotoApi.cashPrize.create(prizeData);
 
       if (result.success) {
-        // Link to active customer session
-        if (activeSession && result.prize?.id) {
-          try {
-            await linkTransaction({
-              transactionType: "loto_cash_prize",
-              transactionId: result.prize.id,
-              amountUsd: 0,
-              amountLbp: parseFloat(cashPrizeAmount) || 0,
-            });
-          } catch (err) {
-            logger.error("Failed to link loto cash prize to session:", err);
-          }
-        }
         alert("Cash prize recorded successfully!");
         // Reset form
         setCashPrizeTicketNumber("");

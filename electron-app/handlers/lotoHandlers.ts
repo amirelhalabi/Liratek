@@ -3,7 +3,7 @@
  */
 
 import { ipcMain } from "electron";
-import { getLotoService, lotoLogger } from "@liratek/core";
+import { getLotoService, lotoLogger, getUserRepository } from "@liratek/core";
 import { requireRole } from "../session.js";
 import { audit } from "./auditHelper.js";
 import {
@@ -789,6 +789,56 @@ export function registerLotoHandlers(): void {
   });
 
   lotoLogger.info("Loto IPC handlers registered");
+
+  // Update loto ticket metadata (staff and admin)
+  ipcMain.handle(
+    "loto:update-metadata",
+    (
+      e,
+      data: {
+        id: number;
+        note?: string;
+      },
+    ) => {
+      const auth = requireRole(e.sender.id, ["admin", "staff"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+
+      let editedBy = `user-${auth.userId}`;
+      try {
+        const userRepo = getUserRepository();
+        const user = userRepo.findById(auth.userId);
+        if (user) editedBy = user.username;
+      } catch {
+        // fallback to user-{id}
+      }
+
+      const service = getLotoServiceInstance();
+      const result = service.updateLotoMetadata(
+        data.id,
+        { note: data.note },
+        editedBy,
+      );
+
+      if (
+        result.success &&
+        result.oldValues &&
+        Object.keys(result.oldValues).length > 0
+      ) {
+        audit(e.sender.id, {
+          action: "edit_metadata",
+          entity_type: "loto_ticket",
+          entity_id: String(data.id),
+          summary: `Edited loto ticket #${data.id} metadata`,
+          old_values: result.oldValues,
+          new_values: data,
+        });
+      }
+
+      return result.success
+        ? { success: true, data: result.entity }
+        : { success: false, error: result.error };
+    },
+  );
 }
 
 export async function checkLotoMonthlyFee(): Promise<void> {

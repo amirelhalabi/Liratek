@@ -2,13 +2,14 @@ import { useState, useEffect } from "react";
 import { ChevronDown } from "lucide-react";
 import AlfaLogo from "@/assets/logos/alfa.svg?react";
 import MtcLogo from "@/assets/logos/mtc.svg?react";
-import { MultiPaymentInput, type PaymentLine, useApi } from "@liratek/ui";
+import { type PaymentLine, useApi } from "@liratek/ui";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { useSessionAutoFill } from "@/features/sessions/hooks/useSessionAutoFill";
 import type { ProviderConfig, FinancialTransaction } from "../types";
 import type { ServiceItem, ProviderKey } from "../hooks/useMobileServiceItems";
 import { getCategoryColor } from "../utils/categoryColors";
 import { HistoryModal } from "./HistoryModal";
+import { PaymentSheet } from "./PaymentSheet";
 import { getExchangeRates } from "@/utils/exchangeRates";
 import logger from "@/utils/logger";
 
@@ -29,6 +30,7 @@ interface KatchFormProps {
   loadFinancialData: () => void;
   formatAmount: (val: number, currency: string) => string;
   alfaCreditSellRate: number;
+  alfaCreditCostRate: number;
   showHistory: boolean;
   setShowHistory: (show: boolean) => void;
 }
@@ -43,6 +45,7 @@ export function KatchForm({
   loadFinancialData,
   formatAmount,
   alfaCreditSellRate,
+  alfaCreditCostRate,
   showHistory,
   setShowHistory,
 }: KatchFormProps) {
@@ -69,6 +72,8 @@ export function KatchForm({
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
   const isSplitPayment = paymentLines.length > 1;
   const [searchQuery, setSearchQuery] = useState("");
+  const [discount, setDiscount] = useState(0);
+  const [showPaymentSheet, setShowPaymentSheet] = useState(false);
   const [rates, setRates] = useState({ buyRate: 89000, sellRate: 89500 });
 
   // Fetch exchange rates on mount
@@ -128,6 +133,18 @@ export function KatchForm({
       return sellPrice;
     }
     return sellPrice - returnedCredits * alfaCreditSellRate;
+  };
+
+  const calculateCost = (
+    item: ServiceItem,
+    onlyDays: boolean,
+    returnedCredits: number,
+  ): number => {
+    const cost = item.catalogCost ?? 0;
+    if (!onlyDays) {
+      return cost;
+    }
+    return cost - returnedCredits * alfaCreditCostRate;
   };
 
   const updateCart = (
@@ -226,9 +243,25 @@ export function KatchForm({
   };
 
   const totalPrice = Array.from(cart.values()).reduce((sum, line) => {
-    const unitPrice = calculatePrice(line.item, line.onlyDays, exchangeRate);
+    const unitPrice = calculatePrice(
+      line.item,
+      line.onlyDays,
+      line.returnedCreditsUsd,
+    );
     return sum + unitPrice * line.quantity;
   }, 0);
+
+  const totalCost = Array.from(cart.values()).reduce((sum, line) => {
+    const unitCost = calculateCost(
+      line.item,
+      line.onlyDays,
+      line.returnedCreditsUsd,
+    );
+    return sum + unitCost * line.quantity;
+  }, 0);
+
+  // Max discount = total commission (sell - cost), discount cannot exceed profit
+  const maxDiscount = Math.max(0, totalPrice - totalCost);
 
   const totalItems = Array.from(cart.values()).reduce(
     (sum, line) => sum + line.quantity,
@@ -260,18 +293,36 @@ export function KatchForm({
         : undefined;
 
       // Store each line item for replay at checkout
+      // Distribute discount proportionally across items based on sell price
+      const sessionTotalSellPrice = cartItems.reduce((sum, line) => {
+        return (
+          sum +
+          calculatePrice(line.item, line.onlyDays, line.returnedCreditsUsd) *
+            line.quantity
+        );
+      }, 0);
+
       const formDataItems = cartItems.flatMap((line) => {
         const sellPrice = calculatePrice(
           line.item,
           line.onlyDays,
           line.returnedCreditsUsd,
         );
-        const cost = line.item.catalogCost ?? 0;
-        const commission = sellPrice - cost;
+        const cost = calculateCost(
+          line.item,
+          line.onlyDays,
+          line.returnedCreditsUsd,
+        );
+        const unitDiscountShare =
+          sessionTotalSellPrice > 0
+            ? Math.round((discount * sellPrice) / sessionTotalSellPrice)
+            : 0;
+        const discountedSellPrice = sellPrice - unitDiscountShare;
+        const commission = discountedSellPrice - cost;
         return Array.from({ length: line.quantity }, () => ({
           provider: activeProvider,
           serviceType: "SEND",
-          amount: sellPrice,
+          amount: discountedSellPrice,
           cost,
           currency: "LBP",
           commission: Math.max(0, commission),
@@ -280,6 +331,9 @@ export function KatchForm({
           clientName: clientName || undefined,
           itemKey: line.item.key,
           itemCategory: line.item.category,
+          returnedCreditsUsd: line.onlyDays
+            ? line.returnedCreditsUsd
+            : undefined,
           note: `${line.item.label} (${line.item.subcategory})${line.onlyDays ? " [Only Days]" : ""}`,
         }));
       });
@@ -287,7 +341,7 @@ export function KatchForm({
       addToSessionCart({
         module: activeProvider === "Katsh" ? "katsh" : "ipick",
         label,
-        amount: totalPrice,
+        amount: totalPrice - discount,
         currency: "LBP",
         ipcChannel: "financial:create",
         formData: {
@@ -317,21 +371,40 @@ export function KatchForm({
 
     let allSucceeded = true;
 
+    // Distribute discount proportionally across items based on sell price
+    const totalSellPrice = cartItems.reduce((sum, line) => {
+      return (
+        sum +
+        calculatePrice(line.item, line.onlyDays, line.returnedCreditsUsd) *
+          line.quantity
+      );
+    }, 0);
+
     for (const line of cartItems) {
       const sellPrice = calculatePrice(
         line.item,
         line.onlyDays,
         line.returnedCreditsUsd,
       );
-      const cost = line.item.catalogCost ?? 0;
-      const commission = sellPrice - cost;
+      const cost = calculateCost(
+        line.item,
+        line.onlyDays,
+        line.returnedCreditsUsd,
+      );
+      // Proportional discount per unit
+      const unitDiscountShare =
+        totalSellPrice > 0
+          ? Math.round((discount * sellPrice) / totalSellPrice)
+          : 0;
+      const discountedSellPrice = sellPrice - unitDiscountShare;
+      const commission = discountedSellPrice - cost;
 
       for (let i = 0; i < line.quantity; i++) {
         try {
           const result = await api.addOMTTransaction({
             provider: activeProvider,
             serviceType: "SEND",
-            amount: sellPrice,
+            amount: discountedSellPrice,
             cost,
             currency: "LBP",
             commission: Math.max(0, commission),
@@ -340,6 +413,9 @@ export function KatchForm({
             clientName: clientName || undefined,
             itemKey: line.item.key,
             itemCategory: line.item.category,
+            returnedCreditsUsd: line.onlyDays
+              ? line.returnedCreditsUsd
+              : undefined,
             note: `${line.item.label} (${line.item.subcategory})${line.onlyDays ? " [Only Days]" : ""}`,
           });
 
@@ -351,7 +427,8 @@ export function KatchForm({
                   transactionType: "financial_service",
                   transactionId: result.id,
                   amountUsd: 0,
-                  amountLbp: sellPrice,
+                  amountLbp: discountedSellPrice,
+                  profitLbp: Math.max(0, commission),
                 });
               } catch (err) {
                 logger.error("Failed to link Katch tx to session:", err);
@@ -527,16 +604,17 @@ export function KatchForm({
                                 </div>
                               )}
                             </div>
-                            <div className="h-4 flex items-center justify-center">
-                              {item.subcategory === "alfa" ? (
+                            <div className="flex flex-col items-center justify-center gap-0.5">
+                              {item.subcategory === "alfa" ||
+                              item.category === "alfa" ? (
                                 <AlfaLogo className="h-4 w-auto" />
-                              ) : item.subcategory === "mtc" ? (
+                              ) : item.subcategory === "mtc" ||
+                                item.category === "mtc" ? (
                                 <MtcLogo className="h-4 w-auto" />
-                              ) : (
-                                <span className="text-slate-500 text-xs truncate">
-                                  {item.subcategory}
-                                </span>
-                              )}
+                              ) : null}
+                              <span className="text-slate-500 text-[10px] truncate max-w-full">
+                                {item.subcategory}
+                              </span>
                             </div>
                             <div className="mt-2 flex items-center justify-between">
                               <span className="text-xs text-slate-400">
@@ -617,65 +695,69 @@ export function KatchForm({
         })}
       </div>
 
-      {/* Bottom Bar */}
-      <div className="shrink-0 bg-slate-800 rounded-xl border border-slate-700/50 p-4 shadow-2xl">
-        <div className="flex items-center gap-4">
-          <div className="flex-1">
-            <MultiPaymentInput
-              totalAmount={totalPrice}
-              totalAmountCurrency="LBP"
-              currency="LBP"
-              onChange={(lines) => {
-                setPaymentLines(lines);
-                if (lines.length === 1) {
-                  setPaymentMethod(lines[0].method);
-                }
-              }}
-              showPmFee={false}
-              paymentMethods={methods}
-              currencies={[
-                { code: "USD", symbol: "$" },
-                { code: "LBP", symbol: "LBP" },
-              ]}
-              exchangeRate={exchangeRate}
-            />
-          </div>
-
-          <div className="text-right">
+      {/* Sticky Bottom Trigger Bar */}
+      <div className="shrink-0 bg-slate-800/95 backdrop-blur-sm rounded-xl border border-slate-700/50 p-3 shadow-2xl">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
             <div className="text-xs text-slate-400">
               Items: <span className="text-white font-bold">{totalItems}</span>
-            </div>
-            <div className="text-xs text-slate-400">
-              Price:{" "}
-              <span className="text-emerald-400 font-mono">
+              <span className="text-slate-600 mx-1">·</span>
+              <span className="text-emerald-400 font-mono font-semibold">
                 {totalPrice.toLocaleString()} LBP
               </span>
             </div>
           </div>
-
-          <div className="flex flex-col gap-2 min-w-[200px]">
-            <input
-              type="text"
-              value={clientName}
-              onChange={(e) => setClientName(e.target.value)}
-              placeholder="Client name (optional)"
-              className="w-full bg-slate-900 border border-slate-600 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-orange-500"
-            />
-          </div>
-
           <button
-            onClick={handleSubmit}
-            disabled={localSubmitting || totalItems === 0}
-            className={`px-6 py-3 rounded-lg font-bold text-white transition-all ${
-              localSubmitting || totalItems === 0
+            type="button"
+            onClick={() => setShowPaymentSheet(true)}
+            disabled={totalItems === 0}
+            className={`px-5 py-2.5 rounded-lg font-bold text-sm transition-all ${
+              totalItems === 0
                 ? "bg-slate-600 text-slate-400 cursor-not-allowed"
-                : "bg-orange-500 hover:bg-orange-600 shadow-lg shadow-orange-500/20"
+                : "bg-orange-500 hover:bg-orange-600 text-white shadow-lg shadow-orange-500/20"
             }`}
           >
-            {localSubmitting ? "Processing..." : "Submit"}
+            {activeSession ? "Add to Cart" : "Proceed to Pay"}
           </button>
         </div>
       </div>
+
+      <PaymentSheet
+        open={showPaymentSheet}
+        onClose={() => setShowPaymentSheet(false)}
+        onConfirm={handleSubmit}
+        isSubmitting={localSubmitting}
+        title={activeSession ? "Add to Cart" : "Confirm Payment"}
+        subtitle={`${totalItems} items — ${totalPrice.toLocaleString()} LBP`}
+        accentColor="bg-orange-500 hover:bg-orange-600 text-white"
+        totalAmount={totalPrice}
+        totalAmountCurrency="LBP"
+        currency="LBP"
+        paymentMethods={methods}
+        exchangeRate={exchangeRate}
+        showDiscount={true}
+        maxDiscount={maxDiscount}
+        onDiscountChange={setDiscount}
+        onPaymentChange={(lines) => {
+          setPaymentLines(lines);
+          if (lines.length === 1) {
+            setPaymentMethod(lines[0].method);
+          }
+        }}
+      >
+        <div>
+          <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+            Client Name
+          </label>
+          <input
+            type="text"
+            value={clientName}
+            onChange={(e) => setClientName(e.target.value)}
+            placeholder="Client name (optional)"
+            className="w-full mt-1 bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500"
+          />
+        </div>
+      </PaymentSheet>
 
       {/* History Modal */}
       {showHistory && (
@@ -685,6 +767,19 @@ export function KatchForm({
           onClose={() => setShowHistory(false)}
           onRefresh={loadFinancialData}
           formatAmount={formatAmount}
+          onUpdateMetadata={async (id, data) => {
+            const result = await window.api.financial.updateMetadata({
+              id,
+              ...(data.client_name !== undefined && {
+                customer_name: data.client_name,
+              }),
+              ...(data.phone_number !== undefined && {
+                phone_number: data.phone_number,
+              }),
+              ...(data.note !== undefined && { note: data.note }),
+            });
+            return result;
+          }}
         />
       )}
     </div>

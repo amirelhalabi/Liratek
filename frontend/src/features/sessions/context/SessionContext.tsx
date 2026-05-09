@@ -16,6 +16,7 @@ interface CustomerSession {
   customer_name?: string;
   customer_phone?: string;
   customer_notes?: string;
+  user_id?: number;
   started_at: string;
   closed_at?: string;
   started_by: string;
@@ -36,8 +37,11 @@ interface SessionTransaction {
 interface SessionContextValue {
   activeSession: CustomerSession | null;
   allActiveSessions: CustomerSession[];
+  allTodaySessions: CustomerSession[];
   sessionTransactions: SessionTransaction[];
+  /** @deprecated No longer used — popup visibility is managed by hover in TopBar */
   isFloatingWindowOpen: boolean;
+  /** @deprecated No longer used — popup visibility is managed by hover in TopBar */
   isFloatingWindowMinimized: boolean;
 
   // Cart state
@@ -57,6 +61,7 @@ interface SessionContextValue {
   switchToSession: (sessionId: number) => Promise<void>;
   closeCurrentSession: () => Promise<void>;
   closeSession: (sessionId: number) => Promise<void>;
+  deleteSession: (sessionId: number) => Promise<void>;
   updateSessionInfo: (data: {
     customer_name?: string;
     customer_phone?: string;
@@ -67,12 +72,17 @@ interface SessionContextValue {
     transactionId: number;
     amountUsd: number;
     amountLbp: number;
+    profitUsd?: number;
+    profitLbp?: number;
   }) => Promise<void>;
 
-  // Window controls
+  /** @deprecated No longer used */
   openFloatingWindow: () => void;
+  /** @deprecated No longer used */
   closeFloatingWindow: () => void;
+  /** @deprecated No longer used */
   minimizeFloatingWindow: () => void;
+  /** @deprecated No longer used */
   expandFloatingWindow: () => void;
 
   // Refresh
@@ -99,39 +109,73 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [allActiveSessions, setAllActiveSessions] = useState<CustomerSession[]>(
     [],
   );
+  const [allTodaySessions, setAllTodaySessions] = useState<CustomerSession[]>(
+    [],
+  );
   const [sessionTransactions, setSessionTransactions] = useState<
     SessionTransaction[]
   >([]);
-  const [isFloatingWindowOpen, setIsFloatingWindowOpen] = useState(false);
-  const [isFloatingWindowMinimized, setIsFloatingWindowMinimized] =
-    useState(true); // Default to minimized
+  const [isFloatingWindowOpen] = useState(false);
+  const [isFloatingWindowMinimized] = useState(true);
 
-  // Cart state: Map of sessionId -> CartItem[] for multi-session support
-  const cartsBySession = useRef<Map<number, CartItem[]>>(new Map());
+  // Cart state — persisted to DB via IPC
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
 
-  // Sync cartItems state when activeSession changes
+  // Load cart items from DB when activeSession changes
   useEffect(() => {
     if (activeSession) {
-      const items = cartsBySession.current.get(activeSession.id) || [];
-      setCartItems(items);
+      loadCartItems(activeSession.id);
     } else {
       setCartItems([]);
     }
   }, [activeSession?.id]);
 
+  const loadCartItems = async (sessionId: number) => {
+    try {
+      const result = await window.api.session.cartGet(sessionId);
+      if (result.success && result.items) {
+        // Convert DB rows to CartItem shape
+        const items: CartItem[] = result.items.map((row) => ({
+          id: row.item_id,
+          module: row.module as CartItem["module"],
+          label: row.label,
+          amount: row.amount,
+          currency: row.currency as CartItem["currency"],
+          formData: JSON.parse(row.form_data),
+          ipcChannel: row.ipc_channel,
+        }));
+        setCartItems(items);
+      }
+    } catch (err) {
+      logger.error("Failed to load cart items:", err);
+    }
+  };
+
   const addToCart = useCallback(
-    (item: Omit<CartItem, "id">) => {
+    async (item: Omit<CartItem, "id">) => {
       if (!activeSession) return;
       const newItem: CartItem = {
         ...item,
         id: crypto.randomUUID(),
       };
       const sessionId = activeSession.id;
-      const existing = cartsBySession.current.get(sessionId) || [];
-      const updated = [...existing, newItem];
-      cartsBySession.current.set(sessionId, updated);
-      setCartItems(updated);
+
+      // Persist to DB
+      try {
+        await window.api.session.cartAdd(sessionId, {
+          item_id: newItem.id,
+          module: newItem.module,
+          label: newItem.label,
+          amount: newItem.amount,
+          currency: newItem.currency,
+          form_data: JSON.stringify(newItem.formData),
+          ipc_channel: newItem.ipcChannel,
+        });
+      } catch (err) {
+        logger.error("Failed to persist cart item:", err);
+      }
+
+      setCartItems((prev) => [...prev, newItem]);
       logger.info(
         `Added item to cart: ${item.module} - ${item.label} (session ${sessionId})`,
       );
@@ -140,20 +184,31 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   );
 
   const removeFromCart = useCallback(
-    (itemId: string) => {
+    async (itemId: string) => {
       if (!activeSession) return;
-      const sessionId = activeSession.id;
-      const existing = cartsBySession.current.get(sessionId) || [];
-      const updated = existing.filter((i) => i.id !== itemId);
-      cartsBySession.current.set(sessionId, updated);
-      setCartItems(updated);
+
+      // Remove from DB
+      try {
+        await window.api.session.cartRemove(activeSession.id, itemId);
+      } catch (err) {
+        logger.error("Failed to remove cart item from DB:", err);
+      }
+
+      setCartItems((prev) => prev.filter((i) => i.id !== itemId));
     },
     [activeSession],
   );
 
-  const clearCart = useCallback(() => {
+  const clearCart = useCallback(async () => {
     if (!activeSession) return;
-    cartsBySession.current.set(activeSession.id, []);
+
+    // Clear in DB
+    try {
+      await window.api.session.cartClear(activeSession.id);
+    } catch (err) {
+      logger.error("Failed to clear cart in DB:", err);
+    }
+
     setCartItems([]);
   }, [activeSession]);
 
@@ -178,19 +233,29 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
   const refreshActiveSessions = useCallback(async () => {
     try {
-      const data = await api.listSessions(50, 0);
+      const data = await window.api.session.getActiveSessions();
 
       if (data.success && data.sessions) {
-        const active = data.sessions.filter(
-          (s: CustomerSession) => s.is_active === 1,
-        );
+        const active = data.sessions as CustomerSession[];
         setAllActiveSessions(active);
+
+        // Clear activeSession if it's no longer in the active list (e.g. after checkout)
+        if (activeSession && !active.find((s) => s.id === activeSession.id)) {
+          setActiveSession(null);
+          setSessionTransactions([]);
+          setCartItems([]);
+        }
 
         // Set first active as current if we don't have one
         if (!activeSession && active.length > 0) {
           setActiveSession(active[0]);
-          setIsFloatingWindowOpen(true);
         }
+      }
+
+      // Also fetch today's sessions (active + closed) for the session list UI
+      const todayData = await window.api.session.getTodayAllSessions();
+      if (todayData.success && todayData.sessions) {
+        setAllTodaySessions(todayData.sessions as CustomerSession[]);
       }
     } catch (err) {
       logger.error("Failed to load sessions:", err);
@@ -220,24 +285,23 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     }
   }, [activeSession, refreshSessionTransactions]);
 
+  const startingRef = useRef(false);
+
   const startSession = useCallback(
     async (data: {
       customer_name: string;
       customer_phone?: string;
       customer_notes?: string;
     }) => {
+      if (startingRef.current) return;
+      startingRef.current = true;
       try {
         const result = await api.startSession(data);
         if (result.success && result.sessionId) {
           // Refresh the list to get the new session
-          await refreshActiveSessions();
-
-          // Fetch the updated list to find the new session
-          const updatedData = await api.listSessions(50, 0);
+          const updatedData = await window.api.session.getActiveSessions();
           if (updatedData.success && updatedData.sessions) {
-            const active = updatedData.sessions.filter(
-              (s: CustomerSession) => s.is_active === 1,
-            );
+            const active = updatedData.sessions as CustomerSession[];
             setAllActiveSessions(active);
 
             // Find and set the new session as active
@@ -246,8 +310,6 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
             );
             if (newSession) {
               setActiveSession(newSession);
-              setIsFloatingWindowOpen(true);
-              setIsFloatingWindowMinimized(false);
             }
           }
         } else if (result.error) {
@@ -256,6 +318,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       } catch (err) {
         logger.error("Failed to start session:", err);
         throw err;
+      } finally {
+        startingRef.current = false;
       }
     },
     [refreshActiveSessions],
@@ -266,8 +330,6 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       const session = allActiveSessions.find((s) => s.id === sessionId);
       if (session) {
         setActiveSession(session);
-        setIsFloatingWindowOpen(true);
-        setIsFloatingWindowMinimized(false);
       }
     },
     [allActiveSessions],
@@ -280,11 +342,10 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       const result = await api.closeSession(activeSession.id);
       if (result.success) {
         // Clear cart for this session
-        cartsBySession.current.delete(activeSession.id);
+        await window.api.session.cartClear(activeSession.id);
         setActiveSession(null);
         setSessionTransactions([]);
         setCartItems([]);
-        setIsFloatingWindowOpen(false);
         await refreshActiveSessions();
       } else if (result.error) {
         throw new Error(result.error);
@@ -301,7 +362,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         const result = await api.closeSession(sessionId);
         if (result.success) {
           // Clear cart for closed session
-          cartsBySession.current.delete(sessionId);
+          await window.api.session.cartClear(sessionId);
           await refreshActiveSessions();
           // If we closed the active session, clear it
           if (activeSession?.id === sessionId) {
@@ -314,6 +375,29 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         }
       } catch (err) {
         logger.error("Failed to close session:", err);
+        throw err;
+      }
+    },
+    [activeSession, refreshActiveSessions],
+  );
+
+  const deleteSession = useCallback(
+    async (sessionId: number) => {
+      try {
+        const result = await window.api.session.delete(sessionId);
+        if (result.success) {
+          await refreshActiveSessions();
+          // If we deleted the active session, clear it
+          if (activeSession?.id === sessionId) {
+            setActiveSession(null);
+            setSessionTransactions([]);
+            setCartItems([]);
+          }
+        } else if (result.error) {
+          throw new Error(result.error);
+        }
+      } catch (err) {
+        logger.error("Failed to delete session:", err);
         throw err;
       }
     },
@@ -351,6 +435,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       transactionId: number;
       amountUsd: number;
       amountLbp: number;
+      profitUsd?: number;
+      profitLbp?: number;
     }) => {
       if (!activeSession) {
         return;
@@ -370,9 +456,94 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     [activeSession, refreshSessionTransactions],
   );
 
+  // -------------------------------------------------------------------------
+  // 3-second polling for multi-PC sync
+  // -------------------------------------------------------------------------
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (!flags.customerSessions) return;
+
+    pollingRef.current = setInterval(async () => {
+      // Poll active sessions list
+      try {
+        const result = await window.api.session.getActiveSessions();
+        if (result.success && result.sessions) {
+          setAllActiveSessions(result.sessions as CustomerSession[]);
+        }
+      } catch {
+        // Silently ignore polling errors
+      }
+
+      // Poll today's all sessions for the list UI
+      try {
+        const todayResult = await window.api.session.getTodayAllSessions();
+        if (todayResult.success && todayResult.sessions) {
+          setAllTodaySessions(todayResult.sessions as CustomerSession[]);
+        }
+      } catch {
+        // Silently ignore polling errors
+      }
+
+      // Poll cart items for active session
+      if (activeSession) {
+        try {
+          const cartResult = await window.api.session.cartGet(activeSession.id);
+          if (cartResult.success && cartResult.items) {
+            const items: CartItem[] = cartResult.items.map((row) => ({
+              id: row.item_id,
+              module: row.module as CartItem["module"],
+              label: row.label,
+              amount: row.amount,
+              currency: row.currency as CartItem["currency"],
+              formData: JSON.parse(row.form_data),
+              ipcChannel: row.ipc_channel,
+            }));
+            setCartItems((prev) => {
+              // Only update if actually changed (avoid unnecessary re-renders)
+              if (JSON.stringify(prev) !== JSON.stringify(items)) {
+                return items;
+              }
+              return prev;
+            });
+          }
+        } catch {
+          // Silently ignore polling errors
+        }
+
+        // Poll transactions for active session
+        try {
+          const txResult = await window.api.session.getTransactions(
+            activeSession.id,
+          );
+          if (txResult.success && txResult.transactions) {
+            setSessionTransactions((prev) => {
+              if (
+                JSON.stringify(prev) !== JSON.stringify(txResult.transactions)
+              ) {
+                return txResult.transactions as SessionTransaction[];
+              }
+              return prev;
+            });
+          }
+        } catch {
+          // Silently ignore polling errors
+        }
+      }
+    }, 3000);
+
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+    };
+  }, [flags.customerSessions, activeSession?.id]);
+
   const value: SessionContextValue = {
     activeSession,
     allActiveSessions,
+    allTodaySessions,
     sessionTransactions,
     isFloatingWindowOpen,
     isFloatingWindowMinimized,
@@ -389,13 +560,14 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     switchToSession,
     closeCurrentSession,
     closeSession,
+    deleteSession,
     updateSessionInfo,
     linkTransaction,
 
-    openFloatingWindow: () => setIsFloatingWindowOpen(true),
-    closeFloatingWindow: () => setIsFloatingWindowOpen(false),
-    minimizeFloatingWindow: () => setIsFloatingWindowMinimized(true),
-    expandFloatingWindow: () => setIsFloatingWindowMinimized(false),
+    openFloatingWindow: () => {},
+    closeFloatingWindow: () => {},
+    minimizeFloatingWindow: () => {},
+    expandFloatingWindow: () => {},
 
     refreshActiveSessions,
     refreshSessionTransactions,

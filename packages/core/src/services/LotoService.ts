@@ -1002,6 +1002,50 @@ export class LotoService {
       throw error;
     }
   }
+
+  /**
+   * Update non-financial metadata on a loto ticket.
+   * Records old/new values for audit trail.
+   */
+  updateLotoMetadata(
+    id: number,
+    data: { note?: string },
+    editedBy: string,
+  ): {
+    success: boolean;
+    entity?: LotoTicket;
+    oldValues?: Record<string, unknown>;
+    error?: string;
+  } {
+    const existing = this.ticketRepo.getTicketById(id);
+    if (!existing) {
+      return { success: false, error: "Loto ticket not found" };
+    }
+
+    const oldValues: Record<string, unknown> = {};
+    const newValues: Record<string, unknown> = {};
+
+    if (data.note !== undefined && data.note !== existing.note) {
+      oldValues.note = existing.note;
+      newValues.note = data.note;
+    }
+
+    if (Object.keys(newValues).length === 0) {
+      return { success: true, entity: existing };
+    }
+
+    const updated = this.ticketRepo.updateMetadata(id, data, editedBy);
+    if (!updated) {
+      return { success: false, error: "Failed to update" };
+    }
+
+    lotoLogger.info(
+      { id, editedBy, oldValues, newValues },
+      "Loto ticket metadata updated",
+    );
+
+    return { success: true, entity: updated, oldValues };
+  }
 }
 
 export default LotoService;

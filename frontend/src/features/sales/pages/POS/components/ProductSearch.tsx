@@ -9,6 +9,9 @@ import {
   RotateCcw,
   ChevronLeft,
   ChevronRight,
+  Pencil,
+  Check,
+  X as XIcon,
 } from "lucide-react";
 import type { Product } from "@liratek/ui";
 import { useApi, appEvents } from "@liratek/ui";
@@ -30,6 +33,7 @@ interface TodaySale {
   status: string;
   item_count: number;
   created_at: string;
+  note?: string | null;
 }
 
 interface ProductSearchProps {
@@ -51,6 +55,43 @@ function ProductSearch({
   const [showImages, setShowImages] = useState(getPosShowImages);
   const [todaysSales, setTodaysSales] = useState<TodaySale[]>([]);
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Inline note editing
+  const [editingNoteId, setEditingNoteId] = useState<number | null>(null);
+  const [editNoteValue, setEditNoteValue] = useState("");
+  const [editNoteSaving, setEditNoteSaving] = useState(false);
+
+  function startNoteEdit(sale: TodaySale) {
+    setEditingNoteId(sale.id);
+    setEditNoteValue(sale.note ?? "");
+  }
+
+  async function handleSaveNote() {
+    if (editingNoteId === null) return;
+    setEditNoteSaving(true);
+    try {
+      const result = await window.api.sales.updateMetadata({
+        id: editingNoteId,
+        ...(editNoteValue !== undefined && { note: editNoteValue }),
+      });
+      if (result.success) {
+        setEditingNoteId(null);
+        // Refresh the sales list
+        setTodaysSales((prev) =>
+          prev.map((s) =>
+            s.id === editingNoteId ? { ...s, note: editNoteValue } : s,
+          ),
+        );
+      } else {
+        alert(
+          (result as { success: false; error?: string }).error ??
+            "Failed to save",
+        );
+      }
+    } finally {
+      setEditNoteSaving(false);
+    }
+  }
 
   // Track whether the current search was user-initiated (not the initial empty load)
   const isUserSearch = useRef(false);
@@ -356,6 +397,12 @@ function ProductSearch({
                       "px-3 py-2 text-right text-xs font-semibold uppercase text-slate-400",
                     width: "90px",
                   },
+                  {
+                    header: "",
+                    className:
+                      "px-2 py-2 text-center text-xs font-semibold uppercase text-slate-400",
+                    width: "36px",
+                  },
                 ]}
                 data={todaysSales}
                 paginate
@@ -366,37 +413,98 @@ function ProductSearch({
                 className="w-full text-sm"
                 theadClassName="border-b border-slate-700"
                 tbodyClassName="divide-y divide-slate-700/50"
-                renderRow={(sale) => (
-                  <tr
-                    key={sale.id}
-                    onClick={() => onSaleClick?.(sale.id)}
-                    className="hover:bg-slate-700/50 cursor-pointer transition-colors group"
-                  >
-                    <td className="px-3 py-2.5 text-slate-400 text-xs">
-                      {formatTime(sale.created_at)}
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <span className="text-slate-200">
-                        {sale.client_name || "Walk-in"}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2.5 text-center text-slate-400 text-xs">
-                      {sale.item_count}
-                    </td>
-                    <td className="px-3 py-2.5 text-right">
-                      <span
-                        className={`font-bold ${sale.status === "refunded" ? "text-red-400 line-through" : "text-emerald-400"}`}
+                renderRow={(sale) => {
+                  const isEditingNote = editingNoteId === sale.id;
+                  return (
+                    <>
+                      <tr
+                        key={sale.id}
+                        onClick={
+                          isEditingNote
+                            ? undefined
+                            : () => onSaleClick?.(sale.id)
+                        }
+                        className={`hover:bg-slate-700/50 transition-colors group${isEditingNote ? "" : " cursor-pointer"}`}
                       >
-                        ${sale.final_amount_usd.toFixed(2)}
-                      </span>
-                      {sale.status === "refunded" && (
-                        <span className="ml-1 text-[10px] text-red-400">
-                          refunded
-                        </span>
+                        <td className="px-3 py-2.5 text-slate-400 text-xs">
+                          {formatTime(sale.created_at)}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <span className="text-slate-200">
+                            {sale.client_name || "Walk-in"}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5 text-center text-slate-400 text-xs">
+                          {sale.item_count}
+                        </td>
+                        <td className="px-3 py-2.5 text-right">
+                          <span
+                            className={`font-bold ${sale.status === "refunded" ? "text-red-400 line-through" : "text-emerald-400"}`}
+                          >
+                            ${sale.final_amount_usd.toFixed(2)}
+                          </span>
+                          {sale.status === "refunded" && (
+                            <span className="ml-1 text-[10px] text-red-400">
+                              refunded
+                            </span>
+                          )}
+                        </td>
+                        <td
+                          className="px-2 py-2.5 text-center"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {isEditingNote ? (
+                            <div className="flex items-center justify-center gap-0.5">
+                              <button
+                                onClick={handleSaveNote}
+                                disabled={editNoteSaving}
+                                className="p-1 text-emerald-400 hover:bg-emerald-400/10 rounded transition-colors disabled:opacity-50"
+                                title="Save"
+                              >
+                                <Check size={12} />
+                              </button>
+                              <button
+                                onClick={() => setEditingNoteId(null)}
+                                className="p-1 text-slate-400 hover:bg-slate-700 rounded transition-colors"
+                                title="Cancel"
+                              >
+                                <XIcon size={12} />
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => startNoteEdit(sale)}
+                              className="p-1 text-slate-500 hover:text-orange-400 hover:bg-orange-400/10 rounded transition-colors"
+                              title="Edit note"
+                            >
+                              <Pencil size={11} />
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                      {isEditingNote && (
+                        <tr
+                          className="bg-slate-800/60"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <td colSpan={5} className="px-3 py-2">
+                            <input
+                              autoFocus
+                              value={editNoteValue}
+                              onChange={(e) => setEditNoteValue(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") handleSaveNote();
+                                if (e.key === "Escape") setEditingNoteId(null);
+                              }}
+                              className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-1.5 text-white text-xs focus:outline-none focus:border-orange-500"
+                              placeholder="Add a note for this sale..."
+                            />
+                          </td>
+                        </tr>
                       )}
-                    </td>
-                  </tr>
-                )}
+                    </>
+                  );
+                }}
               />
             )}
           </>

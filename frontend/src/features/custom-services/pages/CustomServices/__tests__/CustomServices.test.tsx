@@ -19,6 +19,7 @@ jest.mock("@liratek/ui", () => ({
     addCustomService: mockAddCustomService,
     deleteCustomService: mockDeleteCustomService,
     getClients: mockGetClients,
+    getRates: jest.fn().mockResolvedValue([]),
   }),
   PageHeader: ({
     title,
@@ -97,14 +98,37 @@ jest.mock("@liratek/ui", () => ({
     onChange?: (payments: unknown[]) => void;
   }) => (
     <div data-testid="multi-payment-input">
-      <input
-        type="number"
-        value={totalAmount}
+      <select
+        data-testid="paid-by-select"
         onChange={(e) =>
-          onChange?.([{ method: "CASH", amount: parseFloat(e.target.value) }])
+          onChange?.([
+            {
+              method: e.target.value,
+              amount: totalAmount ?? 0,
+              currencyCode: "USD",
+            },
+          ])
         }
-      />
+      >
+        <option value="CASH">Cash</option>
+        <option value="CARD">Card</option>
+        <option value="DEBT">Debt</option>
+      </select>
     </div>
+  ),
+  SearchBar: ({
+    onFreeText,
+  }: {
+    onSearch?: unknown;
+    onFreeText?: (v: string) => void;
+    placeholder?: string;
+    [key: string]: unknown;
+  }) => (
+    <input
+      data-testid="search-bar"
+      placeholder="e.g., Phone screen repair, SIM activation"
+      onChange={(e) => onFreeText?.(e.target.value)}
+    />
   ),
 }));
 
@@ -125,11 +149,42 @@ jest.mock("../../../../../hooks/usePaymentMethods", () => ({
 
 // ── Mock useSession ──
 const mockLinkTransaction = jest.fn();
+const mockAddToCart = jest.fn();
 jest.mock("../../../../sessions/context/SessionContext", () => ({
   useSession: () => ({
     activeSession: null,
     linkTransaction: mockLinkTransaction,
+    addToCart: mockAddToCart,
   }),
+}));
+
+// ── Mock useSessionAutoFill ──
+jest.mock("../../../../sessions/hooks/useSessionAutoFill", () => ({
+  useSessionAutoFill: () => ({
+    customerName: "",
+    customerPhone: "",
+  }),
+}));
+
+// ── Mock HistoryModal ──
+jest.mock("../components/HistoryModal", () => ({
+  HistoryModal: () => <div data-testid="history-modal" />,
+}));
+
+// ── Mock StatsCards ──
+jest.mock("../../../components/StatsCards", () => ({
+  StatsCards: () => (
+    <div data-testid="stats-cards">
+      <span>{"Today's Services"}</span>
+      <span>{"Today's Revenue"}</span>
+      <span>{"Today's Profit"}</span>
+    </div>
+  ),
+}));
+
+// ── Mock getExchangeRates ──
+jest.mock("@/utils/exchangeRates", () => ({
+  getExchangeRates: () => ({ buyRate: 89500, sellRate: 89500 }),
 }));
 
 // ── Mock useCustomServices hook ──

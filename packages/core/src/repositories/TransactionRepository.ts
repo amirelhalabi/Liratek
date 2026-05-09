@@ -35,6 +35,8 @@ export interface TransactionEntity extends BaseEntity {
   user_id: number;
   amount_usd: number;
   amount_lbp: number;
+  profit_usd: number;
+  profit_lbp: number;
   exchange_rate: number | null;
   client_id: number | null;
   client_name: string | null;
@@ -63,6 +65,8 @@ export interface CreateTransactionInput {
   user_id: number;
   amount_usd?: number;
   amount_lbp?: number;
+  profit_usd?: number;
+  profit_lbp?: number;
   exchange_rate?: number | null;
   client_id?: number | null;
   client_name?: string | null;
@@ -167,14 +171,17 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     const result = this.execute(
       `INSERT INTO transactions
         (type, source_table, source_id, user_id, amount_usd, amount_lbp,
+         profit_usd, profit_lbp,
          exchange_rate, client_id, client_name, client_phone, summary, metadata_json, device_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       data.type,
       data.source_table,
       data.source_id,
       data.user_id,
       data.amount_usd ?? 0,
       data.amount_lbp ?? 0,
+      data.profit_usd ?? 0,
+      data.profit_lbp ?? 0,
       data.exchange_rate ?? null,
       data.client_id ?? null,
       data.client_name ?? null,
@@ -364,7 +371,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // 3. Reverse drawer balances — negate every payment from the original
       this._reversePayments(id, reversalId, userId);
 
-      // 4. If SALE: cancel sale, restore stock, cancel debt
+      // 4. Mark source module record as voided/refunded
+      this._markSourceRefunded(original.source_table, original.source_id);
+
+      // 5. If SALE: cancel sale, restore stock, cancel debt
       if (original.source_table === "sales" && original.source_id) {
         this.execute(
           `UPDATE sales SET status = 'cancelled' WHERE id = ?`,
@@ -455,7 +465,10 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       // 2. Reverse drawer balances — negate every payment from the original
       this._reversePayments(id, refundId, userId);
 
-      // 3. If SALE: mark sale & items as refunded, restore stock, cancel debt
+      // 3. Mark source module record as refunded
+      this._markSourceRefunded(original.source_table, original.source_id);
+
+      // 4. If SALE: mark sale & items as refunded, restore stock, cancel debt
       if (original.source_table === "sales" && original.source_id) {
         this.execute(
           `UPDATE sales SET status = 'refunded' WHERE id = ?`,
@@ -493,6 +506,36 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
        WHERE transaction_id = ?
        ORDER BY id ASC`,
       transactionId,
+    );
+  }
+
+  /**
+   * Mark the source module record as refunded.
+   * Tables with is_refunded column: recharges, financial_services,
+   * exchange_transactions, custom_services, maintenance, expenses,
+   * loto_tickets, debt_ledger.
+   * Sales are handled separately (status + sale_items).
+   */
+  private _markSourceRefunded(
+    sourceTable: string,
+    sourceId: number | null,
+  ): void {
+    if (!sourceId) return;
+    // Only mark tables that have the is_refunded column
+    const supported = [
+      "recharges",
+      "financial_services",
+      "exchange_transactions",
+      "custom_services",
+      "maintenance",
+      "expenses",
+      "loto_tickets",
+      "debt_ledger",
+    ];
+    if (!supported.includes(sourceTable)) return;
+    this.execute(
+      `UPDATE ${sourceTable} SET is_refunded = 1, refunded_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      sourceId,
     );
   }
 

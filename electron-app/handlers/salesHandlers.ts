@@ -10,6 +10,7 @@ import {
   getSalesService,
   getTransactionService,
   salesLogger,
+  getUserRepository,
 } from "@liratek/core";
 import type { SaleRequest } from "@liratek/core";
 import { requireRole } from "../session.js";
@@ -188,6 +189,55 @@ export function registerSalesHandlers(): void {
     (_event, startDate: string, endDate: string) => {
       salesLogger.debug({ startDate, endDate }, "Getting sales by date range");
       return salesService.findByDateRange(startDate, endDate);
+    },
+  );
+
+  // Update sale metadata (staff and admin)
+  ipcMain.handle(
+    "sales:update-metadata",
+    (
+      event,
+      data: {
+        id: number;
+        note?: string;
+      },
+    ) => {
+      const auth = requireRole(event.sender.id, ["admin", "staff"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+
+      let editedBy = `user-${auth.userId}`;
+      try {
+        const userRepo = getUserRepository();
+        const user = userRepo.findById(auth.userId);
+        if (user) editedBy = user.username;
+      } catch {
+        // fallback to user-{id}
+      }
+
+      const result = salesService.updateSaleMetadata(
+        data.id,
+        { note: data.note },
+        editedBy,
+      );
+
+      if (
+        result.success &&
+        result.oldValues &&
+        Object.keys(result.oldValues).length > 0
+      ) {
+        audit(event.sender.id, {
+          action: "edit_metadata",
+          entity_type: "sale",
+          entity_id: String(data.id),
+          summary: `Edited sale #${data.id} metadata`,
+          old_values: result.oldValues,
+          new_values: data,
+        });
+      }
+
+      return result.success
+        ? { success: true, data: result.entity }
+        : { success: false, error: result.error };
     },
   );
 }

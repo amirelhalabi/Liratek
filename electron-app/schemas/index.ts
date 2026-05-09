@@ -241,6 +241,7 @@ export const FinancialServiceSchema = z.object({
   includingFees: z.boolean().optional(),
   paymentMethodFee: z.number().optional(),
   paymentMethodFeeRate: z.number().optional(),
+  returnedCreditsUsd: z.number().nonnegative().optional(),
 });
 
 // =============================================================================
@@ -262,6 +263,8 @@ export const ExchangeTransactionSchema = z.object({
   totalProfitUsd: z.number(),
   clientName: z.string().optional(),
   note: z.string().optional(),
+  fromCurrencyName: z.string().optional(),
+  toCurrencyName: z.string().optional(),
 });
 
 // =============================================================================

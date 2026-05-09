@@ -79,6 +79,16 @@ export class ModuleService {
       return { success: false, error: toErrorString(e) };
     }
   }
+
+  /** Reorder modules — accepts an ordered array of module keys */
+  reorderModules(orderedKeys: string[]): ModuleResult {
+    try {
+      this.moduleRepo.bulkUpdateSortOrder(orderedKeys);
+      return { success: true };
+    } catch (e) {
+      return { success: false, error: toErrorString(e) };
+    }
+  }
 }
 
 // =============================================================================

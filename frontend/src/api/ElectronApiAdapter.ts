@@ -108,7 +108,7 @@ export class ElectronApiAdapter implements ApiAdapter {
   // Services (OMT / Whish / BOB)
   // ---------------------------------------------------------------------------
   getOMTHistory = (provider?: string) => api.getOMTHistory(provider);
-  getOMTAnalytics = () => api.getOMTAnalytics();
+  getOMTAnalytics = (providers?: string[]) => api.getOMTAnalytics(providers);
   addOMTTransaction = (payload: any) => api.addOMTTransaction(payload);
 
   // ---------------------------------------------------------------------------
@@ -140,20 +140,6 @@ export class ElectronApiAdapter implements ApiAdapter {
   hasOpeningBalanceToday = () => api.hasOpeningBalanceToday();
   getDailyStatsSnapshot = () => api.getDailyStatsSnapshot();
   recalculateDrawerBalances = () => api.recalculateDrawerBalances();
-  setOpeningBalances = (data: {
-    closing_date: string;
-    amounts: any[];
-    user_id?: number;
-  }) => api.setOpeningBalances(data);
-  createDailyClosing = (data: {
-    closing_date: string;
-    amounts: any[];
-    variance_notes?: string;
-    report_path?: string;
-    system_expected_usd?: number;
-    system_expected_lbp?: number;
-    user_id?: number;
-  }) => api.createDailyClosing(data);
   updateDailyClosing = (id: number, data: any) =>
     api.updateDailyClosing(id, data);
 
@@ -274,6 +260,7 @@ export class ElectronApiAdapter implements ApiAdapter {
   getToggleableModules = () => api.getToggleableModules();
   setModuleEnabled = (key: string, enabled: boolean) =>
     api.setModuleEnabled(key, enabled);
+  reorderModules = (orderedKeys: string[]) => api.reorderModules(orderedKeys);
 
   // ---------------------------------------------------------------------------
   // Payment Methods
@@ -330,6 +317,8 @@ export class ElectronApiAdapter implements ApiAdapter {
     transactionId: number;
     amountUsd: number;
     amountLbp: number;
+    profitUsd?: number;
+    profitLbp?: number;
   }) => api.linkTransactionToSession(data);
 
   // ---------------------------------------------------------------------------

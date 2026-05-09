@@ -83,6 +83,17 @@ export interface ProfitSummary {
     revenue_lbp: number;
     commission_usd: number;
     commission_lbp: number;
+    pending_commission_usd: number;
+    pending_commission_lbp: number;
+    count: number;
+  };
+  mobile_services: {
+    revenue_usd: number;
+    revenue_lbp: number;
+    cost_usd: number;
+    cost_lbp: number;
+    profit_usd: number;
+    profit_lbp: number;
     count: number;
   };
   custom_services: {
@@ -202,7 +213,7 @@ export class ProfitService {
         count: number;
       };
 
-      // 2. Financial services — ONLY is_settled = 1 (realized commission)
+      // 2. Financial services (OMT, WHISH, OMT_APP, WISH_APP, BINANCE) — ONLY is_settled = 1
       //    Unsettled RECEIVE commissions are pending and shown in Pending Profit tab
       const finRows = this.db
         .prepare(
@@ -213,6 +224,7 @@ export class ProfitService {
             COUNT(*) AS count
           FROM financial_services
           WHERE is_settled = 1
+            AND provider IN ('OMT', 'WHISH', 'OMT_APP', 'WISH_APP', 'BINANCE')
             AND created_at >= ? AND created_at <= ?
           GROUP BY currency`,
         )
@@ -228,6 +240,8 @@ export class ProfitService {
         revenue_lbp: 0,
         commission_usd: 0,
         commission_lbp: 0,
+        pending_commission_usd: 0,
+        pending_commission_lbp: 0,
         count: 0,
       };
       for (const row of finRows) {
@@ -239,6 +253,81 @@ export class ProfitService {
           finSvc.commission_usd += row.commission;
         }
         finSvc.count += row.count;
+      }
+
+      // Pending (unsettled) commissions
+      const pendingRows = this.db
+        .prepare(
+          `SELECT
+            currency,
+            COALESCE(SUM(commission), 0) AS commission,
+            COALESCE(SUM(CASE WHEN cost > 0 THEN price ELSE amount END), 0) AS revenue,
+            COUNT(*) AS count
+          FROM financial_services
+          WHERE is_settled = 0
+            AND provider IN ('OMT', 'WHISH', 'OMT_APP', 'WISH_APP', 'BINANCE')
+            AND created_at >= ? AND created_at <= ?
+          GROUP BY currency`,
+        )
+        .all(fromDt, toDt) as {
+        currency: string;
+        commission: number;
+        revenue: number;
+        count: number;
+      }[];
+      for (const row of pendingRows) {
+        if (row.currency === "LBP") {
+          finSvc.pending_commission_lbp += row.commission;
+          finSvc.revenue_lbp += row.revenue;
+        } else {
+          finSvc.pending_commission_usd += row.commission;
+          finSvc.revenue_usd += row.revenue;
+        }
+        finSvc.count += row.count;
+      }
+
+      // 2b. Mobile services (iPick, Katsh, BOB) — cost/price flow
+      const mobileRows = this.db
+        .prepare(
+          `SELECT
+            currency,
+            COALESCE(SUM(price), 0) AS revenue,
+            COALESCE(SUM(cost), 0) AS cost,
+            COALESCE(SUM(price - cost), 0) AS profit,
+            COUNT(*) AS count
+          FROM financial_services
+          WHERE provider IN ('iPick', 'KATCH', 'BOB')
+            AND created_at >= ? AND created_at <= ?
+          GROUP BY currency`,
+        )
+        .all(fromDt, toDt) as {
+        currency: string;
+        revenue: number;
+        cost: number;
+        profit: number;
+        count: number;
+      }[];
+
+      const mobileSvc = {
+        revenue_usd: 0,
+        revenue_lbp: 0,
+        cost_usd: 0,
+        cost_lbp: 0,
+        profit_usd: 0,
+        profit_lbp: 0,
+        count: 0,
+      };
+      for (const row of mobileRows) {
+        if (row.currency === "LBP") {
+          mobileSvc.revenue_lbp += row.revenue;
+          mobileSvc.cost_lbp += row.cost;
+          mobileSvc.profit_lbp += row.profit;
+        } else {
+          mobileSvc.revenue_usd += row.revenue;
+          mobileSvc.cost_usd += row.cost;
+          mobileSvc.profit_usd += row.profit;
+        }
+        mobileSvc.count += row.count;
       }
 
       // 3. Recharges (MTC/Alfa)
@@ -370,26 +459,40 @@ export class ProfitService {
         recharges.revenue_usd +
         custom.revenue_usd +
         maint.revenue_usd +
-        exchange.revenue_usd;
+        exchange.revenue_usd +
+        mobileSvc.revenue_usd;
       const grossRevenueLbp =
-        finSvc.revenue_lbp + recharges.revenue_lbp + custom.revenue_lbp;
+        finSvc.revenue_lbp +
+        recharges.revenue_lbp +
+        custom.revenue_lbp +
+        mobileSvc.revenue_lbp;
       const totalCostUsd =
-        sales.cost_usd + recharges.cost_usd + custom.cost_usd + maint.cost_usd;
-      const totalCostLbp = recharges.cost_lbp + custom.cost_lbp;
+        sales.cost_usd +
+        recharges.cost_usd +
+        custom.cost_usd +
+        maint.cost_usd +
+        mobileSvc.cost_usd;
+      const totalCostLbp =
+        recharges.cost_lbp + custom.cost_lbp + mobileSvc.cost_lbp;
       const grossProfitUsd =
         sales.profit_usd +
         finSvc.commission_usd +
         recharges.profit_usd +
         custom.profit_usd +
         maint.profit_usd +
-        exchange.profit_usd;
+        exchange.profit_usd +
+        mobileSvc.profit_usd;
       const grossProfitLbp =
-        finSvc.commission_lbp + recharges.profit_lbp + custom.profit_lbp;
+        finSvc.commission_lbp +
+        recharges.profit_lbp +
+        custom.profit_lbp +
+        mobileSvc.profit_lbp;
 
       return {
         period: `${from} to ${to}`,
         sales,
         financial_services: finSvc,
+        mobile_services: mobileSvc,
         recharges,
         custom_services: custom,
         maintenance: maint,
@@ -730,18 +833,27 @@ export class ProfitService {
             WHERE status = 'active'
               AND expense_date >= ? AND expense_date <= ?
             GROUP BY DATE(expense_date)
+          ),
+          daily_exchange AS (
+            SELECT
+              DATE(created_at) AS d,
+              COALESCE(SUM(amount_in), 0) AS revenue_usd,
+              COALESCE(SUM(COALESCE(leg1_profit_usd, 0) + COALESCE(leg2_profit_usd, 0)), 0) AS profit_usd
+            FROM exchange_transactions
+            WHERE created_at >= ? AND created_at <= ?
+            GROUP BY DATE(created_at)
           )
           SELECT
             dates.d AS date,
-            COALESCE(ds.revenue_usd, 0) + COALESCE(dc.revenue_usd, 0) + COALESCE(dr.revenue_usd, 0) + COALESCE(dcm.revenue_usd, 0) + COALESCE(dm.revenue_usd, 0) AS revenue_usd,
+            COALESCE(ds.revenue_usd, 0) + COALESCE(dc.revenue_usd, 0) + COALESCE(dr.revenue_usd, 0) + COALESCE(dcm.revenue_usd, 0) + COALESCE(dm.revenue_usd, 0) + COALESCE(dex.revenue_usd, 0) AS revenue_usd,
             COALESCE(dc.revenue_lbp, 0) + COALESCE(dr.revenue_lbp, 0) + COALESCE(dcm.revenue_lbp, 0) AS revenue_lbp,
-            COALESCE(ds.cost_usd, 0) + COALESCE(dr.cost_usd, 0) + COALESCE(dcm.cost_usd, 0) + COALESCE(dm.cost_usd, 0) AS cost_usd,
+            COALESCE(ds.cost_usd, 0) + COALESCE(dr.cost_usd, 0) + COALESCE(dcm.cost_usd, 0) + COALESCE(dm.cost_usd, 0) + COALESCE(dex.revenue_usd, 0) - COALESCE(dex.profit_usd, 0) AS cost_usd,
             COALESCE(dr.cost_lbp, 0) + COALESCE(dcm.cost_lbp, 0) AS cost_lbp,
-            COALESCE(ds.profit_usd, 0) + COALESCE(dc.profit_usd, 0) + COALESCE(dr.profit_usd, 0) + COALESCE(dcm.profit_usd, 0) + COALESCE(dm.profit_usd, 0) AS profit_usd,
+            COALESCE(ds.profit_usd, 0) + COALESCE(dc.profit_usd, 0) + COALESCE(dr.profit_usd, 0) + COALESCE(dcm.profit_usd, 0) + COALESCE(dm.profit_usd, 0) + COALESCE(dex.profit_usd, 0) AS profit_usd,
             COALESCE(dc.profit_lbp, 0) + COALESCE(dr.profit_lbp, 0) + COALESCE(dcm.profit_lbp, 0) AS profit_lbp,
             COALESCE(de.expenses_usd, 0) AS expenses_usd,
             COALESCE(de.expenses_lbp, 0) AS expenses_lbp,
-            COALESCE(ds.profit_usd, 0) + COALESCE(dc.profit_usd, 0) + COALESCE(dr.profit_usd, 0) + COALESCE(dcm.profit_usd, 0) + COALESCE(dm.profit_usd, 0) - COALESCE(de.expenses_usd, 0) AS net_profit_usd,
+            COALESCE(ds.profit_usd, 0) + COALESCE(dc.profit_usd, 0) + COALESCE(dr.profit_usd, 0) + COALESCE(dcm.profit_usd, 0) + COALESCE(dm.profit_usd, 0) + COALESCE(dex.profit_usd, 0) - COALESCE(de.expenses_usd, 0) AS net_profit_usd,
             COALESCE(dc.profit_lbp, 0) + COALESCE(dr.profit_lbp, 0) + COALESCE(dcm.profit_lbp, 0) - COALESCE(de.expenses_lbp, 0) AS net_profit_lbp
           FROM dates
           LEFT JOIN daily_sales ds ON ds.d = dates.d
@@ -750,7 +862,8 @@ export class ProfitService {
           LEFT JOIN daily_custom dcm ON dcm.d = dates.d
           LEFT JOIN daily_maint dm ON dm.d = dates.d
           LEFT JOIN daily_expenses de ON de.d = dates.d
-          ORDER BY dates.d`,
+          LEFT JOIN daily_exchange dex ON dex.d = dates.d
+          ORDER BY dates.d DESC`,
         )
         .all(
           from,
@@ -767,6 +880,8 @@ export class ProfitService {
           toDt, // daily_maint
           fromDt,
           toDt, // daily_expenses
+          fromDt,
+          toDt, // daily_exchange
         ) as ProfitByDate[];
     } catch (error) {
       logger.error({ error }, "ProfitService.getByDate error");

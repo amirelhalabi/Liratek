@@ -40,6 +40,13 @@ export interface FinancialTransaction {
   paid_by?: string | undefined;
   note?: string;
   created_at: string;
+  is_refunded?: number;
+  refunded_at?: string | null;
+  /** Telecom-specific: phone number that received the recharge */
+  phone_number?: string | null;
+  /** Set when a record was edited post-save (non-financial metadata edit) */
+  edited_by?: string | null;
+  edited_at?: string | null;
 }
 
 export interface BinanceTransaction {
@@ -52,6 +59,8 @@ export interface BinanceTransaction {
   commission: number;
   paid_by: string | null;
   created_at: string;
+  is_refunded?: number;
+  refunded_at?: string | null;
 }
 
 // =============================================================================
@@ -209,7 +218,13 @@ export const FINANCIAL_SERVICE_ICONS: Record<ServiceType, string> = {
 // Cart & Form Types
 // =============================================================================
 
+export interface CurrencyStats {
+  currency: string;
+  commission: number;
+  count: number;
+}
+
 export interface ProviderAnalytics {
-  today: { commission: number; count: number };
+  today: { commission: number; count: number; byCurrency?: CurrencyStats[] };
   byProvider: { provider: string; commission: number; count: number }[];
 }

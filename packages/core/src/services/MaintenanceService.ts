@@ -1,5 +1,6 @@
 import {
   MaintenanceRepository,
+  MaintenanceRow,
   MaintenanceJob,
   MaintenancePaymentLine,
 } from "../repositories/MaintenanceRepository.js";
@@ -102,6 +103,8 @@ export class MaintenanceService {
             if (!this.repo.hasPayments(params.id)) {
               this.repo.processPayments(params.id, params.payments, {
                 finalAmount: params.final_amount_usd ?? 0,
+                profitUsd:
+                  (params.final_amount_usd ?? 0) - (params.cost_usd ?? 0),
                 exchangeRate: params.exchange_rate ?? 1,
                 clientId: clientId,
                 changeUsd: params.change_given_usd,
@@ -132,6 +135,8 @@ export class MaintenanceService {
           if (isPaidStatus && params.payments?.length) {
             this.repo.processPayments(newId, params.payments, {
               finalAmount: params.final_amount_usd ?? 0,
+              profitUsd:
+                (params.final_amount_usd ?? 0) - (params.cost_usd ?? 0),
               exchangeRate: params.exchange_rate ?? 1,
               clientId: clientId,
               changeUsd: params.change_given_usd,
@@ -185,6 +190,64 @@ export class MaintenanceService {
     } catch (error) {
       return { success: false, error: toErrorString(error) };
     }
+  }
+
+  /**
+   * Update non-financial metadata on a maintenance job.
+   * Records old/new values for audit trail.
+   */
+  updateMaintenanceMetadata(
+    id: number,
+    data: {
+      client_name?: string;
+      device_name?: string;
+      issue_description?: string;
+      note?: string;
+    },
+    editedBy: string,
+  ): {
+    success: boolean;
+    entity?: MaintenanceRow;
+    oldValues?: Record<string, unknown>;
+    error?: string;
+  } {
+    const existing = this.repo.findById(id);
+    if (!existing) {
+      return { success: false, error: "Maintenance job not found" };
+    }
+
+    const oldValues: Record<string, unknown> = {};
+    const newValues: Record<string, unknown> = {};
+
+    const fields = [
+      "client_name",
+      "device_name",
+      "issue_description",
+      "note",
+    ] as const;
+
+    for (const field of fields) {
+      if (data[field] !== undefined && data[field] !== existing[field]) {
+        oldValues[field] = existing[field];
+        newValues[field] = data[field];
+      }
+    }
+
+    if (Object.keys(newValues).length === 0) {
+      return { success: true, entity: existing };
+    }
+
+    const updated = this.repo.updateMetadata(id, data, editedBy);
+    if (!updated) {
+      return { success: false, error: "Failed to update" };
+    }
+
+    maintenanceLogger.info(
+      { id, editedBy, oldValues, newValues },
+      "Maintenance metadata updated",
+    );
+
+    return { success: true, entity: updated, oldValues };
   }
 }
 

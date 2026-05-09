@@ -35,6 +35,8 @@ export interface ExchangeTransactionEntity {
   note: string | null;
   created_at: string;
   created_by: number | null;
+  edited_by: string | null;
+  edited_at: string | null;
 }
 
 export interface CreateExchangeData {
@@ -55,6 +57,8 @@ export interface CreateExchangeData {
   totalProfitUsd: number;
   clientName?: string;
   note?: string;
+  fromCurrencyName?: string;
+  toCurrencyName?: string;
 }
 
 // =============================================================================
@@ -88,6 +92,8 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
       "note",
       "created_at",
       "created_by",
+      "edited_by",
+      "edited_at",
     ].join(", ");
   }
 
@@ -113,6 +119,29 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
     const profitUsd = data.totalProfitUsd;
 
     return this.db.transaction(() => {
+      // Auto-register currencies that don't exist (e.g. API currencies like GBP, AED)
+      const ensureCurrency = this.db.prepare(
+        `INSERT OR IGNORE INTO currencies (code, name, symbol, decimal_places, is_active)
+         VALUES (?, ?, ?, 2, 1)`,
+      );
+      const ensureDrawer = this.db.prepare(
+        `INSERT OR IGNORE INTO currency_drawers (currency_code, drawer_name)
+         VALUES (?, 'General')`,
+      );
+
+      ensureCurrency.run(
+        data.fromCurrency,
+        data.fromCurrencyName ?? data.fromCurrency,
+        data.fromCurrency,
+      );
+      ensureDrawer.run(data.fromCurrency);
+      ensureCurrency.run(
+        data.toCurrency,
+        data.toCurrencyName ?? data.toCurrency,
+        data.toCurrency,
+      );
+      ensureDrawer.run(data.toCurrency);
+
       const result = this.db
         .prepare(
           `INSERT INTO exchange_transactions (
@@ -159,18 +188,18 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
       let amount_lbp = 0;
 
       if (data.fromCurrency === BASE_CURRENCY) {
-        // USD → X: we give out USD
-        amount_usd = -data.amountIn;
+        // USD → X: customer gives USD, shop receives USD (inflow)
+        amount_usd = data.amountIn;
       } else if (data.toCurrency === BASE_CURRENCY) {
-        // X → USD: we receive USD
-        amount_usd = data.amountOut;
+        // X → USD: customer receives USD, shop gives USD (outflow)
+        amount_usd = -data.amountOut;
       } else if (data.fromCurrency === "LBP") {
-        // LBP → X (cross-currency): outflow LBP, track USD received internally (leg1 amountOut)
-        amount_lbp = -data.amountIn;
+        // LBP → X (cross-currency): customer gives LBP, shop receives LBP (inflow)
+        amount_lbp = data.amountIn;
         amount_usd = data.leg1ProfitUsd; // net profit in USD (informational)
       } else if (data.toCurrency === "LBP") {
-        // X → LBP (cross-currency): inflow LBP, track USD spent internally
-        amount_lbp = data.amountOut;
+        // X → LBP (cross-currency): customer receives LBP, shop gives LBP (outflow)
+        amount_lbp = -data.amountOut;
         amount_usd = -(data.leg1ProfitUsd ?? 0); // informational
       }
       // EUR → USD or USD → EUR already handled by the USD cases above.
@@ -183,6 +212,7 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
         user_id: createdBy,
         amount_usd,
         amount_lbp,
+        profit_usd: profitUsd,
         exchange_rate: rate,
         summary: `Exchange: ${data.amountIn} ${data.fromCurrency} → ${data.amountOut} ${data.toCurrency}${data.viaCurrency ? ` (via ${data.viaCurrency})` : ""}`,
         metadata_json: {
@@ -211,8 +241,8 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
            updated_at = CURRENT_TIMESTAMP`,
       );
 
-      // Outflow: customer gives fromCurrency
-      const fromDelta = -Math.abs(data.amountIn);
+      // Inflow: customer gives fromCurrency → shop drawer increases
+      const fromDelta = Math.abs(data.amountIn);
       insertPayment.run(
         txnId,
         drawerName,
@@ -223,8 +253,8 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
       );
       upsertBalance.run(drawerName, data.fromCurrency, fromDelta);
 
-      // Inflow: customer receives toCurrency
-      const toDelta = Math.abs(data.amountOut);
+      // Outflow: shop gives toCurrency to customer → shop drawer decreases
+      const toDelta = -Math.abs(data.amountOut);
       insertPayment.run(
         txnId,
         drawerName,
@@ -287,6 +317,45 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
       totalOut: result.total_out,
       count: result.count,
     };
+  }
+
+  /**
+   * Update non-financial metadata on an exchange transaction.
+   * Only metadata fields are allowed — financial data is immutable.
+   */
+  updateMetadata(
+    id: number,
+    data: { client_name?: string; note?: string },
+    editedBy: string,
+  ): ExchangeTransactionEntity | null {
+    const existing = this.findById(id);
+    if (!existing) return null;
+
+    const fields: string[] = [];
+    const values: unknown[] = [];
+
+    if (data.client_name !== undefined) {
+      fields.push("client_name = ?");
+      values.push(data.client_name);
+    }
+    if (data.note !== undefined) {
+      fields.push("note = ?");
+      values.push(data.note);
+    }
+
+    if (fields.length === 0) return existing;
+
+    fields.push("edited_by = ?", "edited_at = CURRENT_TIMESTAMP");
+    values.push(editedBy);
+    values.push(id);
+
+    this.db
+      .prepare(
+        `UPDATE exchange_transactions SET ${fields.join(", ")} WHERE id = ?`,
+      )
+      .run(...values);
+
+    return this.findById(id);
   }
 }
 

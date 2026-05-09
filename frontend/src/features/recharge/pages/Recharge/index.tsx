@@ -69,7 +69,7 @@ export default function MobileRecharge() {
     BinanceTransaction[]
   >([]);
   const [finAnalytics, setFinAnalytics] = useState<ProviderAnalytics>({
-    today: { commission: 0, count: 0 },
+    today: { commission: 0, count: 0, byCurrency: [] },
     byProvider: [],
   });
   const [binanceStats, setBinanceStats] = useState({
@@ -111,6 +111,9 @@ export default function MobileRecharge() {
   const [showHistory, setShowHistory] = useState(false);
   const [rechargeHistory, setRechargeHistory] = useState<any[]>([]);
   const [showTopUpModal, setShowTopUpModal] = useState(false);
+  const [drawerBalances, setDrawerBalances] = useState<
+    Array<{ name: string; usdBalance: number; lbpBalance: number }>
+  >([]);
   const [topUpData, setTopUpData] = useState<{
     provider:
       | "MTC"
@@ -190,6 +193,12 @@ export default function MobileRecharge() {
     }
     // Reset rechargeType to avoid showing tabs that don't exist for the new provider
     setRechargeType("CREDIT_TRANSFER");
+    // Reset financial analytics so stale data from previous provider doesn't leak
+    setFinAnalytics({
+      today: { commission: 0, count: 0, byCurrency: [] },
+      byProvider: [],
+    });
+    setFinTransactions([]);
   }, [activeProvider]);
 
   const activeConfig = PROVIDER_CONFIGS.find(
@@ -201,12 +210,15 @@ export default function MobileRecharge() {
     try {
       const [transactions, analytics] = await Promise.all([
         api.getOMTHistory(activeProvider),
-        api.getOMTAnalytics(),
+        api.getOMTAnalytics([activeProvider]),
       ]);
       setFinTransactions(transactions ?? []);
 
       setFinAnalytics(
-        analytics ?? { today: { commission: 0, count: 0 }, byProvider: [] },
+        analytics ?? {
+          today: { commission: 0, count: 0, byCurrency: [] },
+          byProvider: [],
+        },
       );
     } catch (err) {
       console.error("Failed to load financial data:", err);
@@ -248,6 +260,23 @@ export default function MobileRecharge() {
     }
   }, [api]);
 
+  const loadDrawerBalances = useCallback(async () => {
+    try {
+      const drawers = await window.api.recharge.getDrawerBalances();
+      setDrawerBalances(drawers ?? []);
+    } catch (error) {
+      console.error("Failed to load drawer balances:", error);
+    }
+  }, []);
+
+  const activeDrawerBalance = useMemo(() => {
+    if (!activeConfig) return undefined;
+    const drawer = drawerBalances.find((d) => d.name === activeConfig.drawer);
+    return drawer
+      ? { usdBalance: drawer.usdBalance, lbpBalance: drawer.lbpBalance }
+      : undefined;
+  }, [activeConfig, drawerBalances]);
+
   useEffect(() => {
     if (!activeProvider && PROVIDER_CONFIGS.length > 0) {
       setActiveProvider(PROVIDER_CONFIGS[0].key);
@@ -266,6 +295,11 @@ export default function MobileRecharge() {
       }
     }
   }, [activeProvider, loadFinancialData, loadBinanceData]);
+
+  // Load drawer balances on mount and when provider changes
+  useEffect(() => {
+    loadDrawerBalances();
+  }, [activeProvider, loadDrawerBalances]);
 
   const searchClients = useCallback(
     async (query: string) => {
@@ -380,6 +414,7 @@ export default function MobileRecharge() {
             transactionId: result.id,
             amountUsd: 0,
             amountLbp: price,
+            profitLbp: price - cost,
           });
         } catch (err) {
           console.error("Failed to link recharge to session:", err);
@@ -390,6 +425,7 @@ export default function MobileRecharge() {
       setTelecomPrice("");
       setPhoneNumber("");
       loadFinancialData();
+      loadDrawerBalances();
     } catch (err) {
       console.error("Failed to submit telecom recharge:", err);
     } finally {
@@ -411,6 +447,7 @@ export default function MobileRecharge() {
     loadFinancialData,
     activeSession,
     linkTransaction,
+    loadDrawerBalances,
   ]);
 
   const loadRechargeHistory = useCallback(async () => {
@@ -515,6 +552,7 @@ export default function MobileRecharge() {
       } else if (activeConfig?.formMode === "crypto") {
         loadBinanceData();
       }
+      loadDrawerBalances();
 
       const providerLabels: Record<string, string> = {
         MTC: "MTC",
@@ -530,7 +568,7 @@ export default function MobileRecharge() {
         `Successfully topped up ${providerLabels[topUpData.provider] || topUpData.provider} drawer with ${data.amount} ${data.currency}`,
       );
     },
-    [topUpData, activeConfig, loadFinancialData],
+    [topUpData, activeConfig, loadFinancialData, loadDrawerBalances],
   );
 
   const handleAlfaGiftSubmit = useCallback(async () => {
@@ -628,8 +666,12 @@ export default function MobileRecharge() {
           await linkTransaction({
             transactionType: "financial_service",
             transactionId: result.id,
-            amountUsd: parseFloat(cryptoAmount) || 0,
+            amountUsd:
+              cryptoType === "SEND"
+                ? (parseFloat(cryptoAmount) || 0) + fee
+                : (parseFloat(cryptoAmount) || 0) - fee,
             amountLbp: 0,
+            profitUsd: fee,
           });
         } catch (err) {
           console.error("Failed to link crypto transaction to session:", err);
@@ -642,6 +684,7 @@ export default function MobileRecharge() {
       setCryptoFee("");
       setCryptoPaymentLines([]);
       loadBinanceData();
+      loadDrawerBalances();
     } catch (err) {
       console.error("Failed to submit crypto transaction:", err);
     } finally {
@@ -660,6 +703,7 @@ export default function MobileRecharge() {
     activeSession,
     linkTransaction,
     addToSessionCart,
+    loadDrawerBalances,
   ]);
 
   const handleQuickAmount = useCallback(
@@ -693,9 +737,27 @@ export default function MobileRecharge() {
     const todayTx = providerTx.filter(
       (tx) => new Date(tx.created_at).toDateString() === today,
     );
+    // Group commissions by currency
+    const currencyMap = new Map<string, number>();
+    for (const tx of todayTx) {
+      const currency = tx.currency ?? "USD";
+      currencyMap.set(
+        currency,
+        (currencyMap.get(currency) ?? 0) + tx.commission,
+      );
+    }
+    const byCurrency = Array.from(currencyMap.entries()).map(
+      ([currency, commission]) => ({
+        currency,
+        commission,
+        count: todayTx.filter((tx) => (tx.currency ?? "USD") === currency)
+          .length,
+      }),
+    );
     return {
       commission: todayTx.reduce((sum, tx) => sum + tx.commission, 0),
       count: todayTx.length,
+      byCurrency,
     };
   }, [finTransactions, activeProvider]);
 
@@ -726,15 +788,22 @@ export default function MobileRecharge() {
               activeConfig={activeConfig}
               todayCommission={telecomStats.commission}
               todayCount={telecomStats.count}
+              todayByCurrency={telecomStats.byCurrency}
               allProvidersCommission={
                 activeConfig.formMode !== "crypto"
                   ? finAnalytics.today.commission
+                  : undefined
+              }
+              allProvidersByCurrency={
+                activeConfig.formMode !== "crypto"
+                  ? finAnalytics.today.byCurrency
                   : undefined
               }
               cryptoOutToday={binanceStats.totalSent}
               cryptoInToday={binanceStats.totalReceived}
               showCryptoStats={activeConfig.formMode === "crypto"}
               isAdmin={isAdmin}
+              drawerBalance={activeDrawerBalance}
             />
           )}
         </div>
@@ -823,6 +892,7 @@ export default function MobileRecharge() {
             setClientName={setClientName}
             voucherItems={mtcVoucherItems}
             alfaCreditCostRate={alfaCreditCostRate}
+            onRefreshHistory={loadRechargeHistory}
           />
         )}
 
@@ -902,6 +972,7 @@ export default function MobileRecharge() {
               loadFinancialData={loadFinancialData}
               formatAmount={formatAmount}
               alfaCreditSellRate={alfaCreditSellRate}
+              alfaCreditCostRate={alfaCreditCostRate}
               showHistory={showHistory}
               setShowHistory={setShowHistory}
             />

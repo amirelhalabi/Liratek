@@ -89,6 +89,18 @@ export class ModuleRepository {
       .prepare(`UPDATE modules SET sort_order = ? WHERE key = ?`)
       .run(sortOrder, key);
   }
+
+  /** Bulk update sort order from an ordered array of keys */
+  bulkUpdateSortOrder(orderedKeys: string[]): void {
+    this.db.transaction(() => {
+      const stmt = this.db.prepare(
+        `UPDATE modules SET sort_order = ? WHERE key = ?`,
+      );
+      for (let i = 0; i < orderedKeys.length; i++) {
+        stmt.run(i, orderedKeys[i]);
+      }
+    })();
+  }
 }
 
 // =============================================================================

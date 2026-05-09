@@ -16,27 +16,13 @@ export class CustomerSessionService {
     try {
       const repo = getCustomerSessionRepository();
 
-      // Check if there's already an active session for this customer
-      if (data.customer_name) {
-        const existingSession = repo.getActiveSessionByCustomerName(
-          data.customer_name,
-        );
-        if (existingSession) {
-          return {
-            success: false,
-            error: `An active session already exists for "${data.customer_name}". Please close or switch to that session first.`,
-          };
-        }
+      const result = repo.createSessionIfNotActive(data);
+
+      if ("error" in result) {
+        return { success: false, error: result.error };
       }
 
-      // Allow multiple active sessions for different customers
-      // This enables scenarios like:
-      // - Customer A arrives, session started
-      // - Customer B arrives (urgent), new session started (Customer A's session remains open)
-      // - Complete Customer B's transactions, switch back to Customer A
-
-      const sessionId = repo.createSession(data);
-      return { success: true, sessionId };
+      return { success: true, sessionId: result.sessionId };
     } catch (err: any) {
       return { success: false, error: err?.message ?? "Unknown error" };
     }
@@ -134,6 +120,26 @@ export class CustomerSessionService {
   }
 
   /**
+   * Permanently delete a session and all its data
+   */
+  async deleteSession(
+    sessionId: number,
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      const repo = getCustomerSessionRepository();
+      const session = repo.getSessionById(sessionId);
+      if (!session) {
+        return { success: false, error: "Session not found" };
+      }
+
+      repo.deleteSession(sessionId);
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err?.message ?? "Unknown error" };
+    }
+  }
+
+  /**
    * Link a transaction to a specific session by ID
    */
   async linkTransactionToSession(
@@ -142,6 +148,8 @@ export class CustomerSessionService {
     transactionId: number,
     amountUsd: number,
     amountLbp: number,
+    profitUsd: number = 0,
+    profitLbp: number = 0,
   ): Promise<{ success: boolean; linked: boolean; error?: string }> {
     try {
       const repo = getCustomerSessionRepository();
@@ -151,6 +159,8 @@ export class CustomerSessionService {
         transactionId,
         amountUsd,
         amountLbp,
+        profitUsd,
+        profitLbp,
       );
       return { success: true, linked: true };
     } catch (err: any) {
@@ -170,6 +180,8 @@ export class CustomerSessionService {
     transactionId: number,
     amountUsd: number,
     amountLbp: number,
+    profitUsd: number = 0,
+    profitLbp: number = 0,
   ): Promise<{ success: boolean; linked: boolean; error?: string }> {
     try {
       const repo = getCustomerSessionRepository();
@@ -185,6 +197,8 @@ export class CustomerSessionService {
         transactionId,
         amountUsd,
         amountLbp,
+        profitUsd,
+        profitLbp,
       );
       return { success: true, linked: true };
     } catch (err: any) {
@@ -210,6 +224,78 @@ export class CustomerSessionService {
     try {
       const repo = getCustomerSessionRepository();
       const sessions = repo.listSessions(limit, offset);
+      return { success: true, sessions };
+    } catch (err: any) {
+      return { success: false, error: err?.message ?? "Unknown error" };
+    }
+  }
+
+  /**
+   * Get sessions within a date range
+   */
+  async getSessionsByDateRange(
+    from: string,
+    to: string,
+  ): Promise<{
+    success: boolean;
+    sessions?: Array<
+      CustomerSession & {
+        checkout_total_usd: number;
+        checkout_total_lbp: number;
+        checkout_profit_usd: number;
+        checkout_profit_lbp: number;
+        item_count: number;
+        total_usd: number;
+        total_lbp: number;
+      }
+    >;
+    error?: string;
+  }> {
+    try {
+      const repo = getCustomerSessionRepository();
+      const sessions = repo.getSessionsByDateRange(from, to);
+      return { success: true, sessions };
+    } catch (err: any) {
+      return { success: false, error: err?.message ?? "Unknown error" };
+    }
+  }
+
+  /**
+   * Get today's sessions with summary data
+   */
+  async getTodaySessions(): Promise<{
+    success: boolean;
+    sessions?: Array<
+      CustomerSession & {
+        checkout_total?: number;
+        checkout_currency?: string;
+        item_count: number;
+        total_usd: number;
+        total_lbp: number;
+      }
+    >;
+    error?: string;
+  }> {
+    try {
+      const repo = getCustomerSessionRepository();
+      const sessions = repo.getTodaySessions();
+      return { success: true, sessions };
+    } catch (err: any) {
+      return { success: false, error: err?.message ?? "Unknown error" };
+    }
+  }
+
+  /**
+   * Get today's sessions (active + closed) for session list UI
+   */
+  async getTodayAllSessions(): Promise<{
+    success: boolean;
+    sessions?: CustomerSession[];
+    error?: string;
+  }> {
+    try {
+      const repo = getCustomerSessionRepository();
+      const sessions = repo.getTodayAllSessions();
       return { success: true, sessions };
     } catch (err: any) {
       return { success: false, error: err?.message ?? "Unknown error" };

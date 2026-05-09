@@ -13,6 +13,7 @@ import {
   expenseLogger,
   closingLogger,
   logger,
+  getUserRepository,
 } from "@liratek/core";
 import { requireRole } from "../session.js";
 import { audit } from "./auditHelper.js";
@@ -21,7 +22,6 @@ import { AddExpenseSchema, validatePayload } from "../schemas/index.js";
 export function registerDatabaseHandlers(): void {
   const settingsService = getSettingsService();
   const expenseService = getExpenseService();
-  const closingService = getClosingService();
   const activityService = getActivityService();
 
   // ==================== SETTINGS ====================
@@ -142,170 +142,71 @@ export function registerDatabaseHandlers(): void {
     return result;
   });
 
-  // ==================== CLOSING ====================
-
-  // Set Opening balances
+  // Update expense metadata (staff and admin)
   ipcMain.handle(
-    "closing:set-opening-balances",
-    (e, data: { drawer_name: string; balances: Record<string, number> }) => {
-      const auth = requireRole(e.sender.id, ["admin"]);
-      if (!auth.ok) return { success: false, error: auth.error };
-
-      const schema = z.object({
-        closing_date: z.string().min(8),
-        user_id: z.number().optional(),
-        amounts: z.array(
-          z.object({
-            drawer_name: z.string().min(1),
-            currency_code: z.string().min(1),
-            opening_amount: z.number().nonnegative(),
-          }),
-        ),
-      });
-      const parsed = schema.safeParse(data);
-      if (!parsed.success) return { success: false, error: "Invalid payload" };
-
-      closingLogger.info(
-        { date: parsed.data.closing_date },
-        "Setting opening balances",
-      );
-      const result = closingService.setOpeningBalances({
-        closing_date: parsed.data.closing_date,
-        amounts: parsed.data.amounts,
-        user_id: parsed.data.user_id ?? auth.userId,
-      });
-      audit(e.sender.id, {
-        action: "create",
-        entity_type: "opening_balance",
-        summary: `Set opening balances for ${parsed.data.closing_date}`,
-      });
-      return result;
-    },
-  );
-
-  // Get system expected balances (dynamic format: Record<drawerName, Record<currencyCode, balance>>)
-  ipcMain.handle("closing:get-system-expected-balances-dynamic", async () => {
-    return closingService.getSystemExpectedBalancesDynamic();
-  });
-
-  // Check if opening balance has been set for today
-  ipcMain.handle("closing:has-opening-balance-today", async () => {
-    try {
-      return closingService.hasOpeningBalanceToday();
-    } catch (error) {
-      closingLogger.error(
-        { error: error instanceof Error ? error.message : String(error) },
-        "Error checking opening balance",
-      );
-      return false; // Default to false if error
-    }
-  });
-
-  // Create daily closing
-  ipcMain.handle(
-    "closing:create-daily-closing",
-    (e, data: { drawer_name: string; note?: string }) => {
-      const auth = requireRole(e.sender.id, ["admin"]);
-      if (!auth.ok) return { success: false, error: auth.error };
-
-      const schema = z.object({
-        closing_date: z.string().min(8),
-        user_id: z.number().optional(),
-        variance_notes: z.string().optional(),
-        report_path: z.string().optional(),
-        system_expected_usd: z.number().optional(),
-        system_expected_lbp: z.number().optional(),
-        amounts: z.array(
-          z.object({
-            drawer_name: z.string().min(1),
-            currency_code: z.string().min(1),
-            physical_amount: z.number().nonnegative(),
-            opening_amount: z.number().nonnegative().optional(),
-          }),
-        ),
-      });
-      const parsed = schema.safeParse(data);
-      if (!parsed.success) return { success: false, error: "Invalid payload" };
-
-      closingLogger.info(
-        { date: parsed.data.closing_date },
-        "Creating daily closing",
-      );
-      const result = closingService.createDailyClosing({
-        closing_date: parsed.data.closing_date,
-        amounts: parsed.data.amounts.map((amount) => ({
-          drawer_name: amount.drawer_name,
-          currency_code: amount.currency_code,
-          physical_amount: amount.physical_amount,
-          ...(amount.opening_amount != null
-            ? { opening_amount: amount.opening_amount }
-            : {}),
-        })),
-        user_id: parsed.data.user_id ?? auth.userId,
-        ...(parsed.data.variance_notes != null
-          ? { variance_notes: parsed.data.variance_notes }
-          : {}),
-        ...(parsed.data.report_path != null
-          ? { report_path: parsed.data.report_path }
-          : {}),
-        ...(parsed.data.system_expected_usd != null
-          ? { system_expected_usd: parsed.data.system_expected_usd }
-          : {}),
-        ...(parsed.data.system_expected_lbp != null
-          ? { system_expected_lbp: parsed.data.system_expected_lbp }
-          : {}),
-      });
-      audit(e.sender.id, {
-        action: "create",
-        entity_type: "daily_closing",
-        summary: `Created daily closing for ${parsed.data.closing_date}`,
-      });
-      return result;
-    },
-  );
-
-  // Update existing daily closing
-  ipcMain.handle(
-    "closing:update-daily-closing",
+    "expenses:update-metadata",
     (
       e,
       data: {
         id: number;
-        physical_usd?: number;
-        physical_lbp?: number;
-        physical_eur?: number;
-        system_expected_usd?: number;
-        system_expected_lbp?: number;
-        variance_usd?: number;
-        notes?: string;
-        report_path?: string;
-        user_id?: number;
+        description?: string;
+        category?: string;
+        note?: string;
       },
     ) => {
-      try {
-        const auth = requireRole(e.sender.id, ["admin"]);
-        if (!auth.ok) return { success: false, error: auth.error };
+      const auth = requireRole(e.sender.id, ["admin", "staff"]);
+      if (!auth.ok) return { success: false, error: auth.error };
 
-        const result = closingService.updateDailyClosing({
-          ...data,
-          user_id: data.user_id ?? auth.userId,
-        });
-        audit(e.sender.id, {
-          action: "update",
-          entity_type: "daily_closing",
-          entity_id: String(data.id),
-          summary: `Updated daily closing #${data.id}`,
-        });
-        return result;
+      let editedBy = `user-${auth.userId}`;
+      try {
+        const userRepo = getUserRepository();
+        const user = userRepo.findById(auth.userId);
+        if (user) editedBy = user.username;
       } catch {
-        return { success: false, error: "Unauthorized" };
+        // fallback to user-{id}
       }
+
+      const result = expenseService.updateExpenseMetadata(
+        data.id,
+        {
+          description: data.description,
+          category: data.category,
+          note: data.note,
+        },
+        editedBy,
+      );
+
+      if (
+        result.success &&
+        result.oldValues &&
+        Object.keys(result.oldValues).length > 0
+      ) {
+        audit(e.sender.id, {
+          action: "edit_metadata",
+          entity_type: "expense",
+          entity_id: String(data.id),
+          summary: `Edited expense #${data.id} metadata`,
+          old_values: result.oldValues,
+          new_values: data,
+        });
+      }
+
+      return result.success
+        ? { success: true, data: result.entity }
+        : { success: false, error: result.error };
     },
   );
 
+  // ==================== CLOSING ====================
+
+  // Get system expected balances (dynamic format: Record<drawerName, Record<currencyCode, balance>>)
+  ipcMain.handle("closing:get-system-expected-balances-dynamic", async () => {
+    return getClosingService().getSystemExpectedBalancesDynamic();
+  });
+
   // Get daily stats snapshot
   ipcMain.handle("closing:get-daily-stats-snapshot", async () => {
-    return closingService.getDailyStatsSnapshot();
+    return getClosingService().getDailyStatsSnapshot();
   });
 
   // ==================== ACTIVITY & DIAGNOSTICS ====================
@@ -347,7 +248,7 @@ export function registerDatabaseHandlers(): void {
     } catch {}
 
     closingLogger.info("Recalculating drawer balances from payments journal");
-    const result = closingService.recalculateDrawerBalances();
+    const result = getClosingService().recalculateDrawerBalances();
     audit(e.sender.id, {
       action: "update",
       entity_type: "drawer_balance",
@@ -363,7 +264,7 @@ export function registerDatabaseHandlers(): void {
       _event,
       filters: {
         date?: string;
-        type?: "OPENING" | "CLOSING" | "ALL";
+        type?: "OPENING" | "CLOSING" | "CHECKPOINT" | "ALL";
         drawer_name?: string;
         user_id?: number;
       },
@@ -372,6 +273,115 @@ export function registerDatabaseHandlers(): void {
         const closingService = getClosingService();
         return closingService.getCheckpointTimeline(filters);
       } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    },
+  );
+
+  // Unified checkpoint: create
+  ipcMain.handle(
+    "closing:create-checkpoint",
+    async (
+      e,
+      data: {
+        user_id: number;
+        notes?: string;
+        report_path?: string;
+        amounts: Array<{
+          drawer_name: string;
+          currency_code: string;
+          expected_amount: number;
+          physical_amount: number;
+        }>;
+      },
+    ) => {
+      try {
+        const auth = requireRole(e.sender.id, ["admin"]);
+        if (!auth.ok) return { success: false, error: auth.error };
+
+        const closingService = getClosingService();
+        const result = closingService.createCheckpoint(data);
+        if (result.success) {
+          audit(e.sender.id, {
+            action: "create_checkpoint",
+            entity_type: "daily_closings",
+            entity_id: String(result.id ?? ""),
+            summary: `Checkpoint created`,
+          });
+        }
+        return result;
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    },
+  );
+
+  // Unified checkpoint: get last checkpoint actuals (baseline)
+  ipcMain.handle("closing:get-last-checkpoint-actuals", async () => {
+    try {
+      const closingService = getClosingService();
+      return {
+        success: true,
+        data: closingService.getLastCheckpointActuals(),
+      };
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  });
+
+  // Check if opening balance exists for today (no auth required — called on login)
+  ipcMain.handle("closing:has-opening-balance-today", async () => {
+    try {
+      return getClosingService().hasOpeningBalanceToday();
+    } catch (err) {
+      closingLogger.error({ err }, "closing:has-opening-balance-today failed");
+      return false;
+    }
+  });
+
+  // Update an existing daily closing record
+  ipcMain.handle(
+    "closing:update-daily-closing",
+    async (
+      e,
+      data: {
+        id: number;
+        physical_usd?: number;
+        physical_lbp?: number;
+        physical_eur?: number;
+        system_expected_usd?: number;
+        system_expected_lbp?: number;
+        variance_usd?: number;
+        notes?: string;
+        report_path?: string;
+        user_id?: number;
+      },
+    ) => {
+      try {
+        const auth = requireRole(e.sender.id, ["admin", "staff"]);
+        if (!auth.ok) return { success: false, error: auth.error };
+
+        const result = getClosingService().updateDailyClosing(data);
+        if (result.success) {
+          audit(e.sender.id, {
+            action: "update",
+            entity_type: "daily_closings",
+            entity_id: String(data.id),
+            summary: `Updated daily closing #${data.id}`,
+          });
+        }
+        return result;
+      } catch (err) {
+        closingLogger.error({ err }, "closing:update-daily-closing failed");
         return {
           success: false,
           error: err instanceof Error ? err.message : String(err),

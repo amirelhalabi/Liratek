@@ -1,8 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { PageHeader } from "@liratek/ui";
-import { Clock, TrendingUp, TrendingDown, Eye } from "lucide-react";
+import { Clock, Eye, X } from "lucide-react";
 import { DataTable } from "@liratek/ui";
-import OpeningModal from "../Opening";
 
 interface CheckpointCurrency {
   currency_code: string;
@@ -16,7 +15,7 @@ interface CheckpointRecord {
   id: number;
   closing_date: string;
   drawer_name: string;
-  checkpoint_type: "OPENING" | "CLOSING";
+  checkpoint_type: "OPENING" | "CLOSING" | "CHECKPOINT";
   created_at: string;
   created_by: number;
   user_name: string;
@@ -26,7 +25,7 @@ interface CheckpointRecord {
 
 interface CheckpointFilters {
   date: string;
-  type: "OPENING" | "CLOSING" | "ALL";
+  type: "OPENING" | "CLOSING" | "CHECKPOINT" | "ALL";
   drawer_name: string;
   user_id?: number;
 }
@@ -74,18 +73,11 @@ export default function CheckpointTimeline() {
   };
 
   const formatCurrency = (amount: number, code: string) => {
-    if (code === "USD")
-      return `$${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    if (code === "EUR")
-      return `€${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    if (code === "LBP") return `${amount.toLocaleString()} LBP`;
-    return `${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${code}`;
-  };
-
-  const getTypeBadgeClass = (type: string) => {
-    return type === "OPENING"
-      ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
-      : "bg-amber-500/10 text-amber-400 border-amber-500/30";
+    if (code === "LBP") return amount.toLocaleString();
+    return amount.toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
   };
 
   // Determine which currencies to show based on all checkpoints
@@ -104,17 +96,14 @@ export default function CheckpointTimeline() {
       if (!totals[c.currency_code]) {
         totals[c.currency_code] = 0;
       }
-      totals[c.currency_code] += c.opening_amount || 0;
+      totals[c.currency_code] += c.physical_amount ?? c.opening_amount ?? 0;
     });
     return totals;
   };
 
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500">
-      <PageHeader
-        icon={Clock}
-        title="Checkpoint Timeline"
-      />
+      <PageHeader icon={Clock} title="Checkpoint Timeline" />
 
       {/* Filters */}
       <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 flex gap-4 flex-wrap">
@@ -127,21 +116,6 @@ export default function CheckpointTimeline() {
             className="bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
           />
         </div>
-
-        <select
-          value={filters.type}
-          onChange={(e) =>
-            setFilters({
-              ...filters,
-              type: e.target.value as "OPENING" | "CLOSING" | "ALL",
-            })
-          }
-          className="bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
-        >
-          <option value="ALL">All Types</option>
-          <option value="OPENING">Opening Only</option>
-          <option value="CLOSING">Closing Only</option>
-        </select>
 
         <select
           value={filters.drawer_name}
@@ -182,10 +156,6 @@ export default function CheckpointTimeline() {
                 header: "Time",
                 className: "p-4 border-b border-slate-700 w-24",
               },
-              {
-                header: "Type",
-                className: "p-4 border-b border-slate-700 w-32",
-              },
               ...allCurrencies.map((code) => ({
                 header: code,
                 className: "p-4 border-b border-slate-700 text-right w-40",
@@ -205,18 +175,6 @@ export default function CheckpointTimeline() {
                 >
                   <td className="p-4 text-slate-300 font-mono">
                     {formatTime(checkpoint.created_at)}
-                  </td>
-                  <td className="p-4">
-                    <span
-                      className={`px-3 py-1 rounded-full text-xs font-medium border inline-flex items-center gap-1 ${getTypeBadgeClass(checkpoint.checkpoint_type)}`}
-                    >
-                      {checkpoint.checkpoint_type === "OPENING" ? (
-                        <TrendingUp size={12} />
-                      ) : (
-                        <TrendingDown size={12} />
-                      )}
-                      {checkpoint.checkpoint_type}
-                    </span>
                   </td>
                   {allCurrencies.map((code) => {
                     const totals = getAggregatedTotals(checkpoint);
@@ -261,12 +219,152 @@ export default function CheckpointTimeline() {
 
       {/* View Checkpoint Details Modal */}
       {viewCheckpoint && (
-        <OpeningModal
-          isOpen={true}
-          onClose={() => setViewCheckpoint(null)}
-          viewOnly={true}
-          checkpointData={viewCheckpoint}
-        />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-slate-800 border border-slate-700 rounded-xl shadow-2xl w-full max-w-lg p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-white">
+                Checkpoint Details
+              </h2>
+              <button
+                onClick={() => setViewCheckpoint(null)}
+                className="p-1 hover:bg-slate-700 rounded-lg transition-colors text-slate-400 hover:text-white"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="space-y-2 mb-4">
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-400">Time</span>
+                <span className="text-white">
+                  {formatTime(viewCheckpoint.created_at)}
+                </span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-400">User</span>
+                <span className="text-white">{viewCheckpoint.user_name}</span>
+              </div>
+              {viewCheckpoint.notes && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-400">Notes</span>
+                  <span className="text-white italic">
+                    {viewCheckpoint.notes}
+                  </span>
+                </div>
+              )}
+            </div>
+            <div className="border-t border-slate-700 pt-4">
+              <p className="text-xs text-slate-400 mb-3 uppercase tracking-wide">
+                Currency Totals
+              </p>
+              {(() => {
+                const totals: Record<string, number> = {};
+                viewCheckpoint.currencies.forEach((c) => {
+                  const amount = c.physical_amount ?? c.opening_amount ?? 0;
+                  if (amount === 0) return;
+                  totals[c.currency_code] =
+                    (totals[c.currency_code] || 0) + amount;
+                });
+                const entries = Object.entries(totals);
+                if (entries.length === 0) {
+                  return (
+                    <p className="text-sm text-slate-500 italic">
+                      No amounts recorded
+                    </p>
+                  );
+                }
+                return (
+                  <div className="grid grid-cols-2 gap-2">
+                    {entries.map(([code, amount]) => (
+                      <div
+                        key={code}
+                        className="bg-slate-900/60 rounded-lg px-3 py-2 border border-slate-700/50 flex justify-between items-center"
+                      >
+                        <span className="text-sm font-medium text-white">
+                          {code}
+                        </span>
+                        <span className="text-emerald-400 font-mono font-semibold text-sm">
+                          {code === "LBP"
+                            ? Number(amount).toLocaleString()
+                            : Number(amount).toLocaleString(undefined, {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+            <div className="border-t border-slate-700 pt-4 mt-4">
+              <p className="text-xs text-slate-400 mb-3 uppercase tracking-wide">
+                By Drawer
+              </p>
+              <div className="space-y-3">
+                {(() => {
+                  // Group by drawer, filter out zero amounts
+                  const grouped: Record<
+                    string,
+                    { code: string; amount: number }[]
+                  > = {};
+                  viewCheckpoint.currencies.forEach((c) => {
+                    const amount = c.physical_amount ?? c.opening_amount ?? 0;
+                    if (amount === 0) return;
+                    const drawer = c.drawer_name || "Other";
+                    if (!grouped[drawer]) grouped[drawer] = [];
+                    grouped[drawer].push({ code: c.currency_code, amount });
+                  });
+
+                  const entries = Object.entries(grouped);
+                  if (entries.length === 0) {
+                    return (
+                      <p className="text-sm text-slate-500 italic">
+                        No amounts recorded
+                      </p>
+                    );
+                  }
+
+                  return entries.map(([drawer, currencies]) => (
+                    <div
+                      key={drawer}
+                      className="bg-slate-900/50 rounded-lg p-3 border border-slate-700/50"
+                    >
+                      <p className="text-xs text-slate-500 font-medium mb-2">
+                        {drawer}
+                      </p>
+                      <div className="space-y-1">
+                        {currencies.map((c) => (
+                          <div
+                            key={c.code}
+                            className="flex justify-between text-sm"
+                          >
+                            <span className="text-slate-300">{c.code}</span>
+                            <span className="text-emerald-400 font-mono font-medium">
+                              {c.code === "LBP"
+                                ? Number(c.amount).toLocaleString()
+                                : Number(c.amount).toLocaleString(undefined, {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                  })}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ));
+                })()}
+              </div>
+            </div>
+            <div className="mt-4 flex justify-end">
+              <button
+                onClick={() => setViewCheckpoint(null)}
+                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded-lg transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

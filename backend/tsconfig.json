@@ -4,6 +4,11 @@
     "module": "ESNext",
     "lib": ["ES2022"],
     "moduleResolution": "node",
+    "baseUrl": ".",
+    "paths": {
+      "@liratek/core": ["../packages/core"],
+      "@liratek/core/*": ["../packages/core/*"]
+    },
     "rootDir": "./src",
     "outDir": "./dist",
     "strict": true,

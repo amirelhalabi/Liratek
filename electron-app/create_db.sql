@@ -66,6 +66,8 @@ CREATE TABLE IF NOT EXISTS transactions (
     client_name     TEXT,
     client_phone    TEXT,
     reverses_id     INTEGER,
+    profit_usd      REAL NOT NULL DEFAULT 0,
+    profit_lbp      REAL NOT NULL DEFAULT 0,
     summary         TEXT,
     metadata_json   TEXT,
     device_id       TEXT,
@@ -230,6 +232,8 @@ CREATE TABLE IF NOT EXISTS sales (
     status TEXT DEFAULT 'completed',
     note TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    edited_by TEXT DEFAULT NULL,
+    edited_at TEXT DEFAULT NULL,
     FOREIGN KEY (client_id) REFERENCES clients(id)
 );
 
@@ -260,6 +264,10 @@ CREATE TABLE IF NOT EXISTS debt_ledger (
     note TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     created_by INTEGER,
+    edited_by TEXT DEFAULT NULL,
+    edited_at TEXT DEFAULT NULL,
+    is_refunded INTEGER DEFAULT 0,
+    refunded_at TEXT DEFAULT NULL,
     FOREIGN KEY (client_id) REFERENCES clients(id),
     FOREIGN KEY (created_by) REFERENCES users(id),
     FOREIGN KEY (transaction_id) REFERENCES transactions(id)
@@ -271,6 +279,7 @@ CREATE TABLE IF NOT EXISTS customer_sessions (
   customer_name TEXT,
   customer_phone TEXT,
   customer_notes TEXT,
+  user_id INTEGER REFERENCES users(id),
   started_at TEXT NOT NULL DEFAULT (datetime('now')),
   closed_at TEXT,
   started_by TEXT NOT NULL,
@@ -279,6 +288,10 @@ CREATE TABLE IF NOT EXISTS customer_sessions (
   checkout_at TEXT,
   checkout_total REAL,
   checkout_currency TEXT DEFAULT 'USD',
+  checkout_total_usd REAL NOT NULL DEFAULT 0,
+  checkout_total_lbp REAL NOT NULL DEFAULT 0,
+  checkout_profit_usd REAL NOT NULL DEFAULT 0,
+  checkout_profit_lbp REAL NOT NULL DEFAULT 0,
   CHECK (is_active IN (0, 1))
 );
 
@@ -290,13 +303,33 @@ CREATE TABLE IF NOT EXISTS customer_session_transactions (
   unified_transaction_id INTEGER,
   amount_usd REAL NOT NULL DEFAULT 0,
   amount_lbp REAL NOT NULL DEFAULT 0,
+  profit_usd REAL NOT NULL DEFAULT 0,
+  profit_lbp REAL NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY (session_id) REFERENCES customer_sessions(id) ON DELETE CASCADE,
   FOREIGN KEY (unified_transaction_id) REFERENCES transactions(id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_customer_sessions_active ON customer_sessions(is_active, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_customer_sessions_user ON customer_sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_customer_session_transactions_session ON customer_session_transactions(session_id);
+
+CREATE TABLE IF NOT EXISTS session_cart_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id INTEGER NOT NULL,
+  item_id TEXT NOT NULL,
+  module TEXT NOT NULL,
+  label TEXT NOT NULL,
+  amount REAL NOT NULL,
+  currency TEXT NOT NULL DEFAULT 'USD',
+  form_data TEXT NOT NULL DEFAULT '{}',
+  ipc_channel TEXT NOT NULL,
+  user_id INTEGER REFERENCES users(id),
+  created_at TEXT DEFAULT (datetime('now')),
+  FOREIGN KEY (session_id) REFERENCES customer_sessions(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_session_cart_items_session ON session_cart_items(session_id);
+CREATE INDEX IF NOT EXISTS idx_session_cart_items_user ON session_cart_items(user_id);
 
 -- Supplier Ledger
 CREATE TABLE IF NOT EXISTS supplier_ledger (
@@ -333,6 +366,10 @@ CREATE TABLE IF NOT EXISTS maintenance (
     note TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    edited_by TEXT DEFAULT NULL,
+    edited_at TEXT DEFAULT NULL,
+    is_refunded INTEGER DEFAULT 0,
+    refunded_at TEXT DEFAULT NULL,
     FOREIGN KEY (client_id) REFERENCES clients(id)
 );
 
@@ -346,7 +383,11 @@ CREATE TABLE IF NOT EXISTS expenses (
     amount_lbp DECIMAL(15, 2),
     paid_by_method TEXT DEFAULT 'CASH',
     status TEXT NOT NULL DEFAULT 'active',
-    expense_date DATETIME DEFAULT CURRENT_TIMESTAMP
+    expense_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+    edited_by TEXT DEFAULT NULL,
+    edited_at TEXT DEFAULT NULL,
+    is_refunded INTEGER DEFAULT 0,
+    refunded_at TEXT DEFAULT NULL
 );
 
 -- Mobile Recharges
@@ -365,6 +406,10 @@ CREATE TABLE IF NOT EXISTS recharges (
     note TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     created_by INTEGER DEFAULT 1,
+    edited_by TEXT DEFAULT NULL,
+    edited_at TEXT DEFAULT NULL,
+    is_refunded INTEGER DEFAULT 0,
+    refunded_at TEXT DEFAULT NULL,
     FOREIGN KEY (client_id) REFERENCES clients(id),
     FOREIGN KEY (created_by) REFERENCES users(id)
 );
@@ -391,7 +436,11 @@ CREATE TABLE IF NOT EXISTS exchange_transactions (
     client_name      TEXT,
     note             TEXT,
     created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
-    created_by       INTEGER
+    created_by       INTEGER,
+    edited_by        TEXT DEFAULT NULL,
+    edited_at        TEXT DEFAULT NULL,
+    is_refunded      INTEGER DEFAULT 0,
+    refunded_at      TEXT DEFAULT NULL
 );
 
 -- Financial Services (OMT, Whish, iPick, Katsh, Wish App, Binance, etc.)
@@ -428,7 +477,11 @@ CREATE TABLE IF NOT EXISTS financial_services (
     settled_at TEXT,
     settlement_id INTEGER,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER
+    created_by INTEGER,
+    edited_by TEXT DEFAULT NULL,
+    edited_at TEXT DEFAULT NULL,
+    is_refunded INTEGER DEFAULT 0,
+    refunded_at TEXT DEFAULT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_financial_services_is_settled
@@ -454,6 +507,10 @@ CREATE TABLE IF NOT EXISTS custom_services (
     note TEXT,
     created_by INTEGER,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    edited_by TEXT DEFAULT NULL,
+    edited_at TEXT DEFAULT NULL,
+    is_refunded INTEGER DEFAULT 0,
+    refunded_at TEXT DEFAULT NULL,
     FOREIGN KEY (client_id) REFERENCES clients(id),
     FOREIGN KEY (created_by) REFERENCES users(id)
 );
@@ -546,6 +603,18 @@ INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALU
 INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Katch', 'LBP', 0);
 INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Whish_System', 'USD', 0);
 INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Whish_System', 'LBP', 0);
+
+-- Drawer Top-ups
+CREATE TABLE IF NOT EXISTS drawer_topups (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  amount_usd REAL DEFAULT 0,
+  amount_lbp REAL DEFAULT 0,
+  notes TEXT,
+  source_drawer TEXT DEFAULT NULL,
+  created_by INTEGER,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
 
 -- Daily Closings
 CREATE TABLE IF NOT EXISTS daily_closings (
@@ -696,7 +765,8 @@ INSERT OR IGNORE INTO modules (key, label, icon, route, sort_order, is_enabled, 
   ('ipec_katch',  'iPick/Katsh',  'Zap',           '/recharge',     11,  0, 0, 0),
   ('custom_services','Services', 'Briefcase',     '/custom-services',12, 1, 0, 0),
   ('profits',        'Profits',  'TrendingUp',    '/profits',        13, 1, 1, 0),
-  ('loto',           'Loto',     'Ticket',        '/loto',           16, 1, 0, 0);
+  ('loto',           'Loto',     'Ticket',        '/loto',           16, 1, 0, 0),
+  ('customer_sessions','Sessions','UserCheck',    '/customer-sessions',14, 1, 0, 0);
   -- REMOVED: reports, transactions (redundant with Dashboard & Profits)
 
 -- Currency–Module junction (which currencies are allowed in which modules)
@@ -804,7 +874,11 @@ CREATE TABLE IF NOT EXISTS loto_tickets (
     note TEXT,
     checkpoint_id INTEGER REFERENCES loto_checkpoints(id),
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    edited_by TEXT DEFAULT NULL,
+    edited_at TEXT DEFAULT NULL,
+    is_refunded INTEGER DEFAULT 0,
+    refunded_at TEXT DEFAULT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_loto_tickets_sale_date ON loto_tickets(sale_date);
@@ -998,4 +1072,10 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (56, 'add_cash_prize_entry_type'),
     (57, 'link_cash_prizes_to_checkpoints'),
     (58, 'add_checkpoint_id_to_loto_tickets'),
-    (59, 'replace_delta_with_buy_sell_rates');
+    (59, 'replace_delta_with_buy_sell_rates'),
+    (60, 'add_client_name_phone_to_transactions'),
+    (61, 'add_checkout_columns_to_customer_sessions'),
+    (62, 'add_session_cart_items'),
+    (63, 'add_user_id_to_sessions_and_cart'),
+    (64, 'add_customer_sessions_module'),
+    (65, 'session_checkout_currency_split_and_profit');

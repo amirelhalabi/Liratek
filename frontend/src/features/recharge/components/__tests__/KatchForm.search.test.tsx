@@ -35,6 +35,7 @@ jest.mock("@/features/sessions/context/SessionContext", () => ({
   useSession: () => ({
     activeSession: null,
     allActiveSessions: [],
+    allTodaySessions: [],
     sessionTransactions: [],
     isFloatingWindowOpen: false,
     isFloatingWindowMinimized: true,
@@ -195,6 +196,7 @@ const mockProps = {
   loadFinancialData: jest.fn(),
   formatAmount: (val: number) => val.toLocaleString(),
   alfaCreditSellRate: 100,
+  alfaCreditCostRate: 0.0445,
   showHistory: false,
   setShowHistory: jest.fn(),
 };

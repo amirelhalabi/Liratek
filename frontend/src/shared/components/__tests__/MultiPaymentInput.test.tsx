@@ -98,6 +98,42 @@ describe("MultiPaymentInput - Business Logic", () => {
     });
   });
 
+  describe("Auto-fill Remaining Amount", () => {
+    it("should auto-fill new line with remaining USD amount", () => {
+      const totalAmount = 100;
+      const totalPaid = 60;
+      const remaining = totalAmount - totalPaid;
+      const newCurrency = "USD";
+      const totalAmountCurrency = "USD";
+
+      let autoAmount = 0;
+      if (remaining > 0 && newCurrency === totalAmountCurrency) {
+        autoAmount = remaining;
+      }
+
+      expect(autoAmount).toBe(40);
+    });
+
+    it("should convert remaining USD to LBP when new line is LBP", () => {
+      const totalAmount = 100;
+      const totalPaid = 60;
+      const remaining = totalAmount - totalPaid; // 40 USD
+      const effectiveRate = 90000;
+
+      const autoAmount = Math.round(remaining * effectiveRate);
+      expect(autoAmount).toBe(3600000);
+    });
+
+    it("should not auto-fill when overpaid", () => {
+      const totalAmount = 100;
+      const totalPaid = 120;
+      const remaining = totalAmount - totalPaid;
+
+      const autoAmount = remaining > 0 ? remaining : 0;
+      expect(autoAmount).toBe(0);
+    });
+  });
+
   describe("Remaining/Overpaid Calculation", () => {
     it("should calculate remaining when underpaid", () => {
       const totalAmount = 100;

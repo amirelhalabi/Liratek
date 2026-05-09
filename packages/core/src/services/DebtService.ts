@@ -169,6 +169,50 @@ export class DebtService {
   getDebtSummary(): DebtSummary {
     return this.debtRepo.getDebtSummary(5);
   }
+
+  /**
+   * Update non-financial metadata on a debt ledger entry.
+   * Records old/new values for audit trail.
+   */
+  updateDebtMetadata(
+    id: number,
+    data: { note?: string },
+    editedBy: string,
+  ): {
+    success: boolean;
+    entity?: DebtLedgerEntity;
+    oldValues?: Record<string, unknown>;
+    error?: string;
+  } {
+    const existing = this.debtRepo.findById(id);
+    if (!existing) {
+      return { success: false, error: "Debt entry not found" };
+    }
+
+    const oldValues: Record<string, unknown> = {};
+    const newValues: Record<string, unknown> = {};
+
+    if (data.note !== undefined && data.note !== existing.note) {
+      oldValues.note = existing.note;
+      newValues.note = data.note;
+    }
+
+    if (Object.keys(newValues).length === 0) {
+      return { success: true, entity: existing };
+    }
+
+    const updated = this.debtRepo.updateMetadata(id, data, editedBy);
+    if (!updated) {
+      return { success: false, error: "Failed to update" };
+    }
+
+    debtLogger.info(
+      { id, editedBy, oldValues, newValues },
+      "Debt entry metadata updated",
+    );
+
+    return { success: true, entity: updated, oldValues };
+  }
 }
 
 // =============================================================================

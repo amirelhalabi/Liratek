@@ -42,6 +42,8 @@ export function parseCatalogToSeedData(): SeedItem[] {
     if (!provider) continue; // unknown provider
 
     for (const [categoryName, subcategories] of Object.entries(catalog)) {
+      let globalSortOrder = 0;
+
       for (const [subName, itemsOrNested] of Object.entries(
         subcategories as Record<string, unknown>,
       )) {
@@ -58,8 +60,6 @@ export function parseCatalogToSeedData(): SeedItem[] {
         // Skip empty objects (e.g. Cyberia: {}, Sodetel: {})
         if (entries.length === 0) continue;
 
-        let sortOrder = 0;
-
         for (const [labelOrGroup, costOrNested] of entries) {
           if (typeof costOrNested === "string") {
             // Old format: label → cost string (shouldn't exist but handle defensively)
@@ -70,7 +70,7 @@ export function parseCatalogToSeedData(): SeedItem[] {
               label: labelOrGroup,
               cost_lbp: Number(costOrNested),
               sell_lbp: 0,
-              sort_order: sortOrder++,
+              sort_order: globalSortOrder++,
             });
           } else if (
             typeof costOrNested === "object" &&
@@ -88,14 +88,11 @@ export function parseCatalogToSeedData(): SeedItem[] {
                 label: labelOrGroup,
                 cost_lbp: Number(obj.cost),
                 sell_lbp: Number(obj.sell),
-                sort_order: sortOrder++,
+                sort_order: globalSortOrder++,
               });
             } else {
               // One level deeper — group of items
-              // e.g. Katsh > "Mobile topups" > alfa > items
-              // But this is already at the item level for most providers.
-              // The deeper case: subName=alfa, labelOrGroup=groupName, then items below
-              let deepSortOrder = 0;
+              // e.g. iPick > alfa > "Alfa Go" > items
               const deepEntries = Object.entries(obj);
               if (deepEntries.length === 0) continue;
 
@@ -108,7 +105,7 @@ export function parseCatalogToSeedData(): SeedItem[] {
                     label: deepLabel,
                     cost_lbp: Number(deepCost),
                     sell_lbp: 0,
-                    sort_order: deepSortOrder++,
+                    sort_order: globalSortOrder++,
                   });
                 } else if (
                   typeof deepCost === "object" &&
@@ -124,7 +121,7 @@ export function parseCatalogToSeedData(): SeedItem[] {
                     label: deepLabel,
                     cost_lbp: Number(pricing.cost),
                     sell_lbp: Number(pricing.sell),
-                    sort_order: deepSortOrder++,
+                    sort_order: globalSortOrder++,
                   });
                 }
               }

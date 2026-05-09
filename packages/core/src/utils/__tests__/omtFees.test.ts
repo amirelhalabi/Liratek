@@ -48,15 +48,14 @@ describe("omtFees", () => {
       expect(calculateCommission("OGERO_MECANIQUE", 10.0)).toBe(2.5);
     });
 
-    it("should return 0 for OMT_WALLET", () => {
-      expect(calculateCommission("OMT_WALLET", 10.0)).toBe(0);
-      expect(calculateCommission("OMT_WALLET", 100.0)).toBe(0);
+    it("should return 0.1% of amount for OMT_WALLET", () => {
+      expect(calculateCommission("OMT_WALLET", 0, 1000)).toBe(1);
+      expect(calculateCommission("OMT_WALLET", 0, 500)).toBe(0.5);
     });
 
-    it("should throw error for ONLINE_BROKERAGE", () => {
-      expect(() => calculateCommission("ONLINE_BROKERAGE", 10.0)).toThrow(
-        "Use calculateOnlineBrokerageProfit()",
-      );
+    it("should return flat $3 for ONLINE_BROKERAGE", () => {
+      expect(calculateCommission("ONLINE_BROKERAGE", 0)).toBe(3);
+      expect(calculateCommission("ONLINE_BROKERAGE", 10.0)).toBe(3);
     });
 
     it("should preserve 4 decimal places for small commissions", () => {

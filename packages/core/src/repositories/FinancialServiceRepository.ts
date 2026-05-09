@@ -16,15 +16,10 @@ import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import {
   calculateCommission,
-  calculateOnlineBrokerageProfit,
   lookupOmtFee,
-  ONLINE_BROKERAGE_DEFAULT_RATE,
   type OmtServiceType,
 } from "../utils/omtFees.js";
-import {
-  calculateWhishCommission,
-  lookupWhishFee,
-} from "../utils/whishFees.js";
+import { lookupWhishFee } from "../utils/whishFees.js";
 
 // =============================================================================
 // Entity Types
@@ -76,6 +71,8 @@ export interface FinancialServiceEntity {
   payment_method_fee_rate: number | null;
   created_at: string;
   created_by: number | null;
+  edited_by: string | null;
+  edited_at: string | null;
 }
 
 export interface UnsettledSummary {
@@ -147,6 +144,12 @@ export interface CreateFinancialServiceData {
    * Stored for audit/reporting purposes.
    */
   paymentMethodFeeRate?: number;
+  /**
+   * Returned credits in USD when a Katsh telecom voucher is sold as "only days".
+   * The credits are topped-up to the Alfa or MTC drawer (based on itemCategory)
+   * minus SMS sending costs (0.16 USD per SMS, max 3 USD per SMS in 0.5 USD increments).
+   */
+  returnedCreditsUsd?: number;
 }
 
 export interface ProviderStats {
@@ -189,7 +192,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
 
   // Override getColumns() to use explicit columns instead of SELECT *
   protected getColumns(): string {
-    return "id, provider, service_type, amount, currency, commission, cost, price, paid_by, client_id, client_name, reference_number, phone_number, sender_name, sender_phone, receiver_name, receiver_phone, sender_client_id, receiver_client_id, omt_service_type, omt_fee, whish_fee, profit_rate, pay_fee, item_key, note, is_settled, settled_at, settlement_id, payment_method_fee, payment_method_fee_rate, created_at, created_by";
+    return "id, provider, service_type, amount, currency, commission, cost, price, paid_by, client_id, client_name, reference_number, phone_number, sender_name, sender_phone, receiver_name, receiver_phone, sender_client_id, receiver_client_id, omt_service_type, omt_fee, whish_fee, profit_rate, pay_fee, item_key, note, is_settled, settled_at, settlement_id, payment_method_fee, payment_method_fee_rate, created_at, created_by, edited_by, edited_at";
   }
 
   // ---------------------------------------------------------------------------
@@ -255,22 +258,23 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         const serviceType = data.omtServiceType as OmtServiceType;
 
         if (serviceType === "OMT_WALLET") {
-          // OMT Wallet has no fees
-          calculatedCommission = 0;
-        } else if (serviceType === "ONLINE_BROKERAGE") {
-          // Online Brokerage: profit = amount × profitRate
-          const rate = data.profitRate || ONLINE_BROKERAGE_DEFAULT_RATE;
-          calculatedCommission = calculateOnlineBrokerageProfit(
+          // OMT Wallet: no fee to customer, shop earns 0.1% of transfer amount
+          calculatedCommission = calculateCommission(
+            serviceType,
+            0,
             data.amount,
-            rate,
           );
+        } else if (serviceType === "ONLINE_BROKERAGE") {
+          // Flat $3 per transaction
+          calculatedCommission = calculateCommission(serviceType, 0);
         } else {
           // Standard OMT services: resolve fee from table or user-entered value,
-          // then commission = resolvedFee × commissionRate
+          // then commission = resolvedFee × commissionRate.
+          // If omtFee is explicitly 0, no commission (no fee → no commission).
           const resolvedFee =
-            data.omtFee && data.omtFee > 0
+            data.omtFee != null
               ? data.omtFee
-              : (lookupOmtFee(serviceType, data.amount) ?? 0);
+              : (lookupOmtFee(serviceType, data.amount, currency) ?? 0);
 
           if (resolvedFee > 0) {
             calculatedCommission = calculateCommission(
@@ -282,28 +286,10 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       }
 
       // ═══════════════════════════════════════════════════════════════════════
-      // AUTO-CALCULATE COMMISSION FOR WHISH
+      // WHISH SYSTEM: No commission (profit = $0)
       // ═══════════════════════════════════════════════════════════════════════
-      if (data.provider === "WHISH" && data.serviceType === "SEND") {
-        // Resolve WHISH fee: user-entered or auto-looked-up from WHISH_FEE_TIERS
-        const resolvedWhishFee =
-          data.whishFee && data.whishFee > 0
-            ? data.whishFee
-            : (lookupWhishFee(data.amount) ?? 0);
-
-        if (resolvedWhishFee > 0) {
-          calculatedCommission = calculateWhishCommission(resolvedWhishFee);
-        }
-      } else if (data.provider === "WHISH" && data.serviceType === "RECEIVE") {
-        // RECEIVE: auto-lookup fee from table based on amount (same table)
-        const resolvedWhishFee =
-          data.whishFee && data.whishFee > 0
-            ? data.whishFee
-            : (lookupWhishFee(data.amount) ?? 0);
-
-        if (resolvedWhishFee > 0) {
-          calculatedCommission = calculateWhishCommission(resolvedWhishFee);
-        }
+      if (data.provider === "WHISH") {
+        calculatedCommission = 0;
       }
 
       // For BINANCE with payFee=true, calculate commission if omtFee and omtServiceType provided
@@ -338,7 +324,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       // Resolve the stored whish_fee: user-entered or auto-looked-up
       const storedWhishFee =
         data.provider === "WHISH"
-          ? data.whishFee && data.whishFee > 0
+          ? data.whishFee != null
             ? data.whishFee
             : (lookupWhishFee(data.amount) ?? null)
           : null;
@@ -421,26 +407,36 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           ? data.senderName || data.clientName
           : data.receiverName || data.clientName;
 
-      if (!resolvedPrimaryClientId && primaryPhone && primaryName) {
-        // Try to find existing client by phone number
-        const existing = this.db
-          .prepare(`SELECT id FROM clients WHERE phone_number = ? LIMIT 1`)
-          .get(primaryPhone) as { id: number } | undefined;
-        if (existing) {
-          resolvedPrimaryClientId = existing.id;
+      if (!resolvedPrimaryClientId && primaryName) {
+        if (primaryPhone) {
+          // Try to find existing client by phone number
+          const existing = this.db
+            .prepare(`SELECT id FROM clients WHERE phone_number = ? LIMIT 1`)
+            .get(primaryPhone) as { id: number } | undefined;
+          if (existing) {
+            resolvedPrimaryClientId = existing.id;
+          } else {
+            // Auto-create client with phone
+            const insertResult = this.db
+              .prepare(
+                `INSERT INTO clients (full_name, phone_number, notes)
+                        VALUES (?, ?, ?)`,
+              )
+              .run(
+                primaryName,
+                primaryPhone,
+                "Auto-created from OMT/WHISH service",
+              );
+            resolvedPrimaryClientId = Number(insertResult.lastInsertRowid);
+          }
         } else {
-          // Auto-create client
-          const insertResult = this.db
-            .prepare(
-              `INSERT INTO clients (full_name, phone_number, notes)
-                      VALUES (?, ?, ?)`,
-            )
-            .run(
-              primaryName,
-              primaryPhone,
-              "Auto-created from OMT/WHISH service",
-            );
-          resolvedPrimaryClientId = Number(insertResult.lastInsertRowid);
+          // No phone — try to find existing client by name
+          const existing = this.db
+            .prepare(`SELECT id FROM clients WHERE full_name = ? LIMIT 1`)
+            .get(primaryName) as { id: number } | undefined;
+          if (existing) {
+            resolvedPrimaryClientId = existing.id;
+          }
         }
       }
 
@@ -464,8 +460,10 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           : currency === "LBP"
             ? data.amount
             : 0,
+        profit_usd: currency === "USD" ? commission : 0,
+        profit_lbp: currency === "LBP" ? commission : 0,
         client_id: resolvedPrimaryClientId ?? null,
-        summary: `${data.provider} ${data.serviceType}: ${data.amount} ${currency}`,
+        summary: `${data.provider} ${data.serviceType}: ${primaryName ? `${primaryName} — ` : ""}${data.amount} ${currency}`,
         metadata_json: {
           provider: data.provider,
           service_type: data.serviceType,
@@ -600,8 +598,35 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               );
           }
         }
+
+        // ─── RETURNED CREDITS (Katsh "Only Days" telecom vouchers) ───
+        // When a telecom voucher (alfa/mtc) is sold as "only days", the credit
+        // portion is returned to the shop. We top-up the corresponding drawer
+        // (Alfa or MTC) with the full credit amount. SMS costs are paid by the
+        // customer, not the shop.
+        if (
+          data.provider === "Katsh" &&
+          data.returnedCreditsUsd &&
+          data.returnedCreditsUsd > 0
+        ) {
+          const credits = data.returnedCreditsUsd;
+          // Determine drawer from item category
+          const isAlfa =
+            data.itemCategory === "alfa" || data.itemCategory === "Alfa";
+          const creditDrawer = isAlfa ? "Alfa" : "MTC";
+
+          insertPayment.run(
+            txnId,
+            "CREDIT_RETURN",
+            creditDrawer,
+            "USD",
+            credits,
+            `Returned credits: ${credits} USD`,
+            createdBy,
+          );
+          upsertBalanceDelta.run(creditDrawer, "USD", credits);
+        }
       } else {
-        // ─── LEGACY FLOW (OMT, WHISH, BOB, OTHER, BINANCE without cost) ───
         // OMT uses 3-drawer cash-reserve: payment +amount, General -amount, OMT_System +amount
         // WHISH uses 2-drawer: payment +amount, Whish_System +amount (no General)
         // Other providers: single drawer movement (backwards-compatible)
@@ -1409,7 +1434,14 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
   /**
    * Get comprehensive analytics for financial services (all currencies)
    */
-  getAnalytics(): FinancialServiceAnalytics {
+  getAnalytics(providers?: string[]): FinancialServiceAnalytics {
+    // Build optional provider filter clause
+    const providerFilter =
+      providers && providers.length > 0
+        ? ` AND provider IN (${providers.map(() => "?").join(",")})`
+        : "";
+    const providerParams = providers && providers.length > 0 ? providers : [];
+
     // Today's totals — split realized (settled) vs pending
     const todayStats = this.db
       .prepare(
@@ -1418,9 +1450,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           COALESCE(SUM(CASE WHEN is_settled = 0 THEN commission ELSE 0 END), 0) as today_pending,
           COUNT(*) as today_count
         FROM financial_services
-        WHERE DATE(created_at) = DATE('now', 'localtime')`,
+        WHERE DATE(created_at) = DATE('now', 'localtime')${providerFilter}`,
       )
-      .get() as {
+      .get(...providerParams) as {
       today_commission: number;
       today_pending: number;
       today_count: number;
@@ -1434,10 +1466,10 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           COALESCE(SUM(CASE WHEN is_settled = 1 THEN commission ELSE 0 END), 0) as commission,
           COUNT(*) as count
         FROM financial_services
-        WHERE DATE(created_at) = DATE('now', 'localtime')
+        WHERE DATE(created_at) = DATE('now', 'localtime')${providerFilter}
         GROUP BY currency`,
       )
-      .all() as CurrencyStats[];
+      .all(...providerParams) as CurrencyStats[];
 
     // This month's totals — split realized vs pending
     const monthStats = this.db
@@ -1447,9 +1479,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           COALESCE(SUM(CASE WHEN is_settled = 0 THEN commission ELSE 0 END), 0) as month_pending,
           COUNT(*) as month_count
         FROM financial_services
-        WHERE strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')`,
+        WHERE strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')${providerFilter}`,
       )
-      .get() as {
+      .get(...providerParams) as {
       month_commission: number;
       month_pending: number;
       month_count: number;
@@ -1463,10 +1495,10 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           COALESCE(SUM(CASE WHEN is_settled = 1 THEN commission ELSE 0 END), 0) as commission,
           COUNT(*) as count
         FROM financial_services
-        WHERE strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')
+        WHERE strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')${providerFilter}
         GROUP BY currency`,
       )
-      .all() as CurrencyStats[];
+      .all(...providerParams) as CurrencyStats[];
 
     // By Provider Today (all currencies, realized only)
     const byProvider = this.db
@@ -1477,10 +1509,10 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           currency,
           COUNT(*) as count
         FROM financial_services
-        WHERE DATE(created_at) = DATE('now', 'localtime')
+        WHERE DATE(created_at) = DATE('now', 'localtime')${providerFilter}
         GROUP BY provider, currency`,
       )
-      .all() as ProviderStats[];
+      .all(...providerParams) as ProviderStats[];
 
     return {
       today: {
@@ -1497,6 +1529,73 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       },
       byProvider,
     };
+  }
+
+  /**
+   * Update non-financial metadata on a financial service record.
+   * Only metadata fields are allowed — financial data is immutable.
+   */
+  updateMetadata(
+    id: number,
+    data: {
+      client_name?: string;
+      phone_number?: string;
+      sender_name?: string;
+      sender_phone?: string;
+      receiver_name?: string;
+      receiver_phone?: string;
+      note?: string;
+    },
+    editedBy: string,
+  ): FinancialServiceEntity | null {
+    const existing = this.findById(id);
+    if (!existing) return null;
+
+    const fields: string[] = [];
+    const values: unknown[] = [];
+
+    if (data.client_name !== undefined) {
+      fields.push("client_name = ?");
+      values.push(data.client_name);
+    }
+    if (data.phone_number !== undefined) {
+      fields.push("phone_number = ?");
+      values.push(data.phone_number);
+    }
+    if (data.sender_name !== undefined) {
+      fields.push("sender_name = ?");
+      values.push(data.sender_name);
+    }
+    if (data.sender_phone !== undefined) {
+      fields.push("sender_phone = ?");
+      values.push(data.sender_phone);
+    }
+    if (data.receiver_name !== undefined) {
+      fields.push("receiver_name = ?");
+      values.push(data.receiver_name);
+    }
+    if (data.receiver_phone !== undefined) {
+      fields.push("receiver_phone = ?");
+      values.push(data.receiver_phone);
+    }
+    if (data.note !== undefined) {
+      fields.push("note = ?");
+      values.push(data.note);
+    }
+
+    if (fields.length === 0) return existing;
+
+    fields.push("edited_by = ?", "edited_at = CURRENT_TIMESTAMP");
+    values.push(editedBy);
+    values.push(id);
+
+    this.db
+      .prepare(
+        `UPDATE financial_services SET ${fields.join(", ")} WHERE id = ?`,
+      )
+      .run(...values);
+
+    return this.findById(id);
   }
 }
 

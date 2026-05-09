@@ -25,6 +25,10 @@ export interface CustomServiceEntry {
   note: string | null;
   created_by: number | null;
   created_at: string;
+  is_refunded?: number;
+  refunded_at?: string | null;
+  edited_by?: string | null;
+  edited_at?: string | null;
 }
 
 export interface CustomServiceSummary {

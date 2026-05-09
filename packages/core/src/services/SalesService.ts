@@ -15,6 +15,7 @@ import {
   SalesRepository,
   getSalesRepository,
   type SaleRequest,
+  type SaleEntity,
   type DashboardStats,
   type DrawerBalances,
   type TopProduct,
@@ -242,6 +243,50 @@ export class SalesService {
    */
   getChartData(type: "Sales" | "Profit"): ChartDataPoint[] {
     return this.salesRepo.getChartData(type);
+  }
+
+  /**
+   * Update non-financial metadata on a sale record.
+   * Records old/new values for audit trail.
+   */
+  updateSaleMetadata(
+    id: number,
+    data: { note?: string },
+    editedBy: string,
+  ): {
+    success: boolean;
+    entity?: SaleEntity;
+    oldValues?: Record<string, unknown>;
+    error?: string;
+  } {
+    const existing = this.salesRepo.findById(id);
+    if (!existing) {
+      return { success: false, error: "Sale not found" };
+    }
+
+    const oldValues: Record<string, unknown> = {};
+    const newValues: Record<string, unknown> = {};
+
+    if (data.note !== undefined && data.note !== existing.note) {
+      oldValues.note = existing.note;
+      newValues.note = data.note;
+    }
+
+    if (Object.keys(newValues).length === 0) {
+      return { success: true, entity: existing };
+    }
+
+    const updated = this.salesRepo.updateMetadata(id, data, editedBy);
+    if (!updated) {
+      return { success: false, error: "Failed to update" };
+    }
+
+    salesLogger.info(
+      { id, editedBy, oldValues, newValues },
+      "Sale metadata updated",
+    );
+
+    return { success: true, entity: updated, oldValues };
   }
 }
 

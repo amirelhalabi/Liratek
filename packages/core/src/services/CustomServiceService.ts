@@ -91,6 +91,64 @@ export class CustomServiceService {
       };
     }
   }
+
+  /**
+   * Update non-financial metadata on a custom service record.
+   * Records old/new values for audit trail.
+   */
+  updateCustomServiceMetadata(
+    id: number,
+    data: {
+      description?: string;
+      client_name?: string;
+      phone_number?: string;
+      note?: string;
+    },
+    editedBy: string,
+  ): {
+    success: boolean;
+    entity?: CustomServiceEntity;
+    oldValues?: Record<string, unknown>;
+    error?: string;
+  } {
+    const existing = this.repo.findById(id);
+    if (!existing) {
+      return { success: false, error: "Custom service not found" };
+    }
+
+    const oldValues: Record<string, unknown> = {};
+    const newValues: Record<string, unknown> = {};
+
+    const fields = [
+      "description",
+      "client_name",
+      "phone_number",
+      "note",
+    ] as const;
+
+    for (const field of fields) {
+      if (data[field] !== undefined && data[field] !== existing[field]) {
+        oldValues[field] = existing[field];
+        newValues[field] = data[field];
+      }
+    }
+
+    if (Object.keys(newValues).length === 0) {
+      return { success: true, entity: existing };
+    }
+
+    const updated = this.repo.updateMetadata(id, data, editedBy);
+    if (!updated) {
+      return { success: false, error: "Failed to update" };
+    }
+
+    customServiceLogger.info(
+      { id, editedBy, oldValues, newValues },
+      "Custom service metadata updated",
+    );
+
+    return { success: true, entity: updated, oldValues };
+  }
 }
 
 // =============================================================================

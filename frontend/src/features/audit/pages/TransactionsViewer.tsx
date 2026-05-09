@@ -6,6 +6,8 @@ import {
   type TransactionFiltersParam,
 } from "@/api/backendApi";
 import { DataTable } from "@liratek/ui";
+import { useDateRangeFilter } from "@/shared/hooks/useDateRangeFilter";
+import { DateRangeFilter } from "@/shared/components/DateRangeFilter";
 
 type TransactionRow = {
   id: number;
@@ -90,6 +92,10 @@ export default function TransactionsViewer() {
   const [limit, setLimit] = useState("50");
   const [typeFilter, setTypeFilter] = useState("");
   const [loading, setLoading] = useState(false);
+  const { filteredData, from, to, setFrom, setTo } = useDateRangeFilter(
+    rows,
+    "created_at",
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -155,6 +161,12 @@ export default function TransactionsViewer() {
               </option>
             ))}
           </select>
+          <DateRangeFilter
+            from={from}
+            to={to}
+            onFromChange={setFrom}
+            onToChange={setTo}
+          />
         </div>
         <div className="flex items-center gap-2">
           <label className="text-sm text-slate-400">Rows:</label>
@@ -229,7 +241,7 @@ export default function TransactionsViewer() {
               className: "p-2 text-xs font-semibold uppercase text-slate-400",
             },
           ]}
-          data={rows}
+          data={filteredData}
           loading={loading}
           emptyMessage="No transactions found"
           defaultSortKey="created_at"

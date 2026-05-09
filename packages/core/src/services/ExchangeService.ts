@@ -123,6 +123,35 @@ export class ExchangeService {
     }
   }
 
+  /**
+   * Add a pre-calculated exchange transaction directly.
+   * Used for API-currency exchanges where rates come from external API
+   * and are already calculated by the frontend.
+   */
+  addDirectTransaction(data: CreateExchangeData): ExchangeOpResult {
+    try {
+      const { id } = this.exchangeRepo.createTransaction(data);
+      exchangeLogger.info(
+        {
+          id,
+          fromCurrency: data.fromCurrency,
+          toCurrency: data.toCurrency,
+          amountIn: data.amountIn,
+          amountOut: data.amountOut,
+          totalProfitUsd: data.totalProfitUsd,
+        },
+        "Direct exchange transaction created",
+      );
+      return { success: true, id };
+    } catch (error) {
+      exchangeLogger.error({ error }, "addDirectTransaction failed");
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Exchange failed",
+      };
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Query Operations
   // ---------------------------------------------------------------------------
@@ -151,6 +180,57 @@ export class ExchangeService {
    */
   getTodayStats() {
     return this.exchangeRepo.getTodayStats();
+  }
+
+  /**
+   * Update non-financial metadata on an exchange transaction.
+   * Records old/new values for audit trail.
+   */
+  updateExchangeMetadata(
+    id: number,
+    data: { client_name?: string; note?: string },
+    editedBy: string,
+  ): {
+    success: boolean;
+    entity?: ExchangeTransactionEntity;
+    oldValues?: Record<string, unknown>;
+    error?: string;
+  } {
+    const existing = this.exchangeRepo.findById(id);
+    if (!existing) {
+      return { success: false, error: "Exchange transaction not found" };
+    }
+
+    const oldValues: Record<string, unknown> = {};
+    const newValues: Record<string, unknown> = {};
+
+    if (
+      data.client_name !== undefined &&
+      data.client_name !== existing.client_name
+    ) {
+      oldValues.client_name = existing.client_name;
+      newValues.client_name = data.client_name;
+    }
+    if (data.note !== undefined && data.note !== existing.note) {
+      oldValues.note = existing.note;
+      newValues.note = data.note;
+    }
+
+    if (Object.keys(newValues).length === 0) {
+      return { success: true, entity: existing };
+    }
+
+    const updated = this.exchangeRepo.updateMetadata(id, data, editedBy);
+    if (!updated) {
+      return { success: false, error: "Failed to update" };
+    }
+
+    exchangeLogger.info(
+      { id, editedBy, oldValues, newValues },
+      "Exchange metadata updated",
+    );
+
+    return { success: true, entity: updated, oldValues };
   }
 }
 

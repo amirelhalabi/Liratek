@@ -8,6 +8,7 @@ import { useShopName } from "@/hooks/useShopName";
 import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
 import { CustomerSessionButton } from "@/features/sessions/components/CustomerSessionButton";
 import { VoiceBotButton } from "@/components/VoiceBotButton";
+import { useOnlineStatus } from "@/shared/hooks/useOnlineStatus";
 import { useVoiceBotSettings } from "@/hooks/useVoiceBotSettings";
 
 interface TopBarProps {
@@ -83,7 +84,19 @@ export default function TopBar({
   const shopName = useShopName();
   const { flags } = useFeatureFlags();
   const { config: voiceBotConfig } = useVoiceBotSettings();
+  const isOnline = useOnlineStatus();
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [notificationCount, setNotificationCount] = useState(
+    () => (window.notificationHistory || []).length,
+  );
+
+  // Track notification count changes
+  useEffect(() => {
+    const off = appEvents.on("notification:history", (h: UINotification[]) =>
+      setNotificationCount((h || []).length),
+    );
+    return () => off();
+  }, []);
 
   // Extended notifications: poll and react to events
   useEffect(() => {
@@ -174,8 +187,11 @@ export default function TopBar({
 
       {/* Right Actions */}
       <div className="flex items-center gap-4">
-        <div className="hidden md:flex items-center gap-2 text-xs text-slate-400">
-          <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+        <div className="hidden md:flex items-center gap-1.5 text-xs text-slate-400">
+          <span
+            className={`w-2 h-2 rounded-full ${isOnline ? "bg-emerald-500" : "bg-red-500"}`}
+          ></span>
+          <span>{isOnline ? "Online" : "Offline"}</span>
         </div>
         <div className="relative">
           <button
@@ -183,7 +199,9 @@ export default function TopBar({
             className={`p-2 transition-colors relative ${isNotificationsOpen ? "text-white bg-slate-700 rounded-lg" : "text-slate-400 hover:text-white"}`}
           >
             <Bell size={20} />
-            <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full"></span>
+            {notificationCount > 0 && (
+              <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full"></span>
+            )}
           </button>
 
           {/* Notification Panel */}

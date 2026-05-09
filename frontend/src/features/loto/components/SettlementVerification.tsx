@@ -675,6 +675,7 @@ export function SettlementVerification({
                     currency="LBP"
                     onChange={setPaymentLines}
                     showPmFee={false}
+                    showDiscount={false}
                     paymentMethods={methods}
                     currencies={[
                       { code: "USD", symbol: "$" },

@@ -15,6 +15,8 @@ import {
   X as CloseIcon,
   Zap,
   Upload,
+  Pencil,
+  Check,
 } from "lucide-react";
 import {
   PageHeader,
@@ -77,6 +79,8 @@ export default function Debts() {
 
   type DebtHistoryItem = DebtLedgerEntity & {
     itemNames?: string[];
+    is_refunded?: number;
+    refunded_at?: string | null;
   };
 
   type SaleDetail = {
@@ -116,6 +120,35 @@ export default function Debts() {
     payments: PaymentRowData[];
     debtAmount: number;
   } | null>(null);
+
+  // Inline note editing for debt/payment rows
+  const [editingNoteId, setEditingNoteId] = useState<number | null>(null);
+  const [editNoteValue, setEditNoteValue] = useState("");
+  const [editNoteSaving, setEditNoteSaving] = useState(false);
+
+  function startNoteEdit(item: DebtHistoryItem) {
+    setEditingNoteId(item.id);
+    setEditNoteValue(item.note ?? "");
+  }
+
+  async function handleSaveNote() {
+    if (editingNoteId === null) return;
+    setEditNoteSaving(true);
+    try {
+      const result = await window.api.debt.updateMetadata({
+        id: editingNoteId,
+        ...(editNoteValue !== undefined && { note: editNoteValue }),
+      });
+      if (result.success) {
+        setEditingNoteId(null);
+        if (selectedClient) loadHistory(selectedClient.id);
+      } else {
+        alert(result.error ?? "Failed to save");
+      }
+    } finally {
+      setEditNoteSaving(false);
+    }
+  }
 
   // Repayment State
   const [repayPaymentLines, setRepayPaymentLines] = useState<PaymentLine[]>([]);
@@ -1023,6 +1056,10 @@ export default function Debts() {
                           header: "LBP",
                           className: "px-3 py-2 text-xs font-medium text-right",
                         },
+                        {
+                          header: "",
+                          className: "px-2 py-2 text-xs font-medium w-8",
+                        },
                       ]}
                       data={debtEntries}
                       exportExcel
@@ -1032,98 +1069,171 @@ export default function Debts() {
                       theadClassName="sticky top-0 bg-slate-900/95 backdrop-blur-sm text-left text-slate-400 border-b border-slate-700/50"
                       tbodyClassName="divide-y divide-slate-700/30"
                       emptyMessage="No purchases on debt"
-                      renderRow={(item) => (
-                        <tr key={item.id} className="hover:bg-slate-800/50">
-                          <td className="px-4 py-2.5 text-slate-300 text-sm whitespace-nowrap">
-                            {new Date(item.created_at).toLocaleDateString()}
-                            <div className="text-[10px] text-slate-500">
-                              {new Date(item.created_at).toLocaleTimeString()}
-                            </div>
-                          </td>
-                          <td className="px-3 py-2.5 text-slate-400 text-sm">
-                            <div className="flex flex-col gap-1">
-                              {item.transaction_type &&
-                                item.transaction_type !== "Sale Debt" && (
-                                  <span
-                                    className={`inline-flex items-center self-start px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                                      item.transaction_type === "Service Debt"
-                                        ? "bg-sky-400/10 text-sky-400"
-                                        : item.transaction_type ===
-                                            "Recharge Debt"
-                                          ? "bg-cyan-400/10 text-cyan-400"
-                                          : item.transaction_type ===
-                                              "Custom Service Debt"
-                                            ? "bg-teal-400/10 text-teal-400"
-                                            : "bg-slate-700 text-slate-400"
-                                    }`}
-                                  >
-                                    {item.transaction_type ===
-                                      "Custom Service Debt" && (
-                                      <Briefcase size={10} className="mr-1" />
+                      renderRow={(item) => {
+                        const isRefunded = Boolean(item.is_refunded);
+                        const isEditing = editingNoteId === item.id;
+                        return (
+                          <>
+                            <tr
+                              key={item.id}
+                              className={`hover:bg-slate-800/50${isRefunded ? " opacity-50" : ""}`}
+                            >
+                              <td className="px-4 py-2.5 text-slate-300 text-sm whitespace-nowrap">
+                                {new Date(item.created_at).toLocaleDateString()}
+                                <div className="text-[10px] text-slate-500">
+                                  {new Date(
+                                    item.created_at,
+                                  ).toLocaleTimeString()}
+                                </div>
+                              </td>
+                              <td className="px-3 py-2.5 text-slate-400 text-sm">
+                                <div className="flex flex-col gap-1">
+                                  {isRefunded && (
+                                    <span className="inline-flex items-center self-start rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                                      Refunded
+                                    </span>
+                                  )}
+                                  {item.transaction_type &&
+                                    item.transaction_type !== "Sale Debt" && (
+                                      <span
+                                        className={`inline-flex items-center self-start px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                          item.transaction_type ===
+                                          "Service Debt"
+                                            ? "bg-sky-400/10 text-sky-400"
+                                            : item.transaction_type ===
+                                                "Recharge Debt"
+                                              ? "bg-cyan-400/10 text-cyan-400"
+                                              : item.transaction_type ===
+                                                  "Custom Service Debt"
+                                                ? "bg-teal-400/10 text-teal-400"
+                                                : "bg-slate-700 text-slate-400"
+                                        }`}
+                                      >
+                                        {item.transaction_type ===
+                                          "Custom Service Debt" && (
+                                          <Briefcase
+                                            size={10}
+                                            className="mr-1"
+                                          />
+                                        )}
+                                        {item.transaction_type}
+                                      </span>
                                     )}
-                                    {item.transaction_type}
-                                  </span>
-                                )}
-                              <div className="flex items-center gap-1.5">
-                                {item.itemNames && item.itemNames.length > 0 ? (
-                                  <div className="flex flex-col gap-0.5 text-xs leading-tight max-w-[140px]">
-                                    {item.itemNames.map((name) => (
-                                      <div key={name} className="truncate">
-                                        • {name}
+                                  <div className="flex items-center gap-1.5">
+                                    {item.itemNames &&
+                                    item.itemNames.length > 0 ? (
+                                      <div className="flex flex-col gap-0.5 text-xs leading-tight max-w-[140px]">
+                                        {item.itemNames.map((name) => (
+                                          <div key={name} className="truncate">
+                                            • {name}
+                                          </div>
+                                        ))}
                                       </div>
-                                    ))}
+                                    ) : (
+                                      <span className="truncate max-w-[120px]">
+                                        {item.note || "-"}
+                                      </span>
+                                    )}
+                                    {item.transaction_id &&
+                                      item.transaction_type === "Sale Debt" && (
+                                        <button
+                                          onClick={() =>
+                                            loadSaleDetails(
+                                              item.transaction_id!,
+                                            )
+                                          }
+                                          className="shrink-0 p-1 rounded bg-violet-500/10 hover:bg-violet-500/20 text-violet-400 transition-all"
+                                          title="View Sale Details"
+                                        >
+                                          <Eye size={13} />
+                                        </button>
+                                      )}
+                                    {item.transaction_id &&
+                                      item.transaction_type ===
+                                        "Service Debt" && (
+                                        <button
+                                          onClick={() =>
+                                            loadServiceDebtDetails(
+                                              item.transaction_id!,
+                                              item.amount_usd,
+                                            )
+                                          }
+                                          className="shrink-0 p-1 rounded bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 transition-all"
+                                          title="View Transaction Details"
+                                        >
+                                          <Eye size={13} />
+                                        </button>
+                                      )}
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="px-3 py-2.5 text-right font-mono text-sm font-bold text-red-400">
+                                {item.amount_usd > 0 ? (
+                                  `$${item.amount_usd.toFixed(2)}`
+                                ) : (
+                                  <span className="text-slate-600">-</span>
+                                )}
+                              </td>
+                              <td className="px-3 py-2.5 text-right font-mono text-sm font-bold text-red-400">
+                                {item.amount_lbp > 0 ? (
+                                  `${item.amount_lbp.toLocaleString()}`
+                                ) : (
+                                  <span className="text-slate-600">-</span>
+                                )}
+                              </td>
+                              <td className="px-2 py-2.5 text-center">
+                                {isEditing ? (
+                                  <div className="flex items-center gap-0.5">
+                                    <button
+                                      onClick={handleSaveNote}
+                                      disabled={editNoteSaving}
+                                      className="p-1 text-emerald-400 hover:bg-emerald-400/10 rounded transition-colors disabled:opacity-50"
+                                      title="Save"
+                                    >
+                                      <Check size={12} />
+                                    </button>
+                                    <button
+                                      onClick={() => setEditingNoteId(null)}
+                                      className="p-1 text-slate-400 hover:bg-slate-700 rounded transition-colors"
+                                      title="Cancel"
+                                    >
+                                      <CloseIcon size={12} />
+                                    </button>
                                   </div>
                                 ) : (
-                                  <span className="truncate max-w-[120px]">
-                                    {item.note || "-"}
-                                  </span>
+                                  <button
+                                    onClick={() => startNoteEdit(item)}
+                                    className="p-1 text-slate-500 hover:text-orange-400 hover:bg-orange-400/10 rounded transition-colors"
+                                    title="Edit note"
+                                  >
+                                    <Pencil size={11} />
+                                  </button>
                                 )}
-                                {item.transaction_id &&
-                                  item.transaction_type === "Sale Debt" && (
-                                    <button
-                                      onClick={() =>
-                                        loadSaleDetails(item.transaction_id!)
-                                      }
-                                      className="shrink-0 p-1 rounded bg-violet-500/10 hover:bg-violet-500/20 text-violet-400 transition-all"
-                                      title="View Sale Details"
-                                    >
-                                      <Eye size={13} />
-                                    </button>
-                                  )}
-                                {item.transaction_id &&
-                                  item.transaction_type === "Service Debt" && (
-                                    <button
-                                      onClick={() =>
-                                        loadServiceDebtDetails(
-                                          item.transaction_id!,
-                                          item.amount_usd,
-                                        )
-                                      }
-                                      className="shrink-0 p-1 rounded bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 transition-all"
-                                      title="View Transaction Details"
-                                    >
-                                      <Eye size={13} />
-                                    </button>
-                                  )}
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-3 py-2.5 text-right font-mono text-sm font-bold text-red-400">
-                            {item.amount_usd > 0 ? (
-                              `$${item.amount_usd.toFixed(2)}`
-                            ) : (
-                              <span className="text-slate-600">-</span>
+                              </td>
+                            </tr>
+                            {isEditing && (
+                              <tr className="bg-slate-800/60">
+                                <td colSpan={5} className="px-3 py-2">
+                                  <input
+                                    autoFocus
+                                    value={editNoteValue}
+                                    onChange={(e) =>
+                                      setEditNoteValue(e.target.value)
+                                    }
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") handleSaveNote();
+                                      if (e.key === "Escape")
+                                        setEditingNoteId(null);
+                                    }}
+                                    className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-1.5 text-white text-xs focus:outline-none focus:border-orange-500"
+                                    placeholder="Add a note..."
+                                  />
+                                </td>
+                              </tr>
                             )}
-                          </td>
-                          <td className="px-3 py-2.5 text-right font-mono text-sm font-bold text-red-400">
-                            {item.amount_lbp > 0 ? (
-                              `${item.amount_lbp.toLocaleString()}`
-                            ) : (
-                              <span className="text-slate-600">-</span>
-                            )}
-                          </td>
-                        </tr>
-                      )}
+                          </>
+                        );
+                      }}
                     />
                   </div>
                   {/* Footer total */}
@@ -1191,6 +1301,10 @@ export default function Debts() {
                           header: "LBP",
                           className: "px-3 py-2 text-xs font-medium text-right",
                         },
+                        {
+                          header: "",
+                          className: "px-2 py-2 text-xs font-medium w-8",
+                        },
                       ]}
                       data={paymentEntries}
                       exportExcel
@@ -1200,33 +1314,100 @@ export default function Debts() {
                       theadClassName="sticky top-0 bg-slate-900/95 backdrop-blur-sm text-left text-slate-400 border-b border-slate-700/50"
                       tbodyClassName="divide-y divide-slate-700/30"
                       emptyMessage="No payments recorded"
-                      renderRow={(item) => (
-                        <tr key={item.id} className="hover:bg-slate-800/50">
-                          <td className="px-4 py-2.5 text-slate-300 text-sm whitespace-nowrap">
-                            {new Date(item.created_at).toLocaleDateString()}
-                            <div className="text-[10px] text-slate-500">
-                              {new Date(item.created_at).toLocaleTimeString()}
-                            </div>
-                          </td>
-                          <td className="px-3 py-2.5 text-slate-400 text-sm">
-                            {item.note || "-"}
-                          </td>
-                          <td className="px-3 py-2.5 text-right font-mono text-sm font-bold text-emerald-400">
-                            {Math.abs(item.amount_usd) > 0 ? (
-                              `$${Math.abs(item.amount_usd).toFixed(2)}`
-                            ) : (
-                              <span className="text-slate-600">-</span>
+                      renderRow={(item) => {
+                        const isRefunded = Boolean(item.is_refunded);
+                        const isEditing = editingNoteId === item.id;
+                        return (
+                          <>
+                            <tr
+                              key={item.id}
+                              className={`hover:bg-slate-800/50${isRefunded ? " opacity-50" : ""}`}
+                            >
+                              <td className="px-4 py-2.5 text-slate-300 text-sm whitespace-nowrap">
+                                {new Date(item.created_at).toLocaleDateString()}
+                                <div className="text-[10px] text-slate-500">
+                                  {new Date(
+                                    item.created_at,
+                                  ).toLocaleTimeString()}
+                                </div>
+                              </td>
+                              <td className="px-3 py-2.5 text-slate-400 text-sm">
+                                <span className="flex items-center gap-1">
+                                  {item.note || "-"}
+                                  {isRefunded && (
+                                    <span className="ml-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                                      Refunded
+                                    </span>
+                                  )}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2.5 text-right font-mono text-sm font-bold text-emerald-400">
+                                {Math.abs(item.amount_usd) > 0 ? (
+                                  `$${Math.abs(item.amount_usd).toFixed(2)}`
+                                ) : (
+                                  <span className="text-slate-600">-</span>
+                                )}
+                              </td>
+                              <td className="px-3 py-2.5 text-right font-mono text-sm font-bold text-emerald-400">
+                                {Math.abs(item.amount_lbp) > 0 ? (
+                                  `${Math.abs(item.amount_lbp).toLocaleString()}`
+                                ) : (
+                                  <span className="text-slate-600">-</span>
+                                )}
+                              </td>
+                              <td className="px-2 py-2.5 text-center">
+                                {isEditing ? (
+                                  <div className="flex items-center gap-0.5">
+                                    <button
+                                      onClick={handleSaveNote}
+                                      disabled={editNoteSaving}
+                                      className="p-1 text-emerald-400 hover:bg-emerald-400/10 rounded transition-colors disabled:opacity-50"
+                                      title="Save"
+                                    >
+                                      <Check size={12} />
+                                    </button>
+                                    <button
+                                      onClick={() => setEditingNoteId(null)}
+                                      className="p-1 text-slate-400 hover:bg-slate-700 rounded transition-colors"
+                                      title="Cancel"
+                                    >
+                                      <CloseIcon size={12} />
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    onClick={() => startNoteEdit(item)}
+                                    className="p-1 text-slate-500 hover:text-orange-400 hover:bg-orange-400/10 rounded transition-colors"
+                                    title="Edit note"
+                                  >
+                                    <Pencil size={11} />
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                            {isEditing && (
+                              <tr className="bg-slate-800/60">
+                                <td colSpan={5} className="px-3 py-2">
+                                  <input
+                                    autoFocus
+                                    value={editNoteValue}
+                                    onChange={(e) =>
+                                      setEditNoteValue(e.target.value)
+                                    }
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") handleSaveNote();
+                                      if (e.key === "Escape")
+                                        setEditingNoteId(null);
+                                    }}
+                                    className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-1.5 text-white text-xs focus:outline-none focus:border-orange-500"
+                                    placeholder="Add a note..."
+                                  />
+                                </td>
+                              </tr>
                             )}
-                          </td>
-                          <td className="px-3 py-2.5 text-right font-mono text-sm font-bold text-emerald-400">
-                            {Math.abs(item.amount_lbp) > 0 ? (
-                              `${Math.abs(item.amount_lbp).toLocaleString()}`
-                            ) : (
-                              <span className="text-slate-600">-</span>
-                            )}
-                          </td>
-                        </tr>
-                      )}
+                          </>
+                        );
+                      }}
                     />
                   </div>
                   {/* Footer total */}
