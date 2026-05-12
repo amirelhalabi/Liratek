@@ -228,6 +228,53 @@ export class ClosingService {
   }
 
   /**
+   * Compute per-drawer variance for a given checkpoint.
+   * Compares actual (physical) vs expected (opening) amounts.
+   * Returns structured data with variance per drawer/currency.
+   */
+  getCheckpointVariance(checkpointId: number): {
+    checkpointId: number;
+    hasVariance: boolean;
+    drawers: Array<{
+      drawerName: string;
+      currency: string;
+      expected: number;
+      actual: number;
+      variance: number;
+    }>;
+  } {
+    try {
+      const amounts = this.repo.getCheckpointAmounts(checkpointId);
+      const drawers = amounts
+        .filter(
+          (a) => a.physical_amount !== null && a.physical_amount !== undefined,
+        )
+        .map((a) => ({
+          drawerName: a.drawer_name,
+          currency: a.currency_code,
+          expected: a.opening_amount || 0,
+          actual: a.physical_amount || 0,
+          variance: (a.physical_amount || 0) - (a.opening_amount || 0),
+        }));
+
+      const hasVariance = drawers.some((d) => Math.abs(d.variance) > 0.01);
+
+      closingLogger.info(
+        { checkpointId, hasVariance, drawerCount: drawers.length },
+        "Computed checkpoint variance",
+      );
+
+      return { checkpointId, hasVariance, drawers };
+    } catch (error) {
+      closingLogger.error(
+        { error, checkpointId },
+        "ClosingService.getCheckpointVariance error",
+      );
+      return { checkpointId, hasVariance: false, drawers: [] };
+    }
+  }
+
+  /**
    * Create a unified checkpoint (replaces both opening and closing).
    * Records expected vs actual per drawer/currency.
    */

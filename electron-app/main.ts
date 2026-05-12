@@ -12,6 +12,7 @@ import {
   initDatabase as initCoreDatabase,
   getSessionRepository,
   getClosingRepository,
+  getServicePresetService,
   runMigrations,
   logger,
 } from "@liratek/core";
@@ -414,6 +415,14 @@ function initializeBackend() {
     }
   } catch (err) {
     logger.warn({ error: err }, "Drawer balance recalculation skipped");
+  }
+
+  // Seed default service presets (idempotent — only inserts missing ones)
+  try {
+    const presetService = getServicePresetService();
+    presetService.seedDefaults();
+  } catch (err) {
+    logger.warn({ error: err }, "Service preset seeding skipped");
   }
 
   logger.info("Backend services initialized");

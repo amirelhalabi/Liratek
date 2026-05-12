@@ -45,6 +45,7 @@ export interface LotoTicketCreate {
   currency?: string;
   note?: string;
   userId: number;
+  transaction_time?: string;
 }
 
 export interface LotoTicketUpdate {
@@ -73,8 +74,8 @@ export class LotoTicketRepository {
       const stmt = this.db.prepare(`
         INSERT INTO loto_tickets (
           ticket_number, sale_amount, commission_rate, commission_amount,
-          is_winner, prize_amount, sale_date, payment_method, currency, note
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          is_winner, prize_amount, sale_date, payment_method, currency, note, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
       `);
 
       const result = stmt.run(
@@ -88,6 +89,7 @@ export class LotoTicketRepository {
         data.payment_method || null,
         data.currency || "LBP",
         data.note || null,
+        data.transaction_time ?? null,
       );
 
       const ticketId = result.lastInsertRowid as number;
@@ -110,6 +112,7 @@ export class LotoTicketRepository {
           commission_rate: data.commission_rate ?? 0.0445,
           payment_method: data.payment_method,
         },
+        transaction_time: data.transaction_time,
       });
 
       // 3. Record payment and update drawer balance

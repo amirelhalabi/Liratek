@@ -35,6 +35,7 @@ export interface AddExchangeInput {
   amountIn: number;
   clientName?: string;
   note?: string;
+  transaction_time?: string;
 }
 
 // =============================================================================
@@ -60,6 +61,16 @@ export class ExchangeService {
    */
   addTransaction(input: AddExchangeInput): ExchangeOpResult {
     try {
+      if (input.transaction_time) {
+        const txTime = new Date(input.transaction_time);
+        if (isNaN(txTime.getTime())) {
+          throw new Error("Invalid transaction_time format");
+        }
+        if (txTime > new Date()) {
+          throw new Error("transaction_time cannot be in the future");
+        }
+      }
+
       // 1. Load rates from DB
       const rates = getRateRepository().findAllAsCurrencyRates();
 
@@ -90,6 +101,7 @@ export class ExchangeService {
         totalProfitUsd: result.totalProfitUsd,
         clientName: input.clientName,
         note: input.note,
+        transaction_time: input.transaction_time,
       };
 
       const { id } = this.exchangeRepo.createTransaction(txData);
@@ -130,6 +142,16 @@ export class ExchangeService {
    */
   addDirectTransaction(data: CreateExchangeData): ExchangeOpResult {
     try {
+      if (data.transaction_time) {
+        const txTime = new Date(data.transaction_time);
+        if (isNaN(txTime.getTime())) {
+          throw new Error("Invalid transaction_time format");
+        }
+        if (txTime > new Date()) {
+          throw new Error("transaction_time cannot be in the future");
+        }
+      }
+
       const { id } = this.exchangeRepo.createTransaction(data);
       exchangeLogger.info(
         {

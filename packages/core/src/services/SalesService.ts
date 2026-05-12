@@ -54,6 +54,16 @@ export class SalesService {
    */
   processSale(sale: SaleRequest, userId: number): SaleResult {
     try {
+      if (sale.transaction_time) {
+        const txTime = new Date(sale.transaction_time);
+        if (isNaN(txTime.getTime())) {
+          throw new Error("Invalid transaction_time format");
+        }
+        if (txTime > new Date()) {
+          throw new Error("transaction_time cannot be in the future");
+        }
+      }
+
       const result = this.salesRepo.processSale(sale, userId);
 
       if (result.success && result.id) {

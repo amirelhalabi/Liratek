@@ -25,6 +25,16 @@ export class ExpenseService {
    */
   addExpense(data: CreateExpenseData, userId: number): ExpenseResult {
     try {
+      if (data.transaction_time) {
+        const txTime = new Date(data.transaction_time);
+        if (isNaN(txTime.getTime())) {
+          throw new Error("Invalid transaction_time format");
+        }
+        if (txTime > new Date()) {
+          throw new Error("transaction_time cannot be in the future");
+        }
+      }
+
       const id = this.repo.createExpense(data, userId);
 
       expenseLogger.info(

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { transactionTimeSchema } from "./common.js";
 
 /**
  * Custom Service validation schemas
@@ -17,6 +18,8 @@ export const createCustomServiceSchema = z
     client_name: z.string().max(255).optional(),
     phone_number: z.string().max(50).optional(),
     note: z.string().max(1000).optional(),
+    category: z.string().max(100).optional(),
+    transaction_time: transactionTimeSchema,
   })
   .refine(
     (data) =>

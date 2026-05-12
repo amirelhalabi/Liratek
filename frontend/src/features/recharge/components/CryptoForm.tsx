@@ -9,6 +9,8 @@ import type {
   FinancialTransaction,
 } from "../types";
 import { HistoryModal } from "./HistoryModal";
+import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
+import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
 
 interface CryptoFormProps {
   activeConfig: ProviderConfig | undefined;
@@ -32,6 +34,7 @@ interface CryptoFormProps {
   onPaymentLinesChange: (lines: PaymentLine[]) => void;
   onDiscountChange?: (discount: number) => void;
   exchangeRate: number;
+  onTransactionTimeChange?: (time: string | undefined) => void;
 }
 
 export function CryptoForm({
@@ -56,8 +59,10 @@ export function CryptoForm({
   onPaymentLinesChange,
   onDiscountChange,
   exchangeRate,
+  onTransactionTimeChange,
 }: CryptoFormProps) {
   const [showPaymentSheet, setShowPaymentSheet] = useState(false);
+  const [transactionTime, setTransactionTime] = useState<string | undefined>();
   const { activeSession } = useSession();
 
   if (!activeConfig) return null;
@@ -168,11 +173,11 @@ export function CryptoForm({
           >
             <User size={12} /> Client Name {activeSession && "• Session"}
           </label>
-          <input
+          <ClientAutocompleteInput
             id="crypto-client"
             type="text"
             value={cryptoClientName}
-            onChange={(e) => setCryptoClientName(e.target.value)}
+            onChange={(v) => setCryptoClientName(v)}
             className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500 transition-all"
             placeholder="Optional"
           />
@@ -197,6 +202,14 @@ export function CryptoForm({
 
       {/* Spacer */}
       <div className="flex-1" />
+
+      <TransactionTimeOverride
+        value={transactionTime}
+        onChange={(t) => {
+          setTransactionTime(t);
+          onTransactionTimeChange?.(t);
+        }}
+      />
 
       {/* Sticky Bottom Trigger Bar */}
       <div className="sticky bottom-0 bg-slate-800/95 backdrop-blur-sm rounded-xl border border-slate-700/50 p-3 shadow-2xl">

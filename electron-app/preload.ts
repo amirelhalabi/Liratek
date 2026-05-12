@@ -153,6 +153,22 @@ contextBridge.exposeInMainWorld("api", {
     }) => ipcRenderer.invoke("debt:add-repayment", data),
     updateMetadata: (data: { id: number; note?: string }) =>
       ipcRenderer.invoke("debts:update-metadata", data),
+    addCredit: (data: {
+      clientId: number;
+      amountUsd: number;
+      amountLbp: number;
+      note?: string;
+      transactionTime?: string;
+    }) => ipcRenderer.invoke("debt:add-credit", data),
+    useCredit: (data: {
+      clientId: number;
+      amountUsd: number;
+      amountLbp: number;
+      note?: string;
+      transactionTime?: string;
+    }) => ipcRenderer.invoke("debt:use-credit", data),
+    getClientBalance: (clientId: number) =>
+      ipcRenderer.invoke("debt:client-balance", clientId),
   },
 
   // Financial
@@ -962,6 +978,7 @@ contextBridge.exposeInMainWorld("api", {
       client_name?: string;
       phone_number?: string;
       note?: string;
+      category?: string;
     }) => ipcRenderer.invoke("custom-services:add", data),
     delete: (id: number) => ipcRenderer.invoke("custom-services:delete", id),
     updateMetadata: (data: {
@@ -970,7 +987,38 @@ contextBridge.exposeInMainWorld("api", {
       client_name?: string;
       phone_number?: string;
       note?: string;
+      category?: string;
     }) => ipcRenderer.invoke("custom-services:update-metadata", data),
+  },
+
+  // Service Presets (digital accounts, repairs, etc.)
+  servicePresets: {
+    list: (filter?: { category?: string; includeInactive?: boolean }) =>
+      ipcRenderer.invoke("service-presets:list", filter),
+    create: (data: {
+      name: string;
+      category: string;
+      cost_usd?: number;
+      cost_lbp?: number;
+      price_usd?: number;
+      price_lbp?: number;
+      is_active?: number;
+      sort_order?: number;
+    }) => ipcRenderer.invoke("service-presets:create", data),
+    update: (
+      id: number,
+      data: {
+        name?: string;
+        category?: string;
+        cost_usd?: number;
+        cost_lbp?: number;
+        price_usd?: number;
+        price_lbp?: number;
+        is_active?: number;
+        sort_order?: number;
+      },
+    ) => ipcRenderer.invoke("service-presets:update", { id, data }),
+    delete: (id: number) => ipcRenderer.invoke("service-presets:delete", id),
   },
 
   // Setup Wizard

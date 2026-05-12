@@ -77,3 +77,23 @@ export interface ClosingFormData {
   variance_notes?: string;
   user_id?: number;
 }
+
+/**
+ * Per-drawer variance detail for a checkpoint
+ */
+export interface DrawerVariance {
+  drawerName: string;
+  currency: string;
+  expected: number;
+  actual: number;
+  variance: number;
+}
+
+/**
+ * Aggregated checkpoint variance result
+ */
+export interface CheckpointVarianceResult {
+  checkpointId: number;
+  hasVariance: boolean;
+  drawers: DrawerVariance[];
+}

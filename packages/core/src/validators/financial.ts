@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { positiveDecimalSchema, currencyCodeSchema } from "./common.js";
+import {
+  positiveDecimalSchema,
+  currencyCodeSchema,
+  transactionTimeSchema,
+} from "./common.js";
 
 /**
  * Financial services validation schemas (OMT, WHISH, iPick, Katsh, Binance, etc.)
@@ -73,6 +77,16 @@ export const createFinancialServiceSchema = z
         }),
       )
       .optional(),
+    /**
+     * Cashout method for RECEIVE transactions: how the shop pays the customer.
+     * - CASH (default): debit General drawer
+     * - CUSTOMER_ACCOUNT: credit client's account (debt_ledger credit)
+     */
+    cashoutMethod: z
+      .enum(["CASH", "CUSTOMER_ACCOUNT"])
+      .optional()
+      .default("CASH"),
+    transaction_time: transactionTimeSchema,
   })
   .refine(
     (data) => {

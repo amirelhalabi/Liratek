@@ -16,11 +16,11 @@ import {
   TrendingUp,
   User,
   Phone,
-  Search,
   X,
   RefreshCw,
-  UserPlus,
   Package,
+  Tag,
+  Settings,
 } from "lucide-react";
 import { PageHeader, useApi } from "@liratek/ui";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
@@ -30,8 +30,12 @@ import { useCustomServices } from "../../hooks/useCustomServices";
 import logger from "@/utils/logger";
 import { MultiPaymentInput, type PaymentLine, SearchBar } from "@liratek/ui";
 import { HistoryModal } from "./components/HistoryModal";
+import { PresetManagerModal } from "./components/PresetManagerModal";
 import { StatsCards } from "../../components/StatsCards";
 import { getExchangeRates } from "@/utils/exchangeRates";
+import { useSaveAsClient } from "@/shared/hooks/useSaveAsClient";
+import { SaveAsClientCheckbox } from "@/shared/components/SaveAsClientCheckbox";
+import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 
 // =============================================================================
 // Helper
@@ -50,6 +54,25 @@ function formatCurrency(usd: number, lbp: number): string {
   if (usd > 0) parts.push(`$${usd.toFixed(2)}`);
   if (lbp > 0) parts.push(`${lbp.toLocaleString()} LBP`);
   return parts.join(" + ") || "$0.00";
+}
+
+/** Category presets for quick selection */
+const SERVICE_CATEGORIES = [
+  { value: "", label: "All", icon: "briefcase" },
+  { value: "digital_account", label: "Digital Account", icon: "monitor" },
+  { value: "repair", label: "Repair", icon: "wrench" },
+  { value: "activation", label: "Activation", icon: "zap" },
+  { value: "other", label: "Other", icon: "tag" },
+] as const;
+
+interface ServicePreset {
+  id: number;
+  name: string;
+  category: string;
+  cost_usd: number;
+  cost_lbp: number;
+  price_usd: number;
+  price_lbp: number;
 }
 
 // =============================================================================
@@ -74,7 +97,9 @@ export default function CustomServices() {
   const [priceUsd, setPriceUsd] = useState("");
   const [priceLbp, setPriceLbp] = useState("");
   const [note, setNote] = useState("");
+  const [category, setCategory] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [transactionTime, setTransactionTime] = useState<string | undefined>();
 
   // ─── Payment lines (always multi-payment) ───
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
@@ -89,13 +114,40 @@ export default function CustomServices() {
   // ─── History Modal ───
   const [showHistoryModal, setShowHistoryModal] = useState(false);
 
+  // ─── Preset Manager Modal ───
+  const [showPresetManager, setShowPresetManager] = useState(false);
+
+  // ─── DB-driven Presets ───
+  const [presets, setPresets] = useState<ServicePreset[]>([]);
+
+  const loadPresets = useCallback(async () => {
+    try {
+      const result = await window.api.servicePresets.list();
+      if (result.success && result.data) {
+        setPresets(result.data);
+      }
+    } catch (err) {
+      logger.error("Failed to load service presets:", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadPresets();
+  }, [loadPresets]);
+
   // ─── Customer Details (for ALL payment methods) ───
   const [clientId, setClientId] = useState<number | null>(null);
   const [clientName, setClientName] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [clientSearchResults, setClientSearchResults] = useState<any[]>([]);
   const [showClientSearch, setShowClientSearch] = useState(false);
-  const [saveAsClient, setSaveAsClient] = useState(false);
+  const {
+    saveAsClient,
+    setSaveAsClient,
+    showCheckbox: showSaveAsClient,
+    trySaveAsClient,
+    resetSaveAsClient,
+  } = useSaveAsClient(clientName, phoneNumber);
 
   // Exchange rate for multi-currency payments (loaded from database)
   const [exchangeRate, setExchangeRate] = useState(89500);
@@ -146,7 +198,7 @@ export default function CustomServices() {
     if (client.phone_number) setPhoneNumber(client.phone_number);
     setShowClientSearch(false);
     setClientSearchResults([]);
-    setSaveAsClient(false);
+    resetSaveAsClient();
   };
 
   const clearClient = () => {
@@ -155,7 +207,7 @@ export default function CustomServices() {
     setPhoneNumber("");
     setShowClientSearch(false);
     setClientSearchResults([]);
-    setSaveAsClient(false);
+    resetSaveAsClient();
   };
 
   // ─── Computed ───
@@ -191,30 +243,9 @@ export default function CustomServices() {
     try {
       // Auto-create client if "Save as client" is checked and no existing client selected
       let finalClientId = clientId;
-      if (saveAsClient && !clientId && clientName.trim()) {
-        try {
-          const createResult = await api.getClients(clientName.trim());
-          // Check if client already exists
-          const existing = createResult.find(
-            (c: any) =>
-              (c.full_name || c.name)?.toLowerCase() ===
-              clientName.trim().toLowerCase(),
-          );
-          if (existing) {
-            finalClientId = existing.id;
-          } else {
-            // Create new client
-            const newClient = await (api as any).createClient?.({
-              full_name: clientName.trim(),
-              phone_number: phoneNumber.trim() || undefined,
-            });
-            if (newClient?.id) {
-              finalClientId = newClient.id;
-            }
-          }
-        } catch (err) {
-          logger.error("Failed to save client:", err);
-        }
+      if (!clientId && clientName.trim()) {
+        const result = await trySaveAsClient();
+        if (result.clientId) finalClientId = result.clientId;
       }
 
       // Derive paid_by from first payment line for backend compatibility
@@ -242,6 +273,8 @@ export default function CustomServices() {
       if (clientName.trim()) payload.client_name = clientName.trim();
       if (phoneNumber.trim()) payload.phone_number = phoneNumber.trim();
       if (note.trim()) payload.note = note.trim();
+      if (category) payload.category = category;
+      if (transactionTime) payload.transaction_time = transactionTime;
 
       // If session is active, add to cart instead of submitting
       if (activeSession) {
@@ -269,6 +302,7 @@ export default function CustomServices() {
         setPriceUsd("");
         setPriceLbp("");
         setNote("");
+        setCategory("");
         setPaymentLines([]);
         clearProduct();
         clearClient();
@@ -286,7 +320,9 @@ export default function CustomServices() {
         setPriceUsd("");
         setPriceLbp("");
         setNote("");
+        setCategory("");
         setPaymentLines([]);
+        setTransactionTime(undefined);
         clearProduct();
         clearClient();
         reload();
@@ -334,6 +370,13 @@ export default function CustomServices() {
               totalProfitLbp={summary.totalProfitLbp}
             />
             <button
+              onClick={() => setShowPresetManager(true)}
+              className="px-4 py-2 rounded-lg font-medium text-sm transition-all flex items-center gap-2 bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 hover:text-white"
+            >
+              <Settings size={16} />
+              <span className="font-medium">Presets</span>
+            </button>
+            <button
               onClick={() => setShowHistoryModal(true)}
               className="px-4 py-2 rounded-lg font-medium text-sm transition-all flex items-center gap-2 bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 hover:text-white"
             >
@@ -354,6 +397,92 @@ export default function CustomServices() {
           </h2>
 
           <div className="space-y-4">
+            {/* Category Selector */}
+            <div>
+              <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
+                <Tag size={12} className="inline mr-1" />
+                Category
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {SERVICE_CATEGORIES.map((cat) => (
+                  <button
+                    key={cat.value}
+                    type="button"
+                    onClick={() => {
+                      setCategory(cat.value);
+                      // If switching to digital_account, clear product selection for fresh preset pick
+                      if (cat.value === "digital_account" && selectedProduct) {
+                        clearProduct();
+                        setDescription("");
+                        setCostUsd("");
+                        setPriceUsd("");
+                      }
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all border ${
+                      category === cat.value
+                        ? "bg-teal-500/20 border-teal-500/50 text-teal-300"
+                        : "bg-slate-900/50 border-slate-700 text-slate-400 hover:border-slate-600 hover:text-slate-300"
+                    }`}
+                  >
+                    {cat.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Presets from DB — always visible under category */}
+            {!description && !selectedProduct && (
+              <div className="p-3 rounded-xl bg-purple-500/5 border border-purple-500/20 space-y-2">
+                <span className="block text-xs font-medium text-purple-400 uppercase tracking-wider">
+                  Presets
+                </span>
+                {(() => {
+                  const categoryPresets = presets.filter(
+                    (p) => !category || p.category === category,
+                  );
+                  if (categoryPresets.length === 0) {
+                    const label =
+                      SERVICE_CATEGORIES.find((c) => c.value === category)
+                        ?.label ?? "this category";
+                    return (
+                      <p className="text-xs text-slate-500">
+                        No presets for {label}. Add presets via the Presets
+                        manager.
+                      </p>
+                    );
+                  }
+                  return (
+                    <div className="flex flex-wrap gap-2">
+                      {categoryPresets.map((preset) => (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={() => {
+                            setDescription(preset.name);
+                            setCategory(preset.category);
+                            if (preset.cost_usd > 0)
+                              setCostUsd(String(preset.cost_usd));
+                            if (preset.cost_lbp > 0)
+                              setCostLbp(String(preset.cost_lbp));
+                            if (preset.price_usd > 0)
+                              setPriceUsd(String(preset.price_usd));
+                            if (preset.price_lbp > 0)
+                              setPriceLbp(String(preset.price_lbp));
+                          }}
+                          className="px-3 py-2 rounded-lg text-xs font-medium bg-slate-900/60 border border-slate-700 text-slate-300 hover:border-purple-500/40 hover:text-white transition-all"
+                        >
+                          <span className="block">{preset.name}</span>
+                          <span className="text-[10px] text-slate-500">
+                            Cost: ${preset.cost_usd.toFixed(2)} · Price: $
+                            {preset.price_usd.toFixed(2)}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
             {/* Search Bar / Item Selector — replaces description field */}
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
@@ -595,27 +724,22 @@ export default function CustomServices() {
               />
             </div>
 
-            {/* Customer Details — available for ALL payment methods */}
-            <div className="p-4 rounded-xl bg-slate-900/50 border border-slate-700/50 space-y-3">
-              <span className="block text-xs font-medium text-slate-400 uppercase tracking-wider flex items-center gap-1">
-                <User size={12} /> Customer Details
-                {paymentLines.some((l) => l.method === "DEBT") && (
-                  <span className="text-red-400 ml-1">(required for DEBT)</span>
-                )}
-              </span>
-
-              {/* Client Search / Name */}
+            {/* Customer Name & Phone — inline row */}
+            <div className="grid grid-cols-2 gap-3">
               <div className="relative">
                 <label
                   htmlFor="svc-client"
-                  className="block text-[10px] text-slate-500 mb-1 uppercase"
+                  className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
                 >
-                  Name
+                  <User size={12} /> Customer Name
+                  {paymentLines.some((l) => l.method === "DEBT") && (
+                    <span className="text-red-400 ml-1">*</span>
+                  )}
                 </label>
                 {clientId ? (
                   <div className="flex items-center gap-2 bg-teal-500/10 border border-teal-500/30 rounded-lg px-4 py-2.5">
                     <User size={14} className="text-teal-400" />
-                    <span className="text-white font-medium text-sm flex-1">
+                    <span className="text-white font-medium text-sm flex-1 truncate">
                       {clientName}
                     </span>
                     <button
@@ -627,9 +751,6 @@ export default function CustomServices() {
                   </div>
                 ) : (
                   <div className="relative">
-                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">
-                      <Search size={14} />
-                    </div>
                     <input
                       id="svc-client"
                       type="text"
@@ -645,7 +766,7 @@ export default function CustomServices() {
                           searchClients(clientName);
                         }
                       }}
-                      className="w-full bg-slate-900/80 border border-slate-700 rounded-lg pl-9 pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-teal-500 transition-all"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-teal-500 transition-all"
                       placeholder="Search or type name..."
                     />
                     {showClientSearch && clientSearchResults.length > 0 && (
@@ -668,45 +789,29 @@ export default function CustomServices() {
                     )}
                   </div>
                 )}
+                <SaveAsClientCheckbox
+                  checked={saveAsClient}
+                  onChange={setSaveAsClient}
+                  hidden={!!clientId || !showSaveAsClient}
+                />
               </div>
-
-              {/* Phone Number */}
               <div>
                 <label
                   htmlFor="svc-phone"
-                  className="block text-[10px] text-slate-500 mb-1 uppercase"
+                  className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
                 >
-                  Phone Number
+                  <Phone size={12} /> Phone
                 </label>
-                <div className="relative">
-                  <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">
-                    <Phone size={14} />
-                  </div>
-                  <input
-                    id="svc-phone"
-                    type="tel"
-                    value={phoneNumber}
-                    onChange={(e) => setPhoneNumber(e.target.value)}
-                    className="w-full bg-slate-900/80 border border-slate-700 rounded-lg pl-9 pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-teal-500 transition-all"
-                    placeholder="e.g., 03 123 456"
-                    disabled={!!clientId}
-                  />
-                </div>
+                <input
+                  id="svc-phone"
+                  type="tel"
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-teal-500 transition-all"
+                  placeholder="e.g., 03 123 456"
+                  disabled={!!clientId}
+                />
               </div>
-
-              {/* Save as Client checkbox — only shown when not already an existing client */}
-              {!clientId && clientName.trim() && (
-                <label className="flex items-center gap-2 cursor-pointer text-sm text-slate-400 hover:text-white transition-colors">
-                  <input
-                    type="checkbox"
-                    checked={saveAsClient}
-                    onChange={(e) => setSaveAsClient(e.target.checked)}
-                    className="rounded border-slate-600 bg-slate-900 text-teal-500 focus:ring-teal-500 focus:ring-offset-0"
-                  />
-                  <UserPlus size={14} />
-                  Save as client
-                </label>
-              )}
             </div>
 
             {/* Note */}
@@ -728,6 +833,11 @@ export default function CustomServices() {
               />
             </div>
           </div>
+
+          <TransactionTimeOverride
+            value={transactionTime}
+            onChange={setTransactionTime}
+          />
 
           {/* Submit */}
           <button
@@ -756,6 +866,14 @@ export default function CustomServices() {
           onClose={() => setShowHistoryModal(false)}
           onRefresh={reload}
           onVoid={handleVoid}
+        />
+      )}
+
+      {/* Preset Manager Modal */}
+      {showPresetManager && (
+        <PresetManagerModal
+          onClose={() => setShowPresetManager(false)}
+          onPresetsChanged={loadPresets}
         />
       )}
     </div>

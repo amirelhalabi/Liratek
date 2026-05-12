@@ -28,6 +28,7 @@ export interface SaveJobParams {
   payments?: MaintenancePaymentLine[];
   change_given_usd?: number;
   change_given_lbp?: number;
+  transaction_time?: string;
 }
 
 export class MaintenanceService {
@@ -46,6 +47,16 @@ export class MaintenanceService {
     error?: string;
   } {
     try {
+      if (params.transaction_time) {
+        const txTime = new Date(params.transaction_time);
+        if (isNaN(txTime.getTime())) {
+          throw new Error("Invalid transaction_time format");
+        }
+        if (txTime > new Date()) {
+          throw new Error("transaction_time cannot be in the future");
+        }
+      }
+
       return this.repo.withTransaction(() => {
         // Handle client auto-creation if name provided but no ID
         let clientId = params.client_id ?? null;
@@ -78,6 +89,7 @@ export class MaintenanceService {
           status: params.status ?? "In Progress",
           paid_by: params.paid_by ?? "CASH",
           note: params.note ?? null,
+          transaction_time: params.transaction_time,
         };
 
         // Determine primary payment method from payment lines

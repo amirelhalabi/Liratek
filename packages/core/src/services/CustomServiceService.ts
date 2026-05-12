@@ -38,6 +38,18 @@ export class CustomServiceService {
    * Add a new custom service.
    */
   addService(data: CreateCustomServiceInput): CustomServiceResult {
+    if (data.transaction_time) {
+      const txTime = new Date(data.transaction_time);
+      if (isNaN(txTime.getTime())) {
+        return { success: false, error: "Invalid transaction_time format" };
+      }
+      if (txTime > new Date()) {
+        return {
+          success: false,
+          error: "transaction_time cannot be in the future",
+        };
+      }
+    }
     return this.repo.createService(data);
   }
 
@@ -103,6 +115,7 @@ export class CustomServiceService {
       client_name?: string;
       phone_number?: string;
       note?: string;
+      category?: string;
     },
     editedBy: string,
   ): {
@@ -124,6 +137,7 @@ export class CustomServiceService {
       "client_name",
       "phone_number",
       "note",
+      "category",
     ] as const;
 
     for (const field of fields) {

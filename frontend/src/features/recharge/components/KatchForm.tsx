@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import { ChevronDown } from "lucide-react";
+import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
+import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
 import AlfaLogo from "@/assets/logos/alfa.svg?react";
 import MtcLogo from "@/assets/logos/mtc.svg?react";
 import { type PaymentLine, useApi } from "@liratek/ui";
@@ -71,6 +73,7 @@ export function KatchForm({
   const [paymentMethod, setPaymentMethod] = useState("CASH");
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
   const isSplitPayment = paymentLines.length > 1;
+  const [transactionTime, setTransactionTime] = useState<string | undefined>();
   const [searchQuery, setSearchQuery] = useState("");
   const [discount, setDiscount] = useState(0);
   const [showPaymentSheet, setShowPaymentSheet] = useState(false);
@@ -417,6 +420,7 @@ export function KatchForm({
               ? line.returnedCreditsUsd
               : undefined,
             note: `${line.item.label} (${line.item.subcategory})${line.onlyDays ? " [Only Days]" : ""}`,
+            transaction_time: transactionTime,
           });
 
           if (result?.success) {
@@ -454,6 +458,7 @@ export function KatchForm({
       setCart(new Map());
       setClientName("");
       setExpandedKeys(new Set());
+      setTransactionTime(undefined);
     }
     loadFinancialData();
     setLocalSubmitting(false);
@@ -749,12 +754,16 @@ export function KatchForm({
           <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
             Client Name
           </label>
-          <input
+          <ClientAutocompleteInput
             type="text"
             value={clientName}
-            onChange={(e) => setClientName(e.target.value)}
+            onChange={(v) => setClientName(v)}
             placeholder="Client name (optional)"
             className="w-full mt-1 bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500"
+          />
+          <TransactionTimeOverride
+            value={transactionTime}
+            onChange={setTransactionTime}
           />
         </div>
       </PaymentSheet>

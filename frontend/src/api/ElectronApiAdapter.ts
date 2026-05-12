@@ -372,6 +372,8 @@ export class ElectronApiAdapter implements ApiAdapter {
     client_name?: string;
     phone_number?: string;
     note?: string;
+    category?: string;
+    transaction_time?: string;
   }) => api.addCustomService(data);
   deleteCustomService = (id: number) => api.deleteCustomService(id);
 

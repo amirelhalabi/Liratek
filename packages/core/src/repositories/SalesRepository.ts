@@ -102,6 +102,7 @@ export interface SaleRequest {
   id?: number;
   status?: "completed" | "draft" | "cancelled";
   note?: string;
+  transaction_time?: string;
 }
 
 export interface DashboardStats {
@@ -275,8 +276,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             INSERT INTO ${tableName} (
               client_id, total_amount_usd, discount_usd, final_amount_usd, 
               paid_usd, paid_lbp, change_given_usd, change_given_lbp, exchange_rate_snapshot,
-              drawer_name, status, note
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              drawer_name, status, note, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
           `);
 
           const saleResult = saleStmt.run(
@@ -292,6 +293,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             sale.drawer_name || "General",
             status,
             sale.note || null,
+            sale.transaction_time ?? null,
           );
           saleId = saleResult.lastInsertRowid as number;
         }
@@ -325,6 +327,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             status,
             item_count: sale.items.length,
           },
+          transaction_time: sale.transaction_time,
         });
 
         // Persist payment lines + update running balances (drawer_balances)

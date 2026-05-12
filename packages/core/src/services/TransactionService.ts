@@ -37,6 +37,16 @@ export class TransactionService {
    */
   createTransaction(data: CreateTransactionInput): number {
     try {
+      if (data.transaction_time) {
+        const txTime = new Date(data.transaction_time);
+        if (isNaN(txTime.getTime())) {
+          throw new Error("Invalid transaction_time format");
+        }
+        if (txTime > new Date()) {
+          throw new Error("transaction_time cannot be in the future");
+        }
+      }
+
       // Snapshot exchange rate if not explicitly provided
       if (data.exchange_rate === undefined) {
         data = { ...data, exchange_rate: this.snapshotExchangeRate() };

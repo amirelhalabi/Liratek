@@ -1,7 +1,9 @@
 import { useState, useEffect, useMemo } from "react";
 import { PageHeader } from "@liratek/ui";
-import { Clock, Eye, X } from "lucide-react";
+import { Clock, Eye, X, AlertTriangle } from "lucide-react";
 import { DataTable } from "@liratek/ui";
+import { DrawerVarianceBreakdown } from "../../components/VarianceCard";
+import type { DrawerVariance } from "../../types";
 
 interface CheckpointCurrency {
   currency_code: string;
@@ -45,6 +47,35 @@ export default function CheckpointTimeline() {
   const [viewCheckpoint, setViewCheckpoint] = useState<CheckpointRecord | null>(
     null,
   );
+  const [expandedVarianceId, setExpandedVarianceId] = useState<number | null>(
+    null,
+  );
+
+  /**
+   * Compute per-drawer variance for a checkpoint from its currencies data.
+   * Returns only entries that have physical_amount set (i.e., actual was recorded).
+   */
+  const getCheckpointVariances = (
+    checkpoint: CheckpointRecord,
+  ): DrawerVariance[] => {
+    return checkpoint.currencies
+      .filter(
+        (c) => c.physical_amount !== undefined && c.physical_amount !== null,
+      )
+      .map((c) => ({
+        drawerName: c.drawer_name || "Unknown",
+        currency: c.currency_code,
+        expected: c.opening_amount || 0,
+        actual: c.physical_amount ?? 0,
+        variance: (c.physical_amount ?? 0) - (c.opening_amount || 0),
+      }))
+      .filter((d) => Math.abs(d.variance) > 0.01);
+  };
+
+  /** Check if a checkpoint has any variance */
+  const checkpointHasVariance = (checkpoint: CheckpointRecord): boolean => {
+    return getCheckpointVariances(checkpoint).length > 0;
+  };
 
   useEffect(() => {
     loadCheckpoints();
@@ -168,49 +199,87 @@ export default function CheckpointTimeline() {
             loading={loading}
             emptyMessage="No checkpoints found"
             renderRow={(checkpoint) => {
+              const hasVariance = checkpointHasVariance(checkpoint);
+              const isExpanded = expandedVarianceId === checkpoint.id;
               return (
-                <tr
-                  key={checkpoint.id}
-                  className="hover:bg-slate-700/50 transition-colors"
-                >
-                  <td className="p-4 text-slate-300 font-mono">
-                    {formatTime(checkpoint.created_at)}
-                  </td>
-                  {allCurrencies.map((code) => {
-                    const totals = getAggregatedTotals(checkpoint);
-                    const total = totals[code] || 0;
-                    if (total === 0) {
+                <>
+                  <tr
+                    key={checkpoint.id}
+                    className="hover:bg-slate-700/50 transition-colors"
+                  >
+                    <td className="p-4 text-slate-300 font-mono">
+                      {formatTime(checkpoint.created_at)}
+                    </td>
+                    {allCurrencies.map((code) => {
+                      const totals = getAggregatedTotals(checkpoint);
+                      const total = totals[code] || 0;
+                      if (total === 0) {
+                        return (
+                          <td
+                            key={code}
+                            className="p-4 text-right text-slate-600"
+                          >
+                            -
+                          </td>
+                        );
+                      }
                       return (
-                        <td
-                          key={code}
-                          className="p-4 text-right text-slate-600"
-                        >
-                          -
+                        <td key={code} className="p-4 text-right">
+                          <div className="text-emerald-400 font-mono font-medium">
+                            {formatCurrency(total, code)}
+                          </div>
                         </td>
                       );
-                    }
-                    return (
-                      <td key={code} className="p-4 text-right">
-                        <div className="text-emerald-400 font-mono font-medium">
-                          {formatCurrency(total, code)}
+                    })}
+                    <td className="p-4 text-slate-300">
+                      {checkpoint.user_name}
+                    </td>
+                    <td className="p-4 text-slate-400 italic max-w-xs truncate">
+                      {checkpoint.notes || "-"}
+                    </td>
+                    <td className="p-4 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        {hasVariance && (
+                          <button
+                            onClick={() =>
+                              setExpandedVarianceId(
+                                isExpanded ? null : checkpoint.id,
+                              )
+                            }
+                            className="p-2 hover:bg-amber-900/30 rounded-lg transition-colors text-amber-400 hover:text-amber-300"
+                            title="Variance detected — click to see breakdown"
+                          >
+                            <AlertTriangle size={16} />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => setViewCheckpoint(checkpoint)}
+                          className="p-2 hover:bg-slate-700 rounded-lg transition-colors text-slate-400 hover:text-white"
+                          title="View details"
+                        >
+                          <Eye size={16} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                  {hasVariance && isExpanded && (
+                    <tr key={`${checkpoint.id}-variance`}>
+                      <td
+                        colSpan={allCurrencies.length + 4}
+                        className="px-4 pb-4 pt-0"
+                      >
+                        <div className="bg-amber-950/20 border border-amber-800/30 rounded-lg p-4 mt-1">
+                          <p className="text-xs text-amber-400 font-semibold uppercase tracking-wide mb-3">
+                            Variance Breakdown
+                          </p>
+                          <DrawerVarianceBreakdown
+                            drawers={getCheckpointVariances(checkpoint)}
+                          />
                         </div>
                       </td>
-                    );
-                  })}
-                  <td className="p-4 text-slate-300">{checkpoint.user_name}</td>
-                  <td className="p-4 text-slate-400 italic max-w-xs truncate">
-                    {checkpoint.notes || "-"}
-                  </td>
-                  <td className="p-4 text-right">
-                    <button
-                      onClick={() => setViewCheckpoint(checkpoint)}
-                      className="p-2 hover:bg-slate-700 rounded-lg transition-colors text-slate-400 hover:text-white"
-                      title="View details"
-                    >
-                      <Eye size={16} />
-                    </button>
-                  </td>
-                </tr>
+                    </tr>
+                  )}
+                </>
               );
             }}
           />

@@ -2,134 +2,8 @@
 
 > **Sprint Goal:** Fix all critical blockers and deliver high-priority features  
 > **Created:** 2026-04-23  
-> **Last Updated:** 2026-05-07  
+> **Last Updated:** 2026-05-11 (LIRA-041 completed, all actionable tickets done)  
 > **Status Legend:** `TODO` | `IN PROGRESS` | `PARTIAL` | `DONE` | `BLOCKED` | `TBD`
-
----
-
-## Epic 2: Unified Checkpoint System (formerly Opening/Closing)
-
-> Merge Opening and Closing into a single "Checkpoint" that can be done at any time. Fix the dashboard reset bug. Add variance alerting. This is a major architectural change to the daily operations flow.
-
----
-
-### LIRA-006: Checkpoint Variance Alert Icons
-
-| Field               | Value                                 |
-| ------------------- | ------------------------------------- |
-| **Epic**            | Unified Checkpoint System             |
-| **Type**            | Feature                               |
-| **Priority**        | Medium                                |
-| **Status**          | TODO                                  |
-| **Affected Module** | Checkpoint Timeline, Checkpoint Modal |
-| **Assigned To**     | —                                     |
-
-**Description:**  
-When a checkpoint has a discrepancy (actual ≠ expected), display a visual alert icon (e.g., warning triangle) on that checkpoint entry. This helps the user quickly identify which checkpoint had a variance and by how much.
-
-Additionally, customer credit deposits (reverse debts — see LIRA-020) must be excluded from being flagged as "extra" money. For example, if a customer leaves $40 at the shop as credit, that $40 should not trigger a variance alert because the system knows it belongs to client X.
-
-**Acceptance Criteria:**
-
-- [ ] Alert icon displayed on checkpoint entries where actual ≠ expected for any drawer/currency
-- [ ] Icon shows on the `CheckpointTimeline` list view
-- [ ] Clicking the icon shows a breakdown of which drawers have variance
-- [ ] Customer credit deposits are subtracted from "extra" before determining if alert is needed
-- [ ] Tooltip or detail shows the variance amount
-
-**Dependencies:**
-
-- LIRA-030 (Reverse Debt / Customer Credit — for exclusion logic)
-
-**Files to Modify:**
-
-- `frontend/src/features/closing/components/CheckpointTimeline/index.tsx`
-- `frontend/src/features/closing/components/VarianceCard.tsx`
-- `packages/core/src/services/ClosingService.ts`
-
----
-
-### LIRA-008: Checkpoint Stress Test & Acceptance Validation
-
-| Field           | Value                     |
-| --------------- | ------------------------- |
-| **Epic**        | Unified Checkpoint System |
-| **Type**        | QA / Testing              |
-| **Priority**    | High                      |
-| **Status**      | TODO                      |
-| **Depends On**  | LIRA-006                  |
-| **Assigned To** | —                         |
-
-**Description:**  
-End-to-end acceptance test that replicates the real shop flow:
-
-**Test Scenario:**
-
-1. Start fresh — no checkpoints exist
-2. Create transactions across multiple modules (POS sale, exchange, OMT send, MTC recharge, expense)
-3. Do Checkpoint #1 — verify expected amounts match the sum of transactions
-4. Enter actual amounts (some matching, some with variance)
-5. Save checkpoint — verify it records correctly
-6. Create more transactions
-7. Do Checkpoint #2 — verify baseline = Checkpoint #1 actuals, and expected = baseline + new transactions
-8. Verify dashboard values are NOT affected by either checkpoint
-9. Verify variance alert icons appear where actual ≠ expected
-10. Verify `CheckpointTimeline` shows both checkpoints correctly
-
-**Acceptance Criteria:**
-
-- [ ] Full flow above passes without errors
-- [ ] Expected amounts are mathematically correct across all drawers
-- [ ] Dashboard unaffected
-- [ ] Timeline displays correctly
-- [ ] Variance alerts work
-- [ ] Multi-currency amounts correct (USD, LBP, EUR if active)
-
----
-
-## Epic 4: Transaction Timestamp Override
-
-> Allow users to enter a transaction at a specific past time if they missed recording it.
-
----
-
-### LIRA-011: Optional Time Field on All Transaction Forms
-
-| Field                | Value                          |
-| -------------------- | ------------------------------ |
-| **Epic**             | Transaction Timestamp Override |
-| **Type**             | Feature                        |
-| **Priority**         | Medium                         |
-| **Status**           | TODO                           |
-| **Affected Modules** | All transaction forms          |
-| **Assigned To**      | —                              |
-
-**Description:**  
-Add an optional datetime picker to all transaction creation forms. If the user missed recording a transaction at 10:00 AM, they can enter it later and set the time to 10:00 AM. If not specified, defaults to current time.
-
-**Acceptance Criteria:**
-
-- [ ] Optional datetime picker available on all transaction forms
-- [ ] Defaults to current date/time if not used
-- [ ] Selected time is used as the transaction's `created_at`
-- [ ] Time cannot be set in the future (validation)
-- [ ] Time cannot be set before the last checkpoint (validation — prevents backdating past a reconciled period)
-- [ ] Transaction appears in correct chronological position in history views
-- [ ] Dashboard and checkpoint calculations use the overridden time correctly
-
-**Technical Notes:**
-
-- Add `transaction_time?: string` parameter to all create methods in services
-- Use `COALESCE(?, CURRENT_TIMESTAMP)` in SQL INSERT statements
-- Frontend: use a time picker component (consider `input type="datetime-local"`)
-- Collapsed by default, expandable via "Set custom time" link to keep forms clean
-
-**Files to Modify:**
-
-- All service `create()` methods
-- All repository `create()` methods
-- All IPC handlers (accept optional `transaction_time`)
-- All frontend transaction forms (add datetime picker)
 
 ---
 
@@ -146,7 +20,7 @@ Add an optional datetime picker to all transaction creation forms. If the user m
 | **Epic**            | Customer Sessions Overhaul          |
 | **Type**            | Bug / Feature                       |
 | **Priority**        | Medium                              |
-| **Status**          | PARTIAL — Blocked by LIRA-030       |
+| **Status**          | DONE                                |
 | **Affected Module** | Mobile Recharge > Binance, Sessions |
 | **Assigned To**     | —                                   |
 
@@ -158,45 +32,6 @@ Binance Receive (customer sends crypto to shop, cashes out) may not be properly 
 - SEND: customer pays amount + fee (positive in cart)
 - RECEIVE: customer receives amount - fee (negative in cart)
 - Verify drawer logic is correct for both directions
-
----
-
-## Epic 8: MTC/Alfa Recharge Improvements
-
-> Beyond the critical fix in LIRA-003, additional improvements needed.
-
----
-
-### LIRA-022: Margin Alert in Recharge History
-
-| Field               | Value                     |
-| ------------------- | ------------------------- |
-| **Epic**            | MTC/Alfa Improvements     |
-| **Type**            | Feature                   |
-| **Priority**        | Medium                    |
-| **Status**          | TODO                      |
-| **Affected Module** | Mobile Recharge > History |
-| **Assigned To**     | —                         |
-
-**Description:**  
-Show a visual alert/badge on history entries where the price-to-client was manually changed from the auto-calculated default and the margin exceeds 100,000 LBP. This is a theft detection mechanism — exposes users who overcharge customers and pocket the difference.
-
-**Acceptance Criteria:**
-
-- [ ] History entries show an alert icon (e.g., red warning) when margin > 100,000 LBP
-- [ ] Tooltip shows: "Price to client was modified — margin: X LBP"
-- [ ] Alert only triggers when price was manually overridden (not when default price naturally exceeds threshold)
-- [ ] Works for both MTC and Alfa
-
-**Technical Notes:**
-
-- Need to store `default_price_to_client` alongside `price_to_client` to detect manual changes
-- Or calculate expected price at display time using the rate that was active at transaction creation
-
-**Files to Modify:**
-
-- `frontend/src/features/recharge/components/HistoryModal.tsx`
-- `packages/core/src/repositories/RechargeRepository.ts` (store default price or rate snapshot)
 
 ---
 
@@ -396,144 +231,350 @@ The customer can later spend their credit on purchases or services. These credit
 
 ---
 
-## Epic 14: Custom Services & Item Selector
+## Epic 18: Cashout Method Parity
 
 ---
 
-### LIRA-033: Netflix / Account Selling in Services
+### LIRA-044: Full Cashout Method Parity with Payment Methods
 
-| Field               | Value           |
-| ------------------- | --------------- |
-| **Epic**            | Custom Services |
-| **Type**            | Feature         |
-| **Priority**        | Low             |
-| **Status**          | TODO            |
-| **Affected Module** | Custom Services |
-| **Assigned To**     | —               |
+| Field               | Value                                                        |
+| ------------------- | ------------------------------------------------------------ |
+| **Epic**            | Cashout Method Parity                                        |
+| **Type**            | Feature                                                      |
+| **Priority**        | High                                                         |
+| **Status**          | TODO                                                         |
+| **Affected Modules** | OMT, Whish, Binance, Loto, Refunds, Sessions, Checkpoints  |
+| **Assigned To**     | —                                                            |
+| **Depends On**      | LIRA-030 (DONE)                                              |
 
 **Description:**  
-Ensure custom services can handle selling digital accounts (Netflix, Spotify, etc.) as a transaction. This is a straightforward service sale — no inventory tracking of how many accounts are available. The shop records the selling transaction with cost and price.
+Currently, when the shop pays out to a customer (RECEIVE transactions, Loto prizes, refunds), the only cashout options are **Cash** (debit General drawer) or **Client Account** (credit client's balance). In reality, the shop can also pay a customer via OMT wallet, Whish wallet, or Binance transfer — but these are not supported as cashout methods today.
 
-When accounts are sourced from "Samer" (external entity), the "As Samer" button should be available to flag the transaction for settlement.
+Cashout methods should mirror payment methods. Every way a customer can pay the shop, the shop should be able to pay back the customer — with the correct drawer debited.
 
-**Acceptance Criteria:**
-
-- [ ] Custom service form can record Netflix/Spotify/etc. account sales
-- [ ] Cost and price recorded, profit calculated
-- [ ] "As Samer" flag available (depends on Epic 17)
-- [ ] No stock tracking needed — just transaction recording
-
-**Dependencies:** Epic 17 (As Samer) for the external entity flag
-
----
-
-## Epic 17: "As Samer" — External Entity System _(TBD — Large Feature)_
-
----
-
-### LIRA-037: External Entity ("As Samer") System Design
-
-| Field                | Value                                                  |
-| -------------------- | ------------------------------------------------------ |
-| **Epic**             | As Samer                                               |
-| **Type**             | Feature                                                |
-| **Priority**         | High                                                   |
-| **Status**           | TBD — Needs Design Discussion                          |
-| **Affected Modules** | Services, Custom Services, Debts, Settings > Suppliers |
-| **Assigned To**      | —                                                      |
-
-**Description:**  
-"Samer" represents an external shop/partner that the user does business with. Currently, Samer is loosely associated with the Whish System drawer and supplier settlement. This needs to be formalized into a proper external entity system.
-
-**Core Concept:**
-
-- Samer is a foreign entity (external shop) the user collaborates with
-- Some OMT/Whish transactions are done "as Samer" (on his behalf or through his system)
-- Debts flow both ways between the shop and Samer
-- Settlement happens periodically via Settings > Suppliers
-- Services (Netflix accounts, etc.) can be sourced from Samer
-
-**Planned Capabilities:**
-
-- "As Samer" toggle button on: OMT Send, OMT Receive, Whish System Send/Receive, Custom Services
-- Transactions flagged "As Samer" are tracked in a dedicated settlement ledger
-- Settlement page showing: all Samer transactions, mutual debts, net balance, settlement history
-- Services purchased from Samer create a debt entry (shop owes Samer)
-
-**Acceptance Criteria:**
-
-- [ ] TBD — requires design session
-- [ ] Should support multiple external entities (not just Samer) for future extensibility
-- [ ] Settlement flow clearly shows who owes whom and how much
-
-**Design Questions to Resolve:**
-
-1. Is this a generic "External Entity" system or hardcoded for Samer only?
-2. How does Samer's settlement relate to the existing supplier ledger?
-3. Should Samer have his own "drawer" for tracking purposes?
-4. How do Samer debts interact with the reverse debt system (LIRA-030)?
-5. What reports does the user need for Samer reconciliation?
+**Terminology:**
+- **Customer** = random passer to the shop, not saved
+- **Client** = a customer whose details are saved in the DB (`clients` table). Only clients can have a ± balance (debt/credit)
+- The payment method is **"Client Account"** (not "Customer Account"), since only saved clients can have account balances
 
 **Current State:**
 
-- Samer is currently the Whish System supplier
-- Settlement happens via `Settings > Suppliers > Supplier Ledger`
-- `supplier_ledger` table tracks TOP_UP, PAYMENT, ADJUSTMENT, SETTLEMENT entries
+| Cashout Method | Supported? | Drawer Debited |
+|---|---|---|
+| Cash | ✅ Yes | General |
+| Client Account | ✅ Yes | None (credit in `debt_ledger`) |
+| OMT Wallet | ❌ No | Should debit OMT_App |
+| Whish Wallet | ❌ No | Should debit Whish_App |
+| Binance | ❌ No | Should debit Binance |
 
----
+**Target State:**
 
-## Epic 19: Opening/Closing & OMT Fix Verification
+| Cashout Method | Drawer Debited | Notes |
+|---|---|---|
+| `CASH` | General | Default, most common |
+| `CLIENT_ACCOUNT` | None | Creates credit in `debt_ledger`. Requires client to be selected. |
+| `OMT` | OMT_App | Shop sends OMT transfer to customer's phone |
+| `WHISH` | Whish_App | Shop sends Whish transfer to customer's phone |
+| `BINANCE` | Binance | Shop sends crypto to customer's wallet |
 
----
+**Implementation Plan:**
 
-### LIRA-038: Verify Opening/Closing Works After Checkpoint Refactor
+#### Phase 1: Backend — Expand Cashout Method Enum & Drawer Logic
 
-| Field           | Value        |
-| --------------- | ------------ |
-| **Epic**        | Verification |
-| **Type**        | QA           |
-| **Priority**    | High         |
-| **Status**      | TODO         |
-| **Depends On**  | LIRA-006     |
-| **Assigned To** | —            |
+- [ ] Update `packages/core/src/validators/financial.ts` — expand `cashoutMethod` enum from `["CASH", "CUSTOMER_ACCOUNT"]` to `["CASH", "CLIENT_ACCOUNT", "OMT", "WHISH", "BINANCE"]`
+- [ ] Rename `CUSTOMER_ACCOUNT` → `CLIENT_ACCOUNT` everywhere (aligns with app terminology)
+- [ ] Update `FinancialServiceRepository.ts` RECEIVE branches — each cashout method debits its corresponding drawer:
+  - `CASH` → General drawer `-(payoutAmount)`
+  - `CLIENT_ACCOUNT` → no drawer debit, call `debtService.addCredit()`
+  - `OMT` → OMT_App drawer `-(payoutAmount)`
+  - `WHISH` → Whish_App drawer `-(payoutAmount)`
+  - `BINANCE` → Binance drawer `-(payoutAmount)`
+- [ ] Update Loto prize cashout to support same cashout methods
+- [ ] Update refund/void cashout to support same cashout methods
+- [ ] Add migration if `cashout_method` column needs expanded values or rename
 
-**Description:**  
-After implementing the checkpoint refactor and OMT fix, perform a comprehensive verification:
+#### Phase 2: Frontend — Cashout Method Picker on All RECEIVE Forms
 
-1. Create transactions in all modules
-2. Perform a checkpoint — verify all drawer amounts are correct
-3. Create an OMT transaction — verify it saves and records correctly
-4. Perform another checkpoint — verify OMT transaction is reflected
-5. Verify dashboard is not affected
+- [ ] Create a reusable `CashoutMethodPicker` component (similar to payment method selector but for outbound payments)
+- [ ] Add cashout method picker to:
+  - OMT System/App RECEIVE forms
+  - Whish System/App RECEIVE forms
+  - Binance RECEIVE form (`CryptoForm.tsx`)
+  - Loto prize cashout
+  - Refund/void confirmation
+- [ ] Default to `CASH`, show `CLIENT_ACCOUNT` only when a client is selected
+- [ ] Pass selected cashout method through to the IPC call
+
+#### Phase 3: Rename CUSTOMER_ACCOUNT → CLIENT_ACCOUNT
+
+- [ ] Migration to update `payment_methods` table: rename code `CUSTOMER_ACCOUNT` → `CLIENT_ACCOUNT`, label → "Client Account"
+- [ ] Update `debt_ledger` entries referencing `CUSTOMER_ACCOUNT`
+- [ ] Update all backend code referencing `CUSTOMER_ACCOUNT`
+- [ ] Update all frontend code referencing `CUSTOMER_ACCOUNT`
+- [ ] Update `create_db.sql` seed data
+- [ ] Update `electron.d.ts` types
+
+#### Phase 4: Checkpoint & Closing Integration
+
+- [ ] Ensure new cashout methods are properly reflected in drawer balances at checkpoint
+- [ ] `ClosingRepository` should account for cashout-driven drawer debits
+- [ ] Verify checkpoint variance alerts work correctly with new drawer movements
 
 **Acceptance Criteria:**
 
-- [ ] All module transactions save correctly
-- [ ] Checkpoint expected amounts are accurate
-- [ ] OMT transactions save without error
-- [ ] Dashboard values independent of checkpoints
-- [ ] No regressions in existing functionality
+- [ ] All 5 cashout methods available on all RECEIVE transaction forms
+- [ ] Each cashout method debits the correct drawer
+- [ ] `CLIENT_ACCOUNT` cashout only available when a client is selected
+- [ ] `CLIENT_ACCOUNT` creates proper credit entry in `debt_ledger`
+- [ ] Drawer balances at checkpoint reflect cashout-driven debits
+- [ ] Existing transactions with `CUSTOMER_ACCOUNT` migrated to `CLIENT_ACCOUNT`
+- [ ] All tests pass, typecheck clean, build succeeds
+
+**Files to Modify:**
+
+- `packages/core/src/validators/financial.ts` — cashout enum expansion
+- `packages/core/src/repositories/FinancialServiceRepository.ts` — drawer debit logic per cashout method
+- `packages/core/src/services/FinancialService.ts` — pass cashout method through
+- `packages/core/src/repositories/ClosingRepository.ts` — checkpoint drawer calculations
+- `packages/core/src/db/migrations/index.ts` — rename migration
+- `electron-app/create_db.sql` — seed data update
+- `electron-app/handlers/financialHandlers.ts` — pass cashout method
+- `electron-app/preload.ts` — types if needed
+- `frontend/src/features/recharge/components/CryptoForm.tsx` — cashout picker
+- `frontend/src/features/recharge/components/FinancialForm.tsx` — cashout picker
+- `frontend/src/features/recharge/components/KatchForm.tsx` — cashout picker
+- `frontend/src/features/recharge/components/OmtWhishAppTransferForm.tsx` — cashout picker
+- `frontend/src/features/recharge/pages/Recharge/index.tsx` — wire cashout method
+- `frontend/src/types/electron.d.ts` — type updates
+
+---
+
+## Epic 17: Partner System (formerly "As Samer")
+
+---
+
+### LIRA-037: Partner System — Multi-Partner Transaction & Settlement
+
+| Field                | Value                                                              |
+| -------------------- | ------------------------------------------------------------------ |
+| **Epic**             | Partner System                                                     |
+| **Type**             | Feature                                                            |
+| **Priority**         | High                                                               |
+| **Status**           | TODO — Design Finalized                                            |
+| **Affected Modules** | OMT, Whish, Custom Services, Settings, Checkpoints                |
+| **Assigned To**      | —                                                                  |
+| **Depends On**       | LIRA-044 (cashout method parity — for settlement cashout methods)  |
+
+**Description:**  
+A **Partner** is an external shop/business that collaborates with the user's shop. Partners typically don't have their own OMT/Whish systems, so the user performs transactions on their behalf. Each "As [Partner]" transaction creates a ledger entry tracking who owes whom. Settlement is partial — partners can pay or be paid any amount, not necessarily zeroing the balance.
+
+**Terminology:**
+- **Partner** = external business entity (e.g., Samer, Ahmad). NOT a client/customer.
+- **Client** = a saved customer in the DB with ± balance (debt/credit)
+- **Customer** = random passer to the shop, not saved
+
+**Background (from design discussion):**
+- LiraTek is for OMT-based shops. OMT shops are exclusively OMT (not Whish), because OMT and Whish are competitors — you work with one, not both.
+- Whish System transactions are currently all done via partners (e.g., Samer has the Whish system).
+- Partners contact the shop to perform transactions on their behalf. The money physically flows through the shop's drawers, and settlement happens later.
+- Multiple partners are supported. Any cashier can perform "As Partner" transactions.
+- This is internal bookkeeping — customers don't know/care about partner involvement.
+
+---
+
+#### Data Model
+
+**`partners` table:**
+
+| Column       | Type    | Notes                                    |
+|-------------|---------|------------------------------------------|
+| `id`        | INTEGER | PK, autoincrement                        |
+| `name`      | TEXT    | Required, unique                         |
+| `phone`     | TEXT    | Optional                                 |
+| `notes`     | TEXT    | Optional                                 |
+| `is_active` | INTEGER | Default 1                                |
+| `created_at`| TEXT    | CURRENT_TIMESTAMP                        |
+| `updated_at`| TEXT    | CURRENT_TIMESTAMP                        |
+
+**`partner_ledger` table:**
+
+| Column             | Type    | Notes                                                        |
+|-------------------|---------|--------------------------------------------------------------|
+| `id`              | INTEGER | PK, autoincrement                                            |
+| `partner_id`      | INTEGER | FK → partners.id                                             |
+| `transaction_type`| TEXT    | OMT_SEND, OMT_RECEIVE, WHISH_SEND, WHISH_RECEIVE, CUSTOM_SERVICE, SETTLEMENT, ADJUSTMENT |
+| `reference_table`  | TEXT    | Source table: `financial_services`, `custom_services`, or NULL (for settlement/adjustment) |
+| `reference_id`    | INTEGER | FK → source table row, or NULL                               |
+| `amount`          | REAL    | Always positive                                              |
+| `currency`        | TEXT    | USD or LBP                                                   |
+| `direction`       | TEXT    | DEBIT (partner owes us) or CREDIT (we owe partner)           |
+| `notes`           | TEXT    | Optional                                                     |
+| `user_id`         | INTEGER | FK → users.id (who recorded it)                              |
+| `settlement_method` | TEXT  | For SETTLEMENT type only: CASH, OMT, WHISH, BINANCE, CLIENT_ACCOUNT |
+| `created_at`      | TEXT    | CURRENT_TIMESTAMP                                            |
+
+**Balance convention:** `SUM(DEBIT) - SUM(CREDIT)` → Positive = partner owes us, Negative = we owe partner. Same convention as client balance.
+
+**`financial_services` table change:** Add nullable `partner_id` column. When set, the transaction was done "As [Partner]".
+
+---
+
+#### Transaction Flows
+
+| Scenario | Drawer Effect | Partner Ledger | Example |
+|---|---|---|---|
+| **OMT SEND as Partner** | OMT_System debited (you sent the transfer) | DEBIT — partner owes you (amount + fee paid to OMT) | Samer's customer needs to send $100. You send from your OMT system. Samer owes you $100 + fee. |
+| **OMT RECEIVE as Partner** | OMT_System credited (you received the transfer) | CREDIT — you owe partner (payout amount) | Samer's customer has incoming $200. You record receive in your OMT system. You owe Samer $200 (he pays his own customer). |
+| **Whish SEND as Partner** | Whish_System debited | DEBIT — partner owes you | Same as OMT SEND but via Whish system. |
+| **Whish RECEIVE as Partner** | Whish_System credited | CREDIT — you owe partner | Same as OMT RECEIVE but via Whish system. |
+| **Buy service FROM Partner** | No drawer effect | CREDIT — you owe partner (purchase cost) | Buy Netflix account from Samer for $10. Record immediately at purchase time. |
+| **Settlement: partner pays us** | Depends on method (Cash → General credited, etc.) | DEBIT entry — reduces partner's debt to us | Samer gives you $150 cash. General drawer +$150, partner balance decreases. |
+| **Settlement: we pay partner** | Depends on method (Cash → General debited, etc.) | CREDIT entry — reduces what we owe partner | You give Samer $200 cash. General drawer -$200, partner balance decreases. |
+
+**Key:** No customer visits the shop for partner transactions. General drawer is NOT affected by the transaction itself — only by settlement. Commission from OMT/Whish is the shop's to keep, not tracked in partner ledger.
+
+---
+
+#### Implementation Plan
+
+##### Phase 1: Database — Partners & Ledger
+
+- [ ] Create `partners` table
+- [ ] Create `partner_ledger` table
+- [ ] Add `partner_id` (nullable) to `financial_services` table
+- [ ] Migration version increment
+- [ ] Update `create_db.sql` with new tables
+- [ ] Update `schema_migrations` seed block
+
+##### Phase 2: Backend — Repository & Service
+
+- [ ] Create `PartnerRepository` with:
+  - `create()`, `getById()`, `getAll()`, `update()`, `deactivate()`
+  - `addLedgerEntry()`, `getLedgerEntries(partnerId, filters)`
+  - `getBalance(partnerId)` → returns `{ usd: number, lbp: number }`
+  - `getAllBalances()` → summary for all partners
+- [ ] Create `PartnerService` with:
+  - CRUD operations with validation
+  - `recordPartnerTransaction(partnerId, transactionType, referenceId, amount, currency, direction)`
+  - `settle(partnerId, amount, currency, settlementMethod)` — creates SETTLEMENT ledger entry + drawer effect via cashout method
+  - `getPartnerStatement(partnerId, dateRange?)` — full transaction history
+- [ ] Singleton pattern, logger, exports in index files
+- [ ] Update `FinancialServiceRepository.ts`:
+  - When `partner_id` is set on a SEND: debit system drawer, skip General drawer credit (no cash received by shop)
+  - When `partner_id` is set on a RECEIVE: credit system drawer, skip General drawer debit (no cash paid out by shop)
+  - Auto-create `partner_ledger` entry for each partner transaction
+- [ ] Update `FinancialService.ts` to accept and pass `partnerId`
+
+##### Phase 3: Electron — IPC Handlers & Preload
+
+- [ ] Create `partnerHandlers.ts`:
+  - `partner:create`, `partner:update`, `partner:deactivate`
+  - `partner:get-all`, `partner:get-by-id`
+  - `partner:get-balance`, `partner:get-all-balances`
+  - `partner:get-ledger`, `partner:get-statement`
+  - `partner:settle`
+- [ ] Register in `main.ts`
+- [ ] Add preload bindings in `preload.ts` under `window.api.partners.*`
+- [ ] Add TypeScript types to `electron.d.ts`
+
+##### Phase 4: Frontend — Partner Management
+
+- [ ] **Settings > Partners page**: list all partners, add/edit/deactivate
+- [ ] **Partner Detail page**: balance (USD + LBP), full transaction history with details (date, type, amount, customer name, notes), settlement button
+- [ ] **Settlement Modal**: amount field (partial settlement), currency selector, cashout method picker (reuse from LIRA-044), confirm button
+- [ ] Add route in `App.tsx`
+
+##### Phase 5: Frontend — "As Partner" on Transaction Forms
+
+- [ ] Create reusable `PartnerSelector` component — dropdown of active partners, shown on applicable forms
+- [ ] Add partner selector to:
+  - OMT System Send/Receive forms
+  - Whish System Send/Receive forms
+  - Custom Services form (for sourcing from partner)
+- [ ] When a partner is selected:
+  - Pass `partnerId` to the IPC call
+  - Visual indicator on the form ("As Samer" badge)
+  - No customer payment method needed for partner transactions (the partner handles their customer)
+- [ ] In session cart: partner transactions should show partner name in the label
+
+##### Phase 6: Testing & Verification
+
+- [ ] Unit tests for `PartnerRepository` and `PartnerService`
+- [ ] Integration tests: partner transaction → ledger entry → balance calculation
+- [ ] Test settlement with various cashout methods
+- [ ] Test OMT SEND/RECEIVE as partner → verify correct drawer effects (no General drawer movement)
+- [ ] Typecheck, lint, build verification
+
+---
+
+#### Acceptance Criteria
+
+- [ ] Multiple partners can be created and managed (CRUD)
+- [ ] Partner selector dropdown on OMT Send/Receive, Whish System Send/Receive, Custom Services
+- [ ] "As Partner" transactions affect system drawers (OMT/Whish) but NOT General drawer
+- [ ] Partner ledger auto-created for each "As Partner" transaction with correct direction
+- [ ] Partner balance calculated as net of all ledger entries (per currency: USD + LBP)
+- [ ] Positive balance = partner owes shop, negative = shop owes partner
+- [ ] Partner detail page shows full transaction history with details
+- [ ] Partial settlement supported — amount field, not forced to zero
+- [ ] Settlement uses cashout methods (CASH, OMT, WHISH, BINANCE, CLIENT_ACCOUNT) with correct drawer effects
+- [ ] Buying services from a partner records CREDIT ledger entry at purchase time
+- [ ] Commission from OMT/Whish is NOT tracked in partner ledger (shop keeps it)
+- [ ] Any cashier can perform "As Partner" transactions
+- [ ] Fresh start — no migration of existing Whish System/supplier data
+- [ ] All tests pass, typecheck clean, build succeeds
+
+---
+
+#### Files to Create
+
+- `packages/core/src/repositories/PartnerRepository.ts`
+- `packages/core/src/services/PartnerService.ts`
+- `electron-app/handlers/partnerHandlers.ts`
+- `frontend/src/features/partners/pages/Partners/index.tsx`
+- `frontend/src/features/partners/pages/PartnerDetail/index.tsx`
+- `frontend/src/features/partners/components/PartnerSelector.tsx`
+- `frontend/src/features/partners/components/SettlementModal.tsx`
+- `packages/core/src/repositories/__tests__/PartnerRepository.test.ts`
+- `packages/core/src/services/__tests__/PartnerService.test.ts`
+
+#### Files to Modify
+
+- `packages/core/src/db/migrations/index.ts` — new migration
+- `electron-app/create_db.sql` — new tables + schema_migrations
+- `packages/core/src/repositories/index.ts` — export PartnerRepository
+- `packages/core/src/services/index.ts` — export PartnerService
+- `packages/core/src/repositories/FinancialServiceRepository.ts` — partner_id handling, skip General drawer for partner txns
+- `packages/core/src/services/FinancialService.ts` — accept partnerId
+- `electron-app/main.ts` — register partner handlers
+- `electron-app/preload.ts` — partner API bindings
+- `frontend/src/types/electron.d.ts` — partner types
+- `frontend/src/app/App.tsx` — partner routes
+- `frontend/src/features/recharge/components/FinancialForm.tsx` — partner selector
+- `frontend/src/features/recharge/components/OmtWhishAppTransferForm.tsx` — partner selector (if applicable)
+- `frontend/src/features/services/pages/Services/index.tsx` — partner selector for sourcing
+
+---
+
+---
+
+## Known Tech Debt
+
+- [ ] **Re-enable negative amount validation** in `useDrawerAmounts.ts` — currently disabled to allow negative drawer balances during checkpoint. Restore the `value < 0` check and unskip the test in `useDrawerAmounts.test.ts` once the opening-balance workflow guarantees non-negative starting values. _(from LIRA-006)_
+- [x] **~~Fix `getLastCheckpointActuals()` dropping negative balances~~** — Fixed: `WHERE physical_amount > 0` → `WHERE physical_amount IS NOT NULL`. _(from LIRA-008)_
+- [x] **~~Fix checkpoint timestamp ordering~~** — Fixed: `ORDER BY created_at DESC` → `ORDER BY id DESC`. _(from LIRA-008)_
 
 ---
 
 ## Summary Table
 
-| ID       | Title                               | Epic               | Priority | Status                        |
-| -------- | ----------------------------------- | ------------------ | -------- | ----------------------------- |
-|          | **Checkpoint System**               |                    |          |                               |
-| LIRA-006 | Checkpoint Variance Alerts          | Checkpoint System  | Medium   | TODO                          |
-| LIRA-008 | Checkpoint Stress Test              | Checkpoint System  | High     | TODO                          |
-|          | **Timestamp Override**              |                    |          |                               |
-| LIRA-011 | Optional Time Field on Transactions | Timestamp Override | Medium   | TODO                          |
-|          | **Sessions Overhaul**               |                    |          |                               |
-| LIRA-041 | Binance Receive Layout & Sessions   | Sessions Overhaul  | Medium   | PARTIAL (blocked by LIRA-030) |
-|          | **MTC/Alfa**                        |                    |          |                               |
-| LIRA-022 | Margin Alert in Recharge History    | MTC/Alfa           | Medium   | TODO                          |
-|          | **Reverse Debt**                    |                    |          |                               |
-| LIRA-030 | Customer Credit / Reverse Debt      | Reverse Debt       | High     | TBD                           |
-|          | **Custom Services**                 |                    |          |                               |
-| LIRA-033 | Netflix Account Selling             | Custom Services    | Low      | TODO                          |
-|          | **As Samer**                        |                    |          |                               |
-| LIRA-037 | "As Samer" External Entity System   | As Samer           | High     | TBD                           |
-|          | **Verification**                    |                    |          |                               |
-| LIRA-038 | Post-Refactor Verification          | Verification       | High     | TODO                          |
+| ID       | Title                             | Epic              | Priority | Status |
+| -------- | --------------------------------- | ----------------- | -------- | ------ |
+|          | **Sessions Overhaul**             |                   |          |        |
+| LIRA-041 | Binance Receive Layout & Sessions | Sessions Overhaul | Medium   | DONE   |
+|          | **Reverse Debt**                  |                   |          |        |
+| LIRA-030 | Customer Credit / Reverse Debt    | Reverse Debt      | High     | DONE   |
+|          | **Partner System**                  |                    |          |                               |
+| LIRA-037 | Partner System (Multi-Partner)      | Partner System     | High     | TODO — Design Finalized       |
+|          | **Cashout Parity**                  |                    |          |                               |
+| LIRA-044 | Full Cashout Method Parity          | Cashout Parity     | High     | TODO                          |

@@ -19,6 +19,7 @@ describe("CustomerSessionService", () => {
         customer_name TEXT,
         customer_phone TEXT,
         customer_notes TEXT,
+        user_id INTEGER,
         started_at TEXT NOT NULL DEFAULT (datetime('now')),
         closed_at TEXT,
         started_by TEXT NOT NULL,
@@ -34,17 +35,21 @@ describe("CustomerSessionService", () => {
         transaction_id INTEGER NOT NULL,
         amount_usd REAL NOT NULL DEFAULT 0,
         amount_lbp REAL NOT NULL DEFAULT 0,
+        profit_usd REAL NOT NULL DEFAULT 0,
+        profit_lbp REAL NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         FOREIGN KEY (session_id) REFERENCES customer_sessions(id) ON DELETE CASCADE
       );
     `);
 
-    // Initialize repo with test DB
-    new CustomerSessionRepository(db);
+    // Inject test DB via the global hook so getDatabase() returns it
+    (globalThis as any).__LIRATEK_TEST_DB__ = db;
+
     service = new CustomerSessionService();
   });
 
   afterEach(() => {
+    (globalThis as any).__LIRATEK_TEST_DB__ = undefined;
     db.close();
   });
 
@@ -59,9 +64,12 @@ describe("CustomerSessionService", () => {
   });
 
   it("prevents starting a new session if one is already active", async () => {
-    await service.startSession({ started_by: "admin" });
+    await service.startSession({ customer_name: "John", started_by: "admin" });
 
-    const result = await service.startSession({ started_by: "admin" });
+    const result = await service.startSession({
+      customer_name: "John",
+      started_by: "admin",
+    });
 
     expect(result.success).toBe(false);
     expect(result.error).toContain("active session already exists");
@@ -179,6 +187,7 @@ describe("CustomerSessionService", () => {
 
     expect(result.success).toBe(true);
     expect(result.sessions).toHaveLength(2);
-    expect(result.sessions![0].customer_name).toBe("Bob");
+    const names = result.sessions!.map((s: any) => s.customer_name).sort();
+    expect(names).toEqual(["Alice", "Bob"]);
   });
 });

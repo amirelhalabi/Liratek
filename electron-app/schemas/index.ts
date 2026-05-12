@@ -188,6 +188,7 @@ export const RechargeSchema = z.object({
   clientId: z.number().optional(),
   clientName: z.string().optional(),
   currency: z.string().optional(),
+  default_price_to_client: z.number().nonnegative().optional(),
 });
 
 // =============================================================================
@@ -338,6 +339,7 @@ export const CustomServiceCreateSchema = z.object({
   client_name: z.string().optional(),
   phone_number: z.string().optional(),
   note: z.string().optional(),
+  category: z.string().optional(),
   payments: z
     .array(
       z.object({
@@ -370,6 +372,30 @@ export const DebtRepaymentSchema = z.object({
   paidByMethod: z.string().optional(),
   payments: z.array(RepaymentPaymentLegSchema).optional(),
 });
+
+export const DebtAddCreditSchema = z
+  .object({
+    clientId: z.number().int().positive(),
+    amountUsd: z.number().nonnegative().default(0),
+    amountLbp: z.number().nonnegative().default(0),
+    note: z.string().max(500).optional(),
+    transactionTime: z.string().optional(),
+  })
+  .refine((data) => data.amountUsd > 0 || data.amountLbp > 0, {
+    message: "At least one amount (USD or LBP) must be greater than 0",
+  });
+
+export const DebtUseCreditSchema = z
+  .object({
+    clientId: z.number().int().positive(),
+    amountUsd: z.number().nonnegative().default(0),
+    amountLbp: z.number().nonnegative().default(0),
+    note: z.string().max(500).optional(),
+    transactionTime: z.string().optional(),
+  })
+  .refine((data) => data.amountUsd > 0 || data.amountLbp > 0, {
+    message: "At least one amount (USD or LBP) must be greater than 0",
+  });
 
 // =============================================================================
 // Clients

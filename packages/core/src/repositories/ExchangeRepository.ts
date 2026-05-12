@@ -59,6 +59,7 @@ export interface CreateExchangeData {
   note?: string;
   fromCurrencyName?: string;
   toCurrencyName?: string;
+  transaction_time?: string;
 }
 
 // =============================================================================
@@ -149,13 +150,13 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
             amount_in, amount_out, rate, base_rate, profit_usd,
             leg1_rate, leg1_market_rate, leg1_profit_usd,
             leg2_rate, leg2_market_rate, leg2_profit_usd,
-            via_currency, client_name, note
+            via_currency, client_name, note, created_at
           ) VALUES (
             ?, ?, ?,
             ?, ?, ?, ?, ?,
             ?, ?, ?,
             ?, ?, ?,
-            ?, ?, ?
+            ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP)
           )`,
         )
         .run(
@@ -176,6 +177,7 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
           data.viaCurrency ?? null,
           data.clientName ?? null,
           note,
+          data.transaction_time ?? null,
         );
 
       const id = Number(result.lastInsertRowid);
@@ -226,6 +228,7 @@ export class ExchangeRepository extends BaseRepository<ExchangeTransactionEntity
           via_currency: data.viaCurrency ?? null,
           total_profit_usd: data.totalProfitUsd,
         },
+        transaction_time: data.transaction_time,
       });
 
       const insertPayment = this.db.prepare(

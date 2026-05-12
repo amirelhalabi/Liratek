@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import logger from "@/utils/logger";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
+import { useSaveAsClient } from "@/shared/hooks/useSaveAsClient";
+import { SaveAsClientCheckbox } from "@/shared/components/SaveAsClientCheckbox";
+import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import {
   Send,
   ArrowDownToLine,
@@ -20,6 +23,7 @@ import { PageHeader, Select, useApi, appEvents } from "@liratek/ui";
 import { DataTable } from "@liratek/ui";
 import { MultiPaymentInput, type PaymentLine } from "@liratek/ui";
 import { StatsCards } from "../../components/StatsCards";
+import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
 import { getExchangeRates } from "@/utils/exchangeRates";
 
 type Provider = "OMT" | "WHISH";
@@ -287,6 +291,18 @@ export default function Services() {
   );
   const [note, setNote] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [transactionTime, setTransactionTime] = useState<string | undefined>();
+
+  // Save-as-client: use sender for SEND, receiver for RECEIVE
+  const saveClientName = serviceType === "SEND" ? senderName : receiverName;
+  const saveClientPhone = serviceType === "SEND" ? senderPhone : receiverPhone;
+  const {
+    saveAsClient,
+    setSaveAsClient,
+    showCheckbox: showSaveAsClient,
+    trySaveAsClient,
+    resetSaveAsClient,
+  } = useSaveAsClient(saveClientName, saveClientPhone);
 
   // New fields for Phase 2
   const [omtFee, setOmtFee] = useState<string>("");
@@ -611,6 +627,9 @@ export default function Services() {
 
     setIsSubmitting(true);
     try {
+      // Save as client if checkbox is checked
+      await trySaveAsClient();
+
       const amtVal = parseFloat(amount) || 0;
 
       // Resolve the OMT fee: prefer user-entered value, fall back to auto-lookup.
@@ -791,6 +810,10 @@ export default function Services() {
               }
             : {}),
         note: note || `${provider} - ${serviceType}`,
+        ...(serviceType === "RECEIVE" && paidByMethod === "DEBT"
+          ? { cashoutMethod: "CUSTOMER_ACCOUNT" as const }
+          : {}),
+        transaction_time: transactionTime,
       };
 
       // If session is active, add to cart instead of submitting
@@ -798,22 +821,27 @@ export default function Services() {
         const clientLabel = serviceType === "SEND" ? senderName : receiverName;
         const feeTotal = (resolvedFee ?? 0) + finalPmFee;
         const feeLabelStr =
-          currency === "LBP"
-            ? feeTotal > 0
-              ? ` + ${feeTotal.toLocaleString()} LBP fees`
-              : ""
-            : feeTotal > 0
-              ? ` + $${feeTotal.toFixed(2)} fees`
-              : "";
+          serviceType === "RECEIVE"
+            ? ""
+            : currency === "LBP"
+              ? feeTotal > 0
+                ? ` + ${feeTotal.toLocaleString()} LBP fees`
+                : ""
+              : feeTotal > 0
+                ? ` + $${feeTotal.toFixed(2)} fees`
+                : "";
         const amountStr =
           currency === "LBP"
             ? `${sentAmount.toLocaleString()} LBP`
             : `$${sentAmount.toFixed(2)}`;
         const label = `${provider} ${serviceType} - ${clientLabel || "Unknown"} - ${amountStr}${feeLabelStr}`;
-        // Customer total: includingFees means amtVal IS the total; otherwise add fees on top
-        const customerTotal = includingFees
-          ? amtVal
-          : sentAmount + (resolvedFee ?? 0) + finalPmFee;
+        // Customer total: for SEND, customer pays amount + fees; for RECEIVE, customer gets just the amount
+        const customerTotal =
+          serviceType === "RECEIVE"
+            ? sentAmount
+            : includingFees
+              ? amtVal
+              : sentAmount + (resolvedFee ?? 0) + finalPmFee;
 
         addToSessionCart({
           module: provider === "OMT" ? "omt_system" : "whish_system",
@@ -842,6 +870,7 @@ export default function Services() {
         setMultiPmFees({});
         setNote("");
         setIsSubmitting(false);
+        resetSaveAsClient();
         return;
       }
 
@@ -889,7 +918,9 @@ export default function Services() {
         setPmFeeAmount("");
         setMultiPmFees({});
         setNote("");
+        setTransactionTime(undefined);
         loadData();
+        resetSaveAsClient();
       } else {
         appEvents.emit(
           "notification:show",
@@ -931,11 +962,14 @@ export default function Services() {
     multiPmFees,
     multiPmFeeApplies,
     note,
+    transactionTime,
     api,
     activeSession,
     linkTransaction,
     addToSessionCart,
     loadData,
+    trySaveAsClient,
+    resetSaveAsClient,
   ]);
 
   // Close history modal on Escape key
@@ -1443,11 +1477,14 @@ export default function Services() {
                     <User size={12} /> Sender{" "}
                     {activeSession && serviceType === "SEND" && "• Session"}
                   </label>
-                  <input
+                  <ClientAutocompleteInput
                     id="service-sender-name"
                     type="text"
                     value={senderName}
-                    onChange={(e) => setSenderName(e.target.value)}
+                    onChange={(v) => setSenderName(v)}
+                    onClientSelect={(c) => {
+                      setSenderPhone(c.phone_number || "");
+                    }}
                     className={INPUT_CLASS}
                     placeholder={
                       activeSession && serviceType === "SEND"
@@ -1464,11 +1501,15 @@ export default function Services() {
                     <Phone size={12} /> Sender Phone{" "}
                     {activeSession && serviceType === "SEND" && "• Session"}
                   </label>
-                  <input
+                  <ClientAutocompleteInput
                     id="service-sender-phone"
                     type="tel"
                     value={senderPhone}
-                    onChange={(e) => setSenderPhone(e.target.value)}
+                    onChange={(v) => setSenderPhone(v)}
+                    onClientSelect={(c) => {
+                      setSenderName(c.full_name);
+                    }}
+                    searchByPhone
                     className={INPUT_CLASS}
                     placeholder={
                       activeSession && serviceType === "SEND"
@@ -1485,11 +1526,14 @@ export default function Services() {
                     <User size={12} /> Receiver{" "}
                     {activeSession && serviceType === "RECEIVE" && "• Session"}
                   </label>
-                  <input
+                  <ClientAutocompleteInput
                     id="service-receiver-name"
                     type="text"
                     value={receiverName}
-                    onChange={(e) => setReceiverName(e.target.value)}
+                    onChange={(v) => setReceiverName(v)}
+                    onClientSelect={(c) => {
+                      setReceiverPhone(c.phone_number || "");
+                    }}
                     className={INPUT_CLASS}
                     placeholder={
                       activeSession && serviceType === "RECEIVE"
@@ -1506,11 +1550,15 @@ export default function Services() {
                     <Phone size={12} /> Receiver Phone{" "}
                     {activeSession && serviceType === "RECEIVE" && "• Session"}
                   </label>
-                  <input
+                  <ClientAutocompleteInput
                     id="service-receiver-phone"
                     type="tel"
                     value={receiverPhone}
-                    onChange={(e) => setReceiverPhone(e.target.value)}
+                    onChange={(v) => setReceiverPhone(v)}
+                    onClientSelect={(c) => {
+                      setReceiverName(c.full_name);
+                    }}
+                    searchByPhone
                     className={INPUT_CLASS}
                     placeholder={
                       activeSession && serviceType === "RECEIVE"
@@ -1520,6 +1568,11 @@ export default function Services() {
                   />
                 </div>
               </div>
+              <SaveAsClientCheckbox
+                checked={saveAsClient}
+                onChange={setSaveAsClient}
+                hidden={!showSaveAsClient}
+              />
 
               {/* Reference Number */}
               <div>
@@ -1543,10 +1596,13 @@ export default function Services() {
               <div>
                 <MultiPaymentInput
                   totalAmount={
-                    // On SEND, the customer must pay amount + providerFee.
-                    // The payment lines must sum to this full number.
+                    // On SEND:
+                    // - includingFees=false: customer pays amount + fee on top
+                    // - includingFees=true: fee is already inside amount, customer pays just amount
                     serviceType === "SEND"
-                      ? (parseFloat(amount) || 0) + renderProviderFee
+                      ? includingFees
+                        ? parseFloat(amount) || 0
+                        : (parseFloat(amount) || 0) + renderProviderFee
                       : parseFloat(amount) || 0
                   }
                   currency="USD"
@@ -1557,7 +1613,7 @@ export default function Services() {
                       setPaidByMethod(lines[0].method);
                     }
                   }}
-                  requiresClientForDebt={true}
+                  requiresClientForDebt={serviceType !== "RECEIVE"}
                   hasClient={
                     !!(serviceType === "SEND" ? senderName : receiverName) ||
                     !!(serviceType === "SEND" ? senderPhone : receiverPhone)
@@ -1565,8 +1621,18 @@ export default function Services() {
                   showPmFee={multiPmFeeApplies}
                   pmFeeRate={PM_FEE_DEFAULT_RATE}
                   onPmFeesChange={setMultiPmFees}
-                  providerFee={serviceType === "SEND" ? renderProviderFee : 0}
-                  paymentMethods={allPaymentMethods}
+                  providerFee={
+                    serviceType === "SEND" && !includingFees
+                      ? renderProviderFee
+                      : 0
+                  }
+                  paymentMethods={
+                    serviceType === "RECEIVE"
+                      ? allPaymentMethods.filter(
+                          (pm) => pm.code === "CASH" || pm.code === "DEBT",
+                        )
+                      : allPaymentMethods
+                  }
                   currencies={[
                     { code: "USD", symbol: "$" },
                     { code: "LBP", symbol: "LBP" },
@@ -1678,6 +1744,10 @@ export default function Services() {
 
             {/* Footer: Submit */}
             <div className="p-3 border-t border-slate-700/40 bg-slate-900/20 mt-auto">
+              <TransactionTimeOverride
+                value={transactionTime}
+                onChange={setTransactionTime}
+              />
               <button
                 onClick={handleSubmit}
                 disabled={isSubmitting}

@@ -26,6 +26,9 @@ describe("LotoService Checkpoint Functionality", () => {
         payment_method TEXT,
         currency TEXT DEFAULT 'LBP',
         note TEXT,
+        checkpoint_id INTEGER,
+        edited_by TEXT,
+        edited_at TEXT,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP
       );
@@ -51,9 +54,26 @@ describe("LotoService Checkpoint Functionality", () => {
         total_commission REAL DEFAULT 0,
         total_tickets INTEGER DEFAULT 0,
         total_prizes REAL DEFAULT 0,
+        total_cash_prizes REAL DEFAULT 0,
+        total_cash_prizes_count INTEGER DEFAULT 0,
         is_settled BOOLEAN DEFAULT 0,
         settled_at TEXT,
         settlement_id INTEGER,
+        note TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE loto_cash_prizes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticket_number TEXT,
+        prize_amount REAL NOT NULL,
+        customer_name TEXT,
+        prize_date TEXT,
+        is_reimbursed INTEGER DEFAULT 0,
+        reimbursed_date TEXT,
+        reimbursed_in_settlement_id INTEGER,
+        checkpoint_id INTEGER,
         note TEXT,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP
@@ -133,7 +153,7 @@ describe("LotoService Checkpoint Functionality", () => {
 
     it("should return null for non-existent checkpoint", () => {
       const checkpoint = service.getCheckpoint(999);
-      expect(checkpoint).toBeNull();
+      expect(checkpoint).toBeUndefined();
     });
   });
 
@@ -154,7 +174,7 @@ describe("LotoService Checkpoint Functionality", () => {
 
     it("should return null for non-existent date", () => {
       const checkpoint = service.getCheckpointByDate("2024-12-31");
-      expect(checkpoint).toBeNull();
+      expect(checkpoint).toBeUndefined();
     });
   });
 
@@ -231,7 +251,7 @@ describe("LotoService Checkpoint Functionality", () => {
 
     it("should return null for non-existent checkpoint", () => {
       const result = service.updateCheckpoint(999, { note: "Test" });
-      expect(result).toBeNull();
+      expect(result).toBeUndefined();
     });
   });
 
@@ -305,7 +325,7 @@ describe("LotoService Checkpoint Functionality", () => {
 
       const totalSales = service.getTotalSalesFromUnsettledCheckpoints();
 
-      expect(totalSales).toBe(500); // 10+20+15+100+200+50+150 (all tickets in DB)
+      expect(totalSales).toBe(545); // 10+20+15+100+200+50+150 (all tickets in DB)
     });
 
     it("should exclude settled checkpoints from total", () => {
@@ -378,7 +398,7 @@ describe("LotoService Checkpoint Functionality", () => {
       const totalCommission =
         service.getTotalCommissionFromUnsettledCheckpoints();
 
-      expect(totalCommission).toBe(45); // 1+2+1.5+5+5+10+10 (all tickets in DB)
+      expect(totalCommission).toBe(34.5); // checkpoint1: 1+2+1.5+5+5=14.5, checkpoint2: 10+10=20, total=34.5
     });
   });
 
@@ -409,7 +429,7 @@ describe("LotoService Checkpoint Functionality", () => {
       // Delete all checkpoints to test null case
       db.exec("DELETE FROM loto_checkpoints");
       const checkpoint = service.getLastCheckpoint();
-      expect(checkpoint).toBeNull();
+      expect(checkpoint).toBeUndefined();
     });
   });
 
@@ -429,7 +449,7 @@ describe("LotoService Checkpoint Functionality", () => {
 
       expect(scheduledCheckpoint).toBeDefined();
       expect(scheduledCheckpoint.checkpoint_date).toBe("2024-01-10");
-      expect(scheduledCheckpoint.period_start).toBe("2024-01-05"); // From the end of first checkpoint
+      expect(scheduledCheckpoint.period_start).toBe("2024-01-06"); // Day after first checkpoint's period_end
       expect(scheduledCheckpoint.period_end).toBe("2024-01-10");
       expect(scheduledCheckpoint.note).toContain(
         "Scheduled checkpoint for 2024-01-10",

@@ -5,6 +5,8 @@ import { User, X } from "lucide-react";
 import { useApi } from "@liratek/ui";
 import type { Client } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
+import { useSaveAsClient } from "@/shared/hooks/useSaveAsClient";
+import { SaveAsClientCheckbox } from "@/shared/components/SaveAsClientCheckbox";
 
 interface StartSessionModalProps {
   isOpen: boolean;
@@ -25,6 +27,13 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
   const [todaySessionNames, setTodaySessionNames] = useState<string[]>([]);
   const [loadingNames, setLoadingNames] = useState(false);
   const nameInputRef = useRef<HTMLInputElement>(null);
+  const {
+    saveAsClient,
+    setSaveAsClient,
+    showCheckbox: showSaveAsClient,
+    trySaveAsClient,
+    resetSaveAsClient,
+  } = useSaveAsClient(customerName, customerPhone);
 
   // Focus name input and fetch today's session names when modal opens
   useEffect(() => {
@@ -76,6 +85,7 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
       setSelectedClient(null);
       setError(null);
       setTodaySessionNames([]);
+      resetSaveAsClient();
     }
   }, [isOpen]);
 
@@ -100,6 +110,8 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
     setError(null);
 
     try {
+      await trySaveAsClient();
+
       await startSession({
         customer_name: customerName.trim(),
         ...(customerPhone.trim()
@@ -258,6 +270,11 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
               className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-violet-600 focus:border-violet-500"
               placeholder="+1234567890"
               disabled={loading}
+            />
+            <SaveAsClientCheckbox
+              checked={saveAsClient}
+              onChange={setSaveAsClient}
+              hidden={!!selectedClient || !showSaveAsClient}
             />
           </div>
 

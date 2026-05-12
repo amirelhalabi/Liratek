@@ -17,3 +17,4 @@ export * from "./closing.js";
 export * from "./rate.js";
 export * from "./maintenance.js";
 export * from "./customService.js";
+export * from "./servicePreset.js";

@@ -114,7 +114,7 @@ describe("Validation Schemas", () => {
     it("validates valid recharge", () => {
       const validRecharge = {
         provider: "MTC",
-        type: "prepaid",
+        type: "CREDIT_TRANSFER",
         amount: 10000,
         price: 5,
         phoneNumber: "+96170123456",
@@ -126,7 +126,7 @@ describe("Validation Schemas", () => {
     it("rejects invalid phone number", () => {
       const invalidRecharge = {
         provider: "MTC",
-        type: "prepaid",
+        type: "CREDIT_TRANSFER",
         amount: 10000,
         price: 5,
         phoneNumber: "invalid",
@@ -214,9 +214,11 @@ describe("Validation Schemas", () => {
   describe("setRateSchema", () => {
     it("validates valid rate", () => {
       const validRate = {
-        fromCurrency: "USD",
-        toCurrency: "LBP",
-        rate: 90000,
+        to_code: "LBP",
+        market_rate: 90000,
+        buy_rate: 89500,
+        sell_rate: 90500,
+        is_stronger: 1,
       };
 
       expect(() => setRateSchema.parse(validRate)).not.toThrow();
@@ -224,9 +226,11 @@ describe("Validation Schemas", () => {
 
     it("rejects zero rate", () => {
       const invalidRate = {
-        fromCurrency: "USD",
-        toCurrency: "LBP",
-        rate: 0,
+        to_code: "LBP",
+        market_rate: 0,
+        buy_rate: 0,
+        sell_rate: 0,
+        is_stronger: 1,
       };
 
       expect(() => setRateSchema.parse(invalidRate)).toThrow();
@@ -286,6 +290,7 @@ describe("Validation Schemas", () => {
       const validTransaction = {
         provider: "OMT",
         serviceType: "SEND",
+        amount: 500,
         referenceNumber: "OMT123456",
         senderName: "John Doe",
         receiverName: "Jane Smith",
@@ -302,6 +307,7 @@ describe("Validation Schemas", () => {
       const validTransaction = {
         provider: "WHISH",
         serviceType: "RECEIVE",
+        amount: 1000,
         referenceNumber: "WHISH789",
         senderName: "Alice",
         receiverName: "Bob",

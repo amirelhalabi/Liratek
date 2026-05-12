@@ -38,6 +38,7 @@ export interface RepaymentData {
   userId: number;
   paidByMethod?: string;
   payments?: RepaymentPaymentLine[];
+  transaction_time?: string;
 }
 
 // =============================================================================
@@ -98,11 +99,25 @@ export class DebtService {
       userId,
       paidByMethod,
       payments,
+      transaction_time,
     } = data;
 
     // Validate
     if (!clientId) {
       return { success: false, error: "Client ID is required" };
+    }
+
+    if (transaction_time) {
+      const txTime = new Date(transaction_time);
+      if (isNaN(txTime.getTime())) {
+        return { success: false, error: "Invalid transaction_time format" };
+      }
+      if (txTime > new Date()) {
+        return {
+          success: false,
+          error: "transaction_time cannot be in the future",
+        };
+      }
     }
     // When multi-payment legs are provided, validate their total > 0
     const hasLegs =
@@ -137,6 +152,7 @@ export class DebtService {
         created_by: userId,
         paid_by_method: paidByMethod,
         payments,
+        transaction_time,
       });
 
       debtLogger.info(
@@ -157,6 +173,148 @@ export class DebtService {
       );
       return { success: false, error: (error as Error).message };
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Credit Operations
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Add credit to a client's account (shop owes customer)
+   */
+  addCredit(data: {
+    clientId: number;
+    amountUsd: number;
+    amountLbp: number;
+    note?: string;
+    userId: number;
+    transactionTime?: string;
+  }): { success: boolean; id?: number; error?: string } {
+    const { clientId, amountUsd, amountLbp, note, userId, transactionTime } =
+      data;
+
+    if (!clientId) {
+      return { success: false, error: "Client ID is required" };
+    }
+    if ((amountUsd ?? 0) <= 0 && (amountLbp ?? 0) <= 0) {
+      return {
+        success: false,
+        error: "At least one amount must be greater than 0",
+      };
+    }
+
+    try {
+      const result = this.debtRepo.addCredit({
+        clientId,
+        amountUsd: amountUsd ?? 0,
+        amountLbp: amountLbp ?? 0,
+        note: note || "",
+        createdBy: String(userId),
+        transactionTime,
+      });
+
+      debtLogger.info(
+        { clientId, amountUsd, amountLbp, creditId: result.id },
+        `Credit of $${amountUsd} and ${amountLbp} LBP added for client ${clientId}`,
+      );
+
+      return { success: true, id: result.id };
+    } catch (error) {
+      debtLogger.error(
+        { error, clientId, amountUsd, amountLbp },
+        "Failed to add credit",
+      );
+      return { success: false, error: (error as Error).message };
+    }
+  }
+
+  /**
+   * Use credit from a client's account (reduce credit balance)
+   */
+  useCredit(data: {
+    clientId: number;
+    amountUsd: number;
+    amountLbp: number;
+    note?: string;
+    userId: number;
+    transactionTime?: string;
+  }): { success: boolean; id?: number; error?: string } {
+    const { clientId, amountUsd, amountLbp, note, userId, transactionTime } =
+      data;
+
+    if (!clientId) {
+      return { success: false, error: "Client ID is required" };
+    }
+    if ((amountUsd ?? 0) <= 0 && (amountLbp ?? 0) <= 0) {
+      return {
+        success: false,
+        error: "At least one amount must be greater than 0",
+      };
+    }
+
+    // Validate available credit (balance must be negative = has credit)
+    const balance = this.debtRepo.getClientBalance(clientId);
+    // Credit available = negative balance means shop owes customer
+    // If balance_usd is -50 and they want to use $60, reject
+    if (amountUsd > 0 && balance.balance_usd > -amountUsd + 0.01) {
+      // balance_usd should be <= -amountUsd (i.e. they have enough credit)
+      // balance_usd = -50 means $50 credit. Using $60 → -50 > -60+0.01 = -59.99 → -50 > -59.99 → true → reject
+      // Actually: available credit USD = -balance_usd (when negative). If balance_usd >= 0, no credit.
+      const availableUsd = balance.balance_usd < 0 ? -balance.balance_usd : 0;
+      if (amountUsd > availableUsd + 0.01) {
+        return {
+          success: false,
+          error: `Insufficient USD credit. Available: $${availableUsd.toFixed(2)}`,
+        };
+      }
+    }
+    if (amountLbp > 0) {
+      const availableLbp = balance.balance_lbp < 0 ? -balance.balance_lbp : 0;
+      if (amountLbp > availableLbp + 0.01) {
+        return {
+          success: false,
+          error: `Insufficient LBP credit. Available: ${availableLbp.toFixed(0)} LBP`,
+        };
+      }
+    }
+
+    try {
+      const result = this.debtRepo.useCredit({
+        clientId,
+        amountUsd: amountUsd ?? 0,
+        amountLbp: amountLbp ?? 0,
+        note: note || "",
+        createdBy: String(userId),
+        transactionTime,
+      });
+
+      debtLogger.info(
+        { clientId, amountUsd, amountLbp, creditUsedId: result.id },
+        `Credit of $${amountUsd} and ${amountLbp} LBP used for client ${clientId}`,
+      );
+
+      return { success: true, id: result.id };
+    } catch (error) {
+      debtLogger.error(
+        { error, clientId, amountUsd, amountLbp },
+        "Failed to use credit",
+      );
+      return { success: false, error: (error as Error).message };
+    }
+  }
+
+  /**
+   * Get net balance for a client.
+   * Positive = owes shop. Negative = shop owes customer (has credit).
+   */
+  getClientBalance(clientId: number): {
+    balance_usd: number;
+    balance_lbp: number;
+  } {
+    if (!clientId) {
+      return { balance_usd: 0, balance_lbp: 0 };
+    }
+    return this.debtRepo.getClientBalance(clientId);
   }
 
   // ---------------------------------------------------------------------------

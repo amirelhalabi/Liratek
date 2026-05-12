@@ -74,6 +74,7 @@ export interface CreateTransactionInput {
   summary?: string;
   metadata_json?: Record<string, unknown>;
   device_id?: string;
+  transaction_time?: string;
 }
 
 export interface TransactionFilters {
@@ -172,8 +173,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       `INSERT INTO transactions
         (type, source_table, source_id, user_id, amount_usd, amount_lbp,
          profit_usd, profit_lbp,
-         exchange_rate, client_id, client_name, client_phone, summary, metadata_json, device_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         exchange_rate, client_id, client_name, client_phone, summary, metadata_json, device_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))`,
       data.type,
       data.source_table,
       data.source_id,
@@ -189,6 +190,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       data.summary ?? null,
       metadataStr,
       data.device_id ?? null,
+      data.transaction_time ?? null,
     );
 
     return result.lastInsertRowid as number;

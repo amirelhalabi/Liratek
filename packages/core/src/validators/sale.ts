@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { positiveDecimalSchema, positiveIntegerSchema } from "./common.js";
+import {
+  positiveDecimalSchema,
+  positiveIntegerSchema,
+  transactionTimeSchema,
+} from "./common.js";
 
 /**
  * Sales validation schemas
@@ -26,6 +30,7 @@ export const createSaleSchema = z.object({
   drawer_name: z.string().max(100).optional(),
   status: z.enum(["draft", "completed", "refunded"]).default("completed"),
   notes: z.string().max(500).optional(),
+  transaction_time: transactionTimeSchema,
 });
 
 export const getSaleSchema = z.object({

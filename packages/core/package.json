@@ -9,7 +9,9 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "build": "tsc -p tsconfig.json",
+    "test": "node ../../node_modules/jest/bin/jest.js --config jest.config.cjs",
+    "test:coverage": "node ../../node_modules/jest/bin/jest.js --config jest.config.cjs --coverage"
   },
   "dependencies": {
     "better-sqlite3": "^12.6.2",

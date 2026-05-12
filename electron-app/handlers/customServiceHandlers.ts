@@ -9,10 +9,15 @@ import {
   getCustomServiceService,
   customServiceLogger,
   getUserRepository,
+  getServicePresetService,
 } from "@liratek/core";
 import { requireRole } from "../session.js";
 import { audit } from "./auditHelper.js";
 import type { CreateCustomServiceInput } from "@liratek/core";
+import type {
+  CreateServicePresetInput,
+  UpdateServicePresetInput,
+} from "@liratek/core";
 import {
   CustomServiceCreateSchema,
   validatePayload,
@@ -143,6 +148,73 @@ export function registerCustomServiceHandlers(): void {
       return result.success
         ? { success: true, data: result.entity }
         : { success: false, error: result.error };
+    },
+  );
+
+  // ─── Service Presets ───
+
+  const presetService = getServicePresetService();
+
+  // List presets (optionally filter by category)
+  ipcMain.handle(
+    "service-presets:list",
+    (
+      _event: IpcMainInvokeEvent,
+      filter?: { category?: string; includeInactive?: boolean },
+    ) => {
+      try {
+        return { success: true, data: presetService.getPresets(filter) };
+      } catch (error) {
+        customServiceLogger.error({ error }, "service-presets:list failed");
+        return {
+          success: false,
+          error:
+            error instanceof Error ? error.message : "Failed to list presets",
+        };
+      }
+    },
+  );
+
+  // Create preset (admin only)
+  ipcMain.handle(
+    "service-presets:create",
+    (event: IpcMainInvokeEvent, data: CreateServicePresetInput) => {
+      const auth = requireRole(event.sender.id, ["admin"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+
+      const result = presetService.createPreset(data);
+      return result.success
+        ? { success: true, data: result.preset }
+        : { success: false, error: result.error };
+    },
+  );
+
+  // Update preset (admin only)
+  ipcMain.handle(
+    "service-presets:update",
+    (
+      event: IpcMainInvokeEvent,
+      payload: { id: number; data: UpdateServicePresetInput },
+    ) => {
+      const auth = requireRole(event.sender.id, ["admin"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+
+      const result = presetService.updatePreset(payload.id, payload.data);
+      return result.success
+        ? { success: true, data: result.preset }
+        : { success: false, error: result.error };
+    },
+  );
+
+  // Delete preset (admin only)
+  ipcMain.handle(
+    "service-presets:delete",
+    (event: IpcMainInvokeEvent, id: number) => {
+      const auth = requireRole(event.sender.id, ["admin"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+
+      const result = presetService.deletePreset(id);
+      return result;
     },
   );
 }

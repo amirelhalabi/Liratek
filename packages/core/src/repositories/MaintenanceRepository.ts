@@ -31,6 +31,7 @@ export interface MaintenanceJob {
   note?: string | null;
   created_at?: string;
   updated_at?: string;
+  transaction_time?: string;
 }
 
 export interface MaintenanceRow {
@@ -73,8 +74,8 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
       INSERT INTO maintenance (
         client_id, client_name, device_name, issue_description,
         cost_usd, price_usd, discount_usd, final_amount_usd,
-        paid_usd, paid_lbp, exchange_rate, status, paid_by, note
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        paid_usd, paid_lbp, exchange_rate, status, paid_by, note, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
     `);
     const result = stmt.run(
       job.client_id ?? null,
@@ -91,6 +92,7 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
       job.status ?? "In Progress",
       job.paid_by ?? "CASH",
       job.note ?? null,
+      job.transaction_time ?? null,
     );
     return Number(result.lastInsertRowid);
   }

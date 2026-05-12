@@ -60,6 +60,7 @@ export interface SellTicketData {
   currency?: string;
   note?: string;
   userId: number;
+  transaction_time?: string;
 }
 
 export interface SettlementData {
@@ -114,6 +115,16 @@ export class LotoService {
    */
   sellTicket(data: SellTicketData): LotoTicket {
     try {
+      if (data.transaction_time) {
+        const txTime = new Date(data.transaction_time);
+        if (isNaN(txTime.getTime())) {
+          throw new Error("Invalid transaction_time format");
+        }
+        if (txTime > new Date()) {
+          throw new Error("transaction_time cannot be in the future");
+        }
+      }
+
       // Calculate commission if not provided
       const commission_rate = data.commission_rate ?? this.getCommissionRate();
       const commission_amount = data.sale_amount * commission_rate;
@@ -130,6 +141,7 @@ export class LotoService {
         currency: data.currency || "LBP",
         note: data.note,
         userId: data.userId,
+        transaction_time: data.transaction_time,
       };
 
       const ticket = this.ticketRepo.createTicket(ticketData);

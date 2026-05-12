@@ -37,6 +37,21 @@ export class DrawerTopUpService {
         };
       }
 
+      const transactionTime = data.transaction_time;
+
+      if (transactionTime) {
+        const txTime = new Date(transactionTime);
+        if (isNaN(txTime.getTime())) {
+          return { success: false, error: "Invalid transaction_time format" };
+        }
+        if (txTime > new Date()) {
+          return {
+            success: false,
+            error: "transaction_time cannot be in the future",
+          };
+        }
+      }
+
       const id = this.repo.createTopUp(data, userId);
 
       drawerTopUpLogger.info(
@@ -73,6 +88,19 @@ export class DrawerTopUpService {
           success: false,
           error: "At least one amount (USD or LBP) must be greater than zero.",
         };
+      }
+
+      if (data.transaction_time) {
+        const txTime = new Date(data.transaction_time);
+        if (isNaN(txTime.getTime())) {
+          return { success: false, error: "Invalid transaction_time format" };
+        }
+        if (txTime > new Date()) {
+          return {
+            success: false,
+            error: "transaction_time cannot be in the future",
+          };
+        }
       }
 
       const id = this.repo.createTopUpFromDrawer(data, userId);

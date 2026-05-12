@@ -13,6 +13,7 @@ import {
 } from "../utils/payments.js";
 import { getSupplierRepository } from "./SupplierRepository.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
+import { getDebtService } from "../services/DebtService.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import {
   calculateCommission,
@@ -150,6 +151,13 @@ export interface CreateFinancialServiceData {
    * minus SMS sending costs (0.16 USD per SMS, max 3 USD per SMS in 0.5 USD increments).
    */
   returnedCreditsUsd?: number;
+  transaction_time?: string;
+  /**
+   * Cashout method for RECEIVE transactions: how the shop pays the customer.
+   * - 'CASH' (default): debit General drawer (current behavior)
+   * - 'CUSTOMER_ACCOUNT': don't debit drawer, create credit in debt_ledger
+   */
+  cashoutMethod?: "CASH" | "CUSTOMER_ACCOUNT";
 }
 
 export interface ProviderStats {
@@ -247,7 +255,10 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       const currency = data.currency ?? "USD";
       const cost = data.cost ?? 0;
       const price = data.price ?? (useCostPriceFlow ? data.amount : 0);
-      const paidBy = data.paidByMethod || "CASH";
+      const paidBy =
+        data.serviceType === "RECEIVE" && data.cashoutMethod
+          ? data.cashoutMethod
+          : data.paidByMethod || "CASH";
 
       // ═══════════════════════════════════════════════════════════════════════
       // AUTO-CALCULATE COMMISSION FOR OMT SERVICES
@@ -356,8 +367,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           sender_client_id, receiver_client_id,
           omt_service_type, omt_fee, whish_fee, profit_rate, pay_fee,
           item_key, note, is_settled, settled_at,
-          payment_method_fee, payment_method_fee_rate
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          payment_method_fee, payment_method_fee_rate, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
       `);
 
       const result = stmt.run(
@@ -390,6 +401,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         settledAt,
         pmFee,
         pmFeeRate,
+        data.transaction_time ?? null,
       );
 
       const id = Number(result.lastInsertRowid);
@@ -475,6 +487,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           paid_by: paidBy,
           item_key: data.itemKey,
         },
+        transaction_time: data.transaction_time,
       });
 
       const insertPayment = this.db.prepare(`
@@ -674,6 +687,41 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               createdBy,
             );
             upsertBalanceDelta.run(systemDrawer, currency, cryptoAmount);
+
+            // Cash payout: shop pays customer (amount - fee)
+            const payoutAmount = cryptoAmount - fee;
+            const cashoutMethod = data.cashoutMethod || "CASH";
+
+            if (payoutAmount > 0) {
+              if (cashoutMethod === "CUSTOMER_ACCOUNT") {
+                // Credit customer's account instead of paying cash
+                if (!resolvedPrimaryClientId) {
+                  throw new Error(
+                    "Client is required for CUSTOMER_ACCOUNT cashout",
+                  );
+                }
+                const debtService = getDebtService();
+                debtService.addCredit({
+                  clientId: resolvedPrimaryClientId,
+                  amountUsd: currency === "USD" ? payoutAmount : 0,
+                  amountLbp: currency === "LBP" ? payoutAmount : 0,
+                  note: `Binance RECEIVE cashout — credited to account`,
+                  userId: createdBy,
+                });
+              } else {
+                // CASH: debit General drawer for the payout
+                insertPayment.run(
+                  txnId,
+                  "CASH",
+                  "General",
+                  currency,
+                  -payoutAmount,
+                  `Cash paid to customer (Binance RECEIVE)`,
+                  createdBy,
+                );
+                upsertBalanceDelta.run("General", currency, -payoutAmount);
+              }
+            }
           }
 
           // Fee payment: customer pays the fee via their chosen payment method
@@ -1253,35 +1301,71 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           //   - OMT_System: -$100.10
           const receiveAmount = Math.abs(data.amount);
           const totalOwed = receiveAmount + Math.abs(calculatedCommission);
+          const cashoutMethod = data.cashoutMethod || "CASH";
 
-          if (useSystemDrawerFlow) {
-            // System drawer -(amount + commission): OMT owes us this total
-            insertPayment.run(
-              txnId,
-              data.provider,
-              systemDrawer,
-              currency,
-              -totalOwed,
-              `${data.provider} cash paid to customer (incl. commission)`,
-              createdBy,
-            );
-            upsertBalanceDelta.run(systemDrawer, currency, -totalOwed);
+          if (cashoutMethod === "CUSTOMER_ACCOUNT") {
+            // CUSTOMER_ACCOUNT: don't debit any drawer, create credit in debt_ledger
+            // The customer gets a credit on their account instead of cash payout.
+            if (!resolvedPrimaryClientId) {
+              throw new Error(
+                "Client is required for CUSTOMER_ACCOUNT cashout",
+              );
+            }
+
+            // Still track system drawer for OMT/WHISH settlement purposes
+            if (useSystemDrawerFlow) {
+              insertPayment.run(
+                txnId,
+                data.provider,
+                systemDrawer,
+                currency,
+                -totalOwed,
+                `${data.provider} credited to customer account (incl. commission)`,
+                createdBy,
+              );
+              upsertBalanceDelta.run(systemDrawer, currency, -totalOwed);
+            }
+
+            // Create credit entry via DebtService
+            const debtService = getDebtService();
+            debtService.addCredit({
+              clientId: resolvedPrimaryClientId,
+              amountUsd: currency === "USD" ? receiveAmount : 0,
+              amountLbp: currency === "LBP" ? receiveAmount : 0,
+              note: `${data.provider} RECEIVE cashout — credited to account`,
+              userId: createdBy,
+            });
           } else {
-            // Other providers: single drawer, positive (money coming in)
-            const drawerName = data.paidByMethod
-              ? paymentMethodToDrawerName(data.paidByMethod)
-              : systemDrawer;
-            const paymentMethod = data.paidByMethod || data.provider;
-            insertPayment.run(
-              txnId,
-              paymentMethod,
-              drawerName,
-              currency,
-              receiveAmount,
-              note,
-              createdBy,
-            );
-            upsertBalanceDelta.run(drawerName, currency, receiveAmount);
+            // CASH (default): debit system drawer — shop pays cash out to customer
+            if (useSystemDrawerFlow) {
+              // System drawer -(amount + commission): OMT owes us this total
+              insertPayment.run(
+                txnId,
+                data.provider,
+                systemDrawer,
+                currency,
+                -totalOwed,
+                `${data.provider} cash paid to customer (incl. commission)`,
+                createdBy,
+              );
+              upsertBalanceDelta.run(systemDrawer, currency, -totalOwed);
+            } else {
+              // Other providers: single drawer, positive (money coming in)
+              const drawerName = data.paidByMethod
+                ? paymentMethodToDrawerName(data.paidByMethod)
+                : systemDrawer;
+              const paymentMethod = data.paidByMethod || data.provider;
+              insertPayment.run(
+                txnId,
+                paymentMethod,
+                drawerName,
+                currency,
+                receiveAmount,
+                note,
+                createdBy,
+              );
+              upsertBalanceDelta.run(drawerName, currency, receiveAmount);
+            }
           }
         }
 

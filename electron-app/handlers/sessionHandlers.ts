@@ -8,6 +8,7 @@ import {
   getCustomServiceService,
   getMaintenanceService,
   getCustomerSessionRepository,
+  getClientRepository,
   getDatabase,
   getUserRepository,
 } from "@liratek/core";
@@ -446,6 +447,30 @@ export function registerSessionHandlers() {
         // Inject session customer_name into cart items that lack a client name
         const sessionCustomerName =
           sessionResult.session.customer_name || undefined;
+        const sessionCustomerPhone =
+          sessionResult.session.customer_phone || undefined;
+
+        // Resolve client ID from session customer name/phone for DEBT payments
+        let sessionClientId: number | undefined;
+        if (sessionCustomerName) {
+          try {
+            const clientRepo = getClientRepository();
+            // Try exact match by phone first, then search by name
+            if (sessionCustomerPhone) {
+              const byPhone = clientRepo.findByPhone(sessionCustomerPhone);
+              if (byPhone) sessionClientId = byPhone.id;
+            }
+            if (!sessionClientId) {
+              const results = clientRepo.search(sessionCustomerName, {
+                limit: 1,
+              });
+              if (results.length > 0) sessionClientId = results[0].id;
+            }
+          } catch {
+            // Client resolution failed — will be handled per-item
+          }
+        }
+
         if (sessionCustomerName) {
           for (const item of cartItems) {
             const fd = item.formData;
@@ -454,10 +479,16 @@ export function registerSessionHandlers() {
                 if (!sub.clientName && !sub.senderName && !sub.client_name) {
                   sub.clientName = sessionCustomerName;
                 }
+                if (!sub.clientId && sessionClientId) {
+                  sub.clientId = sessionClientId;
+                }
               }
             } else {
               if (!fd.clientName && !fd.senderName && !fd.client_name) {
                 fd.clientName = sessionCustomerName;
+              }
+              if (!fd.clientId && sessionClientId) {
+                fd.clientId = sessionClientId;
               }
             }
           }

@@ -97,6 +97,7 @@ export interface ElectronAPI {
       amount_usd: number;
       amount_lbp: number;
       expense_date: string;
+      transaction_time?: string;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     getToday: () => Promise<
       Array<{
@@ -380,12 +381,32 @@ export interface ElectronAPI {
         currencyCode: string;
         amount: number;
       }>;
+      transaction_time?: string;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     getClientTotal: (clientId: number) => Promise<number>;
     updateMetadata: (data: {
       id: number;
       note?: string;
     }) => Promise<{ success: boolean; data?: unknown; error?: string }>;
+    addCredit: (data: {
+      clientId: number;
+      amountUsd: number;
+      amountLbp: number;
+      note?: string;
+      transactionTime?: string;
+    }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    useCredit: (data: {
+      clientId: number;
+      amountUsd: number;
+      amountLbp: number;
+      note?: string;
+      transactionTime?: string;
+    }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    getClientBalance: (clientId: number) => Promise<{
+      success: boolean;
+      data?: { balance_usd: number; balance_lbp: number };
+      error?: string;
+    }>;
   };
 
   // Financial
@@ -423,6 +444,7 @@ export interface ElectronAPI {
       rate: number;
       clientName?: string;
       note?: string;
+      transaction_time?: string;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     getHistory: () => Promise<
       Array<{
@@ -489,6 +511,7 @@ export interface ElectronAPI {
       clientName?: string;
       referenceNumber?: string;
       note?: string;
+      transaction_time?: string;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     getHistory: (provider?: string) => Promise<
       Array<{
@@ -557,6 +580,7 @@ export interface ElectronAPI {
       price: number;
       paid_by_method?: string;
       phoneNumber?: string;
+      transaction_time?: string;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     topUp: (data: {
       provider: "MTC" | "Alfa";
@@ -688,6 +712,7 @@ export interface ElectronAPI {
       payment_method?: string;
       currency?: string;
       note?: string;
+      transaction_time?: string;
     }) => Promise<{ success: boolean; ticket?: any; error?: string }>;
     get: (
       id: number,
@@ -913,6 +938,7 @@ export interface ElectronAPI {
       paid_lbp?: number;
       exchange_rate?: number;
       status?: "Received" | "In_Progress" | "Ready" | "Delivered";
+      transaction_time?: string;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     getJobs: (statusFilter?: string) => Promise<
       Array<{
@@ -1067,12 +1093,14 @@ export interface ElectronAPI {
       amount_usd: number;
       amount_lbp: number;
       notes?: string;
+      transaction_time?: string;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     createFromDrawer: (data: {
       amount_usd: number;
       amount_lbp: number;
       source_drawer: string;
       notes?: string;
+      transaction_time?: string;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     getSourceDrawers: () => Promise<{
       success: boolean;
@@ -1683,6 +1711,8 @@ export interface ElectronAPI {
       client_name?: string;
       phone_number?: string;
       note?: string;
+      category?: string;
+      transaction_time?: string;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     delete: (id: number) => Promise<{ success: boolean; error?: string }>;
     updateMetadata: (data: {
@@ -1691,7 +1721,88 @@ export interface ElectronAPI {
       client_name?: string;
       phone_number?: string;
       note?: string;
+      category?: string;
     }) => Promise<{ success: boolean; data?: unknown; error?: string }>;
+  };
+
+  // Service Presets
+  servicePresets: {
+    list: (filter?: {
+      category?: string;
+      includeInactive?: boolean;
+    }) => Promise<{
+      success: boolean;
+      data?: Array<{
+        id: number;
+        name: string;
+        category: string;
+        cost_usd: number;
+        cost_lbp: number;
+        price_usd: number;
+        price_lbp: number;
+        is_active: number;
+        sort_order: number;
+        created_at: string;
+        updated_at: string;
+      }>;
+      error?: string;
+    }>;
+    create: (data: {
+      name: string;
+      category: string;
+      cost_usd?: number;
+      cost_lbp?: number;
+      price_usd?: number;
+      price_lbp?: number;
+      is_active?: number;
+      sort_order?: number;
+    }) => Promise<{
+      success: boolean;
+      data?: {
+        id: number;
+        name: string;
+        category: string;
+        cost_usd: number;
+        cost_lbp: number;
+        price_usd: number;
+        price_lbp: number;
+        is_active: number;
+        sort_order: number;
+        created_at: string;
+        updated_at: string;
+      };
+      error?: string;
+    }>;
+    update: (
+      id: number,
+      data: {
+        name?: string;
+        category?: string;
+        cost_usd?: number;
+        cost_lbp?: number;
+        price_usd?: number;
+        price_lbp?: number;
+        is_active?: number;
+        sort_order?: number;
+      },
+    ) => Promise<{
+      success: boolean;
+      data?: {
+        id: number;
+        name: string;
+        category: string;
+        cost_usd: number;
+        cost_lbp: number;
+        price_usd: number;
+        price_lbp: number;
+        is_active: number;
+        sort_order: number;
+        created_at: string;
+        updated_at: string;
+      };
+      error?: string;
+    }>;
+    delete: (id: number) => Promise<{ success: boolean; error?: string }>;
   };
 
   // Audit Log

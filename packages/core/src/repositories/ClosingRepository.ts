@@ -138,6 +138,7 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
         INSERT INTO drawer_balances (drawer_name, currency_code, balance)
         SELECT drawer_name, currency_code, SUM(amount)
         FROM payments
+        WHERE method != 'CUSTOMER_ACCOUNT'
         GROUP BY drawer_name, currency_code
         ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
           balance = excluded.balance,
@@ -161,7 +162,7 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
    */
   getLastCheckpointActuals(): Record<string, Record<string, number>> {
     const lastCheckpoint = this.db
-      .prepare(`SELECT id FROM daily_closings ORDER BY created_at DESC LIMIT 1`)
+      .prepare(`SELECT id FROM daily_closings ORDER BY id DESC LIMIT 1`)
       .get() as { id: number } | undefined;
 
     if (!lastCheckpoint) return {};
@@ -170,7 +171,7 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
       .prepare(
         `SELECT drawer_name, currency_code, physical_amount
          FROM daily_closing_amounts
-         WHERE closing_id = ? AND physical_amount > 0`,
+         WHERE closing_id = ? AND physical_amount IS NOT NULL`,
       )
       .all(lastCheckpoint.id) as {
       drawer_name: string;
@@ -445,6 +446,29 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
         error: error instanceof Error ? error.message : String(error),
       };
     }
+  }
+
+  /**
+   * Get raw amounts for a specific checkpoint.
+   */
+  getCheckpointAmounts(checkpointId: number): Array<{
+    drawer_name: string;
+    currency_code: string;
+    opening_amount: number;
+    physical_amount: number;
+  }> {
+    return this.query<{
+      drawer_name: string;
+      currency_code: string;
+      opening_amount: number;
+      physical_amount: number;
+    }>(
+      `SELECT drawer_name, currency_code, opening_amount, physical_amount
+       FROM daily_closing_amounts
+       WHERE closing_id = ?
+       ORDER BY drawer_name, currency_code`,
+      checkpointId,
+    );
   }
 
   /**

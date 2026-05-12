@@ -363,6 +363,7 @@ export type ApiAdapter = {
     note?: string;
     user_id?: number;
     payments?: Array<{ method: string; currencyCode: string; amount: number }>;
+    transaction_time?: string;
   }) => Promise<ApiResult>;
 
   // ---------------------------------------------------------------------------
@@ -685,6 +686,8 @@ export type ApiAdapter = {
     client_name?: string;
     phone_number?: string;
     note?: string;
+    category?: string;
+    transaction_time?: string;
   }) => Promise<ApiResult & { id?: number }>;
   deleteCustomService: (id: number) => Promise<ApiResult>;
 

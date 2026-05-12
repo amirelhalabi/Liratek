@@ -13,6 +13,7 @@ import { StatsCards } from "../../components/StatsCards";
 import { CheckpointHistory } from "../../components/CheckpointHistory";
 import { CheckpointScheduler } from "../../components/CheckpointScheduler";
 import { SettlementVerification } from "../../components/SettlementVerification";
+import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 
 interface LotoSettings {
   commission_rate: string;
@@ -51,6 +52,7 @@ export function LotoPage() {
   });
   const [exchangeRate, setExchangeRate] = useState(100000); // Default fallback
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [transactionTime, setTransactionTime] = useState<string | undefined>();
   const { methods } = usePaymentMethods();
 
   // Modal states
@@ -200,6 +202,7 @@ export function LotoPage() {
       payment_method:
         _paymentLines.length > 1 ? "SPLIT" : _paymentLines[0]?.method || "CASH",
       currency: "LBP",
+      transaction_time: transactionTime,
     };
 
     // If session is active, add to cart instead of submitting
@@ -228,6 +231,7 @@ export function LotoPage() {
         // Reset form
         setSaleAmount("");
         setPaymentLines([]);
+        setTransactionTime(undefined);
         // Reload stats
         loadTodayStats();
       } else {
@@ -256,6 +260,7 @@ export function LotoPage() {
       prize_amount: parseFloat(cashPrizeAmount),
       prize_date: new Date().toISOString().split("T")[0],
       ticket_number: cashPrizeTicketNumber.trim() || undefined,
+      payment_method: "CASH",
     };
 
     // If session is active, add to cart instead of submitting
@@ -398,6 +403,11 @@ export function LotoPage() {
                     exchangeRate={exchangeRate}
                   />
                 </div>
+
+                <TransactionTimeOverride
+                  value={transactionTime}
+                  onChange={setTransactionTime}
+                />
 
                 {/* Submit Button */}
                 <button

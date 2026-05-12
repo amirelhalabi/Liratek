@@ -21,6 +21,7 @@ const FALLBACK_DRAWER_MAP: Record<string, string> = {
   WHISH: "Whish_App",
   BINANCE: "Binance",
   DEBT: "General",
+  CUSTOMER_ACCOUNT: "General",
 };
 
 export function isDrawerAffectingMethod(method: string): boolean {
@@ -31,8 +32,8 @@ export function isDrawerAffectingMethod(method: string): boolean {
   } catch {
     // DB not available
   }
-  // Fallback: DEBT is the only non-drawer-affecting method
-  return method !== "DEBT";
+  // Fallback: DEBT and CUSTOMER_ACCOUNT are non-drawer-affecting methods
+  return method !== "DEBT" && method !== "CUSTOMER_ACCOUNT";
 }
 
 /**

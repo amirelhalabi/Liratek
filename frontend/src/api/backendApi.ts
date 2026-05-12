@@ -2020,6 +2020,8 @@ export async function addCustomService(data: {
   client_name?: string;
   phone_number?: string;
   note?: string;
+  category?: string;
+  transaction_time?: string;
 }): Promise<{ success: boolean; id?: number; error?: string }> {
   return ipcOrHttp(
     async () => getElectronApi().customServices.add(data),

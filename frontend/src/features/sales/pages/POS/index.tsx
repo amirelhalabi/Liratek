@@ -191,6 +191,7 @@ export default function POS() {
         discount: 0,
         final_amount: totalAmount,
         exchange_rate: defaultExchangeRate,
+        payment_method: "CASH",
       },
     });
 
@@ -756,10 +757,16 @@ export default function POS() {
                 order.checkoutData.clientSearchInput || "Walk-in Customer";
 
               return (
-                <button
+                <div
                   key={order.id}
                   onClick={() => handleRestoreOrder(order.id)}
-                  className="flex items-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-600 hover:border-violet-500 rounded-lg transition-all shrink-0 group min-w-[200px]"
+                  className="flex items-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-600 hover:border-violet-500 rounded-lg transition-all shrink-0 group min-w-[200px] cursor-pointer"
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ")
+                      handleRestoreOrder(order.id);
+                  }}
                 >
                   <ShoppingCart size={16} className="text-violet-400" />
                   <div className="flex-1 text-left min-w-0">
@@ -780,7 +787,7 @@ export default function POS() {
                   >
                     <Trash2 size={14} />
                   </button>
-                </button>
+                </div>
               );
             })}
           </div>

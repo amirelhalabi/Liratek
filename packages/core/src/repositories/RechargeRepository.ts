@@ -37,6 +37,7 @@ export interface RechargeData {
   amount: number;
   cost: number;
   price: number;
+  default_price_to_client?: number;
   currency?: string; // Defaults to "USD"
   paid_by_method?: RechargePaidByMethod;
   /** Multi-payment support: when provided, overrides paid_by_method */
@@ -49,6 +50,7 @@ export interface RechargeData {
   clientId?: number;
   clientName?: string;
   userId?: number;
+  transaction_time?: string;
 }
 
 export interface RechargeEntity {
@@ -58,6 +60,7 @@ export interface RechargeEntity {
   amount: number;
   cost: number;
   price: number;
+  default_price_to_client: number | null;
   currency_code: string;
   paid_by: string;
   phone_number: string | null;
@@ -80,7 +83,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
   }
 
   protected getColumns(): string {
-    return "id, carrier, recharge_type, amount, cost, price, currency_code, paid_by, phone_number, client_id, client_name, note, created_at, created_by, edited_by, edited_at";
+    return "id, carrier, recharge_type, amount, cost, price, default_price_to_client, currency_code, paid_by, phone_number, client_id, client_name, note, created_at, created_by, edited_by, edited_at";
   }
 
   /**
@@ -379,18 +382,18 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         const clientName = data.clientId
           ? ((
               this.db
-                .prepare("SELECT name FROM clients WHERE id = ?")
-                .get(data.clientId) as { name: string } | undefined
-            )?.name ??
+                .prepare("SELECT full_name FROM clients WHERE id = ?")
+                .get(data.clientId) as { full_name: string } | undefined
+            )?.full_name ??
             data.clientName ??
             null)
           : (data.clientName ?? null);
 
         const insertRecharge = this.db.prepare(`
           INSERT INTO recharges (
-            carrier, recharge_type, amount, cost, price, currency_code,
-            paid_by, phone_number, client_id, client_name, note, created_by
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            carrier, recharge_type, amount, cost, price, default_price_to_client, currency_code,
+            paid_by, phone_number, client_id, client_name, note, created_by, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
         `);
         const rechargeResult = insertRecharge.run(
           data.provider,
@@ -398,6 +401,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           data.amount,
           data.cost,
           data.price,
+          data.default_price_to_client ?? null,
           currency,
           paidBy,
           data.phoneNumber || null,
@@ -405,6 +409,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           clientName,
           note,
           createdBy,
+          data.transaction_time ?? null,
         );
         const rechargeId = Number(rechargeResult.lastInsertRowid);
 
@@ -432,6 +437,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             paid_by: paidBy,
             phone: data.phoneNumber,
           },
+          transaction_time: data.transaction_time,
         });
 
         // 3. Update running balances
@@ -522,13 +528,14 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           this.db
             .prepare(
               `INSERT INTO debt_ledger (
-                client_id, transaction_type, amount_usd, transaction_id, note, created_by, due_date
-              ) VALUES (?, ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
+                client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, due_date
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
             )
             .run(
               data.clientId,
               "Recharge Debt",
-              debtAmount,
+              currency === "USD" ? debtAmount : 0,
+              currency === "LBP" ? debtAmount : 0,
               txnId,
               note,
               createdBy,

@@ -34,3 +34,6 @@ export const paginationSchema = z.object({
 
 // ID validation
 export const idSchema = z.number().int().positive();
+
+/** Optional ISO datetime for backdating transactions. */
+export const transactionTimeSchema = z.string().datetime().optional();

@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { positiveDecimalSchema, positiveIntegerSchema } from "./common.js";
+import {
+  positiveDecimalSchema,
+  positiveIntegerSchema,
+  transactionTimeSchema,
+} from "./common.js";
 
 /**
  * Expense validation schemas
@@ -11,6 +15,7 @@ export const createExpenseSchema = z.object({
   amount_lbp: positiveDecimalSchema.default(0),
   paid_by_method: z.string().min(1).default("CASH"),
   description: z.string().max(500).optional(),
+  transaction_time: transactionTimeSchema,
 });
 
 export const deleteExpenseSchema = z.object({

@@ -29,6 +29,7 @@ export interface CreateExpenseData {
   amount_usd: number;
   amount_lbp: number;
   expense_date: string;
+  transaction_time?: string;
 }
 
 export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
@@ -50,8 +51,8 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
 
     return this.db.transaction(() => {
       const stmt = this.db.prepare(`
-        INSERT INTO expenses (description, category, paid_by_method, amount_usd, amount_lbp, expense_date)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO expenses (description, category, paid_by_method, amount_usd, amount_lbp, expense_date, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
       `);
       const result = stmt.run(
         data.description,
@@ -60,6 +61,7 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
         data.amount_usd,
         data.amount_lbp,
         data.expense_date,
+        data.transaction_time ?? null,
       );
       const expenseId = Number(result.lastInsertRowid);
 
@@ -77,6 +79,7 @@ export class ExpenseRepository extends BaseRepository<ExpenseEntity> {
           paid_by: paidBy,
           expense_date: data.expense_date,
         },
+        transaction_time: data.transaction_time,
       });
 
       // All expenses affect drawer balances (unless paid by non-drawer-affecting method)

@@ -5,14 +5,13 @@ import {
   AlertTriangle,
   CheckCircle,
   Loader2,
+  ChevronDown,
 } from "lucide-react";
 import logger from "@/utils/logger";
-import { appEvents, useApi } from "@liratek/ui";
+import { appEvents } from "@liratek/ui";
 import { useSession } from "../context/SessionContext";
 import { useAuth } from "@/features/auth/context/AuthContext";
-import { MultiPaymentInput, type PaymentLine } from "@liratek/ui";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
-import { useCurrencyContext } from "@/contexts/CurrencyContext";
 import type { CartItem } from "../types/cart";
 
 interface SessionCheckoutModalProps {
@@ -39,6 +38,90 @@ const MODULE_LABELS: Record<string, string> = {
   maintenance: "Maintenance",
 };
 
+/**
+ * Map of module → formData field name for payment method.
+ * Used to read and write the correct field when displaying/editing per-item payment methods.
+ */
+const PAYMENT_METHOD_FIELD: Record<string, string> = {
+  pos: "payment_method",
+  recharge_mtc: "paid_by_method",
+  recharge_alfa: "paid_by_method",
+  omt_app: "paidByMethod",
+  whish_app: "paidByMethod",
+  ipick: "paidByMethod",
+  katsh: "paidByMethod",
+  binance_send: "paidByMethod",
+  binance_receive: "paidByMethod",
+  omt_system: "paidByMethod",
+  whish_system: "paidByMethod",
+  loto_ticket: "payment_method",
+  loto_prize: "payment_method",
+  custom_service: "paid_by",
+  maintenance: "paid_by",
+};
+
+/**
+ * Extract the payment method from a cart item's formData.
+ * Handles batch items (_batch: true) by reading from the first sub-item.
+ */
+function getItemPaymentMethod(item: CartItem): string {
+  const field = PAYMENT_METHOD_FIELD[item.module] || "paidByMethod";
+  const fd = item.formData;
+
+  // Batch items (FinancialForm/KatchForm) — read from first sub-item
+  if (
+    fd._batch &&
+    Array.isArray(fd.items) &&
+    (fd.items as Array<Record<string, unknown>>).length > 0
+  ) {
+    const firstSub = (fd.items as Array<Record<string, unknown>>)[0];
+    return (firstSub[field] as string) || "CASH";
+  }
+
+  return (fd[field] as string) || "CASH";
+}
+
+/**
+ * Set the payment method on a cart item's formData (returns a new formData copy).
+ * Handles batch items by updating all sub-items.
+ */
+function setItemPaymentMethod(
+  item: CartItem,
+  method: string,
+): Record<string, unknown> {
+  const field = PAYMENT_METHOD_FIELD[item.module] || "paidByMethod";
+  const fd = { ...item.formData };
+
+  if (fd._batch && Array.isArray(fd.items)) {
+    fd.items = (fd.items as Array<Record<string, unknown>>).map((sub) => ({
+      ...sub,
+      [field]: method,
+    }));
+  } else {
+    fd[field] = method;
+  }
+
+  return fd;
+}
+
+/** Modules where only CASH and DEBT (Customer Account) are valid payment methods (cashout/receive) */
+const CASHOUT_ONLY_MODULES = new Set(["binance_receive"]);
+
+/** Check if a cart item is a RECEIVE/cashout transaction (only CASH + Customer Account allowed) */
+function isCashoutItem(item: CartItem): boolean {
+  if (CASHOUT_ONLY_MODULES.has(item.module)) return true;
+  // OMT/Whish system or app RECEIVE: amount is negative
+  if (
+    (item.module === "omt_system" ||
+      item.module === "whish_system" ||
+      item.module === "omt_app" ||
+      item.module === "whish_app") &&
+    item.amount < 0
+  )
+    return true;
+  return false;
+}
+
 function formatAmount(amount: number, currency: string): string {
   if (currency === "LBP") {
     return `${Math.abs(amount).toLocaleString()} LBP`;
@@ -62,48 +145,27 @@ export function SessionCheckoutModal({
   } = useSession();
   const { user } = useAuth();
   const { allMethods } = usePaymentMethods();
-  const { activeCurrencies } = useCurrencyContext();
 
   const [isProcessing, setIsProcessing] = useState(false);
-  const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [exchangeRate, setExchangeRate] = useState(90000);
 
-  // Load exchange rate from database
-  const api = useApi();
+  // Per-item payment method overrides: cartItemId → method
+  const [itemPaymentMethods, setItemPaymentMethods] = useState<
+    Record<string, string>
+  >({});
+
+  // Initialize per-item payment methods from formData when modal opens
   useEffect(() => {
-    const loadRate = async () => {
-      try {
-        const rates = await api.getRates();
-        const usdLbp = rates.find(
-          (r: { from_code: string; to_code: string }) =>
-            r.from_code === "USD" && r.to_code === "LBP",
-        );
-        if (usdLbp) setExchangeRate(usdLbp.rate);
-      } catch {
-        // keep fallback
+    if (isOpen && cartItems.length > 0) {
+      const initial: Record<string, string> = {};
+      for (const item of cartItems) {
+        initial[item.id] = getItemPaymentMethod(item);
       }
-    };
-    loadRate();
-  }, [api]);
+      setItemPaymentMethods(initial);
+    }
+  }, [isOpen, cartItems]);
 
   const totals = useMemo(() => getCartTotals(), [cartItems, getCartTotals]);
-
-  // Compute a unified total in USD: convert LBP and USDT to USD using the exchange rate
-  const unifiedTotalUsd = useMemo(() => {
-    let total = totals.usd;
-    if (totals.lbp !== 0 && exchangeRate > 0) {
-      total += totals.lbp / exchangeRate;
-    }
-    if (totals.usdt !== 0) {
-      total += totals.usdt; // USDT ≈ USD
-    }
-    return total;
-  }, [totals, exchangeRate]);
-
-  const handleExchangeRateChange = useCallback((rate: number) => {
-    setExchangeRate(rate);
-  }, []);
 
   // Group items by module for display
   const groupedItems = useMemo(() => {
@@ -115,6 +177,24 @@ export function SessionCheckoutModal({
     }
     return groups;
   }, [cartItems]);
+
+  const handleItemMethodChange = useCallback(
+    (itemId: string, method: string) => {
+      setItemPaymentMethods((prev) => ({ ...prev, [itemId]: method }));
+    },
+    [],
+  );
+
+  const handleBulkSetAll = useCallback(
+    (method: string) => {
+      const updated: Record<string, string> = {};
+      for (const item of cartItems) {
+        updated[item.id] = method;
+      }
+      setItemPaymentMethods(updated);
+    },
+    [cartItems],
+  );
 
   if (!isOpen || !activeSession) return null;
 
@@ -129,31 +209,34 @@ export function SessionCheckoutModal({
       return;
     }
 
-    // Determine primary payment method from lines
-    const primaryMethod =
-      paymentLines.length > 0 ? paymentLines[0].method : "CASH";
-
     setIsProcessing(true);
     setError(null);
 
     try {
-      const result = await window.api.session.checkout({
-        sessionId: activeSession.id,
-        cartItems: cartItems.map((item) => ({
+      // Build cart items with updated payment methods in formData
+      const updatedCartItems = cartItems.map((item) => {
+        const method =
+          itemPaymentMethods[item.id] || getItemPaymentMethod(item);
+        const updatedFormData = setItemPaymentMethod(item, method);
+        return {
           id: item.id,
           module: item.module,
           label: item.label,
           amount: item.amount,
           currency: item.currency,
-          formData: item.formData,
+          formData: updatedFormData,
           ipcChannel: item.ipcChannel,
-        })),
+        };
+      });
+
+      // Use the first item's payment method as the fallback paidByMethod
+      const primaryMethod = itemPaymentMethods[cartItems[0]?.id] || "CASH";
+
+      const result = await window.api.session.checkout({
+        sessionId: activeSession.id,
+        cartItems: updatedCartItems,
         paidByMethod: primaryMethod,
-        payments: paymentLines.map((line) => ({
-          method: line.method,
-          currency_code: line.currencyCode,
-          amount: line.amount,
-        })),
+        payments: [],
         userId: user.id,
       });
 
@@ -217,7 +300,36 @@ export function SessionCheckoutModal({
 
         {/* Body — scrollable */}
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-          {/* Cart Items Summary */}
+          {/* Bulk Payment Method */}
+          <div className="flex items-center justify-between bg-slate-800/50 border border-slate-700/40 rounded-lg px-3 py-2">
+            <span className="text-xs font-medium text-slate-400">
+              Set all items to:
+            </span>
+            <div className="relative">
+              <select
+                onChange={(e) => {
+                  if (e.target.value) {
+                    handleBulkSetAll(e.target.value);
+                    e.target.value = "";
+                  }
+                }}
+                defaultValue=""
+                className="appearance-none bg-slate-700 border border-slate-600 text-slate-200 text-xs font-medium rounded-md px-3 py-1.5 pr-7 cursor-pointer hover:bg-slate-600 transition-colors focus:outline-none focus:ring-1 focus:ring-violet-500"
+              >
+                <option value="" disabled>
+                  Choose...
+                </option>
+                {allMethods.map((m) => (
+                  <option key={m.code} value={m.code}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+            </div>
+          </div>
+
+          {/* Cart Items with Per-Item Payment Method */}
           <div className="space-y-3">
             <h3 className="text-sm font-medium text-slate-300">Cart Items</h3>
             {Array.from(groupedItems.entries()).map(([module, items]) => (
@@ -228,23 +340,53 @@ export function SessionCheckoutModal({
                 <div className="text-xs font-medium text-slate-400 mb-2">
                   {MODULE_LABELS[module] || module}
                 </div>
-                <div className="space-y-1.5">
+                <div className="space-y-2">
                   {items.map((item) => (
                     <div
                       key={item.id}
-                      className="flex justify-between items-center"
+                      className="flex items-center justify-between gap-2"
                     >
-                      <span className="text-sm text-slate-200 truncate mr-3">
+                      <span className="text-sm text-slate-200 truncate flex-1 min-w-0">
                         {item.label}
                       </span>
-                      <span
-                        className={`text-sm font-mono whitespace-nowrap ${
-                          item.amount < 0 ? "text-red-400" : "text-emerald-400"
-                        }`}
-                      >
-                        {item.amount < 0 ? "-" : "+"}
-                        {formatAmount(item.amount, item.currency)}
-                      </span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {/* Per-item payment method dropdown */}
+                        <div className="relative">
+                          <select
+                            value={
+                              itemPaymentMethods[item.id] ||
+                              getItemPaymentMethod(item)
+                            }
+                            onChange={(e) =>
+                              handleItemMethodChange(item.id, e.target.value)
+                            }
+                            className="appearance-none bg-slate-700 border border-slate-600 text-xs font-medium rounded-md px-2 py-1 pr-6 cursor-pointer hover:bg-slate-600 transition-colors focus:outline-none focus:ring-1 focus:ring-violet-500 text-slate-200"
+                          >
+                            {(isCashoutItem(item)
+                              ? allMethods.filter(
+                                  (m) => m.code === "CASH" || m.code === "DEBT",
+                                )
+                              : allMethods
+                            ).map((m) => (
+                              <option key={m.code} value={m.code}>
+                                {m.label}
+                              </option>
+                            ))}
+                          </select>
+                          <ChevronDown className="absolute right-1 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400 pointer-events-none" />
+                        </div>
+                        {/* Amount */}
+                        <span
+                          className={`text-sm font-mono whitespace-nowrap min-w-[5rem] text-right ${
+                            item.amount < 0
+                              ? "text-red-400"
+                              : "text-emerald-400"
+                          }`}
+                        >
+                          {item.amount < 0 ? "-" : "+"}
+                          {formatAmount(item.amount, item.currency)}
+                        </span>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -281,28 +423,6 @@ export function SessionCheckoutModal({
                 </span>
               </div>
             )}
-          </div>
-
-          {/* Payment Input */}
-          <div>
-            <h3 className="text-sm font-medium text-slate-300 mb-2">Payment</h3>
-            <MultiPaymentInput
-              totalAmount={unifiedTotalUsd}
-              currency="USD"
-              totalAmountCurrency="USD"
-              onChange={setPaymentLines}
-              onExchangeRateChange={handleExchangeRateChange}
-              showDiscount={false}
-              paymentMethods={allMethods.map((m) => ({
-                code: m.code,
-                label: m.label,
-              }))}
-              currencies={activeCurrencies.map((c) => ({
-                code: c.code,
-                symbol: c.symbol,
-              }))}
-              exchangeRate={exchangeRate}
-            />
           </div>
 
           {/* Error Display */}

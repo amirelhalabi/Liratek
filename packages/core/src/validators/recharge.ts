@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { positiveDecimalSchema, phoneNumberSchema } from "./common.js";
+import {
+  positiveDecimalSchema,
+  phoneNumberSchema,
+  transactionTimeSchema,
+} from "./common.js";
 
 /**
  * Recharge validation schemas (MTC, Alfa)
@@ -16,6 +20,7 @@ export const createRechargeSchema = z.object({
   paid_by_method: z.string().min(1).default("CASH"),
   clientId: z.number().int().positive().optional(),
   note: z.string().max(500).optional(),
+  transaction_time: transactionTimeSchema,
 });
 
 export const getRechargeStockSchema = z.object({

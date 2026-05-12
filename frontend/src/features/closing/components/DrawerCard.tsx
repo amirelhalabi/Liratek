@@ -8,11 +8,13 @@ import { DollarSign, Wallet, Phone, Coins, X } from "lucide-react";
 import type { DrawerType, Currency } from "../types";
 import { DRAWER_CONFIGS } from "../config/drawers";
 
-/** Format a numeric value with thousand-separator commas */
+/** Format a numeric string with thousand-separator commas, preserving decimals */
 function formatWithCommas(value: string | number): string {
-  const num = typeof value === "string" ? parseFloat(value) : value;
-  if (isNaN(num) || num === 0) return "0";
-  return num.toLocaleString();
+  const str = typeof value === "number" ? String(value) : value;
+  if (!str || str === "-") return str || "0";
+  const parts = str.split(".");
+  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return parts.join(".");
 }
 
 interface DrawerCardProps {
@@ -36,8 +38,6 @@ export function DrawerCard({
   otherCurrencies,
 }: DrawerCardProps) {
   const config = DRAWER_CONFIGS[drawer];
-  /** Track which field is actively being edited (show raw number) */
-  const [editingField, setEditingField] = useState<string | null>(null);
   const [showCurrencyPopup, setShowCurrencyPopup] = useState(false);
   const [showTooltip, setShowTooltip] = useState(false);
   const tooltipTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -134,7 +134,6 @@ export function DrawerCard({
           currencies.map((currency) => {
             const fieldKey = `${drawer}-${currency.code}`;
             const rawValue = getDisplayValue(drawer, currency.code);
-            const isEditing = editingField === fieldKey;
 
             return (
               <div key={currency.code} className="flex items-center gap-3">
@@ -149,9 +148,7 @@ export function DrawerCard({
                     id={fieldKey}
                     type="text"
                     inputMode="decimal"
-                    value={
-                      isEditing ? rawValue : formatWithCommas(rawValue || "0")
-                    }
+                    value={formatWithCommas(rawValue || "0")}
                     onChange={(e) => {
                       // Strip commas so the underlying value stays numeric
                       const cleaned = e.target.value.replace(/,/g, "");
@@ -160,8 +157,6 @@ export function DrawerCard({
                         onAmountChange(drawer, currency.code, cleaned);
                       }
                     }}
-                    onFocus={() => setEditingField(fieldKey)}
-                    onBlur={() => setEditingField(null)}
                     placeholder="0"
                     autoComplete="off"
                     disabled={disabled}
@@ -201,7 +196,6 @@ export function DrawerCard({
               {otherCurrencies!.map((currency) => {
                 const fieldKey = `${drawer}-${currency.code}-popup`;
                 const rawValue = getDisplayValue(drawer, currency.code);
-                const isEditing = editingField === fieldKey;
 
                 return (
                   <div key={currency.code} className="flex items-center gap-3">
@@ -215,17 +209,13 @@ export function DrawerCard({
                       id={fieldKey}
                       type="text"
                       inputMode="decimal"
-                      value={
-                        isEditing ? rawValue : formatWithCommas(rawValue || "0")
-                      }
+                      value={formatWithCommas(rawValue || "0")}
                       onChange={(e) => {
                         const cleaned = e.target.value.replace(/,/g, "");
                         if (/^-?[0-9]*\.?[0-9]*$/.test(cleaned)) {
                           onAmountChange(drawer, currency.code, cleaned);
                         }
                       }}
-                      onFocus={() => setEditingField(fieldKey)}
-                      onBlur={() => setEditingField(null)}
                       placeholder="0"
                       autoComplete="off"
                       disabled={disabled}

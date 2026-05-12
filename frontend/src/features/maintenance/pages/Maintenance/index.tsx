@@ -12,6 +12,9 @@ import CheckoutModal from "@/features/sales/pages/POS/components/CheckoutModal";
 import { PageHeader, useApi } from "@liratek/ui";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { HistoryModal } from "./components/HistoryModal";
+import { useSaveAsClient } from "@/shared/hooks/useSaveAsClient";
+import { SaveAsClientCheckbox } from "@/shared/components/SaveAsClientCheckbox";
+import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 
 type MaintenanceJob = {
   id: number;
@@ -46,9 +49,17 @@ export default function Maintenance() {
   const [price, setPrice] = useState("");
   const [clientName, setClientName] = useState("");
   const [clientPhone, setClientPhone] = useState("");
+  const {
+    saveAsClient,
+    setSaveAsClient,
+    showCheckbox: showSaveAsClient,
+    trySaveAsClient,
+    resetSaveAsClient,
+  } = useSaveAsClient(clientName, clientPhone);
 
   // Checkout State
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
+  const [transactionTime, setTransactionTime] = useState<string | undefined>();
 
   // Focus device name input on mount and when form resets
   useEffect(() => {
@@ -97,6 +108,8 @@ export default function Maintenance() {
     setPrice("");
     setClientName("");
     setClientPhone("");
+    setTransactionTime(undefined);
+    resetSaveAsClient();
   };
 
   const handleEdit = (job: MaintenanceJob) => {
@@ -153,6 +166,8 @@ export default function Maintenance() {
   type Status = "Received" | "In_Progress" | "Ready" | "Delivered";
 
   const handleSaveDraft = async () => {
+    await trySaveAsClient();
+
     const jobData = {
       ...(editingJob?.id != null ? { id: editingJob.id } : {}),
       device_name: deviceName,
@@ -166,6 +181,7 @@ export default function Maintenance() {
       paid_lbp: editingJob?.paid_lbp || 0,
       discount_usd: editingJob?.discount_usd || 0,
       final_amount_usd: parseFloat(price) || 0,
+      transaction_time: transactionTime,
     };
 
     const result = await api.saveMaintenanceJob(jobData);
@@ -179,6 +195,8 @@ export default function Maintenance() {
   };
 
   const handleCheckoutComplete = async (paymentData: any) => {
+    await trySaveAsClient();
+
     const jobData = {
       ...(editingJob?.id != null ? { id: editingJob.id } : {}),
       device_name: deviceName,
@@ -196,9 +214,11 @@ export default function Maintenance() {
       paid_lbp: paymentData.payment_lbp,
       exchange_rate: paymentData.exchange_rate,
       payments: paymentData.payments || [],
+      paid_by: paymentData.payments?.[0]?.method || "CASH",
       change_given_usd: paymentData.change_given_usd || 0,
       change_given_lbp: paymentData.change_given_lbp || 0,
       status: "Delivered_Paid" as Status,
+      transaction_time: transactionTime,
     };
 
     // If session is active, add to cart instead of submitting
@@ -462,8 +482,18 @@ export default function Maintenance() {
                   placeholder="Optional"
                 />
               </div>
+              <SaveAsClientCheckbox
+                checked={saveAsClient}
+                onChange={setSaveAsClient}
+                hidden={!showSaveAsClient}
+              />
             </div>
           </div>
+
+          <TransactionTimeOverride
+            value={transactionTime}
+            onChange={setTransactionTime}
+          />
 
           {/* Action Buttons */}
           <div className="flex gap-3 mt-6">

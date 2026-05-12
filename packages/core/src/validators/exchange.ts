@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { positiveDecimalSchema, currencyCodeSchema } from "./common.js";
+import {
+  positiveDecimalSchema,
+  currencyCodeSchema,
+  transactionTimeSchema,
+} from "./common.js";
 
 /**
  * Exchange/currency validation schemas
@@ -14,6 +18,7 @@ export const createExchangeSchema = z
     rate: positiveDecimalSchema,
     clientName: z.string().max(255).optional(),
     note: z.string().max(500).optional(),
+    transaction_time: transactionTimeSchema,
   })
   .refine((data) => data.fromCurrency !== data.toCurrency, {
     message: "From and To currencies must be different",

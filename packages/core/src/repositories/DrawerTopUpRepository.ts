@@ -16,6 +16,7 @@ export interface CreateDrawerTopUpData {
   amount_usd: number;
   amount_lbp: number;
   notes?: string;
+  transaction_time?: string;
 }
 
 export interface CreateDrawerTopUpFromDrawerData {
@@ -23,6 +24,7 @@ export interface CreateDrawerTopUpFromDrawerData {
   amount_lbp: number;
   source_drawer: string;
   notes?: string;
+  transaction_time?: string;
 }
 
 export interface SourceDrawerBalance {
@@ -48,18 +50,24 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
    * Inserts a drawer_topups record, creates a unified transaction row,
    * updates drawer_balances for the General drawer, and inserts payment rows.
    */
-  createTopUp(data: CreateDrawerTopUpData, userId: number): number {
+  createTopUp(
+    data: CreateDrawerTopUpData,
+    userId: number,
+    transactionTime?: string,
+  ): number {
+    const txTime = transactionTime ?? data.transaction_time;
     return this.db.transaction(() => {
       // 1. Insert into drawer_topups
       const insertTopUp = this.db.prepare(`
         INSERT INTO drawer_topups (amount_usd, amount_lbp, notes, created_by, created_at, updated_at)
-        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        VALUES (?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), CURRENT_TIMESTAMP)
       `);
       const result = insertTopUp.run(
         data.amount_usd,
         data.amount_lbp,
         data.notes ?? null,
         userId,
+        txTime ?? null,
       );
       const topUpId = Number(result.lastInsertRowid);
 
@@ -76,6 +84,7 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
           drawer: GENERAL_DRAWER,
           notes: data.notes ?? null,
         },
+        transaction_time: txTime,
       });
 
       // 3. Prepare UPSERT and payment statements
@@ -133,12 +142,14 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
   createTopUpFromDrawer(
     data: CreateDrawerTopUpFromDrawerData,
     userId: number,
+    transactionTime?: string,
   ): number {
+    const txTime = transactionTime ?? data.transaction_time;
     return this.db.transaction(() => {
       // 1. Insert into drawer_topups with source_drawer
       const insertTopUp = this.db.prepare(`
         INSERT INTO drawer_topups (amount_usd, amount_lbp, notes, source_drawer, created_by, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        VALUES (?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), CURRENT_TIMESTAMP)
       `);
       const result = insertTopUp.run(
         data.amount_usd,
@@ -146,6 +157,7 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
         data.notes ?? null,
         data.source_drawer,
         userId,
+        txTime ?? null,
       );
       const topUpId = Number(result.lastInsertRowid);
 
@@ -163,6 +175,7 @@ export class DrawerTopUpRepository extends BaseRepository<DrawerTopUpEntity> {
           source_drawer: data.source_drawer,
           notes: data.notes ?? null,
         },
+        transaction_time: txTime,
       });
 
       // 3. Prepare statements

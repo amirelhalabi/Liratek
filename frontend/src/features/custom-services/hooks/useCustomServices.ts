@@ -23,6 +23,7 @@ export interface CustomServiceEntry {
   client_name: string | null;
   phone_number: string | null;
   note: string | null;
+  category: string | null;
   created_by: number | null;
   created_at: string;
   is_refunded?: number;

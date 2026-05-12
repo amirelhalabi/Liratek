@@ -24,7 +24,13 @@ type SessionFilter = "all" | "active" | "closed";
  * Hover: shows cart/transaction popup panel.
  * Click: opens session switcher dropdown.
  */
-export function CustomerSessionButton() {
+interface CustomerSessionButtonProps {
+  isKnownClient?: boolean;
+}
+
+export function CustomerSessionButton({
+  isKnownClient = false,
+}: CustomerSessionButtonProps) {
   const {
     allActiveSessions,
     allTodaySessions,
@@ -312,7 +318,7 @@ export function CustomerSessionButton() {
             <>
               <Users size={16} />
               <span className="text-sm font-medium">
-                Customer Session
+                {isKnownClient ? "Client" : "Customer"} Session
                 {activeSession?.customer_name
                   ? ` - ${activeSession.customer_name}`
                   : ""}

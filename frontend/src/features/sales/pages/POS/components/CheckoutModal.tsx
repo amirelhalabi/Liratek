@@ -23,6 +23,7 @@ import {
   isPaymentComplete,
   convertLBPToUSD,
 } from "@/utils/paymentUtils";
+import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 
 export type PaymentData = Omit<SaleRequest, "items" | "status" | "id"> & {
   cart?: CartItem[];
@@ -206,6 +207,7 @@ export default function CheckoutModal({
 
   // Payment State
   const [discount, setDiscount] = useState(0);
+  const [transactionTime, setTransactionTime] = useState<string | undefined>();
 
   const { allMethods: paymentMethodOptions } = usePaymentMethods();
   const shopInfo = useShopInfo();
@@ -459,6 +461,7 @@ export default function CheckoutModal({
       change_given_lbp: changeGivenLBP,
       exchange_rate: effectiveExchangeRate,
       drawer_name: DRAWER_B, // legacy field (kept for backward compatibility)
+      ...(transactionTime ? { transaction_time: transactionTime } : {}),
     };
   };
 
@@ -489,6 +492,7 @@ export default function CheckoutModal({
     setIsLoading(true);
     try {
       await onComplete(getPaymentData());
+      setTransactionTime(undefined);
     } catch (error) {
       logger.error("Operation failed", { error });
       setIsLoading(false);
@@ -1205,7 +1209,13 @@ export default function CheckoutModal({
               </span>
             </div>
 
-            <div className="mt-4 flex gap-3">
+            <div className="mt-4">
+              <TransactionTimeOverride
+                value={transactionTime}
+                onChange={setTransactionTime}
+              />
+            </div>
+            <div className="mt-3 flex gap-3">
               {!isDraft && (
                 <button
                   onClick={handleSaveDraft}

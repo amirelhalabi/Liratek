@@ -6,6 +6,7 @@ import {
   Search,
   User,
   ArrowDownLeft,
+  ArrowUpRight,
   ChevronDown,
   ChevronUp,
   BookOpen,
@@ -17,6 +18,7 @@ import {
   Upload,
   Pencil,
   Check,
+  Plus,
 } from "lucide-react";
 import {
   PageHeader,
@@ -45,6 +47,7 @@ import {
   type ParsedClientPage,
 } from "../../components/ImportValidationModal";
 import { getDebtAging } from "@/api/backendApi";
+import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 
 type DebtAgingBuckets = {
   client_id: number;
@@ -106,6 +109,47 @@ export default function Debts() {
   const [searchTerm, setSearchTerm] = useState("");
   const [showRepaymentModal, setShowRepaymentModal] = useState(false);
   useModalFocusFix(showRepaymentModal);
+  const [showCreditModal, setShowCreditModal] = useState(false);
+  useModalFocusFix(showCreditModal);
+  const [creditClientSearch, setCreditClientSearch] = useState("");
+  const [creditClientResults, setCreditClientResults] = useState<
+    Array<{ id: number; full_name: string; phone_number?: string }>
+  >([]);
+  const [creditSearchLoading, setCreditSearchLoading] = useState(false);
+  const [creditSelectedClient, setCreditSelectedClient] = useState<{
+    id: number;
+    full_name: string;
+  } | null>(null);
+  const [creditAmountUsd, setCreditAmountUsd] = useState("");
+  const [creditAmountLbp, setCreditAmountLbp] = useState("");
+  const [creditNote, setCreditNote] = useState("");
+
+  // Debounced client search for credit modal
+  useEffect(() => {
+    if (creditClientSearch.length === 0) {
+      setCreditClientResults([]);
+      return;
+    }
+    setCreditSearchLoading(true);
+    const timer = setTimeout(async () => {
+      try {
+        const clients = await window.api.clients.getAll(creditClientSearch);
+        setCreditClientResults(
+          clients.map((c) => ({
+            id: c.id,
+            full_name: c.full_name,
+            phone_number: c.phone_number,
+          })),
+        );
+      } catch {
+        setCreditClientResults([]);
+      } finally {
+        setCreditSearchLoading(false);
+      }
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [creditClientSearch]);
+
   const [totalDebt, setTotalDebt] = useState(0);
   const [debtFilter, setDebtFilter] = useState<DebtFilter>("ongoing");
   const [selectedSale, setSelectedSale] = useState<SaleDetail | null>(null);
@@ -153,6 +197,9 @@ export default function Debts() {
   // Repayment State
   const [repayPaymentLines, setRepayPaymentLines] = useState<PaymentLine[]>([]);
   const [repayNote, setRepayNote] = useState("");
+  const [repayTransactionTime, setRepayTransactionTime] = useState<
+    string | undefined
+  >();
 
   useEffect(() => {
     loadDebtors();
@@ -242,11 +289,14 @@ export default function Debts() {
     }
   };
 
-  // Split history into debts (purchases) and payments (repayments)
-  // Use transaction_type to properly categorize entries (handles edge cases with inconsistent amounts)
+  // Split history into debts (purchases) and payments (repayments + credit deposits)
+  // CREDIT_DEPOSIT reduces what client owes (or increases shop's debt to client) → payment side
+  // CREDIT_USED charges against credit balance → purchase side
+  const PAYMENT_TYPES = new Set(["Repayment", "CREDIT_DEPOSIT"]);
+
   const debtEntries = useMemo(() => {
     return [...history]
-      .filter((item) => item.transaction_type !== "Repayment")
+      .filter((item) => !PAYMENT_TYPES.has(item.transaction_type))
       .sort((a, b) => {
         const dateA = new Date(a.created_at).getTime();
         const dateB = new Date(b.created_at).getTime();
@@ -256,7 +306,7 @@ export default function Debts() {
 
   const paymentEntries = useMemo(() => {
     return [...history]
-      .filter((item) => item.transaction_type === "Repayment")
+      .filter((item) => PAYMENT_TYPES.has(item.transaction_type))
       .sort((a, b) => {
         const dateA = new Date(a.created_at).getTime();
         const dateB = new Date(b.created_at).getTime();
@@ -287,6 +337,9 @@ export default function Debts() {
   const toggleDateSort = () => {
     setDateSortOrder((prev) => (prev === "desc" ? "asc" : "desc"));
   };
+
+  // Derived: is the selected client a creditor (shop owes them)?
+  const isSelectedCreditor = debtTotals.usd - paymentTotals.usd < 0;
 
   const loadClientTotal = async (clientId: number) => {
     try {
@@ -426,6 +479,9 @@ export default function Debts() {
             amountLBP: 0,
             payments: paymentLegs,
             note: repayNote,
+            ...(repayTransactionTime
+              ? { transaction_time: repayTransactionTime }
+              : {}),
             ...(user?.id != null ? { userId: user.id } : {}),
           })
         : await api.addRepayment({
@@ -434,6 +490,9 @@ export default function Debts() {
             amount_lbp: 0,
             payments: paymentLegs,
             note: repayNote,
+            ...(repayTransactionTime
+              ? { transaction_time: repayTransactionTime }
+              : {}),
             ...(user?.id != null ? { user_id: user.id } : {}),
           });
 
@@ -442,6 +501,7 @@ export default function Debts() {
         setShowRepaymentModal(false);
         setRepayPaymentLines([]);
         setRepayNote("");
+        setRepayTransactionTime(undefined);
 
         // Reload debtors list
         await loadDebtors();
@@ -778,9 +838,9 @@ export default function Debts() {
     if (!matchesSearch) return false;
 
     if (debtFilter === "ongoing") {
-      return d.total_debt > 0.01;
+      return Math.abs(d.total_debt_usd) > 0.01;
     } else if (debtFilter === "closed") {
-      return d.total_debt <= 0.01;
+      return Math.abs(d.total_debt_usd) <= 0.01;
     }
     return true; // 'all' filter
   });
@@ -810,14 +870,23 @@ export default function Debts() {
         title="Debts"
         actions={
           isAdmin ? (
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isImporting}
-              className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg font-medium transition-all disabled:opacity-50"
-            >
-              <Upload size={18} />
-              {isImporting ? "Importing..." : "Import Excel"}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowCreditModal(true)}
+                className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-medium transition-all"
+              >
+                <Plus size={18} />
+                Add Credit
+              </button>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isImporting}
+                className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg font-medium transition-all disabled:opacity-50"
+              >
+                <Upload size={18} />
+                {isImporting ? "Importing..." : "Import Excel"}
+              </button>
+            </div>
           ) : undefined
         }
       />
@@ -864,38 +933,59 @@ export default function Debts() {
           </div>
 
           <div className="flex-1 overflow-y-auto p-2 space-y-2">
-            {filteredDebtors.map((client) => (
-              <button
-                key={client.id}
-                onClick={() => setSelectedClient(client)}
-                className={`w-full text-left p-3 rounded-lg border transition-all ${
-                  selectedClient?.id === client.id
-                    ? "bg-red-500/10 border-red-500/50 shadow-md"
-                    : "bg-slate-700/30 border-transparent hover:bg-slate-700/50"
-                }`}
-              >
-                <div className="flex justify-between items-start">
-                  <div>
-                    <div className="font-bold text-slate-200">
-                      {client.full_name}
-                    </div>
-                    <div className="text-xs text-slate-500">
-                      {client.phone_number || "No Phone"}
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-red-400 font-bold text-sm">
-                      ${client.total_debt_usd.toFixed(2)}
-                    </div>
-                    {client.total_debt_lbp !== 0 && (
-                      <div className="text-red-400/70 text-xs font-medium">
-                        {client.total_debt_lbp.toLocaleString()} LBP
+            {filteredDebtors.map((client) => {
+              const isCreditor = client.total_debt_usd < 0;
+              const isSelected = selectedClient?.id === client.id;
+              return (
+                <button
+                  key={client.id}
+                  onClick={() => setSelectedClient(client)}
+                  className={`w-full text-left p-3 rounded-lg border transition-all ${
+                    isSelected
+                      ? isCreditor
+                        ? "bg-emerald-500/10 border-emerald-500/50 shadow-md"
+                        : "bg-red-500/10 border-red-500/50 shadow-md"
+                      : "bg-slate-700/30 border-transparent hover:bg-slate-700/50"
+                  }`}
+                >
+                  <div className="flex justify-between items-start">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-bold text-slate-200 truncate">
+                          {client.full_name}
+                        </span>
+                        {isCreditor ? (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-emerald-500/10 text-emerald-400 shrink-0">
+                            Creditor
+                          </span>
+                        ) : (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-red-500/10 text-red-400 shrink-0">
+                            Debtor
+                          </span>
+                        )}
                       </div>
-                    )}
+                      <div className="text-xs text-slate-500">
+                        {client.phone_number || "No Phone"}
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0 ml-2">
+                      <div
+                        className={`font-bold text-sm ${isCreditor ? "text-emerald-400" : "text-red-400"}`}
+                      >
+                        ${Math.abs(client.total_debt_usd).toFixed(2)}
+                      </div>
+                      {client.total_debt_lbp !== 0 && (
+                        <div
+                          className={`text-xs font-medium ${isCreditor ? "text-emerald-400/70" : "text-red-400/70"}`}
+                        >
+                          {Math.abs(client.total_debt_lbp).toLocaleString()} LBP
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </button>
-            ))}
+                </button>
+              );
+            })}
             {filteredDebtors.length === 0 && (
               <div className="text-center text-slate-500 py-8">
                 No debtors found.
@@ -908,33 +998,69 @@ export default function Debts() {
         <div className="flex-1 flex flex-col bg-slate-800 rounded-xl border border-slate-700 shadow-xl overflow-hidden">
           {selectedClient ? (
             <>
-              <div className="px-5 py-3 border-b border-slate-700 flex justify-between items-center bg-slate-800/50">
-                <div>
-                  <h2 className="text-xl font-bold text-white">
-                    {selectedClient.full_name}
-                  </h2>
-                  <p className="text-slate-400 text-sm">
-                    Total Debt:{" "}
-                    <span className="text-red-400 font-bold">
-                      ${(debtTotals.usd - paymentTotals.usd).toFixed(2)}
-                    </span>
-                    <span className="text-slate-500 mx-1.5">|</span>
-                    <span className="text-red-400 font-bold">
-                      {(debtTotals.lbp - paymentTotals.lbp).toLocaleString()}{" "}
-                      LBP
-                    </span>
-                  </p>
-                </div>
-                <button
-                  onClick={() => {
-                    setRepayPaymentLines([]);
-                    setShowRepaymentModal(true);
-                  }}
-                  className="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2 rounded-lg font-bold shadow-lg shadow-emerald-900/20 active:scale-95 transition-all flex items-center gap-2"
-                >
-                  <ArrowDownLeft size={20} />
-                  Settle Debt
-                </button>
+              <div className="px-5 py-3 border-b border-slate-700 bg-slate-800/50">
+                {(() => {
+                  const netUsd = debtTotals.usd - paymentTotals.usd;
+                  const netLbp = debtTotals.lbp - paymentTotals.lbp;
+                  const isCredit = netUsd < 0;
+                  return (
+                    <div className="flex items-center justify-between gap-4">
+                      {/* Left: Client name */}
+                      <h2 className="text-xl font-bold text-white shrink-0">
+                        {selectedClient.full_name}
+                      </h2>
+
+                      {/* Center: Balance */}
+                      <div
+                        className={`flex items-center gap-3 px-5 py-2 rounded-xl border ${isCredit ? "bg-emerald-500/5 border-emerald-500/20" : "bg-red-500/5 border-red-500/20"}`}
+                      >
+                        <span className="text-xs font-medium text-slate-400 uppercase tracking-wider whitespace-nowrap">
+                          {isCredit ? "Credit Balance" : "Total Debt"}
+                        </span>
+                        <span
+                          className={`font-mono text-2xl font-bold ${isCredit ? "text-emerald-400" : "text-red-400"}`}
+                        >
+                          ${Math.abs(netUsd).toFixed(2)}
+                        </span>
+                        {netLbp !== 0 && (
+                          <>
+                            <span className="text-slate-600 text-lg">|</span>
+                            <span
+                              className={`font-mono text-2xl font-bold ${isCredit ? "text-emerald-400" : "text-red-400"}`}
+                            >
+                              {Math.abs(netLbp).toLocaleString()} LBP
+                            </span>
+                          </>
+                        )}
+                      </div>
+
+                      {/* Right: Action button */}
+                      <button
+                        onClick={() => {
+                          setRepayPaymentLines([]);
+                          setShowRepaymentModal(true);
+                        }}
+                        className={`shrink-0 px-6 py-2 rounded-lg font-bold shadow-lg active:scale-95 transition-all flex items-center gap-2 ${
+                          isCredit
+                            ? "bg-red-600 hover:bg-red-500 text-white shadow-red-900/20"
+                            : "bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-900/20"
+                        }`}
+                      >
+                        {isCredit ? (
+                          <>
+                            <ArrowUpRight size={20} />
+                            Cash Out
+                          </>
+                        ) : (
+                          <>
+                            <ArrowDownLeft size={20} />
+                            Settle Debt
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Debt Aging Buckets */}
@@ -1013,7 +1139,7 @@ export default function Debts() {
                 <div className="flex-1 flex flex-col bg-slate-900/40 rounded-lg border border-slate-700/50 overflow-hidden">
                   <div className="px-4 py-2.5 border-b border-slate-700/50 flex items-center justify-between">
                     <h3 className="text-xs font-bold text-red-400 uppercase tracking-wider">
-                      Purchases
+                      {isSelectedCreditor ? "Charges" : "Purchases"}
                     </h3>
                     <span className="text-xs text-slate-500">
                       {debtEntries.length}
@@ -1106,7 +1232,13 @@ export default function Debts() {
                                               : item.transaction_type ===
                                                   "Custom Service Debt"
                                                 ? "bg-teal-400/10 text-teal-400"
-                                                : "bg-slate-700 text-slate-400"
+                                                : item.transaction_type ===
+                                                    "CREDIT_DEPOSIT"
+                                                  ? "bg-emerald-400/10 text-emerald-400"
+                                                  : item.transaction_type ===
+                                                      "CREDIT_USED"
+                                                    ? "bg-orange-400/10 text-orange-400"
+                                                    : "bg-slate-700 text-slate-400"
                                         }`}
                                       >
                                         {item.transaction_type ===
@@ -1116,7 +1248,13 @@ export default function Debts() {
                                             className="mr-1"
                                           />
                                         )}
-                                        {item.transaction_type}
+                                        {item.transaction_type ===
+                                        "CREDIT_DEPOSIT"
+                                          ? "Credit Deposit"
+                                          : item.transaction_type ===
+                                              "CREDIT_USED"
+                                            ? "Credit Used"
+                                            : item.transaction_type}
                                       </span>
                                     )}
                                   <div className="flex items-center gap-1.5">
@@ -1167,16 +1305,20 @@ export default function Debts() {
                                   </div>
                                 </div>
                               </td>
-                              <td className="px-3 py-2.5 text-right font-mono text-sm font-bold text-red-400">
-                                {item.amount_usd > 0 ? (
-                                  `$${item.amount_usd.toFixed(2)}`
+                              <td
+                                className={`px-3 py-2.5 text-right font-mono text-sm font-bold ${item.transaction_type === "CREDIT_DEPOSIT" ? "text-emerald-400" : item.transaction_type === "CREDIT_USED" ? "text-orange-400" : "text-red-400"}`}
+                              >
+                                {Math.abs(item.amount_usd) > 0 ? (
+                                  `$${Math.abs(item.amount_usd).toFixed(2)}`
                                 ) : (
                                   <span className="text-slate-600">-</span>
                                 )}
                               </td>
-                              <td className="px-3 py-2.5 text-right font-mono text-sm font-bold text-red-400">
-                                {item.amount_lbp > 0 ? (
-                                  `${item.amount_lbp.toLocaleString()}`
+                              <td
+                                className={`px-3 py-2.5 text-right font-mono text-sm font-bold ${item.transaction_type === "CREDIT_DEPOSIT" ? "text-emerald-400" : item.transaction_type === "CREDIT_USED" ? "text-orange-400" : "text-red-400"}`}
+                              >
+                                {Math.abs(item.amount_lbp) > 0 ? (
+                                  `${Math.abs(item.amount_lbp).toLocaleString()}`
                                 ) : (
                                   <span className="text-slate-600">-</span>
                                 )}
@@ -1239,7 +1381,7 @@ export default function Debts() {
                   {/* Footer total */}
                   <div className="px-4 py-2.5 border-t border-slate-700/50 bg-slate-900/80 flex justify-between items-center">
                     <span className="text-xs font-bold text-slate-400 uppercase">
-                      Total Owed
+                      {isSelectedCreditor ? "Total Charged" : "Total Owed"}
                     </span>
                     <div className="flex gap-3">
                       <span className="font-mono text-sm font-bold text-red-400">
@@ -1258,7 +1400,7 @@ export default function Debts() {
                 <div className="flex-1 flex flex-col bg-slate-900/40 rounded-lg border border-slate-700/50 overflow-hidden">
                   <div className="px-4 py-2.5 border-b border-slate-700/50 flex items-center justify-between">
                     <h3 className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
-                      Payments
+                      {isSelectedCreditor ? "Deposits" : "Payments"}
                     </h3>
                     <span className="text-xs text-slate-500">
                       {paymentEntries.length}
@@ -1332,13 +1474,21 @@ export default function Debts() {
                                 </div>
                               </td>
                               <td className="px-3 py-2.5 text-slate-400 text-sm">
-                                <span className="flex items-center gap-1">
-                                  {item.note || "-"}
-                                  {isRefunded && (
-                                    <span className="ml-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
-                                      Refunded
+                                <span className="flex flex-col gap-1">
+                                  {item.transaction_type ===
+                                    "CREDIT_DEPOSIT" && (
+                                    <span className="inline-flex items-center self-start px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-400/10 text-emerald-400">
+                                      Credit Deposit
                                     </span>
                                   )}
+                                  <span className="flex items-center gap-1">
+                                    {item.note || "-"}
+                                    {isRefunded && (
+                                      <span className="ml-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                                        Refunded
+                                      </span>
+                                    )}
+                                  </span>
                                 </span>
                               </td>
                               <td className="px-3 py-2.5 text-right font-mono text-sm font-bold text-emerald-400">
@@ -1413,7 +1563,7 @@ export default function Debts() {
                   {/* Footer total */}
                   <div className="px-4 py-2.5 border-t border-slate-700/50 bg-slate-900/80 flex justify-between items-center">
                     <span className="text-xs font-bold text-slate-400 uppercase">
-                      Total Paid
+                      {isSelectedCreditor ? "Total Deposited" : "Total Paid"}
                     </span>
                     <div className="flex gap-3">
                       <span className="font-mono text-sm font-bold text-emerald-400">
@@ -1445,6 +1595,7 @@ export default function Debts() {
             financialService={serviceDetail.fs}
             payments={serviceDetail.payments}
             debtAmount={serviceDetail.debtAmount}
+            isCreditor={isSelectedCreditor}
             onClose={() => {
               setShowServiceDetail(false);
               setServiceDetail(null);
@@ -1570,6 +1721,11 @@ export default function Debts() {
                   />
                 </div>
 
+                <TransactionTimeOverride
+                  value={repayTransactionTime}
+                  onChange={setRepayTransactionTime}
+                />
+
                 <div className="pt-4 flex gap-3">
                   <button
                     onClick={() => setShowRepaymentModal(false)}
@@ -1582,6 +1738,204 @@ export default function Debts() {
                     className="flex-1 py-3 rounded-xl font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-900/20 active:scale-95 transition-all"
                   >
                     Confirm Payment
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Credit Modal */}
+        {showCreditModal && (
+          <div
+            className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
+            role="presentation"
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget) setShowCreditModal(false);
+            }}
+          >
+            <div
+              className="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-md shadow-2xl"
+              role="presentation"
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <h3 className="text-xl font-bold text-white mb-4">Add Credit</h3>
+              <div className="space-y-4">
+                {/* Client Search */}
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">
+                    Client
+                  </label>
+                  {creditSelectedClient ? (
+                    <div className="flex items-center justify-between bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-3 py-2">
+                      <span className="text-white text-sm font-medium">
+                        {creditSelectedClient.full_name}
+                      </span>
+                      <button
+                        onClick={() => {
+                          setCreditSelectedClient(null);
+                          setCreditClientSearch("");
+                        }}
+                        className="text-slate-400 hover:text-white"
+                      >
+                        <CloseIcon size={14} />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="relative">
+                      <Search
+                        className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                        size={15}
+                      />
+                      <input
+                        type="text"
+                        value={creditClientSearch}
+                        onChange={(e) => setCreditClientSearch(e.target.value)}
+                        placeholder="Search client by name or phone..."
+                        className="w-full bg-slate-800 border border-slate-600 rounded-lg pl-9 pr-4 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
+                      />
+                      {creditClientSearch.length > 0 && (
+                        <div className="absolute z-10 top-full mt-1 w-full bg-slate-800 border border-slate-600 rounded-lg shadow-xl max-h-48 overflow-y-auto">
+                          {creditSearchLoading ? (
+                            <div className="px-3 py-2 text-sm text-slate-500">
+                              Searching...
+                            </div>
+                          ) : creditClientResults.length > 0 ? (
+                            creditClientResults.slice(0, 10).map((d) => (
+                              <button
+                                key={d.id}
+                                onClick={() => {
+                                  setCreditSelectedClient({
+                                    id: d.id,
+                                    full_name: d.full_name,
+                                  });
+                                  setCreditClientSearch("");
+                                }}
+                                className="w-full text-left px-3 py-2 hover:bg-slate-700 text-sm text-white border-b border-slate-700/50 last:border-0"
+                              >
+                                <div className="font-medium">{d.full_name}</div>
+                                {d.phone_number && (
+                                  <div className="text-xs text-slate-400">
+                                    {d.phone_number}
+                                  </div>
+                                )}
+                              </button>
+                            ))
+                          ) : (
+                            <div className="px-3 py-2 text-sm text-slate-500">
+                              No clients found
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Amount USD */}
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">
+                    Amount (USD)
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={creditAmountUsd}
+                    onChange={(e) => {
+                      const raw = e.target.value.replace(/,/g, "");
+                      if (raw === "" || /^\d*\.?\d*$/.test(raw)) {
+                        const parts = raw.split(".");
+                        parts[0] = parts[0].replace(
+                          /\B(?=(\d{3})+(?!\d))/g,
+                          ",",
+                        );
+                        setCreditAmountUsd(parts.join("."));
+                      }
+                    }}
+                    className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-white text-sm focus:outline-none focus:border-emerald-500"
+                    placeholder="0.00"
+                  />
+                </div>
+
+                {/* Amount LBP */}
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">
+                    Amount (LBP)
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={creditAmountLbp}
+                    onChange={(e) => {
+                      const raw = e.target.value.replace(/,/g, "");
+                      if (raw === "" || /^\d+$/.test(raw)) {
+                        setCreditAmountLbp(
+                          raw.replace(/\B(?=(\d{3})+(?!\d))/g, ","),
+                        );
+                      }
+                    }}
+                    className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-white text-sm focus:outline-none focus:border-emerald-500"
+                    placeholder="0"
+                  />
+                </div>
+
+                {/* Note */}
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">
+                    Note
+                  </label>
+                  <input
+                    type="text"
+                    value={creditNote}
+                    onChange={(e) => setCreditNote(e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-white text-sm focus:outline-none focus:border-emerald-500"
+                    placeholder="Optional note..."
+                  />
+                </div>
+
+                <div className="pt-2 flex gap-3">
+                  <button
+                    onClick={() => setShowCreditModal(false)}
+                    className="flex-1 py-3 rounded-xl font-bold text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    disabled={
+                      !creditSelectedClient ||
+                      (parseFloat(creditAmountUsd.replace(/,/g, "")) <= 0 &&
+                        parseFloat(creditAmountLbp.replace(/,/g, "")) <= 0)
+                    }
+                    onClick={async () => {
+                      if (!creditSelectedClient) return;
+                      const result = await window.api.debt.addCredit({
+                        clientId: creditSelectedClient.id,
+                        amountUsd:
+                          parseFloat(creditAmountUsd.replace(/,/g, "")) || 0,
+                        amountLbp:
+                          parseFloat(creditAmountLbp.replace(/,/g, "")) || 0,
+                        ...(creditNote ? { note: creditNote } : {}),
+                      });
+                      if (result.success) {
+                        alert("Credit added successfully!");
+                        setShowCreditModal(false);
+                        setCreditClientSearch("");
+                        setCreditSelectedClient(null);
+                        setCreditAmountUsd("");
+                        setCreditAmountLbp("");
+                        setCreditNote("");
+                        loadDebtors();
+                        if (selectedClient) {
+                          loadHistory(selectedClient.id);
+                          loadClientTotal(selectedClient.id);
+                        }
+                      } else {
+                        alert("Error: " + result.error);
+                      }
+                    }}
+                    className="flex-1 py-3 rounded-xl font-bold bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-500 text-white shadow-lg shadow-emerald-900/20 active:scale-95 transition-all"
+                  >
+                    Add Credit
                   </button>
                 </div>
               </div>

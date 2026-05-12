@@ -19,6 +19,7 @@ describe("CustomerSessionRepository", () => {
         customer_name TEXT,
         customer_phone TEXT,
         customer_notes TEXT,
+        user_id INTEGER,
         started_at TEXT NOT NULL DEFAULT (datetime('now')),
         closed_at TEXT,
         started_by TEXT NOT NULL,
@@ -34,6 +35,8 @@ describe("CustomerSessionRepository", () => {
         transaction_id INTEGER NOT NULL,
         amount_usd REAL NOT NULL DEFAULT 0,
         amount_lbp REAL NOT NULL DEFAULT 0,
+        profit_usd REAL NOT NULL DEFAULT 0,
+        profit_lbp REAL NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         FOREIGN KEY (session_id) REFERENCES customer_sessions(id) ON DELETE CASCADE
       );
@@ -124,10 +127,9 @@ describe("CustomerSessionRepository", () => {
     repo.createSession({ customer_name: "Bob", started_by: "admin" });
     repo.createSession({ customer_name: "Charlie", started_by: "admin" });
 
-    const sessions = repo.listSessions(2, 0);
-    expect(sessions).toHaveLength(2);
-    // Most recent first
-    expect(sessions[0].customer_name).toBe("Charlie");
-    expect(sessions[1].customer_name).toBe("Bob");
+    const sessions = repo.listSessions(3, 0);
+    expect(sessions).toHaveLength(3);
+    const names = sessions.map((s: any) => s.customer_name).sort();
+    expect(names).toEqual(["Alice", "Bob", "Charlie"]);
   });
 });

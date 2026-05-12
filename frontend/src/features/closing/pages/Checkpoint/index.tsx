@@ -6,7 +6,7 @@
  * Previous checkpoint's actuals become next checkpoint's baseline.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import logger from "@/utils/logger";
 import type { DrawerType } from "../../types";
 import { DRAWER_ORDER } from "../../config/drawers";
@@ -90,10 +90,17 @@ export default function CheckpointModal({
     }
   }, [isOpen]);
 
-  // Initialize amounts with system expected values when data is ready
+  // Initialize amounts with system expected values when data is ready (only on first load)
+  const hasInitializedAmounts = useRef(false);
   useEffect(() => {
-    if (currencies.length > 0 && isOpen && systemExpected) {
+    if (
+      currencies.length > 0 &&
+      isOpen &&
+      systemExpected &&
+      !hasInitializedAmounts.current
+    ) {
       drawerAmounts.initializeFromExpected(systemExpected);
+      hasInitializedAmounts.current = true;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currencies, isOpen, systemExpected]);
@@ -102,6 +109,7 @@ export default function CheckpointModal({
   useEffect(() => {
     if (!isOpen) {
       setStep(1);
+      hasInitializedAmounts.current = false;
       setNotes("");
       setStepError(null);
       drawerAmounts.reset();

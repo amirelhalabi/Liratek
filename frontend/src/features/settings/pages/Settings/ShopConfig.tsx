@@ -63,6 +63,7 @@ export default function ShopConfig() {
   });
   const [alfaCreditCost, setAlfaCreditCost] = useState("85000");
   const [alfaCreditSellRate, setAlfaCreditSellRate] = useState("100000");
+  const [marginAlertThreshold, setMarginAlertThreshold] = useState("100000");
 
   const handleLayoutChange = (mode: "left-panel" | "page-view") => {
     setLayoutMode(mode);
@@ -115,6 +116,9 @@ export default function ShopConfig() {
       setAlfaCreditSellRate(
         (map.get("alfa_credit_sell_rate_lbp") as string) || "100000",
       );
+      setMarginAlertThreshold(
+        (map.get("recharge_margin_alert_threshold") as string) || "100000",
+      );
 
       // Load voice bot setting from localStorage
       const voiceBotEnabledSetting = localStorage.getItem("voicebot_enabled");
@@ -162,6 +166,10 @@ export default function ShopConfig() {
         api.updateSetting("barcode_printer", barcodePrinter),
         api.updateSetting("alfa_credit_cost_lbp", alfaCreditCost),
         api.updateSetting("alfa_credit_sell_rate_lbp", alfaCreditSellRate),
+        api.updateSetting(
+          "recharge_margin_alert_threshold",
+          marginAlertThreshold,
+        ),
       ]);
 
       // Save voice bot setting to localStorage
@@ -300,6 +308,32 @@ export default function ShopConfig() {
               Default: 100,000 LBP per $1 USD credit
             </p>
           </div>
+        </div>
+      </div>
+
+      <div className="pt-6 border-t border-slate-700">
+        <span className="flex items-center gap-2 block text-sm text-slate-400 mb-4">
+          <Wallet size={16} /> Recharge Margin Alert
+        </span>
+        <div className="max-w-xs">
+          <label
+            htmlFor="margin-alert-threshold"
+            className="block text-xs text-slate-400 mb-1.5"
+          >
+            Margin Alert Threshold (LBP)
+          </label>
+          <input
+            id="margin-alert-threshold"
+            type="number"
+            value={marginAlertThreshold}
+            onChange={(e) => setMarginAlertThreshold(e.target.value)}
+            className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white"
+          />
+          <p className="text-xs text-slate-500 mt-1">
+            Show a warning badge on recharge history entries where the price was
+            manually changed and the margin exceeds this amount. Default:
+            100,000 LBP
+          </p>
         </div>
       </div>
 
@@ -467,9 +501,7 @@ export default function ShopConfig() {
               "relative w-10 h-5 rounded-full transition-colors",
               posAutofillPayment ? "bg-violet-600" : "bg-slate-600",
             )}
-            onClick={() =>
-              handlePosAutofillPaymentChange(!posAutofillPayment)
-            }
+            onClick={() => handlePosAutofillPaymentChange(!posAutofillPayment)}
           >
             <div
               className={clsx(

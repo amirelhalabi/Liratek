@@ -82,6 +82,7 @@ export interface CreateRepaymentData {
    *  drawer routing. Each leg is processed independently with per-leg RESERVE
    *  routing for Service Debt (e.g. WHISH leg → Whish_App → Whish_System). */
   payments?: RepaymentPaymentLine[];
+  transaction_time?: string;
 }
 
 // =============================================================================
@@ -195,8 +196,8 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
     return this.transaction(() => {
       // 1. Insert debt ledger entry
       const stmt = this.db.prepare(`
-        INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, note, created_by)
-        VALUES (?, 'Repayment', ?, ?, ?, ?)
+        INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, note, created_by, created_at)
+        VALUES (?, 'Repayment', ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
       `);
 
       // Store as negative values to signify a reduction in debt
@@ -206,6 +207,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         -data.amount_lbp,
         data.note || null,
         data.created_by,
+        data.transaction_time ?? null,
       );
 
       const repaymentId = Number(result.lastInsertRowid);
@@ -263,6 +265,7 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
           paid_by: primaryMethod,
           legs: paymentLegs.length > 1 ? paymentLegs : undefined,
         },
+        transaction_time: data.transaction_time,
       });
 
       // Link debt_ledger row to unified transaction
@@ -423,6 +426,86 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         remaining -= apply;
       }
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Credit Operations
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Add a credit entry (shop owes customer). Stored as NEGATIVE amounts.
+   */
+  addCredit(data: {
+    clientId: number;
+    amountUsd: number;
+    amountLbp: number;
+    note: string;
+    createdBy: string;
+    transactionTime?: string;
+  }): { id: number } {
+    const stmt = this.db.prepare(`
+      INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, note, created_by, created_at)
+      VALUES (?, 'CREDIT_DEPOSIT', ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+    `);
+    const result = stmt.run(
+      data.clientId,
+      -Math.abs(data.amountUsd),
+      -Math.abs(data.amountLbp),
+      data.note || null,
+      data.createdBy,
+      data.transactionTime ?? null,
+    );
+    return { id: Number(result.lastInsertRowid) };
+  }
+
+  /**
+   * Use credit (consume credit balance). Stored as POSITIVE amounts.
+   */
+  useCredit(data: {
+    clientId: number;
+    amountUsd: number;
+    amountLbp: number;
+    note: string;
+    createdBy: string;
+    transactionTime?: string;
+  }): { id: number } {
+    const stmt = this.db.prepare(`
+      INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, note, created_by, created_at)
+      VALUES (?, 'CREDIT_USED', ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+    `);
+    const result = stmt.run(
+      data.clientId,
+      Math.abs(data.amountUsd),
+      Math.abs(data.amountLbp),
+      data.note || null,
+      data.createdBy,
+      data.transactionTime ?? null,
+    );
+    return { id: Number(result.lastInsertRowid) };
+  }
+
+  /**
+   * Get net balance for a client.
+   * Positive = client owes shop (debt). Negative = shop owes client (credit).
+   */
+  getClientBalance(clientId: number): {
+    balance_usd: number;
+    balance_lbp: number;
+  } {
+    const stmt = this.db.prepare(`
+      SELECT
+        ROUND(COALESCE(SUM(amount_usd), 0), 2) as balance_usd,
+        ROUND(COALESCE(SUM(amount_lbp), 0), 2) as balance_lbp
+      FROM debt_ledger
+      WHERE client_id = ?
+    `);
+    const result = stmt.get(clientId) as
+      | { balance_usd: number; balance_lbp: number }
+      | undefined;
+    return {
+      balance_usd: result?.balance_usd ?? 0,
+      balance_lbp: result?.balance_lbp ?? 0,
+    };
   }
 
   // ---------------------------------------------------------------------------

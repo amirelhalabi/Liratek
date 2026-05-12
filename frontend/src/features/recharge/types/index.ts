@@ -47,6 +47,8 @@ export interface FinancialTransaction {
   /** Set when a record was edited post-save (non-financial metadata edit) */
   edited_by?: string | null;
   edited_at?: string | null;
+  /** The auto-calculated default price before any manual override (theft detection) */
+  default_price_to_client?: number | null;
 }
 
 export interface BinanceTransaction {

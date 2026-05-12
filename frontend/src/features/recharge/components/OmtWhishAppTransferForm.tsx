@@ -8,6 +8,10 @@ import { HistoryModal } from "./HistoryModal";
 import { getExchangeRates } from "@/utils/exchangeRates";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import logger from "@/utils/logger";
+import { useSaveAsClient } from "@/shared/hooks/useSaveAsClient";
+import { SaveAsClientCheckbox } from "@/shared/components/SaveAsClientCheckbox";
+import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
+import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
 
 type ServiceType = "SEND" | "RECEIVE";
 type ProviderKey = "OMT_APP" | "WISH_APP";
@@ -57,6 +61,18 @@ export function OmtWhishAppTransferForm({
   const [includingFees, setIncludingFees] = useState(false);
   const [manualFee, setManualFee] = useState("");
   const [discount, setDiscount] = useState(0);
+  const [transactionTime, setTransactionTime] = useState<string | undefined>();
+
+  // Save-as-client: use sender for SEND, receiver for RECEIVE
+  const saveClientName = serviceType === "SEND" ? senderName : receiverName;
+  const saveClientPhone = serviceType === "SEND" ? senderPhone : receiverPhone;
+  const {
+    saveAsClient,
+    setSaveAsClient,
+    showCheckbox: showSaveAsClient,
+    trySaveAsClient,
+    resetSaveAsClient,
+  } = useSaveAsClient(saveClientName, saveClientPhone);
 
   // Load exchange rate
   useEffect(() => {
@@ -119,6 +135,9 @@ export function OmtWhishAppTransferForm({
     const finalReceiverName = receiverName.trim();
     const finalReceiverPhone = receiverPhone.trim();
 
+    // Save as client if checkbox is checked
+    await trySaveAsClient();
+
     // If session is active, add to cart instead of submitting
     if (activeSession) {
       const providerLabel =
@@ -163,6 +182,7 @@ export function OmtWhishAppTransferForm({
       setReceiverPhone("");
       setPaymentLines([]);
       setManualFee("");
+      resetSaveAsClient();
       return;
     }
 
@@ -188,6 +208,7 @@ export function OmtWhishAppTransferForm({
         paidByMethod: paymentMethod,
         payments: isSplitPayment ? paymentLines : undefined,
         includingFees,
+        transaction_time: transactionTime,
       });
 
       if (result.success) {
@@ -217,6 +238,8 @@ export function OmtWhishAppTransferForm({
         setReceiverPhone("");
         setPaymentLines([]);
         setManualFee("");
+        setTransactionTime(undefined);
+        resetSaveAsClient();
         loadFinancialData();
       } else {
         alert(result.error || "Failed to process transfer");
@@ -446,11 +469,12 @@ export function OmtWhishAppTransferForm({
             <User size={12} /> Sender Name{" "}
             {activeSession && serviceType === "SEND" && "• Session"}
           </label>
-          <input
+          <ClientAutocompleteInput
             id="sender-name"
             type="text"
             value={senderName}
-            onChange={(e) => setSenderName(e.target.value)}
+            onChange={(v) => setSenderName(v)}
+            onClientSelect={(c) => setSenderPhone(c.phone_number || "")}
             className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
             placeholder="Sender name"
           />
@@ -463,11 +487,13 @@ export function OmtWhishAppTransferForm({
             <Phone size={12} /> Sender Phone{" "}
             {activeSession && serviceType === "SEND" && "• Session"}
           </label>
-          <input
+          <ClientAutocompleteInput
             id="sender-phone"
             type="tel"
             value={senderPhone}
-            onChange={(e) => setSenderPhone(e.target.value)}
+            onChange={(v) => setSenderPhone(v)}
+            onClientSelect={(c) => setSenderName(c.full_name)}
+            searchByPhone
             className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
             placeholder="Sender phone"
           />
@@ -480,11 +506,12 @@ export function OmtWhishAppTransferForm({
             <User size={12} /> Receiver Name{" "}
             {activeSession && serviceType === "RECEIVE" && "• Session"}
           </label>
-          <input
+          <ClientAutocompleteInput
             id="receiver-name"
             type="text"
             value={receiverName}
-            onChange={(e) => setReceiverName(e.target.value)}
+            onChange={(v) => setReceiverName(v)}
+            onClientSelect={(c) => setReceiverPhone(c.phone_number || "")}
             className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
             placeholder="Receiver name"
           />
@@ -497,16 +524,28 @@ export function OmtWhishAppTransferForm({
             <Phone size={12} /> Receiver Phone{" "}
             {activeSession && serviceType === "RECEIVE" && "• Session"}
           </label>
-          <input
+          <ClientAutocompleteInput
             id="receiver-phone"
             type="tel"
             value={receiverPhone}
-            onChange={(e) => setReceiverPhone(e.target.value)}
+            onChange={(v) => setReceiverPhone(v)}
+            onClientSelect={(c) => setReceiverName(c.full_name)}
+            searchByPhone
             className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
             placeholder="Receiver phone"
           />
         </div>
       </div>
+      <SaveAsClientCheckbox
+        checked={saveAsClient}
+        onChange={setSaveAsClient}
+        hidden={!showSaveAsClient}
+      />
+
+      <TransactionTimeOverride
+        value={transactionTime}
+        onChange={setTransactionTime}
+      />
 
       {/* Spacer to ensure content scrolls above sticky bar */}
       <div className="flex-1" />

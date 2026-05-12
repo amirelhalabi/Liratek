@@ -398,6 +398,7 @@ CREATE TABLE IF NOT EXISTS recharges (
     amount DECIMAL(10, 2) NOT NULL,
     cost DECIMAL(10, 2) NOT NULL DEFAULT 0,
     price DECIMAL(10, 2) NOT NULL DEFAULT 0,
+    default_price_to_client REAL DEFAULT NULL,
     currency_code TEXT NOT NULL DEFAULT 'USD',
     paid_by TEXT DEFAULT 'CASH',
     phone_number TEXT,
@@ -505,6 +506,7 @@ CREATE TABLE IF NOT EXISTS custom_services (
     client_name TEXT,
     phone_number TEXT,
     note TEXT,
+    category TEXT DEFAULT NULL,
     created_by INTEGER,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     edited_by TEXT DEFAULT NULL,
@@ -514,6 +516,31 @@ CREATE TABLE IF NOT EXISTS custom_services (
     FOREIGN KEY (client_id) REFERENCES clients(id),
     FOREIGN KEY (created_by) REFERENCES users(id)
 );
+
+-- Service Presets (reusable templates for digital accounts, repairs, etc.)
+CREATE TABLE IF NOT EXISTS service_presets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT 'digital_account',
+    cost_usd DECIMAL(10,2) NOT NULL DEFAULT 0,
+    cost_lbp DECIMAL(15,2) NOT NULL DEFAULT 0,
+    price_usd DECIMAL(10,2) NOT NULL DEFAULT 0,
+    price_lbp DECIMAL(15,2) NOT NULL DEFAULT 0,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_service_presets_category ON service_presets(category);
+CREATE INDEX IF NOT EXISTS idx_service_presets_active ON service_presets(is_active, sort_order);
+
+-- Default service presets
+INSERT OR IGNORE INTO service_presets (name, category, cost_usd, price_usd, sort_order) VALUES
+    ('Netflix Premium 1 Month', 'digital_account', 7, 9, 0),
+    ('Netflix Standard 1 Month', 'digital_account', 5, 7, 1),
+    ('Spotify Premium 1 Month', 'digital_account', 3, 5, 2),
+    ('Shahid VIP 1 Month', 'digital_account', 4, 6, 3);
 
 -- Item Costs (saved default costs for frequently-sold items)
 CREATE TABLE IF NOT EXISTS item_costs (
@@ -843,7 +870,8 @@ INSERT OR IGNORE INTO payment_methods (code, label, drawer_name, affects_drawer,
   ('OMT',     'OMT Wallet',    'OMT_App',    1, 1, 0, 1),
   ('WHISH',   'Whish Wallet',  'Whish_App',  1, 2, 0, 1),
   ('BINANCE', 'Binance',       'Binance',    1, 3, 0, 1),
-  ('DEBT',    'Debt (On Tab)', 'General',    0, 4, 1, 0);
+  ('DEBT',    'Debt (On Tab)', 'General',    0, 4, 1, 0),
+  ('CUSTOMER_ACCOUNT', 'Customer Account', 'General', 0, 5, 1, 1);
 
 -- Seed system suppliers (linked to modules)
 INSERT OR IGNORE INTO suppliers (name, module_key, provider, is_system) VALUES
@@ -1078,4 +1106,14 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (62, 'add_session_cart_items'),
     (63, 'add_user_id_to_sessions_and_cart'),
     (64, 'add_customer_sessions_module'),
-    (65, 'session_checkout_currency_split_and_profit');
+    (65, 'session_checkout_currency_split_and_profit'),
+    (66, 'add_voucher_images_table'),
+    (67, 'add_item_costs_table'),
+    (68, 'add_edit_history_table'),
+    (69, 'add_note_to_recharges'),
+    (70, 'add_note_to_expenses'),
+    (71, 'add_profit_columns_to_transactions_and_session_transactions'),
+    (72, 'add_default_price_to_client_to_recharges'),
+    (73, 'add_category_to_custom_services'),
+    (74, 'create_service_presets_table'),
+    (75, 'seed_customer_account_payment_method');

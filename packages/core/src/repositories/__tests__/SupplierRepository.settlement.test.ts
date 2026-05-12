@@ -110,7 +110,7 @@ function createTestDb(): Database.Database {
 jest.mock("../../db/connection", () => {
   let _db: Database.Database | null = null;
   return {
-    getDb: () => {
+    getDatabase: () => {
       if (!_db) throw new Error("DB not initialized");
       return _db;
     },

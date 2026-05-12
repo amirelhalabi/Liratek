@@ -35,6 +35,7 @@ export interface CustomServiceEntity {
   client_name: string | null;
   phone_number: string | null;
   note: string | null;
+  category: string | null;
   created_by: number | null;
   created_at: string;
   edited_by: string | null;
@@ -61,7 +62,7 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
   }
 
   protected getColumns(): string {
-    return "id, description, cost_usd, cost_lbp, price_usd, price_lbp, profit_usd, profit_lbp, paid_by, status, client_id, client_name, phone_number, note, created_by, created_at, edited_by, edited_at";
+    return "id, description, cost_usd, cost_lbp, price_usd, price_lbp, profit_usd, profit_lbp, paid_by, status, client_id, client_name, phone_number, note, category, created_by, created_at, edited_by, edited_at";
   }
 
   /**
@@ -78,8 +79,8 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
         const insertService = this.db.prepare(`
           INSERT INTO custom_services (
             description, cost_usd, cost_lbp, price_usd, price_lbp,
-            paid_by, status, client_id, client_name, phone_number, note, created_by
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            paid_by, status, client_id, client_name, phone_number, note, category, created_by, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
         `);
         const serviceResult = insertService.run(
           data.description,
@@ -93,7 +94,9 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
           data.client_name ?? null,
           data.phone_number ?? null,
           data.note ?? null,
+          data.category ?? null,
           createdBy,
+          data.transaction_time ?? null,
         );
         const serviceId = Number(serviceResult.lastInsertRowid);
 
@@ -116,6 +119,7 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
             price_lbp: data.price_lbp ?? 0,
             paid_by: data.paid_by ?? "CASH",
           },
+          transaction_time: data.transaction_time,
         });
 
         // 2. Payment & drawer logic
@@ -417,6 +421,7 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
       client_name?: string;
       phone_number?: string;
       note?: string;
+      category?: string;
     },
     editedBy: string,
   ): CustomServiceEntity | null {
@@ -441,6 +446,10 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
     if (data.note !== undefined) {
       fields.push("note = ?");
       values.push(data.note);
+    }
+    if (data.category !== undefined) {
+      fields.push("category = ?");
+      values.push(data.category);
     }
 
     if (fields.length === 0) return existing;

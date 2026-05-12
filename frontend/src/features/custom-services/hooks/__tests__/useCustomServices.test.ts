@@ -48,6 +48,7 @@ function makeEntry(
     client_name: null,
     phone_number: null,
     note: null,
+    category: null,
     created_by: null,
     created_at: new Date().toISOString(),
     ...overrides,

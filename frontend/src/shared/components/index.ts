@@ -18,3 +18,7 @@ export { default as PasswordInput } from "./PasswordInput";
 export type { PasswordInputProps } from "./PasswordInput";
 export { default as TextInput } from "./TextInput";
 export type { TextInputProps } from "./TextInput";
+export { SaveAsClientCheckbox } from "./SaveAsClientCheckbox";
+export { TransactionTimeOverride } from "./TransactionTimeOverride";
+export { ClientAutocompleteInput } from "./ClientAutocompleteInput";
+export type { ClientAutocompleteInputProps } from "./ClientAutocompleteInput";

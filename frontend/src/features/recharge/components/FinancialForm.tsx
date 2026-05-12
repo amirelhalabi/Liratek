@@ -14,6 +14,8 @@ import type {
 import { HistoryModal } from "./HistoryModal";
 import { getExchangeRates } from "@/utils/exchangeRates";
 import logger from "@/utils/logger";
+import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
+import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
 
 interface CartLineItem {
   item: ServiceItem;
@@ -72,6 +74,7 @@ export function FinancialForm({
   const [rates, setRates] = useState({ buyRate: 89000, sellRate: 89500 });
   const [searchQuery, setSearchQuery] = useState("");
   const [discount, setDiscount] = useState(0);
+  const [transactionTime, setTransactionTime] = useState<string | undefined>();
 
   // Fetch exchange rates on mount
   useEffect(() => {
@@ -290,6 +293,7 @@ export function FinancialForm({
             itemKey: line.item.key,
             itemCategory: line.item.category,
             note: `${line.item.label} (${line.item.subcategory})`,
+            transaction_time: transactionTime,
           });
 
           if (result?.success) {
@@ -328,6 +332,7 @@ export function FinancialForm({
       setClientName("");
       setExpandedKeys(new Set());
       setSearchQuery("");
+      setTransactionTime(undefined);
     }
     loadFinancialData();
     setLocalSubmitting(false);
@@ -581,6 +586,8 @@ export function FinancialForm({
           currency="LBP"
           paymentMethods={methods}
           exchangeRate={exchangeRate}
+          requiresClientForDebt={true}
+          hasClient={!!activeSession?.customer_name || !!clientName}
           showDiscount={true}
           maxDiscount={maxDiscount}
           onDiscountChange={setDiscount}
@@ -599,15 +606,19 @@ export function FinancialForm({
               <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
                 Client Name
               </label>
-              <input
+              <ClientAutocompleteInput
                 type="text"
                 value={clientName}
-                onChange={(e) => setClientName(e.target.value)}
+                onChange={(v) => setClientName(v)}
                 placeholder="Client name (optional)"
                 className="w-full mt-1 bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-violet-500"
               />
             </div>
           )}
+          <TransactionTimeOverride
+            value={transactionTime}
+            onChange={setTransactionTime}
+          />
         </PaymentSheet>
       </div>
 

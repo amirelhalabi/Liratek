@@ -91,6 +91,9 @@ export default function MobileRecharge() {
   const [telecomClientId, setTelecomClientId] = useState<number | null>(null);
   const [telecomClientName, setTelecomClientName] = useState("");
   const [clientSearchResults, setClientSearchResults] = useState<any[]>([]);
+  const [telecomTransactionTime, setTelecomTransactionTime] = useState<
+    string | undefined
+  >();
   const [giftTierKey, setGiftTierKey] = useState<
     keyof typeof import("../../types").ALFA_GIFT_TIERS | ""
   >("");
@@ -107,9 +110,14 @@ export default function MobileRecharge() {
     [],
   );
   const [cryptoPaidBy, setCryptoPaidBy] = useState("CASH");
+  const [cryptoTransactionTime, setCryptoTransactionTime] = useState<
+    string | undefined
+  >();
 
   const [showHistory, setShowHistory] = useState(false);
-  const [rechargeHistory, setRechargeHistory] = useState<any[]>([]);
+  const [rechargeHistory, setRechargeHistory] = useState<
+    FinancialTransaction[]
+  >([]);
   const [showTopUpModal, setShowTopUpModal] = useState(false);
   const [drawerBalances, setDrawerBalances] = useState<
     Array<{ name: string; usdBalance: number; lbpBalance: number }>
@@ -135,6 +143,7 @@ export default function MobileRecharge() {
   // Alfa credit sell rate for "Only Days" returned credits calculation
   const [alfaCreditSellRate, setAlfaCreditSellRate] = useState(100000);
   const [alfaCreditCostRate, setAlfaCreditCostRate] = useState(85000);
+  const [marginAlertThreshold, setMarginAlertThreshold] = useState(100000);
   const [exchangeRate, setExchangeRate] = useState(89500);
 
   // Whish App mode: 'bills' (card grid) or 'transfer' (send/receive money)
@@ -174,6 +183,10 @@ export default function MobileRecharge() {
         const costRate =
           Number(settingsMap.get("alfa_credit_cost_rate_lbp")) || 85000;
         setAlfaCreditCostRate(costRate);
+
+        const threshold =
+          Number(settingsMap.get("recharge_margin_alert_threshold")) || 100000;
+        setMarginAlertThreshold(threshold);
 
         // Load exchange rate for MultiPaymentInput
         const rates = await api.getRates();
@@ -319,7 +332,7 @@ export default function MobileRecharge() {
 
   const selectClient = useCallback((client: any) => {
     setTelecomClientId(client.id);
-    setTelecomClientName(client.name);
+    setTelecomClientName(client.full_name || client.name);
     setClientSearchResults([]);
     setShowClientSearch(false);
   }, []);
@@ -330,6 +343,7 @@ export default function MobileRecharge() {
     const amount = parseFloat(telecomAmount);
     const price = parseFloat(telecomPrice) || amount * alfaCreditSellRate;
     const cost = amount * (alfaCreditCostRate || 85000);
+    const defaultPriceToClient = amount * alfaCreditSellRate;
 
     // If session is active, add to cart instead of submitting
     if (activeSession) {
@@ -356,6 +370,7 @@ export default function MobileRecharge() {
           amount,
           cost,
           price,
+          default_price_to_client: defaultPriceToClient,
           currency: "LBP",
           paid_by_method: paidBy,
           payments:
@@ -388,6 +403,7 @@ export default function MobileRecharge() {
         amount,
         cost,
         price,
+        default_price_to_client: defaultPriceToClient,
         currency: "LBP",
         paid_by_method: paidBy,
         payments:
@@ -400,6 +416,7 @@ export default function MobileRecharge() {
             : undefined,
         clientId: telecomClientId || undefined,
         clientName: telecomClientName || undefined,
+        transaction_time: telecomTransactionTime,
       });
       if (result && !result.success) {
         alert(result.error || "Failed to process recharge");
@@ -424,6 +441,7 @@ export default function MobileRecharge() {
       setTelecomAmount("");
       setTelecomPrice("");
       setPhoneNumber("");
+      setTelecomTransactionTime(undefined);
       loadFinancialData();
       loadDrawerBalances();
     } catch (err) {
@@ -448,6 +466,7 @@ export default function MobileRecharge() {
     activeSession,
     linkTransaction,
     loadDrawerBalances,
+    telecomTransactionTime,
   ]);
 
   const loadRechargeHistory = useCallback(async () => {
@@ -456,7 +475,28 @@ export default function MobileRecharge() {
       const history = await window.api.recharge.getHistory(
         activeProvider as "MTC" | "Alfa",
       );
-      setRechargeHistory(history ?? []);
+      setRechargeHistory(
+        (history ?? []).map(
+          (r: any): FinancialTransaction => ({
+            id: r.id,
+            provider: r.carrier,
+            service_type: "SEND",
+            amount: r.amount,
+            currency: r.currency_code || "USD",
+            cost: r.cost,
+            commission: r.price - r.cost,
+            client_name: r.client_name,
+            phone_number: r.phone_number ?? null,
+            note: r.note ?? undefined,
+            edited_by: r.edited_by ?? null,
+            edited_at: r.edited_at ?? null,
+            default_price_to_client: r.default_price_to_client ?? null,
+            paid_by: r.paid_by ?? undefined,
+            reference_number: r.phone_number || undefined,
+            created_at: r.created_at,
+          }),
+        ),
+      );
     } catch (error) {
       console.error("Failed to load recharge history:", error);
       setRechargeHistory([]);
@@ -581,16 +621,18 @@ export default function MobileRecharge() {
         giftTier: giftTierKey,
         amountUsd: parseFloat(giftAmountUsd),
         priceLbp: parseFloat(giftPriceLbp),
+        transaction_time: telecomTransactionTime,
       });
       setGiftTierKey("");
       setGiftAmountUsd("");
       setGiftPriceLbp("");
+      setTelecomTransactionTime(undefined);
     } catch (err) {
       console.error("Failed to submit alfa gift:", err);
     } finally {
       setIsSubmitting(false);
     }
-  }, [giftTierKey, giftAmountUsd, giftPriceLbp, api]);
+  }, [giftTierKey, giftAmountUsd, giftPriceLbp, api, telecomTransactionTime]);
 
   const handleCryptoSubmit = useCallback(async () => {
     const fee = parseFloat(cryptoFee) || 0;
@@ -600,6 +642,10 @@ export default function MobileRecharge() {
       cryptoPaymentLines.length === 1
         ? cryptoPaymentLines[0].method
         : cryptoPaidBy;
+
+    // Derive cashout method from payment lines: if DEBT is used, it means Customer Account
+    const derivedCashoutMethod =
+      paidByMethod === "DEBT" ? "CUSTOMER_ACCOUNT" : "CASH";
 
     // If session is active, add to cart instead of submitting
     if (activeSession) {
@@ -628,6 +674,9 @@ export default function MobileRecharge() {
                 amount: l.amount,
               }))
             : undefined,
+          ...(cryptoType === "RECEIVE" && derivedCashoutMethod !== "CASH"
+            ? { cashoutMethod: derivedCashoutMethod }
+            : {}),
         },
       });
 
@@ -658,6 +707,10 @@ export default function MobileRecharge() {
               amount: l.amount,
             }))
           : undefined,
+        ...(cryptoType === "RECEIVE" && derivedCashoutMethod !== "CASH"
+          ? { cashoutMethod: derivedCashoutMethod }
+          : {}),
+        transaction_time: cryptoTransactionTime,
       });
 
       // Link to active customer session
@@ -683,6 +736,7 @@ export default function MobileRecharge() {
       setCryptoDescription("");
       setCryptoFee("");
       setCryptoPaymentLines([]);
+      setCryptoTransactionTime(undefined);
       loadBinanceData();
       loadDrawerBalances();
     } catch (err) {
@@ -698,6 +752,7 @@ export default function MobileRecharge() {
     cryptoFee,
     cryptoPaymentLines,
     cryptoPaidBy,
+    cryptoTransactionTime,
     api,
     loadBinanceData,
     activeSession,
@@ -857,6 +912,7 @@ export default function MobileRecharge() {
             showHistory={showHistory}
             setShowHistory={setShowHistory}
             rechargeHistory={rechargeHistory}
+            marginAlertThreshold={marginAlertThreshold}
             telecomAmount={telecomAmount}
             setTelecomAmount={setTelecomAmount}
             telecomPrice={telecomPrice}
@@ -893,6 +949,7 @@ export default function MobileRecharge() {
             voucherItems={mtcVoucherItems}
             alfaCreditCostRate={alfaCreditCostRate}
             onRefreshHistory={loadRechargeHistory}
+            onTransactionTimeChange={setTelecomTransactionTime}
           />
         )}
 
@@ -1014,7 +1071,13 @@ export default function MobileRecharge() {
             loadCryptoData={loadBinanceData}
             showHistory={showHistory}
             setShowHistory={setShowHistory}
-            paymentMethods={methods}
+            paymentMethods={
+              cryptoType === "RECEIVE"
+                ? methods.filter(
+                    (pm) => pm.code === "CASH" || pm.code === "DEBT",
+                  )
+                : methods
+            }
             onPaymentLinesChange={(lines) => {
               setCryptoPaymentLines(lines);
               if (lines.length === 1) {
@@ -1022,6 +1085,7 @@ export default function MobileRecharge() {
               }
             }}
             exchangeRate={exchangeRate}
+            onTransactionTimeChange={setCryptoTransactionTime}
           />
         )}
       </div>

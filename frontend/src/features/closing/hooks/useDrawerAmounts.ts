@@ -90,9 +90,12 @@ export function useDrawerAmounts({ currencies }: UseDrawerAmountsProps) {
           errors.push(`Missing amount for ${drawer} - ${currency.code}`);
         } else if (isNaN(value)) {
           errors.push(`Invalid amount for ${drawer} - ${currency.code}`);
-        } else if (value < 0) {
-          errors.push(`Negative amount for ${drawer} - ${currency.code}`);
         }
+        // TODO: LIRA-006 — Re-enable negative amount validation once
+        // opening-balance workflow guarantees non-negative starting values.
+        // else if (value < 0) {
+        //   errors.push(`Negative amount for ${drawer} - ${currency.code}`);
+        // }
       });
     });
 

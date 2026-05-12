@@ -8,6 +8,7 @@ import {
   Phone,
   Pencil,
   Check,
+  Tag,
 } from "lucide-react";
 import { DataTable } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
@@ -168,6 +169,11 @@ export function HistoryModal({
                   sortKey: "description",
                 },
                 {
+                  header: "Category",
+                  className: "px-4 py-3",
+                  sortKey: "category",
+                },
+                {
                   header: "Customer",
                   className: "px-4 py-3",
                   sortKey: "client_name",
@@ -239,6 +245,19 @@ export function HistoryModal({
                           <div className="text-xs text-slate-500 mt-0.5 truncate max-w-[200px]">
                             {tx.note}
                           </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        {tx.category ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-purple-500/10 border border-purple-500/30 text-purple-400">
+                            <Tag size={10} />
+                            {tx.category === "digital_account"
+                              ? "Digital Account"
+                              : tx.category.charAt(0).toUpperCase() +
+                                tx.category.slice(1)}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-slate-600">—</span>
                         )}
                       </td>
                       <td className="px-4 py-3">
@@ -324,7 +343,7 @@ export function HistoryModal({
                     </tr>
                     {isEditing && (
                       <tr className="bg-slate-800/60 border-b border-slate-700/50">
-                        <td colSpan={8} className="px-4 py-3">
+                        <td colSpan={9} className="px-4 py-3">
                           <div className="flex items-end gap-3 flex-wrap">
                             <div className="flex-1 min-w-[140px]">
                               <label className="text-xs text-slate-400 block mb-1">

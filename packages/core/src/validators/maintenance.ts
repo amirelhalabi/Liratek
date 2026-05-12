@@ -3,6 +3,7 @@ import {
   positiveDecimalSchema,
   positiveIntegerSchema,
   phoneNumberSchema,
+  transactionTimeSchema,
 } from "./common.js";
 
 /**
@@ -37,6 +38,7 @@ export const saveMaintenanceJobSchema = z.object({
   payments: z.array(paymentLineSchema).optional(),
   change_given_usd: z.number().min(0).optional(),
   change_given_lbp: z.number().min(0).optional(),
+  transaction_time: transactionTimeSchema,
 });
 
 export const getMaintenanceJobsSchema = z.object({

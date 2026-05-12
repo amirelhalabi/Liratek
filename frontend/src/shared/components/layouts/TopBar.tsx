@@ -10,6 +10,9 @@ import { CustomerSessionButton } from "@/features/sessions/components/CustomerSe
 import { VoiceBotButton } from "@/components/VoiceBotButton";
 import { useOnlineStatus } from "@/shared/hooks/useOnlineStatus";
 import { useVoiceBotSettings } from "@/hooks/useVoiceBotSettings";
+import { useSession } from "@/features/sessions/context/SessionContext";
+import { arePhoneNumbersEqual } from "@/utils/phoneNumber";
+import logger from "@/utils/logger";
 
 interface TopBarProps {
   showHomeButton?: boolean;
@@ -85,10 +88,72 @@ export default function TopBar({
   const { flags } = useFeatureFlags();
   const { config: voiceBotConfig } = useVoiceBotSettings();
   const isOnline = useOnlineStatus();
+  const { activeSession } = useSession();
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [notificationCount, setNotificationCount] = useState(
     () => (window.notificationHistory || []).length,
   );
+
+  // Client debt balance for active session
+  const [clientBalance, setClientBalance] = useState<{
+    balance_usd: number;
+    balance_lbp: number;
+  } | null>(null);
+  const [clients, setClients] = useState<any[]>([]);
+
+  // Load clients once
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const result = await api.getClients();
+        setClients(result);
+      } catch {
+        // ignore
+      }
+    };
+    load();
+  }, [api]);
+
+  // Derive matched client ID
+  const matchedClientId = (() => {
+    if (!activeSession?.customer_phone || clients.length === 0) return null;
+    const match = clients.find((c: any) =>
+      arePhoneNumbersEqual(c.phone_number, activeSession.customer_phone),
+    );
+    return match?.id ?? null;
+  })();
+
+  // Fetch balance when matched client changes
+  useEffect(() => {
+    if (!matchedClientId) {
+      setClientBalance(null);
+      return;
+    }
+    const fetchBalance = async () => {
+      try {
+        const result = await window.api.debt.getClientBalance(matchedClientId);
+        if (result.success) {
+          setClientBalance(result.data ?? null);
+        }
+      } catch (err) {
+        logger.error("Failed to fetch client balance:", err);
+      }
+    };
+    fetchBalance();
+
+    const handler = () => fetchBalance();
+    const offSale = appEvents.on("sale:completed", handler);
+    const offDebt = appEvents.on("debt:repayment", handler);
+    return () => {
+      offSale();
+      offDebt();
+    };
+  }, [matchedClientId]);
+
+  const showBalance =
+    clientBalance &&
+    (clientBalance.balance_usd !== 0 || clientBalance.balance_lbp !== 0);
+  const isCredit = clientBalance ? clientBalance.balance_usd < 0 : false;
 
   // Track notification count changes
   useEffect(() => {
@@ -175,7 +240,35 @@ export default function TopBar({
         )}
 
         {/* Customer Session Button (embedded in topbar) */}
-        {flags.customerSessions && <CustomerSessionButton />}
+        {flags.customerSessions && (
+          <CustomerSessionButton isKnownClient={!!matchedClientId} />
+        )}
+
+        {/* Client Debt Balance */}
+        {showBalance && (
+          <div
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${isCredit ? "bg-emerald-500/5 border-emerald-500/20" : "bg-red-500/5 border-red-500/20"}`}
+          >
+            <span className="text-[10px] font-medium text-slate-400 uppercase tracking-wider whitespace-nowrap">
+              {isCredit ? "Credit" : "Debt"}
+            </span>
+            <span
+              className={`font-mono text-sm font-bold ${isCredit ? "text-emerald-400" : "text-red-400"}`}
+            >
+              ${Math.abs(clientBalance!.balance_usd).toFixed(2)}
+            </span>
+            {clientBalance!.balance_lbp !== 0 && (
+              <>
+                <span className="text-slate-600">|</span>
+                <span
+                  className={`font-mono text-sm font-bold ${isCredit ? "text-emerald-400" : "text-red-400"}`}
+                >
+                  {Math.abs(clientBalance!.balance_lbp).toLocaleString()} LBP
+                </span>
+              </>
+            )}
+          </div>
+        )}
 
         {/* Voice Bot Button */}
         {voiceBotConfig.enabled && (

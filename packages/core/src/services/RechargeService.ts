@@ -63,6 +63,18 @@ export class RechargeService {
    * Process a recharge transaction
    */
   processRecharge(data: RechargeData): RechargeResult {
+    if (data.transaction_time) {
+      const txTime = new Date(data.transaction_time);
+      if (isNaN(txTime.getTime())) {
+        return { success: false, error: "Invalid transaction_time format" };
+      }
+      if (txTime > new Date()) {
+        return {
+          success: false,
+          error: "transaction_time cannot be in the future",
+        };
+      }
+    }
     return this.rechargeRepo.processRecharge(data);
   }
 

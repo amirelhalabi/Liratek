@@ -2933,6 +2933,125 @@ export const MIGRATIONS: Migration[] = [
       console.log("Migration v71 rolled back (columns remain)");
     },
   },
+  {
+    version: 72,
+    name: "add_default_price_to_client_to_recharges",
+    description:
+      "Add default_price_to_client column to recharges for margin alert / theft detection",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      const cols = db.prepare("PRAGMA table_info(recharges)").all() as {
+        name: string;
+      }[];
+      if (!cols.some((c) => c.name === "default_price_to_client")) {
+        db.exec(
+          "ALTER TABLE recharges ADD COLUMN default_price_to_client REAL DEFAULT NULL;",
+        );
+      }
+      console.log("Migration v72: Added default_price_to_client to recharges");
+    },
+    down(_db: Database.Database) {
+      console.log("Migration v72 rolled back (column remains)");
+    },
+  },
+  {
+    version: 73,
+    name: "add_category_to_custom_services",
+    description:
+      "Add category column to custom_services for tagging services (e.g. Digital Account, Repair)",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      const cols = db.prepare("PRAGMA table_info(custom_services)").all() as {
+        name: string;
+      }[];
+      if (!cols.some((c) => c.name === "category")) {
+        db.exec(
+          "ALTER TABLE custom_services ADD COLUMN category TEXT DEFAULT NULL;",
+        );
+      }
+      console.log("Migration v73: Added category column to custom_services");
+    },
+    down(_db: Database.Database) {
+      console.log("Migration v73 rolled back (column remains)");
+    },
+  },
+  {
+    version: 74,
+    name: "create_service_presets_table",
+    description:
+      "Create service_presets table for reusable service templates (digital accounts, repairs, etc.)",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS service_presets (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          category TEXT NOT NULL DEFAULT 'digital_account',
+          cost_usd DECIMAL(10,2) NOT NULL DEFAULT 0,
+          cost_lbp DECIMAL(15,2) NOT NULL DEFAULT 0,
+          price_usd DECIMAL(10,2) NOT NULL DEFAULT 0,
+          price_lbp DECIMAL(15,2) NOT NULL DEFAULT 0,
+          is_active INTEGER NOT NULL DEFAULT 1,
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_service_presets_category ON service_presets(category);
+        CREATE INDEX IF NOT EXISTS idx_service_presets_active ON service_presets(is_active, sort_order);
+      `);
+      console.log("Migration v74: Created service_presets table");
+    },
+    down(db: Database.Database) {
+      db.exec("DROP TABLE IF EXISTS service_presets;");
+      console.log("Migration v74 rolled back: Dropped service_presets table");
+    },
+  },
+  {
+    version: 75,
+    name: "seed_customer_account_payment_method",
+    description:
+      "Seed CUSTOMER_ACCOUNT payment method for customer credit system (shop owes customer)",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.exec(`
+        INSERT OR IGNORE INTO payment_methods (code, label, drawer_name, affects_drawer, sort_order, is_system, is_active)
+        VALUES ('CUSTOMER_ACCOUNT', 'Customer Account', 'General', 0, 5, 1, 1);
+      `);
+      console.log("Migration v75: Seeded CUSTOMER_ACCOUNT payment method");
+    },
+    down(db: Database.Database) {
+      db.exec(`DELETE FROM payment_methods WHERE code = 'CUSTOMER_ACCOUNT';`);
+      console.log("Migration v75 rolled back: Removed CUSTOMER_ACCOUNT");
+    },
+  },
+  {
+    version: 76,
+    name: "rename_debt_to_customer_account",
+    description:
+      "Rename DEBT payment method label to 'Customer Account' and deactivate separate CUSTOMER_ACCOUNT entry",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      // Rename DEBT label
+      db.exec(
+        `UPDATE payment_methods SET label = 'Customer Account' WHERE code = 'DEBT';`,
+      );
+      // Deactivate the separate CUSTOMER_ACCOUNT entry (DEBT now serves this purpose)
+      db.exec(
+        `UPDATE payment_methods SET is_active = 0 WHERE code = 'CUSTOMER_ACCOUNT';`,
+      );
+      console.log(
+        "Migration v76: Renamed DEBT to 'Customer Account', deactivated CUSTOMER_ACCOUNT",
+      );
+    },
+    down(db: Database.Database) {
+      db.exec(`UPDATE payment_methods SET label = 'Debt' WHERE code = 'DEBT';`);
+      db.exec(
+        `UPDATE payment_methods SET is_active = 1 WHERE code = 'CUSTOMER_ACCOUNT';`,
+      );
+      console.log("Migration v76 rolled back");
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

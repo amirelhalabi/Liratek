@@ -9,7 +9,12 @@ import { ipcMain } from "electron";
 import { getDebtService, debtLogger, getUserRepository } from "@liratek/core";
 import { requireRole } from "../session.js";
 import { audit } from "./auditHelper.js";
-import { DebtRepaymentSchema, validatePayload } from "../schemas/index.js";
+import {
+  DebtRepaymentSchema,
+  DebtAddCreditSchema,
+  DebtUseCreditSchema,
+  validatePayload,
+} from "../schemas/index.js";
 
 interface RepaymentPaymentLeg {
   method: string;
@@ -134,4 +139,107 @@ export function registerDebtHandlers(): void {
         : { success: false, error: result.error };
     },
   );
+
+  // Add credit (shop owes customer)
+  ipcMain.handle(
+    "debt:add-credit",
+    (
+      event,
+      data: {
+        clientId: number;
+        amountUsd: number;
+        amountLbp: number;
+        note?: string;
+        transactionTime?: string;
+      },
+    ) => {
+      const auth = requireRole(event.sender.id, ["admin", "staff"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+
+      const v = validatePayload(DebtAddCreditSchema, data);
+      if (!v.ok) return { success: false, error: v.error };
+
+      const result = debtService.addCredit({
+        ...v.data,
+        amountUsd: v.data.amountUsd ?? 0,
+        amountLbp: v.data.amountLbp ?? 0,
+        userId: auth.userId,
+      });
+
+      if (result.success) {
+        audit(event.sender.id, {
+          action: "create",
+          entity_type: "credit",
+          summary: `Credit added for client #${v.data.clientId}: $${v.data.amountUsd} + ${v.data.amountLbp} LBP`,
+          metadata: {
+            clientId: v.data.clientId,
+            amountUsd: v.data.amountUsd,
+            amountLbp: v.data.amountLbp,
+          },
+        });
+      }
+
+      return result;
+    },
+  );
+
+  // Use credit (consume customer's credit balance)
+  ipcMain.handle(
+    "debt:use-credit",
+    (
+      event,
+      data: {
+        clientId: number;
+        amountUsd: number;
+        amountLbp: number;
+        note?: string;
+        transactionTime?: string;
+      },
+    ) => {
+      const auth = requireRole(event.sender.id, ["admin", "staff"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+
+      const v = validatePayload(DebtUseCreditSchema, data);
+      if (!v.ok) return { success: false, error: v.error };
+
+      const result = debtService.useCredit({
+        ...v.data,
+        amountUsd: v.data.amountUsd ?? 0,
+        amountLbp: v.data.amountLbp ?? 0,
+        userId: auth.userId,
+      });
+
+      if (result.success) {
+        audit(event.sender.id, {
+          action: "create",
+          entity_type: "credit_used",
+          summary: `Credit used for client #${v.data.clientId}: $${v.data.amountUsd} + ${v.data.amountLbp} LBP`,
+          metadata: {
+            clientId: v.data.clientId,
+            amountUsd: v.data.amountUsd,
+            amountLbp: v.data.amountLbp,
+          },
+        });
+      }
+
+      return result;
+    },
+  );
+
+  // Get client balance (net debt/credit)
+  ipcMain.handle("debt:client-balance", (event, clientId: number) => {
+    const auth = requireRole(event.sender.id, ["admin", "staff"]);
+    if (!auth.ok) return { success: false, error: auth.error };
+
+    try {
+      const balance = debtService.getClientBalance(clientId);
+      return { success: true, data: balance };
+    } catch (error) {
+      debtLogger.error({ error, clientId }, "debt:client-balance failed");
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to get balance",
+      };
+    }
+  });
 }

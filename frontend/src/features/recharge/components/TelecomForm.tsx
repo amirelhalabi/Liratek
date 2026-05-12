@@ -6,11 +6,16 @@ import {
   useApi,
   type PaymentLine,
 } from "@liratek/ui";
-import type { ProviderConfig, RechargeType } from "../types";
+import type {
+  FinancialTransaction,
+  ProviderConfig,
+  RechargeType,
+} from "../types";
 import { TELECOM_SERVICE_TYPES, ALFA_GIFT_TIERS } from "../types";
 import { HistoryModal } from "./HistoryModal";
 import { getExchangeRates } from "@/utils/exchangeRates";
 import { PaymentSheet } from "./PaymentSheet";
+import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 
 interface VoucherItem {
   label: string;
@@ -26,7 +31,8 @@ interface TelecomFormProps {
   handleQuickAmount: (val: number) => void;
   showHistory: boolean;
   setShowHistory: (show: boolean) => void;
-  rechargeHistory: any[];
+  rechargeHistory: FinancialTransaction[];
+  marginAlertThreshold?: number;
   telecomAmount: string;
   setTelecomAmount: (val: string) => void;
   telecomPrice: string;
@@ -65,6 +71,7 @@ interface TelecomFormProps {
   onDiscountChange?: (discount: number) => void;
   /** Called after a successful metadata edit to reload the history list */
   onRefreshHistory?: () => void;
+  onTransactionTimeChange?: (time: string | undefined) => void;
 }
 
 export function TelecomForm({
@@ -76,6 +83,7 @@ export function TelecomForm({
   showHistory,
   setShowHistory,
   rechargeHistory,
+  marginAlertThreshold = 100000,
   telecomAmount,
   setTelecomAmount,
   telecomPrice,
@@ -113,6 +121,7 @@ export function TelecomForm({
   alfaCreditCostRate = 85000,
   onDiscountChange,
   onRefreshHistory,
+  onTransactionTimeChange,
 }: TelecomFormProps) {
   const api = useApi();
   const [rates, setRates] = useState({ buyRate: 89000, sellRate: 89500 });
@@ -120,6 +129,7 @@ export function TelecomForm({
   const [discount, setDiscount] = useState(0);
   void discount; // surfaced to parent via onDiscountChange; kept locally for future use
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [transactionTime, setTransactionTime] = useState<string | undefined>();
 
   // Fetch exchange rates and cost rate on mount
   useEffect(() => {
@@ -323,6 +333,13 @@ export function TelecomForm({
               onChange={(e) => setTelecomClientName(e.target.value)}
               placeholder="Client name (optional)"
               className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-red-500"
+            />
+            <TransactionTimeOverride
+              value={transactionTime}
+              onChange={(t) => {
+                setTransactionTime(t);
+                onTransactionTimeChange?.(t);
+              }}
             />
           </PaymentSheet>
         </div>
@@ -743,7 +760,7 @@ export function TelecomForm({
                               onClick={() => selectClient(c)}
                               className="w-full text-left px-4 py-2.5 hover:bg-slate-700 text-sm text-white transition-colors first:rounded-t-xl last:rounded-b-xl"
                             >
-                              {c.name}
+                              {c.full_name || c.name}
                             </button>
                           ))}
                         </div>
@@ -752,6 +769,13 @@ export function TelecomForm({
                   )}
                 </div>
               )}
+              <TransactionTimeOverride
+                value={transactionTime}
+                onChange={(t) => {
+                  setTransactionTime(t);
+                  onTransactionTimeChange?.(t);
+                }}
+              />
             </PaymentSheet>
           </div>
         </div>
@@ -760,25 +784,11 @@ export function TelecomForm({
       {/* History Modal */}
       {showHistory && (
         <HistoryModal
-          transactions={rechargeHistory.map((r) => ({
-            id: r.id,
-            provider: r.carrier,
-            service_type: "SEND" as const,
-            amount: r.amount,
-            currency: r.currency_code || "USD",
-            cost: r.cost,
-            commission: r.price - r.cost,
-            client_name: r.client_name,
-            phone_number: r.phone_number ?? null,
-            note: r.note ?? undefined,
-            edited_by: r.edited_by ?? null,
-            edited_at: r.edited_at ?? null,
-            reference_number: r.phone_number || undefined,
-            created_at: r.created_at,
-          }))}
+          transactions={rechargeHistory}
           provider={isMTC ? "MTC" : "Alfa"}
           amountLabel="Credits"
           amountAlwaysUsd
+          marginAlertThreshold={marginAlertThreshold}
           onClose={() => setShowHistory(false)}
           onRefresh={onRefreshHistory ?? (() => {})}
           formatAmount={(val, currency) =>

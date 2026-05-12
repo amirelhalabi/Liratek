@@ -55,7 +55,9 @@ function bumpVersion(current, type) {
     default:
       // Exact version provided
       if (/^\d+\.\d+\.\d+$/.test(type)) return type;
-      console.error(`Unknown bump type: "${type}". Use patch, minor, major, or an exact version (e.g. 1.20.0)`);
+      console.error(
+        `Unknown bump type: "${type}". Use patch, minor, major, or an exact version (e.g. 1.20.0)`,
+      );
       process.exit(1);
   }
 }
@@ -70,9 +72,13 @@ function main() {
 
   // Check if tag already exists
   try {
-    const existingTags = run(`git tag -l "${tag}"`, { silent: true }).toString().trim();
+    const existingTags = run(`git tag -l "${tag}"`, { silent: true })
+      .toString()
+      .trim();
     if (existingTags) {
-      console.error(`\n❌ Tag ${tag} already exists. Delete it first or choose a different version.`);
+      console.error(
+        `\n❌ Tag ${tag} already exists. Delete it first or choose a different version.`,
+      );
       process.exit(1);
     }
   } catch {
@@ -100,7 +106,9 @@ function main() {
   run("git push");
   run("git push --tags");
 
-  console.log(`\n✅ Released ${tag} — CI build workflow should start shortly.\n`);
+  console.log(
+    `\n✅ Released ${tag} — CI build workflow should start shortly.\n`,
+  );
 }
 
 main();

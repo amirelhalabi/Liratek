@@ -224,6 +224,22 @@ jest.mock("@/utils/logger", () => ({
   },
 }));
 
+// ── Mock useSaveAsClient ──
+jest.mock("@/shared/hooks/useSaveAsClient", () => ({
+  useSaveAsClient: () => ({
+    saveAsClient: false,
+    setSaveAsClient: jest.fn(),
+    showCheckbox: false,
+    trySaveAsClient: jest.fn().mockResolvedValue({ clientId: null }),
+    resetSaveAsClient: jest.fn(),
+  }),
+}));
+
+// ── Mock SaveAsClientCheckbox ──
+jest.mock("@/shared/components/SaveAsClientCheckbox", () => ({
+  SaveAsClientCheckbox: () => null,
+}));
+
 describe("CustomServices Page", () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -340,21 +356,22 @@ describe("CustomServices Page", () => {
   it("should show customer details section for all payment methods", () => {
     render(<CustomServices />);
 
-    // Customer details are always visible (not only for DEBT)
-    expect(screen.getByText("Customer Details")).toBeInTheDocument();
+    // Customer name & phone fields are always visible (not only for DEBT)
+    expect(screen.getByText(/Customer Name/)).toBeInTheDocument();
     expect(
       screen.getByPlaceholderText("Search or type name..."),
     ).toBeInTheDocument();
     expect(screen.getByPlaceholderText("e.g., 03 123 456")).toBeInTheDocument();
   });
 
-  it("should show required label for DEBT payment", () => {
+  it("should show required indicator for DEBT payment", () => {
     render(<CustomServices />);
 
     const select = screen.getByTestId("paid-by-select");
     fireEvent.change(select, { target: { value: "DEBT" } });
 
-    expect(screen.getByText("(required for DEBT)")).toBeInTheDocument();
+    // Red asterisk appears next to Customer Name when DEBT is selected
+    expect(screen.getByText("*")).toBeInTheDocument();
   });
 
   it("should validate client for DEBT payment", async () => {

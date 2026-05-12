@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { positiveDecimalSchema, idSchema } from "./common.js";
+import {
+  positiveDecimalSchema,
+  idSchema,
+  transactionTimeSchema,
+} from "./common.js";
 
 /**
  * Debt management validation schemas
@@ -21,6 +25,7 @@ export const addRepaymentSchema = z
     userId: idSchema.optional(),
     paidByMethod: z.string().min(1).optional(),
     payments: z.array(repaymentPaymentLineSchema).optional(),
+    transaction_time: transactionTimeSchema,
   })
   .refine(
     (data) =>
@@ -34,6 +39,19 @@ export const addRepaymentSchema = z
     },
   );
 
+// Add credit (shop owes customer)
+export const addCreditSchema = z
+  .object({
+    clientId: idSchema,
+    amountUsd: z.number().min(0).default(0),
+    amountLbp: z.number().min(0).default(0),
+    note: z.string().max(500).optional(),
+    transactionTime: transactionTimeSchema,
+  })
+  .refine((data) => data.amountUsd > 0 || data.amountLbp > 0, {
+    message: "At least one amount (USD or LBP) must be greater than 0",
+  });
+
 // Get debtor summary
 export const getDebtorSummarySchema = z.object({
   clientId: idSchema.optional(),
@@ -41,4 +59,5 @@ export const getDebtorSummarySchema = z.object({
 });
 
 export type AddRepaymentInput = z.infer<typeof addRepaymentSchema>;
+export type AddCreditInput = z.infer<typeof addCreditSchema>;
 export type GetDebtorSummaryInput = z.infer<typeof getDebtorSummarySchema>;

@@ -8,6 +8,7 @@ import {
   Pencil,
   Check,
   Phone,
+  AlertTriangle,
 } from "lucide-react";
 import { DataTable } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
@@ -57,6 +58,8 @@ interface HistoryModalProps {
     id: number,
     data: { phone_number?: string; client_name?: string; note?: string },
   ) => Promise<{ success: boolean; error?: string }>;
+  /** Margin override threshold in LBP for showing theft detection alert. Default: 100,000 */
+  marginAlertThreshold?: number;
 }
 
 export function HistoryModal({
@@ -71,6 +74,7 @@ export function HistoryModal({
   showFeeAndProfit = false,
   amountAlwaysUsd = false,
   onUpdateMetadata,
+  marginAlertThreshold = 100_000,
 }: HistoryModalProps) {
   useModalFocusFix(true);
   const { filteredData, from, to, setFrom, setTo } = useDateRangeFilter(
@@ -253,6 +257,18 @@ export function HistoryModal({
               const isEditing = editingId === tx.id;
               const wasEdited = Boolean(tx.edited_by);
 
+              // Margin alert: theft detection when price was manually changed
+              // price_to_client = cost + commission (reconstructed from mapped data)
+              const actualPrice = (tx.cost ?? 0) + tx.commission;
+              const marginOverride =
+                tx.default_price_to_client != null
+                  ? actualPrice - tx.default_price_to_client
+                  : 0;
+              const showMarginAlert =
+                tx.default_price_to_client != null &&
+                actualPrice !== tx.default_price_to_client &&
+                marginOverride > marginAlertThreshold;
+
               return (
                 <>
                   <tr
@@ -269,6 +285,15 @@ export function HistoryModal({
                         {isRefunded && (
                           <span className="ml-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
                             Refunded
+                          </span>
+                        )}
+                        {showMarginAlert && (
+                          <span
+                            className="ml-2 inline-flex items-center gap-1 rounded-full bg-red-500/15 border border-red-500/40 px-2 py-0.5 text-[10px] font-semibold text-red-400 cursor-help"
+                            title={`Price to client was modified — margin: ${marginOverride.toLocaleString()} LBP`}
+                          >
+                            <AlertTriangle size={10} />
+                            Margin
                           </span>
                         )}
                       </div>

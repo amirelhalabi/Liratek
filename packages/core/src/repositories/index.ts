@@ -413,3 +413,10 @@ export type {
   CreateDrawerTopUpFromDrawerData,
   SourceDrawerBalance,
 } from "./DrawerTopUpRepository.js";
+
+export {
+  ServicePresetRepository,
+  getServicePresetRepository,
+  resetServicePresetRepository,
+} from "./ServicePresetRepository.js";
+export type { ServicePresetEntity } from "./ServicePresetRepository.js";

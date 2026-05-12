@@ -22,6 +22,7 @@ import {
   fetchLiveCurrencyRates,
   CURRENCY_NAMES,
 } from "@/utils/liveExchangeRates";
+import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -287,6 +288,7 @@ export default function Exchange() {
     [],
   );
   const [clientName, setClientName] = useState("");
+  const [transactionTime, setTransactionTime] = useState<string | undefined>();
 
   // Live calculation result (auto from DB rates)
   const [calcResult, setCalcResult] = useState<CurrencyExchangeResult | null>(
@@ -597,6 +599,7 @@ export default function Exchange() {
         note: `Exchange ${fromCurrency} → ${toCurrency}${effectiveResult.viaCurrency ? ` via ${effectiveResult.viaCurrency}` : ""}`,
         fromCurrencyName: CURRENCY_NAMES[fromCurrency] ?? fromCurrency,
         toCurrencyName: CURRENCY_NAMES[toCurrency] ?? toCurrency,
+        transaction_time: transactionTime,
       });
 
       if (result.success) {
@@ -619,6 +622,7 @@ export default function Exchange() {
         setAmountOut("");
         setClientName("");
         setCalcResult(null);
+        setTransactionTime(undefined);
         loadHistory();
       } else {
         alert("Error: " + result.error);
@@ -895,6 +899,11 @@ export default function Exchange() {
               placeholder="Walk-in Client"
             />
           </div>
+
+          <TransactionTimeOverride
+            value={transactionTime}
+            onChange={setTransactionTime}
+          />
 
           <button
             onClick={handleProcess}

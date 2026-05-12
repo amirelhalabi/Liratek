@@ -4,6 +4,7 @@ import { Plus, Banknote, History } from "lucide-react";
 import { PageHeader, Select, useApi } from "@liratek/ui";
 import { HistoryModal } from "./components/HistoryModal";
 import { StatsCards } from "../../components/StatsCards";
+import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 
 interface Expense {
   id?: number;
@@ -61,6 +62,7 @@ export default function Expenses() {
       const result = await api.addExpense({
         ...formData,
         expense_date: new Date(formData.expense_date).toISOString(),
+        transaction_time: transactionTime,
       });
 
       if (result.success) {
@@ -72,6 +74,7 @@ export default function Expenses() {
           amount_lbp: 0,
           expense_date: new Date().toISOString().split("T")[0],
         });
+        setTransactionTime(undefined);
         loadTodayExpenses();
       } else {
         alert("Error: " + result.error);
@@ -98,6 +101,7 @@ export default function Expenses() {
   const totalUSD = expenses.reduce((sum, e) => sum + (e.amount_usd || 0), 0);
   const totalLBP = expenses.reduce((sum, e) => sum + (e.amount_lbp || 0), 0);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [transactionTime, setTransactionTime] = useState<string | undefined>();
 
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 min-h-0 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500">
@@ -250,6 +254,11 @@ export default function Expenses() {
               />
             </div>
           </div>
+
+          <TransactionTimeOverride
+            value={transactionTime}
+            onChange={setTransactionTime}
+          />
 
           <button
             onClick={handleAddExpense}
