@@ -21,6 +21,7 @@ import {
   type OmtServiceType,
 } from "../utils/omtFees.js";
 import { lookupWhishFee } from "../utils/whishFees.js";
+import { financialLogger } from "../utils/logger.js";
 
 // =============================================================================
 // Entity Types
@@ -157,7 +158,9 @@ export interface CreateFinancialServiceData {
    * - 'CASH' (default): debit General drawer (current behavior)
    * - 'CUSTOMER_ACCOUNT': don't debit drawer, create credit in debt_ledger
    */
-  cashoutMethod?: "CASH" | "CUSTOMER_ACCOUNT";
+  cashoutMethod?: "CASH" | "CUSTOMER_ACCOUNT" | "OMT" | "WHISH" | "BINANCE";
+  /** Partner ID: when set, this transaction is performed "As [Partner]" */
+  partnerId?: number;
 }
 
 export interface ProviderStats {
@@ -405,6 +408,14 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       );
 
       const id = Number(result.lastInsertRowid);
+
+      // Store partner_id on the record if provided
+      if (data.partnerId) {
+        this.db
+          .prepare(`UPDATE financial_services SET partner_id = ? WHERE id = ?`)
+          .run(data.partnerId, id);
+      }
+
       const createdBy = 1;
       const note = data.note || null;
 
@@ -709,17 +720,18 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                   userId: createdBy,
                 });
               } else {
-                // CASH: debit General drawer for the payout
+                // Debit the appropriate drawer based on cashout method
+                const cashoutDrawer = paymentMethodToDrawerName(cashoutMethod);
                 insertPayment.run(
                   txnId,
-                  "CASH",
-                  "General",
+                  cashoutMethod,
+                  cashoutDrawer,
                   currency,
                   -payoutAmount,
-                  `Cash paid to customer (Binance RECEIVE)`,
+                  `${cashoutMethod} paid to customer (Binance RECEIVE)`,
                   createdBy,
                 );
-                upsertBalanceDelta.run("General", currency, -payoutAmount);
+                upsertBalanceDelta.run(cashoutDrawer, currency, -payoutAmount);
               }
             }
           }
@@ -1128,8 +1140,10 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 );
             } else {
               // Non-debt single payment: credit to drawer
+              // Skip for partner transactions: the partner handles their customer directly,
+              // no cash flows through the shop's General drawer.
               const paidByDrawer = paymentMethodToDrawerName(paidBy);
-              if (isDrawerAffectingMethod(paidBy)) {
+              if (isDrawerAffectingMethod(paidBy) && !data.partnerId) {
                 insertPayment.run(
                   txnId,
                   paidBy,
@@ -1240,16 +1254,19 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               } else if (paidBy !== "DEBT") {
                 // Cash payment: reserve from General (net 0 for General)
                 // Skip for DEBT single payment — no cash was received, nothing to reserve
-                insertPayment.run(
-                  txnId,
-                  "RESERVE",
-                  "General",
-                  currency,
-                  -totalCollected,
-                  "Cash reserve for settlement",
-                  createdBy,
-                );
-                upsertBalanceDelta.run("General", currency, -totalCollected);
+                // Skip for partner transactions — no cash flows through the shop's General drawer
+                if (!data.partnerId) {
+                  insertPayment.run(
+                    txnId,
+                    "RESERVE",
+                    "General",
+                    currency,
+                    -totalCollected,
+                    "Cash reserve for settlement",
+                    createdBy,
+                  );
+                  upsertBalanceDelta.run("General", currency, -totalCollected);
+                }
               }
             }
 
@@ -1336,19 +1353,25 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               userId: createdBy,
             });
           } else {
-            // CASH (default): debit system drawer — shop pays cash out to customer
-            if (useSystemDrawerFlow) {
-              // System drawer -(amount + commission): OMT owes us this total
+            // Non-CUSTOMER_ACCOUNT: debit the appropriate drawer based on cashout method
+            // For CASH → General, OMT → OMT_App, WHISH → Whish_App, BINANCE → Binance
+            const cashoutDrawer = paymentMethodToDrawerName(cashoutMethod);
+
+            // System drawer: track what provider owes the shop
+            if (useSystemDrawerFlow && !data.partnerId) {
+              // System drawer -(amount + commission): provider owes us this total
               insertPayment.run(
                 txnId,
                 data.provider,
                 systemDrawer,
                 currency,
                 -totalOwed,
-                `${data.provider} cash paid to customer (incl. commission)`,
+                `${data.provider} ${cashoutMethod} paid to customer (incl. commission)`,
                 createdBy,
               );
               upsertBalanceDelta.run(systemDrawer, currency, -totalOwed);
+            } else if (useSystemDrawerFlow && data.partnerId) {
+              // Partner transaction: system drawer not debited — partner handles the payout
             } else {
               // Other providers: single drawer, positive (money coming in)
               const drawerName = data.paidByMethod
@@ -1365,6 +1388,25 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 createdBy,
               );
               upsertBalanceDelta.run(drawerName, currency, receiveAmount);
+            }
+
+            // Debit the cashout drawer for the payout to customer (only for non-partner, non-system-only flows)
+            if (
+              cashoutMethod !== "CASH" &&
+              useSystemDrawerFlow &&
+              !data.partnerId
+            ) {
+              // For wallet cashouts (OMT/WHISH/BINANCE), debit the wallet drawer
+              insertPayment.run(
+                txnId,
+                cashoutMethod,
+                cashoutDrawer,
+                currency,
+                -receiveAmount,
+                `${cashoutMethod} paid to customer (${data.provider} RECEIVE)`,
+                createdBy,
+              );
+              upsertBalanceDelta.run(cashoutDrawer, currency, -receiveAmount);
             }
           }
         }
@@ -1405,7 +1447,12 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       try {
         const supplierRepo = getSupplierRepository();
         const supplier = supplierRepo.getByProvider(data.provider);
-        if (supplier) {
+        if (!supplier) {
+          financialLogger.debug(
+            { provider: data.provider },
+            `Skipping supplier ledger for inactive provider: ${data.provider}`,
+          );
+        } else {
           // Ledger amount:
           // SEND:    shop owes supplier (amount + fee) — total OMT outflow
           // RECEIVE: supplier owes shop (amount + commission) — total OMT debt to shop
@@ -1440,6 +1487,33 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         }
       } catch {
         // Supplier auto-record is non-critical; don't fail the transaction
+      }
+
+      // Auto-create partner ledger entry if this is a partner transaction
+      if (data.partnerId) {
+        const providerKey =
+          data.provider === "OMT" || data.provider === "OMT_APP"
+            ? "OMT"
+            : "WHISH";
+        const ledgerType = `${providerKey}_${data.serviceType}`;
+        const direction = data.serviceType === "SEND" ? "DEBIT" : "CREDIT";
+        this.db
+          .prepare(
+            `
+          INSERT INTO partner_ledger (partner_id, transaction_type, reference_table, reference_id, amount, currency, direction, user_id, created_at)
+          VALUES (?, ?, 'financial_services', ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+        `,
+          )
+          .run(
+            data.partnerId,
+            ledgerType,
+            id,
+            data.amount,
+            currency,
+            direction,
+            1,
+            data.transaction_time ?? null,
+          );
       }
 
       return { id, drawer: legacyDrawerLabel };

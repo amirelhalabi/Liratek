@@ -467,8 +467,8 @@ export type ApiAdapter = {
   // ---------------------------------------------------------------------------
   // Suppliers
   // ---------------------------------------------------------------------------
-  getSuppliers: (search?: string) => Promise<any[]>;
-  getSupplierBalances: () => Promise<any[]>;
+  getSuppliers: (search?: string, includeInactive?: boolean) => Promise<any[]>;
+  getSupplierBalances: (includeInactive?: boolean) => Promise<any[]>;
   getSupplierLedger: (supplierId: number, limit?: number) => Promise<any[]>;
   createSupplier: (data: {
     name: string;

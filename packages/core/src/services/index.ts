@@ -288,3 +288,10 @@ export {
   getServicePresetService,
   resetServicePresetService,
 } from "./ServicePresetService.js";
+
+// Partner Service
+export {
+  PartnerService,
+  getPartnerService,
+  resetPartnerService,
+} from "./PartnerService.js";

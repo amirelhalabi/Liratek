@@ -3052,6 +3052,157 @@ export const MIGRATIONS: Migration[] = [
       console.log("Migration v76 rolled back");
     },
   },
+  {
+    version: 77,
+    name: "create_partners_system",
+    description:
+      "Create partners and partner_ledger tables, add partner_id to financial_services",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS partners (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL UNIQUE,
+          phone TEXT,
+          notes TEXT,
+          is_active INTEGER NOT NULL DEFAULT 1,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS partner_ledger (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          partner_id INTEGER NOT NULL REFERENCES partners(id),
+          transaction_type TEXT NOT NULL CHECK(transaction_type IN ('OMT_SEND', 'OMT_RECEIVE', 'WHISH_SEND', 'WHISH_RECEIVE', 'CUSTOM_SERVICE', 'SETTLEMENT', 'ADJUSTMENT')),
+          reference_table TEXT,
+          reference_id INTEGER,
+          amount REAL NOT NULL,
+          currency TEXT NOT NULL DEFAULT 'USD',
+          direction TEXT NOT NULL CHECK(direction IN ('DEBIT', 'CREDIT')),
+          notes TEXT,
+          user_id INTEGER REFERENCES users(id),
+          settlement_method TEXT CHECK(settlement_method IN ('CASH', 'OMT', 'WHISH', 'BINANCE', 'CLIENT_ACCOUNT')),
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_partner_ledger_partner_id ON partner_ledger(partner_id);
+        CREATE INDEX IF NOT EXISTS idx_partner_ledger_created_at ON partner_ledger(created_at);
+      `);
+
+      // Add partner_id to financial_services
+      const columns = db.pragma("table_info(financial_services)") as {
+        name: string;
+      }[];
+      if (!columns.some((c) => c.name === "partner_id")) {
+        db.exec(
+          `ALTER TABLE financial_services ADD COLUMN partner_id INTEGER REFERENCES partners(id);`,
+        );
+      }
+
+      console.log("Migration v77: Created partners system tables");
+    },
+    down(db: Database.Database) {
+      db.exec(`
+        ALTER TABLE financial_services DROP COLUMN partner_id;
+        DROP TABLE IF EXISTS partner_ledger;
+        DROP TABLE IF EXISTS partners;
+      `);
+      console.log("Migration v77 rolled back");
+    },
+  },
+  {
+    version: 78,
+    name: "deactivate_whish_supplier",
+    description:
+      "LIRA-045: OMT-base shops don't own Whish System — partner ledger replaces supplier ledger",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      // LIRA-045: OMT-base shops don't own Whish System — partner ledger replaces supplier ledger
+      db.prepare(
+        `UPDATE suppliers SET is_active = 0 WHERE provider = 'WHISH'`,
+      ).run();
+      console.log("Migration v78: Deactivated WHISH supplier");
+    },
+    down(db: Database.Database) {
+      db.prepare(
+        `UPDATE suppliers SET is_active = 1 WHERE provider = 'WHISH'`,
+      ).run();
+      console.log("Migration v78 rolled back");
+    },
+  },
+  {
+    version: 79,
+    name: "add_partner_system_association",
+    description:
+      "LIRA-045: Partners can be associated with a system (e.g. WHISH) to access that system's transactions",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      const cols = db.prepare("PRAGMA table_info(partners)").all() as {
+        name: string;
+      }[];
+      if (!cols.some((c) => c.name === "system_association")) {
+        db.exec(
+          `ALTER TABLE partners ADD COLUMN system_association TEXT DEFAULT NULL`,
+        );
+      }
+      console.log("Migration v79: Added system_association column to partners");
+    },
+    down(db: Database.Database) {
+      db.exec(`ALTER TABLE partners DROP COLUMN system_association`);
+      console.log("Migration v79 rolled back");
+    },
+  },
+  {
+    version: 80,
+    name: "add_shop_base_system_setting",
+    description:
+      "LIRA-046: Add shop_base_system setting (OMT or WHISH) — defaults to OMT for existing shops",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.exec(`
+        INSERT OR IGNORE INTO system_settings (key_name, value)
+        VALUES ('shop_base_system', 'OMT');
+      `);
+      console.log(
+        "Migration v80: Added shop_base_system setting (default OMT)",
+      );
+    },
+    down(db: Database.Database) {
+      db.exec(
+        `DELETE FROM system_settings WHERE key_name = 'shop_base_system';`,
+      );
+      console.log("Migration v80 rolled back");
+    },
+  },
+  {
+    version: 81,
+    name: "add_expenses_created_at_updated_at",
+    description:
+      "Add missing created_at and updated_at columns to expenses table",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      // Check if columns already exist (idempotent)
+      const cols = db.prepare("PRAGMA table_info(expenses)").all() as {
+        name: string;
+      }[];
+      const colNames = cols.map((c) => c.name);
+      if (!colNames.includes("created_at")) {
+        db.exec(
+          `ALTER TABLE expenses ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP;`,
+        );
+      }
+      if (!colNames.includes("updated_at")) {
+        db.exec(
+          `ALTER TABLE expenses ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP;`,
+        );
+      }
+      console.log("Migration v81: Added created_at/updated_at to expenses");
+    },
+    down(db: Database.Database) {
+      // SQLite doesn't support DROP COLUMN before 3.35 — no-op
+      console.log("Migration v81 rolled back (no-op for SQLite)");
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

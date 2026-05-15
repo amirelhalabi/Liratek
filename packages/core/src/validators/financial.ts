@@ -83,7 +83,7 @@ export const createFinancialServiceSchema = z
      * - CUSTOMER_ACCOUNT: credit client's account (debt_ledger credit)
      */
     cashoutMethod: z
-      .enum(["CASH", "CUSTOMER_ACCOUNT"])
+      .enum(["CASH", "CUSTOMER_ACCOUNT", "OMT", "WHISH", "BINANCE"])
       .optional()
       .default("CASH"),
     transaction_time: transactionTimeSchema,

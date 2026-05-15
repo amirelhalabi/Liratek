@@ -104,7 +104,7 @@ export function registerInventoryHandlers(): void {
     }
 
     const result = service.createProduct({
-      barcode: validatedProduct.barcode,
+      barcode: validatedProduct.barcode || null,
       name: validatedProduct.name,
       category: categoryName,
       category_id: categoryId,

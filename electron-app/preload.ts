@@ -309,8 +309,10 @@ contextBridge.exposeInMainWorld("api", {
 
   // Suppliers
   suppliers: {
-    list: (search?: string) => ipcRenderer.invoke("suppliers:list", search),
-    getBalances: () => ipcRenderer.invoke("suppliers:balances"),
+    list: (search?: string, includeInactive?: boolean) =>
+      ipcRenderer.invoke("suppliers:list", search, includeInactive),
+    getBalances: (includeInactive?: boolean) =>
+      ipcRenderer.invoke("suppliers:balances", includeInactive),
     getLedger: (supplierId: number, limit?: number) =>
       ipcRenderer.invoke("suppliers:ledger", supplierId, limit),
     create: (data: {
@@ -524,6 +526,41 @@ contextBridge.exposeInMainWorld("api", {
     getSourceDrawers: () => ipcRenderer.invoke("drawer-topup:source-drawers"),
     getHistory: (limit?: number) =>
       ipcRenderer.invoke("drawer-topup:history", { limit }),
+  },
+
+  // Partners
+  partners: {
+    getAll: (includeInactive?: boolean) =>
+      ipcRenderer.invoke("partners:get-all", includeInactive),
+    getById: (id: number) => ipcRenderer.invoke("partners:get-by-id", id),
+    create: (data: {
+      name: string;
+      phone?: string;
+      notes?: string;
+      system_association?: string | null;
+    }) => ipcRenderer.invoke("partners:create", data),
+    update: (
+      id: number,
+      data: {
+        name?: string;
+        phone?: string;
+        notes?: string;
+        system_association?: string | null;
+      },
+    ) => ipcRenderer.invoke("partners:update", id, data),
+    deactivate: (id: number) => ipcRenderer.invoke("partners:deactivate", id),
+    activate: (id: number) => ipcRenderer.invoke("partners:activate", id),
+    getBalance: (partnerId: number) =>
+      ipcRenderer.invoke("partners:get-balance", partnerId),
+    getAllBalances: (includeInactive?: boolean) =>
+      ipcRenderer.invoke("partners:get-all-balances", includeInactive),
+    getLedger: (
+      partnerId: number,
+      dateRange?: { start: string; end: string },
+    ) => ipcRenderer.invoke("partners:get-ledger", partnerId, dateRange),
+    recordTransaction: (data: unknown) =>
+      ipcRenderer.invoke("partners:record-transaction", data),
+    settle: (data: unknown) => ipcRenderer.invoke("partners:settle", data),
   },
 
   // Settings

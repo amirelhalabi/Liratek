@@ -53,7 +53,7 @@ export const SaleRefundSchema = z.number().int().positive();
 // =============================================================================
 
 const ProductBaseSchema = z.object({
-  barcode: z.string().min(1, "Barcode is required"),
+  barcode: z.string(),
   name: z.string().min(1, "Product name is required"),
   category: z.string().min(1),
   cost_price: z.number().nonnegative(),

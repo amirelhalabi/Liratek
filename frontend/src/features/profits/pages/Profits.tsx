@@ -217,12 +217,12 @@ function SummaryCard({
       ? "text-emerald-400"
       : trend === "down"
         ? "text-red-400"
-        : "text-gray-400";
+        : "text-slate-400";
 
   return (
-    <div className="bg-gray-800/50 rounded-xl border border-gray-700 p-4">
+    <div className="bg-slate-800/50 rounded-xl border border-slate-700 p-4">
       <div className="flex items-center justify-between mb-2">
-        <span className="text-xs text-gray-400 uppercase tracking-wider">
+        <span className="text-xs text-slate-400 uppercase tracking-wider">
           {label}
         </span>
         <Icon className={`h-4 w-4 ${color}`} />
@@ -231,7 +231,7 @@ function SummaryCard({
         <p className="text-xl font-bold text-white">{value}</p>
         {trend && <TrendIcon className={`h-4 w-4 ${trendColor}`} />}
       </div>
-      {subValue && <p className="text-xs text-gray-500 mt-1">{subValue}</p>}
+      {subValue && <p className="text-xs text-slate-500 mt-1">{subValue}</p>}
     </div>
   );
 }
@@ -464,7 +464,7 @@ export default function Profits() {
 
       {/* Tab bar + date range */}
       <div className="flex flex-wrap items-center gap-4">
-        <div className="flex bg-gray-800 rounded-lg p-1 flex-wrap">
+        <div className="flex bg-slate-800 rounded-lg p-1 flex-wrap">
           {tabs.map((t) => (
             <button
               key={t.key}
@@ -472,7 +472,7 @@ export default function Profits() {
               className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
                 tab === t.key
                   ? "bg-blue-600 text-white"
-                  : "text-gray-400 hover:text-white hover:bg-gray-700"
+                  : "text-slate-400 hover:text-white hover:bg-slate-700"
               }`}
             >
               <t.icon className="h-4 w-4" />
@@ -494,12 +494,12 @@ export default function Profits() {
       <div className="flex-1 min-h-0 overflow-auto space-y-6">
         {/* Loading */}
         {loading && (
-          <div className="text-center py-12 text-gray-400">Loading...</div>
+          <div className="text-center py-12 text-slate-400">Loading...</div>
         )}
 
         {/* ==================== Overview Tab ==================== */}
         {!loading && tab === "overview" && !summary && (
-          <div className="text-center py-12 text-gray-500">
+          <div className="text-center py-12 text-slate-500">
             No data for this period
           </div>
         )}
@@ -559,12 +559,12 @@ export default function Profits() {
             </div>
 
             {/* Module breakdown cards */}
-            <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">
+            <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider">
               Breakdown by Source
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {/* Sales */}
-              <div className="bg-gray-800/50 rounded-xl border border-gray-700 p-4 space-y-2">
+              <div className="bg-slate-800/50 rounded-xl border border-slate-700 p-4 space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium text-white">
                     Product Sales
@@ -573,7 +573,7 @@ export default function Profits() {
                     {summary.sales.count} sales
                   </span>
                 </div>
-                <div className="text-xs text-gray-400 space-y-1">
+                <div className="text-xs text-slate-400 space-y-1">
                   <div className="flex justify-between">
                     <span>Total Sales</span>
                     <span className="text-white">
@@ -586,7 +586,7 @@ export default function Profits() {
                       -{formatAmount(summary.sales.cost_usd, "USD")}
                     </span>
                   </div>
-                  <div className="flex justify-between border-t border-gray-700 pt-1">
+                  <div className="flex justify-between border-t border-slate-700 pt-1">
                     <span className="font-semibold">Profit</span>
                     <span className="text-emerald-400 font-semibold">
                       {formatAmount(summary.sales.profit_usd, "USD")}
@@ -596,7 +596,7 @@ export default function Profits() {
               </div>
 
               {/* Financial Services */}
-              <div className="bg-gray-800/50 rounded-xl border border-gray-700 p-4 space-y-2">
+              <div className="bg-slate-800/50 rounded-xl border border-slate-700 p-4 space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium text-white">
                     Financial Services
@@ -605,7 +605,7 @@ export default function Profits() {
                     {summary.financial_services.count} txns
                   </span>
                 </div>
-                <div className="text-xs text-gray-400 space-y-1">
+                <div className="text-xs text-slate-400 space-y-1">
                   <div className="flex justify-between">
                     <span>Transaction Amount (USD)</span>
                     <span className="text-white">
@@ -626,7 +626,7 @@ export default function Profits() {
                       </span>
                     </div>
                   )}
-                  <div className="flex justify-between border-t border-gray-700 pt-1">
+                  <div className="flex justify-between border-t border-slate-700 pt-1">
                     <span className="font-semibold">Commission</span>
                     <span className="text-emerald-400 font-semibold">
                       {formatAmount(
@@ -652,7 +652,7 @@ export default function Profits() {
 
               {/* Mobile Services (iPick, KATCH, BOB) */}
               {summary.mobile_services && (
-                <div className="bg-gray-800/50 rounded-xl border border-gray-700 p-4 space-y-2">
+                <div className="bg-slate-800/50 rounded-xl border border-slate-700 p-4 space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-medium text-white">
                       Mobile Services
@@ -661,7 +661,7 @@ export default function Profits() {
                       {summary.mobile_services.count} txns
                     </span>
                   </div>
-                  <div className="text-xs text-gray-400 space-y-1">
+                  <div className="text-xs text-slate-400 space-y-1">
                     <div className="flex justify-between">
                       <span>Charged Amount</span>
                       <span className="text-white">
@@ -687,7 +687,7 @@ export default function Profits() {
                         )}
                       </span>
                     </div>
-                    <div className="flex justify-between border-t border-gray-700 pt-1">
+                    <div className="flex justify-between border-t border-slate-700 pt-1">
                       <span className="font-semibold">Profit</span>
                       <span className="text-emerald-400 font-semibold">
                         {formatAmount(
@@ -705,7 +705,7 @@ export default function Profits() {
               )}
 
               {/* Custom Services */}
-              <div className="bg-gray-800/50 rounded-xl border border-gray-700 p-4 space-y-2">
+              <div className="bg-slate-800/50 rounded-xl border border-slate-700 p-4 space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium text-white">
                     Custom Services
@@ -714,7 +714,7 @@ export default function Profits() {
                     {summary.custom_services.count} jobs
                   </span>
                 </div>
-                <div className="text-xs text-gray-400 space-y-1">
+                <div className="text-xs text-slate-400 space-y-1">
                   <div className="flex justify-between">
                     <span>Charged Amount</span>
                     <span className="text-white">
@@ -727,7 +727,7 @@ export default function Profits() {
                       -{formatAmount(summary.custom_services.cost_usd, "USD")}
                     </span>
                   </div>
-                  <div className="flex justify-between border-t border-gray-700 pt-1">
+                  <div className="flex justify-between border-t border-slate-700 pt-1">
                     <span className="font-semibold">Profit</span>
                     <span className="text-emerald-400 font-semibold">
                       {formatAmount(summary.custom_services.profit_usd, "USD")}
@@ -738,7 +738,7 @@ export default function Profits() {
 
               {/* Recharges */}
               {summary.recharges && summary.recharges.count > 0 && (
-                <div className="bg-gray-800/50 rounded-xl border border-gray-700 p-4 space-y-2">
+                <div className="bg-slate-800/50 rounded-xl border border-slate-700 p-4 space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-medium text-white">
                       Mobile Recharges
@@ -747,7 +747,7 @@ export default function Profits() {
                       {summary.recharges.count} txns
                     </span>
                   </div>
-                  <div className="text-xs text-gray-400 space-y-1">
+                  <div className="text-xs text-slate-400 space-y-1">
                     <div className="flex justify-between">
                       <span>Charged Amount</span>
                       <span className="text-white">
@@ -760,7 +760,7 @@ export default function Profits() {
                         -{formatAmount(summary.recharges.cost_usd, "USD")}
                       </span>
                     </div>
-                    <div className="flex justify-between border-t border-gray-700 pt-1">
+                    <div className="flex justify-between border-t border-slate-700 pt-1">
                       <span className="font-semibold">Profit</span>
                       <span className="text-emerald-400 font-semibold">
                         {formatAmount(summary.recharges.profit_usd, "USD")}
@@ -771,7 +771,7 @@ export default function Profits() {
               )}
 
               {/* Maintenance */}
-              <div className="bg-gray-800/50 rounded-xl border border-gray-700 p-4 space-y-2">
+              <div className="bg-slate-800/50 rounded-xl border border-slate-700 p-4 space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium text-white">
                     Maintenance
@@ -780,7 +780,7 @@ export default function Profits() {
                     {summary.maintenance.count} jobs
                   </span>
                 </div>
-                <div className="text-xs text-gray-400 space-y-1">
+                <div className="text-xs text-slate-400 space-y-1">
                   <div className="flex justify-between">
                     <span>Charged Amount</span>
                     <span className="text-white">
@@ -793,7 +793,7 @@ export default function Profits() {
                       -{formatAmount(summary.maintenance.cost_usd, "USD")}
                     </span>
                   </div>
-                  <div className="flex justify-between border-t border-gray-700 pt-1">
+                  <div className="flex justify-between border-t border-slate-700 pt-1">
                     <span className="font-semibold">Profit</span>
                     <span className="text-emerald-400 font-semibold">
                       {formatAmount(summary.maintenance.profit_usd, "USD")}
@@ -804,7 +804,7 @@ export default function Profits() {
 
               {/* Exchange */}
               {summary.exchange && summary.exchange.count > 0 && (
-                <div className="bg-gray-800/50 rounded-xl border border-gray-700 p-4 space-y-2">
+                <div className="bg-slate-800/50 rounded-xl border border-slate-700 p-4 space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-medium text-white">
                       Currency Exchange
@@ -813,14 +813,14 @@ export default function Profits() {
                       {summary.exchange.count} txns
                     </span>
                   </div>
-                  <div className="text-xs text-gray-400 space-y-1">
+                  <div className="text-xs text-slate-400 space-y-1">
                     <div className="flex justify-between">
                       <span>Volume</span>
                       <span className="text-white">
                         {formatAmount(summary.exchange.revenue_usd, "USD")}
                       </span>
                     </div>
-                    <div className="flex justify-between border-t border-gray-700 pt-1">
+                    <div className="flex justify-between border-t border-slate-700 pt-1">
                       <span className="font-semibold">Profit</span>
                       <span className="text-emerald-400 font-semibold">
                         {formatAmount(summary.exchange.profit_usd, "USD")}
@@ -832,25 +832,25 @@ export default function Profits() {
             </div>
 
             {/* Expense breakdown */}
-            <div className="bg-gray-800/50 rounded-xl border border-gray-700 p-4">
+            <div className="bg-slate-800/50 rounded-xl border border-slate-700 p-4">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-medium text-white">
                   Expenses Deducted
                 </span>
-                <span className="text-xs text-gray-400">
+                <span className="text-xs text-slate-400">
                   {summary.expenses.count} entries
                 </span>
               </div>
               <div className="flex gap-6 text-sm">
                 <div>
-                  <span className="text-gray-400">USD: </span>
+                  <span className="text-slate-400">USD: </span>
                   <span className="text-red-400 font-semibold">
                     -{formatAmount(summary.expenses.total_usd, "USD")}
                   </span>
                 </div>
                 {summary.expenses.total_lbp > 0 && (
                   <div>
-                    <span className="text-gray-400">LBP: </span>
+                    <span className="text-slate-400">LBP: </span>
                     <span className="text-red-400 font-semibold">
                       -{formatAmount(summary.expenses.total_lbp, "LBP")}
                     </span>
@@ -863,7 +863,7 @@ export default function Profits() {
 
         {/* ==================== By Module Tab ==================== */}
         {!loading && tab === "by-module" && (
-          <div className="bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden">
+          <div className="bg-slate-800/50 rounded-xl border border-slate-700 overflow-hidden">
             <DataTable<ModuleRow>
               columns={[
                 { header: "Module", className: "text-left px-4 py-3" },
@@ -879,12 +879,12 @@ export default function Profits() {
               exportPdf
               exportFilename="profit-by-module"
               className="w-full text-sm"
-              theadClassName="border-b border-gray-700 text-gray-400 text-xs uppercase"
+              theadClassName="border-b border-slate-700 text-slate-400 text-xs uppercase"
               emptyMessage="No data for this period"
               renderRow={(row) => (
                 <tr
                   key={row.module}
-                  className="border-b border-gray-700/50 hover:bg-gray-700/30"
+                  className="border-b border-slate-700/50 hover:bg-slate-700/30"
                 >
                   <td className="px-4 py-3 font-medium text-white">
                     {row.label}
@@ -905,10 +905,10 @@ export default function Profits() {
                       ? formatAmount(row.profit_lbp, "LBP")
                       : "—"}
                   </td>
-                  <td className="px-4 py-3 text-right text-gray-300">
+                  <td className="px-4 py-3 text-right text-slate-300">
                     {row.count}
                   </td>
-                  <td className="px-4 py-3 text-right text-gray-300">
+                  <td className="px-4 py-3 text-right text-slate-300">
                     {formatPct(row.profit_usd, row.revenue_usd)}
                   </td>
                 </tr>
@@ -922,8 +922,8 @@ export default function Profits() {
           <div className="space-y-4">
             {/* Visual bar chart */}
             {byDate.length > 0 && (
-              <div className="bg-gray-800/50 rounded-xl border border-gray-700 p-4">
-                <h3 className="text-sm font-semibold text-gray-400 mb-3">
+              <div className="bg-slate-800/50 rounded-xl border border-slate-700 p-4">
+                <h3 className="text-sm font-semibold text-slate-400 mb-3">
                   Daily Net Profit (USD)
                 </h3>
                 <div className="flex items-end gap-1 h-40">
@@ -950,7 +950,7 @@ export default function Profits() {
                             }}
                           />
                           {/* Tooltip */}
-                          <div className="absolute bottom-full mb-1 hidden group-hover:block bg-gray-900 border border-gray-600 rounded px-2 py-1 text-xs text-white whitespace-nowrap z-10">
+                          <div className="absolute bottom-full mb-1 hidden group-hover:block bg-slate-900 border border-slate-600 rounded px-2 py-1 text-xs text-white whitespace-nowrap z-10">
                             {d.date}: {formatAmount(d.net_profit_usd, "USD")}
                           </div>
                         </div>
@@ -958,7 +958,7 @@ export default function Profits() {
                     });
                   })()}
                 </div>
-                <div className="flex justify-between text-[10px] text-gray-500 mt-1">
+                <div className="flex justify-between text-[10px] text-slate-500 mt-1">
                   <span>{byDate[0]?.date}</span>
                   <span>{byDate[byDate.length - 1]?.date}</span>
                 </div>
@@ -966,7 +966,7 @@ export default function Profits() {
             )}
 
             {/* Table */}
-            <div className="bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden">
+            <div className="bg-slate-800/50 rounded-xl border border-slate-700 overflow-hidden">
               <DataTable<DateRow>
                 columns={[
                   { header: "Date", className: "text-left px-4 py-3" },
@@ -980,11 +980,11 @@ export default function Profits() {
                 exportPdf
                 exportFilename="profit-by-date"
                 className="w-full text-sm"
-                theadClassName="border-b border-gray-700 text-gray-400 text-xs uppercase"
+                theadClassName="border-b border-slate-700 text-slate-400 text-xs uppercase"
                 emptyMessage="No data for this period"
                 footerContent={
                   byDate.length > 0 ? (
-                    <tr className="border-t-2 border-gray-600 bg-gray-800/80 font-bold">
+                    <tr className="border-t-2 border-slate-600 bg-slate-800/80 font-bold">
                       <td className="px-4 py-3 text-white">TOTAL</td>
                       <td className="px-4 py-3 text-right text-white">
                         {formatAmount(
@@ -1023,7 +1023,7 @@ export default function Profits() {
                 renderRow={(d) => (
                   <tr
                     key={d.date}
-                    className="border-b border-gray-700/50 hover:bg-gray-700/30"
+                    className="border-b border-slate-700/50 hover:bg-slate-700/30"
                   >
                     <td className="px-4 py-3 font-medium text-white">
                       {d.date}
@@ -1057,7 +1057,7 @@ export default function Profits() {
 
         {/* ==================== By Payment Method Tab ==================== */}
         {!loading && tab === "by-payment" && (
-          <div className="bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden">
+          <div className="bg-slate-800/50 rounded-xl border border-slate-700 overflow-hidden">
             <DataTable<PaymentMethodRow>
               columns={[
                 { header: "Payment Method", className: "text-left px-4 py-3" },
@@ -1072,7 +1072,7 @@ export default function Profits() {
               exportPdf
               exportFilename="profit-by-payment"
               className="w-full text-sm"
-              theadClassName="border-b border-gray-700 text-gray-400 text-xs uppercase"
+              theadClassName="border-b border-slate-700 text-slate-400 text-xs uppercase"
               emptyMessage="No payment data for this period"
               renderRow={(row) => {
                 const totalAll = byPayment
@@ -1090,7 +1090,7 @@ export default function Profits() {
                 return (
                   <tr
                     key={row.method}
-                    className={`border-b border-gray-700/50 hover:bg-gray-700/30 ${
+                    className={`border-b border-slate-700/50 hover:bg-slate-700/30 ${
                       isPending
                         ? "bg-amber-950/20"
                         : isPmFee
@@ -1106,7 +1106,7 @@ export default function Profits() {
                               ? "text-emerald-400"
                               : isPmFee
                                 ? "text-violet-400"
-                                : "text-gray-400"
+                                : "text-slate-400"
                           }`}
                         />
                         {isPmFee
@@ -1138,7 +1138,7 @@ export default function Profits() {
                         ? formatAmount(row.total_lbp, "LBP")
                         : "—"}
                     </td>
-                    <td className="px-4 py-3 text-right text-gray-300">
+                    <td className="px-4 py-3 text-right text-slate-300">
                       {row.count}
                     </td>
                     <td className="px-4 py-3 text-right">
@@ -1165,7 +1165,7 @@ export default function Profits() {
                     <td className="px-4 py-3 text-right">
                       {!isPending && !isPmFee && !isDebtRepayment && (
                         <div className="flex items-center justify-end gap-2">
-                          <div className="w-16 bg-gray-700 rounded-full h-1.5">
+                          <div className="w-16 bg-slate-700 rounded-full h-1.5">
                             <div
                               className="bg-blue-500 h-1.5 rounded-full"
                               style={{
@@ -1173,7 +1173,7 @@ export default function Profits() {
                               }}
                             />
                           </div>
-                          <span className="text-gray-300 text-xs w-10 text-right">
+                          <span className="text-slate-300 text-xs w-10 text-right">
                             {formatPct(row.total_usd, totalAll)}
                           </span>
                         </div>
@@ -1201,7 +1201,7 @@ export default function Profits() {
 
         {/* ==================== By User/Cashier Tab ==================== */}
         {!loading && tab === "by-user" && (
-          <div className="bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden">
+          <div className="bg-slate-800/50 rounded-xl border border-slate-700 overflow-hidden">
             <DataTable<UserRow>
               columns={[
                 { header: "Cashier", className: "text-left px-4 py-3" },
@@ -1219,16 +1219,16 @@ export default function Profits() {
               exportPdf
               exportFilename="profit-by-cashier"
               className="w-full text-sm"
-              theadClassName="border-b border-gray-700 text-gray-400 text-xs uppercase"
+              theadClassName="border-b border-slate-700 text-slate-400 text-xs uppercase"
               emptyMessage="No data for this period"
               renderRow={(row) => (
                 <tr
                   key={row.user_id}
-                  className="border-b border-gray-700/50 hover:bg-gray-700/30"
+                  className="border-b border-slate-700/50 hover:bg-slate-700/30"
                 >
                   <td className="px-4 py-3 font-medium text-white">
                     <div className="flex items-center gap-2">
-                      <UserCheck className="h-4 w-4 text-gray-400" />
+                      <UserCheck className="h-4 w-4 text-slate-400" />
                       {row.username}
                     </div>
                   </td>
@@ -1244,13 +1244,13 @@ export default function Profits() {
                         ⚠ {formatAmount(row.pending_profit_usd, "USD")}
                       </span>
                     ) : (
-                      <span className="text-gray-600 text-xs">—</span>
+                      <span className="text-slate-600 text-xs">—</span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-right text-gray-300">
+                  <td className="px-4 py-3 text-right text-slate-300">
                     {row.transaction_count}
                   </td>
-                  <td className="px-4 py-3 text-right text-gray-300">
+                  <td className="px-4 py-3 text-right text-slate-300">
                     {row.transaction_count > 0
                       ? formatAmount(
                           row.profit_usd / row.transaction_count,
@@ -1266,7 +1266,7 @@ export default function Profits() {
 
         {/* ==================== By Client Tab ==================== */}
         {!loading && tab === "by-client" && (
-          <div className="bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden">
+          <div className="bg-slate-800/50 rounded-xl border border-slate-700 overflow-hidden">
             <DataTable<ClientRow>
               columns={[
                 { header: "#", className: "text-left px-4 py-3" },
@@ -1284,20 +1284,20 @@ export default function Profits() {
               exportPdf
               exportFilename="profit-by-client"
               className="w-full text-sm"
-              theadClassName="border-b border-gray-700 text-gray-400 text-xs uppercase"
+              theadClassName="border-b border-slate-700 text-slate-400 text-xs uppercase"
               emptyMessage="No data for this period"
               renderRow={(row, i) => (
                 <tr
                   key={row.client_id ?? `session-${row.client_name}-${i}`}
-                  className="border-b border-gray-700/50 hover:bg-gray-700/30"
+                  className="border-b border-slate-700/50 hover:bg-slate-700/30"
                 >
-                  <td className="px-4 py-3 text-gray-500 text-xs">{i + 1}</td>
+                  <td className="px-4 py-3 text-slate-500 text-xs">{i + 1}</td>
                   <td className="px-4 py-3">
                     <div className="font-medium text-white">
                       {row.client_name}
                     </div>
                     {row.client_phone && (
-                      <div className="text-xs text-gray-500">
+                      <div className="text-xs text-slate-500">
                         {row.client_phone}
                       </div>
                     )}
@@ -1314,10 +1314,10 @@ export default function Profits() {
                         ⚠ {formatAmount(row.pending_profit_usd, "USD")}
                       </span>
                     ) : (
-                      <span className="text-gray-600 text-xs">—</span>
+                      <span className="text-slate-600 text-xs">—</span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-right text-gray-300">
+                  <td className="px-4 py-3 text-right text-slate-300">
                     {row.transaction_count}
                   </td>
                 </tr>
@@ -1328,7 +1328,7 @@ export default function Profits() {
 
         {/* ==================== Commissions Tab ==================== */}
         {!loading && tab === "commissions" && !commissionsData && (
-          <div className="text-center py-12 text-gray-500">Loading...</div>
+          <div className="text-center py-12 text-slate-500">Loading...</div>
         )}
         {!loading && tab === "commissions" && commissionsData && (
           <div className="space-y-6">
@@ -1534,8 +1534,8 @@ export default function Profits() {
                   </div>
                 )}
               </div>
-              <div className="bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden">
-                <div className="grid grid-cols-12 gap-2 bg-gray-800 text-gray-400 text-xs font-semibold uppercase px-4 py-2">
+              <div className="bg-slate-800/50 rounded-xl border border-slate-700 overflow-hidden">
+                <div className="grid grid-cols-12 gap-2 bg-slate-800 text-slate-400 text-xs font-semibold uppercase px-4 py-2">
                   <div className="col-span-2">Provider</div>
                   <div className="col-span-3">Service Type</div>
                   <div className="col-span-2 text-right">Amount</div>
@@ -1546,12 +1546,12 @@ export default function Profits() {
                 {pendingData.unsettled_commissions.map((r) => (
                   <div
                     key={r.id}
-                    className="grid grid-cols-12 gap-2 px-4 py-2.5 text-sm border-t border-gray-700/50"
+                    className="grid grid-cols-12 gap-2 px-4 py-2.5 text-sm border-t border-slate-700/50"
                   >
                     <div className="col-span-2 font-medium text-white">
                       {r.provider}
                     </div>
-                    <div className="col-span-3 text-gray-400 text-xs">
+                    <div className="col-span-3 text-slate-400 text-xs">
                       {r.omt_service_type || "—"}
                     </div>
                     <div className="col-span-2 text-right font-mono text-white">
@@ -1563,13 +1563,13 @@ export default function Profits() {
                     <div className="col-span-2 text-right font-mono text-amber-300 font-bold">
                       ${r.commission.toFixed(4)}
                     </div>
-                    <div className="col-span-1 text-right text-xs text-gray-500">
+                    <div className="col-span-1 text-right text-xs text-slate-500">
                       {new Date(r.created_at).toLocaleDateString()}
                     </div>
                   </div>
                 ))}
               </div>
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-slate-500">
                 → Settle these in{" "}
                 <span className="text-white font-medium">
                   Settings → Supplier Ledger
@@ -1579,7 +1579,7 @@ export default function Profits() {
           )}
 
         {!loading && tab === "pending" && !pendingData && (
-          <div className="text-center py-12 text-gray-500">
+          <div className="text-center py-12 text-slate-500">
             No data for this period
           </div>
         )}
@@ -1615,7 +1615,7 @@ export default function Profits() {
             </div>
 
             {/* Table */}
-            <div className="bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden">
+            <div className="bg-slate-800/50 rounded-xl border border-slate-700 overflow-hidden">
               <DataTable<(typeof pendingData.rows)[number]>
                 columns={[
                   { header: "Date", className: "text-left px-4 py-3" },
@@ -1634,14 +1634,14 @@ export default function Profits() {
                 exportPdf
                 exportFilename="pending-profit"
                 className="w-full text-sm"
-                theadClassName="border-b border-gray-700 text-gray-400 text-xs uppercase"
+                theadClassName="border-b border-slate-700 text-slate-400 text-xs uppercase"
                 emptyMessage="No unpaid sales in this period"
                 renderRow={(row) => (
                   <tr
                     key={row.sale_id}
-                    className="border-b border-gray-700/50 hover:bg-gray-700/30"
+                    className="border-b border-slate-700/50 hover:bg-slate-700/30"
                   >
-                    <td className="px-4 py-3 text-gray-300 text-xs">
+                    <td className="px-4 py-3 text-slate-300 text-xs">
                       {new Date(row.created_at).toLocaleDateString()}
                     </td>
                     <td className="px-4 py-3">
@@ -1649,12 +1649,12 @@ export default function Profits() {
                         {row.client_name}
                       </div>
                       {row.client_phone && (
-                        <div className="text-xs text-gray-500">
+                        <div className="text-xs text-slate-500">
                           {row.client_phone}
                         </div>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-gray-300 text-xs max-w-[200px] truncate">
+                    <td className="px-4 py-3 text-slate-300 text-xs max-w-[200px] truncate">
                       {row.items_summary}
                     </td>
                     <td className="px-4 py-3 text-right text-white">

@@ -420,3 +420,18 @@ export {
   resetServicePresetRepository,
 } from "./ServicePresetRepository.js";
 export type { ServicePresetEntity } from "./ServicePresetRepository.js";
+
+// Partner Repository
+export {
+  PartnerRepository,
+  getPartnerRepository,
+  resetPartnerRepository,
+} from "./PartnerRepository.js";
+export type {
+  Partner,
+  PartnerLedgerEntry,
+  PartnerBalance,
+  CreatePartnerData,
+  UpdatePartnerData,
+  CreateLedgerEntryData,
+} from "./PartnerRepository.js";

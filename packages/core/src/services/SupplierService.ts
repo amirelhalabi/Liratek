@@ -18,12 +18,12 @@ export interface SupplierResult {
 export class SupplierService {
   private repo = getSupplierRepository();
 
-  listSuppliers(search?: string): SupplierEntity[] {
-    return this.repo.listSuppliers(search);
+  listSuppliers(search?: string, includeInactive?: boolean): SupplierEntity[] {
+    return this.repo.listSuppliers(search, includeInactive);
   }
 
-  getSupplierBalances(): SupplierBalance[] {
-    return this.repo.getSupplierBalances();
+  getSupplierBalances(includeInactive?: boolean): SupplierBalance[] {
+    return this.repo.getSupplierBalances(includeInactive);
   }
 
   getSupplierLedger(

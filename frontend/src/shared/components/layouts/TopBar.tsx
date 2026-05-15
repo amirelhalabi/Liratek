@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { appEvents, useApi, type UINotification } from "@liratek/ui";
-import { LogOut, Bell, X, Home } from "lucide-react";
+import { LogOut, Bell, X, Home, Sun, Moon } from "lucide-react";
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/features/auth/context/AuthContext";
@@ -8,6 +8,7 @@ import { useShopName } from "@/hooks/useShopName";
 import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
 import { CustomerSessionButton } from "@/features/sessions/components/CustomerSessionButton";
 import { VoiceBotButton } from "@/components/VoiceBotButton";
+import { useTheme } from "@/contexts/ThemeContext";
 import { useOnlineStatus } from "@/shared/hooks/useOnlineStatus";
 import { useVoiceBotSettings } from "@/hooks/useVoiceBotSettings";
 import { useSession } from "@/features/sessions/context/SessionContext";
@@ -88,6 +89,7 @@ export default function TopBar({
   const { flags } = useFeatureFlags();
   const { config: voiceBotConfig } = useVoiceBotSettings();
   const isOnline = useOnlineStatus();
+  const { theme, toggleTheme } = useTheme();
   const { activeSession } = useSession();
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [notificationCount, setNotificationCount] = useState(
@@ -234,7 +236,10 @@ export default function TopBar({
 
         {/* Shop Name (Page View mode) */}
         {showShopName && shopName && (
-          <span className="text-lg font-bold bg-gradient-to-r from-violet-400 to-indigo-400 bg-clip-text text-transparent whitespace-nowrap mr-2">
+          <span
+            className="text-lg font-bold bg-gradient-to-r from-violet-600 to-indigo-600 dark:from-violet-400 dark:to-indigo-400 bg-clip-text whitespace-nowrap mr-2"
+            style={{ WebkitTextFillColor: "transparent" }}
+          >
             {shopName}
           </span>
         )}
@@ -326,6 +331,17 @@ export default function TopBar({
             </div>
           )}
         </div>
+
+        {/* Theme Toggle */}
+        <button
+          onClick={toggleTheme}
+          className="p-2 text-slate-400 hover:text-white transition-colors"
+          title={
+            theme === "dark" ? "Switch to light mode" : "Switch to dark mode"
+          }
+        >
+          {theme === "dark" ? <Sun size={20} /> : <Moon size={20} />}
+        </button>
 
         <div className="h-8 w-px bg-slate-700"></div>
 

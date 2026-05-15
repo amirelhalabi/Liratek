@@ -155,11 +155,12 @@ export default function SupplierLedger() {
     return map;
   }, [balances]);
 
-  // Totals across system suppliers only
+  // Totals across active suppliers only (inactive suppliers shown for history but excluded from totals)
   const totalOwed = useMemo(() => {
     let usd = 0;
     let lbp = 0;
     for (const s of sortedSuppliers) {
+      if (s.is_active === 0) continue;
       const b = balanceBySupplier.get(s.id);
       if (b) {
         usd += Number(b.total_usd || 0);
@@ -207,8 +208,8 @@ export default function SupplierLedger() {
 
   const refresh = async () => {
     const [sups, bals] = await Promise.all([
-      api.getSuppliers(),
-      api.getSupplierBalances(),
+      api.getSuppliers(undefined, true),
+      api.getSupplierBalances(true),
     ]);
     setSuppliers(sups);
     setBalances(bals);
@@ -364,10 +365,17 @@ export default function SupplierLedger() {
                   onClick={() => setSelectedSupplierId(s.id)}
                   className={`w-full text-left p-3 rounded-lg transition-colors ${
                     active ? "bg-slate-800" : "hover:bg-slate-800/50"
-                  }`}
+                  } ${s.is_active === 0 ? "opacity-60" : ""}`}
                 >
                   <div className="flex items-center justify-between">
-                    <span className="font-semibold text-white">{s.name}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-white">{s.name}</span>
+                      {s.is_active === 0 && (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-900/50 text-amber-300">
+                          Inactive
+                        </span>
+                      )}
+                    </div>
                     <div className="flex items-center gap-2">
                       {drawer && (
                         <span className="text-[10px] text-slate-500 font-mono">
@@ -435,31 +443,41 @@ export default function SupplierLedger() {
                 </button>
               </div>
 
-              {/* Tabs */}
-              <div className="flex gap-1 mb-4 border-b border-slate-700">
-                {[
-                  {
-                    id: "settle" as const,
-                    label: `Settle Transactions${unsettledTxns.length > 0 ? ` (${unsettledTxns.length})` : ""}`,
-                  },
-                  { id: "manual" as const, label: "Manual Entry" },
-                ].map((tab) => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id)}
-                    className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
-                      activeTab === tab.id
-                        ? "bg-slate-800 text-white border-b-2 border-blue-500"
-                        : "text-slate-400 hover:text-white"
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
+              {/* Tabs — hidden for inactive suppliers */}
+              {selectedSupplier.is_active !== 0 && (
+                <div className="flex gap-1 mb-4 border-b border-slate-700">
+                  {[
+                    {
+                      id: "settle" as const,
+                      label: `Settle Transactions${unsettledTxns.length > 0 ? ` (${unsettledTxns.length})` : ""}`,
+                    },
+                    { id: "manual" as const, label: "Manual Entry" },
+                  ].map((tab) => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setActiveTab(tab.id)}
+                      className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+                        activeTab === tab.id
+                          ? "bg-slate-800 text-white border-b-2 border-blue-500"
+                          : "text-slate-400 hover:text-white"
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Read-only banner for inactive suppliers */}
+              {selectedSupplier.is_active === 0 && (
+                <div className="mb-4 rounded-xl border border-amber-700/50 bg-amber-900/20 px-4 py-3 text-sm text-amber-300">
+                  This supplier is inactive. Ledger is read-only. Whish System
+                  debt is now tracked via Partners.
+                </div>
+              )}
 
               {/* ── Tab: Settle Transactions ── */}
-              {activeTab === "settle" && (
+              {selectedSupplier.is_active !== 0 && activeTab === "settle" && (
                 <div className="space-y-3">
                   {unsettledTxns.length === 0 ? (
                     <div className="text-slate-500 text-sm py-6 text-center">
@@ -584,7 +602,7 @@ export default function SupplierLedger() {
               )}
 
               {/* ── Tab: Manual Entry ── */}
-              {activeTab === "manual" && (
+              {selectedSupplier.is_active !== 0 && activeTab === "manual" && (
                 <div className="space-y-3">
                   <div className="grid grid-cols-12 gap-3">
                     <div className="col-span-3">

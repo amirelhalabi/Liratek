@@ -18,6 +18,7 @@ export interface SetupPayload {
   shop_name: string;
   admin_username: string;
   admin_password: string;
+  base_system?: "OMT" | "WHISH";
   enabled_modules: string[];
   enabled_payment_methods: string[];
   session_management_enabled: boolean;
@@ -104,6 +105,18 @@ export function registerSetupHandlers() {
         db.prepare(
           "INSERT OR REPLACE INTO system_settings (key_name, value) VALUES ('shop_name', ?)",
         ).run(payload.shop_name.trim());
+
+        // 2b. Save base system (OMT or WHISH) and deactivate partner supplier
+        const baseSystem = payload.base_system === "WHISH" ? "WHISH" : "OMT";
+        db.prepare(
+          "INSERT OR REPLACE INTO system_settings (key_name, value) VALUES ('shop_base_system', ?)",
+        ).run(baseSystem);
+
+        // Deactivate the partner system's supplier
+        const partnerSystem = baseSystem === "OMT" ? "WHISH" : "OMT";
+        db.prepare(
+          "UPDATE suppliers SET is_active = 0 WHERE UPPER(name) = ?",
+        ).run(partnerSystem);
 
         // 3. Apply module enabled states (mandatory modules: pos, inventory — always enabled)
         const MANDATORY_MODULES = new Set(["pos", "inventory"]);

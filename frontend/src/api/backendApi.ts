@@ -743,24 +743,26 @@ export async function updateDailyClosing(
 
 // ==================== Suppliers API ====================
 
-export async function getSuppliers(search?: string) {
+export async function getSuppliers(search?: string, includeInactive?: boolean) {
   if (isElectron()) {
-    return (window as any).api.suppliers.list(search);
+    return (window as any).api.suppliers.list(search, includeInactive);
   }
   const qs = new URLSearchParams();
   if (search) qs.set("search", search);
+  if (includeInactive) qs.set("includeInactive", "true");
   const res = await requestJson<{ success: boolean; suppliers: any[] }>(
     `/api/suppliers?${qs.toString()}`,
   );
   return res.suppliers || [];
 }
 
-export async function getSupplierBalances() {
+export async function getSupplierBalances(includeInactive?: boolean) {
   if (isElectron()) {
-    return (window as any).api.suppliers.getBalances();
+    return (window as any).api.suppliers.getBalances(includeInactive);
   }
+  const params = includeInactive ? "?includeInactive=true" : "";
   const res = await requestJson<{ success: boolean; balances: any[] }>(
-    "/api/suppliers/balances",
+    `/api/suppliers/balances${params}`,
   );
   return res.balances || [];
 }

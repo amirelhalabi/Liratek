@@ -146,8 +146,10 @@ export class ElectronApiAdapter implements ApiAdapter {
   // ---------------------------------------------------------------------------
   // Suppliers
   // ---------------------------------------------------------------------------
-  getSuppliers = (search?: string) => api.getSuppliers(search);
-  getSupplierBalances = () => api.getSupplierBalances();
+  getSuppliers = (search?: string, includeInactive?: boolean) =>
+    api.getSuppliers(search, includeInactive);
+  getSupplierBalances = (includeInactive?: boolean) =>
+    api.getSupplierBalances(includeInactive);
   getSupplierLedger = (supplierId: number, limit?: number) =>
     api.getSupplierLedger(supplierId, limit);
   createSupplier = (data: {

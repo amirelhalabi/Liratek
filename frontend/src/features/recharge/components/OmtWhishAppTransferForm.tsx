@@ -12,6 +12,7 @@ import { useSaveAsClient } from "@/shared/hooks/useSaveAsClient";
 import { SaveAsClientCheckbox } from "@/shared/components/SaveAsClientCheckbox";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
+import { PartnerSelector } from "@/features/partners/components/PartnerSelector";
 
 type ServiceType = "SEND" | "RECEIVE";
 type ProviderKey = "OMT_APP" | "WISH_APP";
@@ -62,6 +63,7 @@ export function OmtWhishAppTransferForm({
   const [manualFee, setManualFee] = useState("");
   const [discount, setDiscount] = useState(0);
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
+  const [partnerId, setPartnerId] = useState<number | null>(null);
 
   // Save-as-client: use sender for SEND, receiver for RECEIVE
   const saveClientName = serviceType === "SEND" ? senderName : receiverName;
@@ -208,6 +210,7 @@ export function OmtWhishAppTransferForm({
         paidByMethod: paymentMethod,
         payments: isSplitPayment ? paymentLines : undefined,
         includingFees,
+        partnerId: partnerId || undefined,
         transaction_time: transactionTime,
       });
 
@@ -268,11 +271,17 @@ export function OmtWhishAppTransferForm({
         customColor={activeProvider === "OMT_APP" ? "#ffde00" : "#ff0a46"}
         customTextColor={activeProvider === "OMT_APP" ? "black" : "white"}
       />
-      <p className="text-xs text-slate-400 text-center -mt-3 mb-1">
-        {serviceType === "SEND"
-          ? "Sending transfer from shop to customer"
-          : "Shop receiving transfer from customer"}
-      </p>
+      <div className="flex items-center justify-between -mt-3 mb-1">
+        <p className="text-xs text-slate-400">
+          {serviceType === "SEND"
+            ? "Sending transfer from shop to customer"
+            : "Shop receiving transfer from customer"}
+        </p>
+        <PartnerSelector
+          selectedPartnerId={partnerId}
+          onSelect={setPartnerId}
+        />
+      </div>
 
       {/* Amount Input */}
       <div>

@@ -2,6 +2,12 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      // Apply theme before render to prevent flash
+      if (localStorage.getItem('liratek_theme') !== 'light') {
+        document.documentElement.classList.add('dark');
+      }
+    </script>
     <meta
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; script-src 'self' 'unsafe-inline' blob:; worker-src 'self' blob:; connect-src 'self' http://localhost:3000 ws://localhost:3000 http: https: ws: wss:;"

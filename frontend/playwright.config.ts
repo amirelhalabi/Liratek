@@ -1,19 +1,5 @@
-import { defineConfig, devices } from "@playwright/test";
-
-export default defineConfig({
-  testDir: "./tests/e2e",
-  timeout: 60_000,
-  retries: process.env.CI ? 1 : 0,
-  fullyParallel: true,
-  workers: process.env.CI ? 2 : undefined,
-  use: {
-    baseURL: process.env.E2E_BASE_URL || "http://localhost:5173",
-    trace: "on-first-retry",
-  },
-  projects: [
-    {
-      name: "chromium",
-      use: { ...devices["Desktop Chrome"] },
-    },
-  ],
-});
+/**
+ * Default Playwright config — points to Electron e2e tests.
+ * The old browser-based tests were removed (they require Electron IPC).
+ */
+export { default } from "./playwright.electron.config";

@@ -17,7 +17,8 @@ CREATE TABLE IF NOT EXISTS system_settings (
 -- Seed default settings
 INSERT OR IGNORE INTO system_settings (key_name, value) VALUES
   ('shop_name', 'Corner Tech'),
-  ('default_debt_term_days', '30');
+  ('default_debt_term_days', '30'),
+  ('shop_base_system', 'OMT');
 
 -- Users
 CREATE TABLE IF NOT EXISTS users (
@@ -387,7 +388,9 @@ CREATE TABLE IF NOT EXISTS expenses (
     edited_by TEXT DEFAULT NULL,
     edited_at TEXT DEFAULT NULL,
     is_refunded INTEGER DEFAULT 0,
-    refunded_at TEXT DEFAULT NULL
+    refunded_at TEXT DEFAULT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Mobile Recharges
@@ -440,8 +443,8 @@ CREATE TABLE IF NOT EXISTS exchange_transactions (
     created_by       INTEGER,
     edited_by        TEXT DEFAULT NULL,
     edited_at        TEXT DEFAULT NULL,
-    is_refunded      INTEGER DEFAULT 0,
-    refunded_at      TEXT DEFAULT NULL
+    is_refunded INTEGER DEFAULT 0,
+    refunded_at TEXT DEFAULT NULL
 );
 
 -- Financial Services (OMT, Whish, iPick, Katsh, Wish App, Binance, etc.)
@@ -482,13 +485,45 @@ CREATE TABLE IF NOT EXISTS financial_services (
     edited_by TEXT DEFAULT NULL,
     edited_at TEXT DEFAULT NULL,
     is_refunded INTEGER DEFAULT 0,
-    refunded_at TEXT DEFAULT NULL
+    refunded_at TEXT DEFAULT NULL,
+    partner_id INTEGER REFERENCES partners(id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_financial_services_is_settled
   ON financial_services(is_settled);
 CREATE INDEX IF NOT EXISTS idx_financial_services_provider_settled
   ON financial_services(provider, is_settled);
+
+-- Partners (agents/counterparties for financial service transactions)
+CREATE TABLE IF NOT EXISTS partners (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    phone TEXT,
+    notes TEXT,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    system_association TEXT DEFAULT NULL,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Partner Ledger (tracks debits/credits per partner)
+CREATE TABLE IF NOT EXISTS partner_ledger (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    partner_id INTEGER NOT NULL REFERENCES partners(id),
+    transaction_type TEXT NOT NULL CHECK(transaction_type IN ('OMT_SEND', 'OMT_RECEIVE', 'WHISH_SEND', 'WHISH_RECEIVE', 'CUSTOM_SERVICE', 'SETTLEMENT', 'ADJUSTMENT')),
+    reference_table TEXT,
+    reference_id INTEGER,
+    amount REAL NOT NULL,
+    currency TEXT NOT NULL DEFAULT 'USD',
+    direction TEXT NOT NULL CHECK(direction IN ('DEBIT', 'CREDIT')),
+    notes TEXT,
+    user_id INTEGER REFERENCES users(id),
+    settlement_method TEXT CHECK(settlement_method IN ('CASH', 'OMT', 'WHISH', 'BINANCE', 'CLIENT_ACCOUNT')),
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_partner_ledger_partner_id ON partner_ledger(partner_id);
+CREATE INDEX IF NOT EXISTS idx_partner_ledger_created_at ON partner_ledger(created_at);
 
 -- Custom Services (standalone ad-hoc services with cost/price/profit tracking)
 CREATE TABLE IF NOT EXISTS custom_services (
@@ -878,7 +913,7 @@ INSERT OR IGNORE INTO suppliers (name, module_key, provider, is_system) VALUES
   ('iPick',         'ipec_katch', 'iPick',         1),
   ('Katch',        'ipec_katch', 'KATCH',        1),
   ('OMT',          'omt_whish',  'OMT',          1),
-  ('Whish',        'omt_whish',  'WHISH',        1),
+  ('Whish',        'omt_whish',  'WHISH',        0),
   ('OMT App',      'ipec_katch', 'OMT_APP',      1),
   ('Whish App',    'ipec_katch', 'WHISH_APP',    1);
 
@@ -1116,4 +1151,6 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (72, 'add_default_price_to_client_to_recharges'),
     (73, 'add_category_to_custom_services'),
     (74, 'create_service_presets_table'),
-    (75, 'seed_customer_account_payment_method');
+    (75, 'seed_customer_account_payment_method'),
+    (76, 'rename_debt_to_customer_account'),
+    (77, 'create_partners_system');

@@ -25,6 +25,8 @@ import { MultiPaymentInput, type PaymentLine } from "@liratek/ui";
 import { StatsCards } from "../../components/StatsCards";
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
 import { getExchangeRates } from "@/utils/exchangeRates";
+import { PartnerSelector } from "@/features/partners/components/PartnerSelector";
+import { useShopBase } from "@/hooks/useShopBase";
 
 type Provider = "OMT" | "WHISH";
 type ServiceType = "SEND" | "RECEIVE";
@@ -254,6 +256,7 @@ interface SupplierOwed {
 
 export default function Services() {
   const api = useApi();
+  const { partnerSystem } = useShopBase();
   const {
     activeSession,
     linkTransaction,
@@ -277,6 +280,7 @@ export default function Services() {
   // Form State
   const [provider, setProvider] = useState<Provider>("OMT");
   const [paidByMethod, setPaidByMethod] = useState("CASH");
+  const [cashoutMethod, setCashoutMethod] = useState("CASH");
   const [serviceType, setServiceType] = useState<ServiceType>("SEND");
   const [currency, setCurrency] = useState<"USD" | "LBP">("USD");
   const [amount, setAmount] = useState<string>("");
@@ -290,6 +294,10 @@ export default function Services() {
     "INTRA", // Default to INTRA for OMT — most common service type
   );
   const [note, setNote] = useState("");
+  const [selectedPartnerId, setSelectedPartnerId] = useState<number | null>(
+    null,
+  );
+  const [hasPartnerForSystem, setHasPartnerForSystem] = useState(true); // assume true until loaded
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
 
@@ -432,12 +440,14 @@ export default function Services() {
     setIsLoading(true);
     setLoadError(null);
     try {
-      const [history, stats, suppliers, balances] = await Promise.all([
-        api.getOMTHistory(provider),
-        api.getOMTAnalytics(["OMT", "WHISH"]),
-        api.getSuppliers(),
-        api.getSupplierBalances(),
-      ]);
+      const [history, stats, suppliers, balances, activePartners] =
+        await Promise.all([
+          api.getOMTHistory(provider),
+          api.getOMTAnalytics(["OMT", "WHISH"]),
+          api.getSuppliers(),
+          api.getSupplierBalances(),
+          window.api.partners.getAll(false),
+        ]);
       setTransactions(
         history.map((h: Transaction) => ({
           ...h,
@@ -446,6 +456,19 @@ export default function Services() {
         })),
       );
       setAnalytics(stats);
+
+      // Check if any active partner has the partner-system association
+      const partnerExists = activePartners.some(
+        (p: { system_association: string | null }) =>
+          p.system_association === partnerSystem,
+      );
+      setHasPartnerForSystem(partnerExists);
+      // If partner system is selected but no partner exists, force switch to base system
+      if (!partnerExists && provider === partnerSystem) {
+        const baseSystem = partnerSystem === "WHISH" ? "OMT" : "WHISH";
+        setProvider(baseSystem);
+        setPaidByMethod(PROVIDER_DEFAULT_METHOD[baseSystem]);
+      }
 
       // Build owed map by provider
       const owed: Record<string, SupplierOwed> = {};
@@ -467,7 +490,7 @@ export default function Services() {
     } finally {
       setIsLoading(false);
     }
-  }, [api, provider]);
+  }, [api, provider, partnerSystem]);
 
   useEffect(() => {
     loadData();
@@ -622,6 +645,14 @@ export default function Services() {
     }
     if (!amount) {
       appEvents.emit("notification:show", "Please enter an amount.", "warning");
+      return;
+    }
+    if (provider === partnerSystem && selectedPartnerId === null) {
+      appEvents.emit(
+        "notification:show",
+        `${partnerSystem} System transactions require a partner`,
+        "warning",
+      );
       return;
     }
 
@@ -810,8 +841,16 @@ export default function Services() {
               }
             : {}),
         note: note || `${provider} - ${serviceType}`,
-        ...(serviceType === "RECEIVE" && paidByMethod === "DEBT"
-          ? { cashoutMethod: "CUSTOMER_ACCOUNT" as const }
+        ...(selectedPartnerId ? { partnerId: selectedPartnerId } : {}),
+        ...(serviceType === "RECEIVE"
+          ? {
+              cashoutMethod: cashoutMethod as
+                | "CASH"
+                | "CUSTOMER_ACCOUNT"
+                | "OMT"
+                | "WHISH"
+                | "BINANCE",
+            }
           : {}),
         transaction_time: transactionTime,
       };
@@ -869,6 +908,8 @@ export default function Services() {
         setPmFeeAmount("");
         setMultiPmFees({});
         setNote("");
+        setSelectedPartnerId(null);
+        setCashoutMethod("CASH");
         setIsSubmitting(false);
         resetSaveAsClient();
         return;
@@ -918,6 +959,8 @@ export default function Services() {
         setPmFeeAmount("");
         setMultiPmFees({});
         setNote("");
+        setSelectedPartnerId(null);
+        setCashoutMethod("CASH");
         setTransactionTime(undefined);
         loadData();
         resetSaveAsClient();
@@ -963,6 +1006,7 @@ export default function Services() {
     multiPmFeeApplies,
     note,
     transactionTime,
+    selectedPartnerId,
     api,
     activeSession,
     linkTransaction,
@@ -1044,9 +1088,17 @@ export default function Services() {
                   const Icon = SERVICE_TYPE_ICONS[type];
                   const isActive = provider === prov && serviceType === type;
                   const isOmt = prov === "OMT";
+                  const isDisabled =
+                    prov === partnerSystem && !hasPartnerForSystem;
                   return (
                     <button
                       key={`${prov}-${type}`}
+                      disabled={isDisabled}
+                      title={
+                        isDisabled
+                          ? `No active ${partnerSystem} partner. Add one in Partners page.`
+                          : undefined
+                      }
                       onClick={() => {
                         setProvider(prov);
                         setServiceType(type);
@@ -1054,13 +1106,16 @@ export default function Services() {
                           PROVIDER_DEFAULT_METHOD[prov] || "CASH",
                         );
                         setCurrency("USD");
+                        setCashoutMethod("CASH");
                       }}
                       className={`flex-1 py-3 font-bold text-sm tracking-wide transition-all flex items-center justify-center gap-1.5 border-r border-slate-700/40 last:border-r-0 ${
-                        isActive
-                          ? isOmt
-                            ? "bg-[#ffde00] text-black"
-                            : "bg-[#ff0a46] text-white"
-                          : "bg-slate-900/60 text-slate-500 hover:text-slate-300 hover:bg-slate-800"
+                        isDisabled
+                          ? "bg-slate-900/60 text-slate-600 cursor-not-allowed opacity-50"
+                          : isActive
+                            ? isOmt
+                              ? "bg-[#ffde00] text-black"
+                              : "bg-[#ff0a46] text-white"
+                            : "bg-slate-900/60 text-slate-500 hover:text-slate-300 hover:bg-slate-800"
                       }`}
                     >
                       <Icon size={14} />
@@ -1099,6 +1154,24 @@ export default function Services() {
                       ),
                     ]}
                   />
+                </div>
+              )}
+
+              {/* Partner Selector — required for WHISH System */}
+              {provider === "WHISH" && (
+                <div>
+                  <PartnerSelector
+                    selectedPartnerId={selectedPartnerId}
+                    onSelect={setSelectedPartnerId}
+                    required
+                    autoSelectSingle
+                    systemFilter="WHISH"
+                  />
+                  {selectedPartnerId === null && (
+                    <p className="mt-1.5 text-xs text-amber-400 font-medium">
+                      ⚠ Partner required for Whish System transactions
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -1611,6 +1684,11 @@ export default function Services() {
                     // Sync paidByMethod from single-payment line for legacy logic
                     if (lines.length === 1) {
                       setPaidByMethod(lines[0].method);
+                      // For RECEIVE, sync cashout method
+                      if (serviceType === "RECEIVE") {
+                        const m = lines[0].method;
+                        setCashoutMethod(m === "DEBT" ? "CUSTOMER_ACCOUNT" : m);
+                      }
                     }
                   }}
                   requiresClientForDebt={serviceType !== "RECEIVE"}
@@ -1629,10 +1707,16 @@ export default function Services() {
                   paymentMethods={
                     serviceType === "RECEIVE"
                       ? allPaymentMethods.filter(
-                          (pm) => pm.code === "CASH" || pm.code === "DEBT",
+                          (pm) =>
+                            pm.code === "CASH" ||
+                            pm.code === "DEBT" ||
+                            pm.code === "OMT" ||
+                            pm.code === "WHISH" ||
+                            pm.code === "BINANCE",
                         )
                       : allPaymentMethods
                   }
+                  label={serviceType === "RECEIVE" ? "Cashout" : "Payment"}
                   currencies={[
                     { code: "USD", symbol: "$" },
                     { code: "LBP", symbol: "LBP" },

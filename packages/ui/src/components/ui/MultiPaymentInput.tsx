@@ -56,6 +56,8 @@ export interface MultiPaymentInputProps {
   maxDiscount?: number;
   /** Callback when discount changes. Receives discount normalized to totalAmountCurrency. */
   onDiscountChange?: (discount: number) => void;
+  /** Custom label for the header (defaults to "Payment") */
+  label?: string;
 }
 
 const CASH_EQUIVALENT_METHODS = new Set(["CASH", "DEBT"]);
@@ -94,6 +96,7 @@ export default function MultiPaymentInput({
   showDiscount = true,
   maxDiscount,
   onDiscountChange,
+  label,
 }: MultiPaymentInputProps) {
   const [isSplitMode, setIsSplitMode] = useState(false);
   const [discountRaw, setDiscountRaw] = useState<string>("");
@@ -390,7 +393,7 @@ export default function MultiPaymentInput({
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700/40">
         <span className="text-sm font-semibold text-slate-200 tracking-wide">
-          {isSplitMode ? "Payment Split" : "Payment"}
+          {isSplitMode ? `${label || "Payment"} Split` : label || "Payment"}
         </span>
         <button
           type="button"
@@ -576,7 +579,7 @@ export default function MultiPaymentInput({
               onClick={addPaymentLine}
               className="w-full py-2 border-2 border-dashed border-slate-700 rounded-xl text-xs font-medium text-slate-400 hover:text-slate-200 hover:border-slate-500 transition-all"
             >
-              + Add Payment Line
+              + Add {label || "Payment"} Line
             </button>
           </>
         ) : (

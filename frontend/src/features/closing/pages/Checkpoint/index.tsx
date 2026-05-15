@@ -22,6 +22,7 @@ import { useModules } from "@/contexts/ModuleContext";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { generateClosingReport } from "../../utils/closingReportGenerator";
 import { X, ChevronLeft, ChevronRight } from "lucide-react";
+import { useShopBase } from "@/hooks/useShopBase";
 
 interface CheckpointModalProps {
   isOpen: boolean;
@@ -54,6 +55,25 @@ export default function CheckpointModal({
     const requiredModule = DRAWER_MODULE_MAP[drawer];
     return !requiredModule || isModuleEnabled(requiredModule);
   });
+
+  // Partner-system drawer should be inactive when no partner exists
+  const { partnerSystem } = useShopBase();
+  const [hasActivePartner, setHasActivePartner] = useState(true);
+  const partnerDrawerName = `${partnerSystem === "WHISH" ? "Whish" : "OMT"}_System`;
+
+  useEffect(() => {
+    if (isOpen) {
+      window.api.partners
+        .getAll(false)
+        .then((partners: Array<{ system_association: string | null }>) => {
+          const exists = partners.some(
+            (p) => p.system_association === partnerSystem,
+          );
+          setHasActivePartner(exists);
+        })
+        .catch(() => setHasActivePartner(false));
+    }
+  }, [isOpen, partnerSystem]);
 
   const {
     currencies,
@@ -393,19 +413,40 @@ export default function CheckpointModal({
 
                     if (coreCurrencies.length === 0) return null;
 
+                    // Partner-system drawer is inactive when no partner
+                    const isPartnerDrawerInactive =
+                      drawer === partnerDrawerName && !hasActivePartner;
+
                     return (
-                      <DrawerCard
-                        key={drawer}
-                        drawer={drawer}
-                        currencies={coreCurrencies}
-                        {...(otherCurrencies ? { otherCurrencies } : {})}
-                        getDisplayValue={(d, c) =>
-                          drawerAmounts.getDisplayValue(d, c)
-                        }
-                        onAmountChange={handleAmountChange}
-                        disabled={saving}
-                        focusRingColor="violet-500"
-                      />
+                      <div key={drawer} className="relative">
+                        {isPartnerDrawerInactive && (
+                          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-slate-900/80 backdrop-blur-sm border-2 border-slate-600">
+                            <div className="text-center px-4">
+                              <span className="inline-block px-2 py-0.5 rounded text-xs font-bold bg-slate-700 text-slate-400 uppercase tracking-wide mb-2">
+                                Inactive
+                              </span>
+                              <p className="text-slate-400 text-sm">
+                                {partnerSystem} System debt is tracked via
+                                Partners.
+                              </p>
+                              <p className="text-slate-500 text-xs mt-1">
+                                No active partner — drawer is read-only.
+                              </p>
+                            </div>
+                          </div>
+                        )}
+                        <DrawerCard
+                          drawer={drawer}
+                          currencies={coreCurrencies}
+                          {...(otherCurrencies ? { otherCurrencies } : {})}
+                          getDisplayValue={(d, c) =>
+                            drawerAmounts.getDisplayValue(d, c)
+                          }
+                          onAmountChange={handleAmountChange}
+                          disabled={saving || isPartnerDrawerInactive}
+                          focusRingColor="violet-500"
+                        />
+                      </div>
                     );
                   })}
                 </div>

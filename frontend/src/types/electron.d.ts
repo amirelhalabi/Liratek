@@ -43,6 +43,46 @@ export interface AuditSearchFilters {
   offset?: number;
 }
 
+export interface Partner {
+  id: number;
+  name: string;
+  phone: string | null;
+  notes: string | null;
+  is_active: number;
+  system_association: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PartnerLedgerEntry {
+  id: number;
+  partner_id: number;
+  transaction_type:
+    | "OMT_SEND"
+    | "OMT_RECEIVE"
+    | "WHISH_SEND"
+    | "WHISH_RECEIVE"
+    | "CUSTOM_SERVICE"
+    | "SETTLEMENT"
+    | "ADJUSTMENT";
+  reference_table: string | null;
+  reference_id: number | null;
+  amount: number;
+  currency: string;
+  direction: "DEBIT" | "CREDIT";
+  notes: string | null;
+  user_id: number | null;
+  settlement_method: string | null;
+  created_at: string;
+}
+
+export interface PartnerBalance {
+  usd: number;
+  lbp: number;
+}
+
+export interface PartnerWithBalance extends Partner, PartnerBalance {}
+
 export interface ElectronAPI {
   // Auth & Users
   auth: {
@@ -617,7 +657,10 @@ export interface ElectronAPI {
 
   // Suppliers
   suppliers: {
-    list: (search?: string) => Promise<
+    list: (
+      search?: string,
+      includeInactive?: boolean,
+    ) => Promise<
       Array<{
         id: number;
         name: string;
@@ -1824,6 +1867,66 @@ export interface ElectronAPI {
     ) => Promise<{
       success: boolean;
       rows?: AuditLogEntry[];
+      error?: string;
+    }>;
+  };
+
+  // Partners
+  partners: {
+    getAll: (includeInactive?: boolean) => Promise<Partner[]>;
+    getById: (id: number) => Promise<Partner>;
+    create: (data: {
+      name: string;
+      phone?: string;
+      notes?: string;
+      system_association?: string | null;
+    }) => Promise<{ success: boolean; data?: Partner; error?: string }>;
+    update: (
+      id: number,
+      data: {
+        name?: string;
+        phone?: string;
+        notes?: string;
+        system_association?: string | null;
+      },
+    ) => Promise<{ success: boolean; data?: Partner; error?: string }>;
+    deactivate: (id: number) => Promise<{ success: boolean; error?: string }>;
+    activate: (id: number) => Promise<{ success: boolean; error?: string }>;
+    getBalance: (partnerId: number) => Promise<PartnerBalance>;
+    getAllBalances: (
+      includeInactive?: boolean,
+    ) => Promise<PartnerWithBalance[]>;
+    getLedger: (
+      partnerId: number,
+      dateRange?: { start: string; end: string },
+    ) => Promise<{
+      partner: Partner;
+      balance: PartnerBalance;
+      entries: PartnerLedgerEntry[];
+    }>;
+    recordTransaction: (data: {
+      partnerId: number;
+      transactionType: string;
+      referenceTable?: string;
+      referenceId?: number;
+      amount: number;
+      currency: string;
+      direction: "DEBIT" | "CREDIT";
+      notes?: string;
+    }) => Promise<{
+      success: boolean;
+      data?: PartnerLedgerEntry;
+      error?: string;
+    }>;
+    settle: (data: {
+      partnerId: number;
+      amount: number;
+      currency: string;
+      settlementMethod: string;
+      notes?: string;
+    }) => Promise<{
+      success: boolean;
+      data?: PartnerLedgerEntry;
       error?: string;
     }>;
   };

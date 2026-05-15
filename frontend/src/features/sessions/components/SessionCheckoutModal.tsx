@@ -104,10 +104,19 @@ function setItemPaymentMethod(
   return fd;
 }
 
-/** Modules where only CASH and DEBT (Customer Account) are valid payment methods (cashout/receive) */
+/** Modules where only cashout methods are valid (CASH, DEBT, OMT, WHISH, BINANCE) */
 const CASHOUT_ONLY_MODULES = new Set(["binance_receive"]);
 
-/** Check if a cart item is a RECEIVE/cashout transaction (only CASH + Customer Account allowed) */
+/** Valid cashout method codes */
+const CASHOUT_METHOD_CODES = new Set([
+  "CASH",
+  "DEBT",
+  "OMT",
+  "WHISH",
+  "BINANCE",
+]);
+
+/** Check if a cart item is a RECEIVE/cashout transaction */
 function isCashoutItem(item: CartItem): boolean {
   if (CASHOUT_ONLY_MODULES.has(item.module)) return true;
   // OMT/Whish system or app RECEIVE: amount is negative
@@ -218,6 +227,16 @@ export function SessionCheckoutModal({
         const method =
           itemPaymentMethods[item.id] || getItemPaymentMethod(item);
         const updatedFormData = setItemPaymentMethod(item, method);
+
+        // For RECEIVE/cashout items, map the selected method to cashoutMethod
+        if (isCashoutItem(item)) {
+          if (method === "DEBT") {
+            updatedFormData.cashoutMethod = "CUSTOMER_ACCOUNT";
+          } else {
+            updatedFormData.cashoutMethod = method;
+          }
+        }
+
         return {
           id: item.id,
           module: item.module,
@@ -363,8 +382,8 @@ export function SessionCheckoutModal({
                             className="appearance-none bg-slate-700 border border-slate-600 text-xs font-medium rounded-md px-2 py-1 pr-6 cursor-pointer hover:bg-slate-600 transition-colors focus:outline-none focus:ring-1 focus:ring-violet-500 text-slate-200"
                           >
                             {(isCashoutItem(item)
-                              ? allMethods.filter(
-                                  (m) => m.code === "CASH" || m.code === "DEBT",
+                              ? allMethods.filter((m) =>
+                                  CASHOUT_METHOD_CODES.has(m.code),
                                 )
                               : allMethods
                             ).map((m) => (

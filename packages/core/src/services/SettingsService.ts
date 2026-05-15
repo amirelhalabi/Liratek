@@ -96,6 +96,25 @@ export class SettingsService {
   }
 
   /**
+   * Get the shop's base system (OMT or WHISH)
+   */
+  getShopBaseSystem(): "OMT" | "WHISH" {
+    try {
+      const value = this.repo.getSettingValue("shop_base_system");
+      return value === "WHISH" ? "WHISH" : "OMT";
+    } catch {
+      return "OMT";
+    }
+  }
+
+  /**
+   * Get the partner system (opposite of base)
+   */
+  getPartnerSystem(): "OMT" | "WHISH" {
+    return this.getShopBaseSystem() === "OMT" ? "WHISH" : "OMT";
+  }
+
+  /**
    * Update a setting (upsert)
    */
   updateSetting(key: string, value: string): SettingResult {

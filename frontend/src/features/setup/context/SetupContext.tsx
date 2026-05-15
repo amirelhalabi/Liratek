@@ -12,14 +12,16 @@ export interface SetupPayload {
   shop_name: string;
   admin_username: string;
   admin_password: string;
-  // Step 2
+  // Step 2 - Base System
+  base_system: "OMT" | "WHISH";
+  // Step 3 (was Step 2)
   enabled_modules: string[];
   enabled_payment_methods: string[];
   session_management_enabled: boolean;
   customer_sessions_enabled: boolean;
-  // Step 3 - Currencies (optional)
+  // Step 4 - Currencies (optional)
   active_currencies: string[];
-  // Step 4 - Users (optional)
+  // Step 5 - Users (optional)
   extra_users: { username: string; password: string; role: string }[];
   whatsapp_phone: string;
   whatsapp_api_key: string;
@@ -34,6 +36,7 @@ const DEFAULT_PAYLOAD: SetupPayload = {
   shop_name: "",
   admin_username: "",
   admin_password: "",
+  base_system: "OMT",
   enabled_modules: ["pos", "inventory"],
   enabled_payment_methods: ["CASH", "OMT", "WHISH"],
   session_management_enabled: true,

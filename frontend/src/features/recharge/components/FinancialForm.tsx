@@ -16,6 +16,7 @@ import { getExchangeRates } from "@/utils/exchangeRates";
 import logger from "@/utils/logger";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
+import { PartnerSelector } from "@/features/partners/components/PartnerSelector";
 
 interface CartLineItem {
   item: ServiceItem;
@@ -75,6 +76,7 @@ export function FinancialForm({
   const [searchQuery, setSearchQuery] = useState("");
   const [discount, setDiscount] = useState(0);
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
+  const [partnerId, setPartnerId] = useState<number | null>(null);
 
   // Fetch exchange rates on mount
   useEffect(() => {
@@ -293,6 +295,7 @@ export function FinancialForm({
             itemKey: line.item.key,
             itemCategory: line.item.category,
             note: `${line.item.label} (${line.item.subcategory})`,
+            partnerId: partnerId || undefined,
             transaction_time: transactionTime,
           });
 
@@ -355,23 +358,33 @@ export function FinancialForm({
       <div className="flex flex-col gap-5 flex-1 min-h-0">
         {/* Header with SEND/RECEIVE Tabs - hidden for Whish App and MTC */}
         {activeProvider !== "WISH_APP" && activeProvider !== "MTC" && (
-          <div className="flex-1">
-            <DoubleTab
-              leftOption={{ id: "SEND", label: "Money In", iconKey: "Send" }}
-              rightOption={{
-                id: "RECEIVE",
-                label: "Money Out",
-                iconKey: "Package",
-              }}
-              value={serviceType || "SEND"}
-              onChange={(val) => setServiceType?.(val as ServiceType)}
-              accentColor={
-                activeProvider === "iPick" || activeProvider === "Katsh"
-                  ? "orange"
-                  : "violet"
-              }
-              customColor={activeProvider === "OMT_APP" ? "#ffde00" : undefined}
-              customTextColor={activeProvider === "OMT_APP" ? "black" : "white"}
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex-1">
+              <DoubleTab
+                leftOption={{ id: "SEND", label: "Money In", iconKey: "Send" }}
+                rightOption={{
+                  id: "RECEIVE",
+                  label: "Money Out",
+                  iconKey: "Package",
+                }}
+                value={serviceType || "SEND"}
+                onChange={(val) => setServiceType?.(val as ServiceType)}
+                accentColor={
+                  activeProvider === "iPick" || activeProvider === "Katsh"
+                    ? "orange"
+                    : "violet"
+                }
+                customColor={
+                  activeProvider === "OMT_APP" ? "#ffde00" : undefined
+                }
+                customTextColor={
+                  activeProvider === "OMT_APP" ? "black" : "white"
+                }
+              />
+            </div>
+            <PartnerSelector
+              selectedPartnerId={partnerId}
+              onSelect={setPartnerId}
             />
           </div>
         )}

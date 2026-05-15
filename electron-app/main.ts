@@ -488,6 +488,7 @@ async function registerHandlers() {
     const auditHandlers = await import("./handlers/auditHandlers.js");
     const drawerTopUpHandlers =
       await import("./handlers/drawerTopUpHandlers.js");
+    const partnerHandlers = await import("./handlers/partnerHandlers.js");
 
     // Register all handlers
     authHandlers.registerAuthHandlers();
@@ -523,6 +524,7 @@ async function registerHandlers() {
     mobileServiceItemHandlers.registerMobileServiceItemHandlers();
     auditHandlers.registerAuditHandlers();
     drawerTopUpHandlers.registerDrawerTopUpHandlers();
+    partnerHandlers.registerPartnerHandlers();
 
     // Windows focus fix handler
     ipcMain.on("display:fix-focus", (event) => {

@@ -12,12 +12,15 @@ import {
 export function registerSupplierHandlers(): void {
   const service = getSupplierService();
 
-  ipcMain.handle("suppliers:list", (_e, search?: string) => {
-    return service.listSuppliers(search);
-  });
+  ipcMain.handle(
+    "suppliers:list",
+    (_e, search?: string, includeInactive?: boolean) => {
+      return service.listSuppliers(search, includeInactive);
+    },
+  );
 
-  ipcMain.handle("suppliers:balances", () => {
-    return service.getSupplierBalances();
+  ipcMain.handle("suppliers:balances", (_e, includeInactive?: boolean) => {
+    return service.getSupplierBalances(includeInactive);
   });
 
   ipcMain.handle(

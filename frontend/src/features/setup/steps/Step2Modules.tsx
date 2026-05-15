@@ -217,13 +217,13 @@ export default function Step2Modules() {
 
       <div className="flex justify-between">
         <button
-          onClick={() => setStep(1)}
+          onClick={() => setStep(2)}
           className="px-6 py-2.5 border border-slate-600 text-slate-300 hover:bg-slate-800 rounded-lg transition-colors text-sm"
         >
           ← Back
         </button>
         <button
-          onClick={() => setStep(3)}
+          onClick={() => setStep(4)}
           className="px-6 py-2.5 bg-violet-600 hover:bg-violet-500 text-white font-medium rounded-lg transition-colors text-sm"
         >
           Next →

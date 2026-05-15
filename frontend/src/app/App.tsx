@@ -1,6 +1,7 @@
 import { HashRouter, Routes, Route, Navigate } from "react-router-dom";
 import { lazy, Suspense, useEffect } from "react";
 import { AuthProvider, useAuth } from "@/features/auth/context/AuthContext";
+import { ThemeProvider } from "@/contexts/ThemeContext";
 import { SessionProvider } from "@/features/sessions/context/SessionContext";
 import { ModuleProvider } from "@/contexts/ModuleContext";
 import { CurrencyProvider } from "@/contexts/CurrencyContext";
@@ -38,6 +39,7 @@ const AuditPage = lazy(() => import("@/features/audit/pages/AuditPage"));
 const CustomerSessions = lazy(
   () => import("@/features/sessions/pages/CustomerSessions"),
 );
+const Partners = lazy(() => import("@/features/partners/pages/Partners"));
 import MainLayout from "@/shared/components/layouts/MainLayout";
 import HomeGrid from "@/shared/components/layouts/HomeGrid";
 import "@/index.css";
@@ -240,6 +242,14 @@ function AppRoutes() {
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/partners"
+          element={
+            <ProtectedRoute>
+              <Partners />
+            </ProtectedRoute>
+          }
+        />
         {/* Redirect all other paths to home */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
@@ -273,24 +283,26 @@ function App() {
   return (
     // ErrorBoundary catches any unhandled render crash and shows a recovery screen
     <ErrorBoundary>
-      {/* HashRouter is recommended for Electron to avoid path issues in production */}
-      <ApiProvider adapter={backendApiAdapter}>
-        <ModuleProvider>
-          <CurrencyProvider>
-            <FeatureFlagProvider>
-              <HashRouter>
-                <ActiveModuleProvider>
-                  <AuthProvider>
-                    <SessionProvider>
-                      <AppRoutes />
-                    </SessionProvider>
-                  </AuthProvider>
-                </ActiveModuleProvider>
-              </HashRouter>
-            </FeatureFlagProvider>
-          </CurrencyProvider>
-        </ModuleProvider>
-      </ApiProvider>
+      <ThemeProvider>
+        {/* HashRouter is recommended for Electron to avoid path issues in production */}
+        <ApiProvider adapter={backendApiAdapter}>
+          <ModuleProvider>
+            <CurrencyProvider>
+              <FeatureFlagProvider>
+                <HashRouter>
+                  <ActiveModuleProvider>
+                    <AuthProvider>
+                      <SessionProvider>
+                        <AppRoutes />
+                      </SessionProvider>
+                    </AuthProvider>
+                  </ActiveModuleProvider>
+                </HashRouter>
+              </FeatureFlagProvider>
+            </CurrencyProvider>
+          </ModuleProvider>
+        </ApiProvider>
+      </ThemeProvider>
     </ErrorBoundary>
   );
 }

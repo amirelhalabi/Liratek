@@ -94,9 +94,11 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     return "id, name, contact_name, phone, note, is_active, module_key, provider, is_system, created_at";
   }
 
-  listSuppliers(search?: string): SupplierEntity[] {
+  listSuppliers(search?: string, includeInactive?: boolean): SupplierEntity[] {
     try {
-      let sql = `SELECT ${this.getColumns()} FROM suppliers WHERE is_active = 1`;
+      let sql = includeInactive
+        ? `SELECT ${this.getColumns()} FROM suppliers WHERE 1=1`
+        : `SELECT ${this.getColumns()} FROM suppliers WHERE is_active = 1`;
       const params: string[] = [];
       if (search?.trim()) {
         sql += ` AND name LIKE ?`;
@@ -302,8 +304,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
     }
   }
 
-  getSupplierBalances(): SupplierBalance[] {
+  getSupplierBalances(includeInactive?: boolean): SupplierBalance[] {
     try {
+      const filter = includeInactive ? "1=1" : "s.is_active = 1";
       return this.query<SupplierBalance>(`
         SELECT
           s.id as supplier_id,
@@ -311,7 +314,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           COALESCE(SUM(l.amount_lbp), 0) as total_lbp
         FROM suppliers s
         LEFT JOIN supplier_ledger l ON l.supplier_id = s.id
-        WHERE s.is_active = 1
+        WHERE ${filter}
         GROUP BY s.id
         ORDER BY s.name ASC
       `);

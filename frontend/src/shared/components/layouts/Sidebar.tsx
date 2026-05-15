@@ -26,6 +26,7 @@ import {
   Circle,
   Shield,
   UserCheck,
+  Handshake,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import clsx from "clsx";
@@ -194,6 +195,26 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
             )}
           </NavLink>
         )}
+        <NavLink
+          to="/partners"
+          className={({ isActive }) =>
+            clsx(
+              "flex items-center gap-3 px-3 py-3 rounded-xl transition-all font-medium whitespace-nowrap w-full",
+              isActive
+                ? "bg-violet-600 text-white"
+                : "text-slate-400 hover:bg-slate-800 hover:text-white",
+              isCollapsed ? "justify-center" : "",
+            )
+          }
+          title={isCollapsed ? "Partners" : undefined}
+        >
+          <Handshake size={20} className="min-w-[20px]" />
+          {!isCollapsed && (
+            <span className="opacity-100 transition-opacity duration-200">
+              Partners
+            </span>
+          )}
+        </NavLink>
         {isAdmin && (
           <NavLink
             to="/audit"
