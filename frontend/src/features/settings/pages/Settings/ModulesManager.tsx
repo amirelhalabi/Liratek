@@ -39,6 +39,8 @@ const RECHARGE_PROVIDERS = [
   { key: "BINANCE", label: "Binance", drawer: "Binance", module: "binance" },
 ] as const;
 
+const RECHARGE_MODULE_KEYS = ["recharge", "ipec_katch", "binance"];
+
 interface ProviderCurrencyRow {
   key: string;
   label: string;
@@ -158,36 +160,6 @@ export default function ModulesManager() {
     [modules, api, loadModules],
   );
 
-  const moveUp = useCallback(() => {
-    if (!selectedKey) return;
-    const idx = modules.findIndex((m) => m.key === selectedKey);
-    if (idx > 0) moveModule(idx, idx - 1);
-  }, [selectedKey, modules, moveModule]);
-
-  const moveDown = useCallback(() => {
-    if (!selectedKey) return;
-    const idx = modules.findIndex((m) => m.key === selectedKey);
-    if (idx < modules.length - 1) moveModule(idx, idx + 1);
-  }, [selectedKey, modules, moveModule]);
-
-  // Keyboard handler for arrow keys
-  useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if (!selectedKey) return;
-      if (e.key === "ArrowUp") {
-        e.preventDefault();
-        moveUp();
-      } else if (e.key === "ArrowDown") {
-        e.preventDefault();
-        moveDown();
-      } else if (e.key === "Escape") {
-        setSelectedKey(null);
-      }
-    };
-    window.addEventListener("keydown", handleKey);
-    return () => window.removeEventListener("keydown", handleKey);
-  }, [selectedKey, moveUp, moveDown]);
-
   // ── Drag handlers ──
 
   const handleDragStart = (idx: number) => {
@@ -215,15 +187,127 @@ export default function ModulesManager() {
 
   // ── Render helpers ──
 
-  const rechargeModuleKeys = ["recharge", "ipec_katch", "binance"];
+  const rechargeModuleKeys = RECHARGE_MODULE_KEYS;
 
-  // Split modules into non-recharge and recharge groups, preserving order
-  const nonRechargeModules = modules.filter(
-    (m) => !rechargeModuleKeys.includes(m.key),
+  // Find the position of the first recharge module to use as the "Mobile Recharge" group position
+  const firstRechargeIdx = modules.findIndex((m) =>
+    rechargeModuleKeys.includes(m.key),
   );
   const rechargeModules = modules.filter((m) =>
     rechargeModuleKeys.includes(m.key),
   );
+
+  // Build display list: non-recharge modules + a single "mobile_recharge" placeholder at the right position
+  const displayModules = (() => {
+    const result: Array<ModuleRow | { key: "__mobile_recharge__"; type: "group" }> = [];
+    let rechargeInserted = false;
+    for (const m of modules) {
+      if (rechargeModuleKeys.includes(m.key)) {
+        if (!rechargeInserted) {
+          result.push({ key: "__mobile_recharge__", type: "group" });
+          rechargeInserted = true;
+        }
+      } else {
+        result.push(m);
+      }
+    }
+    if (!rechargeInserted && rechargeModules.length > 0) {
+      result.push({ key: "__mobile_recharge__", type: "group" });
+    }
+    return result;
+  })();
+
+  // Move for display list (handles the group as one unit)
+  const moveDisplayModule = useCallback(
+    async (fromDisplayIdx: number, toDisplayIdx: number) => {
+      if (fromDisplayIdx === toDisplayIdx) return;
+      const fromItem = displayModules[fromDisplayIdx];
+      const isMovingRechargeGroup = "type" in fromItem && fromItem.key === "__mobile_recharge__";
+
+      // Build new modules order
+      const updated = [...modules];
+      if (isMovingRechargeGroup) {
+        // Remove all recharge modules, then insert them at the target position
+        const rechargeItems = updated.filter((m) => rechargeModuleKeys.includes(m.key));
+        const nonRecharge = updated.filter((m) => !rechargeModuleKeys.includes(m.key));
+
+        // Find target position in nonRecharge array
+        const targetItem = displayModules[toDisplayIdx];
+        let insertAt: number;
+        if ("type" in targetItem) {
+          insertAt = nonRecharge.length; // shouldn't happen
+        } else {
+          insertAt = nonRecharge.findIndex((m) => m.key === targetItem.key);
+          if (toDisplayIdx > fromDisplayIdx) insertAt += 1;
+        }
+
+        nonRecharge.splice(insertAt, 0, ...rechargeItems);
+        setModules(nonRecharge);
+        setSelectedKey("__mobile_recharge__");
+
+        setSaving(true);
+        try {
+          await api.reorderModules(nonRecharge.map((m) => m.key));
+          window.dispatchEvent(new Event("modules-changed"));
+        } catch (e) {
+          logger.error("Failed to reorder modules", { error: e });
+          appEvents.emit("notification:show", "Failed to reorder", "error");
+          loadModules();
+        } finally {
+          setSaving(false);
+        }
+      } else {
+        // Moving a regular module
+        const realFrom = modules.findIndex((m) => m.key === (fromItem as ModuleRow).key);
+        // Determine real target
+        const toItem = displayModules[toDisplayIdx];
+        let realTo: number;
+        if ("type" in toItem) {
+          realTo = firstRechargeIdx >= 0 ? firstRechargeIdx : modules.length;
+        } else {
+          realTo = modules.findIndex((m) => m.key === toItem.key);
+        }
+        moveModule(realFrom, realTo);
+      }
+    },
+    [displayModules, modules, rechargeModuleKeys, firstRechargeIdx, api, loadModules, moveModule],
+  );
+
+  // Override moveUp/moveDown to use display list
+  const moveUpDisplay = useCallback(() => {
+    if (!selectedKey) return;
+    const displayIdx = displayModules.findIndex((d) =>
+      "type" in d ? d.key === selectedKey : d.key === selectedKey,
+    );
+    if (displayIdx > 0) moveDisplayModule(displayIdx, displayIdx - 1);
+  }, [selectedKey, displayModules, moveDisplayModule]);
+
+  const moveDownDisplay = useCallback(() => {
+    if (!selectedKey) return;
+    const displayIdx = displayModules.findIndex((d) =>
+      "type" in d ? d.key === selectedKey : d.key === selectedKey,
+    );
+    if (displayIdx < displayModules.length - 1)
+      moveDisplayModule(displayIdx, displayIdx + 1);
+  }, [selectedKey, displayModules, moveDisplayModule]);
+
+  // Keyboard handler for arrow keys
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (!selectedKey) return;
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        moveUpDisplay();
+      } else if (e.key === "ArrowDown") {
+        e.preventDefault();
+        moveDownDisplay();
+      } else if (e.key === "Escape") {
+        setSelectedKey(null);
+      }
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [selectedKey, moveUpDisplay, moveDownDisplay]);
 
   const renderModuleRow = (m: ModuleRow, globalIdx: number) => {
     const isSelected = selectedKey === m.key;
@@ -297,7 +381,7 @@ export default function ModulesManager() {
         {selectedKey && (
           <div className="flex items-center gap-1">
             <button
-              onClick={moveUp}
+              onClick={moveUpDisplay}
               disabled={saving}
               className="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-white text-sm disabled:opacity-40"
               title="Move up (↑)"
@@ -305,7 +389,7 @@ export default function ModulesManager() {
               ↑
             </button>
             <button
-              onClick={moveDown}
+              onClick={moveDownDisplay}
               disabled={saving}
               className="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-white text-sm disabled:opacity-40"
               title="Move down (↓)"
@@ -343,121 +427,195 @@ export default function ModulesManager() {
             </tr>
           </thead>
           <tbody>
-            {/* Non-recharge modules */}
-            {nonRechargeModules.map((m) => {
-              const globalIdx = modules.findIndex((mod) => mod.key === m.key);
-              return renderModuleRow(m, globalIdx);
-            })}
+            {/* Dashboard — always at top */}
+            <tr className="border-t border-slate-800 bg-slate-800/10">
+              <td className="py-2 px-2 w-8"></td>
+              <td className="py-2 px-3 text-white font-medium">Dashboard</td>
+              <td className="py-2 px-3 text-slate-400 font-mono text-xs">/</td>
+              <td className="py-2 px-3 text-slate-300">—</td>
+              <td className="py-2 px-3">
+                <span className="px-3 py-1 rounded text-xs font-medium bg-slate-600/20 text-slate-400">System</span>
+              </td>
+            </tr>
 
-            {/* Recharge group header */}
-            {rechargeModules.length > 0 && (
-              <tr className="border-t-2 border-slate-600 bg-slate-800/30">
-                <td className="py-2 px-2"></td>
-                <td className="py-2 px-3 text-white font-semibold" colSpan={2}>
-                  Recharge Providers
-                </td>
-                <td className="py-2 px-3 text-slate-400 text-xs" colSpan={2}>
-                  {(() => {
-                    const enabledCount = rechargeModules.filter(
-                      (m) => m.is_enabled,
-                    ).length;
-                    if (enabledCount === 0)
-                      return (
-                        <span className="px-2 py-0.5 rounded text-xs bg-red-600/20 text-red-400">
-                          All Disabled
-                        </span>
-                      );
-                    if (enabledCount === rechargeModules.length)
-                      return (
-                        <span className="px-2 py-0.5 rounded text-xs bg-green-600/20 text-green-400">
-                          All Enabled
-                        </span>
-                      );
-                    return (
-                      <span className="px-2 py-0.5 rounded text-xs bg-amber-600/20 text-amber-400">
-                        Partially Enabled
+            {/* Toggleable modules */}
+            {displayModules.flatMap((item, displayIdx) => {
+              if ("type" in item && item.key === "__mobile_recharge__") {
+                // Render "Mobile Recharge" as a single draggable group row
+                const isSelected = selectedKey === "__mobile_recharge__";
+                const isDragging =
+                  dragIdx !== null &&
+                  modules[dragIdx] &&
+                  rechargeModuleKeys.includes(modules[dragIdx].key);
+                const allEnabled = rechargeModules.every((m) => m.is_enabled);
+                const anyEnabled = rechargeModules.some((m) => m.is_enabled);
+
+                return [
+                  <tr
+                    key="__mobile_recharge__"
+                    draggable
+                    onDragStart={() => {
+                      setDragIdx(firstRechargeIdx);
+                      setSelectedKey("__mobile_recharge__");
+                    }}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      setOverIdx(firstRechargeIdx);
+                    }}
+                    onDrop={() => {
+                      if (dragIdx !== null) {
+                        const fromDisplayIdx = displayModules.findIndex((d) =>
+                          "type" in d
+                            ? d.key === modules[dragIdx]?.key || rechargeModuleKeys.includes(modules[dragIdx]?.key)
+                            : d.key === modules[dragIdx]?.key,
+                        );
+                        if (fromDisplayIdx !== displayIdx) {
+                          moveDisplayModule(fromDisplayIdx, displayIdx);
+                        }
+                      }
+                      setDragIdx(null);
+                      setOverIdx(null);
+                    }}
+                    onDragEnd={handleDragEnd}
+                    onClick={() =>
+                      setSelectedKey(isSelected ? null : "__mobile_recharge__")
+                    }
+                    className={`border-t border-slate-800 cursor-pointer transition-all duration-150 ${
+                      isDragging ? "opacity-40" : ""
+                    } ${
+                      isSelected
+                        ? "bg-violet-600/15 ring-1 ring-violet-500/40 scale-[1.01] z-10 relative"
+                        : "hover:bg-slate-800/40"
+                    }`}
+                  >
+                    <td className="py-2 px-2 w-8 text-slate-500 select-none">
+                      <span className="cursor-grab active:cursor-grabbing text-lg leading-none">
+                        ⠿
                       </span>
+                    </td>
+                    <td className="py-2 px-3 text-white font-semibold">
+                      Mobile Recharge
+                    </td>
+                    <td className="py-2 px-3 text-slate-400 font-mono text-xs">
+                      /recharge
+                    </td>
+                    <td className="py-2 px-3 text-slate-300 text-xs">
+                      {providerCurrencies
+                        .map((p) => `${p.label}: ${p.currencies.join("/")}`)
+                        .join(" · ") || "—"}
+                    </td>
+                    <td className="py-2 px-3">
+                      <span
+                        className={`px-3 py-1 rounded text-xs font-medium ${
+                          allEnabled
+                            ? "bg-green-600/20 text-green-400"
+                            : anyEnabled
+                              ? "bg-amber-600/20 text-amber-400"
+                              : "bg-red-600/20 text-red-400"
+                        }`}
+                      >
+                        {allEnabled
+                          ? "All Enabled"
+                          : anyEnabled
+                            ? "Partial"
+                            : "All Disabled"}
+                      </span>
+                    </td>
+                  </tr>,
+                  // Sub-rows for each recharge module (always visible, not draggable)
+                  ...rechargeModules.map((m) => {
+                    const providers = RECHARGE_PROVIDERS.filter(
+                      (p) => p.module === m.key,
                     );
-                  })()}
-                </td>
-              </tr>
-            )}
-            {/* Individual recharge module toggles */}
-            {rechargeModules.map((m) => {
-              const globalIdx = modules.findIndex((mod) => mod.key === m.key);
-              const providers = RECHARGE_PROVIDERS.filter(
-                (p) => p.module === m.key,
-              );
-              const prov = providerCurrencies.filter((p) => p.module === m.key);
-              const isSelected = selectedKey === m.key;
-              const isDragging =
-                dragIdx !== null && modules[dragIdx]?.key === m.key;
-              const isOver =
-                overIdx !== null && modules[overIdx]?.key === m.key;
+                    const prov = providerCurrencies.filter(
+                      (p) => p.module === m.key,
+                    );
+                    return (
+                      <tr
+                        key={m.key}
+                        className="border-t-2 border-slate-600 bg-slate-800/10"
+                      >
+                        <td className="py-1.5 px-2 w-8"></td>
+                        <td className="py-1.5 px-3 pl-8 text-slate-300 text-sm">
+                          {m.label}
+                        </td>
+                        <td className="py-1.5 px-3 text-slate-500 font-mono text-xs">
+                          {providers.map((p) => p.drawer).join(", ")}
+                        </td>
+                        <td className="py-1.5 px-3 text-slate-400 text-xs">
+                          {prov
+                            .map(
+                              (p) => `${p.label}: ${p.currencies.join("/")}`,
+                            )
+                            .join(" · ") || "—"}
+                        </td>
+                        <td className="py-1.5 px-3">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleToggle(m.key, m.is_enabled);
+                            }}
+                            className={`px-2 py-0.5 rounded text-xs font-medium ${
+                              m.is_enabled
+                                ? "bg-green-600/20 text-green-400 hover:bg-green-600/30"
+                                : "bg-red-600/20 text-red-400 hover:bg-red-600/30"
+                            }`}
+                          >
+                            {m.is_enabled ? "Enabled" : "Disabled"}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  }),
+                ];
+              }
 
-              return (
-                <tr
-                  key={m.key}
-                  draggable
-                  onDragStart={() => handleDragStart(globalIdx)}
-                  onDragOver={(e) => handleDragOver(e, globalIdx)}
-                  onDrop={() => handleDrop(globalIdx)}
-                  onDragEnd={handleDragEnd}
-                  onClick={() => setSelectedKey(isSelected ? null : m.key)}
-                  className={`border-t border-slate-800 bg-slate-800/20 cursor-pointer transition-all duration-150 ${
-                    isDragging
-                      ? "opacity-40"
-                      : isOver
-                        ? "border-t-2 border-t-violet-500"
-                        : ""
-                  } ${
-                    isSelected
-                      ? "bg-violet-600/15 ring-1 ring-violet-500/40 scale-[1.01] z-10 relative"
-                      : "hover:bg-slate-800/40"
-                  }`}
-                >
-                  <td className="py-2 px-2 w-8 text-slate-500 select-none">
-                    <span className="cursor-grab active:cursor-grabbing text-lg leading-none">
-                      ⠿
-                    </span>
-                  </td>
-                  <td className="py-2 px-3 pl-6 text-slate-200 font-medium">
-                    {m.label}
-                  </td>
-                  <td className="py-2 px-3 text-slate-500 font-mono text-xs">
-                    {providers.map((p) => p.drawer).join(", ")}
-                  </td>
-                  <td className="py-2 px-3 text-slate-400 text-xs">
-                    {prov
-                      .map((p) => `${p.label}: ${p.currencies.join("/")}`)
-                      .join(" · ") || "—"}
-                  </td>
-                  <td className="py-2 px-3">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleToggle(m.key, m.is_enabled);
-                      }}
-                      className={`px-3 py-1 rounded text-xs font-medium ${
-                        m.is_enabled
-                          ? "bg-green-600/20 text-green-400 hover:bg-green-600/30"
-                          : "bg-red-600/20 text-red-400 hover:bg-red-600/30"
-                      }`}
-                    >
-                      {m.is_enabled ? "Enabled" : "Disabled"}
-                    </button>
-                  </td>
-                </tr>
-              );
+              // Regular module row
+              const m = item as ModuleRow;
+              const globalIdx = modules.findIndex((mod) => mod.key === m.key);
+              return [renderModuleRow(m, globalIdx)];
             })}
+
+            {/* System modules — always at bottom */}
+            <tr className="border-t-2 border-slate-600 bg-slate-800/10">
+              <td className="py-2 px-2 w-8"></td>
+              <td className="py-2 px-3 text-white font-medium">Audit & Transactions</td>
+              <td className="py-2 px-3 text-slate-400 font-mono text-xs">/audit</td>
+              <td className="py-2 px-3 text-slate-300">—</td>
+              <td className="py-2 px-3">
+                <span className="px-3 py-1 rounded text-xs font-medium bg-slate-600/20 text-slate-400">System</span>
+              </td>
+            </tr>
+            <tr className="border-t border-slate-800 bg-slate-800/10">
+              <td className="py-2 px-2 w-8"></td>
+              <td className="py-2 px-3 text-white font-medium">Settings</td>
+              <td className="py-2 px-3 text-slate-400 font-mono text-xs">/settings</td>
+              <td className="py-2 px-3 text-slate-300">—</td>
+              <td className="py-2 px-3">
+                <span className="px-3 py-1 rounded text-xs font-medium bg-slate-600/20 text-slate-400">System</span>
+              </td>
+            </tr>
+            <tr className="border-t border-slate-800 bg-slate-800/10">
+              <td className="py-2 px-2 w-8"></td>
+              <td className="py-2 px-3 text-white font-medium">Checkpoint</td>
+              <td className="py-2 px-3 text-slate-400 font-mono text-xs">—</td>
+              <td className="py-2 px-3 text-slate-300">—</td>
+              <td className="py-2 px-3">
+                <span className="px-3 py-1 rounded text-xs font-medium bg-slate-600/20 text-slate-400">System</span>
+              </td>
+            </tr>
+            <tr className="border-t border-slate-800 bg-slate-800/10">
+              <td className="py-2 px-2 w-8"></td>
+              <td className="py-2 px-3 text-white font-medium">Checkpoint Timeline</td>
+              <td className="py-2 px-3 text-slate-400 font-mono text-xs">/checkpoint-timeline</td>
+              <td className="py-2 px-3 text-slate-300">—</td>
+              <td className="py-2 px-3">
+                <span className="px-3 py-1 rounded text-xs font-medium bg-slate-600/20 text-slate-400">System</span>
+              </td>
+            </tr>
           </tbody>
         </table>
       </div>
-      <p className="text-xs text-slate-500 italic">
-        Dashboard, Settings, Opening, and Closing are system modules and cannot
-        be disabled. Recharge provider currencies are managed per drawer from
-        the Currencies tab.
-      </p>
 
       {/* Drawers Section */}
       <div className="mt-8 pt-6 border-t border-slate-700 space-y-3">

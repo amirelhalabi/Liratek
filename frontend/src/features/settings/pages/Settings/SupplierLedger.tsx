@@ -7,6 +7,7 @@ import {
 } from "@liratek/ui";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { getExchangeRates } from "@/utils/exchangeRates";
+import { useShopBase } from "@/hooks/useShopBase";
 
 type Supplier = {
   id: number;
@@ -89,6 +90,7 @@ function AutoBadge() {
 export default function SupplierLedger() {
   const api = useApi();
   const { methods } = usePaymentMethods();
+  const { partnerSystem } = useShopBase();
   const [exchangeRate, setExchangeRate] = useState(90000);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [balances, setBalances] = useState<SupplierBalance[]>([]);
@@ -135,13 +137,15 @@ export default function SupplierLedger() {
     })();
   }, []);
 
-  // System suppliers first, then user-created
+  // System suppliers first, then user-created; exclude partner system supplier (tracked via Partners page)
   const sortedSuppliers = useMemo(
     () =>
-      [...suppliers].sort(
-        (a, b) => b.is_system - a.is_system || a.name.localeCompare(b.name),
-      ),
-    [suppliers],
+      [...suppliers]
+        .filter((s) => s.provider !== partnerSystem)
+        .sort(
+          (a, b) => b.is_system - a.is_system || a.name.localeCompare(b.name),
+        ),
+    [suppliers, partnerSystem],
   );
 
   const selectedSupplier = useMemo(
@@ -443,7 +447,7 @@ export default function SupplierLedger() {
                 </button>
               </div>
 
-              {/* Tabs — hidden for inactive suppliers */}
+              {/* Tabs */}
               {selectedSupplier.is_active !== 0 && (
                 <div className="flex gap-1 mb-4 border-b border-slate-700">
                   {[
@@ -465,14 +469,6 @@ export default function SupplierLedger() {
                       {tab.label}
                     </button>
                   ))}
-                </div>
-              )}
-
-              {/* Read-only banner for inactive suppliers */}
-              {selectedSupplier.is_active === 0 && (
-                <div className="mb-4 rounded-xl border border-amber-700/50 bg-amber-900/20 px-4 py-3 text-sm text-amber-300">
-                  This supplier is inactive. Ledger is read-only. Whish System
-                  debt is now tracked via Partners.
                 </div>
               )}
 

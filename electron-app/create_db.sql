@@ -810,6 +810,7 @@ CREATE TABLE IF NOT EXISTS modules (
 INSERT OR IGNORE INTO modules (key, label, icon, route, sort_order, is_enabled, admin_only, is_system) VALUES
   ('dashboard',  'Dashboard',  'LayoutDashboard', '/',          0,  1, 0, 1),
   ('closing',    'Closing',    'SquareActivity',  '',          99,  1, 1, 1),
+  ('audit',      'Audit & Transactions', 'Shield', '/audit',   97,  1, 1, 1),
   ('settings',   'Settings',   'Settings',        '/settings', 100, 1, 1, 1);
 
 -- Toggleable modules (can be enabled/disabled from Settings > Modules)
@@ -827,9 +828,9 @@ INSERT OR IGNORE INTO modules (key, label, icon, route, sort_order, is_enabled, 
   ('ipec_katch',  'iPick/Katsh',  'Zap',           '/recharge',     11,  0, 0, 0),
   ('custom_services','Services', 'Briefcase',     '/custom-services',12, 1, 0, 0),
   ('profits',        'Profits',  'TrendingUp',    '/profits',        13, 1, 1, 0),
-  ('loto',           'Loto',     'Ticket',        '/loto',           16, 1, 0, 0),
-  ('customer_sessions','Sessions','UserCheck',    '/customer-sessions',14, 1, 0, 0);
-  -- REMOVED: reports, transactions (redundant with Dashboard & Profits)
+  ('customer_sessions','Sessions','UserCheck',    '/customer-sessions',14, 1, 0, 0),
+  ('partners',       'Partners', 'Handshake',     '/partners',       15, 1, 0, 0),
+  ('loto',           'Loto',     'Ticket',        '/loto',           16, 1, 0, 0);
 
 -- Currency–Module junction (which currencies are allowed in which modules)
 CREATE TABLE IF NOT EXISTS currency_modules (
@@ -1153,4 +1154,9 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (74, 'create_service_presets_table'),
     (75, 'seed_customer_account_payment_method'),
     (76, 'rename_debt_to_customer_account'),
-    (77, 'create_partners_system');
+    (77, 'create_partners_system'),
+    (78, 'add_partner_system_association'),
+    (79, 'add_loto_prizes_and_fees'),
+    (80, 'add_shop_base_system_setting'),
+    (81, 'add_expenses_created_at_updated_at'),
+    (82, 'add_partners_and_audit_modules');

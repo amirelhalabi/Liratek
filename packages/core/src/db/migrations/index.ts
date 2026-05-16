@@ -3203,6 +3203,34 @@ export const MIGRATIONS: Migration[] = [
       console.log("Migration v81 rolled back (no-op for SQLite)");
     },
   },
+  {
+    version: 82,
+    name: "add_partners_and_audit_modules",
+    description:
+      "Add partners (toggleable) and audit (system) modules to the modules table",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      // Partners: toggleable module like debts
+      db.prepare(
+        `INSERT OR IGNORE INTO modules (key, label, icon, route, sort_order, is_enabled, admin_only, is_system)
+         VALUES ('partners', 'Partners', 'Handshake', '/partners', 15, 1, 0, 0)`,
+      ).run();
+
+      // Audit & Transactions: system module, admin only, always visible
+      db.prepare(
+        `INSERT OR IGNORE INTO modules (key, label, icon, route, sort_order, is_enabled, admin_only, is_system)
+         VALUES ('audit', 'Audit & Transactions', 'Shield', '/audit', 97, 1, 1, 1)`,
+      ).run();
+
+      console.log(
+        "Migration v82: Added partners and audit modules",
+      );
+    },
+    down(db: Database.Database) {
+      db.prepare(`DELETE FROM modules WHERE key IN ('partners', 'audit')`).run();
+      console.log("Migration v82 rolled back");
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

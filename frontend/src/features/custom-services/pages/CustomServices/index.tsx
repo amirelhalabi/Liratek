@@ -704,26 +704,6 @@ export default function CustomServices() {
               )}
             </div>
 
-            {/* Payment Method */}
-            <div>
-              <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">
-                Payment Method
-              </label>
-              <MultiPaymentInput
-                totalAmount={priceUsdVal || costUsdVal}
-                currency="USD"
-                onChange={setPaymentLines}
-                requiresClientForDebt={true}
-                hasClient={!!clientId || !!clientName}
-                paymentMethods={methods}
-                currencies={[
-                  { code: "USD", symbol: "$" },
-                  { code: "LBP", symbol: "LBP" },
-                ]}
-                exchangeRate={exchangeRate}
-              />
-            </div>
-
             {/* Customer Name & Phone — inline row */}
             <div className="grid grid-cols-2 gap-3">
               <div className="relative">
@@ -830,6 +810,26 @@ export default function CustomServices() {
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-white focus:border-teal-500 focus:ring-2 focus:ring-teal-500/50 outline-none transition-all"
                 placeholder="Additional details..."
                 maxLength={1000}
+              />
+            </div>
+
+            {/* Payment Method */}
+            <div>
+              <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">
+                Payment Method
+              </label>
+              <MultiPaymentInput
+                totalAmount={priceUsdVal || costUsdVal}
+                currency="USD"
+                onChange={setPaymentLines}
+                requiresClientForDebt={true}
+                hasClient={!!clientId || !!clientName}
+                paymentMethods={methods}
+                currencies={[
+                  { code: "USD", symbol: "$" },
+                  { code: "LBP", symbol: "LBP" },
+                ]}
+                exchangeRate={exchangeRate}
               />
             </div>
           </div>

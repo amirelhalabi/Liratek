@@ -2,8 +2,225 @@
 
 > **Sprint Focus:** Exchange Rate System, OMT/Whish fixes, Sell Prices, Cashout Parity & Base System  
 > **Created:** 2026-04-23  
-> **Last Updated:** 2026-05-15  
+> **Last Updated:** 2026-05-16  
 > **Status Legend:** `TODO` | `IN PROGRESS` | `DONE` | `BLOCKED`
+
+---
+
+## LIRA-047: Reverse Partner Flow — Partner Requests Transactions Through Our System (Highest Priority)
+
+| Field                | Value                                                          |
+| -------------------- | -------------------------------------------------------------- |
+| **Epic**             | Partner System                                                 |
+| **Type**             | Feature                                                        |
+| **Priority**         | Highest                                                        |
+| **Status**           | TODO                                                           |
+| **Affected Modules** | OMT/Whish Services, Partners, Partner Ledger, Settings         |
+| **Assigned To**      | —                                                              |
+| **Depends On**       | LIRA-037 (DONE), LIRA-045 (DONE), LIRA-046 (DONE)             |
+
+---
+
+### Summary
+
+Allow partners to request transactions through **our** system. Currently partners are only used when **we** do transactions through **their** system ("through partner"). The new flow is the reverse: partner calls us to do a txn on our system on their behalf ("for partner").
+
+**Analogy:** This is like CUSTOMER_ACCOUNT payment/cashout — instead of affecting a cash drawer, we debit/credit the partner's balance.
+
+---
+
+### Context & Business Logic
+
+| Shop base  | Our system | Partner's system | Existing flow ("through partner")     | New flow ("for partner")                   |
+| ---------- | ---------- | ---------------- | ------------------------------------- | ------------------------------------------ |
+| OMT shop   | OMT        | WHISH            | We do WHISH txns through partner      | Partner does OMT txns through us           |
+| WHISH shop | WHISH      | OMT              | We do OMT txns through partner        | Partner does WHISH txns through us         |
+
+**Example — OMT shop, partner has Whish system:**
+
+- Partner's customer needs to send $50 via OMT. Partner calls us.
+- We execute the OMT SEND on our system.
+- Partner owes us $50 (total incl fees) — recorded as DEBIT in partner ledger.
+- OMT_System drawer is credited (we owe OMT) — normal supplier tracking continues.
+- NO cash enters our General drawer (partner collected from their customer).
+
+- Partner's customer has incoming $100 OMT receive. Partner calls us.
+- We execute the OMT RECEIVE on our system.
+- We owe the partner $100 (payout amount) — recorded as CREDIT in partner ledger.
+- OMT_System drawer is debited (OMT owes us $100 + commission) — normal supplier tracking continues.
+- NO cash leaves our drawers (partner pays out their own customer).
+- Commission is OURS to keep (not owed to partner).
+
+---
+
+### Two Partner Modes — Key Distinction
+
+| Mode                         | Who owns the system | Detection                           | System drawer        | Cash/General drawer | Partner ledger                      |
+| ---------------------------- | ------------------- | ----------------------------------- | -------------------- | ------------------- | ----------------------------------- |
+| **"Through partner"** (existing) | Partner owns it     | `provider === partnerSystem`        | Not affected (not ours) | Not affected        | DEBIT (SEND) / CREDIT (RECEIVE)    |
+| **"For partner"** (NEW)         | WE own it           | `provider === baseSystem && partnerId` | IS affected (it's ours) | NOT affected (partner handles cash) | DEBIT (SEND) / CREDIT (RECEIVE)    |
+
+**Detection logic:** Compare `data.provider` against shop's `baseSystem` setting:
+- `provider === baseSystem` + `partnerId` → **"For partner"** (they're using our system)
+- `provider === partnerSystem` + `partnerId` → **"Through partner"** (we're using theirs)
+
+---
+
+### Current Backend Behavior vs Required (Bug Analysis)
+
+The existing partner logic in `FinancialServiceRepository.ts` was built for "through partner" only. Here's what's wrong for the "for partner" case:
+
+#### SEND
+
+| Step | Current behavior with `partnerId` | Correct for "through partner" | Correct for "for partner" |
+| ---- | --------------------------------- | ----------------------------- | ------------------------- |
+| General drawer credit | Skipped ✅ | ✅ Skip (not our system) | ✅ Skip (partner has cash) |
+| RESERVE from General | Skipped ✅ | ✅ Skip | ✅ Skip |
+| System drawer credit | +totalCollected (always runs) | ❌ Should skip (not our drawer) | ✅ Keep (we owe OMT) |
+
+**Issue:** For "through partner" SEND, the system drawer (e.g., Whish_System) should NOT be credited either — but currently it is. This may already be handled correctly if `useSystemDrawerFlow` accounts for it. **Needs verification.**
+
+#### RECEIVE ⚠️ MAIN BUG
+
+| Step | Current behavior with `partnerId` | Correct for "through partner" | Correct for "for partner" |
+| ---- | --------------------------------- | ----------------------------- | ------------------------- |
+| System drawer debit | Skipped (line 1361-1374) | ✅ Skip (not our system) | ❌ **SHOULD debit** (OMT owes us!) |
+| Cashout drawer debit | Skipped (line 1394-1397) | ✅ Skip | ✅ Skip (partner pays out) |
+
+**Fix needed:** When `provider === baseSystem && partnerId` (for partner), the system drawer MUST be debited. Only skip it for "through partner".
+
+#### Partner Ledger Amounts
+
+| Scenario | Current amount | Correct amount |
+| -------- | -------------- | -------------- |
+| SEND (for partner) | `data.amount` | `totalCollected` (amount + omtFee) — partner owes us everything |
+| RECEIVE (for partner) | `data.amount` | `receiveAmount` (just the payout) — we owe partner what they pay their customer, NOT our commission |
+
+---
+
+### Implementation Plan
+
+#### Phase 1: Backend — Fix Partner Mode Detection & Drawer Logic
+
+- [ ] **Read `shop_base_system` from settings** inside `FinancialServiceRepository.addTransaction()` (or accept as param)
+- [ ] **Add `isForPartner` / `isThroughPartner` helper logic:**
+  ```
+  const shopBaseSystem = getShopBaseSystem(); // "OMT" or "WHISH"
+  const isForPartner = !!data.partnerId && data.provider === shopBaseSystem;
+  const isThroughPartner = !!data.partnerId && data.provider !== shopBaseSystem;
+  ```
+- [ ] **Fix RECEIVE system drawer logic (line 1361-1374):**
+  - `isThroughPartner` → skip system drawer debit (existing behavior, correct)
+  - `isForPartner` → DO debit system drawer (OMT/Whish owes us)
+  - No partner → DO debit system drawer (normal flow)
+- [ ] **Fix partner ledger amount (line 1492-1517):**
+  - SEND: use `totalCollected` (amount + fees) instead of `data.amount`
+  - RECEIVE: use `receiveAmount` instead of `data.amount` (exclude commission — that's ours)
+- [ ] **Add `mode` field to partner ledger insert:** `"for_partner"` or `"through_partner"` — useful for filtering/display later
+
+#### Phase 2: Database — Migration for `partner_ledger.mode`
+
+- [ ] Migration v81 (or next): Add `mode TEXT` column to `partner_ledger` (nullable for existing rows)
+- [ ] Update `create_db.sql` with new column
+- [ ] Values: `"for_partner"` | `"through_partner"` | NULL (legacy/manual entries)
+
+#### Phase 3: Frontend — Show PartnerSelector on Base System Transactions
+
+- [ ] In `Services/index.tsx`: show `PartnerSelector` for ALL providers, not just `partnerSystem`
+  - `partnerSystem` provider: **required** (existing behavior)
+  - `baseSystem` provider: **optional** — when selected, means "doing this for a partner"
+- [ ] **System filter for partner dropdown:** Show partners with `system_association = partnerSystem` (they have the other system, that's why they're asking us)
+- [ ] **Visual indicator:** When partner selected on baseSystem txn, show banner: "Executing for partner: [name] — no cash exchange at counter"
+- [ ] **No payment method needed** for "for partner" txns (partner handles their customer's cash) — same as existing "through partner" behavior
+
+#### Phase 4: Frontend — Partners Page Enhanced View (Similar to Debts Page)
+
+- [ ] **Enrich ledger entries with transaction details:**
+  - Backend: JOIN `partner_ledger` with `financial_services` when `reference_table = 'financial_services'`
+  - Return: provider, serviceType, omtServiceType, recipient name/phone, amount, fees, commission, cashout method
+  - New API or enrich existing `partners:getLedger` response
+
+- [ ] **Enhanced ledger row display:**
+  - Show transaction details inline (not just "OMT SEND" — show "OMT SEND INTRA $50 to [recipient]")
+  - Show mode badge: "For partner" (green) vs "Through partner" (blue) vs "Settlement" (yellow)
+  - Show fees/commission breakdown on hover or expand
+  - Clickable to view full transaction details
+
+- [ ] **Balance summary card — enhanced:**
+  - Net balance (they owe us / we owe them) per currency
+  - Breakdown by mode: "For partner: +$150 | Through partner: -$80"
+  - Breakdown by provider: "OMT: +$200 | WHISH: -$130"
+
+- [ ] **Filters (similar to debts page):**
+  - By mode: All | For partner | Through partner
+  - By provider: OMT | WHISH | ALL
+  - By direction: DEBIT | CREDIT | ALL
+  - Date range (already exists)
+
+- [ ] **Settlement improvements:**
+  - Show clear breakdown of what's owed and why before settling
+  - Mark individual ledger entries as settled (track which entries were covered)
+
+- [ ] **Transaction linking:**
+  - Ledger entries with `reference_table = 'financial_services'` link to original txn
+  - Show inline preview with key details
+  - "View original transaction" link to history
+
+#### Phase 5: Testing & Verification
+
+- [ ] Unit tests for new "for partner" flow in `FinancialServiceRepository`
+- [ ] Test OMT SEND for partner → system drawer +totalCollected, partner DEBIT totalCollected, no General movement
+- [ ] Test OMT RECEIVE for partner → system drawer -totalOwed, partner CREDIT receiveAmount, no cashout movement
+- [ ] Test WHISH SEND/RECEIVE for partner (when shop is WHISH-base)
+- [ ] Test existing "through partner" flow unchanged
+- [ ] Test partner page shows enriched ledger with mode badges
+- [ ] Typecheck, lint, build pass
+
+---
+
+### Acceptance Criteria
+
+- [ ] PartnerSelector appears on baseSystem SEND/RECEIVE (optional)
+- [ ] "For partner" OMT SEND: partner DEBIT'd `totalCollected`, OMT_System +totalCollected, no General movement
+- [ ] "For partner" OMT RECEIVE: partner CREDIT'd `receiveAmount`, OMT_System -totalOwed, no cashout drawer movement
+- [ ] Commission on RECEIVE is kept by shop (NOT included in partner CREDIT)
+- [ ] Works bidirectionally: OMT-base shop doing OMT for partner, WHISH-base shop doing WHISH for partner
+- [ ] Supplier ledger still records normally in all cases (we interact with provider regardless)
+- [ ] Existing "through partner" flow completely unchanged
+- [ ] Normal (no partner) transactions unaffected
+- [ ] Partners page shows enriched transaction view with mode badges and details
+- [ ] Partners page filters by mode, provider, direction, date
+- [ ] Partners page balance breakdown by mode and provider
+- [ ] Partner ledger entries link to original financial_services transaction
+- [ ] All tests pass, typecheck clean, build succeeds
+
+---
+
+### Estimated Effort
+
+Medium-Large — ~6-8 hours total:
+- Backend logic fix: ~2 hours
+- Migration: ~30 min
+- Frontend PartnerSelector on base system: ~1 hour
+- Partners page enhanced view: ~3-4 hours
+- Testing: ~1 hour
+
+---
+
+### Files to Modify
+
+| Layer | File | Change |
+|-------|------|--------|
+| Backend | `packages/core/src/repositories/FinancialServiceRepository.ts` | Fix RECEIVE system drawer for "for partner", fix ledger amounts, add mode |
+| Backend | `packages/core/src/repositories/PartnerRepository.ts` | Enrich `getLedger()` to JOIN financial_services details |
+| Backend | `packages/core/src/services/PartnerService.ts` | Expose enriched ledger |
+| Database | `packages/core/src/db/migrations/index.ts` | Migration: add `mode` to `partner_ledger` |
+| Database | `electron-app/create_db.sql` | Update schema |
+| Frontend | `frontend/src/features/services/pages/Services/index.tsx` | Show optional PartnerSelector for baseSystem |
+| Frontend | `frontend/src/features/partners/pages/Partners/index.tsx` | Enhanced ledger view, filters, mode badges, balance breakdown |
+| Frontend | `frontend/src/features/partners/components/PartnerSelector.tsx` | Ensure filter works for both modes |
+| Electron | `electron-app/handlers/partnerHandlers.ts` | Expose enriched ledger endpoint |
+| Types | `frontend/src/types/electron.d.ts` | Update PartnerLedgerEntry with mode, txn details |
 
 ---
 
@@ -66,11 +283,12 @@
 
 ## Summary
 
-| Priority  | Total | Done  | Remaining |
-| --------- | ----- | ----- | --------- |
-| High      | 5     | 5     | 0         |
-| Medium    | 4     | 1     | 3         |
-| **Total** | **9** | **6** | **3**     |
+| Priority    | Total  | Done  | Remaining |
+| ----------- | ------ | ----- | --------- |
+| Highest     | 1      | 0     | 1         |
+| High        | 5      | 5     | 0         |
+| Medium      | 4      | 1     | 3         |
+| **Total**   | **10** | **6** | **4**     |
 
 ---
 
