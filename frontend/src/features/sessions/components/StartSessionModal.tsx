@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import type { FormEvent } from "react";
 import { useSession } from "../context/SessionContext";
-import { User, X } from "lucide-react";
-import { useApi } from "@liratek/ui";
+import { Search, X } from "lucide-react";
 import type { Client } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { useSaveAsClient } from "@/shared/hooks/useSaveAsClient";
@@ -16,7 +15,6 @@ interface StartSessionModalProps {
 export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
   useModalFocusFix(isOpen);
   const { startSession } = useSession();
-  const api = useApi();
   const [clients, setClients] = useState<Client[]>([]);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [customerName, setCustomerName] = useState("");
@@ -27,6 +25,7 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
   const [todaySessionNames, setTodaySessionNames] = useState<string[]>([]);
   const [loadingNames, setLoadingNames] = useState(false);
   const nameInputRef = useRef<HTMLInputElement>(null);
+  const [showDropdown, setShowDropdown] = useState(false);
   const {
     saveAsClient,
     setSaveAsClient,
@@ -60,21 +59,28 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
     }
   }, [isOpen]);
 
-  // Fetch clients for search
+  // Debounced server-side client search (same pattern as Debts page)
+  const [searchLoading, setSearchLoading] = useState(false);
   useEffect(() => {
-    const fetchClients = async () => {
-      const data = await api.getClients("");
-      setClients(data);
-    };
-    fetchClients();
-  }, []);
+    if (customerName.length === 0 || selectedClient) {
+      setClients([]);
+      return;
+    }
+    setSearchLoading(true);
+    const timer = setTimeout(async () => {
+      try {
+        const data = await window.api.clients.getAll(customerName);
+        setClients(data);
+      } catch {
+        setClients([]);
+      } finally {
+        setSearchLoading(false);
+      }
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [customerName, selectedClient]);
 
-  // Filter clients for dropdown
-  const filteredClients = clients.filter(
-    (c) =>
-      c.full_name.toLowerCase().includes(customerName.toLowerCase()) ||
-      (c.phone_number || "").includes(customerName),
-  );
+  const filteredClients = clients;
 
   // Reset form when modal closes
   useEffect(() => {
@@ -183,38 +189,15 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
           )}
 
           {/* Customer Name */}
-          <div className="relative">
-            <label
-              htmlFor="customer-name"
-              className="block text-sm font-medium text-slate-300 mb-1"
-            >
+          <div>
+            <label className="block text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">
               Customer Name <span className="text-red-500">*</span>
             </label>
-            <div className="flex items-center bg-slate-800 border border-slate-700 rounded-lg p-1 focus-within:ring-2 focus-within:ring-violet-600 transition-all">
-              <div className="p-2 text-slate-400">
-                <User size={18} />
-              </div>
-              <input
-                id="customer-name"
-                type="text"
-                value={customerName}
-                onChange={(e) => {
-                  setCustomerName(e.target.value);
-                  // Reset selection if user types
-                  if (
-                    selectedClient &&
-                    e.target.value !== selectedClient.full_name
-                  ) {
-                    setSelectedClient(null);
-                  }
-                }}
-                className="bg-transparent border-none text-white w-full px-2 focus:outline-none"
-                placeholder="Search or enter customer name..."
-                ref={nameInputRef}
-                disabled={loading}
-                required
-              />
-              {selectedClient && (
+            {selectedClient ? (
+              <div className="flex items-center justify-between bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-3 py-2">
+                <span className="text-white text-sm font-medium">
+                  {selectedClient.full_name}
+                </span>
                 <button
                   type="button"
                   onClick={() => {
@@ -222,33 +205,66 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
                     setCustomerName("");
                     setCustomerPhone("");
                   }}
-                  className="p-2 text-slate-400 hover:text-white"
+                  className="text-slate-400 hover:text-white"
                 >
-                  <X size={16} />
+                  <X size={14} />
                 </button>
-              )}
-            </div>
-
-            {/* Dropdown Results */}
-            {customerName && !selectedClient && filteredClients.length > 0 && (
-              <div className="absolute top-full left-0 right-0 mt-2 bg-slate-800 border border-slate-700 rounded-xl shadow-xl z-20 max-h-48 overflow-y-auto">
-                {filteredClients.map((client) => (
-                  <button
-                    key={client.id}
-                    type="button"
-                    onClick={() => {
-                      setSelectedClient(client);
-                      setCustomerName(client.full_name);
-                      setCustomerPhone(client.phone_number || "");
-                    }}
-                    className="w-full text-left p-3 hover:bg-slate-700 text-slate-200 border-b border-slate-700/50 last:border-0"
-                  >
-                    <div className="font-medium">{client.full_name}</div>
-                    <div className="text-xs text-slate-500">
-                      {client.phone_number}
-                    </div>
-                  </button>
-                ))}
+              </div>
+            ) : (
+              <div className="relative">
+                <Search
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                  size={15}
+                />
+                <input
+                  id="customer-name"
+                  type="text"
+                  value={customerName}
+                  onChange={(e) => {
+                    setCustomerName(e.target.value);
+                    setShowDropdown(true);
+                  }}
+                  onFocus={() => setShowDropdown(true)}
+                  onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
+                  placeholder="Search client by name or phone..."
+                  className="w-full bg-slate-800 border border-slate-600 rounded-lg pl-9 pr-4 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
+                  ref={nameInputRef}
+                  disabled={loading}
+                  required
+                />
+                {customerName.length > 0 && showDropdown && (
+                  <div className="absolute z-10 top-full mt-1 w-full bg-slate-800 border border-slate-600 rounded-lg shadow-xl max-h-48 overflow-y-auto">
+                    {searchLoading ? (
+                      <div className="px-3 py-2 text-sm text-slate-500">
+                        Searching...
+                      </div>
+                    ) : filteredClients.length > 0 ? (
+                      filteredClients.slice(0, 10).map((client) => (
+                        <button
+                          key={client.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedClient(client);
+                            setCustomerName(client.full_name);
+                            setCustomerPhone(client.phone_number || "");
+                          }}
+                          className="w-full text-left px-3 py-2 hover:bg-slate-700 text-sm text-white border-b border-slate-700/50 last:border-0"
+                        >
+                          <div className="font-medium">{client.full_name}</div>
+                          {client.phone_number && (
+                            <div className="text-xs text-slate-400">
+                              {client.phone_number}
+                            </div>
+                          )}
+                        </button>
+                      ))
+                    ) : (
+                      <div className="px-3 py-2 text-sm text-slate-500">
+                        No clients found
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>

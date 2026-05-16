@@ -30,7 +30,7 @@ import type {
   PartnerBalance,
   PartnerWithBalance,
 } from "@/types/electron";
-import { appEvents } from "@liratek/ui";
+import { appEvents, PageHeader } from "@liratek/ui";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -1089,43 +1089,35 @@ export function PartnersPage() {
   );
 
   return (
-    <div className="h-full flex flex-col bg-slate-900 overflow-hidden">
+    <div className="h-full flex flex-col gap-6 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 min-h-0 overflow-hidden animate-in fade-in duration-500">
       {/* ── Header ── */}
-      <div className="px-6 pt-6 pb-4 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="p-2 bg-violet-900/40 rounded-xl border border-violet-700/30">
-            <Users className="w-5 h-5 text-violet-400" />
+      <PageHeader
+        icon={Users}
+        title="Partners"
+        actions={
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={includeInactive}
+                onChange={(e) => setIncludeInactive(e.target.checked)}
+                className="rounded border-slate-600 bg-slate-700 text-violet-500"
+              />
+              Show inactive
+            </label>
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold rounded-lg transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              Add Partner
+            </button>
           </div>
-          <div>
-            <h1 className="text-xl font-bold text-white">Partners</h1>
-            <p className="text-xs text-slate-400">
-              {partners.length} partner{partners.length !== 1 ? "s" : ""}
-              {includeInactive ? " (incl. inactive)" : ""}
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={includeInactive}
-              onChange={(e) => setIncludeInactive(e.target.checked)}
-              className="rounded border-slate-600 bg-slate-700 text-violet-500"
-            />
-            Show inactive
-          </label>
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold rounded-lg transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Add Partner
-          </button>
-        </div>
-      </div>
+        }
+      />
 
       {/* ── Summary Cards ── */}
-      <div className="px-6 pb-4 shrink-0">
+      <div className="shrink-0">
         <div className="grid grid-cols-2 gap-3">
           <div className="bg-slate-800 border border-emerald-700/30 rounded-xl p-3">
             <div className="flex items-center gap-2 mb-1.5">
