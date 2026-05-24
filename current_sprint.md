@@ -9,15 +9,15 @@
 
 ## LIRA-047: Reverse Partner Flow — Partner Requests Transactions Through Our System (Highest Priority)
 
-| Field                | Value                                                          |
-| -------------------- | -------------------------------------------------------------- |
-| **Epic**             | Partner System                                                 |
-| **Type**             | Feature                                                        |
-| **Priority**         | Highest                                                        |
-| **Status**           | IN PROGRESS                                                    |
-| **Affected Modules** | OMT/Whish Services, Partners, Partner Ledger, Settings         |
-| **Assigned To**      | —                                                              |
-| **Depends On**       | LIRA-037 (DONE), LIRA-045 (DONE), LIRA-046 (DONE)             |
+| Field                | Value                                                  |
+| -------------------- | ------------------------------------------------------ |
+| **Epic**             | Partner System                                         |
+| **Type**             | Feature                                                |
+| **Priority**         | Highest                                                |
+| **Status**           | IN PROGRESS                                            |
+| **Affected Modules** | OMT/Whish Services, Partners, Partner Ledger, Settings |
+| **Assigned To**      | —                                                      |
+| **Depends On**       | LIRA-037 (DONE), LIRA-045 (DONE), LIRA-046 (DONE)      |
 
 ---
 
@@ -31,10 +31,10 @@ Allow partners to request transactions through **our** system. Currently partner
 
 ### Context & Business Logic
 
-| Shop base  | Our system | Partner's system | Existing flow ("through partner")     | New flow ("for partner")                   |
-| ---------- | ---------- | ---------------- | ------------------------------------- | ------------------------------------------ |
-| OMT shop   | OMT        | WHISH            | We do WHISH txns through partner      | Partner does OMT txns through us           |
-| WHISH shop | WHISH      | OMT              | We do OMT txns through partner        | Partner does WHISH txns through us         |
+| Shop base  | Our system | Partner's system | Existing flow ("through partner") | New flow ("for partner")           |
+| ---------- | ---------- | ---------------- | --------------------------------- | ---------------------------------- |
+| OMT shop   | OMT        | WHISH            | We do WHISH txns through partner  | Partner does OMT txns through us   |
+| WHISH shop | WHISH      | OMT              | We do OMT txns through partner    | Partner does WHISH txns through us |
 
 **Example — OMT shop, partner has Whish system:**
 
@@ -55,12 +55,13 @@ Allow partners to request transactions through **our** system. Currently partner
 
 ### Two Partner Modes — Key Distinction
 
-| Mode                         | Who owns the system | Detection                           | System drawer        | Cash/General drawer | Partner ledger                      |
-| ---------------------------- | ------------------- | ----------------------------------- | -------------------- | ------------------- | ----------------------------------- |
-| **"Through partner"** (existing) | Partner owns it     | `provider === partnerSystem`        | Not affected (not ours) | Not affected        | DEBIT (SEND) / CREDIT (RECEIVE)    |
-| **"For partner"** (NEW)         | WE own it           | `provider === baseSystem && partnerId` | IS affected (it's ours) | NOT affected (partner handles cash) | DEBIT (SEND) / CREDIT (RECEIVE)    |
+| Mode                             | Who owns the system | Detection                              | System drawer           | Cash/General drawer                 | Partner ledger                  |
+| -------------------------------- | ------------------- | -------------------------------------- | ----------------------- | ----------------------------------- | ------------------------------- |
+| **"Through partner"** (existing) | Partner owns it     | `provider === partnerSystem`           | Not affected (not ours) | Not affected                        | DEBIT (SEND) / CREDIT (RECEIVE) |
+| **"For partner"** (NEW)          | WE own it           | `provider === baseSystem && partnerId` | IS affected (it's ours) | NOT affected (partner handles cash) | DEBIT (SEND) / CREDIT (RECEIVE) |
 
 **Detection logic:** Compare `data.provider` against shop's `baseSystem` setting:
+
 - `provider === baseSystem` + `partnerId` → **"For partner"** (they're using our system)
 - `provider === partnerSystem` + `partnerId` → **"Through partner"** (we're using theirs)
 
@@ -72,29 +73,29 @@ The existing partner logic in `FinancialServiceRepository.ts` was built for "thr
 
 #### SEND
 
-| Step | Current behavior with `partnerId` | Correct for "through partner" | Correct for "for partner" |
-| ---- | --------------------------------- | ----------------------------- | ------------------------- |
-| General drawer credit | Skipped ✅ | ✅ Skip (not our system) | ✅ Skip (partner has cash) |
-| RESERVE from General | Skipped ✅ | ✅ Skip | ✅ Skip |
-| System drawer credit | +totalCollected (always runs) | ❌ Should skip (not our drawer) | ✅ Keep (we owe OMT) |
+| Step                  | Current behavior with `partnerId` | Correct for "through partner"   | Correct for "for partner"  |
+| --------------------- | --------------------------------- | ------------------------------- | -------------------------- |
+| General drawer credit | Skipped ✅                        | ✅ Skip (not our system)        | ✅ Skip (partner has cash) |
+| RESERVE from General  | Skipped ✅                        | ✅ Skip                         | ✅ Skip                    |
+| System drawer credit  | +totalCollected (always runs)     | ❌ Should skip (not our drawer) | ✅ Keep (we owe OMT)       |
 
 **Issue:** For "through partner" SEND, the system drawer (e.g., Whish_System) should NOT be credited either — but currently it is. This may already be handled correctly if `useSystemDrawerFlow` accounts for it. **Needs verification.**
 
 #### RECEIVE ⚠️ MAIN BUG
 
-| Step | Current behavior with `partnerId` | Correct for "through partner" | Correct for "for partner" |
-| ---- | --------------------------------- | ----------------------------- | ------------------------- |
-| System drawer debit | Skipped (line 1361-1374) | ✅ Skip (not our system) | ❌ **SHOULD debit** (OMT owes us!) |
-| Cashout drawer debit | Skipped (line 1394-1397) | ✅ Skip | ✅ Skip (partner pays out) |
+| Step                 | Current behavior with `partnerId` | Correct for "through partner" | Correct for "for partner"          |
+| -------------------- | --------------------------------- | ----------------------------- | ---------------------------------- |
+| System drawer debit  | Skipped (line 1361-1374)          | ✅ Skip (not our system)      | ❌ **SHOULD debit** (OMT owes us!) |
+| Cashout drawer debit | Skipped (line 1394-1397)          | ✅ Skip                       | ✅ Skip (partner pays out)         |
 
 **Fix needed:** When `provider === baseSystem && partnerId` (for partner), the system drawer MUST be debited. Only skip it for "through partner".
 
 #### Partner Ledger Amounts
 
-| Scenario | Current amount | Correct amount |
-| -------- | -------------- | -------------- |
-| SEND (for partner) | `data.amount` | `totalCollected` (amount + omtFee) — partner owes us everything |
-| RECEIVE (for partner) | `data.amount` | `receiveAmount` (just the payout) — we owe partner what they pay their customer, NOT our commission |
+| Scenario              | Current amount | Correct amount                                                                                      |
+| --------------------- | -------------- | --------------------------------------------------------------------------------------------------- |
+| SEND (for partner)    | `data.amount`  | `totalCollected` (amount + omtFee) — partner owes us everything                                     |
+| RECEIVE (for partner) | `data.amount`  | `receiveAmount` (just the payout) — we owe partner what they pay their customer, NOT our commission |
 
 ---
 
@@ -139,13 +140,14 @@ The existing partner logic in `FinancialServiceRepository.ts` was built for "thr
 - [x] Add `partnerId`, `partnerMode`, `cashoutMethod`, `transaction_time` to `FinancialServiceSchema` (Zod)
 - [x] Fixed critical bug: these fields were being silently stripped by Zod validation
 
-#### Phase 6: Testing & Verification (Pending)
+#### Phase 6: Testing & Verification (In Progress)
 
-- [ ] Unit tests for new "for partner" flow in `FinancialServiceRepository`
-- [ ] Test OMT SEND for partner → system drawer affected, partner DEBIT (amount+fee), no General movement
-- [ ] Test OMT RECEIVE for partner → system drawer affected, partner CREDIT (amount), no cashout movement
-- [ ] Test existing "through partner" flow unchanged
-- [ ] End-to-end verification in dev mode
+- [x] Unit tests for new "for partner" flow in `FinancialServiceRepository` — `FinancialServiceRepository.partner.test.ts` created (20 tests)
+- [x] Test OMT SEND for partner → system drawer affected, partner DEBIT (amount+fee), no General movement
+- [x] Test OMT RECEIVE for partner → system drawer affected, partner CREDIT (amount), no cashout movement
+- [x] Test existing "through partner" flow unchanged
+- [x] Bug fix: `CUSTOMER_ACCOUNT` cashout path was missing `!skipSystemDrawer` guard — fixed in `FinancialServiceRepository.ts`
+- [ ] End-to-end verification in dev mode (`yarn dev`, perform FOR/THROUGH partner transactions manually)
 
 #### Phase 7: Future Enhancements (Backlog)
 
@@ -162,8 +164,8 @@ The existing partner logic in `FinancialServiceRepository.ts` was built for "thr
 
 - [x] PartnerSelector appears on baseSystem SEND/RECEIVE (optional "For Partner" toggle)
 - [x] Explicit `partnerMode` field distinguishes THROUGH vs FOR flows
-- [ ] "For partner" OMT SEND: partner DEBIT'd `amount + fee`, System drawer affected, no General movement
-- [ ] "For partner" OMT RECEIVE: partner CREDIT'd `amount`, System drawer affected, no cashout drawer movement
+- [x] "For partner" OMT SEND: partner DEBIT'd `amount + fee`, System drawer affected, no General movement
+- [x] "For partner" OMT RECEIVE: partner CREDIT'd `amount`, System drawer affected, no cashout drawer movement
 - [x] Commission on RECEIVE is kept by shop (NOT included in partner CREDIT)
 - [x] Works bidirectionally: OMT-base shop doing OMT for partner, WHISH-base shop doing WHISH for partner
 - [ ] Supplier ledger still records normally in all cases (we interact with provider regardless)
@@ -180,6 +182,7 @@ The existing partner logic in `FinancialServiceRepository.ts` was built for "thr
 ### Estimated Effort
 
 Medium-Large — ~6-8 hours total:
+
 - Backend logic fix: ~2 hours
 - Migration: ~30 min
 - Frontend PartnerSelector on base system: ~1 hour
@@ -190,18 +193,18 @@ Medium-Large — ~6-8 hours total:
 
 ### Files to Modify
 
-| Layer | File | Change |
-|-------|------|--------|
-| Backend | `packages/core/src/repositories/FinancialServiceRepository.ts` | Fix RECEIVE system drawer for "for partner", fix ledger amounts, add mode |
-| Backend | `packages/core/src/repositories/PartnerRepository.ts` | Enrich `getLedger()` to JOIN financial_services details |
-| Backend | `packages/core/src/services/PartnerService.ts` | Expose enriched ledger |
-| Database | `packages/core/src/db/migrations/index.ts` | Migration: add `mode` to `partner_ledger` |
-| Database | `electron-app/create_db.sql` | Update schema |
-| Frontend | `frontend/src/features/services/pages/Services/index.tsx` | Show optional PartnerSelector for baseSystem |
-| Frontend | `frontend/src/features/partners/pages/Partners/index.tsx` | Enhanced ledger view, filters, mode badges, balance breakdown |
-| Frontend | `frontend/src/features/partners/components/PartnerSelector.tsx` | Ensure filter works for both modes |
-| Electron | `electron-app/handlers/partnerHandlers.ts` | Expose enriched ledger endpoint |
-| Types | `frontend/src/types/electron.d.ts` | Update PartnerLedgerEntry with mode, txn details |
+| Layer    | File                                                            | Change                                                                    |
+| -------- | --------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Backend  | `packages/core/src/repositories/FinancialServiceRepository.ts`  | Fix RECEIVE system drawer for "for partner", fix ledger amounts, add mode |
+| Backend  | `packages/core/src/repositories/PartnerRepository.ts`           | Enrich `getLedger()` to JOIN financial_services details                   |
+| Backend  | `packages/core/src/services/PartnerService.ts`                  | Expose enriched ledger                                                    |
+| Database | `packages/core/src/db/migrations/index.ts`                      | Migration: add `mode` to `partner_ledger`                                 |
+| Database | `electron-app/create_db.sql`                                    | Update schema                                                             |
+| Frontend | `frontend/src/features/services/pages/Services/index.tsx`       | Show optional PartnerSelector for baseSystem                              |
+| Frontend | `frontend/src/features/partners/pages/Partners/index.tsx`       | Enhanced ledger view, filters, mode badges, balance breakdown             |
+| Frontend | `frontend/src/features/partners/components/PartnerSelector.tsx` | Ensure filter works for both modes                                        |
+| Electron | `electron-app/handlers/partnerHandlers.ts`                      | Expose enriched ledger endpoint                                           |
+| Types    | `frontend/src/types/electron.d.ts`                              | Update PartnerLedgerEntry with mode, txn details                          |
 
 ---
 
@@ -264,12 +267,12 @@ Medium-Large — ~6-8 hours total:
 
 ## Summary
 
-| Priority    | Total  | Done  | Remaining |
-| ----------- | ------ | ----- | --------- |
-| Highest     | 1      | 0     | 1 (in progress) |
-| High        | 5      | 5     | 0         |
-| Medium      | 4      | 1     | 3         |
-| **Total**   | **10** | **6** | **4**     |
+| Priority  | Total  | Done  | Remaining       |
+| --------- | ------ | ----- | --------------- |
+| Highest   | 1      | 0     | 1 (in progress) |
+| High      | 5      | 5     | 0               |
+| Medium    | 4      | 1     | 3               |
+| **Total** | **10** | **6** | **4**           |
 
 ---
 

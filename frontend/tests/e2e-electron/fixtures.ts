@@ -18,6 +18,7 @@ import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
 import { fileURLToPath } from "url";
+import { createRequire } from "module";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -25,6 +26,12 @@ const __dirname = path.dirname(__filename);
 // Test DB location — isolated from the user's real database
 const TEST_DB_DIR = path.join(os.tmpdir(), "liratek-e2e-test");
 const TEST_DB_PATH = path.join(TEST_DB_DIR, "phone_shop.db");
+// Isolated user-data-dir so the test instance never collides with a
+// running yarn dev session or installed app. Electron's
+// requestSingleInstanceLock() is per user-data-dir, so without this
+// the test instance would immediately quit when another Electron
+// instance (e.g. yarn dev) is already running.
+const TEST_USER_DATA_DIR = path.join(os.tmpdir(), "liratek-e2e-userdata");
 
 // Shared state across all tests in a worker
 let sharedApp: ElectronApplication | null = null;
@@ -46,14 +53,24 @@ export const test = base.extend<{
       }
 
       const electronAppPath = path.resolve(__dirname, "../../../electron-app");
-      const electronBin = path.resolve(
-        __dirname,
-        "../../../node_modules/.bin/electron",
-      );
+      // Use require('electron') to get the platform-correct binary path.
+      // On Windows, node_modules/.bin/electron is a Unix shell script and
+      // cannot be used as an executablePath directly.
+      const _require = createRequire(import.meta.url);
+      const electronBin = _require("electron") as string;
+
+      // Ensure a clean isolated user-data-dir for this test run
+      if (fs.existsSync(TEST_USER_DATA_DIR)) {
+        fs.rmSync(TEST_USER_DATA_DIR, { recursive: true, force: true });
+      }
+      fs.mkdirSync(TEST_USER_DATA_DIR, { recursive: true });
 
       sharedApp = await _electron.launch({
         executablePath: electronBin,
-        args: [path.join(electronAppPath, "dist/main.js")],
+        args: [
+          path.join(electronAppPath, "dist/main.js"),
+          `--user-data-dir=${TEST_USER_DATA_DIR}`,
+        ],
         env: {
           ...process.env,
           NODE_ENV: "test",
@@ -61,6 +78,14 @@ export const test = base.extend<{
           ELECTRON_RENDERER_URL: "http://localhost:5173",
         },
         cwd: electronAppPath,
+      });
+
+      // Pipe Electron's stderr to console so startup errors are visible
+      sharedApp.process().stderr?.on("data", (chunk: Buffer) => {
+        process.stderr.write(`[electron] ${chunk.toString()}`);
+      });
+      sharedApp.process().stdout?.on("data", (chunk: Buffer) => {
+        process.stdout.write(`[electron] ${chunk.toString()}`);
       });
 
       sharedPage = await sharedApp.waitForEvent("window", {

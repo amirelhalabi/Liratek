@@ -851,8 +851,12 @@ export default function Services() {
               }
             : {}),
         note: note || `${provider} - ${serviceType}`,
-        ...(selectedPartnerId ? { partnerId: selectedPartnerId, partnerMode: 'THROUGH' as const } : {}),
-        ...(forPartner && forPartnerId ? { partnerId: forPartnerId, partnerMode: 'FOR' as const } : {}),
+        ...(selectedPartnerId
+          ? { partnerId: selectedPartnerId, partnerMode: "THROUGH" as const }
+          : {}),
+        ...(forPartner && forPartnerId
+          ? { partnerId: forPartnerId, partnerMode: "FOR" as const }
+          : {}),
         ...(serviceType === "RECEIVE"
           ? {
               cashoutMethod: cashoutMethod as
@@ -1207,7 +1211,9 @@ export default function Services() {
                         className="w-4 h-4 rounded border-slate-600 bg-slate-900 text-violet-600 focus:ring-violet-500"
                       />
                       <span className="text-sm font-medium">For Partner</span>
-                      <span className="text-xs text-slate-500">(partner's customer, our system)</span>
+                      <span className="text-xs text-slate-500">
+                        (partner's customer, our system)
+                      </span>
                     </label>
                     {forPartner && (
                       <div className="flex-1 flex items-center gap-2">

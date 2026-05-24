@@ -1,0 +1,5 @@
+{
+  "permissions": {
+    "allow": ["Bash(yarn test:e2e --reporter=list)", "Bash(echo \"EXIT:$?\")"]
+  }
+}

@@ -668,10 +668,15 @@ export interface ElectronAPI {
         phone: string | null;
         note: string | null;
         is_active: number;
+        module_key: string | null;
+        provider: string | null;
+        is_system: number;
         created_at: string;
       }>
     >;
-    getBalances: () => Promise<
+    getBalances: (
+      includeInactive?: boolean,
+    ) => Promise<
       Array<{ supplier_id: number; total_usd: number; total_lbp: number }>
     >;
     getLedger: (
@@ -681,11 +686,13 @@ export interface ElectronAPI {
       Array<{
         id: number;
         supplier_id: number;
-        entry_type: "TOP_UP" | "PAYMENT" | "ADJUSTMENT";
+        entry_type: "TOP_UP" | "PAYMENT" | "ADJUSTMENT" | "SETTLEMENT";
         amount_usd: number;
         amount_lbp: number;
         note: string | null;
         created_by: number | null;
+        transaction_id: number | null;
+        transaction_type: string | null;
         created_at: string;
       }>
     >;

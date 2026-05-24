@@ -31,7 +31,11 @@
     "rebuild:node": "npm rebuild better-sqlite3",
     "ci:build:win": "electron-builder --win --publish always",
     "ci:build:mac:arm": "electron-builder --mac --arm64",
-    "ci:build:mac:intel": "electron-builder --mac --x64"
+    "ci:build:mac:intel": "electron-builder --mac --x64",
+    "graphify": "node scripts/graphify.cjs",
+    "graphify:detect": "node scripts/graphify.cjs detect",
+    "graphify:graph": "node scripts/graphify.cjs graph",
+    "graphify:search": "node scripts/graphify.cjs search"
   },
   "dependencies": {
     "@liratek/core": "workspace:*",

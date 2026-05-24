@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { X, PlusCircle, ArrowRightLeft } from "lucide-react";
+import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 
 interface SourceDrawer {
   drawer_name: string;
@@ -20,6 +21,7 @@ export function DrawerTopUpModal({
   onClose,
   onSuccess,
 }: DrawerTopUpModalProps) {
+  useModalFocusFix(isOpen);
   const [mode, setMode] = useState<TopUpMode>("external");
   const [amountUsd, setAmountUsd] = useState("");
   const [amountLbp, setAmountLbp] = useState("");
@@ -110,7 +112,7 @@ export function DrawerTopUpModal({
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
       <div className="w-full max-w-md bg-slate-800 border border-slate-700 rounded-xl shadow-2xl p-6">
         {/* Header */}
         <div className="flex items-center justify-between mb-5">

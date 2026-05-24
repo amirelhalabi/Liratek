@@ -6,7 +6,6 @@ import UsersManager from "./UsersManager";
 import Diagnostics from "./Diagnostics";
 import CurrencyManager from "./CurrencyManager";
 import ShopConfig from "./ShopConfig";
-import SupplierLedger from "./SupplierLedger";
 import NotificationsConfig from "./NotificationsConfig";
 import ModulesManager from "./ModulesManager";
 import IntegrationsConfig from "./IntegrationsConfig";
@@ -16,7 +15,6 @@ import MobileServicesManager from "./MobileServicesManager";
 type TabKey =
   | "shop"
   | "categories"
-  | "suppliers"
   | "notifications"
   | "modules"
   | "currencies"
@@ -33,7 +31,6 @@ export default function Settings() {
   const tabs = [
     { key: "shop", label: "Shop Config" },
     { key: "categories", label: "Categories & Suppliers", icon: Tag },
-    { key: "suppliers", label: "Suppliers" },
     { key: "notifications", label: "Notifications" },
     { key: "modules", label: "Modules & Drawers" },
     { key: "currencies", label: "Currencies & Rates" },
@@ -63,7 +60,6 @@ export default function Settings() {
         <div className="flex-1 min-h-0 overflow-auto p-4">
           {active === "shop" && <ShopConfig />}
           {active === "categories" && <CategoriesManager />}
-          {active === "suppliers" && <SupplierLedger />}
           {active === "notifications" && <NotificationsConfig />}
           {active === "modules" && <ModulesManager />}
           {active === "currencies" && <CurrencyManager />}

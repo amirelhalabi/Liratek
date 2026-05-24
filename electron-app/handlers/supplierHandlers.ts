@@ -31,10 +31,8 @@ export function registerSupplierHandlers(): void {
   );
 
   ipcMain.handle("suppliers:create", (e, data: unknown) => {
-    try {
-      const auth = requireRole(e.sender.id, ["admin"]);
-      if (!auth.ok) return { success: false, error: auth.error };
-    } catch {}
+    const auth = requireRole(e.sender.id, ["admin"]);
+    if (!auth.ok) return { success: false, error: auth.error };
 
     const v = validatePayload(SupplierCreateSchema, data);
     if (!v.ok) return { success: false, error: v.error };

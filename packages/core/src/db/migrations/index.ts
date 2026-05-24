@@ -3222,27 +3222,34 @@ export const MIGRATIONS: Migration[] = [
          VALUES ('audit', 'Audit & Transactions', 'Shield', '/audit', 97, 1, 1, 1)`,
       ).run();
 
-      console.log(
-        "Migration v82: Added partners and audit modules",
-      );
+      console.log("Migration v82: Added partners and audit modules");
     },
     down(db: Database.Database) {
-      db.prepare(`DELETE FROM modules WHERE key IN ('partners', 'audit')`).run();
+      db.prepare(
+        `DELETE FROM modules WHERE key IN ('partners', 'audit')`,
+      ).run();
       console.log("Migration v82 rolled back");
     },
   },
   {
     version: 83,
     name: "add_partner_mode_and_transaction_types",
-    description: "Add partner_mode to financial_services and new FOR_ and THROUGH_ transaction types to partner_ledger",
+    description:
+      "Add partner_mode to financial_services and new FOR_ and THROUGH_ transaction types to partner_ledger",
     type: "typescript" as const,
     up(db: Database.Database) {
       // 1. Add partner_mode to financial_services if it doesn't exist
-      const fsCols = db.prepare("PRAGMA table_info(financial_services)").all() as { name: string }[];
-      if (!fsCols.some(c => c.name === "partner_mode")) {
-        db.exec(`ALTER TABLE financial_services ADD COLUMN partner_mode TEXT CHECK(partner_mode IN ('THROUGH', 'FOR'))`);
+      const fsCols = db
+        .prepare("PRAGMA table_info(financial_services)")
+        .all() as { name: string }[];
+      if (!fsCols.some((c) => c.name === "partner_mode")) {
+        db.exec(
+          `ALTER TABLE financial_services ADD COLUMN partner_mode TEXT CHECK(partner_mode IN ('THROUGH', 'FOR'))`,
+        );
         // Backfill existing partner transactions
-        db.exec(`UPDATE financial_services SET partner_mode = 'THROUGH' WHERE partner_id IS NOT NULL`);
+        db.exec(
+          `UPDATE financial_services SET partner_mode = 'THROUGH' WHERE partner_id IS NOT NULL`,
+        );
       }
 
       // 2. Rebuild partner_ledger to update the transaction_type CHECK constraint
@@ -3272,13 +3279,60 @@ export const MIGRATIONS: Migration[] = [
       db.exec(`DROP TABLE partner_ledger;`);
       db.exec(`ALTER TABLE partner_ledger_new RENAME TO partner_ledger;`);
 
-      db.exec(`CREATE INDEX IF NOT EXISTS idx_partner_ledger_partner_id ON partner_ledger(partner_id);`);
-      db.exec(`CREATE INDEX IF NOT EXISTS idx_partner_ledger_created_at ON partner_ledger(created_at);`);
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_partner_ledger_partner_id ON partner_ledger(partner_id);`,
+      );
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_partner_ledger_created_at ON partner_ledger(created_at);`,
+      );
     },
     down(db: Database.Database) {
       console.log("Migration v83 rolled back (no-op for SQLite)");
-    }
-  }
+    },
+  },
+  {
+    version: 84,
+    name: "add_suppliers_module",
+    description: "Register suppliers as a standalone sidebar module",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.exec(`
+        INSERT INTO modules (key, label, icon, route, sort_order, is_enabled, admin_only, is_system)
+        VALUES ('suppliers', 'Suppliers', 'Truck', '/suppliers', 17, 1, 0, 0)
+        ON CONFLICT(key) DO UPDATE SET
+          icon = 'Truck',
+          route = '/suppliers',
+          admin_only = 0,
+          is_enabled = 1
+      `);
+      console.log("Migration v84: Suppliers module registered");
+    },
+    down(db: Database.Database) {
+      db.exec(`DELETE FROM modules WHERE key = 'suppliers'`);
+    },
+  },
+  {
+    version: 85,
+    name: "heal_expenses_note_column",
+    description:
+      "Heal expenses.note column for fresh installs done after v70 shipped — create_db.sql was missing the column while marking v70 as applied, so v70's ALTER TABLE never ran on those DBs.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      const cols = db.prepare("PRAGMA table_info(expenses)").all() as {
+        name: string;
+      }[];
+      const colNames = cols.map((c) => c.name);
+      if (!colNames.includes("note")) {
+        db.exec(`ALTER TABLE expenses ADD COLUMN note TEXT DEFAULT NULL;`);
+        console.log("Migration v85: Added note column to expenses table");
+      } else {
+        console.log("Migration v85: note column already exists, skipping");
+      }
+    },
+    down(_db: Database.Database) {
+      console.log("Migration v85 rolled back (no-op for SQLite)");
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

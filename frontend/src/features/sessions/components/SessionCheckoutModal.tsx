@@ -8,6 +8,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import logger from "@/utils/logger";
+import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { appEvents } from "@liratek/ui";
 import { useSession } from "../context/SessionContext";
 import { useAuth } from "@/features/auth/context/AuthContext";
@@ -145,6 +146,7 @@ export function SessionCheckoutModal({
   isOpen,
   onClose,
 }: SessionCheckoutModalProps) {
+  useModalFocusFix(isOpen);
   const {
     activeSession,
     cartItems,
@@ -285,10 +287,7 @@ export function SessionCheckoutModal({
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center">
       {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        onClick={onClose}
-      />
+      <div className="absolute inset-0 bg-black/70" onClick={onClose} />
 
       {/* Modal */}
       <div className="relative bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden">

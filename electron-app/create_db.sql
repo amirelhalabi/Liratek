@@ -385,6 +385,7 @@ CREATE TABLE IF NOT EXISTS expenses (
     paid_by_method TEXT DEFAULT 'CASH',
     status TEXT NOT NULL DEFAULT 'active',
     expense_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+    note TEXT DEFAULT NULL,
     edited_by TEXT DEFAULT NULL,
     edited_at TEXT DEFAULT NULL,
     is_refunded INTEGER DEFAULT 0,
@@ -831,7 +832,8 @@ INSERT OR IGNORE INTO modules (key, label, icon, route, sort_order, is_enabled, 
   ('profits',        'Profits',  'TrendingUp',    '/profits',        13, 1, 1, 0),
   ('customer_sessions','Sessions','UserCheck',    '/customer-sessions',14, 1, 0, 0),
   ('partners',       'Partners', 'Handshake',     '/partners',       15, 1, 0, 0),
-  ('loto',           'Loto',     'Ticket',        '/loto',           16, 1, 0, 0);
+  ('loto',           'Loto',     'Ticket',        '/loto',           16, 1, 0, 0),
+  ('suppliers',      'Suppliers','Truck',         '/suppliers',      17, 1, 0, 0);
 
 -- Currency–Module junction (which currencies are allowed in which modules)
 CREATE TABLE IF NOT EXISTS currency_modules (
@@ -1160,4 +1162,7 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (79, 'add_loto_prizes_and_fees'),
     (80, 'add_shop_base_system_setting'),
     (81, 'add_expenses_created_at_updated_at'),
-    (82, 'add_partners_and_audit_modules');
+    (82, 'add_partners_and_audit_modules'),
+    (83, 'add_partner_mode_and_transaction_types'),
+    (84, 'add_suppliers_module'),
+    (85, 'heal_expenses_note_column');

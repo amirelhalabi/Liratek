@@ -40,6 +40,7 @@ const CustomerSessions = lazy(
   () => import("@/features/sessions/pages/CustomerSessions"),
 );
 const Partners = lazy(() => import("@/features/partners/pages/Partners"));
+const Suppliers = lazy(() => import("@/features/suppliers/pages/Suppliers"));
 import MainLayout from "@/shared/components/layouts/MainLayout";
 import HomeGrid from "@/shared/components/layouts/HomeGrid";
 import "@/index.css";
@@ -247,6 +248,14 @@ function AppRoutes() {
           element={
             <ProtectedRoute>
               <Partners />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/suppliers"
+          element={
+            <ProtectedRoute>
+              <Suppliers />
             </ProtectedRoute>
           }
         />

@@ -22,6 +22,7 @@ import {
   Clock,
   UserCheck,
   Handshake,
+  Truck,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import clsx from "clsx";
@@ -48,6 +49,8 @@ const iconMap: Record<string, LucideIcon> = {
   Settings,
   SquareActivity,
   UserCheck,
+  Handshake,
+  Truck,
 };
 
 /** Accent color per module key — badge bg, icon text, hover border, top accent, tinted shadow */
@@ -173,6 +176,13 @@ const accentMap: Record<
     topBorder: "border-t-amber-500/60",
     shadow: "hover:shadow-amber-900/20",
   },
+  suppliers: {
+    bg: "bg-cyan-400/10",
+    text: "text-cyan-400",
+    border: "hover:border-cyan-500/60",
+    topBorder: "border-t-cyan-500/60",
+    shadow: "hover:shadow-cyan-900/20",
+  },
 };
 
 const defaultAccent = {
@@ -252,13 +262,6 @@ export default function HomeGrid() {
         label: m.label,
       });
     }
-
-    // Partners (always available)
-    items.push({
-      to: "/partners",
-      icon: Handshake,
-      label: "Partners",
-    });
 
     return items;
   }, [enabledModules, isAdmin]);

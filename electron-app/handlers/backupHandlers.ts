@@ -8,6 +8,7 @@ import path from "path";
 import fs from "fs";
 import { getDatabase, logger, getSettingsService } from "@liratek/core";
 import { requireRole } from "../session.js";
+import { audit } from "./auditHelper.js";
 import {
   getBackupService,
   resetBackupService,
@@ -82,8 +83,13 @@ export function registerBackupHandlers(): void {
       const result = service.createBackup(dbPath);
 
       if (result.success) {
-        // Cleanup old backups (keep last 24 = 24 hours of hourly backups)
         service.cleanupOldBackups(24);
+        audit(event.sender.id, {
+          action: "create",
+          entity_type: "backup",
+          summary: "Manual backup created",
+          metadata: { path: (result as { path?: string }).path },
+        });
       }
 
       return result;
@@ -132,6 +138,12 @@ export function registerBackupHandlers(): void {
       fs.unlinkSync(backupPath);
 
       logger.info({ path: backupPath }, "Backup deleted");
+      audit(event.sender.id, {
+        action: "delete",
+        entity_type: "backup",
+        summary: `Deleted backup: ${backupPath.split(/[\\/]/).pop()}`,
+        metadata: { path: backupPath },
+      });
       return { success: true };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
@@ -212,6 +224,12 @@ export function registerBackupHandlers(): void {
       backupService = getBackupService(newDir);
 
       logger.info({ newDir }, "Backup directory changed");
+      audit(event.sender.id, {
+        action: "update",
+        entity_type: "setting",
+        summary: `Changed backup directory to: ${newDir}`,
+        new_values: { backup_directory: newDir },
+      });
       return { success: true, path: newDir };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);

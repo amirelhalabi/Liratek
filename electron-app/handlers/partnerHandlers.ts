@@ -13,6 +13,7 @@ import {
   type UpdatePartnerData,
 } from "@liratek/core";
 import { requireRole } from "../session.js";
+import { audit } from "./auditHelper.js";
 
 interface RecordTransactionInput {
   partnerId: number;
@@ -86,6 +87,13 @@ export function registerPartnerHandlers(): void {
       if (!auth.ok) return { success: false, error: auth.error };
 
       const result = getServiceInstance().createPartner(data);
+      audit(event.sender.id, {
+        action: "create",
+        entity_type: "partner",
+        entity_id: String(result.id),
+        summary: `Created partner "${data.name}"`,
+        metadata: { name: data.name, phone: data.phone },
+      });
       return { success: true, data: result };
     } catch (error) {
       ipcLogger.error({ error }, "partners:create failed");
@@ -118,6 +126,13 @@ export function registerPartnerHandlers(): void {
         if (!auth.ok) return { success: false, error: auth.error };
 
         const result = getServiceInstance().updatePartner(id, data);
+        audit(event.sender.id, {
+          action: "update",
+          entity_type: "partner",
+          entity_id: String(id),
+          summary: `Updated partner #${id}`,
+          new_values: data as Record<string, unknown>,
+        });
         return { success: true, data: result };
       } catch (error) {
         ipcLogger.error({ error }, "partners:update failed");
@@ -149,6 +164,14 @@ export function registerPartnerHandlers(): void {
       if (!auth.ok) return { success: false, error: auth.error };
 
       getServiceInstance().deactivatePartner(id);
+      audit(event.sender.id, {
+        action: "update",
+        entity_type: "partner",
+        entity_id: String(id),
+        summary: `Deactivated partner #${id}`,
+        old_values: { is_active: true },
+        new_values: { is_active: false },
+      });
       return { success: true };
     } catch (error) {
       ipcLogger.error({ error }, "partners:deactivate failed");
@@ -169,6 +192,14 @@ export function registerPartnerHandlers(): void {
       if (!auth.ok) return { success: false, error: auth.error };
 
       getServiceInstance().activatePartner(id);
+      audit(event.sender.id, {
+        action: "update",
+        entity_type: "partner",
+        entity_id: String(id),
+        summary: `Activated partner #${id}`,
+        old_values: { is_active: false },
+        new_values: { is_active: true },
+      });
       return { success: true };
     } catch (error) {
       ipcLogger.error({ error }, "partners:activate failed");
@@ -246,6 +277,18 @@ export function registerPartnerHandlers(): void {
           ...data,
           userId: auth.userId,
         });
+        audit(event.sender.id, {
+          action: "create",
+          entity_type: "partner_ledger",
+          summary: `Partner #${data.partnerId} ${data.direction}: ${data.amount} ${data.currency} (${data.transactionType ?? "MANUAL"})`,
+          metadata: {
+            partnerId: data.partnerId,
+            transactionType: data.transactionType,
+            amount: data.amount,
+            currency: data.currency,
+            direction: data.direction,
+          },
+        });
         return { success: true, data: result };
       } catch (error) {
         ipcLogger.error({ error }, "partners:record-transaction failed");
@@ -269,6 +312,17 @@ export function registerPartnerHandlers(): void {
       const result = getServiceInstance().settle({
         ...data,
         userId: auth.userId,
+      });
+      audit(event.sender.id, {
+        action: "settle",
+        entity_type: "partner_ledger",
+        summary: `Settled partner #${data.partnerId}: ${data.amount} ${data.currency} via ${data.settlementMethod}`,
+        metadata: {
+          partnerId: data.partnerId,
+          amount: data.amount,
+          currency: data.currency,
+          settlementMethod: data.settlementMethod,
+        },
       });
       return { success: true, data: result };
     } catch (error) {

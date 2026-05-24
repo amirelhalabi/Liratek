@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { MultiPaymentInput, type PaymentLine } from "@liratek/ui";
+import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 
 interface PaymentMethod {
   code: string;
@@ -72,6 +73,7 @@ export function PaymentSheet({
   onPmFeesChange,
   children,
 }: PaymentSheetProps) {
+  useModalFocusFix(open);
   const [visible, setVisible] = useState(false);
   const [mounted, setMounted] = useState(false);
 
@@ -101,7 +103,7 @@ export function PaymentSheet({
     <div className="fixed inset-0 z-50 flex justify-end">
       {/* Backdrop */}
       <div
-        className={`absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity duration-300 ${
+        className={`absolute inset-0 bg-black/70 transition-opacity duration-300 ${
           visible ? "opacity-100" : "opacity-0"
         }`}
         onClick={onClose}

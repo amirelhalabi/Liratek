@@ -162,7 +162,7 @@ export interface CreateFinancialServiceData {
   /** Partner ID: when set, this transaction involves a partner */
   partnerId?: number;
   /** Partner Mode: specifies if we use their system ('THROUGH') or they use our system ('FOR') */
-  partnerMode?: 'THROUGH' | 'FOR';
+  partnerMode?: "THROUGH" | "FOR";
 }
 
 export interface ProviderStats {
@@ -265,8 +265,11 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           ? data.cashoutMethod
           : data.paidByMethod || "CASH";
 
-      const isThroughPartner = !!(data.partnerId && (!data.partnerMode || data.partnerMode === 'THROUGH'));
-      const isForPartner = !!(data.partnerId && data.partnerMode === 'FOR');
+      const isThroughPartner = !!(
+        data.partnerId &&
+        (!data.partnerMode || data.partnerMode === "THROUGH")
+      );
+      const isForPartner = !!(data.partnerId && data.partnerMode === "FOR");
       const skipGeneralDrawer = isForPartner;
       const skipSystemDrawer = isThroughPartner;
 
@@ -419,7 +422,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       // Store partner_id and partner_mode on the record if provided
       if (data.partnerId) {
         this.db
-          .prepare(`UPDATE financial_services SET partner_id = ?, partner_mode = ? WHERE id = ?`)
+          .prepare(
+            `UPDATE financial_services SET partner_id = ?, partner_mode = ? WHERE id = ?`,
+          )
           .run(data.partnerId, data.partnerMode || "THROUGH", id);
       }
 
@@ -1306,7 +1311,11 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 `${data.provider} system debt`,
                 createdBy,
               );
-              upsertBalanceDelta.run(systemDrawer, currency, systemDrawerCredit);
+              upsertBalanceDelta.run(
+                systemDrawer,
+                currency,
+                systemDrawerCredit,
+              );
             }
           }
         } else {
@@ -1338,8 +1347,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               );
             }
 
-            // Still track system drawer for OMT/WHISH settlement purposes
-            if (useSystemDrawerFlow) {
+            // Track system drawer for OMT/WHISH settlement purposes.
+            // Skip for THROUGH-partner transactions — the system is theirs, not ours.
+            if (useSystemDrawerFlow && !skipSystemDrawer) {
               insertPayment.run(
                 txnId,
                 data.provider,
@@ -1399,13 +1409,13 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               upsertBalanceDelta.run(drawerName, currency, receiveAmount);
             }
 
-            // Debit the cashout drawer for the payout to customer (only for non-partner, non-system-only flows)
+            // Debit the cashout drawer for the payout to customer
             if (
               cashoutMethod !== "CASH" &&
               useSystemDrawerFlow &&
               !skipSystemDrawer
             ) {
-              // For wallet cashouts (OMT/WHISH/BINANCE), debit the wallet drawer
+              // Wallet cashouts (OMT/WHISH/BINANCE): debit the wallet drawer
               insertPayment.run(
                 txnId,
                 cashoutMethod,
@@ -1416,6 +1426,24 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 createdBy,
               );
               upsertBalanceDelta.run(cashoutDrawer, currency, -receiveAmount);
+            } else if (
+              cashoutMethod === "CASH" &&
+              useSystemDrawerFlow &&
+              !skipSystemDrawer &&
+              !skipGeneralDrawer
+            ) {
+              // CASH cashout: shop physically pays the customer from the General drawer.
+              // Skipped for FOR-partner mode (partner handles the payout, not our cash).
+              insertPayment.run(
+                txnId,
+                "CASH",
+                "General",
+                currency,
+                -receiveAmount,
+                `Cash paid to customer (${data.provider} RECEIVE)`,
+                createdBy,
+              );
+              upsertBalanceDelta.run("General", currency, -receiveAmount);
             }
           }
         }
@@ -1506,7 +1534,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             : "WHISH";
         const modePrefix = isForPartner ? "FOR_" : "THROUGH_";
         const ledgerType = `${modePrefix}${providerKey}_${data.serviceType}`;
-        
+
         let direction = "";
         let ledgerAmount = Math.abs(data.amount);
 
@@ -1516,10 +1544,19 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           // isForPartner
           if (data.serviceType === "SEND") {
             direction = "DEBIT";
-            const fee = data.provider === "WHISH" 
-              ? (storedWhishFee ?? 0) 
-              : (data.omtFee != null ? data.omtFee : (lookupOmtFee(data.omtServiceType as OmtServiceType, Math.abs(data.amount), currency) ?? 0));
-            ledgerAmount = data.includingFees ? Math.abs(data.amount) : Math.abs(data.amount) + fee;
+            const fee =
+              data.provider === "WHISH"
+                ? (storedWhishFee ?? 0)
+                : data.omtFee != null
+                  ? data.omtFee
+                  : (lookupOmtFee(
+                      data.omtServiceType as OmtServiceType,
+                      Math.abs(data.amount),
+                      currency,
+                    ) ?? 0);
+            ledgerAmount = data.includingFees
+              ? Math.abs(data.amount)
+              : Math.abs(data.amount) + fee;
           } else {
             direction = "CREDIT";
           }

@@ -12,7 +12,7 @@ import path from "path";
 import os from "os";
 import { createRequire } from "module";
 import { getDb } from "../main.js";
-import { getSettingsService, logger } from "@liratek/core";
+import { getSettingsService, logger, getAuditService } from "@liratek/core";
 
 export interface SetupPayload {
   shop_name: string;
@@ -211,6 +211,24 @@ export function registerSetupHandlers() {
           "INSERT OR REPLACE INTO system_settings (key_name, value) VALUES ('setup_complete', '1')",
         ).run();
       })();
+
+      try {
+        getAuditService().log({
+          user_id: 0,
+          username: payload.admin_username,
+          role: "admin",
+          action: "create",
+          entity_type: "system",
+          summary: `Initial setup completed for shop "${payload.shop_name}"`,
+          metadata: {
+            shop_name: payload.shop_name,
+            base_system: payload.base_system ?? "OMT",
+            enabled_modules: payload.enabled_modules,
+          },
+        });
+      } catch {
+        // Never block setup on audit failure
+      }
 
       return { success: true };
     } catch (error) {

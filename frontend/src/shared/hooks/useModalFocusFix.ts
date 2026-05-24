@@ -1,33 +1,57 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 /**
- * Hook that calls window.api.display.fixFocus() when a modal unmounts.
+ * Workaround for a known Chromium/Electron compositor bug on Windows where
+ * fixed overlays can cause the renderer to drop keyboard focus.
  *
- * Workaround for a known Chromium/Electron bug on Windows where removing a
- * `backdrop-filter: blur()` overlay causes the compositor to lose input focus
- * on the underlying page.  Even though we've removed backdrop-blur from modal
- * overlays, this hook provides belt-and-suspenders protection by explicitly
- * cycling BrowserWindow.blur() / .focus() on cleanup.
+ * - On **open**: listens for mousedown inside the modal and re-focuses the
+ *   window if the active element doesn't match the click target. This catches
+ *   the case where clicking an input field visually selects it but the
+ *   compositor never delivers key events.
+ * - On **close**: cycles BrowserWindow.blur()/.focus() to restore focus to the
+ *   page underneath.
  *
  * Usage:  call `useModalFocusFix(isOpen)` at the top of every modal component.
  */
 export function useModalFocusFix(isOpen: boolean): void {
+  const fixedRef = useRef(false);
+
   useEffect(() => {
     if (!isOpen) return;
 
-    // Only apply the blur/focus workaround on Windows where the Chromium
-    // compositor bug actually occurs.  On macOS, win.blur() deactivates the
-    // window causing a visible flash, which is worse than the bug itself.
     const isWindows = navigator.userAgent.includes("Windows");
     if (!isWindows) return;
 
-    // When the modal closes (isOpen goes false → effect cleanup runs),
-    // nudge the Electron window focus.
+    function handleMouseDown(e: MouseEvent) {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      const tag = target.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") {
+        requestAnimationFrame(() => {
+          if (document.activeElement !== target) {
+            target.focus();
+          }
+          if (!fixedRef.current) {
+            fixedRef.current = true;
+            try {
+              window.api?.display?.fixFocus?.();
+            } catch {
+              /* ignore */
+            }
+          }
+        });
+      }
+    }
+
+    document.addEventListener("mousedown", handleMouseDown, true);
+    fixedRef.current = false;
+
     return () => {
+      document.removeEventListener("mousedown", handleMouseDown, true);
       try {
         window.api?.display?.fixFocus?.();
       } catch {
-        // Silently ignore — non-Electron environments or missing binding.
+        /* ignore */
       }
     };
   }, [isOpen]);

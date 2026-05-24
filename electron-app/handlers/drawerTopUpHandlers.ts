@@ -8,6 +8,7 @@
 import { ipcMain } from "electron";
 import { getDrawerTopUpService, financialLogger } from "@liratek/core";
 import { requireRole } from "../session.js";
+import { audit } from "./auditHelper.js";
 
 let service: ReturnType<typeof getDrawerTopUpService> | null = null;
 
@@ -34,6 +35,18 @@ export function registerDrawerTopUpHandlers(): void {
 
         const svc = getServiceInstance();
         const result = svc.addTopUp(data, auth.userId);
+        if ((result as { success?: boolean }).success !== false) {
+          audit(e.sender.id, {
+            action: "create",
+            entity_type: "drawer_topup",
+            summary: `Drawer top-up: $${data.amount_usd} USD + ${data.amount_lbp} LBP`,
+            metadata: {
+              amount_usd: data.amount_usd,
+              amount_lbp: data.amount_lbp,
+              notes: data.notes,
+            },
+          });
+        }
         return result;
       } catch (error) {
         financialLogger.error({ error }, "drawer-topup:create failed");
@@ -85,6 +98,19 @@ export function registerDrawerTopUpHandlers(): void {
 
         const svc = getServiceInstance();
         const result = svc.topUpFromDrawer(data, auth.userId);
+        if ((result as { success?: boolean }).success !== false) {
+          audit(e.sender.id, {
+            action: "create",
+            entity_type: "drawer_topup",
+            summary: `Drawer transfer from ${data.source_drawer}: $${data.amount_usd} USD + ${data.amount_lbp} LBP`,
+            metadata: {
+              source_drawer: data.source_drawer,
+              amount_usd: data.amount_usd,
+              amount_lbp: data.amount_lbp,
+              notes: data.notes,
+            },
+          });
+        }
         return result;
       } catch (error) {
         financialLogger.error(

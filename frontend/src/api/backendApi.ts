@@ -744,27 +744,31 @@ export async function updateDailyClosing(
 // ==================== Suppliers API ====================
 
 export async function getSuppliers(search?: string, includeInactive?: boolean) {
-  if (isElectron()) {
-    return (window as any).api.suppliers.list(search, includeInactive);
-  }
-  const qs = new URLSearchParams();
-  if (search) qs.set("search", search);
-  if (includeInactive) qs.set("includeInactive", "true");
-  const res = await requestJson<{ success: boolean; suppliers: any[] }>(
-    `/api/suppliers?${qs.toString()}`,
+  return ipcOrHttp(
+    async () => getElectronApi().suppliers.list(search, includeInactive),
+    async () => {
+      const qs = new URLSearchParams();
+      if (search) qs.set("search", search);
+      if (includeInactive) qs.set("includeInactive", "true");
+      const res = await requestJson<{ success: boolean; suppliers: any[] }>(
+        `/api/suppliers?${qs.toString()}`,
+      );
+      return res.suppliers || [];
+    },
   );
-  return res.suppliers || [];
 }
 
 export async function getSupplierBalances(includeInactive?: boolean) {
-  if (isElectron()) {
-    return (window as any).api.suppliers.getBalances(includeInactive);
-  }
-  const params = includeInactive ? "?includeInactive=true" : "";
-  const res = await requestJson<{ success: boolean; balances: any[] }>(
-    `/api/suppliers/balances${params}`,
+  return ipcOrHttp(
+    async () => getElectronApi().suppliers.getBalances(includeInactive),
+    async () => {
+      const params = includeInactive ? "?includeInactive=true" : "";
+      const res = await requestJson<{ success: boolean; balances: any[] }>(
+        `/api/suppliers/balances${params}`,
+      );
+      return res.balances || [];
+    },
   );
-  return res.balances || [];
 }
 
 export async function getSupplierLedger(supplierId: number, limit?: number) {
@@ -850,6 +854,11 @@ export async function settleTransactions(data: {
   commission_lbp: number;
   drawer_name: string;
   note?: string;
+  payments?: Array<{
+    method: string;
+    currency_code: string;
+    amount: number;
+  }>;
 }) {
   return ipcOrHttp(
     async () => getElectronApi().suppliers.settleTransactions(data),

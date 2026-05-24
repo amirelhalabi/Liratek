@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, net } from "electron";
 import { requireRole } from "../session.js";
+import { audit } from "./auditHelper.js";
 import { UPDATE_TOKEN } from "../updater-config.js";
 import * as fs from "fs";
 import * as path from "path";
@@ -265,6 +266,11 @@ export function registerUpdaterHandlers(): void {
       autoUpdater.disableWebInstaller = true;
       autoUpdater.disableDifferentialDownload = true;
       const res = await autoUpdater.downloadUpdate();
+      audit(e.sender.id, {
+        action: "update",
+        entity_type: "system",
+        summary: "App update downloaded",
+      });
       return { success: true, result: res };
     } catch (err) {
       return {
@@ -287,6 +293,12 @@ export function registerUpdaterHandlers(): void {
     try {
       const { autoUpdater } = esmRequire("electron-updater");
       ensureUpdateToken();
+      audit(e.sender.id, {
+        action: "update",
+        entity_type: "system",
+        summary: `App update installed (v${getAppVersion()})`,
+        metadata: { version: getAppVersion() },
+      });
       autoUpdater.quitAndInstall();
       return { success: true };
     } catch (err) {

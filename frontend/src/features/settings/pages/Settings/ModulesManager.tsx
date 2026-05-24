@@ -199,7 +199,9 @@ export default function ModulesManager() {
 
   // Build display list: non-recharge modules + a single "mobile_recharge" placeholder at the right position
   const displayModules = (() => {
-    const result: Array<ModuleRow | { key: "__mobile_recharge__"; type: "group" }> = [];
+    const result: Array<
+      ModuleRow | { key: "__mobile_recharge__"; type: "group" }
+    > = [];
     let rechargeInserted = false;
     for (const m of modules) {
       if (rechargeModuleKeys.includes(m.key)) {
@@ -222,14 +224,19 @@ export default function ModulesManager() {
     async (fromDisplayIdx: number, toDisplayIdx: number) => {
       if (fromDisplayIdx === toDisplayIdx) return;
       const fromItem = displayModules[fromDisplayIdx];
-      const isMovingRechargeGroup = "type" in fromItem && fromItem.key === "__mobile_recharge__";
+      const isMovingRechargeGroup =
+        "type" in fromItem && fromItem.key === "__mobile_recharge__";
 
       // Build new modules order
       const updated = [...modules];
       if (isMovingRechargeGroup) {
         // Remove all recharge modules, then insert them at the target position
-        const rechargeItems = updated.filter((m) => rechargeModuleKeys.includes(m.key));
-        const nonRecharge = updated.filter((m) => !rechargeModuleKeys.includes(m.key));
+        const rechargeItems = updated.filter((m) =>
+          rechargeModuleKeys.includes(m.key),
+        );
+        const nonRecharge = updated.filter(
+          (m) => !rechargeModuleKeys.includes(m.key),
+        );
 
         // Find target position in nonRecharge array
         const targetItem = displayModules[toDisplayIdx];
@@ -258,7 +265,9 @@ export default function ModulesManager() {
         }
       } else {
         // Moving a regular module
-        const realFrom = modules.findIndex((m) => m.key === (fromItem as ModuleRow).key);
+        const realFrom = modules.findIndex(
+          (m) => m.key === (fromItem as ModuleRow).key,
+        );
         // Determine real target
         const toItem = displayModules[toDisplayIdx];
         let realTo: number;
@@ -270,7 +279,15 @@ export default function ModulesManager() {
         moveModule(realFrom, realTo);
       }
     },
-    [displayModules, modules, rechargeModuleKeys, firstRechargeIdx, api, loadModules, moveModule],
+    [
+      displayModules,
+      modules,
+      rechargeModuleKeys,
+      firstRechargeIdx,
+      api,
+      loadModules,
+      moveModule,
+    ],
   );
 
   // Override moveUp/moveDown to use display list
@@ -434,7 +451,9 @@ export default function ModulesManager() {
               <td className="py-2 px-3 text-slate-400 font-mono text-xs">/</td>
               <td className="py-2 px-3 text-slate-300">—</td>
               <td className="py-2 px-3">
-                <span className="px-3 py-1 rounded text-xs font-medium bg-slate-600/20 text-slate-400">System</span>
+                <span className="px-3 py-1 rounded text-xs font-medium bg-slate-600/20 text-slate-400">
+                  System
+                </span>
               </td>
             </tr>
 
@@ -466,7 +485,8 @@ export default function ModulesManager() {
                       if (dragIdx !== null) {
                         const fromDisplayIdx = displayModules.findIndex((d) =>
                           "type" in d
-                            ? d.key === modules[dragIdx]?.key || rechargeModuleKeys.includes(modules[dragIdx]?.key)
+                            ? d.key === modules[dragIdx]?.key ||
+                              rechargeModuleKeys.includes(modules[dragIdx]?.key)
                             : d.key === modules[dragIdx]?.key,
                         );
                         if (fromDisplayIdx !== displayIdx) {
@@ -544,9 +564,7 @@ export default function ModulesManager() {
                         </td>
                         <td className="py-1.5 px-3 text-slate-400 text-xs">
                           {prov
-                            .map(
-                              (p) => `${p.label}: ${p.currencies.join("/")}`,
-                            )
+                            .map((p) => `${p.label}: ${p.currencies.join("/")}`)
                             .join(" · ") || "—"}
                         </td>
                         <td className="py-1.5 px-3">
@@ -579,20 +597,30 @@ export default function ModulesManager() {
             {/* System modules — always at bottom */}
             <tr className="border-t-2 border-slate-600 bg-slate-800/10">
               <td className="py-2 px-2 w-8"></td>
-              <td className="py-2 px-3 text-white font-medium">Audit & Transactions</td>
-              <td className="py-2 px-3 text-slate-400 font-mono text-xs">/audit</td>
+              <td className="py-2 px-3 text-white font-medium">
+                Audit & Transactions
+              </td>
+              <td className="py-2 px-3 text-slate-400 font-mono text-xs">
+                /audit
+              </td>
               <td className="py-2 px-3 text-slate-300">—</td>
               <td className="py-2 px-3">
-                <span className="px-3 py-1 rounded text-xs font-medium bg-slate-600/20 text-slate-400">System</span>
+                <span className="px-3 py-1 rounded text-xs font-medium bg-slate-600/20 text-slate-400">
+                  System
+                </span>
               </td>
             </tr>
             <tr className="border-t border-slate-800 bg-slate-800/10">
               <td className="py-2 px-2 w-8"></td>
               <td className="py-2 px-3 text-white font-medium">Settings</td>
-              <td className="py-2 px-3 text-slate-400 font-mono text-xs">/settings</td>
+              <td className="py-2 px-3 text-slate-400 font-mono text-xs">
+                /settings
+              </td>
               <td className="py-2 px-3 text-slate-300">—</td>
               <td className="py-2 px-3">
-                <span className="px-3 py-1 rounded text-xs font-medium bg-slate-600/20 text-slate-400">System</span>
+                <span className="px-3 py-1 rounded text-xs font-medium bg-slate-600/20 text-slate-400">
+                  System
+                </span>
               </td>
             </tr>
             <tr className="border-t border-slate-800 bg-slate-800/10">
@@ -601,16 +629,24 @@ export default function ModulesManager() {
               <td className="py-2 px-3 text-slate-400 font-mono text-xs">—</td>
               <td className="py-2 px-3 text-slate-300">—</td>
               <td className="py-2 px-3">
-                <span className="px-3 py-1 rounded text-xs font-medium bg-slate-600/20 text-slate-400">System</span>
+                <span className="px-3 py-1 rounded text-xs font-medium bg-slate-600/20 text-slate-400">
+                  System
+                </span>
               </td>
             </tr>
             <tr className="border-t border-slate-800 bg-slate-800/10">
               <td className="py-2 px-2 w-8"></td>
-              <td className="py-2 px-3 text-white font-medium">Checkpoint Timeline</td>
-              <td className="py-2 px-3 text-slate-400 font-mono text-xs">/checkpoint-timeline</td>
+              <td className="py-2 px-3 text-white font-medium">
+                Checkpoint Timeline
+              </td>
+              <td className="py-2 px-3 text-slate-400 font-mono text-xs">
+                /checkpoint-timeline
+              </td>
               <td className="py-2 px-3 text-slate-300">—</td>
               <td className="py-2 px-3">
-                <span className="px-3 py-1 rounded text-xs font-medium bg-slate-600/20 text-slate-400">System</span>
+                <span className="px-3 py-1 rounded text-xs font-medium bg-slate-600/20 text-slate-400">
+                  System
+                </span>
               </td>
             </tr>
           </tbody>

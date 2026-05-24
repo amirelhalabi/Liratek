@@ -27,6 +27,7 @@ import {
   Shield,
   UserCheck,
   Handshake,
+  Truck,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import clsx from "clsx";
@@ -58,6 +59,7 @@ const iconMap: Record<string, LucideIcon> = {
   ClipboardList,
   UserCheck,
   Handshake,
+  Truck,
   Shield,
 };
 
