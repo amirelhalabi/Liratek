@@ -89,7 +89,7 @@ export function PartnerSelector({
         className={`bg-slate-700 border ${borderClass} text-white text-sm rounded px-2 py-1.5 focus:ring-violet-500 focus:border-violet-500`}
       >
         <option value="">
-          {required ? "— Select partner —" : "Direct (no partner)"}
+          {required ? "Select partner" : "Direct (no partner)"}
         </option>
         {partners.map((p) => (
           <option key={p.id} value={p.id}>

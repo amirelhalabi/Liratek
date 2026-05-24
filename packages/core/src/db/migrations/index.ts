@@ -3231,6 +3231,54 @@ export const MIGRATIONS: Migration[] = [
       console.log("Migration v82 rolled back");
     },
   },
+  {
+    version: 83,
+    name: "add_partner_mode_and_transaction_types",
+    description: "Add partner_mode to financial_services and new FOR_ and THROUGH_ transaction types to partner_ledger",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      // 1. Add partner_mode to financial_services if it doesn't exist
+      const fsCols = db.prepare("PRAGMA table_info(financial_services)").all() as { name: string }[];
+      if (!fsCols.some(c => c.name === "partner_mode")) {
+        db.exec(`ALTER TABLE financial_services ADD COLUMN partner_mode TEXT CHECK(partner_mode IN ('THROUGH', 'FOR'))`);
+        // Backfill existing partner transactions
+        db.exec(`UPDATE financial_services SET partner_mode = 'THROUGH' WHERE partner_id IS NOT NULL`);
+      }
+
+      // 2. Rebuild partner_ledger to update the transaction_type CHECK constraint
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS partner_ledger_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            partner_id INTEGER NOT NULL REFERENCES partners(id),
+            transaction_type TEXT NOT NULL CHECK(transaction_type IN ('OMT_SEND', 'OMT_RECEIVE', 'WHISH_SEND', 'WHISH_RECEIVE', 'THROUGH_OMT_SEND', 'THROUGH_OMT_RECEIVE', 'THROUGH_WHISH_SEND', 'THROUGH_WHISH_RECEIVE', 'FOR_OMT_SEND', 'FOR_OMT_RECEIVE', 'FOR_WHISH_SEND', 'FOR_WHISH_RECEIVE', 'CUSTOM_SERVICE', 'SETTLEMENT', 'ADJUSTMENT')),
+            reference_table TEXT,
+            reference_id INTEGER,
+            amount REAL NOT NULL,
+            currency TEXT NOT NULL DEFAULT 'USD',
+            direction TEXT NOT NULL CHECK(direction IN ('DEBIT', 'CREDIT')),
+            notes TEXT,
+            user_id INTEGER REFERENCES users(id),
+            settlement_method TEXT CHECK(settlement_method IN ('CASH', 'OMT', 'WHISH', 'BINANCE', 'CLIENT_ACCOUNT')),
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+
+      db.exec(`
+        INSERT INTO partner_ledger_new (id, partner_id, transaction_type, reference_table, reference_id, amount, currency, direction, notes, user_id, settlement_method, created_at)
+        SELECT id, partner_id, transaction_type, reference_table, reference_id, amount, currency, direction, notes, user_id, settlement_method, created_at
+        FROM partner_ledger;
+      `);
+
+      db.exec(`DROP TABLE partner_ledger;`);
+      db.exec(`ALTER TABLE partner_ledger_new RENAME TO partner_ledger;`);
+
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_partner_ledger_partner_id ON partner_ledger(partner_id);`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_partner_ledger_created_at ON partner_ledger(created_at);`);
+    },
+    down(db: Database.Database) {
+      console.log("Migration v83 rolled back (no-op for SQLite)");
+    }
+  }
 ];
 // =============================================================================
 // Migration Runner

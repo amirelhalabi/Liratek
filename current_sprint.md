@@ -2,7 +2,7 @@
 
 > **Sprint Focus:** Exchange Rate System, OMT/Whish fixes, Sell Prices, Cashout Parity & Base System  
 > **Created:** 2026-04-23  
-> **Last Updated:** 2026-05-16  
+> **Last Updated:** 2026-05-23  
 > **Status Legend:** `TODO` | `IN PROGRESS` | `DONE` | `BLOCKED`
 
 ---
@@ -14,7 +14,7 @@
 | **Epic**             | Partner System                                                 |
 | **Type**             | Feature                                                        |
 | **Priority**         | Highest                                                        |
-| **Status**           | TODO                                                           |
+| **Status**           | IN PROGRESS                                                    |
 | **Affected Modules** | OMT/Whish Services, Partners, Partner Ledger, Settings         |
 | **Assigned To**      | —                                                              |
 | **Depends On**       | LIRA-037 (DONE), LIRA-045 (DONE), LIRA-046 (DONE)             |
@@ -102,97 +102,78 @@ The existing partner logic in `FinancialServiceRepository.ts` was built for "thr
 
 #### Phase 1: Backend — Fix Partner Mode Detection & Drawer Logic
 
-- [ ] **Read `shop_base_system` from settings** inside `FinancialServiceRepository.addTransaction()` (or accept as param)
-- [ ] **Add `isForPartner` / `isThroughPartner` helper logic:**
-  ```
-  const shopBaseSystem = getShopBaseSystem(); // "OMT" or "WHISH"
-  const isForPartner = !!data.partnerId && data.provider === shopBaseSystem;
-  const isThroughPartner = !!data.partnerId && data.provider !== shopBaseSystem;
-  ```
-- [ ] **Fix RECEIVE system drawer logic (line 1361-1374):**
-  - `isThroughPartner` → skip system drawer debit (existing behavior, correct)
-  - `isForPartner` → DO debit system drawer (OMT/Whish owes us)
-  - No partner → DO debit system drawer (normal flow)
-- [ ] **Fix partner ledger amount (line 1492-1517):**
-  - SEND: use `totalCollected` (amount + fees) instead of `data.amount`
-  - RECEIVE: use `receiveAmount` instead of `data.amount` (exclude commission — that's ours)
-- [ ] **Add `mode` field to partner ledger insert:** `"for_partner"` or `"through_partner"` — useful for filtering/display later
+- [x] **Add `partnerMode` field to `CreateFinancialServiceData`** — `'THROUGH' | 'FOR'`
+- [x] **Add `partner_mode` column to `financial_services` table** (migration v83)
+- [x] **Expand `partner_ledger.transaction_type` CHECK** to include `THROUGH_*` and `FOR_*` prefixed types
+- [x] **Add `isForPartner` / `isThroughPartner` helper logic** in repository
+- [x] **Fix drawer logic:**
+  - `THROUGH` → process General drawer, skip System drawer
+  - `FOR` → skip General drawer, process System drawer
+- [x] **Fix partner ledger amount:**
+  - `FOR` SEND: DEBIT partner (amount + fee)
+  - `FOR` RECEIVE: CREDIT partner (amount)
+  - `THROUGH` SEND: CREDIT partner (amount)
+  - `THROUGH` RECEIVE: DEBIT partner (amount)
+- [x] **Backfill existing partner transactions** as `'THROUGH'` mode
 
-#### Phase 2: Database — Migration for `partner_ledger.mode`
+#### Phase 2: Database — Migration & Schema
 
-- [ ] Migration v81 (or next): Add `mode TEXT` column to `partner_ledger` (nullable for existing rows)
-- [ ] Update `create_db.sql` with new column
-- [ ] Values: `"for_partner"` | `"through_partner"` | NULL (legacy/manual entries)
+- [x] Migration v83: Add `partner_mode` to `financial_services`, rebuild `partner_ledger` CHECK constraint
+- [x] Update `create_db.sql` with `partner_mode` column and expanded transaction types
 
 #### Phase 3: Frontend — Show PartnerSelector on Base System Transactions
 
-- [ ] In `Services/index.tsx`: show `PartnerSelector` for ALL providers, not just `partnerSystem`
-  - `partnerSystem` provider: **required** (existing behavior)
-  - `baseSystem` provider: **optional** — when selected, means "doing this for a partner"
-- [ ] **System filter for partner dropdown:** Show partners with `system_association = partnerSystem` (they have the other system, that's why they're asking us)
-- [ ] **Visual indicator:** When partner selected on baseSystem txn, show banner: "Executing for partner: [name] — no cash exchange at counter"
-- [ ] **No payment method needed** for "for partner" txns (partner handles their customer's cash) — same as existing "through partner" behavior
+- [x] Add "For Partner" toggle on base system (OMT) tab in Services page
+- [x] Show `PartnerSelector` inline when toggle is ON
+- [x] Pass `partnerMode: 'FOR'` in payload when toggle active
+- [x] Pass `partnerMode: 'THROUGH'` for partner-system (WHISH) transactions
+- [x] Validation: block submission if "For Partner" toggled but no partner selected
 
-#### Phase 4: Frontend — Partners Page Enhanced View (Similar to Debts Page)
+#### Phase 4: Frontend — Partners Page Transaction Types
 
-- [ ] **Enrich ledger entries with transaction details:**
-  - Backend: JOIN `partner_ledger` with `financial_services` when `reference_table = 'financial_services'`
-  - Return: provider, serviceType, omtServiceType, recipient name/phone, amount, fees, commission, cashout method
-  - New API or enrich existing `partners:getLedger` response
+- [x] Add `THROUGH_*` and `FOR_*` transaction type labels to Partners page ledger dropdown
+- [x] Legacy types kept with "(legacy)" suffix
 
-- [ ] **Enhanced ledger row display:**
-  - Show transaction details inline (not just "OMT SEND" — show "OMT SEND INTRA $50 to [recipient]")
-  - Show mode badge: "For partner" (green) vs "Through partner" (blue) vs "Settlement" (yellow)
-  - Show fees/commission breakdown on hover or expand
-  - Clickable to view full transaction details
+#### Phase 5: IPC Schema & Validation
 
-- [ ] **Balance summary card — enhanced:**
-  - Net balance (they owe us / we owe them) per currency
-  - Breakdown by mode: "For partner: +$150 | Through partner: -$80"
-  - Breakdown by provider: "OMT: +$200 | WHISH: -$130"
+- [x] Add `partnerId`, `partnerMode`, `cashoutMethod`, `transaction_time` to `FinancialServiceSchema` (Zod)
+- [x] Fixed critical bug: these fields were being silently stripped by Zod validation
 
-- [ ] **Filters (similar to debts page):**
-  - By mode: All | For partner | Through partner
-  - By provider: OMT | WHISH | ALL
-  - By direction: DEBIT | CREDIT | ALL
-  - Date range (already exists)
-
-- [ ] **Settlement improvements:**
-  - Show clear breakdown of what's owed and why before settling
-  - Mark individual ledger entries as settled (track which entries were covered)
-
-- [ ] **Transaction linking:**
-  - Ledger entries with `reference_table = 'financial_services'` link to original txn
-  - Show inline preview with key details
-  - "View original transaction" link to history
-
-#### Phase 5: Testing & Verification
+#### Phase 6: Testing & Verification (Pending)
 
 - [ ] Unit tests for new "for partner" flow in `FinancialServiceRepository`
-- [ ] Test OMT SEND for partner → system drawer +totalCollected, partner DEBIT totalCollected, no General movement
-- [ ] Test OMT RECEIVE for partner → system drawer -totalOwed, partner CREDIT receiveAmount, no cashout movement
-- [ ] Test WHISH SEND/RECEIVE for partner (when shop is WHISH-base)
+- [ ] Test OMT SEND for partner → system drawer affected, partner DEBIT (amount+fee), no General movement
+- [ ] Test OMT RECEIVE for partner → system drawer affected, partner CREDIT (amount), no cashout movement
 - [ ] Test existing "through partner" flow unchanged
-- [ ] Test partner page shows enriched ledger with mode badges
-- [ ] Typecheck, lint, build pass
+- [ ] End-to-end verification in dev mode
+
+#### Phase 7: Future Enhancements (Backlog)
+
+- [ ] Enrich ledger entries with transaction details (JOIN financial_services)
+- [ ] Enhanced ledger row display with mode badges
+- [ ] Balance breakdown by mode and provider
+- [ ] Filters by mode/provider/direction on Partners page
+- [ ] Settlement improvements (mark individual entries as settled)
+- [ ] Transaction linking (ledger → original transaction)
 
 ---
 
 ### Acceptance Criteria
 
-- [ ] PartnerSelector appears on baseSystem SEND/RECEIVE (optional)
-- [ ] "For partner" OMT SEND: partner DEBIT'd `totalCollected`, OMT_System +totalCollected, no General movement
-- [ ] "For partner" OMT RECEIVE: partner CREDIT'd `receiveAmount`, OMT_System -totalOwed, no cashout drawer movement
-- [ ] Commission on RECEIVE is kept by shop (NOT included in partner CREDIT)
-- [ ] Works bidirectionally: OMT-base shop doing OMT for partner, WHISH-base shop doing WHISH for partner
+- [x] PartnerSelector appears on baseSystem SEND/RECEIVE (optional "For Partner" toggle)
+- [x] Explicit `partnerMode` field distinguishes THROUGH vs FOR flows
+- [ ] "For partner" OMT SEND: partner DEBIT'd `amount + fee`, System drawer affected, no General movement
+- [ ] "For partner" OMT RECEIVE: partner CREDIT'd `amount`, System drawer affected, no cashout drawer movement
+- [x] Commission on RECEIVE is kept by shop (NOT included in partner CREDIT)
+- [x] Works bidirectionally: OMT-base shop doing OMT for partner, WHISH-base shop doing WHISH for partner
 - [ ] Supplier ledger still records normally in all cases (we interact with provider regardless)
-- [ ] Existing "through partner" flow completely unchanged
-- [ ] Normal (no partner) transactions unaffected
+- [x] Existing "through partner" flow updated with explicit THROUGH mode
+- [x] Normal (no partner) transactions unaffected
 - [ ] Partners page shows enriched transaction view with mode badges and details
 - [ ] Partners page filters by mode, provider, direction, date
 - [ ] Partners page balance breakdown by mode and provider
 - [ ] Partner ledger entries link to original financial_services transaction
-- [ ] All tests pass, typecheck clean, build succeeds
+- [x] All tests pass, typecheck clean, build succeeds
 
 ---
 
@@ -285,7 +266,7 @@ Medium-Large — ~6-8 hours total:
 
 | Priority    | Total  | Done  | Remaining |
 | ----------- | ------ | ----- | --------- |
-| Highest     | 1      | 0     | 1         |
+| Highest     | 1      | 0     | 1 (in progress) |
 | High        | 5      | 5     | 0         |
 | Medium      | 4      | 1     | 3         |
 | **Total**   | **10** | **6** | **4**     |

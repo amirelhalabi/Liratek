@@ -243,6 +243,10 @@ export const FinancialServiceSchema = z.object({
   paymentMethodFee: z.number().optional(),
   paymentMethodFeeRate: z.number().optional(),
   returnedCreditsUsd: z.number().nonnegative().optional(),
+  partnerId: z.number().optional(),
+  partnerMode: z.enum(["THROUGH", "FOR"]).optional(),
+  cashoutMethod: z.string().optional(),
+  transaction_time: z.string().optional(),
 });
 
 // =============================================================================

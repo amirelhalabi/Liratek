@@ -297,6 +297,8 @@ export default function Services() {
   const [selectedPartnerId, setSelectedPartnerId] = useState<number | null>(
     null,
   );
+  const [forPartner, setForPartner] = useState(false);
+  const [forPartnerId, setForPartnerId] = useState<number | null>(null);
   const [hasPartnerForSystem, setHasPartnerForSystem] = useState(true); // assume true until loaded
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
@@ -655,6 +657,14 @@ export default function Services() {
       );
       return;
     }
+    if (forPartner && forPartnerId === null) {
+      appEvents.emit(
+        "notification:show",
+        "Please select the partner requesting this transaction.",
+        "warning",
+      );
+      return;
+    }
 
     setIsSubmitting(true);
     try {
@@ -841,7 +851,8 @@ export default function Services() {
               }
             : {}),
         note: note || `${provider} - ${serviceType}`,
-        ...(selectedPartnerId ? { partnerId: selectedPartnerId } : {}),
+        ...(selectedPartnerId ? { partnerId: selectedPartnerId, partnerMode: 'THROUGH' as const } : {}),
+        ...(forPartner && forPartnerId ? { partnerId: forPartnerId, partnerMode: 'FOR' as const } : {}),
         ...(serviceType === "RECEIVE"
           ? {
               cashoutMethod: cashoutMethod as
@@ -909,6 +920,8 @@ export default function Services() {
         setMultiPmFees({});
         setNote("");
         setSelectedPartnerId(null);
+        setForPartner(false);
+        setForPartnerId(null);
         setCashoutMethod("CASH");
         setIsSubmitting(false);
         resetSaveAsClient();
@@ -960,6 +973,8 @@ export default function Services() {
         setMultiPmFees({});
         setNote("");
         setSelectedPartnerId(null);
+        setForPartner(false);
+        setForPartnerId(null);
         setCashoutMethod("CASH");
         setTransactionTime(undefined);
         loadData();
@@ -1007,6 +1022,8 @@ export default function Services() {
     note,
     transactionTime,
     selectedPartnerId,
+    forPartner,
+    forPartnerId,
     api,
     activeSession,
     linkTransaction,
@@ -1157,7 +1174,7 @@ export default function Services() {
                 </div>
               )}
 
-              {/* Partner Selector — required for WHISH System */}
+              {/* Partner Selector — required for WHISH System (THROUGH mode) */}
               {provider === "WHISH" && (
                 <div>
                   <PartnerSelector
@@ -1172,6 +1189,42 @@ export default function Services() {
                       ⚠ Partner required for Whish System transactions
                     </p>
                   )}
+                </div>
+              )}
+
+              {/* "For Partner" toggle — shown on base system (OMT) */}
+              {provider !== partnerSystem && (
+                <div className="rounded-lg bg-slate-900/60 border border-slate-700 p-3">
+                  <div className="flex items-center gap-3">
+                    <label className="flex items-center gap-2 text-slate-300 cursor-pointer shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={forPartner}
+                        onChange={(e) => {
+                          setForPartner(e.target.checked);
+                          if (!e.target.checked) setForPartnerId(null);
+                        }}
+                        className="w-4 h-4 rounded border-slate-600 bg-slate-900 text-violet-600 focus:ring-violet-500"
+                      />
+                      <span className="text-sm font-medium">For Partner</span>
+                      <span className="text-xs text-slate-500">(partner's customer, our system)</span>
+                    </label>
+                    {forPartner && (
+                      <div className="flex-1 flex items-center gap-2">
+                        <PartnerSelector
+                          selectedPartnerId={forPartnerId}
+                          onSelect={setForPartnerId}
+                          required
+                          autoSelectSingle
+                        />
+                        {forPartnerId === null && (
+                          <p className="text-xs text-amber-400 font-medium whitespace-nowrap">
+                            ⚠ Select partner
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 

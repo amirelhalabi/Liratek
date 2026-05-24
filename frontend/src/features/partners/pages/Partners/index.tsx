@@ -91,10 +91,18 @@ const SETTLEMENT_METHODS = [
 const TRANSACTION_TYPES = [
   { value: "ADJUSTMENT", label: "Adjustment" },
   { value: "SETTLEMENT", label: "Settlement" },
-  { value: "OMT_SEND", label: "OMT Send" },
-  { value: "OMT_RECEIVE", label: "OMT Receive" },
-  { value: "WHISH_SEND", label: "Whish Send" },
-  { value: "WHISH_RECEIVE", label: "Whish Receive" },
+  { value: "OMT_SEND", label: "OMT Send (legacy)" },
+  { value: "OMT_RECEIVE", label: "OMT Receive (legacy)" },
+  { value: "WHISH_SEND", label: "Whish Send (legacy)" },
+  { value: "WHISH_RECEIVE", label: "Whish Receive (legacy)" },
+  { value: "THROUGH_OMT_SEND", label: "Through Partner – OMT Send" },
+  { value: "THROUGH_OMT_RECEIVE", label: "Through Partner – OMT Receive" },
+  { value: "THROUGH_WHISH_SEND", label: "Through Partner – Whish Send" },
+  { value: "THROUGH_WHISH_RECEIVE", label: "Through Partner – Whish Receive" },
+  { value: "FOR_OMT_SEND", label: "For Partner – OMT Send" },
+  { value: "FOR_OMT_RECEIVE", label: "For Partner – OMT Receive" },
+  { value: "FOR_WHISH_SEND", label: "For Partner – Whish Send" },
+  { value: "FOR_WHISH_RECEIVE", label: "For Partner – Whish Receive" },
   { value: "CUSTOM_SERVICE", label: "Custom Service" },
 ];
 

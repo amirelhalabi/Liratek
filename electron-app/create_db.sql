@@ -486,7 +486,8 @@ CREATE TABLE IF NOT EXISTS financial_services (
     edited_at TEXT DEFAULT NULL,
     is_refunded INTEGER DEFAULT 0,
     refunded_at TEXT DEFAULT NULL,
-    partner_id INTEGER REFERENCES partners(id)
+    partner_id INTEGER REFERENCES partners(id),
+    partner_mode TEXT CHECK(partner_mode IN ('THROUGH', 'FOR'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_financial_services_is_settled
@@ -510,7 +511,7 @@ CREATE TABLE IF NOT EXISTS partners (
 CREATE TABLE IF NOT EXISTS partner_ledger (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     partner_id INTEGER NOT NULL REFERENCES partners(id),
-    transaction_type TEXT NOT NULL CHECK(transaction_type IN ('OMT_SEND', 'OMT_RECEIVE', 'WHISH_SEND', 'WHISH_RECEIVE', 'CUSTOM_SERVICE', 'SETTLEMENT', 'ADJUSTMENT')),
+    transaction_type TEXT NOT NULL CHECK(transaction_type IN ('OMT_SEND', 'OMT_RECEIVE', 'WHISH_SEND', 'WHISH_RECEIVE', 'THROUGH_OMT_SEND', 'THROUGH_OMT_RECEIVE', 'THROUGH_WHISH_SEND', 'THROUGH_WHISH_RECEIVE', 'FOR_OMT_SEND', 'FOR_OMT_RECEIVE', 'FOR_WHISH_SEND', 'FOR_WHISH_RECEIVE', 'CUSTOM_SERVICE', 'SETTLEMENT', 'ADJUSTMENT')),
     reference_table TEXT,
     reference_id INTEGER,
     amount REAL NOT NULL,

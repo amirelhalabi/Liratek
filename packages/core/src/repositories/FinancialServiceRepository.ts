@@ -159,8 +159,10 @@ export interface CreateFinancialServiceData {
    * - 'CUSTOMER_ACCOUNT': don't debit drawer, create credit in debt_ledger
    */
   cashoutMethod?: "CASH" | "CUSTOMER_ACCOUNT" | "OMT" | "WHISH" | "BINANCE";
-  /** Partner ID: when set, this transaction is performed "As [Partner]" */
+  /** Partner ID: when set, this transaction involves a partner */
   partnerId?: number;
+  /** Partner Mode: specifies if we use their system ('THROUGH') or they use our system ('FOR') */
+  partnerMode?: 'THROUGH' | 'FOR';
 }
 
 export interface ProviderStats {
@@ -262,6 +264,11 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         data.serviceType === "RECEIVE" && data.cashoutMethod
           ? data.cashoutMethod
           : data.paidByMethod || "CASH";
+
+      const isThroughPartner = !!(data.partnerId && (!data.partnerMode || data.partnerMode === 'THROUGH'));
+      const isForPartner = !!(data.partnerId && data.partnerMode === 'FOR');
+      const skipGeneralDrawer = isForPartner;
+      const skipSystemDrawer = isThroughPartner;
 
       // ═══════════════════════════════════════════════════════════════════════
       // AUTO-CALCULATE COMMISSION FOR OMT SERVICES
@@ -409,11 +416,11 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
 
       const id = Number(result.lastInsertRowid);
 
-      // Store partner_id on the record if provided
+      // Store partner_id and partner_mode on the record if provided
       if (data.partnerId) {
         this.db
-          .prepare(`UPDATE financial_services SET partner_id = ? WHERE id = ?`)
-          .run(data.partnerId, id);
+          .prepare(`UPDATE financial_services SET partner_id = ?, partner_mode = ? WHERE id = ?`)
+          .run(data.partnerId, data.partnerMode || "THROUGH", id);
       }
 
       const createdBy = 1;
@@ -1254,8 +1261,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               } else if (paidBy !== "DEBT") {
                 // Cash payment: reserve from General (net 0 for General)
                 // Skip for DEBT single payment — no cash was received, nothing to reserve
-                // Skip for partner transactions — no cash flows through the shop's General drawer
-                if (!data.partnerId) {
+                // Skip for FOR partner transactions — no cash flows through the shop's General drawer
+                if (!skipGeneralDrawer) {
                   insertPayment.run(
                     txnId,
                     "RESERVE",
@@ -1289,16 +1296,18 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             }
 
             // System drawer +(funded amount): tracks what shop will pay to/receive from provider
-            insertPayment.run(
-              txnId,
-              data.provider,
-              systemDrawer,
-              currency,
-              systemDrawerCredit,
-              `${data.provider} system debt`,
-              createdBy,
-            );
-            upsertBalanceDelta.run(systemDrawer, currency, systemDrawerCredit);
+            if (!skipSystemDrawer) {
+              insertPayment.run(
+                txnId,
+                data.provider,
+                systemDrawer,
+                currency,
+                systemDrawerCredit,
+                `${data.provider} system debt`,
+                createdBy,
+              );
+              upsertBalanceDelta.run(systemDrawer, currency, systemDrawerCredit);
+            }
           }
         } else {
           // ─── RECEIVE: provider sends money to customer, shop pays cash out ───
@@ -1358,7 +1367,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             const cashoutDrawer = paymentMethodToDrawerName(cashoutMethod);
 
             // System drawer: track what provider owes the shop
-            if (useSystemDrawerFlow && !data.partnerId) {
+            if (useSystemDrawerFlow && !skipSystemDrawer) {
               // System drawer -(amount + commission): provider owes us this total
               insertPayment.run(
                 txnId,
@@ -1370,7 +1379,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 createdBy,
               );
               upsertBalanceDelta.run(systemDrawer, currency, -totalOwed);
-            } else if (useSystemDrawerFlow && data.partnerId) {
+            } else if (useSystemDrawerFlow && skipSystemDrawer) {
               // Partner transaction: system drawer not debited — partner handles the payout
             } else {
               // Other providers: single drawer, positive (money coming in)
@@ -1394,7 +1403,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             if (
               cashoutMethod !== "CASH" &&
               useSystemDrawerFlow &&
-              !data.partnerId
+              !skipSystemDrawer
             ) {
               // For wallet cashouts (OMT/WHISH/BINANCE), debit the wallet drawer
               insertPayment.run(
@@ -1495,8 +1504,27 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           data.provider === "OMT" || data.provider === "OMT_APP"
             ? "OMT"
             : "WHISH";
-        const ledgerType = `${providerKey}_${data.serviceType}`;
-        const direction = data.serviceType === "SEND" ? "DEBIT" : "CREDIT";
+        const modePrefix = isForPartner ? "FOR_" : "THROUGH_";
+        const ledgerType = `${modePrefix}${providerKey}_${data.serviceType}`;
+        
+        let direction = "";
+        let ledgerAmount = Math.abs(data.amount);
+
+        if (isThroughPartner) {
+          direction = data.serviceType === "SEND" ? "CREDIT" : "DEBIT";
+        } else {
+          // isForPartner
+          if (data.serviceType === "SEND") {
+            direction = "DEBIT";
+            const fee = data.provider === "WHISH" 
+              ? (storedWhishFee ?? 0) 
+              : (data.omtFee != null ? data.omtFee : (lookupOmtFee(data.omtServiceType as OmtServiceType, Math.abs(data.amount), currency) ?? 0));
+            ledgerAmount = data.includingFees ? Math.abs(data.amount) : Math.abs(data.amount) + fee;
+          } else {
+            direction = "CREDIT";
+          }
+        }
+
         this.db
           .prepare(
             `
@@ -1508,7 +1536,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             data.partnerId,
             ledgerType,
             id,
-            data.amount,
+            ledgerAmount,
             currency,
             direction,
             1,
