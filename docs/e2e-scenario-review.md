@@ -279,3 +279,49 @@ This document captures the component-level E2E test catalog, the review question
 | S44 (ConfirmModal opens) | Replace "any" with explicit verified module list |
 | S46 (ConfirmModal confirms) | Add POS void sale |
 | S48 (ConfirmModal danger variant) | Replace "void actions" with specific module list |
+
+---
+
+## Implementation Status
+
+Reflects changes merged to main after the review above.
+
+### Implemented
+
+| Scenario | What changed |
+|----------|-------------|
+| S11 — ClientAutocomplete autofills name/phone | Custom Services, Debts, Sessions: replaced custom inline search with `<ClientAutocompleteInput>` — autofill now works in all 6 locations |
+| S13 — Clear selection → form resets | Custom Services, Debts, Sessions: clear on `<ClientAutocompleteInput>` resets the form; Sessions clear button also calls `resetSaveAsClient()` |
+| S15 — Debt badge visible | `ClientAutocompleteInput` gained `showDebtBadge?: boolean`; passed as `showDebtBadge` in Custom Services, Debts, Sessions — badge now appears in all locations, not just Debts |
+| S3 — CUSTOMER_ACCOUNT line when client attached | Custom Services: `paymentInputKey` + `paymentInitialMethod` state added; selecting a client via autocomplete remounts `MultiPaymentInput` with `initialMethod = CUSTOMER_ACCOUNT` if available |
+| S4 — Auto-switch to CUSTOMER_ACCOUNT on client pick | Custom Services: wired up (see S3 above). Clear client resets payment method to default. |
+| S16 — SaveAsClientCheckbox hidden when C3/C4 | Sessions: already present in `StartSessionModal`; clear button now also calls `resetSaveAsClient()` confirming the hide/show cycle works |
+| S18 — Checked + submit → new client created | Sessions: confirmed already handled by `StartSessionModal` |
+
+### Correctly Excluded (not implemented by design)
+
+| Scenario | Reason |
+|----------|--------|
+| S4 — auto-switch in Debts | Debts operates on already-selected clients — there is no "pick a client then pay" flow; payment input is independent |
+| S4 — auto-switch in Maintenance | Maintenance delegates payment to `CheckoutModal`, which handles this internally |
+| S4 — auto-switch in POS | POS already handled inside `CheckoutModal` |
+| S8 — partial payment → debt in Sessions | Frontend (`SessionCheckoutModal`) already supports CUSTOMER_ACCOUNT per item; debt creation on partial payment is a backend concern in the session checkout handler, not a frontend change |
+| S8 — partial payment → debt in Loto | Payouts are one-directional; debt concept does not apply |
+| S8 — partial payment → debt in Expenses | Expenses are outgoing payments; no receivable debt is generated |
+
+### Still Open (not yet addressed)
+
+| Scenario | Status |
+|----------|--------|
+| S2 — split USD + LBP in Debts, Loto, Sessions | Not verified — needs confirmation that `MultiPaymentInput` in these modules accepts split lines |
+| S8 — partial payment → debt in POS | Not addressed in this batch — POS checkout debt creation path needs explicit verification |
+| S8 — partial payment → debt in Sessions | Backend handler needs verification (see above) |
+| S14 — pre-populated from session in Debts | Still open — depends on whether Debts reads session context; unverified |
+| S22 — TransactionTimeOverride past date in all 8 locations | Only 3 locations tested originally; Expenses, Maintenance, Loto, POS not yet covered |
+| S26 — override date shows in history (all 7 locations) | Only Recharge + Custom Services originally; remaining 5 not yet covered |
+| S30 — DataTable multi-select: which modules have it enabled | Unconfirmed — need to verify beyond Debts and Inventory |
+| S34 — DataTable date range filter in all 7 DateRangeFilter locations | Only Exchange + Expenses covered; 5 remaining locations not yet tested |
+| S40 — EditHistoryPopover opens in all 5 locations | Only Recharge + Expenses covered; Custom Services, Exchange, Maintenance not yet added |
+| S44 — ConfirmModal: explicit module list | "Any void action" still not replaced with a concrete list |
+| S46 — ConfirmModal confirm executes: POS void | Only Inventory delete covered; POS void not yet added |
+| S48 — ConfirmModal danger variant: specific modules | Still vague — needs explicit module list |
