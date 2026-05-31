@@ -20,6 +20,17 @@ import * as os from "os";
 import { fileURLToPath } from "url";
 import { createRequire } from "module";
 
+// ---------------------------------------------------------------------------
+// Seed helpers — thin re-exports so test files only need to import fixtures
+// ---------------------------------------------------------------------------
+export {
+  seedClient,
+  seedProduct,
+  seedExpense,
+  seedCustomService,
+  seedExchangeRate,
+} from "./helpers/seed.js";
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -130,6 +141,163 @@ export async function navigateTo(page: Page, route: string) {
   }
   await page.waitForTimeout(3000);
 }
+
+// ---------------------------------------------------------------------------
+// Client context helpers (C1–C4)
+// ---------------------------------------------------------------------------
+
+/**
+ * The four client-context strategies used across test files.
+ *
+ * C1 — anonymous walk-in: no client, no name/phone
+ * C2 — manual entry: name + phone typed into raw inputs (no saved client)
+ * C3 — autocomplete select: saved client looked up and picked from dropdown
+ * C4 — session-active: a customer session is started for the given clientId
+ */
+export type ClientContext = {
+  c1: (page: Page) => Promise<void>;
+  c2: (
+    page: Page,
+    name: string,
+    phone: string,
+    nameSelector: string,
+    phoneSelector: string,
+  ) => Promise<void>;
+  c3: (
+    page: Page,
+    clientAutocompleteTestId: string,
+    clientName: string,
+  ) => Promise<void>;
+  c4: (page: Page, clientId: number) => Promise<void>;
+};
+
+export const clientContexts: ClientContext = {
+  /**
+   * C1 — no-op. The caller has already navigated to the page; the form is
+   * open with no client context. Nothing to do here.
+   */
+  async c1(_page: Page): Promise<void> {
+    // intentionally empty
+  },
+
+  /**
+   * C2 — fill name and phone directly into the given input selectors.
+   * Useful when the form exposes plain text/tel inputs rather than the
+   * client-autocomplete component.
+   */
+  async c2(
+    page: Page,
+    name: string,
+    phone: string,
+    nameSelector: string,
+    phoneSelector: string,
+  ): Promise<void> {
+    await page.fill(nameSelector, name);
+    await page.fill(phoneSelector, phone);
+  },
+
+  /**
+   * C3 — type the first 3 characters of clientName into the autocomplete
+   * field, wait for the dropdown to appear, then click the first matching
+   * client option.
+   *
+   * @param clientAutocompleteTestId  data-testid of the wrapper element that
+   *   contains the ClientAutocompleteInput (e.g. "client-autocomplete-input")
+   * @param clientName  full name of the client to search for
+   */
+  async c3(
+    page: Page,
+    clientAutocompleteTestId: string,
+    clientName: string,
+  ): Promise<void> {
+    const query = clientName.slice(0, 3);
+    const inputLocator = page
+      .locator(`[data-testid="${clientAutocompleteTestId}"]`)
+      .getByTestId("client-autocomplete-field");
+
+    await inputLocator.fill(query);
+    await page.waitForSelector('[data-testid="client-dropdown"]', {
+      timeout: 5000,
+    });
+    await page
+      .locator('[data-testid^="client-option-"]')
+      .first()
+      .click();
+  },
+
+  /**
+   * C4 — start a customer session for the given client.
+   * Opens the StartSessionModal via the floating session button in the app
+   * (the MessengerStyleSessionButton FAB), types the client's name via the
+   * ClientAutocompleteInput, selects the matching client-option, then
+   * submits the "Start Session" form.
+   *
+   * The caller is responsible for seeding the client beforehand and
+   * providing the returned clientId.
+   */
+  async c4(page: Page, clientId: number): Promise<void> {
+    // Click the floating session FAB (always visible in the top bar)
+    const fab = page.locator(
+      'button[title="New Customer Session"], button[title="Manage Sessions"]',
+    );
+    await fab.first().click();
+
+    // If the speed-dial expanded (because sessions already exist), click the
+    // inner "New Customer Session" button (UserPlus icon at the top)
+    const newSessionInDial = page.locator(
+      'button[title="New Customer Session"]',
+    );
+    const dialCount = await newSessionInDial.count();
+    if (dialCount > 1) {
+      // Multiple buttons with that title — the second one is the inner dial item
+      await newSessionInDial.nth(1).click();
+    }
+
+    // Wait for the StartSessionModal to appear
+    await page.waitForSelector(
+      'h2:has-text("New Customer Session")',
+      { timeout: 5000 },
+    );
+
+    // Type in the autocomplete — the modal renders ClientAutocompleteInput
+    // which sets data-testid="client-autocomplete-field" on its <input>
+    const modalInput = page
+      .getByTestId("client-autocomplete-field")
+      .first();
+
+    // Fetch the client's name so we can search by it
+    const clientName: string = await page.evaluate((id) => {
+      return (window.api.clients as { getAll: (q: string) => Promise<{ id: number; full_name: string }[]> })
+        .getAll("")
+        .then((clients) => {
+          const found = clients.find((c) => c.id === id);
+          return found?.full_name ?? "";
+        });
+    }, clientId);
+
+    const query = clientName.slice(0, 3);
+    await modalInput.fill(query);
+
+    // Wait for dropdown and click the correct client option
+    await page.waitForSelector('[data-testid="client-dropdown"]', {
+      timeout: 5000,
+    });
+    await page.getByTestId(`client-option-${clientId}`).click();
+
+    // Submit the form
+    await page.getByRole("button", { name: /Start Session/i }).click();
+
+    // Wait for the modal to close
+    await page.waitForSelector(
+      'h2:has-text("New Customer Session")',
+      { state: "detached", timeout: 8000 },
+    );
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Setup helpers
+// ---------------------------------------------------------------------------
 
 /**
  * Complete the setup wizard from scratch (called once).

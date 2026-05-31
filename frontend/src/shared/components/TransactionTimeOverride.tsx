@@ -64,6 +64,7 @@ export function TransactionTimeOverride({
         type="button"
         onClick={() => setExpanded(true)}
         className="flex items-center gap-1 text-xs text-slate-400 hover:text-white transition-colors mt-1"
+        data-testid="txn-time-toggle"
       >
         <span>⏱</span>
         <span>Set custom time</span>
@@ -82,11 +83,13 @@ export function TransactionTimeOverride({
         onChange={handleChange}
         max={getMaxDatetime()}
         className="px-2 py-1 rounded bg-slate-900 border border-slate-700 text-white text-xs focus:outline-none focus:ring-1 focus:ring-orange-500"
+        data-testid="txn-time-input"
       />
       <button
         type="button"
         onClick={handleClear}
         className="text-xs text-red-400 hover:text-red-300 transition-colors"
+        data-testid="txn-time-clear"
       >
         ✕ Clear
       </button>

@@ -24,6 +24,7 @@ export function DateRangeFilter({
         value={from}
         onChange={(e) => onFromChange(e.target.value)}
         className={inputClass}
+        data-testid="date-range-from"
       />
       <label className="text-xs text-slate-400">To:</label>
       <input
@@ -31,6 +32,7 @@ export function DateRangeFilter({
         value={to}
         onChange={(e) => onToChange(e.target.value)}
         className={inputClass}
+        data-testid="date-range-to"
       />
     </div>
   );
