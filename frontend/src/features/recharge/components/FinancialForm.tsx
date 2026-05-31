@@ -97,6 +97,8 @@ export function FinancialForm({
   const [clientPhone, setClientPhone] = useState("");
   const [paymentInputKey, setPaymentInputKey] = useState(0);
   const [initialPaymentMethod, setInitialPaymentMethod] = useState("CASH");
+  const [newItemForm, setNewItemForm] = useState<NewItemForm | null>(null);
+  const [addItemError, setAddItemError] = useState("");
 
   // Auto-promote CUSTOMER_ACCOUNT once both name+phone are filled for a brand-new client
   useEffect(() => {
@@ -208,9 +210,6 @@ export function FinancialForm({
     Array.from(cart.values())
       .filter((line) => line.item.category === category && line.item.provider === activeProvider)
       .reduce((sum, line) => sum + line.quantity, 0);
-
-  const [newItemForm, setNewItemForm] = useState<NewItemForm | null>(null);
-  const [addItemError, setAddItemError] = useState("");
 
   const handleAddItem = async () => {
     if (!newItemForm) return;

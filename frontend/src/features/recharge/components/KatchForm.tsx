@@ -84,6 +84,8 @@ export function KatchForm({
   const [paymentInputKey, setPaymentInputKey] = useState(0);
   const [initialPaymentMethod, setInitialPaymentMethod] = useState("CASH");
   const [localSubmitting, setLocalSubmitting] = useState(false);
+  const [newItemForm, setNewItemForm] = useState<NewItemForm | null>(null);
+  const [addItemError, setAddItemError] = useState("");
 
   // Autofill client name + phone from active customer session
   useSessionAutoFill([
@@ -306,9 +308,6 @@ export function KatchForm({
     Array.from(cart.values())
       .filter((line) => line.item.category === category && line.item.provider === activeProvider)
       .reduce((sum, line) => sum + line.quantity, 0);
-
-  const [newItemForm, setNewItemForm] = useState<NewItemForm | null>(null);
-  const [addItemError, setAddItemError] = useState("");
 
   const handleAddItem = async () => {
     if (!newItemForm) return;
