@@ -240,6 +240,8 @@ function buildSchema(db: Database.Database): void {
       settlement_id         INTEGER,
       payment_method_fee    REAL DEFAULT 0,
       payment_method_fee_rate REAL,
+      paid_amount           REAL DEFAULT NULL,
+      paid_currency         TEXT DEFAULT NULL,
       created_at            DATETIME DEFAULT CURRENT_TIMESTAMP,
       created_by            INTEGER,
       edited_by             TEXT,
