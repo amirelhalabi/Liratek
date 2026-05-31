@@ -317,6 +317,51 @@ export class DebtService {
     return this.debtRepo.getClientBalance(clientId);
   }
 
+  /**
+   * Validate that a client has enough credit balance to cover a CUSTOMER_ACCOUNT
+   * payment of the given USD/LBP amounts.
+   *
+   * Convention: ledger balance < 0 means the shop owes the client (prepaid credit).
+   * Available credit per currency = -balance when balance is negative, else 0.
+   */
+  validateCustomerAccountAvailability(
+    clientId: number | null | undefined,
+    amountUsd: number,
+    amountLbp: number,
+  ): { success: boolean; error?: string } {
+    if (!clientId) {
+      return {
+        success: false,
+        error: "Client is required for Customer Account payment",
+      };
+    }
+    if (amountUsd <= 0 && amountLbp <= 0) return { success: true };
+
+    const balance = this.debtRepo.getClientBalance(clientId);
+
+    if (amountUsd > 0) {
+      const availableUsd =
+        balance.balance_usd < 0 ? -balance.balance_usd : 0;
+      if (amountUsd > availableUsd + 0.01) {
+        return {
+          success: false,
+          error: `Not enough balance. Available: $${availableUsd.toFixed(2)} — requested: $${amountUsd.toFixed(2)}`,
+        };
+      }
+    }
+    if (amountLbp > 0) {
+      const availableLbp =
+        balance.balance_lbp < 0 ? -balance.balance_lbp : 0;
+      if (amountLbp > availableLbp + 0.01) {
+        return {
+          success: false,
+          error: `Not enough balance. Available: ${Math.floor(availableLbp).toLocaleString()} LBP — requested: ${Math.floor(amountLbp).toLocaleString()} LBP`,
+        };
+      }
+    }
+    return { success: true };
+  }
+
   // ---------------------------------------------------------------------------
   // Dashboard Queries
   // ---------------------------------------------------------------------------

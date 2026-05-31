@@ -201,9 +201,25 @@ export default function Debts() {
     string | undefined
   >();
 
+  const loadDebtors = useCallback(async () => {
+    try {
+      const data = window.api
+        ? await window.api.debt.getDebtors()
+        : await api.getDebtors();
+      setDebtors(data);
+    } catch (error) {
+      logger.error("Failed to load debtors:", error);
+    }
+  }, []);
+
   useEffect(() => {
     loadDebtors();
-  }, []);
+  }, [loadDebtors]);
+
+  useEffect(() => {
+    window.addEventListener("debt-ledger-changed", loadDebtors);
+    return () => window.removeEventListener("debt-ledger-changed", loadDebtors);
+  }, [loadDebtors]);
 
   useEffect(() => {
     if (selectedClient) {
@@ -216,18 +232,6 @@ export default function Debts() {
       setAging(null);
     }
   }, [selectedClient]);
-
-  const loadDebtors = async () => {
-    try {
-      // Now getDebtors returns all clients with debt history
-      const data = window.api
-        ? await window.api.debt.getDebtors()
-        : await api.getDebtors();
-      setDebtors(data);
-    } catch (error) {
-      logger.error("Failed to load debtors:", error);
-    }
-  };
 
   const loadHistory = async (clientId: number) => {
     try {
@@ -1015,12 +1019,12 @@ export default function Debts() {
                         className={`flex items-center gap-3 px-5 py-2 rounded-xl border ${isCredit ? "bg-emerald-500/5 border-emerald-500/20" : "bg-red-500/5 border-red-500/20"}`}
                       >
                         <span className="text-xs font-medium text-slate-400 uppercase tracking-wider whitespace-nowrap">
-                          {isCredit ? "Credit Balance" : "Total Debt"}
+                          Balance
                         </span>
                         <span
                           className={`font-mono text-2xl font-bold ${isCredit ? "text-emerald-400" : "text-red-400"}`}
                         >
-                          ${Math.abs(netUsd).toFixed(2)}
+                          {isCredit ? "+" : "-"}${Math.abs(netUsd).toFixed(2)}
                         </span>
                         {netLbp !== 0 && (
                           <>
@@ -1028,7 +1032,7 @@ export default function Debts() {
                             <span
                               className={`font-mono text-2xl font-bold ${isCredit ? "text-emerald-400" : "text-red-400"}`}
                             >
-                              {Math.abs(netLbp).toLocaleString()} LBP
+                              {isCredit ? "+" : "-"}{Math.abs(netLbp).toLocaleString()} LBP
                             </span>
                           </>
                         )}

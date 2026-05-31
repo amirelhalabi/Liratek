@@ -194,7 +194,16 @@ export default function ClientForm({
             </button>
           </div>
 
-          <div className="flex items-center gap-3 py-2">
+          <div className="flex items-center justify-between py-2">
+            <span className="text-slate-300 text-sm flex items-center gap-2">
+              Receive updates via WhatsApp
+              <MessageCircle
+                size={16}
+                className={
+                  formData.whatsapp_opt_in ? "text-green-400" : "text-slate-500"
+                }
+              />
+            </span>
             <button
               type="button"
               role="switch"
@@ -211,15 +220,6 @@ export default function ClientForm({
                 className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${formData.whatsapp_opt_in ? "translate-x-4" : ""}`}
               ></div>
             </button>
-            <span className="text-slate-300 text-sm flex items-center gap-2">
-              <MessageCircle
-                size={16}
-                className={
-                  formData.whatsapp_opt_in ? "text-green-400" : "text-slate-500"
-                }
-              />
-              Receive updates via WhatsApp
-            </span>
             {/* Hidden checkbox for form completeness if needed, but state handles it */}
             <input
               type="checkbox"

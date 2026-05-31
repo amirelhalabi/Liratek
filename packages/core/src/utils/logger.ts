@@ -170,6 +170,7 @@ export const settingsLogger = logger.child({ module: "settings" });
 export const expenseLogger = logger.child({ module: "expense" });
 export const closingLogger = logger.child({ module: "closing" });
 export const syncLogger = logger.child({ module: "sync" });
+export const voucherLogger = logger.child({ module: "voucher" });
 
 // =============================================================================
 // Performance Timing Utility

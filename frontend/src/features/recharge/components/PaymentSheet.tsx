@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
-import { MultiPaymentInput, type PaymentLine } from "@liratek/ui";
+import {
+  MultiPaymentInput,
+  type PaymentLine,
+  type VoucherOption,
+} from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 
 interface PaymentMethod {
@@ -43,6 +47,13 @@ export interface PaymentSheetProps {
   onPaymentChange: (lines: PaymentLine[]) => void;
   onDiscountChange?: (discount: number) => void;
   onPmFeesChange?: (fees: Record<string, number>) => void;
+  /** Increment this to remount MultiPaymentInput (e.g. when client is selected) */
+  paymentInputKey?: number;
+  /** Initial payment method when MultiPaymentInput mounts */
+  initialPaymentMethod?: string;
+  /** Selected client (voucher owner) + fetcher — enables GIFT_CARD voucher payment. */
+  clientId?: number | null;
+  fetchClientVouchers?: (clientId: number) => Promise<VoucherOption[]>;
   /** Optional extra content between summary and payment input */
   children?: React.ReactNode;
 }
@@ -71,11 +82,16 @@ export function PaymentSheet({
   onPaymentChange,
   onDiscountChange,
   onPmFeesChange,
+  paymentInputKey,
+  initialPaymentMethod,
+  clientId,
+  fetchClientVouchers,
   children,
 }: PaymentSheetProps) {
   useModalFocusFix(open);
   const [visible, setVisible] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [latestLines, setLatestLines] = useState<PaymentLine[]>([]);
 
   useEffect(() => {
     if (open) {
@@ -93,11 +109,21 @@ export function PaymentSheet({
 
   if (!mounted) return null;
 
+  const fmtMoney = (amount: number, currency: string) =>
+    currency === "LBP"
+      ? `${Math.round(amount).toLocaleString()} LBP`
+      : `$${amount.toFixed(2)}`;
+
+  // Single payment line → display the user's chosen currency/amount.
+  // Multi-line (split) → fall back to the transaction total.
+  const singleLine = latestLines.length === 1 ? latestLines[0] : null;
+  const displayAmount = singleLine ? singleLine.amount : totalAmount;
+  const displayCurrency = singleLine
+    ? singleLine.currencyCode
+    : totalAmountCurrency;
+
   const defaultConfirmLabel =
-    confirmLabel ||
-    (totalAmountCurrency === "LBP"
-      ? `Pay ${totalAmount.toLocaleString()} LBP`
-      : `Pay $${totalAmount.toFixed(2)}`);
+    confirmLabel || `Pay ${fmtMoney(displayAmount, displayCurrency)}`;
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
@@ -172,12 +198,17 @@ export function PaymentSheet({
               Payment Method
             </h3>
             <MultiPaymentInput
+              key={paymentInputKey}
               totalAmount={totalAmount}
               totalAmountCurrency={totalAmountCurrency}
               currency={currency}
-              onChange={onPaymentChange}
+              onChange={(lines) => {
+                setLatestLines(lines);
+                onPaymentChange(lines);
+              }}
               requiresClientForDebt={requiresClientForDebt}
               hasClient={hasClient}
+              {...(initialPaymentMethod !== undefined ? { initialMethod: initialPaymentMethod } : {})}
               showPmFee={showPmFee}
               {...(pmFeeRate !== undefined ? { pmFeeRate } : {})}
               {...(onPmFeesChange ? { onPmFeesChange } : {})}
@@ -190,6 +221,8 @@ export function PaymentSheet({
                 { code: "LBP", symbol: "LBP" },
               ]}
               {...(exchangeRate !== undefined ? { exchangeRate } : {})}
+              {...(clientId != null ? { clientId } : {})}
+              {...(fetchClientVouchers ? { fetchClientVouchers } : {})}
             />
           </div>
         </div>

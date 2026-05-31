@@ -364,7 +364,11 @@ function initializeDatabase() {
     );
     return db;
   } catch (error) {
-    logger.error({ error }, "Database connection failed");
+    const err = error as Error & { code?: string };
+    logger.error(
+      { code: err.code, message: err.message, stack: err.stack },
+      "Database connection failed",
+    );
     throw error;
   }
 }
@@ -489,6 +493,7 @@ async function registerHandlers() {
     const drawerTopUpHandlers =
       await import("./handlers/drawerTopUpHandlers.js");
     const partnerHandlers = await import("./handlers/partnerHandlers.js");
+    const voucherHandlers = await import("./handlers/voucherHandlers.js");
 
     // Register all handlers
     authHandlers.registerAuthHandlers();
@@ -525,6 +530,7 @@ async function registerHandlers() {
     auditHandlers.registerAuditHandlers();
     drawerTopUpHandlers.registerDrawerTopUpHandlers();
     partnerHandlers.registerPartnerHandlers();
+    voucherHandlers.registerVoucherHandlers();
 
     // Windows focus fix handler
     ipcMain.on("display:fix-focus", (event) => {

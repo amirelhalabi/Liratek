@@ -13,6 +13,7 @@ import {
 } from "../utils/payments.js";
 import { getSupplierRepository } from "./SupplierRepository.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
+import { getVoucherRepository } from "./VoucherRepository.js";
 import { getDebtService } from "../services/DebtService.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import {
@@ -46,6 +47,10 @@ export interface FinancialServiceEntity {
   cost: number;
   price: number;
   paid_by: string | null;
+  /** Amount the customer actually paid (in `paid_currency`). Null when payment legs span multiple currencies. */
+  paid_amount: number | null;
+  /** Currency of `paid_amount`. May differ from `currency` (the service-denominated currency). */
+  paid_currency: string | null;
   client_id: number | null;
   client_name: string | null;
   reference_number: string | null;
@@ -109,6 +114,8 @@ export interface CreateFinancialServiceData {
     method: string;
     currencyCode: string;
     amount: number;
+    /** Set when method === 'GIFT_CARD' — the voucher code being redeemed. */
+    voucherCode?: string;
   }>;
   clientId?: number;
   clientName?: string;
@@ -205,7 +212,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
 
   // Override getColumns() to use explicit columns instead of SELECT *
   protected getColumns(): string {
-    return "id, provider, service_type, amount, currency, commission, cost, price, paid_by, client_id, client_name, reference_number, phone_number, sender_name, sender_phone, receiver_name, receiver_phone, sender_client_id, receiver_client_id, omt_service_type, omt_fee, whish_fee, profit_rate, pay_fee, item_key, note, is_settled, settled_at, settlement_id, payment_method_fee, payment_method_fee_rate, created_at, created_by, edited_by, edited_at";
+    return "id, provider, service_type, amount, currency, commission, cost, price, paid_by, paid_amount, paid_currency, client_id, client_name, reference_number, phone_number, sender_name, sender_phone, receiver_name, receiver_phone, sender_client_id, receiver_client_id, omt_service_type, omt_fee, whish_fee, profit_rate, pay_fee, item_key, note, is_settled, settled_at, settlement_id, payment_method_fee, payment_method_fee_rate, created_at, created_by, edited_by, edited_at";
   }
 
   // ---------------------------------------------------------------------------
@@ -356,6 +363,26 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       const pmFee = data.paymentMethodFee ?? 0;
       const pmFeeRate = data.paymentMethodFeeRate ?? null;
 
+      // Derive what the customer actually paid (amount + currency).
+      // - Multi-payment lines, single currency  → sum + that currency
+      // - Multi-payment lines, mixed currencies → null/null (caller must read payment legs)
+      // - No payments array (legacy)            → service price in service currency
+      let paidAmount: number | null;
+      let paidCurrency: string | null;
+      if (data.payments && data.payments.length > 0) {
+        const currencies = new Set(data.payments.map((p) => p.currencyCode));
+        if (currencies.size === 1) {
+          paidAmount = data.payments.reduce((s, p) => s + p.amount, 0);
+          paidCurrency = data.payments[0].currencyCode;
+        } else {
+          paidAmount = null;
+          paidCurrency = null;
+        }
+      } else {
+        paidAmount = price > 0 ? price : data.amount;
+        paidCurrency = currency;
+      }
+
       // Determine primary client info for backward compatibility
       // For SEND: primary client is sender; for RECEIVE: primary client is receiver
       const primaryClientId =
@@ -374,14 +401,14 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       const stmt = this.db.prepare(`
         INSERT INTO financial_services (
           provider, service_type, amount, currency,
-          commission, cost, price, paid_by, client_id,
+          commission, cost, price, paid_by, paid_amount, paid_currency, client_id,
           client_name, reference_number, phone_number,
           sender_name, sender_phone, receiver_name, receiver_phone,
           sender_client_id, receiver_client_id,
           omt_service_type, omt_fee, whish_fee, profit_rate, pay_fee,
           item_key, note, is_settled, settled_at,
           payment_method_fee, payment_method_fee_rate, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
       `);
 
       const result = stmt.run(
@@ -393,6 +420,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         cost,
         price,
         paidBy,
+        paidAmount,
+        paidCurrency,
         primaryClientId || null,
         primaryClientName || null,
         data.referenceNumber || null,
@@ -498,7 +527,23 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         profit_usd: currency === "USD" ? commission : 0,
         profit_lbp: currency === "LBP" ? commission : 0,
         client_id: resolvedPrimaryClientId ?? null,
-        summary: `${data.provider} ${data.serviceType}: ${primaryName ? `${primaryName} — ` : ""}${data.amount} ${currency}`,
+        summary: (() => {
+          const head = `${data.provider} ${data.serviceType}: ${primaryName ? `${primaryName} — ` : ""}${data.amount} ${currency}`;
+          // When the customer paid in a currency different from the service-denominated
+          // currency, surface that on the audit row so it's visible at a glance.
+          if (
+            paidCurrency &&
+            paidAmount != null &&
+            paidCurrency !== currency
+          ) {
+            const fmtPaid =
+              paidCurrency === "LBP"
+                ? `${Math.round(paidAmount).toLocaleString()} LBP`
+                : `$${paidAmount.toFixed(2)}`;
+            return `${head} (paid ${fmtPaid})`;
+          }
+          return head;
+        })(),
         metadata_json: {
           provider: data.provider,
           service_type: data.serviceType,
@@ -508,6 +553,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           cost,
           price,
           paid_by: paidBy,
+          paid_amount: paidAmount,
+          paid_currency: paidCurrency,
           item_key: data.itemKey,
         },
         transaction_time: data.transaction_time,
@@ -552,6 +599,20 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           // Multi-payment: iterate each payment leg
           let hasDebt = false;
           for (const p of data.payments) {
+            if (p.method === "GIFT_CARD") {
+              if (!p.voucherCode) {
+                throw new Error("Gift card payment requires a voucher code");
+              }
+              // Deposit the voucher's full value to the owner's account; the leg
+              // below is non-drawer, so the charge is consumed from that account
+              // as CREDIT_USED.
+              getVoucherRepository().redeemByCode({
+                code: p.voucherCode.trim().toUpperCase(),
+                context: "financial_service",
+                transactionId: txnId,
+                userId: createdBy,
+              });
+            }
             if (!isDrawerAffectingMethod(p.method)) {
               hasDebt = true;
               continue;
@@ -572,14 +633,20 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               Math.abs(p.amount),
             );
           }
-          // Create debt for any DEBT payment legs
+          // Create debt for any CUSTOMER_ACCOUNT payment legs.
+          // Split by the payment leg's own currency — NOT the service currency —
+          // so a USD payment debits USD credit and an LBP payment debits LBP credit.
           if (hasDebt) {
             if (!data.clientId) {
               throw new Error("Cannot create debt without a client");
             }
-            const debtAmount = data.payments
-              .filter((p) => !isDrawerAffectingMethod(p.method))
-              .reduce((sum, p) => sum + Math.abs(p.amount), 0);
+            let debtUsd = 0;
+            let debtLbp = 0;
+            for (const p of data.payments) {
+              if (isDrawerAffectingMethod(p.method)) continue;
+              if (p.currencyCode === "USD") debtUsd += Math.abs(p.amount);
+              else if (p.currencyCode === "LBP") debtLbp += Math.abs(p.amount);
+            }
             this.db
               .prepare(
                 `INSERT INTO debt_ledger (
@@ -588,9 +655,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               )
               .run(
                 data.clientId,
-                "Service Debt",
-                currency === "USD" ? debtAmount : 0,
-                currency === "LBP" ? debtAmount : 0,
+                "CREDIT_USED",
+                debtUsd,
+                debtLbp,
                 txnId,
                 `${data.provider} service${data.itemKey ? ` [${data.itemKey}]` : ""}`,
                 createdBy,
@@ -613,7 +680,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           }
 
           // DEBT: create debt_ledger entry
-          if (paidBy === "DEBT") {
+          if (paidBy === "CUSTOMER_ACCOUNT") {
             if (!data.clientId) {
               throw new Error("Cannot create debt without a client");
             }
@@ -625,7 +692,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               )
               .run(
                 data.clientId,
-                "Service Debt",
+                "CREDIT_USED",
                 currency === "USD" ? price : 0,
                 currency === "LBP" ? price : 0,
                 txnId,
@@ -753,7 +820,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             if (data.payments && data.payments.length > 0) {
               // Multi-payment: each leg goes to its respective drawer
               for (const p of data.payments) {
-                if (p.method === "DEBT") continue;
+                if (p.method === "CUSTOMER_ACCOUNT") continue;
                 if (!isDrawerAffectingMethod(p.method)) continue;
                 const drawerName = paymentMethodToDrawerName(p.method);
                 insertPayment.run(
@@ -773,7 +840,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               }
 
               // Handle DEBT legs
-              const debtLegs = data.payments.filter((p) => p.method === "DEBT");
+              const debtLegs = data.payments.filter((p) => p.method === "CUSTOMER_ACCOUNT");
               if (debtLegs.length > 0) {
                 if (!data.clientName?.trim()) {
                   throw new Error(
@@ -840,7 +907,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               }
             } else {
               // Single payment for fee
-              if (paidBy === "DEBT") {
+              if (paidBy === "CUSTOMER_ACCOUNT") {
                 if (!data.clientName?.trim()) {
                   throw new Error(
                     "Client name is required when paying by debt",
@@ -977,7 +1044,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
 
           if (data.payments && data.payments.length > 0) {
             // Validate: DEBT leg requires client name + phone (for debt_ledger client_id)
-            const hasDebtLeg = data.payments.some((p) => p.method === "DEBT");
+            const hasDebtLeg = data.payments.some((p) => p.method === "CUSTOMER_ACCOUNT");
             if (hasDebtLeg && !data.clientId) {
               if (!data.clientName?.trim()) {
                 throw new Error("Client name is required when paying by debt");
@@ -996,7 +1063,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             //   3. Transfer only (leg.amount - pmFee) to the system drawer
 
             for (const p of data.payments) {
-              if (p.method === "DEBT") continue; // Debt handled separately below
+              if (p.method === "CUSTOMER_ACCOUNT") continue; // Debt handled separately below
               if (!isDrawerAffectingMethod(p.method)) continue;
               const drawerName = paymentMethodToDrawerName(p.method);
               const legPmFee = perLegPmFee(p);
@@ -1031,7 +1098,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             }
 
             // Handle DEBT legs: insert into debt_ledger linked to this transaction
-            const debtLegs = data.payments.filter((p) => p.method === "DEBT");
+            const debtLegs = data.payments.filter((p) => p.method === "CUSTOMER_ACCOUNT");
             if (debtLegs.length > 0) {
               // Resolve clientId — use existing or find/create from name+phone
               let resolvedClientId = data.clientId;
@@ -1099,7 +1166,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             }
           } else {
             // Single payment: customer hands over totalCustomerPays (includes PM fee)
-            if (paidBy === "DEBT") {
+            if (paidBy === "CUSTOMER_ACCOUNT") {
               // DEBT single payment: validate + find/create client + insert debt_ledger
               if (!data.clientName?.trim()) {
                 throw new Error("Client name is required when paying by debt");
@@ -1263,7 +1330,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                   );
                   // Net in wallet drawer: +totalCustomerPays (customer in) - totalCollected (transfer out) = +pmFee ✓
                 }
-              } else if (paidBy !== "DEBT") {
+              } else if (paidBy !== "CUSTOMER_ACCOUNT") {
                 // Cash payment: reserve from General (net 0 for General)
                 // Skip for DEBT single payment — no cash was received, nothing to reserve
                 // Skip for FOR partner transactions — no cash flows through the shop's General drawer
@@ -1289,13 +1356,13 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             //   (debt is owed by the customer, not yet funded — OMT_System only gets
             //    funded portions from wallet transfers + cash reserve)
             let systemDrawerCredit = totalCollected;
-            if (paidBy === "DEBT") {
+            if (paidBy === "CUSTOMER_ACCOUNT") {
               // Single DEBT payment: no funds received yet — OMT_System not credited
               systemDrawerCredit = 0;
             } else if (data.payments && data.payments.length > 0) {
               // Multi-payment: total actually funded = totalCollected - debtTotal
               const debtTotal = data.payments
-                .filter((p) => p.method === "DEBT")
+                .filter((p) => p.method === "CUSTOMER_ACCOUNT")
                 .reduce((s, p) => s + Math.abs(p.amount), 0);
               systemDrawerCredit = Math.max(0, totalCollected - debtTotal);
             }

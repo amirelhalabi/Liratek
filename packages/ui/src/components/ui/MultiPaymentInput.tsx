@@ -6,7 +6,17 @@ export type PaymentLine = {
   method: string;
   currencyCode: string;
   amount: number;
+  /** Set when method === 'GIFT_CARD' — the voucher code being redeemed. */
+  voucherCode?: string;
 };
+
+/** A redeemable voucher belonging to the selected client. */
+export interface VoucherOption {
+  code: string;
+  /** Face value in USD (deposited to the account on redemption). */
+  amount: number;
+  expiryDate?: string | null;
+}
 
 export interface PaymentMethod {
   code: string;
@@ -58,9 +68,18 @@ export interface MultiPaymentInputProps {
   onDiscountChange?: (discount: number) => void;
   /** Custom label for the header (defaults to "Payment") */
   label?: string;
+  /** Initial payment method for the first line (used on mount/remount). */
+  initialMethod?: string;
+  /** Selected client (voucher owner). Required to offer GIFT_CARD vouchers. */
+  clientId?: number | null;
+  /** Fetch the client's redeemable vouchers. When provided, GIFT_CARD lines show
+   *  a dropdown of that client's vouchers (auto-selected when only one exists)
+   *  instead of a manual code field. The selected voucher's value is deposited to
+   *  the account on redemption; the leg amount stays the charged portion. */
+  fetchClientVouchers?: (clientId: number) => Promise<VoucherOption[]>;
 }
 
-const CASH_EQUIVALENT_METHODS = new Set(["CASH", "DEBT"]);
+const CASH_EQUIVALENT_METHODS = new Set(["CASH", "CUSTOMER_ACCOUNT"]);
 
 /** Format a number with commas (e.g. 3600000 → "3,600,000", 150.50 → "150.50") */
 function fmtNum(value: number | string): string {
@@ -97,14 +116,19 @@ export default function MultiPaymentInput({
   maxDiscount,
   onDiscountChange,
   label,
+  initialMethod,
+  clientId,
+  fetchClientVouchers,
 }: MultiPaymentInputProps) {
   const [isSplitMode, setIsSplitMode] = useState(false);
+  // Redeemable vouchers for the selected client (for GIFT_CARD lines)
+  const [clientVouchers, setClientVouchers] = useState<VoucherOption[]>([]);
   const [discountRaw, setDiscountRaw] = useState<string>("");
   const [discountCurrency, setDiscountCurrency] = useState<string>(currency);
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([
     {
       id: crypto.randomUUID(),
-      method: "CASH",
+      method: initialMethod || "CASH",
       currencyCode: currency,
       amount: totalAmount,
     },
@@ -201,10 +225,90 @@ export default function MultiPaymentInput({
     clampedDiscount,
   ]);
 
+  // Sync the first line's method with initialMethod and notify the parent.
+  // Fires:
+  //   - on mount (so the parent learns the initial method even when it matches
+  //     the useState init — e.g. after a key-based remount with CUSTOMER_ACCOUNT)
+  //   - whenever initialMethod changes without a remount
+  useEffect(() => {
+    if (!initialMethod) return;
+    setPaymentLines((prev) => {
+      const updated =
+        prev[0]?.method === initialMethod
+          ? prev
+          : prev.map((line, i) =>
+              i === 0 ? { ...line, method: initialMethod } : line,
+            );
+      onChange(updated);
+      return updated;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialMethod]);
+
   const handleLinesChange = (newLines: PaymentLine[]) => {
     setPaymentLines(newLines);
     onChange(newLines);
   };
+
+  // Load the selected client's redeemable vouchers (for GIFT_CARD lines)
+  useEffect(() => {
+    let cancelled = false;
+    if (clientId && fetchClientVouchers) {
+      fetchClientVouchers(clientId)
+        .then((vs) => {
+          if (!cancelled) setClientVouchers(vs);
+        })
+        .catch(() => {
+          if (!cancelled) setClientVouchers([]);
+        });
+    } else {
+      setClientVouchers([]);
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [clientId, fetchClientVouchers]);
+
+  /** Return a line with voucherCode set, or the key omitted when no code. */
+  const withVoucher = (
+    line: PaymentLine,
+    code: string | undefined,
+  ): PaymentLine => {
+    if (code) return { ...line, voucherCode: code };
+    if (line.voucherCode === undefined) return line;
+    const next = { ...line };
+    delete next.voucherCode;
+    return next;
+  };
+
+  // Keep each GIFT_CARD line bound to a valid, unique voucher: default to the
+  // first still-available one, drop selections that are gone or taken elsewhere.
+  const giftCardSelectionKey = paymentLines
+    .map((l) => `${l.id}:${l.method}:${l.voucherCode ?? ""}`)
+    .join("|");
+  useEffect(() => {
+    const used = new Set<string>();
+    let changed = false;
+    const next = paymentLines.map((line) => {
+      // Clear a stale voucher code left over from a previous method.
+      if (line.method !== "GIFT_CARD") {
+        if (line.voucherCode === undefined) return line;
+        changed = true;
+        return withVoucher(line, undefined);
+      }
+      const available = clientVouchers.filter((v) => !used.has(v.code));
+      let code = line.voucherCode;
+      if (!code || !available.some((v) => v.code === code)) {
+        code = available[0]?.code;
+      }
+      if (code) used.add(code);
+      if (code === line.voucherCode) return line;
+      changed = true;
+      return withVoucher(line, code);
+    });
+    if (changed) handleLinesChange(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientVouchers, giftCardSelectionKey]);
 
   const addPaymentLine = () => {
     // Calculate remaining in totalAmountCurrency, then convert to the new line's currency
@@ -277,6 +381,90 @@ export default function MultiPaymentInput({
     handleLinesChange(updatedLines);
   };
 
+  /** Vouchers selected on OTHER GIFT_CARD lines (so each voucher is used once). */
+  const voucherCodesUsedByOthers = (lineId: string): Set<string> =>
+    new Set(
+      paymentLines
+        .filter(
+          (l) => l.id !== lineId && l.method === "GIFT_CARD" && l.voucherCode,
+        )
+        .map((l) => l.voucherCode as string),
+    );
+
+  /** Vouchers this line may pick: its own current one + any not used elsewhere. */
+  const voucherOptionsForLine = (line: PaymentLine): VoucherOption[] => {
+    const used = voucherCodesUsedByOthers(line.id);
+    return clientVouchers.filter(
+      (v) => v.code === line.voucherCode || !used.has(v.code),
+    );
+  };
+
+  const selectVoucher = (id: string, code: string) => {
+    handleLinesChange(
+      paymentLines.map((line) =>
+        line.id === id ? withVoucher(line, code || undefined) : line,
+      ),
+    );
+  };
+
+  /** Voucher picker shown under a GIFT_CARD line — driven by the client's vouchers. */
+  const renderVoucherSelector = (line: PaymentLine) => {
+    if (line.method !== "GIFT_CARD") return null;
+    if (!clientId) {
+      return (
+        <p className="mt-1 text-[11px] text-amber-400">
+          Select a client to use a voucher.
+        </p>
+      );
+    }
+    if (clientVouchers.length === 0) {
+      return (
+        <p className="mt-1 text-[11px] text-amber-400">
+          No available vouchers for this client.
+        </p>
+      );
+    }
+    const options = voucherOptionsForLine(line);
+    if (options.length === 0) {
+      return (
+        <p className="mt-1 text-[11px] text-amber-400">
+          No more vouchers available.
+        </p>
+      );
+    }
+    const value = line.voucherCode ?? options[0]?.code ?? "";
+    const selected = options.find((v) => v.code === value);
+    return (
+      <div>
+        {options.length === 1 ? (
+          <input
+            type="text"
+            value={value}
+            disabled
+            className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-1.5 text-white text-xs font-mono tracking-wider disabled:opacity-70"
+          />
+        ) : (
+          <select
+            value={value}
+            onChange={(e) => selectVoucher(line.id, e.target.value)}
+            className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-1.5 text-white text-xs focus:outline-none focus:border-orange-500"
+          >
+            {options.map((v) => (
+              <option key={v.code} value={v.code}>
+                {v.code} — ${v.amount.toFixed(2)}
+              </option>
+            ))}
+          </select>
+        )}
+        {selected && (
+          <p className="mt-1 text-[11px] text-emerald-400">
+            +${selected.amount.toFixed(2)} credit added on redemption
+          </p>
+        )}
+      </div>
+    );
+  };
+
   const calculatePmFee = (lineId: string, lineAmount: number): number => {
     const override = pmFeeOverrides[lineId];
     if (override !== undefined) {
@@ -333,7 +521,7 @@ export default function MultiPaymentInput({
   // Tolerance for matching: LBP amounts are large so use higher tolerance
   const matchTolerance = totalAmountCurrency === "LBP" ? 100 : 0.01;
 
-  const hasDebt = paymentLines.some((line) => line.method === "DEBT");
+  const hasDebt = paymentLines.some((line) => line.method === "CUSTOMER_ACCOUNT");
 
   const getSymbol = (currencyCode: string): string => {
     const curr = currencies.find((c) => c.code === currencyCode);
@@ -542,6 +730,13 @@ export default function MultiPaymentInput({
                   </button>
                 </div>
 
+                {/* Voucher picker (GIFT_CARD) */}
+                {fetchClientVouchers && line.method === "GIFT_CARD" && (
+                  <div className="ml-7 pl-3 border-l-2 border-orange-500/30">
+                    {renderVoucherSelector(line)}
+                  </div>
+                )}
+
                 {/* PM Fee sub-line */}
                 {showPmFee && !CASH_EQUIVALENT_METHODS.has(line.method) && (
                   <div className="flex items-center gap-2 ml-7 pl-3 border-l-2 border-violet-500/30">
@@ -584,7 +779,8 @@ export default function MultiPaymentInput({
           </>
         ) : (
           /* Single payment mode */
-          <div className="flex items-center gap-2">
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
             {/* Payment Method */}
             <select
               value={paymentLines[0]?.method || "CASH"}
@@ -649,6 +845,14 @@ export default function MultiPaymentInput({
                 placeholder="0"
               />
             </div>
+            </div>
+
+            {/* Voucher picker (GIFT_CARD) */}
+            {fetchClientVouchers &&
+              paymentLines[0]?.method === "GIFT_CARD" &&
+              paymentLines[0] && (
+                <div>{renderVoucherSelector(paymentLines[0])}</div>
+              )}
           </div>
         )}
       </div>

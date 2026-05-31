@@ -1,8 +1,10 @@
 import { useState, useEffect } from "react";
-import { ChevronDown, Search, X } from "lucide-react";
-import { useApi, DoubleTab } from "@liratek/ui";
+import { ChevronDown, Phone, Search, X, Plus } from "lucide-react";
+import { useApi, DoubleTab, type PaymentLine } from "@liratek/ui";
 import { PaymentSheet } from "./PaymentSheet";
+import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
 import { useSession } from "@/features/sessions/context/SessionContext";
+import { ensureRechargeClient } from "../utils/ensureClient";
 import type { ServiceItem, ProviderKey } from "../hooks/useMobileServiceItems";
 import { getCategoryColor } from "../utils/categoryColors";
 import type {
@@ -23,6 +25,16 @@ interface CartLineItem {
   quantity: number;
 }
 
+interface NewItemForm {
+  provider: string;
+  category: string;
+  subcategory: string;
+  label: string;
+  cost_lbp: string;
+  sell_lbp: string;
+  sort_order: string;
+}
+
 interface FinancialFormProps {
   activeConfig: ProviderConfig | undefined;
   finTransactions: FinancialTransaction[];
@@ -38,6 +50,8 @@ interface FinancialFormProps {
   formatAmount: (val: number, currency: string) => string;
   showHistory: boolean;
   setShowHistory: (show: boolean) => void;
+  onRefreshItems?: () => Promise<void>;
+  isAdmin?: boolean;
 }
 
 export function FinancialForm({
@@ -55,6 +69,8 @@ export function FinancialForm({
   formatAmount,
   showHistory,
   setShowHistory,
+  onRefreshItems,
+  isAdmin,
 }: FinancialFormProps) {
   const api = useApi();
   const {
@@ -77,6 +93,20 @@ export function FinancialForm({
   const [discount, setDiscount] = useState(0);
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
   const [partnerId, setPartnerId] = useState<number | null>(null);
+  const [clientId, setClientId] = useState<number | null>(null);
+  const [clientPhone, setClientPhone] = useState("");
+  const [paymentInputKey, setPaymentInputKey] = useState(0);
+  const [initialPaymentMethod, setInitialPaymentMethod] = useState("CASH");
+
+  // Auto-promote CUSTOMER_ACCOUNT once both name+phone are filled for a brand-new client
+  useEffect(() => {
+    const hasNewClientInfo =
+      !clientId && clientName.trim().length > 0 && clientPhone.trim().length > 0;
+    if (hasNewClientInfo && initialPaymentMethod !== "CUSTOMER_ACCOUNT") {
+      setInitialPaymentMethod("CUSTOMER_ACCOUNT");
+      setPaymentInputKey((k) => k + 1);
+    }
+  }, [clientId, clientName, clientPhone, initialPaymentMethod]);
 
   // Fetch exchange rates on mount
   useEffect(() => {
@@ -174,8 +204,65 @@ export function FinancialForm({
     0,
   );
 
+  const getCartCountForCategory = (category: string): number =>
+    Array.from(cart.values())
+      .filter((line) => line.item.category === category && line.item.provider === activeProvider)
+      .reduce((sum, line) => sum + line.quantity, 0);
+
+  const [newItemForm, setNewItemForm] = useState<NewItemForm | null>(null);
+  const [addItemError, setAddItemError] = useState("");
+
+  const handleAddItem = async () => {
+    if (!newItemForm) return;
+    setAddItemError("");
+    if (!newItemForm.label.trim() || !newItemForm.cost_lbp || !newItemForm.sell_lbp) {
+      setAddItemError("Label, cost, and sell are required");
+      return;
+    }
+    const costLbp = parseInt(newItemForm.cost_lbp, 10);
+    const sellLbp = parseInt(newItemForm.sell_lbp, 10);
+    if (isNaN(costLbp) || isNaN(sellLbp)) {
+      setAddItemError("Cost and sell must be valid numbers");
+      return;
+    }
+    try {
+      const res = await window.api.mobileServiceItems.create({
+        provider: newItemForm.provider,
+        category: newItemForm.category,
+        subcategory: newItemForm.subcategory,
+        label: newItemForm.label.trim(),
+        cost_lbp: costLbp,
+        sell_lbp: sellLbp,
+        sort_order: parseInt(newItemForm.sort_order, 10) || 0,
+      });
+      if (!res.success) {
+        setAddItemError(res.error ?? "Failed to create item");
+        return;
+      }
+      setNewItemForm(null);
+      await onRefreshItems?.();
+    } catch {
+      setAddItemError("Create failed");
+    }
+  };
+
   const handleSubmit = async () => {
     if (cart.size === 0 || localSubmitting) return;
+
+    const clientResult = await ensureRechargeClient({
+      clientId,
+      name: clientName,
+      phone: clientPhone,
+      paymentLines,
+    });
+    if (!clientResult.ok) {
+      alert(clientResult.error);
+      return;
+    }
+    const resolvedClientId = clientResult.id;
+    if (resolvedClientId && resolvedClientId !== clientId) {
+      setClientId(resolvedClientId);
+    }
 
     // If session is active, add all cart items as one session cart entry
     if (activeSession) {
@@ -191,13 +278,20 @@ export function FinancialForm({
           : `${providerLabel}: ${itemLabels}`;
 
       const finalPaymentMethod = isSplitPayment ? "MULTI" : paymentMethod;
-      const paymentsPayload = isSplitPayment
-        ? paymentLines.map((l: any) => ({
-            method: l.method,
-            currencyCode: l.currencyCode,
-            amount: l.amount,
-          }))
-        : undefined;
+      const hasVoucherLeg = paymentLines.some(
+        (l: PaymentLine) => l.method === "GIFT_CARD",
+      );
+      const paymentsPayload =
+        isSplitPayment || hasVoucherLeg
+          ? paymentLines.map((l: PaymentLine) => ({
+              method: l.method,
+              currencyCode: l.currencyCode,
+              amount: l.amount,
+              ...(l.method === "GIFT_CARD" && l.voucherCode
+                ? { voucherCode: l.voucherCode }
+                : {}),
+            }))
+          : undefined;
 
       // Store each line item for replay at checkout
       // Distribute discount proportionally across items based on sell price
@@ -223,6 +317,7 @@ export function FinancialForm({
           commission: Math.max(0, commission),
           paidByMethod: finalPaymentMethod,
           payments: paymentsPayload,
+          clientId: resolvedClientId || undefined,
           clientName: clientName || undefined,
           itemKey: line.item.key,
           itemCategory: line.item.category,
@@ -245,6 +340,8 @@ export function FinancialForm({
       // Reset form
       setCart(new Map());
       setClientName("");
+      setClientPhone("");
+      setClientId(null);
       setExpandedKeys(new Set());
       setSearchQuery("");
       return;
@@ -254,13 +351,20 @@ export function FinancialForm({
 
     const cartItems = Array.from(cart.values());
     const finalPaymentMethod = isSplitPayment ? "MULTI" : paymentMethod;
-    const paymentsPayload = isSplitPayment
-      ? paymentLines.map((l: any) => ({
-          method: l.method,
-          currencyCode: l.currencyCode,
-          amount: l.amount,
-        }))
-      : undefined;
+    const hasVoucherLeg = paymentLines.some(
+      (l: PaymentLine) => l.method === "GIFT_CARD",
+    );
+    const paymentsPayload =
+      isSplitPayment || hasVoucherLeg
+        ? paymentLines.map((l: PaymentLine) => ({
+            method: l.method,
+            currencyCode: l.currencyCode,
+            amount: l.amount,
+            ...(l.method === "GIFT_CARD" && l.voucherCode
+              ? { voucherCode: l.voucherCode }
+              : {}),
+          }))
+        : undefined;
 
     let allSucceeded = true;
 
@@ -291,6 +395,7 @@ export function FinancialForm({
             commission: Math.max(0, commission),
             paidByMethod: finalPaymentMethod,
             payments: paymentsPayload,
+            clientId: resolvedClientId || undefined,
             clientName: clientName || undefined,
             itemKey: line.item.key,
             itemCategory: line.item.category,
@@ -333,9 +438,17 @@ export function FinancialForm({
     if (allSucceeded) {
       setCart(new Map());
       setClientName("");
+      setClientPhone("");
+      setClientId(null);
       setExpandedKeys(new Set());
       setSearchQuery("");
       setTransactionTime(undefined);
+      const hasDebtPayment =
+        paymentMethod === "CUSTOMER_ACCOUNT" ||
+        paymentLines.some((l: any) => l.method === "CUSTOMER_ACCOUNT");
+      if (hasDebtPayment) {
+        window.dispatchEvent(new CustomEvent("debt-ledger-changed"));
+      }
     }
     loadFinancialData();
     setLocalSubmitting(false);
@@ -441,13 +554,119 @@ export function FinancialForm({
                         style={{ backgroundColor: getCategoryColor(category) }}
                       />
                       {category}
+                      {getCartCountForCategory(category) > 0 && (
+                        <span className="px-1.5 py-0.5 bg-orange-500/20 text-orange-400 text-[10px] font-bold rounded-full leading-none">
+                          {getCartCountForCategory(category)}
+                        </span>
+                      )}
                     </h3>
-                    <ChevronDown
-                      className={`w-4 h-4 text-slate-400 transition-transform ${
-                        collapsedCategories.has(category) ? "-rotate-90" : ""
-                      }`}
-                    />
+                    <div className="flex items-center gap-1.5">
+                      {isAdmin && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setAddItemError("");
+                            setNewItemForm(
+                              newItemForm?.category === category
+                                ? null
+                                : {
+                                    provider: activeProvider as string,
+                                    category,
+                                    subcategory: "",
+                                    label: "",
+                                    cost_lbp: "",
+                                    sell_lbp: "",
+                                    sort_order: "0",
+                                  },
+                            );
+                          }}
+                          className="p-1 rounded hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
+                          type="button"
+                          title="Add item"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      <ChevronDown
+                        className={`w-4 h-4 text-slate-400 transition-transform ${
+                          collapsedCategories.has(category) ? "-rotate-90" : ""
+                        }`}
+                      />
+                    </div>
                   </div>
+                  {newItemForm?.category === category && (
+                    <div className="mt-3 border border-slate-600/40 rounded-lg p-3 bg-slate-900/50 space-y-2">
+                      {addItemError && (
+                        <p className="text-xs text-red-400">{addItemError}</p>
+                      )}
+                      <div className="flex items-end gap-2 flex-wrap">
+                        <div className="flex-1 min-w-24">
+                          <label className="text-slate-400 text-xs block mb-1">Subcategory</label>
+                          <input
+                            type="text"
+                            value={newItemForm.subcategory}
+                            onChange={(e) => setNewItemForm({ ...newItemForm, subcategory: e.target.value })}
+                            placeholder="e.g. pubg"
+                            className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500"
+                          />
+                        </div>
+                        <div className="flex-1 min-w-24">
+                          <label className="text-slate-400 text-xs block mb-1">Label</label>
+                          <input
+                            autoFocus
+                            type="text"
+                            value={newItemForm.label}
+                            onChange={(e) => setNewItemForm({ ...newItemForm, label: e.target.value })}
+                            placeholder="e.g. 60UC"
+                            className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500"
+                          />
+                        </div>
+                        <div className="w-28">
+                          <label className="text-slate-400 text-xs block mb-1">Cost</label>
+                          <input
+                            type="number"
+                            value={newItemForm.cost_lbp}
+                            onChange={(e) => setNewItemForm({ ...newItemForm, cost_lbp: e.target.value })}
+                            placeholder="LBP"
+                            className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500"
+                          />
+                        </div>
+                        <div className="w-28">
+                          <label className="text-slate-400 text-xs block mb-1">Sell</label>
+                          <input
+                            type="number"
+                            value={newItemForm.sell_lbp}
+                            onChange={(e) => setNewItemForm({ ...newItemForm, sell_lbp: e.target.value })}
+                            placeholder="LBP"
+                            className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500"
+                          />
+                        </div>
+                        <div className="w-16">
+                          <label className="text-slate-400 text-xs block mb-1">Order</label>
+                          <input
+                            type="number"
+                            value={newItemForm.sort_order}
+                            onChange={(e) => setNewItemForm({ ...newItemForm, sort_order: e.target.value })}
+                            className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500"
+                          />
+                        </div>
+                        <button
+                          onClick={handleAddItem}
+                          className="px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white rounded text-sm font-medium transition-colors"
+                          type="button"
+                        >
+                          Add
+                        </button>
+                        <button
+                          onClick={() => { setNewItemForm(null); setAddItemError(""); }}
+                          className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded text-sm transition-colors"
+                          type="button"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
                   {!collapsedCategories.has(category) && (
                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 mt-3">
                       {filteredItems.map((item) => {
@@ -598,9 +817,17 @@ export function FinancialForm({
           totalAmountCurrency="LBP"
           currency="LBP"
           paymentMethods={methods}
+          clientId={clientId}
+          fetchClientVouchers={fetchClientVouchers}
           exchangeRate={exchangeRate}
           requiresClientForDebt={true}
-          hasClient={!!activeSession?.customer_name || !!clientName}
+          hasClient={
+            !!clientId ||
+            !!activeSession?.customer_name ||
+            (!!clientName.trim() && !!clientPhone.trim())
+          }
+          paymentInputKey={paymentInputKey}
+          initialPaymentMethod={initialPaymentMethod}
           showDiscount={true}
           maxDiscount={maxDiscount}
           onDiscountChange={setDiscount}
@@ -611,23 +838,48 @@ export function FinancialForm({
             }
           }}
         >
-          {/* Client name input for iPick/Katsh/Whish */}
-          {(activeProvider === "iPick" ||
-            activeProvider === "Katsh" ||
-            activeProvider === "WISH_APP") && (
-            <div>
-              <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                Client Name
-              </label>
-              <ClientAutocompleteInput
-                type="text"
-                value={clientName}
-                onChange={(v) => setClientName(v)}
-                placeholder="Client name (optional)"
-                className="w-full mt-1 bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-violet-500"
+          <div className="space-y-2">
+            <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+              Client Name
+            </label>
+            <ClientAutocompleteInput
+              type="text"
+              value={clientName}
+              onChange={(v) => {
+                setClientName(v);
+                if (!v) {
+                  setClientId(null);
+                  setClientPhone("");
+                }
+              }}
+              onClientSelect={(c) => {
+                setClientId(c.id);
+                setClientPhone(c.phone_number || "");
+                setInitialPaymentMethod("CUSTOMER_ACCOUNT");
+                setPaymentInputKey((k) => k + 1);
+              }}
+              placeholder="Client name (optional)"
+              className="w-full mt-1 bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-violet-500"
+            />
+            <div className="relative">
+              <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">
+                <Phone size={14} />
+              </div>
+              <input
+                type="tel"
+                inputMode="numeric"
+                value={clientPhone}
+                onChange={(e) => setClientPhone(e.target.value)}
+                placeholder="Phone number (registers a new client)"
+                className="w-full bg-slate-800 border border-slate-600 rounded-lg pl-10 pr-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-violet-500"
               />
             </div>
-          )}
+            {clientName.trim() && clientPhone.trim() && !clientId && (
+              <p className="text-xs text-violet-300/80 px-1">
+                New client will be created on confirm.
+              </p>
+            )}
+          </div>
           <TransactionTimeOverride
             value={transactionTime}
             onChange={setTransactionTime}

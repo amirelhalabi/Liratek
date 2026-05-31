@@ -13,6 +13,7 @@ import {
   isDrawerAffectingMethod,
 } from "../utils/payments.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
+import { getVoucherRepository } from "./VoucherRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import {
   type TopUpProvider,
@@ -45,6 +46,8 @@ export interface RechargeData {
     method: string;
     currencyCode: string;
     amount: number;
+    /** Set when method === 'GIFT_CARD' — the voucher code being redeemed. */
+    voucherCode?: string;
   }>;
   phoneNumber?: string;
   clientId?: number;
@@ -465,6 +468,18 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         if (data.payments && data.payments.length > 0) {
           // Multi-payment mode
           for (const p of data.payments) {
+            if (p.method === "GIFT_CARD") {
+              // Voucher leg — deposit the voucher's full value to the owner's
+              // account; the charge is then consumed from that account as debt.
+              getVoucherRepository().redeemByCode({
+                code: (p.voucherCode ?? "").trim().toUpperCase(),
+                context: "recharge",
+                transactionId: txnId,
+                userId: createdBy,
+              });
+              hasDebt = true;
+              continue;
+            }
             if (!isDrawerAffectingMethod(p.method)) {
               hasDebt = true;
               continue;

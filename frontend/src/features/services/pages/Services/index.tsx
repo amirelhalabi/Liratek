@@ -130,7 +130,7 @@ const WHISH_FEE_TIERS: Array<{ maxAmount: number; fee: number }> = [
 const PM_FEE_DEFAULT_RATE = 0.01;
 
 // CASH-equivalent method codes — these do NOT trigger PM fee
-const CASH_EQUIVALENT_METHODS = new Set(["CASH", "DEBT"]);
+const CASH_EQUIVALENT_METHODS = new Set(["CASH", "CUSTOMER_ACCOUNT"]);
 
 /**
  * Returns true if the payment method code is a non-cash wallet method
@@ -623,8 +623,8 @@ export default function Services() {
   const handleSubmit = useCallback(async () => {
     // Validate: client name + phone required when debt is used (single or split)
     const hasDebtLeg =
-      (!isSplitPayment && paidByMethod === "DEBT") ||
-      (isSplitPayment && paymentLines.some((p) => p.method === "DEBT"));
+      (!isSplitPayment && paidByMethod === "CUSTOMER_ACCOUNT") ||
+      (isSplitPayment && paymentLines.some((p) => p.method === "CUSTOMER_ACCOUNT"));
     // For SEND: check sender; for RECEIVE: check receiver
     const primaryName = serviceType === "SEND" ? senderName : receiverName;
     const primaryPhone = serviceType === "SEND" ? senderPhone : receiverPhone;
@@ -1746,7 +1746,7 @@ export default function Services() {
                       // For RECEIVE, sync cashout method
                       if (serviceType === "RECEIVE") {
                         const m = lines[0].method;
-                        setCashoutMethod(m === "DEBT" ? "CUSTOMER_ACCOUNT" : m);
+                        setCashoutMethod(m);
                       }
                     }
                   }}
@@ -1768,7 +1768,7 @@ export default function Services() {
                       ? allPaymentMethods.filter(
                           (pm) =>
                             pm.code === "CASH" ||
-                            pm.code === "DEBT" ||
+                            pm.code === "CUSTOMER_ACCOUNT" ||
                             pm.code === "OMT" ||
                             pm.code === "WHISH" ||
                             pm.code === "BINANCE",

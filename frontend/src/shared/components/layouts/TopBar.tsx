@@ -221,7 +221,7 @@ export default function TopBar({
     };
   }, []);
   return (
-    <header className="h-16 bg-slate-800 border-b border-slate-700 flex items-center justify-between px-6 relative z-50">
+    <header className="h-12 bg-slate-800 border-b border-slate-700 flex items-center justify-between px-3 relative z-50">
       <div className="flex items-center gap-3 flex-1">
         {/* Home Button (Page View mode) */}
         {showHomeButton && (
@@ -284,7 +284,7 @@ export default function TopBar({
       </div>
 
       {/* Right Actions */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-2">
         <div className="hidden md:flex items-center gap-1.5 text-xs text-slate-400">
           <span
             className={`w-2 h-2 rounded-full ${isOnline ? "bg-emerald-500" : "bg-red-500"}`}
@@ -294,7 +294,7 @@ export default function TopBar({
         <div className="relative">
           <button
             onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
-            className={`p-2 transition-colors relative ${isNotificationsOpen ? "text-white bg-slate-700 rounded-lg" : "text-slate-400 hover:text-white"}`}
+            className={`p-1 transition-colors relative ${isNotificationsOpen ? "text-white bg-slate-700 rounded-lg" : "text-slate-400 hover:text-white"}`}
           >
             <Bell size={20} />
             {notificationCount > 0 && (
@@ -335,7 +335,7 @@ export default function TopBar({
         {/* Theme Toggle */}
         <button
           onClick={toggleTheme}
-          className="p-2 text-slate-400 hover:text-white transition-colors"
+          className="p-1 text-slate-400 hover:text-white transition-colors"
           title={
             theme === "dark" ? "Switch to light mode" : "Switch to dark mode"
           }
@@ -343,7 +343,7 @@ export default function TopBar({
           {theme === "dark" ? <Sun size={20} /> : <Moon size={20} />}
         </button>
 
-        <div className="h-8 w-px bg-slate-700"></div>
+        <div className="h-6 w-px bg-slate-700"></div>
 
         <div className="flex items-center gap-3">
           <div className="text-right hidden sm:block">

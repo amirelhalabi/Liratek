@@ -3333,6 +3333,226 @@ export const MIGRATIONS: Migration[] = [
       console.log("Migration v85 rolled back (no-op for SQLite)");
     },
   },
+  {
+    version: 86,
+    name: "consolidate_customer_account_code",
+    description:
+      "Consolidate DEBT and CUSTOMER_ACCOUNT payment method codes into a single CUSTOMER_ACCOUNT code",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      // Remove the inactive duplicate first (code is UNIQUE)
+      db.exec(`DELETE FROM payment_methods WHERE code = 'CUSTOMER_ACCOUNT'`);
+      // Rename the active DEBT entry
+      db.exec(`
+        UPDATE payment_methods
+        SET code = 'CUSTOMER_ACCOUNT', label = 'Customer Account', is_system = 1
+        WHERE code = 'DEBT'
+      `);
+      // Migrate stored method codes in all tables
+      db.exec(`UPDATE payments SET method = 'CUSTOMER_ACCOUNT' WHERE method = 'DEBT'`);
+      db.exec(`UPDATE financial_services SET paid_by = 'CUSTOMER_ACCOUNT' WHERE paid_by = 'DEBT'`);
+      db.exec(`UPDATE recharges SET paid_by = 'CUSTOMER_ACCOUNT' WHERE paid_by = 'DEBT'`);
+      db.exec(`UPDATE maintenance SET paid_by = 'CUSTOMER_ACCOUNT' WHERE paid_by = 'DEBT'`);
+      db.exec(`UPDATE custom_services SET paid_by = 'CUSTOMER_ACCOUNT' WHERE paid_by = 'DEBT'`);
+      db.exec(`UPDATE expenses SET paid_by_method = 'CUSTOMER_ACCOUNT' WHERE paid_by_method = 'DEBT'`);
+      console.log("Migration v86: DEBT renamed to CUSTOMER_ACCOUNT");
+    },
+    down(db: Database.Database) {
+      db.exec(`
+        UPDATE payment_methods
+        SET code = 'DEBT', label = 'Customer Account', is_system = 0
+        WHERE code = 'CUSTOMER_ACCOUNT'
+      `);
+      db.exec(`UPDATE payments SET method = 'DEBT' WHERE method = 'CUSTOMER_ACCOUNT'`);
+      db.exec(`UPDATE financial_services SET paid_by = 'DEBT' WHERE paid_by = 'CUSTOMER_ACCOUNT'`);
+      db.exec(`UPDATE recharges SET paid_by = 'DEBT' WHERE paid_by = 'CUSTOMER_ACCOUNT'`);
+      db.exec(`UPDATE maintenance SET paid_by = 'DEBT' WHERE paid_by = 'CUSTOMER_ACCOUNT'`);
+      db.exec(`UPDATE custom_services SET paid_by = 'DEBT' WHERE paid_by = 'CUSTOMER_ACCOUNT'`);
+      db.exec(`UPDATE expenses SET paid_by_method = 'DEBT' WHERE paid_by_method = 'CUSTOMER_ACCOUNT'`);
+    },
+  },
+  {
+    version: 87,
+    name: "add_paid_amount_currency_to_financial_services",
+    description:
+      "Track what the customer actually paid (amount + currency) alongside the service-denominated amount/currency. Needed for CUSTOMER_ACCOUNT payments where the payment currency may differ from the transaction currency.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      const cols = db
+        .prepare("PRAGMA table_info(financial_services)")
+        .all() as { name: string }[];
+      const names = cols.map((c) => c.name);
+      if (!names.includes("paid_amount")) {
+        db.exec(
+          `ALTER TABLE financial_services ADD COLUMN paid_amount REAL DEFAULT NULL`,
+        );
+      }
+      if (!names.includes("paid_currency")) {
+        db.exec(
+          `ALTER TABLE financial_services ADD COLUMN paid_currency TEXT DEFAULT NULL`,
+        );
+      }
+      console.log(
+        "Migration v87: financial_services now tracks paid_amount + paid_currency",
+      );
+    },
+    down(_db: Database.Database) {
+      // SQLite doesn't support DROP COLUMN until 3.35 — leave the columns in place.
+      console.log("Migration v87 rolled back (no-op on legacy SQLite)");
+    },
+  },
+  {
+    version: 88,
+    name: "fix_katsh_supplier_provider_name",
+    description:
+      "Correct the Katsh supplier provider field from 'KATCH' to 'Katsh' so it matches the provider value sent by the frontend and used in FinancialServiceRepository lookups.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      // Fix supplier provider name
+      db.prepare(`UPDATE suppliers SET provider = 'Katsh' WHERE provider = 'KATCH'`).run();
+      // Remove stale 'Katch' seed rows (real balance rows already use 'Katsh')
+      db.prepare(`DELETE FROM drawer_balances WHERE drawer_name = 'Katch'`).run();
+      db.prepare(`DELETE FROM currency_drawers WHERE drawer_name = 'Katch'`).run();
+      // Ensure canonical 'Katsh' rows exist
+      db.prepare(`INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Katsh', 'USD', 0)`).run();
+      db.prepare(`INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Katsh', 'LBP', 0)`).run();
+      db.prepare(`INSERT OR IGNORE INTO currency_drawers (currency_code, drawer_name) VALUES ('USD', 'Katsh')`).run();
+      db.prepare(`INSERT OR IGNORE INTO currency_drawers (currency_code, drawer_name) VALUES ('LBP', 'Katsh')`).run();
+      console.log("Migration v88: stale 'Katch' drawer rows removed, supplier provider fixed");
+    },
+    down(db: Database.Database) {
+      db.prepare(`UPDATE suppliers SET provider = 'KATCH' WHERE provider = 'Katsh'`).run();
+      console.log("Migration v88 rolled back");
+    },
+  },
+  {
+    version: 89,
+    name: "add_vouchers_module",
+    description:
+      "Create vouchers (gift card) table, register vouchers module, add GIFT_CARD payment method (no drawer impact, like CUSTOMER_ACCOUNT)",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      // 1. Vouchers table
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS vouchers (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          code TEXT NOT NULL UNIQUE,
+          client_id INTEGER NOT NULL,
+          client_name TEXT NOT NULL,
+          client_phone TEXT,
+          amount DECIMAL(10, 2) NOT NULL,
+          currency_code TEXT NOT NULL DEFAULT 'USD',
+          expiry_date TEXT,
+          status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'redeemed', 'expired', 'cancelled')),
+          redeemed_at TEXT,
+          redeemed_by INTEGER,
+          redeemed_in_transaction TEXT,
+          redeemed_transaction_id INTEGER,
+          cancelled_at TEXT,
+          cancelled_by INTEGER,
+          note TEXT,
+          created_by INTEGER NOT NULL,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE RESTRICT,
+          FOREIGN KEY (redeemed_by) REFERENCES users(id) ON DELETE SET NULL,
+          FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+        )
+      `);
+
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_vouchers_code ON vouchers(code)`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_vouchers_client_id ON vouchers(client_id)`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_vouchers_status ON vouchers(status)`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_vouchers_created_at ON vouchers(created_at)`);
+
+      // 2. Register module (after custom_services at sort_order 12)
+      db.prepare(
+        `INSERT OR IGNORE INTO modules (key, label, icon, route, sort_order, is_enabled, admin_only, is_system)
+         VALUES ('vouchers', 'Vouchers', 'Gift', '/vouchers', 18, 1, 0, 0)`,
+      ).run();
+
+      // 3. Currency support (USD only)
+      db.prepare(
+        `INSERT OR IGNORE INTO currency_modules (currency_code, module_key) VALUES ('USD', 'vouchers')`,
+      ).run();
+
+      // 4. GIFT_CARD payment method — no drawer impact, system method (like CUSTOMER_ACCOUNT)
+      db.prepare(
+        `INSERT OR IGNORE INTO payment_methods (code, label, drawer_name, affects_drawer, sort_order, is_system, is_active)
+         VALUES ('GIFT_CARD', 'Gift Card / Voucher', 'General', 0, 5, 1, 1)`,
+      ).run();
+
+      console.log("Migration v89: vouchers module + GIFT_CARD payment method added");
+    },
+    down(db: Database.Database) {
+      db.exec(`DROP TABLE IF EXISTS vouchers`);
+      db.prepare(`DELETE FROM modules WHERE key = 'vouchers'`).run();
+      db.prepare(`DELETE FROM currency_modules WHERE module_key = 'vouchers'`).run();
+      db.prepare(`DELETE FROM payment_methods WHERE code = 'GIFT_CARD'`).run();
+      console.log("Migration v89 rolled back");
+    },
+  },
+  {
+    version: 90,
+    name: "heal_unredeemed_gift_card_credit",
+    description:
+      "One-time data heal: a gift-card payment recorded the charge but never redeemed the voucher (deposited its value). Deposit the face value to the owner's account and mark the voucher redeemed. No-op on databases without the affected voucher.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      // The vouchers table only exists from v89 onward; guard for safety.
+      const hasVouchers = db
+        .prepare(
+          `SELECT name FROM sqlite_master WHERE type='table' AND name='vouchers'`,
+        )
+        .get();
+      if (!hasVouchers) return;
+
+      // Heal any voucher that was charged-against but left pending. We can only
+      // reliably identify the specific affected voucher by code on this install.
+      const code = "GIFT-XR2U-SCUF";
+      const voucher = db
+        .prepare(
+          `SELECT id, client_id, amount, created_by, status FROM vouchers WHERE code = ?`,
+        )
+        .get(code) as
+        | {
+            id: number;
+            client_id: number;
+            amount: number;
+            created_by: number;
+            status: string;
+          }
+        | undefined;
+
+      if (!voucher || voucher.status !== "pending") return;
+
+      // Deposit the full face value as customer-account credit (negative = credit).
+      db.prepare(
+        `INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, note, created_by, created_at)
+         VALUES (?, 'CREDIT_DEPOSIT', ?, 0, ?, ?, CURRENT_TIMESTAMP)`,
+      ).run(
+        voucher.client_id,
+        -Math.abs(voucher.amount),
+        `Voucher redeemed ${code}`,
+        voucher.created_by,
+      );
+
+      // Mark the voucher redeemed.
+      db.prepare(
+        `UPDATE vouchers
+         SET status = 'redeemed', redeemed_at = CURRENT_TIMESTAMP,
+             redeemed_by = ?, redeemed_in_transaction = 'financial_service',
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND status = 'pending'`,
+      ).run(voucher.created_by, voucher.id);
+
+      console.log(`Migration v90: healed gift-card credit for ${code}`);
+    },
+    down() {
+      // Data heal — not reversible.
+      console.log("Migration v90 rolled back (no-op)");
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

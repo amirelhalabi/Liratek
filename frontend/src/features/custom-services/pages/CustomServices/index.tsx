@@ -34,6 +34,7 @@ import { PresetManagerModal } from "./components/PresetManagerModal";
 import { StatsCards } from "../../components/StatsCards";
 import { getExchangeRates } from "@/utils/exchangeRates";
 import { useSaveAsClient } from "@/shared/hooks/useSaveAsClient";
+import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
 import { SaveAsClientCheckbox } from "@/shared/components/SaveAsClientCheckbox";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 
@@ -233,7 +234,7 @@ export default function CustomServices() {
       alert("Please enter a cost or price.");
       return;
     }
-    const hasDebtLine = paymentLines.some((l) => l.method === "DEBT");
+    const hasDebtLine = paymentLines.some((l) => l.method === "CUSTOMER_ACCOUNT");
     if (hasDebtLine && !clientId) {
       alert("Please select a client for debt payment.");
       return;
@@ -268,6 +269,15 @@ export default function CustomServices() {
               })),
             }
           : {}),
+        // Voucher code for the GIFT_CARD leg (custom services use one primary method)
+        ...(() => {
+          const voucherLeg = paymentLines.find(
+            (p) => p.method === "GIFT_CARD" && p.voucherCode,
+          );
+          return voucherLeg?.voucherCode
+            ? { voucher_code: voucherLeg.voucherCode }
+            : {};
+        })(),
       };
       if (finalClientId) payload.client_id = finalClientId;
       if (clientName.trim()) payload.client_name = clientName.trim();
@@ -712,7 +722,7 @@ export default function CustomServices() {
                   className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
                 >
                   <User size={12} /> Customer Name
-                  {paymentLines.some((l) => l.method === "DEBT") && (
+                  {paymentLines.some((l) => l.method === "CUSTOMER_ACCOUNT") && (
                     <span className="text-red-400 ml-1">*</span>
                   )}
                 </label>
@@ -830,6 +840,8 @@ export default function CustomServices() {
                   { code: "LBP", symbol: "LBP" },
                 ]}
                 exchangeRate={exchangeRate}
+                clientId={clientId}
+                fetchClientVouchers={fetchClientVouchers}
               />
             </div>
           </div>

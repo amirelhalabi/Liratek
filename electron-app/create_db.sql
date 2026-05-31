@@ -459,6 +459,8 @@ CREATE TABLE IF NOT EXISTS financial_services (
     cost DECIMAL(10, 2) DEFAULT 0,
     price DECIMAL(10, 2) DEFAULT 0,
     paid_by TEXT DEFAULT 'CASH',
+    paid_amount REAL DEFAULT NULL,
+    paid_currency TEXT DEFAULT NULL,
     client_id INTEGER REFERENCES clients(id),
     client_name TEXT,
     reference_number TEXT,
@@ -663,8 +665,8 @@ INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALU
 INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Alfa', 'USD', 0);
 INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('iPick', 'USD', 0);
 INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('iPick', 'LBP', 0);
-INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Katch', 'USD', 0);
-INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Katch', 'LBP', 0);
+INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Katsh', 'USD', 0);
+INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Katsh', 'LBP', 0);
 INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Whish_System', 'USD', 0);
 INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Whish_System', 'LBP', 0);
 
@@ -833,7 +835,8 @@ INSERT OR IGNORE INTO modules (key, label, icon, route, sort_order, is_enabled, 
   ('customer_sessions','Sessions','UserCheck',    '/customer-sessions',14, 1, 0, 0),
   ('partners',       'Partners', 'Handshake',     '/partners',       15, 1, 0, 0),
   ('loto',           'Loto',     'Ticket',        '/loto',           16, 1, 0, 0),
-  ('suppliers',      'Suppliers','Truck',         '/suppliers',      17, 1, 0, 0);
+  ('suppliers',      'Suppliers','Truck',         '/suppliers',      17, 1, 0, 0),
+  ('vouchers',       'Vouchers', 'Gift',          '/vouchers',       18, 1, 0, 0);
 
 -- Currency–Module junction (which currencies are allowed in which modules)
 CREATE TABLE IF NOT EXISTS currency_modules (
@@ -849,7 +852,8 @@ INSERT OR IGNORE INTO currency_modules (currency_code, module_key) VALUES
   ('USD', 'pos'), ('USD', 'debts'), ('USD', 'exchange'),
   ('USD', 'omt_whish'), ('USD', 'recharge'), ('USD', 'expenses'),
   ('USD', 'maintenance'), ('USD', 'binance'), ('USD', 'ipec_katch'),
-  ('USD', 'custom_services'), ('USD', 'closing'), ('USD', 'loto');
+  ('USD', 'custom_services'), ('USD', 'closing'), ('USD', 'loto'),
+  ('USD', 'vouchers');
 
 -- LBP: enabled for most modules except OMT/Whish, Binance
 INSERT OR IGNORE INTO currency_modules (currency_code, module_key) VALUES
@@ -896,30 +900,64 @@ CREATE TABLE IF NOT EXISTS payment_methods (
     code           TEXT NOT NULL UNIQUE,           -- e.g. 'CASH', 'OMT', 'WHISH'
     label          TEXT NOT NULL,                   -- Display name: 'Cash', 'OMT Wallet'
     drawer_name    TEXT NOT NULL,                   -- Which drawer this method affects
-    affects_drawer INTEGER NOT NULL DEFAULT 1,      -- 0 = DEBT (no drawer impact)
+    affects_drawer INTEGER NOT NULL DEFAULT 1,      -- 0 = no drawer impact (e.g. CUSTOMER_ACCOUNT)
     sort_order     INTEGER NOT NULL DEFAULT 0,
     is_active      INTEGER NOT NULL DEFAULT 1,
-    is_system      INTEGER NOT NULL DEFAULT 0,      -- 1 = cannot be deleted (CASH, DEBT)
+    is_system      INTEGER NOT NULL DEFAULT 0,      -- 1 = cannot be deleted (CASH, CUSTOMER_ACCOUNT)
     created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Seed default payment methods
 INSERT OR IGNORE INTO payment_methods (code, label, drawer_name, affects_drawer, sort_order, is_system, is_active) VALUES
-  ('CASH',    'Cash',          'General',    1, 0, 1, 1),
-  ('OMT',     'OMT Wallet',    'OMT_App',    1, 1, 0, 1),
-  ('WHISH',   'Whish Wallet',  'Whish_App',  1, 2, 0, 1),
-  ('BINANCE', 'Binance',       'Binance',    1, 3, 0, 1),
-  ('DEBT',    'Debt (On Tab)', 'General',    0, 4, 1, 0),
-  ('CUSTOMER_ACCOUNT', 'Customer Account', 'General', 0, 5, 1, 1);
+  ('CASH',             'Cash',                'General',   1, 0, 1, 1),
+  ('OMT',              'OMT Wallet',          'OMT_App',   1, 1, 0, 1),
+  ('WHISH',            'Whish Wallet',        'Whish_App', 1, 2, 0, 1),
+  ('BINANCE',          'Binance',             'Binance',   1, 3, 0, 1),
+  ('CUSTOMER_ACCOUNT', 'Customer Account',    'General',   0, 4, 1, 1),
+  ('GIFT_CARD',        'Gift Card / Voucher', 'General',   0, 5, 1, 1);
 
 -- Seed system suppliers (linked to modules)
 INSERT OR IGNORE INTO suppliers (name, module_key, provider, is_system) VALUES
   ('iPick',         'ipec_katch', 'iPick',         1),
-  ('Katch',        'ipec_katch', 'KATCH',        1),
+  ('Katch',        'ipec_katch', 'Katsh',        1),
   ('OMT',          'omt_whish',  'OMT',          1),
   ('Whish',        'omt_whish',  'WHISH',        0),
   ('OMT App',      'ipec_katch', 'OMT_APP',      1),
   ('Whish App',    'ipec_katch', 'WHISH_APP',    1);
+
+-- =============================================================================
+-- 9a. Vouchers (Gift Cards)
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS vouchers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT NOT NULL UNIQUE,                -- GIFT-A3F9-K2M1
+    client_id INTEGER NOT NULL,              -- owner (required for partial-redemption credit)
+    client_name TEXT NOT NULL,               -- snapshot at creation
+    client_phone TEXT,                       -- snapshot
+    amount DECIMAL(10, 2) NOT NULL,          -- face value (USD)
+    currency_code TEXT NOT NULL DEFAULT 'USD',
+    expiry_date TEXT,                        -- ISO date, NULL = no expiry
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'redeemed', 'expired', 'cancelled')),
+    redeemed_at TEXT,
+    redeemed_by INTEGER,
+    redeemed_in_transaction TEXT,            -- 'sale' | 'custom_service' | 'recharge' | 'session'
+    redeemed_transaction_id INTEGER,
+    cancelled_at TEXT,
+    cancelled_by INTEGER,
+    note TEXT,
+    created_by INTEGER NOT NULL,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE RESTRICT,
+    FOREIGN KEY (redeemed_by) REFERENCES users(id) ON DELETE SET NULL,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_vouchers_code ON vouchers(code);
+CREATE INDEX IF NOT EXISTS idx_vouchers_client_id ON vouchers(client_id);
+CREATE INDEX IF NOT EXISTS idx_vouchers_status ON vouchers(status);
+CREATE INDEX IF NOT EXISTS idx_vouchers_created_at ON vouchers(created_at);
 
 -- =============================================================================
 -- 9b. Loto Module
@@ -1165,4 +1203,9 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (82, 'add_partners_and_audit_modules'),
     (83, 'add_partner_mode_and_transaction_types'),
     (84, 'add_suppliers_module'),
-    (85, 'heal_expenses_note_column');
+    (85, 'heal_expenses_note_column'),
+    (86, 'consolidate_customer_account_code'),
+    (87, 'add_paid_amount_currency_to_financial_services'),
+    (88, 'fix_katsh_supplier_provider_name'),
+    (89, 'add_vouchers_module'),
+    (90, 'heal_unredeemed_gift_card_credit');

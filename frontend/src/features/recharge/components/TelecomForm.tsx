@@ -15,6 +15,7 @@ import { TELECOM_SERVICE_TYPES, ALFA_GIFT_TIERS } from "../types";
 import { HistoryModal } from "./HistoryModal";
 import { getExchangeRates } from "@/utils/exchangeRates";
 import { PaymentSheet } from "./PaymentSheet";
+import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 
 interface VoucherItem {
@@ -48,6 +49,8 @@ interface TelecomFormProps {
   setTelecomClientId: (val: number | null) => void;
   telecomClientName: string;
   setTelecomClientName: (val: string) => void;
+  telecomClientPhone: string;
+  setTelecomClientPhone: (val: string) => void;
   searchClients: (query: string) => void;
   clientSearchResults: any[];
   selectClient: (client: any) => void;
@@ -99,6 +102,8 @@ export function TelecomForm({
   setTelecomClientId,
   telecomClientName,
   setTelecomClientName,
+  telecomClientPhone,
+  setTelecomClientPhone,
   searchClients,
   clientSearchResults,
   selectClient,
@@ -124,6 +129,8 @@ export function TelecomForm({
   onTransactionTimeChange,
 }: TelecomFormProps) {
   const api = useApi();
+  const [paymentInputKey, setPaymentInputKey] = useState(0);
+  const [initialPaymentMethod, setInitialPaymentMethod] = useState("CASH");
   const [rates, setRates] = useState({ buyRate: 89000, sellRate: 89500 });
   const [costRate, setCostRate] = useState(85000);
   const [discount, setDiscount] = useState(0);
@@ -165,6 +172,26 @@ export function TelecomForm({
     setDiscount(d);
     onDiscountChange?.(d);
   };
+
+  // When the user types both a name and phone for a brand-new client (no
+  // existing client ID), promote CUSTOMER_ACCOUNT to the active payment method
+  // so they can tap "Pay" immediately — the parent will create the client on
+  // submit. Mirrors the existing select-from-search auto-switch.
+  useEffect(() => {
+    const hasNewClientInfo =
+      !telecomClientId &&
+      telecomClientName.trim().length > 0 &&
+      telecomClientPhone.trim().length > 0;
+    if (hasNewClientInfo && initialPaymentMethod !== "CUSTOMER_ACCOUNT") {
+      setInitialPaymentMethod("CUSTOMER_ACCOUNT");
+      setPaymentInputKey((k) => k + 1);
+    }
+  }, [
+    telecomClientId,
+    telecomClientName,
+    telecomClientPhone,
+    initialPaymentMethod,
+  ]);
 
   // Required for API compatibility but not used in this component
   void _paidBy;
@@ -304,6 +331,8 @@ export function TelecomForm({
             totalAmountCurrency="LBP"
             currency="LBP"
             paymentMethods={methods}
+            clientId={telecomClientId}
+            fetchClientVouchers={fetchClientVouchers}
             exchangeRate={exchangeRate}
             showDiscount={true}
             maxDiscount={Math.max(
@@ -419,6 +448,8 @@ export function TelecomForm({
             totalAmountCurrency="LBP"
             currency="LBP"
             paymentMethods={methods}
+            clientId={telecomClientId}
+            fetchClientVouchers={fetchClientVouchers}
             exchangeRate={exchangeRate}
             showDiscount={true}
             maxDiscount={Math.max(
@@ -680,6 +711,8 @@ export function TelecomForm({
               totalAmountCurrency="LBP"
               currency="LBP"
               paymentMethods={methods}
+              clientId={telecomClientId}
+              fetchClientVouchers={fetchClientVouchers}
               exchangeRate={exchangeRate}
               showDiscount={true}
               maxDiscount={Math.max(
@@ -695,6 +728,8 @@ export function TelecomForm({
               }}
               onDiscountChange={handleDiscountChange}
               hasClient={!!telecomClientId}
+              paymentInputKey={paymentInputKey}
+              initialPaymentMethod={initialPaymentMethod}
               summary={[
                 { label: "Amount", value: `$${telecomAmount || "0"}` },
                 {
@@ -704,33 +739,47 @@ export function TelecomForm({
                 },
               ]}
             >
-              {/* Client selector for DEBT */}
-              {paymentLines.some((l) => l.method === "DEBT") && (
-                <div className="relative">
-                  <label
-                    htmlFor="telecom-debt-client"
-                    className="block text-xs font-medium text-orange-400 mb-2 uppercase tracking-wider flex items-center gap-1.5"
-                  >
-                    <User size={12} />
-                    Client (required for debt)
-                  </label>
-                  {telecomClientId ? (
-                    <div className="flex items-center gap-2 bg-orange-500/10 border border-orange-500/30 rounded-xl px-4 py-3">
-                      <User size={16} className="text-orange-400" />
-                      <span className="text-white font-medium flex-1">
+              {/* Client selector - always visible; auto-selects CUSTOMER_ACCOUNT when a registered client is picked or a new name+phone is entered */}
+              <div className="relative">
+                <label
+                  htmlFor="telecom-debt-client"
+                  className={`block text-xs font-medium mb-2 uppercase tracking-wider flex items-center gap-1.5 ${
+                    paymentLines.some((l) => l.method === "CUSTOMER_ACCOUNT")
+                      ? "text-orange-400"
+                      : "text-slate-400"
+                  }`}
+                >
+                  <User size={12} />
+                  {paymentLines.some((l) => l.method === "CUSTOMER_ACCOUNT")
+                    ? "Client (required for debt)"
+                    : "Client (optional)"}
+                </label>
+                {telecomClientId ? (
+                  <div className="flex items-center gap-2 bg-orange-500/10 border border-orange-500/30 rounded-xl px-4 py-3">
+                    <User size={16} className="text-orange-400" />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-white font-medium truncate">
                         {telecomClientName}
-                      </span>
-                      <button
-                        onClick={() => {
-                          setTelecomClientId(null);
-                          setTelecomClientName("");
-                        }}
-                        className="text-slate-400 hover:text-white transition-colors"
-                      >
-                        <X size={16} />
-                      </button>
+                      </div>
+                      {telecomClientPhone && (
+                        <div className="text-xs text-orange-300/80 font-mono truncate">
+                          {telecomClientPhone}
+                        </div>
+                      )}
                     </div>
-                  ) : (
+                    <button
+                      onClick={() => {
+                        setTelecomClientId(null);
+                        setTelecomClientName("");
+                        setTelecomClientPhone("");
+                      }}
+                      className="text-slate-400 hover:text-white transition-colors"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
                     <div className="relative">
                       <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">
                         <Search size={16} />
@@ -749,7 +798,7 @@ export function TelecomForm({
                             searchClients(telecomClientName);
                           }
                         }}
-                        className="w-full bg-slate-900/80 border border-orange-500/30 rounded-xl pl-10 pr-4 py-3 text-white focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500/30 transition-all"
+                        className="w-full bg-slate-900/80 border border-slate-600 rounded-xl pl-10 pr-4 py-3 text-white focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500/30 transition-all"
                         placeholder="Search client by name..."
                       />
                       {showClientSearch && clientSearchResults.length > 0 && (
@@ -757,18 +806,57 @@ export function TelecomForm({
                           {clientSearchResults.map((c: any) => (
                             <button
                               key={c.id}
-                              onClick={() => selectClient(c)}
-                              className="w-full text-left px-4 py-2.5 hover:bg-slate-700 text-sm text-white transition-colors first:rounded-t-xl last:rounded-b-xl"
+                              onClick={() => {
+                                selectClient(c);
+                                setInitialPaymentMethod("CUSTOMER_ACCOUNT");
+                                setPaymentInputKey((k) => k + 1);
+                              }}
+                              className="w-full text-left px-4 py-2.5 hover:bg-slate-700 text-sm text-white transition-colors first:rounded-t-xl last:rounded-b-xl flex items-center justify-between gap-2"
                             >
-                              {c.full_name || c.name}
+                              <span className="truncate">
+                                {c.full_name || c.name}
+                              </span>
+                              {c.phone_number && (
+                                <span className="text-xs text-slate-400 font-mono shrink-0">
+                                  {c.phone_number}
+                                </span>
+                              )}
                             </button>
                           ))}
                         </div>
                       )}
                     </div>
-                  )}
-                </div>
-              )}
+                    <div className="relative">
+                      <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">
+                        <Phone size={14} />
+                      </div>
+                      <input
+                        type="tel"
+                        inputMode="numeric"
+                        value={telecomClientPhone}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setTelecomClientPhone(val);
+                          // Search by phone too — backend matches name OR phone
+                          if (val.trim().length >= 3) {
+                            setShowClientSearch(true);
+                            searchClients(val.trim());
+                          }
+                        }}
+                        className="w-full bg-slate-900/80 border border-slate-600 rounded-xl pl-10 pr-4 py-3 text-white font-mono focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500/30 transition-all"
+                        placeholder="Phone number (registers a new client)"
+                      />
+                    </div>
+                    {telecomClientName.trim() &&
+                      telecomClientPhone.trim() &&
+                      !telecomClientId && (
+                        <p className="text-xs text-orange-300/80 px-1">
+                          New client will be created on confirm.
+                        </p>
+                      )}
+                  </div>
+                )}
+              </div>
               <TransactionTimeOverride
                 value={transactionTime}
                 onChange={(t) => {

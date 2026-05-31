@@ -14,6 +14,7 @@ import {
 } from "../utils/payments.js";
 import type { CreateCustomServiceInput } from "../validators/customService.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
+import { getVoucherRepository } from "./VoucherRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 
 // =============================================================================
@@ -141,8 +142,8 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
             updated_at = CURRENT_TIMESTAMP
         `);
 
-        if (paidBy === "DEBT") {
-          // DEBT: customer hasn't paid yet
+        if (paidBy === "CUSTOMER_ACCOUNT") {
+          // CUSTOMER_ACCOUNT: customer pays from their credit balance
           // But the shop still spent the cost out-of-pocket (from CASH/General drawer)
           if (!data.client_id) {
             throw new Error("Cannot create debt without a client");
@@ -185,6 +186,58 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
             )
             .run(
               data.client_id,
+              data.price_usd ?? 0,
+              data.price_lbp ?? 0,
+              txnId,
+              noteText,
+              createdBy,
+            );
+        } else if (paidBy === "GIFT_CARD") {
+          // Voucher payment: deposit the voucher's full value to the owner's
+          // account, then charge the service price as a debt against that same
+          // account (so any leftover stays as credit). The shop still spends the
+          // cost out-of-pocket (General drawer).
+          const voucher = getVoucherRepository().redeemByCode({
+            code: (data.voucher_code ?? "").trim().toUpperCase(),
+            context: "custom_service",
+            transactionId: txnId,
+            userId: createdBy,
+          });
+
+          if ((data.cost_usd ?? 0) > 0) {
+            insertPayment.run(
+              txnId,
+              "CASH",
+              "General",
+              "USD",
+              -Math.abs(data.cost_usd!),
+              `${noteText} (cost outflow)`,
+              createdBy,
+            );
+            upsertBalance.run("General", "USD", -Math.abs(data.cost_usd!));
+          }
+          if ((data.cost_lbp ?? 0) > 0) {
+            insertPayment.run(
+              txnId,
+              "CASH",
+              "General",
+              "LBP",
+              -Math.abs(data.cost_lbp!),
+              `${noteText} (cost outflow)`,
+              createdBy,
+            );
+            upsertBalance.run("General", "LBP", -Math.abs(data.cost_lbp!));
+          }
+
+          // Charge the price to the voucher owner's account
+          this.db
+            .prepare(
+              `INSERT INTO debt_ledger (
+                client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, created_by, due_date
+              ) VALUES (?, 'Custom Service Debt', ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
+            )
+            .run(
+              voucher.client_id,
               data.price_usd ?? 0,
               data.price_lbp ?? 0,
               txnId,
@@ -359,7 +412,7 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
           .run(id);
 
         // Reverse debt_ledger if DEBT
-        if (service.paid_by === "DEBT" && service.client_id) {
+        if (service.paid_by === "CUSTOMER_ACCOUNT" && service.client_id) {
           this.db
             .prepare(
               `DELETE FROM debt_ledger

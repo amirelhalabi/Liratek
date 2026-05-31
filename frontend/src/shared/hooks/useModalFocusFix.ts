@@ -48,11 +48,43 @@ export function useModalFocusFix(isOpen: boolean): void {
 
     return () => {
       document.removeEventListener("mousedown", handleMouseDown, true);
-      try {
-        window.api?.display?.fixFocus?.();
-      } catch {
-        /* ignore */
+
+      // fixFocus must run AFTER the modal DOM is removed, not before.
+      // Calling it synchronously here fires while the fixed overlay is still
+      // in the DOM (React hasn't re-rendered yet), so the compositor stays
+      // confused. A small delay lets React commit the unmount first.
+      let postCloseTimer: ReturnType<typeof setTimeout> | null = null;
+
+      function handlePostCloseMouseDown(e: MouseEvent) {
+        if (postCloseTimer !== null) clearTimeout(postCloseTimer);
+        document.removeEventListener("mousedown", handlePostCloseMouseDown, true);
+        const target = e.target as HTMLElement | null;
+        if (!target) return;
+        const tag = target.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") {
+          try {
+            window.api?.display?.fixFocus?.();
+          } catch {
+            /* ignore */
+          }
+          requestAnimationFrame(() => {
+            if (document.activeElement !== target) target.focus();
+          });
+        }
       }
+
+      document.addEventListener("mousedown", handlePostCloseMouseDown, true);
+
+      // Fallback: if the user doesn't click within 300 ms, cycle focus anyway
+      // so the window is unambiguously active for keyboard input.
+      postCloseTimer = setTimeout(() => {
+        document.removeEventListener("mousedown", handlePostCloseMouseDown, true);
+        try {
+          window.api?.display?.fixFocus?.();
+        } catch {
+          /* ignore */
+        }
+      }, 300);
     };
   }, [isOpen]);
 }

@@ -294,7 +294,7 @@ export function HistoryModal({
                       <td className="px-4 py-3">
                         <span
                           className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                            tx.paid_by === "DEBT"
+                            tx.paid_by === "CUSTOMER_ACCOUNT"
                               ? "bg-orange-500/10 text-orange-400"
                               : "bg-slate-700 text-slate-300"
                           }`}

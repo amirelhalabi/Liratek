@@ -32,12 +32,64 @@ type MaintenanceJob = {
   final_amount_usd?: number;
 };
 
+/** Status tabs for the jobs list (client-side filtered). */
+const STATUS_TABS: {
+  key: string;
+  label: string;
+  match: (status: string) => boolean;
+}[] = [
+  { key: "All", label: "All", match: () => true },
+  { key: "Received", label: "Received", match: (s) => s === "Received" },
+  {
+    key: "In_Progress",
+    label: "In Progress",
+    match: (s) => s === "In_Progress",
+  },
+  { key: "Ready", label: "Ready", match: (s) => s === "Ready" },
+  {
+    key: "Delivered",
+    label: "Delivered",
+    match: (s) => s === "Delivered" || s === "Delivered_Paid",
+  },
+];
+
+/** Display label + badge styling for a maintenance status. */
+function statusBadge(status: string): { label: string; className: string } {
+  switch (status) {
+    case "Received":
+      return { label: "Received", className: "bg-blue-500/20 text-blue-400" };
+    case "In_Progress":
+      return {
+        label: "In Progress",
+        className: "bg-amber-500/20 text-amber-400",
+      };
+    case "Ready":
+      return { label: "Ready", className: "bg-emerald-500/20 text-emerald-400" };
+    case "Delivered":
+      return {
+        label: "Delivered",
+        className: "bg-slate-500/20 text-slate-300",
+      };
+    case "Delivered_Paid":
+      return {
+        label: "Delivered & Paid",
+        className: "bg-violet-500/20 text-violet-300",
+      };
+    default:
+      return {
+        label: status.replace("_", " "),
+        className: "bg-slate-500/20 text-slate-400",
+      };
+  }
+}
+
 export default function Maintenance() {
   const api = useApi();
   const { activeSession, addToCart: addToSessionCart } = useSession();
   const deviceNameRef = useRef<HTMLInputElement>(null);
   const [jobs, setJobs] = useState<MaintenanceJob[]>([]);
   const [filter, _setFilter] = useState("All");
+  const [statusTab, setStatusTab] = useState("All");
 
   // Form State
   const [editingJob, setEditingJob] = useState<MaintenanceJob | null>(null);
@@ -250,6 +302,10 @@ export default function Maintenance() {
     }
   };
 
+  const activeTab =
+    STATUS_TABS.find((t) => t.key === statusTab) ?? STATUS_TABS[0];
+  const filteredJobs = jobs.filter((job) => activeTab.match(job.status));
+
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 min-h-0 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500">
       <PageHeader
@@ -266,23 +322,50 @@ export default function Maintenance() {
         }
       />
 
-      {/* Main Content: Form */}
+      {/* Main Content: form (left) + jobs/status (right) */}
       <div className="flex-1 min-h-0 overflow-auto">
-        {/* Ongoing Jobs List */}
-        {(() => {
-          const ongoingJobs = jobs.filter((j) =>
-            ["Received", "In_Progress", "Ready"].includes(j.status),
-          );
-          if (ongoingJobs.length === 0) return null;
-          return (
-            <div className="w-full max-w-2xl mx-auto mb-4">
-              <div className="bg-slate-800/60 rounded-xl border border-slate-700/50 p-4">
-                <h3 className="text-sm font-semibold text-slate-300 mb-3 flex items-center gap-2">
-                  <Clock size={14} className="text-amber-400" />
-                  Ongoing Jobs ({ongoingJobs.length})
-                </h3>
-                <div className="space-y-2 max-h-48 overflow-auto custom-scrollbar">
-                  {ongoingJobs.map((job) => (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+          {/* Right: Jobs list with status tabs */}
+          <div className="order-2 lg:col-span-2">
+          <div className="bg-slate-800/60 rounded-xl border border-slate-700/50 p-4">
+            <h3 className="text-sm font-semibold text-slate-300 mb-3 flex items-center gap-2">
+              <Clock size={14} className="text-amber-400" />
+              Jobs ({filteredJobs.length})
+            </h3>
+
+            {/* Status tabs */}
+            <div className="flex flex-wrap gap-2 mb-3">
+              {STATUS_TABS.map((tab) => {
+                const count = jobs.filter((j) => tab.match(j.status)).length;
+                return (
+                  <button
+                    key={tab.key}
+                    onClick={() => setStatusTab(tab.key)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                      statusTab === tab.key
+                        ? "bg-violet-600 text-white"
+                        : "bg-slate-900/60 text-slate-400 border border-slate-700 hover:text-slate-200 hover:border-slate-600"
+                    }`}
+                  >
+                    {tab.label}
+                    <span className="ml-1.5 opacity-70">{count}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Jobs list */}
+            {filteredJobs.length === 0 ? (
+              <div className="py-8 text-center text-sm text-slate-500">
+                No jobs in this status
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-64 overflow-auto custom-scrollbar">
+                {filteredJobs.map((job) => {
+                  const badge = statusBadge(job.status);
+                  const canTransition =
+                    job.status === "Received" || job.status === "In_Progress";
+                  return (
                     <button
                       key={job.id}
                       onClick={() => handleEdit(job)}
@@ -298,15 +381,9 @@ export default function Maintenance() {
                             {job.device_name}
                           </span>
                           <span
-                            className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                              job.status === "Ready"
-                                ? "bg-emerald-500/20 text-emerald-400"
-                                : job.status === "In_Progress"
-                                  ? "bg-amber-500/20 text-amber-400"
-                                  : "bg-blue-500/20 text-blue-400"
-                            }`}
+                            className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${badge.className}`}
                           >
-                            {job.status.replace("_", " ")}
+                            {badge.label}
                           </span>
                         </div>
                         <div className="flex items-center gap-2 mt-0.5">
@@ -329,7 +406,7 @@ export default function Maintenance() {
                           </p>
                         )}
                       </div>
-                      {job.status !== "Ready" && (
+                      {canTransition && (
                         <button
                           onClick={(e) => handleStatusTransition(job, e)}
                           className="text-[10px] px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors whitespace-nowrap"
@@ -349,25 +426,25 @@ export default function Maintenance() {
                       )}
                       <ChevronRight size={14} className="text-slate-600" />
                     </button>
-                  ))}
-                </div>
+                  );
+                })}
               </div>
-            </div>
-          );
-        })()}
-        {/* New/Edit Job Form */}
-        <div className="w-full max-w-2xl mx-auto bg-slate-800 rounded-xl border border-slate-700/50 shadow-xl p-5 flex flex-col overflow-hidden">
+            )}
+          </div>
+        </div>
+          {/* Left: New/Edit Job Form */}
+          <div className="order-1 lg:col-span-1 bg-slate-800 rounded-xl border border-slate-700/50 shadow-xl p-5 flex flex-col overflow-hidden">
           <h2 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
             <Plus className="text-violet-400" size={20} />
             {editingJob ? "Edit Job" : "New Repair Job"}
           </h2>
 
-          <div className="space-y-4 flex-1 overflow-auto pr-1 custom-scrollbar">
+          <div className="space-y-3 flex-1 overflow-auto pr-1 custom-scrollbar">
             {/* Device Info */}
             <div>
               <label
                 htmlFor="maintenance-device-name"
-                className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
+                className="text-xs text-slate-400 block mb-1"
               >
                 Device Name / Model *
               </label>
@@ -376,7 +453,7 @@ export default function Maintenance() {
                 type="text"
                 value={deviceName}
                 onChange={(e) => setDeviceName(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-white focus:border-violet-500 focus:ring-2 focus:ring-violet-500/50 outline-none transition-all"
+                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
                 placeholder="e.g., iPhone 13 Pro Max"
                 ref={deviceNameRef}
               />
@@ -386,7 +463,7 @@ export default function Maintenance() {
             <div>
               <label
                 htmlFor="maintenance-issue"
-                className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
+                className="text-xs text-slate-400 block mb-1"
               >
                 Issue Description *
               </label>
@@ -394,22 +471,22 @@ export default function Maintenance() {
                 id="maintenance-issue"
                 value={issue}
                 onChange={(e) => setIssue(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-white focus:border-violet-500 focus:ring-2 focus:ring-violet-500/50 outline-none transition-all resize-none h-24"
+                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500 resize-none h-24"
                 placeholder="e.g., Broken Screen, Battery Replacement..."
               />
             </div>
 
             {/* Cost & Price */}
-            <div className="grid grid-cols-2 gap-3 p-4 rounded-xl bg-slate-900/50 border border-slate-700/50">
+            <div className="grid grid-cols-2 gap-3">
               <div>
                 <label
                   htmlFor="maintenance-cost"
-                  className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
+                  className="text-xs text-slate-400 block mb-1"
                 >
-                  Repair Cost (Internal)
+                  Repair Cost
                 </label>
                 <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 font-bold">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm">
                     $
                   </span>
                   <input
@@ -417,7 +494,7 @@ export default function Maintenance() {
                     type="number"
                     value={cost}
                     onChange={(e) => setCost(e.target.value)}
-                    className="w-full bg-slate-800 border border-slate-600 rounded-lg pl-8 pr-4 py-2.5 text-white font-mono text-sm focus:outline-none focus:border-violet-500 transition-all"
+                    className="w-full bg-slate-900 border border-slate-600 rounded-lg pl-7 pr-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-orange-500"
                     placeholder="0.00"
                   />
                 </div>
@@ -425,12 +502,12 @@ export default function Maintenance() {
               <div>
                 <label
                   htmlFor="maintenance-price"
-                  className="block text-xs font-medium text-emerald-400 mb-1.5 uppercase tracking-wider"
+                  className="text-xs text-emerald-400 block mb-1"
                 >
                   Price to Client
                 </label>
                 <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-500 font-bold">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-500 text-sm">
                     $
                   </span>
                   <input
@@ -438,7 +515,7 @@ export default function Maintenance() {
                     type="number"
                     value={price}
                     onChange={(e) => setPrice(e.target.value)}
-                    className="w-full bg-slate-800 border border-emerald-500/50 rounded-lg pl-8 pr-4 py-2.5 text-white font-bold font-mono text-sm focus:outline-none focus:border-emerald-500 transition-all"
+                    className="w-full bg-slate-900 border border-emerald-500/50 rounded-lg pl-7 pr-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-emerald-500"
                     placeholder="0.00"
                   />
                 </div>
@@ -446,48 +523,43 @@ export default function Maintenance() {
             </div>
 
             {/* Client Info */}
-            <div className="p-4 rounded-xl bg-slate-900/50 border border-slate-700/50 space-y-3">
-              <span className="block text-xs font-medium text-slate-400 uppercase tracking-wider">
-                Client Details
-              </span>
-              <div>
-                <label
-                  htmlFor="maintenance-client-name"
-                  className="block text-[10px] text-slate-500 mb-1 uppercase"
-                >
-                  Name
-                </label>
-                <input
-                  id="maintenance-client-name"
-                  type="text"
-                  value={clientName}
-                  onChange={(e) => setClientName(e.target.value)}
-                  className="w-full bg-slate-900/80 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
-                  placeholder="Walk-in Client"
-                />
-              </div>
-              <div>
-                <label
-                  htmlFor="maintenance-client-phone"
-                  className="block text-[10px] text-slate-500 mb-1 uppercase"
-                >
-                  Phone Number
-                </label>
-                <input
-                  id="maintenance-client-phone"
-                  type="text"
-                  value={clientPhone}
-                  onChange={(e) => setClientPhone(e.target.value)}
-                  className="w-full bg-slate-900/80 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
-                  placeholder="Optional"
-                />
-              </div>
-              <SaveAsClientCheckbox
-                checked={saveAsClient}
-                onChange={setSaveAsClient}
-                hidden={!showSaveAsClient}
+            <div>
+              <label
+                htmlFor="maintenance-client-name"
+                className="text-xs text-slate-400 block mb-1"
+              >
+                Client Name
+              </label>
+              <input
+                id="maintenance-client-name"
+                type="text"
+                value={clientName}
+                onChange={(e) => setClientName(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
+                placeholder="Walk-in Client"
               />
             </div>
+            <div>
+              <label
+                htmlFor="maintenance-client-phone"
+                className="text-xs text-slate-400 block mb-1"
+              >
+                Phone Number
+              </label>
+              <input
+                id="maintenance-client-phone"
+                type="text"
+                value={clientPhone}
+                onChange={(e) => setClientPhone(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
+                placeholder="Optional"
+              />
+            </div>
+            <SaveAsClientCheckbox
+              checked={saveAsClient}
+              onChange={setSaveAsClient}
+              hidden={!showSaveAsClient}
+            />
           </div>
 
           <TransactionTimeOverride
@@ -511,6 +583,7 @@ export default function Maintenance() {
               Proceed to Checkout
             </button>
           </div>
+        </div>
         </div>
       </div>
 

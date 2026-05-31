@@ -46,6 +46,20 @@ export {
 } from "./DebtService.js";
 export type { RepaymentResult, RepaymentData } from "./DebtService.js";
 
+// Voucher Service
+export {
+  VoucherService,
+  getVoucherService,
+  resetVoucherService,
+  redeemVoucherLines,
+} from "./VoucherService.js";
+export type {
+  CreateVoucherInput,
+  VoucherResult,
+  VoucherListResult,
+  VoucherRedemptionLine,
+} from "./VoucherService.js";
+
 // Sales Service
 export {
   SalesService,

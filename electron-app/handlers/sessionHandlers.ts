@@ -40,11 +40,11 @@ interface CheckoutPayment {
 interface CheckoutRequest {
   sessionId: number;
   cartItems: CheckoutCartItem[];
-  /** Primary payment method (e.g. "CASH", "DEBT") */
+  /** Primary payment method (e.g. "CASH", "CUSTOMER_ACCOUNT") */
   paidByMethod: string;
   /** Multi-payment lines (optional) */
   payments?: CheckoutPayment[];
-  /** Client ID (required if any payment involves DEBT) */
+  /** Client ID (required if any payment involves CUSTOMER_ACCOUNT) */
   clientId?: number;
   /** Client name (for debt entries) */
   clientName?: string;

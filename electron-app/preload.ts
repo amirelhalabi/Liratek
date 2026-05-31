@@ -171,6 +171,20 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("debt:client-balance", clientId),
   },
 
+  // Vouchers (Gift Cards)
+  vouchers: {
+    create: (data: {
+      clientId: number;
+      amount: number;
+      expiryDate?: string | null;
+      note?: string | null;
+    }) => ipcRenderer.invoke("voucher:create", data),
+    getAll: (filters?: { status?: string; clientId?: number }) =>
+      ipcRenderer.invoke("voucher:get-all", filters),
+    validate: (code: string) => ipcRenderer.invoke("voucher:validate", code),
+    cancel: (id: number) => ipcRenderer.invoke("voucher:cancel", id),
+  },
+
   // Financial
   financial: {
     getMonthlyPL: (month: string) =>

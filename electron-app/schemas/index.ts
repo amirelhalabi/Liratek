@@ -15,6 +15,8 @@ const PaymentLineSchema = z.object({
   method: z.string().min(1),
   currency_code: z.string().min(1),
   amount: z.number(),
+  // Present only for GIFT_CARD legs — the voucher code being redeemed.
+  voucher_code: z.string().optional(),
 });
 
 export const SaleProcessSchema = z.object({
@@ -181,6 +183,7 @@ export const RechargeSchema = z.object({
         method: z.string().min(1),
         currencyCode: z.string().min(1),
         amount: z.number(),
+        voucherCode: z.string().optional(),
       }),
     )
     .optional(),
@@ -199,6 +202,7 @@ const FinancialPaymentLegSchema = z.object({
   method: z.string().min(1),
   currencyCode: z.string().min(1),
   amount: z.number(),
+  voucherCode: z.string().optional(),
 });
 
 export const FinancialServiceSchema = z.object({
@@ -344,12 +348,14 @@ export const CustomServiceCreateSchema = z.object({
   phone_number: z.string().optional(),
   note: z.string().optional(),
   category: z.string().optional(),
+  voucher_code: z.string().optional(),
   payments: z
     .array(
       z.object({
         method: z.string().min(1),
         currency_code: z.string().min(1),
         amount: z.number(),
+        voucher_code: z.string().optional(),
       }),
     )
     .optional(),
@@ -451,6 +457,17 @@ export const SupplierSettleSchema = z.object({
   drawer_name: z.string(),
   note: z.string().optional(),
   payments: z.array(SettlementPaymentSchema).optional(),
+});
+
+// =============================================================================
+// Vouchers (Gift Cards)
+// =============================================================================
+
+export const VoucherCreateSchema = z.object({
+  clientId: z.number().int().positive(),
+  amount: z.number().positive(),
+  expiryDate: z.string().min(1).optional().nullable(),
+  note: z.string().optional().nullable(),
 });
 
 // =============================================================================

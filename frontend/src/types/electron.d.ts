@@ -1,3 +1,26 @@
+/** A voucher / gift card */
+export interface Voucher {
+  id: number;
+  code: string;
+  client_id: number;
+  client_name: string;
+  client_phone: string | null;
+  amount: number;
+  currency_code: string;
+  expiry_date: string | null;
+  status: "pending" | "redeemed" | "expired" | "cancelled";
+  redeemed_at: string | null;
+  redeemed_by: number | null;
+  redeemed_in_transaction: string | null;
+  redeemed_transaction_id: number | null;
+  cancelled_at: string | null;
+  cancelled_by: number | null;
+  note: string | null;
+  created_by: number;
+  created_at: string;
+  updated_at: string;
+}
+
 /** A mobile service catalog item stored in the database */
 export interface MobileServiceItem {
   id: number;
@@ -447,6 +470,26 @@ export interface ElectronAPI {
       data?: { balance_usd: number; balance_lbp: number };
       error?: string;
     }>;
+  };
+
+  // Vouchers (Gift Cards)
+  vouchers: {
+    create: (data: {
+      clientId: number;
+      amount: number;
+      expiryDate?: string | null;
+      note?: string | null;
+    }) => Promise<{ success: boolean; voucher?: Voucher; error?: string }>;
+    getAll: (filters?: {
+      status?: "pending" | "redeemed" | "expired" | "cancelled";
+      clientId?: number;
+    }) => Promise<{ success: boolean; vouchers?: Voucher[]; error?: string }>;
+    validate: (
+      code: string,
+    ) => Promise<{ success: boolean; voucher?: Voucher; error?: string }>;
+    cancel: (
+      id: number,
+    ) => Promise<{ success: boolean; voucher?: Voucher; error?: string }>;
   };
 
   // Financial

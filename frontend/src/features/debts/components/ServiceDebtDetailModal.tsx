@@ -109,7 +109,7 @@ export function ServiceDebtDetailModal({
 
   // Total actually paid (non-debt legs)
   const totalPaid = customerPayments
-    .filter((p) => p.method !== "DEBT" && p.method !== "PM_FEE")
+    .filter((p) => p.method !== "CUSTOMER_ACCOUNT" && p.method !== "PM_FEE")
     .reduce((s, p) => s + p.amount, 0);
 
   return (
@@ -187,7 +187,7 @@ export function ServiceDebtDetailModal({
             </h3>
             <div className="space-y-1.5">
               {customerPayments.map((p) => {
-                const isDebt = p.method === "DEBT";
+                const isDebt = p.method === "CUSTOMER_ACCOUNT";
                 const isPmFee = p.method === "PM_FEE";
                 // Creditor: account charge (blue/sky), Debtor: debt (red)
                 const debtBg = isCreditor
@@ -261,7 +261,7 @@ export function ServiceDebtDetailModal({
               })}
               {/* Debt/Account charge row (from debt_ledger — not in payments table) */}
               {debtAmount > 0 &&
-                !customerPayments.some((p) => p.method === "DEBT") && (
+                !customerPayments.some((p) => p.method === "CUSTOMER_ACCOUNT") && (
                   <div
                     className={`flex items-center justify-between px-3 py-2 rounded-lg ${
                       isCreditor

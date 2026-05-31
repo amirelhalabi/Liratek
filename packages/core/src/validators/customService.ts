@@ -20,6 +20,7 @@ export const createCustomServiceSchema = z
     note: z.string().max(1000).optional(),
     category: z.string().max(100).optional(),
     transaction_time: transactionTimeSchema,
+    voucher_code: z.string().optional(),
   })
   .refine(
     (data) =>
@@ -31,9 +32,17 @@ export const createCustomServiceSchema = z
       message: "At least one cost or price must be greater than 0",
     },
   )
-  .refine((data) => data.paid_by !== "DEBT" || data.client_id, {
-    message: "A client is required when payment method is DEBT",
-  });
+  .refine((data) => data.paid_by !== "CUSTOMER_ACCOUNT" || data.client_id, {
+    message: "A client is required when payment method is Customer Account",
+  })
+  .refine(
+    (data) =>
+      data.paid_by !== "GIFT_CARD" ||
+      (data.voucher_code != null && data.voucher_code.trim().length > 0),
+    {
+      message: "A voucher code is required when paying by Gift Card",
+    },
+  );
 
 export type CreateCustomServiceInput = z.infer<
   typeof createCustomServiceSchema

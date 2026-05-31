@@ -112,7 +112,7 @@ jest.mock("@liratek/ui", () => ({
       >
         <option value="CASH">Cash</option>
         <option value="CARD">Card</option>
-        <option value="DEBT">Debt</option>
+        <option value="CUSTOMER_ACCOUNT">Customer Account</option>
       </select>
     </div>
   ),
@@ -138,7 +138,7 @@ jest.mock("../../../../../hooks/usePaymentMethods", () => ({
     methods: [
       { code: "CASH", label: "Cash" },
       { code: "CARD", label: "Card" },
-      { code: "DEBT", label: "Debt" },
+      { code: "CUSTOMER_ACCOUNT", label: "Customer Account" },
     ],
     drawerAffectingMethods: [
       { code: "CASH", label: "Cash" },
@@ -368,7 +368,7 @@ describe("CustomServices Page", () => {
     render(<CustomServices />);
 
     const select = screen.getByTestId("paid-by-select");
-    fireEvent.change(select, { target: { value: "DEBT" } });
+    fireEvent.change(select, { target: { value: "CUSTOMER_ACCOUNT" } });
 
     // Red asterisk appears next to Customer Name when DEBT is selected
     expect(screen.getByText("*")).toBeInTheDocument();
@@ -387,7 +387,7 @@ describe("CustomServices Page", () => {
     fireEvent.change(usdInputs[1], { target: { value: "10" } });
 
     const select = screen.getByTestId("paid-by-select");
-    fireEvent.change(select, { target: { value: "DEBT" } });
+    fireEvent.change(select, { target: { value: "CUSTOMER_ACCOUNT" } });
 
     fireEvent.click(screen.getByText("Submit Service"));
 

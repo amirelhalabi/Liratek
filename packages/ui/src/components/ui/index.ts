@@ -25,6 +25,7 @@ export type {
   PaymentMethod,
   Currency,
   TransactionType,
+  VoucherOption,
 } from "./MultiPaymentInput";
 export { default as TopUpModal } from "./TopUpModal";
 export type {

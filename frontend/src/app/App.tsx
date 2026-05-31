@@ -6,6 +6,7 @@ import { SessionProvider } from "@/features/sessions/context/SessionContext";
 import { ModuleProvider } from "@/contexts/ModuleContext";
 import { CurrencyProvider } from "@/contexts/CurrencyContext";
 import { ActiveModuleProvider } from "@/contexts/ActiveModuleContext";
+import { MobileServiceItemsProvider } from "@/contexts/MobileServiceItemsContext";
 import Login from "@/features/auth/pages/Login";
 import Dashboard from "@/features/dashboard/pages/Dashboard";
 
@@ -41,6 +42,7 @@ const CustomerSessions = lazy(
 );
 const Partners = lazy(() => import("@/features/partners/pages/Partners"));
 const Suppliers = lazy(() => import("@/features/suppliers/pages/Suppliers"));
+const Vouchers = lazy(() => import("@/features/vouchers/pages/Vouchers"));
 import MainLayout from "@/shared/components/layouts/MainLayout";
 import HomeGrid from "@/shared/components/layouts/HomeGrid";
 import "@/index.css";
@@ -259,6 +261,14 @@ function AppRoutes() {
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/vouchers"
+          element={
+            <ProtectedRoute>
+              <Vouchers />
+            </ProtectedRoute>
+          }
+        />
         {/* Redirect all other paths to home */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
@@ -302,7 +312,12 @@ function App() {
                   <ActiveModuleProvider>
                     <AuthProvider>
                       <SessionProvider>
-                        <AppRoutes />
+                        {/* Mounted below AuthProvider so the catalog seed/load
+                            runs with an authenticated session (seeding requires
+                            admin/staff role) and re-runs when the user logs in. */}
+                        <MobileServiceItemsProvider>
+                          <AppRoutes />
+                        </MobileServiceItemsProvider>
                       </SessionProvider>
                     </AuthProvider>
                   </ActiveModuleProvider>

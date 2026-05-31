@@ -9,7 +9,13 @@ import {
   formatReceipt58mm,
   type ReceiptData,
 } from "@/features/sales/utils/receiptFormatter";
-import type { Client, CartItem, SaleRequest } from "@liratek/ui";
+import type {
+  Client,
+  CartItem,
+  SaleRequest,
+  VoucherOption,
+} from "@liratek/ui";
+import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import {
@@ -111,6 +117,8 @@ type PaymentLine = {
   method: string;
   currency_code: PaymentCurrencyCode;
   amount: number;
+  /** Set when method === 'GIFT_CARD' — the voucher code being redeemed. */
+  voucher_code?: string;
 };
 
 function SimplePaymentFields({
@@ -220,6 +228,149 @@ export default function CheckoutModal({
       amount: 0,
     },
   ]);
+
+  // Redeemable vouchers for the selected client (for GIFT_CARD lines)
+  const [clientVouchers, setClientVouchers] = useState<VoucherOption[]>([]);
+
+  // Load the selected client's vouchers when the client changes
+  useEffect(() => {
+    let cancelled = false;
+    const cid = selectedClient?.id;
+    if (cid && cid > 0) {
+      fetchClientVouchers(cid)
+        .then((vs) => {
+          if (!cancelled) setClientVouchers(vs);
+        })
+        .catch(() => {
+          if (!cancelled) setClientVouchers([]);
+        });
+    } else {
+      setClientVouchers([]);
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedClient?.id]);
+
+  /** Return a line with voucher_code set, or the key omitted when no code. */
+  const withVoucherCode = (
+    line: PaymentLine,
+    code: string | undefined,
+  ): PaymentLine => {
+    if (code) return { ...line, voucher_code: code };
+    if (line.voucher_code === undefined) return line;
+    const next = { ...line };
+    delete next.voucher_code;
+    return next;
+  };
+
+  // Keep each GIFT_CARD line bound to a valid, unique voucher (default first
+  // available; drop selections that are gone or taken by another line).
+  const giftCardKey = paymentLines
+    .map((l) => `${l.id}:${l.method}:${l.voucher_code ?? ""}`)
+    .join("|");
+  useEffect(() => {
+    setPaymentLines((prev) => {
+      const used = new Set<string>();
+      let changed = false;
+      const next = prev.map((line) => {
+        if (line.method !== "GIFT_CARD") {
+          if (line.voucher_code === undefined) return line;
+          changed = true;
+          return withVoucherCode(line, undefined);
+        }
+        const available = clientVouchers.filter((v) => !used.has(v.code));
+        let code = line.voucher_code;
+        if (!code || !available.some((v) => v.code === code)) {
+          code = available[0]?.code;
+        }
+        if (code) used.add(code);
+        if (code === line.voucher_code) return line;
+        changed = true;
+        return withVoucherCode(line, code);
+      });
+      return changed ? next : prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientVouchers, giftCardKey]);
+
+  /** Vouchers a line may pick: its own + any not selected by another line. */
+  const voucherOptionsForLine = (line: PaymentLine): VoucherOption[] => {
+    const usedByOthers = new Set(
+      paymentLines
+        .filter(
+          (l) =>
+            l.id !== line.id && l.method === "GIFT_CARD" && l.voucher_code,
+        )
+        .map((l) => l.voucher_code as string),
+    );
+    return clientVouchers.filter(
+      (v) => v.code === line.voucher_code || !usedByOthers.has(v.code),
+    );
+  };
+
+  const selectLineVoucher = (id: string, code: string) => {
+    setPaymentLines((prev) =>
+      prev.map((line) =>
+        line.id === id ? withVoucherCode(line, code || undefined) : line,
+      ),
+    );
+  };
+
+  /** Voucher picker shown under a GIFT_CARD payment line. */
+  const renderVoucherSelector = (line: PaymentLine) => {
+    if (!(selectedClient && selectedClient.id > 0)) {
+      return (
+        <p className="text-xs text-amber-400">
+          Select a client to use a voucher.
+        </p>
+      );
+    }
+    if (clientVouchers.length === 0) {
+      return (
+        <p className="text-xs text-amber-400">
+          No available vouchers for this client.
+        </p>
+      );
+    }
+    const options = voucherOptionsForLine(line);
+    if (options.length === 0) {
+      return (
+        <p className="text-xs text-amber-400">No more vouchers available.</p>
+      );
+    }
+    const value = line.voucher_code ?? options[0]?.code ?? "";
+    const selected = options.find((v) => v.code === value);
+    return (
+      <>
+        {options.length === 1 ? (
+          <input
+            type="text"
+            value={value}
+            disabled
+            className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm font-mono tracking-wider disabled:opacity-70"
+          />
+        ) : (
+          <select
+            value={value}
+            onChange={(e) => selectLineVoucher(line.id, e.target.value)}
+            className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
+          >
+            {options.map((v) => (
+              <option key={v.code} value={v.code}>
+                {v.code} — ${v.amount.toFixed(2)}
+              </option>
+            ))}
+          </select>
+        )}
+        {selected && (
+          <p className="mt-1 text-xs text-emerald-400">
+            +${selected.amount.toFixed(2)} credit added on redemption
+          </p>
+        )}
+      </>
+    );
+  };
 
   // Determine selected currency from payment lines
   const hasLBPPayment = paymentLines.some(
@@ -365,9 +516,8 @@ export default function CheckoutModal({
   const isNewClientInfoComplete =
     clientSearch.trim().length > 0 && secondaryInput.trim().length > 0;
 
-  // Check if DEBT payment method is enabled
   const debtPaymentEnabled = paymentMethodOptions.some(
-    (pm) => pm.code === "DEBT",
+    (pm) => pm.code === "CUSTOMER_ACCOUNT",
   );
 
   // Determine whether creating a debt is allowed: existing client must have phone, new client must have both fields
@@ -452,11 +602,14 @@ export default function CheckoutModal({
       final_amount: finalAmount,
       payment_usd: paidUSD,
       payment_lbp: paidLBP,
-      payments: paymentLines.map(({ method, currency_code, amount }) => ({
-        method,
-        currency_code,
-        amount,
-      })),
+      payments: paymentLines.map(
+        ({ method, currency_code, amount, voucher_code }) => ({
+          method,
+          currency_code,
+          amount,
+          ...(method === "GIFT_CARD" && voucher_code ? { voucher_code } : {}),
+        }),
+      ),
       change_given_usd: changeGivenUSD,
       change_given_lbp: changeGivenLBP,
       exchange_rate: effectiveExchangeRate,
@@ -944,8 +1097,8 @@ export default function CheckoutModal({
 
                   <div className="space-y-2">
                     {paymentLines.map((line, idx) => (
+                      <div key={line.id} className="space-y-1">
                       <div
-                        key={line.id}
                         className="grid grid-cols-12 gap-2 items-center"
                       >
                         <div className="col-span-4">
@@ -1026,6 +1179,12 @@ export default function CheckoutModal({
                             <X size={16} />
                           </button>
                         </div>
+                      </div>
+
+                      {/* Voucher picker — shown when this line pays by gift card */}
+                      {line.method === "GIFT_CARD" && (
+                        <div className="pl-1">{renderVoucherSelector(line)}</div>
+                      )}
                       </div>
                     ))}
                   </div>

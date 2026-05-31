@@ -218,7 +218,7 @@ export class PaymentMethodRepository {
     return method?.drawer_name ?? "General";
   }
 
-  /** Check if a method affects a drawer (i.e., not DEBT) */
+  /** Check if a method affects a drawer (i.e., not CUSTOMER_ACCOUNT) */
   isDrawerAffecting(code: string): boolean {
     const method = this.getByCode(code);
     return method?.affects_drawer === 1;

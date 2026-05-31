@@ -90,14 +90,13 @@ export const createFinancialServiceSchema = z
   })
   .refine(
     (data) => {
-      // If paying by DEBT, clientId is required
-      if (data.paidByMethod === "DEBT" && !data.clientId) {
+      if (data.paidByMethod === "CUSTOMER_ACCOUNT" && !data.clientId) {
         return false;
       }
       return true;
     },
     {
-      message: "Client is required when paying by DEBT",
+      message: "Client is required when paying by Customer Account",
       path: ["clientId"],
     },
   )

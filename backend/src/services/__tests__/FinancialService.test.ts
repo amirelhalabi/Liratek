@@ -221,19 +221,19 @@ describe("createFinancialServiceSchema", () => {
   // DEBT refinement
   // -------------------------------------------------------------------------
 
-  describe("DEBT refinement", () => {
-    it("rejects DEBT payment without clientId", () => {
+  describe("CUSTOMER_ACCOUNT refinement", () => {
+    it("rejects CUSTOMER_ACCOUNT payment without clientId", () => {
       const result = createFinancialServiceSchema.safeParse({
         ...basePayload,
-        paidByMethod: "DEBT",
+        paidByMethod: "CUSTOMER_ACCOUNT",
       });
       expect(result.success).toBe(false);
     });
 
-    it("accepts DEBT payment with clientId", () => {
+    it("accepts CUSTOMER_ACCOUNT payment with clientId", () => {
       const result = createFinancialServiceSchema.safeParse({
         ...basePayload,
-        paidByMethod: "DEBT",
+        paidByMethod: "CUSTOMER_ACCOUNT",
         clientId: 1,
       });
       expect(result.success).toBe(true);

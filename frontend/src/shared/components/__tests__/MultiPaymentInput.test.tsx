@@ -77,22 +77,22 @@ describe("MultiPaymentInput - Business Logic", () => {
   });
 
   describe("Validation", () => {
-    it("should detect DEBT payment method", () => {
+    it("should detect CUSTOMER_ACCOUNT payment method", () => {
       const lines: PaymentLine[] = [
-        { id: "1", method: "DEBT", currencyCode: "USD", amount: 100 },
+        { id: "1", method: "CUSTOMER_ACCOUNT", currencyCode: "USD", amount: 100 },
       ];
 
-      const hasDebt = lines.some((line) => line.method === "DEBT");
+      const hasDebt = lines.some((line) => line.method === "CUSTOMER_ACCOUNT");
 
       expect(hasDebt).toBe(true);
     });
 
-    it("should not detect DEBT when only CASH used", () => {
+    it("should not detect CUSTOMER_ACCOUNT when only CASH used", () => {
       const lines: PaymentLine[] = [
         { id: "1", method: "CASH", currencyCode: "USD", amount: 100 },
       ];
 
-      const hasDebt = lines.some((line) => line.method === "DEBT");
+      const hasDebt = lines.some((line) => line.method === "CUSTOMER_ACCOUNT");
 
       expect(hasDebt).toBe(false);
     });

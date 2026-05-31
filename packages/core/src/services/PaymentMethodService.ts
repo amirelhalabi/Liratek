@@ -64,7 +64,7 @@ export class PaymentMethodService {
     }
   }
 
-  /** Check if a payment method affects a drawer (true for everything except DEBT) */
+  /** Check if a payment method affects a drawer (true for everything except CUSTOMER_ACCOUNT) */
   isDrawerAffecting(code: string): boolean {
     try {
       return this.repo.isDrawerAffecting(code);
@@ -73,7 +73,7 @@ export class PaymentMethodService {
         { error, code },
         "PaymentMethodService.isDrawerAffecting error",
       );
-      return code !== "DEBT";
+      return code !== "CUSTOMER_ACCOUNT";
     }
   }
 

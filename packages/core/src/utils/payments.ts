@@ -20,9 +20,11 @@ const FALLBACK_DRAWER_MAP: Record<string, string> = {
   OMT: "OMT_App",
   WHISH: "Whish_App",
   BINANCE: "Binance",
-  DEBT: "General",
   CUSTOMER_ACCOUNT: "General",
 };
+
+/** Methods that never move a drawer (value is tracked outside the cash drawers). */
+const NON_DRAWER_METHODS = new Set(["CUSTOMER_ACCOUNT", "GIFT_CARD"]);
 
 export function isDrawerAffectingMethod(method: string): boolean {
   try {
@@ -32,23 +34,18 @@ export function isDrawerAffectingMethod(method: string): boolean {
   } catch {
     // DB not available
   }
-  // Fallback: DEBT and CUSTOMER_ACCOUNT are non-drawer-affecting methods
-  return method !== "DEBT" && method !== "CUSTOMER_ACCOUNT";
+  return !NON_DRAWER_METHODS.has(method);
 }
 
 /**
  * Returns true if the method is a wallet/non-cash drawer-affecting method.
  *
- * Used to gate payment-method-fee logic and to decide whether the RESERVE
- * entry for an OMT/WHISH SEND should come from General (cash) or from the
- * payment method's own drawer (wallet).
- *
- * - CASH  → false (cash goes through General)
- * - DEBT  → false (no drawer at all)
+ * - CASH             → false (cash goes through General)
+ * - CUSTOMER_ACCOUNT → false (no drawer at all)
  * - OMT / WHISH / BINANCE / any wallet → true
  */
 export function isNonCashDrawerMethod(method: string): boolean {
-  if (method === "DEBT") return false;
+  if (NON_DRAWER_METHODS.has(method)) return false;
   try {
     const repo = getPaymentMethodRepository();
     const pm = repo.getByCode(method);
@@ -56,8 +53,7 @@ export function isNonCashDrawerMethod(method: string): boolean {
   } catch {
     // DB not available — fall through to hardcoded list
   }
-  // Fallback: anything that is not CASH/DEBT and not General-routed
-  return method !== "CASH" && method !== "DEBT";
+  return method !== "CASH" && !NON_DRAWER_METHODS.has(method);
 }
 
 export function paymentMethodToDrawerName(method: string): string {
@@ -69,4 +65,25 @@ export function paymentMethodToDrawerName(method: string): string {
     // DB not available
   }
   return FALLBACK_DRAWER_MAP[method] ?? "General";
+}
+
+/**
+ * Sum CUSTOMER_ACCOUNT payment lines by currency.
+ * Used to validate that a client has enough credit before persisting a transaction.
+ */
+export function sumCustomerAccountByCurrency(
+  payments:
+    | Array<{ method: string; currencyCode: string; amount: number }>
+    | undefined
+    | null,
+): { usd: number; lbp: number } {
+  if (!payments || payments.length === 0) return { usd: 0, lbp: 0 };
+  let usd = 0;
+  let lbp = 0;
+  for (const line of payments) {
+    if (line.method !== "CUSTOMER_ACCOUNT") continue;
+    if (line.currencyCode === "USD") usd += line.amount;
+    else if (line.currencyCode === "LBP") lbp += line.amount;
+  }
+  return { usd, lbp };
 }

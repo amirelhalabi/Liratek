@@ -249,6 +249,11 @@ html:not(.dark) .shadow-inner {
 }
 
 /* === SCROLLBAR === */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
 html:not(.dark) ::-webkit-scrollbar-track {
   background: #f1f5f9;
 }
@@ -258,6 +263,17 @@ html:not(.dark) ::-webkit-scrollbar-thumb {
 }
 html:not(.dark) ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
+}
+
+.dark ::-webkit-scrollbar-track {
+  background: transparent;
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 4px;
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #475569;
 }
 
 /* === MISC === */

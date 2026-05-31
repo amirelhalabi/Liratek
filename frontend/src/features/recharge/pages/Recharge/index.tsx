@@ -11,6 +11,7 @@ import {
   useMobileServiceItems,
   type ProviderKey,
 } from "../../hooks/useMobileServiceItems";
+import { ensureRechargeClient } from "../../utils/ensureClient";
 import {
   CompactStats,
   FinancialForm,
@@ -42,7 +43,7 @@ export default function MobileRecharge() {
     linkTransaction,
     addToCart: addToSessionCart,
   } = useSession();
-  const { getCategoriesForProvider, getItems: getServiceItems } =
+  const { getCategoriesForProvider, getItems: getServiceItems, refresh: refreshItems } =
     useMobileServiceItems();
 
   // MTC voucher items from DB (provider=VOUCHER, category=mtc, subcategory=voucher)
@@ -90,6 +91,7 @@ export default function MobileRecharge() {
   const [showClientSearch, setShowClientSearch] = useState(false);
   const [telecomClientId, setTelecomClientId] = useState<number | null>(null);
   const [telecomClientName, setTelecomClientName] = useState("");
+  const [telecomClientPhone, setTelecomClientPhone] = useState("");
   const [clientSearchResults, setClientSearchResults] = useState<any[]>([]);
   const [telecomTransactionTime, setTelecomTransactionTime] = useState<
     string | undefined
@@ -104,6 +106,8 @@ export default function MobileRecharge() {
   const [cryptoType, setCryptoType] = useState<"SEND" | "RECEIVE">("SEND");
   const [cryptoAmount, setCryptoAmount] = useState("");
   const [cryptoClientName, setCryptoClientName] = useState("");
+  const [cryptoClientPhone, setCryptoClientPhone] = useState("");
+  const [cryptoClientId, setCryptoClientId] = useState<number | null>(null);
   const [cryptoDescription, setCryptoDescription] = useState("");
   const [cryptoFee, setCryptoFee] = useState("");
   const [cryptoPaymentLines, setCryptoPaymentLines] = useState<PaymentLine[]>(
@@ -157,6 +161,11 @@ export default function MobileRecharge() {
     {
       select: (s) => s.customer_name,
       set: setTelecomClientName,
+      clearValue: "",
+    },
+    {
+      select: (s) => s.customer_phone,
+      set: setTelecomClientPhone,
       clearValue: "",
     },
     {
@@ -333,6 +342,7 @@ export default function MobileRecharge() {
   const selectClient = useCallback((client: any) => {
     setTelecomClientId(client.id);
     setTelecomClientName(client.full_name || client.name);
+    setTelecomClientPhone(client.phone_number || "");
     setClientSearchResults([]);
     setShowClientSearch(false);
   }, []);
@@ -344,6 +354,21 @@ export default function MobileRecharge() {
     const price = parseFloat(telecomPrice) || amount * alfaCreditSellRate;
     const cost = amount * (alfaCreditCostRate || 85000);
     const defaultPriceToClient = amount * alfaCreditSellRate;
+
+    const clientResult = await ensureRechargeClient({
+      clientId: telecomClientId,
+      name: telecomClientName,
+      phone: telecomClientPhone,
+      paymentLines,
+    });
+    if (!clientResult.ok) {
+      alert(clientResult.error);
+      return;
+    }
+    const resolvedClientId = clientResult.id;
+    if (resolvedClientId && resolvedClientId !== telecomClientId) {
+      setTelecomClientId(resolvedClientId);
+    }
 
     // If session is active, add to cart instead of submitting
     if (activeSession) {
@@ -379,9 +404,12 @@ export default function MobileRecharge() {
                   method: l.method,
                   currencyCode: l.currencyCode,
                   amount: l.amount,
+                  ...(l.method === "GIFT_CARD" && l.voucherCode
+                    ? { voucherCode: l.voucherCode }
+                    : {}),
                 }))
               : undefined,
-          clientId: telecomClientId || undefined,
+          clientId: resolvedClientId || undefined,
           clientName: telecomClientName || undefined,
         },
       });
@@ -390,6 +418,7 @@ export default function MobileRecharge() {
       setTelecomAmount("");
       setTelecomPrice("");
       setPhoneNumber("");
+      setTelecomClientPhone("");
       return;
     }
 
@@ -412,9 +441,12 @@ export default function MobileRecharge() {
                 method: l.method,
                 currencyCode: l.currencyCode,
                 amount: l.amount,
+                ...(l.method === "GIFT_CARD" && l.voucherCode
+                  ? { voucherCode: l.voucherCode }
+                  : {}),
               }))
             : undefined,
-        clientId: telecomClientId || undefined,
+        clientId: resolvedClientId || undefined,
         clientName: telecomClientName || undefined,
         transaction_time: telecomTransactionTime,
       });
@@ -441,6 +473,7 @@ export default function MobileRecharge() {
       setTelecomAmount("");
       setTelecomPrice("");
       setPhoneNumber("");
+      setTelecomClientPhone("");
       setTelecomTransactionTime(undefined);
       loadFinancialData();
       loadDrawerBalances();
@@ -459,6 +492,7 @@ export default function MobileRecharge() {
     paymentLines,
     telecomClientId,
     telecomClientName,
+    telecomClientPhone,
     alfaCreditSellRate,
     alfaCreditCostRate,
     api,
@@ -645,7 +679,22 @@ export default function MobileRecharge() {
 
     // Derive cashout method from payment lines: if DEBT is used, it means Customer Account
     const derivedCashoutMethod =
-      paidByMethod === "DEBT" ? "CUSTOMER_ACCOUNT" : "CASH";
+      paidByMethod === "CUSTOMER_ACCOUNT" ? "CUSTOMER_ACCOUNT" : "CASH";
+
+    const clientResult = await ensureRechargeClient({
+      clientId: cryptoClientId,
+      name: cryptoClientName,
+      phone: cryptoClientPhone,
+      paymentLines: cryptoPaymentLines,
+    });
+    if (!clientResult.ok) {
+      alert(clientResult.error);
+      return;
+    }
+    const resolvedCryptoClientId = clientResult.id;
+    if (resolvedCryptoClientId && resolvedCryptoClientId !== cryptoClientId) {
+      setCryptoClientId(resolvedCryptoClientId);
+    }
 
     // If session is active, add to cart instead of submitting
     if (activeSession) {
@@ -663,6 +712,7 @@ export default function MobileRecharge() {
           serviceType: cryptoType,
           amount,
           currency: "USDT",
+          clientId: resolvedCryptoClientId || undefined,
           clientName: cryptoClientName,
           referenceNumber: cryptoDescription,
           commission: fee,
@@ -683,6 +733,8 @@ export default function MobileRecharge() {
       // Reset form
       setCryptoAmount("");
       setCryptoClientName("");
+      setCryptoClientPhone("");
+      setCryptoClientId(null);
       setCryptoDescription("");
       setCryptoFee("");
       setCryptoPaymentLines([]);
@@ -696,6 +748,7 @@ export default function MobileRecharge() {
         serviceType: cryptoType,
         amount: parseFloat(cryptoAmount),
         currency: "USDT",
+        clientId: resolvedCryptoClientId || undefined,
         clientName: cryptoClientName,
         referenceNumber: cryptoDescription,
         commission: fee,
@@ -733,6 +786,8 @@ export default function MobileRecharge() {
 
       setCryptoAmount("");
       setCryptoClientName("");
+      setCryptoClientPhone("");
+      setCryptoClientId(null);
       setCryptoDescription("");
       setCryptoFee("");
       setCryptoPaymentLines([]);
@@ -748,6 +803,8 @@ export default function MobileRecharge() {
     cryptoType,
     cryptoAmount,
     cryptoClientName,
+    cryptoClientPhone,
+    cryptoClientId,
     cryptoDescription,
     cryptoFee,
     cryptoPaymentLines,
@@ -928,6 +985,8 @@ export default function MobileRecharge() {
             setTelecomClientId={setTelecomClientId}
             telecomClientName={telecomClientName}
             setTelecomClientName={setTelecomClientName}
+            telecomClientPhone={telecomClientPhone}
+            setTelecomClientPhone={setTelecomClientPhone}
             searchClients={searchClients}
             clientSearchResults={clientSearchResults}
             selectClient={selectClient}
@@ -1004,6 +1063,8 @@ export default function MobileRecharge() {
                   formatAmount={formatAmount}
                   showHistory={showHistory}
                   setShowHistory={setShowHistory}
+                  onRefreshItems={refreshItems}
+                  isAdmin={isAdmin}
                 />
               ) : (
                 <OmtWhishAppTransferForm
@@ -1032,6 +1093,8 @@ export default function MobileRecharge() {
               alfaCreditCostRate={alfaCreditCostRate}
               showHistory={showHistory}
               setShowHistory={setShowHistory}
+              onRefreshItems={refreshItems}
+              isAdmin={isAdmin}
             />
           ) : (
             <FinancialForm
@@ -1049,6 +1112,8 @@ export default function MobileRecharge() {
               formatAmount={formatAmount}
               showHistory={showHistory}
               setShowHistory={setShowHistory}
+              onRefreshItems={refreshItems}
+              isAdmin={isAdmin}
             />
           ))}
 
@@ -1061,6 +1126,10 @@ export default function MobileRecharge() {
             setCryptoAmount={setCryptoAmount}
             cryptoClientName={cryptoClientName}
             setCryptoClientName={setCryptoClientName}
+            cryptoClientPhone={cryptoClientPhone}
+            setCryptoClientPhone={setCryptoClientPhone}
+            cryptoClientId={cryptoClientId}
+            setCryptoClientId={setCryptoClientId}
             cryptoDescription={cryptoDescription}
             setCryptoDescription={setCryptoDescription}
             cryptoFee={cryptoFee}
@@ -1074,7 +1143,7 @@ export default function MobileRecharge() {
             paymentMethods={
               cryptoType === "RECEIVE"
                 ? methods.filter(
-                    (pm) => pm.code === "CASH" || pm.code === "DEBT",
+                    (pm) => pm.code === "CASH" || pm.code === "CUSTOMER_ACCOUNT",
                   )
                 : methods
             }

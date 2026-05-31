@@ -268,11 +268,8 @@ export default function HomeGrid() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col animate-in fade-in duration-500">
-      <div className="shrink-0">
+      <div className="shrink-0 pb-2">
         <h1 className="text-2xl font-bold text-white">Home</h1>
-        <p className="text-slate-400 text-sm mt-1">
-          Select a module to get started
-        </p>
       </div>
 
       <div
@@ -318,14 +315,14 @@ export default function HomeGrid() {
 
       {/* Admin-only Actions — only when session management is enabled */}
       {isAdmin && flags.sessionManagement && (
-        <div className="pt-4 border-t border-slate-700/50">
-          <p className="text-xs text-slate-500 uppercase tracking-wider mb-3">
+        <div className="pt-2">
+          <p className="text-s text-slate-500 tracking-wider mb-3">
             Admin Actions
           </p>
           <div className="flex gap-3">
             <button
               onClick={() => appEvents.emit("checkpoint:open")}
-              className="flex items-center gap-2 px-4 py-3 bg-slate-800 border border-slate-700/50 rounded-xl transition-all hover:border-violet-500/60 hover:shadow-lg text-slate-300 hover:text-white group"
+              className="flex items-center gap-2 px-2 py-2 bg-slate-800 border border-slate-700/50 rounded-xl transition-all hover:border-violet-500/60 hover:shadow-lg text-slate-300 hover:text-white group"
             >
               <div className="p-1.5 rounded-lg bg-violet-400/10">
                 <Play size={18} className="text-violet-400" />
@@ -334,7 +331,7 @@ export default function HomeGrid() {
             </button>
             <button
               onClick={() => navigate("/checkpoint-timeline")}
-              className="flex items-center gap-2 px-4 py-3 bg-slate-800 border border-slate-700/50 rounded-xl transition-all hover:border-blue-500/60 hover:shadow-lg text-slate-300 hover:text-white group"
+              className="flex items-center gap-2 px-2 py-2 bg-slate-800 border border-slate-700/50 rounded-xl transition-all hover:border-blue-500/60 hover:shadow-lg text-slate-300 hover:text-white group"
             >
               <div className="p-1.5 rounded-lg bg-blue-400/10">
                 <Clock size={18} className="text-blue-400" />

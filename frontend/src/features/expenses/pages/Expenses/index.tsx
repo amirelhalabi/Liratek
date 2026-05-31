@@ -1,7 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import logger from "@/utils/logger";
 import { Plus, Banknote, History } from "lucide-react";
-import { PageHeader, Select, useApi } from "@liratek/ui";
+import { PageHeader, Select, useApi, MultiPaymentInput, type PaymentLine } from "@liratek/ui";
 import { HistoryModal } from "./components/HistoryModal";
 import { StatsCards } from "../../components/StatsCards";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
@@ -26,7 +26,16 @@ const EXPENSE_CATEGORIES = [
 
 export default function Expenses() {
   const api = useApi();
+  const descriptionRef = useRef<HTMLInputElement>(null);
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([
+    {
+      id: crypto.randomUUID(),
+      method: "CASH",
+      currencyCode: "USD",
+      amount: 0,
+    },
+  ]);
   const [formData, setFormData] = useState<Expense>({
     description: "",
     category: "Shop_Supply",
@@ -38,6 +47,8 @@ export default function Expenses() {
 
   useEffect(() => {
     loadTodayExpenses();
+    descriptionRef.current?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadTodayExpenses = async () => {
@@ -50,17 +61,32 @@ export default function Expenses() {
   };
 
   const handleAddExpense = async () => {
-    if (
-      !formData.description.trim() ||
-      (formData.amount_usd === 0 && formData.amount_lbp === 0)
-    ) {
-      alert("Please fill in all required fields.");
+    if (!formData.description.trim()) {
+      alert("Please fill in description.");
       return;
     }
+
+    // Use the first payment line (single-mode only)
+    const firstLine = paymentLines[0];
+    if (!firstLine || firstLine.amount === 0) {
+      alert("Please enter an amount.");
+      return;
+    }
+
+    // Extract amounts by currency from payment lines
+    let amount_usd = 0;
+    let amount_lbp = 0;
+    paymentLines.forEach((line) => {
+      if (line.currencyCode === "USD") amount_usd += line.amount;
+      if (line.currencyCode === "LBP") amount_lbp += line.amount;
+    });
 
     try {
       const result = await api.addExpense({
         ...formData,
+        paid_by_method: firstLine.method,
+        amount_usd,
+        amount_lbp,
         expense_date: new Date(formData.expense_date).toISOString(),
         transaction_time: transactionTime,
       });
@@ -74,6 +100,14 @@ export default function Expenses() {
           amount_lbp: 0,
           expense_date: new Date().toISOString().split("T")[0],
         });
+        setPaymentLines([
+          {
+            id: crypto.randomUUID(),
+            method: "CASH",
+            currencyCode: "USD",
+            amount: 0,
+          },
+        ]);
         setTransactionTime(undefined);
         loadTodayExpenses();
       } else {
@@ -125,7 +159,7 @@ export default function Expenses() {
 
       <div className="flex-1 min-h-0">
         {/* Add Expense Form */}
-        <div className="w-full max-w-2xl mx-auto bg-slate-800 rounded-xl border border-slate-700/50 shadow-xl p-4 flex flex-col overflow-hidden">
+        <div className="w-full bg-slate-800 rounded-xl border border-slate-700/50 shadow-xl p-5 flex flex-col overflow-hidden">
           <h2 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
             <Plus className="text-orange-500" size={20} />
             Add New Expense
@@ -142,6 +176,7 @@ export default function Expenses() {
               </label>
               <input
                 id="expense-description"
+                ref={descriptionRef}
                 type="text"
                 value={formData.description}
                 onChange={(e) =>
@@ -174,66 +209,25 @@ export default function Expenses() {
               />
             </div>
 
-            {/* Paid By — always Cash (only payment method for expenses) */}
-            <div className="flex items-center gap-2 px-3 py-2 bg-slate-900/50 rounded-lg border border-slate-700/50">
-              <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">
-                Paid By
-              </span>
-              <span className="ml-auto text-sm text-slate-300 font-medium">
-                💵 Cash
-              </span>
-            </div>
-
-            {/* Amounts */}
-            <div className="grid grid-cols-2 gap-3 p-3 bg-slate-900/50 rounded-lg border border-slate-700/50">
-              <div>
-                <label
-                  htmlFor="expense-amount-usd"
-                  className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
-                >
-                  Amount (USD)
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-orange-500 font-bold">
-                    $
-                  </span>
-                  <input
-                    id="expense-amount-usd"
-                    type="number"
-                    value={formData.amount_usd || ""}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        amount_usd: parseFloat(e.target.value) || 0,
-                      })
-                    }
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg pl-8 pr-4 py-2.5 text-white focus:ring-2 focus:ring-orange-500 outline-none transition-all font-mono"
-                    placeholder="0.00"
-                  />
-                </div>
-              </div>
-              <div>
-                <label
-                  htmlFor="expense-amount-lbp"
-                  className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
-                >
-                  Amount (LBP)
-                </label>
-                <input
-                  id="expense-amount-lbp"
-                  type="number"
-                  value={formData.amount_lbp || ""}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      amount_lbp: parseFloat(e.target.value) || 0,
-                    })
-                  }
-                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2.5 text-white focus:ring-2 focus:ring-orange-500 outline-none transition-all font-mono"
-                  placeholder="0"
-                />
-              </div>
-            </div>
+            {/* Payment Method & Amount */}
+            <MultiPaymentInput
+              totalAmount={paymentLines[0]?.amount || 0}
+              currency={paymentLines[0]?.currencyCode || "USD"}
+              totalAmountCurrency={paymentLines[0]?.currencyCode || "USD"}
+              onChange={setPaymentLines}
+              paymentMethods={[
+                { code: "CASH", label: "💵 Cash" },
+                { code: "CUSTOMER_ACCOUNT", label: "💳 Customer Account" },
+                { code: "CREDIT_CARD", label: "💳 Credit Card" },
+              ]}
+              currencies={[
+                { code: "USD", symbol: "$" },
+                { code: "LBP", symbol: "LBP" },
+              ]}
+              label="Payment"
+              showDiscount={false}
+              showPmFee={false}
+            />
 
             {/* Date */}
             <div>

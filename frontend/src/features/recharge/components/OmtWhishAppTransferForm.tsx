@@ -13,6 +13,7 @@ import { SaveAsClientCheckbox } from "@/shared/components/SaveAsClientCheckbox";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
 import { PartnerSelector } from "@/features/partners/components/PartnerSelector";
+import { ensureRechargeClient } from "../utils/ensureClient";
 
 type ServiceType = "SEND" | "RECEIVE";
 type ProviderKey = "OMT_APP" | "WISH_APP";
@@ -64,6 +65,25 @@ export function OmtWhishAppTransferForm({
   const [discount, setDiscount] = useState(0);
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
   const [partnerId, setPartnerId] = useState<number | null>(null);
+  const [clientId, setClientId] = useState<number | null>(null);
+  const [paymentInputKey, setPaymentInputKey] = useState(0);
+  const [initialPaymentMethod, setInitialPaymentMethod] = useState("CASH");
+
+  // Auto-promote CUSTOMER_ACCOUNT when name+phone are present for a new client
+  const activeClientName =
+    serviceType === "SEND" ? senderName : receiverName;
+  const activeClientPhone =
+    serviceType === "SEND" ? senderPhone : receiverPhone;
+  useEffect(() => {
+    const hasNewClientInfo =
+      !clientId &&
+      activeClientName.trim().length > 0 &&
+      activeClientPhone.trim().length > 0;
+    if (hasNewClientInfo && initialPaymentMethod !== "CUSTOMER_ACCOUNT") {
+      setInitialPaymentMethod("CUSTOMER_ACCOUNT");
+      setPaymentInputKey((k) => k + 1);
+    }
+  }, [clientId, activeClientName, activeClientPhone, initialPaymentMethod]);
 
   // Save-as-client: use sender for SEND, receiver for RECEIVE
   const saveClientName = serviceType === "SEND" ? senderName : receiverName;
@@ -137,8 +157,25 @@ export function OmtWhishAppTransferForm({
     const finalReceiverName = receiverName.trim();
     const finalReceiverPhone = receiverPhone.trim();
 
-    // Save as client if checkbox is checked
-    await trySaveAsClient();
+    const clientResult = await ensureRechargeClient({
+      clientId,
+      name: activeClientName,
+      phone: activeClientPhone,
+      paymentLines,
+    });
+    if (!clientResult.ok) {
+      alert(clientResult.error);
+      return;
+    }
+    const resolvedClientId = clientResult.id;
+    if (resolvedClientId && resolvedClientId !== clientId) {
+      setClientId(resolvedClientId);
+    }
+
+    // Save as client if checkbox is checked (only relevant when no auto-creation happened)
+    if (!resolvedClientId) {
+      await trySaveAsClient();
+    }
 
     // If session is active, add to cart instead of submitting
     if (activeSession) {
@@ -166,6 +203,7 @@ export function OmtWhishAppTransferForm({
           commission: Math.max(0, shopProfit - discount),
           ...(activeProvider === "OMT_APP" ? { omtFee: providerFee } : {}),
           ...(activeProvider === "WISH_APP" ? { whishFee: providerFee } : {}),
+          clientId: resolvedClientId || undefined,
           clientName: clientLabel,
           referenceNumber: "",
           phoneNumber:
@@ -182,6 +220,7 @@ export function OmtWhishAppTransferForm({
       setSenderPhone("");
       setReceiverName("");
       setReceiverPhone("");
+      setClientId(null);
       setPaymentLines([]);
       setManualFee("");
       resetSaveAsClient();
@@ -201,6 +240,7 @@ export function OmtWhishAppTransferForm({
         commission: Math.max(0, shopProfit - discount),
         ...(activeProvider === "OMT_APP" ? { omtFee: providerFee } : {}),
         ...(activeProvider === "WISH_APP" ? { whishFee: providerFee } : {}),
+        clientId: resolvedClientId || undefined,
         clientName:
           serviceType === "SEND" ? finalSenderName : finalReceiverName,
         referenceNumber: "",
@@ -239,6 +279,7 @@ export function OmtWhishAppTransferForm({
         setSenderPhone("");
         setReceiverName("");
         setReceiverPhone("");
+        setClientId(null);
         setPaymentLines([]);
         setManualFee("");
         setTransactionTime(undefined);
@@ -482,8 +523,18 @@ export function OmtWhishAppTransferForm({
             id="sender-name"
             type="text"
             value={senderName}
-            onChange={(v) => setSenderName(v)}
-            onClientSelect={(c) => setSenderPhone(c.phone_number || "")}
+            onChange={(v) => {
+              setSenderName(v);
+              if (serviceType === "SEND") setClientId(null);
+            }}
+            onClientSelect={(c) => {
+              setSenderPhone(c.phone_number || "");
+              if (serviceType === "SEND") {
+                setClientId(c.id);
+                setInitialPaymentMethod("CUSTOMER_ACCOUNT");
+                setPaymentInputKey((k) => k + 1);
+              }
+            }}
             className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
             placeholder="Sender name"
           />
@@ -500,8 +551,18 @@ export function OmtWhishAppTransferForm({
             id="sender-phone"
             type="tel"
             value={senderPhone}
-            onChange={(v) => setSenderPhone(v)}
-            onClientSelect={(c) => setSenderName(c.full_name)}
+            onChange={(v) => {
+              setSenderPhone(v);
+              if (serviceType === "SEND") setClientId(null);
+            }}
+            onClientSelect={(c) => {
+              setSenderName(c.full_name);
+              if (serviceType === "SEND") {
+                setClientId(c.id);
+                setInitialPaymentMethod("CUSTOMER_ACCOUNT");
+                setPaymentInputKey((k) => k + 1);
+              }
+            }}
             searchByPhone
             className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
             placeholder="Sender phone"
@@ -519,8 +580,18 @@ export function OmtWhishAppTransferForm({
             id="receiver-name"
             type="text"
             value={receiverName}
-            onChange={(v) => setReceiverName(v)}
-            onClientSelect={(c) => setReceiverPhone(c.phone_number || "")}
+            onChange={(v) => {
+              setReceiverName(v);
+              if (serviceType === "RECEIVE") setClientId(null);
+            }}
+            onClientSelect={(c) => {
+              setReceiverPhone(c.phone_number || "");
+              if (serviceType === "RECEIVE") {
+                setClientId(c.id);
+                setInitialPaymentMethod("CUSTOMER_ACCOUNT");
+                setPaymentInputKey((k) => k + 1);
+              }
+            }}
             className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
             placeholder="Receiver name"
           />
@@ -537,8 +608,18 @@ export function OmtWhishAppTransferForm({
             id="receiver-phone"
             type="tel"
             value={receiverPhone}
-            onChange={(v) => setReceiverPhone(v)}
-            onClientSelect={(c) => setReceiverName(c.full_name)}
+            onChange={(v) => {
+              setReceiverPhone(v);
+              if (serviceType === "RECEIVE") setClientId(null);
+            }}
+            onClientSelect={(c) => {
+              setReceiverName(c.full_name);
+              if (serviceType === "RECEIVE") {
+                setClientId(c.id);
+                setInitialPaymentMethod("CUSTOMER_ACCOUNT");
+                setPaymentInputKey((k) => k + 1);
+              }
+            }}
             searchByPhone
             className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
             placeholder="Receiver phone"
@@ -660,17 +741,43 @@ export function OmtWhishAppTransferForm({
         onDiscountChange={setDiscount}
         requiresClientForDebt={true}
         hasClient={
-          serviceType === "SEND"
-            ? !!(senderName || senderPhone)
-            : !!(receiverName || receiverPhone)
+          !!clientId ||
+          (!!activeClientName.trim() && !!activeClientPhone.trim())
         }
+        paymentInputKey={paymentInputKey}
+        initialPaymentMethod={initialPaymentMethod}
         onPaymentChange={(lines) => {
           setPaymentLines(lines);
           if (lines.length === 1) {
             setPaidByMethod(lines[0].method);
           }
         }}
-      />
+      >
+        {(activeClientName.trim() || activeClientPhone.trim()) && (
+          <div className="rounded-lg bg-slate-800/60 border border-slate-700/40 p-3 space-y-1">
+            <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+              {serviceType === "SEND" ? "Sender" : "Receiver"} (linked client)
+            </div>
+            {activeClientName.trim() && (
+              <div className="text-sm text-white truncate">
+                {activeClientName}
+              </div>
+            )}
+            {activeClientPhone.trim() && (
+              <div className="text-xs font-mono text-slate-300 truncate">
+                {activeClientPhone}
+              </div>
+            )}
+            {activeClientName.trim() &&
+              activeClientPhone.trim() &&
+              !clientId && (
+                <p className="text-xs text-orange-300/80">
+                  New client will be created on confirm.
+                </p>
+              )}
+          </div>
+        )}
+      </PaymentSheet>
 
       {/* History Modal */}
       {showHistory && (

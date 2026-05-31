@@ -96,7 +96,7 @@ export class MaintenanceService {
         if (params.payments?.length) {
           // Use the first non-DEBT method as primary paid_by
           const primaryMethod = params.payments.find(
-            (p) => p.method !== "DEBT",
+            (p) => p.method !== "CUSTOMER_ACCOUNT",
           );
           if (primaryMethod) {
             jobData.paid_by = primaryMethod.method;

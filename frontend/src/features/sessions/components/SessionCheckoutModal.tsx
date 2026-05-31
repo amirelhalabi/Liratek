@@ -105,13 +105,66 @@ function setItemPaymentMethod(
   return fd;
 }
 
-/** Modules where only cashout methods are valid (CASH, DEBT, OMT, WHISH, BINANCE) */
+/** Cart modules where paying by GIFT_CARD (voucher) is supported. */
+const VOUCHER_SUPPORTED_MODULES = new Set([
+  "pos",
+  "custom_service",
+  "recharge_mtc",
+  "recharge_alfa",
+]);
+
+/**
+ * Inject a voucher code into a cart item's formData so the replayed service
+ * redeems it. Each module reads the code from a different place:
+ *  - pos            → a GIFT_CARD payments leg (amount counts as paid)
+ *  - custom_service → top-level voucher_code
+ *  - recharge       → a GIFT_CARD payments leg
+ */
+function injectVoucherCode(
+  item: CartItem,
+  fd: Record<string, unknown>,
+  code: string,
+): void {
+  const amount = Math.abs(item.amount);
+  switch (item.module) {
+    case "pos":
+      fd.payments = [
+        {
+          method: "GIFT_CARD",
+          currency_code: "USD",
+          amount,
+          voucher_code: code,
+        },
+      ];
+      fd.payment_usd = amount;
+      fd.payment_lbp = 0;
+      break;
+    case "custom_service":
+      fd.voucher_code = code;
+      break;
+    case "recharge_mtc":
+    case "recharge_alfa":
+      fd.payments = [
+        {
+          method: "GIFT_CARD",
+          currencyCode: String(item.currency || "USD"),
+          amount,
+          voucherCode: code,
+        },
+      ];
+      break;
+    default:
+      break;
+  }
+}
+
+/** Modules where only cashout methods are valid (CASH, CUSTOMER_ACCOUNT, OMT, WHISH, BINANCE) */
 const CASHOUT_ONLY_MODULES = new Set(["binance_receive"]);
 
 /** Valid cashout method codes */
 const CASHOUT_METHOD_CODES = new Set([
   "CASH",
-  "DEBT",
+  "CUSTOMER_ACCOUNT",
   "OMT",
   "WHISH",
   "BINANCE",
@@ -164,6 +217,47 @@ export function SessionCheckoutModal({
   const [itemPaymentMethods, setItemPaymentMethods] = useState<
     Record<string, string>
   >({});
+
+  // Per-item voucher codes (when method === GIFT_CARD): cartItemId → code
+  const [itemVoucherCodes, setItemVoucherCodes] = useState<
+    Record<string, string>
+  >({});
+  // Per-item voucher validation feedback
+  const [voucherFeedback, setVoucherFeedback] = useState<
+    Record<string, { status: "loading" | "ok" | "error"; message: string }>
+  >({});
+
+  const validateItemVoucher = useCallback(async (itemId: string, code: string) => {
+    const normalized = code.trim().toUpperCase();
+    if (!normalized) {
+      setVoucherFeedback((prev) => {
+        const next = { ...prev };
+        delete next[itemId];
+        return next;
+      });
+      return;
+    }
+    setVoucherFeedback((prev) => ({
+      ...prev,
+      [itemId]: { status: "loading", message: "Checking..." },
+    }));
+    const result = await window.api.vouchers.validate(normalized);
+    if (result.success && result.voucher) {
+      const v = result.voucher;
+      setVoucherFeedback((prev) => ({
+        ...prev,
+        [itemId]: {
+          status: "ok",
+          message: `${v.client_name} · $${v.amount.toFixed(2)}`,
+        },
+      }));
+    } else {
+      setVoucherFeedback((prev) => ({
+        ...prev,
+        [itemId]: { status: "error", message: result.error ?? "Invalid voucher" },
+      }));
+    }
+  }, []);
 
   // Initialize per-item payment methods from formData when modal opens
   useEffect(() => {
@@ -220,6 +314,20 @@ export function SessionCheckoutModal({
       return;
     }
 
+    // Validate gift-card items: require a code on a supported module
+    for (const item of cartItems) {
+      const method = itemPaymentMethods[item.id] || getItemPaymentMethod(item);
+      if (method !== "GIFT_CARD") continue;
+      if (!VOUCHER_SUPPORTED_MODULES.has(item.module)) {
+        setError(`Gift card payment is not supported for "${item.label}"`);
+        return;
+      }
+      if (!(itemVoucherCodes[item.id] ?? "").trim()) {
+        setError(`Enter a voucher code for "${item.label}"`);
+        return;
+      }
+    }
+
     setIsProcessing(true);
     setError(null);
 
@@ -232,11 +340,12 @@ export function SessionCheckoutModal({
 
         // For RECEIVE/cashout items, map the selected method to cashoutMethod
         if (isCashoutItem(item)) {
-          if (method === "DEBT") {
-            updatedFormData.cashoutMethod = "CUSTOMER_ACCOUNT";
-          } else {
-            updatedFormData.cashoutMethod = method;
-          }
+          updatedFormData.cashoutMethod = method;
+        }
+
+        // Gift card / voucher: inject the code so the replayed service redeems it
+        if (method === "GIFT_CARD") {
+          injectVoucherCode(item, updatedFormData, itemVoucherCodes[item.id] ?? "");
         }
 
         return {
@@ -359,54 +468,97 @@ export function SessionCheckoutModal({
                   {MODULE_LABELS[module] || module}
                 </div>
                 <div className="space-y-2">
-                  {items.map((item) => (
-                    <div
-                      key={item.id}
-                      className="flex items-center justify-between gap-2"
-                    >
-                      <span className="text-sm text-slate-200 truncate flex-1 min-w-0">
-                        {item.label}
-                      </span>
-                      <div className="flex items-center gap-2 shrink-0">
-                        {/* Per-item payment method dropdown */}
-                        <div className="relative">
-                          <select
-                            value={
-                              itemPaymentMethods[item.id] ||
-                              getItemPaymentMethod(item)
-                            }
-                            onChange={(e) =>
-                              handleItemMethodChange(item.id, e.target.value)
-                            }
-                            className="appearance-none bg-slate-700 border border-slate-600 text-xs font-medium rounded-md px-2 py-1 pr-6 cursor-pointer hover:bg-slate-600 transition-colors focus:outline-none focus:ring-1 focus:ring-violet-500 text-slate-200"
-                          >
-                            {(isCashoutItem(item)
-                              ? allMethods.filter((m) =>
-                                  CASHOUT_METHOD_CODES.has(m.code),
-                                )
-                              : allMethods
-                            ).map((m) => (
-                              <option key={m.code} value={m.code}>
-                                {m.label}
-                              </option>
-                            ))}
-                          </select>
-                          <ChevronDown className="absolute right-1 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400 pointer-events-none" />
+                  {items.map((item) => {
+                    const selectedMethod =
+                      itemPaymentMethods[item.id] || getItemPaymentMethod(item);
+                    const methodOptions = (
+                      isCashoutItem(item)
+                        ? allMethods.filter((m) =>
+                            CASHOUT_METHOD_CODES.has(m.code),
+                          )
+                        : allMethods
+                    ).filter(
+                      (m) =>
+                        m.code !== "GIFT_CARD" ||
+                        VOUCHER_SUPPORTED_MODULES.has(item.module),
+                    );
+                    return (
+                      <div key={item.id} className="space-y-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-sm text-slate-200 truncate flex-1 min-w-0">
+                            {item.label}
+                          </span>
+                          <div className="flex items-center gap-2 shrink-0">
+                            {/* Per-item payment method dropdown */}
+                            <div className="relative">
+                              <select
+                                value={selectedMethod}
+                                onChange={(e) =>
+                                  handleItemMethodChange(
+                                    item.id,
+                                    e.target.value,
+                                  )
+                                }
+                                className="appearance-none bg-slate-700 border border-slate-600 text-xs font-medium rounded-md px-2 py-1 pr-6 cursor-pointer hover:bg-slate-600 transition-colors focus:outline-none focus:ring-1 focus:ring-violet-500 text-slate-200"
+                              >
+                                {methodOptions.map((m) => (
+                                  <option key={m.code} value={m.code}>
+                                    {m.label}
+                                  </option>
+                                ))}
+                              </select>
+                              <ChevronDown className="absolute right-1 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400 pointer-events-none" />
+                            </div>
+                            {/* Amount */}
+                            <span
+                              className={`text-sm font-mono whitespace-nowrap min-w-[5rem] text-right ${
+                                item.amount < 0
+                                  ? "text-red-400"
+                                  : "text-emerald-400"
+                              }`}
+                            >
+                              {item.amount < 0 ? "-" : "+"}
+                              {formatAmount(item.amount, item.currency)}
+                            </span>
+                          </div>
                         </div>
-                        {/* Amount */}
-                        <span
-                          className={`text-sm font-mono whitespace-nowrap min-w-[5rem] text-right ${
-                            item.amount < 0
-                              ? "text-red-400"
-                              : "text-emerald-400"
-                          }`}
-                        >
-                          {item.amount < 0 ? "-" : "+"}
-                          {formatAmount(item.amount, item.currency)}
-                        </span>
+
+                        {/* Voucher code field (GIFT_CARD) */}
+                        {selectedMethod === "GIFT_CARD" && (
+                          <div className="pl-1">
+                            <input
+                              type="text"
+                              value={itemVoucherCodes[item.id] ?? ""}
+                              onChange={(e) =>
+                                setItemVoucherCodes((prev) => ({
+                                  ...prev,
+                                  [item.id]: e.target.value.toUpperCase(),
+                                }))
+                              }
+                              onBlur={(e) =>
+                                validateItemVoucher(item.id, e.target.value)
+                              }
+                              className="w-full bg-slate-900 border border-slate-600 rounded-md px-2 py-1 text-xs text-white font-mono tracking-wider focus:outline-none focus:border-orange-500"
+                              placeholder="GIFT-XXXX-XXXX"
+                            />
+                            {voucherFeedback[item.id] && (
+                              <p
+                                className={`mt-0.5 text-[11px] ${
+                                  voucherFeedback[item.id].status === "ok"
+                                    ? "text-emerald-400"
+                                    : voucherFeedback[item.id].status === "error"
+                                      ? "text-red-400"
+                                      : "text-slate-400"
+                                }`}
+                              >
+                                {voucherFeedback[item.id].message}
+                              </p>
+                            )}
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             ))}

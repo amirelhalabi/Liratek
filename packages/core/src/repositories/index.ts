@@ -87,6 +87,20 @@ export type {
   RepaymentPaymentLine,
 } from "./DebtRepository.js";
 
+// Voucher Repository
+export {
+  VoucherRepository,
+  getVoucherRepository,
+  resetVoucherRepository,
+} from "./VoucherRepository.js";
+export type {
+  VoucherEntity,
+  VoucherStatus,
+  CreateVoucherData,
+  VoucherFilters,
+  RedeemVoucherParams,
+} from "./VoucherRepository.js";
+
 // Exchange Repository
 export {
   ExchangeRepository,

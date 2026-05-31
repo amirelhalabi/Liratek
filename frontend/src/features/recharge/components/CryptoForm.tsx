@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { User, Hash } from "lucide-react";
+import { useEffect, useState } from "react";
+import { User, Hash, Phone } from "lucide-react";
 import { DoubleTab, type PaymentLine } from "@liratek/ui";
 import { PaymentSheet } from "./PaymentSheet";
 import { useSession } from "@/features/sessions/context/SessionContext";
@@ -20,6 +20,10 @@ interface CryptoFormProps {
   setCryptoAmount: (val: string) => void;
   cryptoClientName: string;
   setCryptoClientName: (val: string) => void;
+  cryptoClientPhone: string;
+  setCryptoClientPhone: (val: string) => void;
+  cryptoClientId: number | null;
+  setCryptoClientId: (val: number | null) => void;
   cryptoDescription: string;
   setCryptoDescription: (val: string) => void;
   cryptoFee: string;
@@ -45,6 +49,10 @@ export function CryptoForm({
   setCryptoAmount,
   cryptoClientName,
   setCryptoClientName,
+  cryptoClientPhone,
+  setCryptoClientPhone,
+  cryptoClientId,
+  setCryptoClientId,
   cryptoDescription,
   setCryptoDescription,
   cryptoFee,
@@ -63,7 +71,26 @@ export function CryptoForm({
 }: CryptoFormProps) {
   const [showPaymentSheet, setShowPaymentSheet] = useState(false);
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
+  const [paymentInputKey, setPaymentInputKey] = useState(0);
+  const [initialPaymentMethod, setInitialPaymentMethod] = useState("CASH");
   const { activeSession } = useSession();
+
+  // Auto-promote CUSTOMER_ACCOUNT once name+phone are filled for a new client
+  useEffect(() => {
+    const hasNewClientInfo =
+      !cryptoClientId &&
+      cryptoClientName.trim().length > 0 &&
+      cryptoClientPhone.trim().length > 0;
+    if (hasNewClientInfo && initialPaymentMethod !== "CUSTOMER_ACCOUNT") {
+      setInitialPaymentMethod("CUSTOMER_ACCOUNT");
+      setPaymentInputKey((k) => k + 1);
+    }
+  }, [
+    cryptoClientId,
+    cryptoClientName,
+    cryptoClientPhone,
+    initialPaymentMethod,
+  ]);
 
   if (!activeConfig) return null;
 
@@ -164,8 +191,8 @@ export function CryptoForm({
         </div>
       </div>
 
-      {/* Client Name + Description */}
-      <div className="grid grid-cols-2 gap-2">
+      {/* Client Name + Phone + Description */}
+      <div className="grid grid-cols-3 gap-2">
         <div>
           <label
             htmlFor="crypto-client"
@@ -177,9 +204,47 @@ export function CryptoForm({
             id="crypto-client"
             type="text"
             value={cryptoClientName}
-            onChange={(v) => setCryptoClientName(v)}
+            onChange={(v) => {
+              setCryptoClientName(v);
+              if (!v) {
+                setCryptoClientId(null);
+                setCryptoClientPhone("");
+              }
+            }}
+            onClientSelect={(c) => {
+              setCryptoClientId(c.id);
+              setCryptoClientPhone(c.phone_number || "");
+              setInitialPaymentMethod("CUSTOMER_ACCOUNT");
+              setPaymentInputKey((k) => k + 1);
+            }}
             className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500 transition-all"
             placeholder="Optional"
+          />
+        </div>
+        <div>
+          <label
+            htmlFor="crypto-client-phone"
+            className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+          >
+            <Phone size={12} /> Phone
+          </label>
+          <ClientAutocompleteInput
+            id="crypto-client-phone"
+            type="tel"
+            value={cryptoClientPhone}
+            onChange={(v) => {
+              setCryptoClientPhone(v);
+              if (!v) setCryptoClientId(null);
+            }}
+            onClientSelect={(c) => {
+              setCryptoClientId(c.id);
+              setCryptoClientName(c.full_name);
+              setInitialPaymentMethod("CUSTOMER_ACCOUNT");
+              setPaymentInputKey((k) => k + 1);
+            }}
+            searchByPhone
+            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white font-mono focus:outline-none focus:border-amber-500 transition-all"
+            placeholder="Registers new client"
           />
         </div>
         <div>
@@ -195,7 +260,7 @@ export function CryptoForm({
             value={cryptoDescription}
             onChange={(e) => setCryptoDescription(e.target.value)}
             className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500 transition-all"
-            placeholder="Wallet address, reference..."
+            placeholder="Wallet, reference..."
           />
         </div>
       </div>
@@ -305,9 +370,22 @@ export function CryptoForm({
           onDiscountChange?.(d);
         }}
         requiresClientForDebt={true}
-        hasClient={!!cryptoClientName}
+        hasClient={
+          !!cryptoClientId ||
+          (!!cryptoClientName.trim() && !!cryptoClientPhone.trim())
+        }
+        paymentInputKey={paymentInputKey}
+        initialPaymentMethod={initialPaymentMethod}
         onPaymentChange={onPaymentLinesChange}
-      />
+      >
+        {cryptoClientName.trim() &&
+          cryptoClientPhone.trim() &&
+          !cryptoClientId && (
+            <p className="text-xs text-orange-300/80 px-1">
+              New client will be created on confirm.
+            </p>
+          )}
+      </PaymentSheet>
 
       {/* History Modal */}
       {showHistory && (

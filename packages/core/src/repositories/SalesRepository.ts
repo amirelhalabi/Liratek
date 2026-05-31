@@ -66,6 +66,7 @@ import {
   isDrawerAffectingMethod,
   paymentMethodToDrawerName,
 } from "../utils/payments.js";
+import { getVoucherRepository } from "./VoucherRepository.js";
 
 // Backward compatible payment method type (DB values)
 // NOTE: exported for API typing.
@@ -76,6 +77,8 @@ export interface PaymentLine {
   method: PaymentMethod;
   currency_code: string;
   amount: number;
+  /** Set when method === 'GIFT_CARD' — the voucher code being redeemed. */
+  voucher_code?: string;
 }
 
 export interface SaleRequest {
@@ -393,6 +396,21 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             createdBy,
           );
           upsertBalanceDelta.run(drawerName, p.currency_code, p.amount);
+        }
+
+        // Redeem any gift-card / voucher legs atomically with the sale. The
+        // voucher's full value is deposited to the owner's account; the sale's
+        // GIFT_CARD leg is non-drawer, so the unpaid balance becomes a Sale Debt
+        // that the deposited credit offsets.
+        const voucherRepo = getVoucherRepository();
+        for (const p of paymentLines) {
+          if (p.method !== "GIFT_CARD" || !p.voucher_code) continue;
+          voucherRepo.redeemByCode({
+            code: p.voucher_code,
+            context: "sale",
+            transactionId: txnId,
+            userId: createdBy,
+          });
         }
 
         const changeUsd = Math.abs(sale.change_given_usd || 0);
@@ -1115,16 +1133,22 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       const dates = datesResult.map((r) => r.date);
 
       if (type === "Sales") {
+        // Chart shows USD and LBP transactions from three sources:
+        // - Inventory sales (USD only, from sales table)
+        // - Mobile recharges (MTC/Alfa, USD or LBP, from recharges table)
+        // - Financial services (OMT/WHISH/iPick/Katsh, USD or LBP, from financial_services table)
+
+        // Inventory sales (USD only)
         const salesData = this.query<{
           date: string;
-          daily_usd: number;
-          daily_lbp: number;
+          currency: string;
+          daily_amount: number;
         }>(
           `
-          SELECT 
+          SELECT
             DATE(created_at, 'localtime') as date,
-            SUM(final_amount_usd) as daily_usd,
-            SUM(paid_lbp - COALESCE(change_given_lbp, 0)) as daily_lbp
+            'USD' as currency,
+            SUM(final_amount_usd) as daily_amount
           FROM ${this.tableName}
           WHERE status = 'completed' AND DATE(created_at, 'localtime') >= ?
           GROUP BY date
@@ -1132,28 +1156,53 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           dates[0],
         );
 
-        const repaymentData = this.query<{
+        // Recharges (MTC/Alfa in USD or LBP)
+        const rechargesData = this.query<{
           date: string;
-          daily_usd: number;
-          daily_lbp: number;
+          currency: string;
+          daily_amount: number;
         }>(
           `
-          SELECT 
+          SELECT
             DATE(created_at, 'localtime') as date,
-            SUM(ABS(amount_usd)) as daily_usd,
-            SUM(ABS(amount_lbp)) as daily_lbp
-          FROM debt_ledger
-          WHERE transaction_type = 'Repayment' AND DATE(created_at, 'localtime') >= ?
-          GROUP BY date
+            currency_code as currency,
+            SUM(price) as daily_amount
+          FROM recharges
+          WHERE DATE(created_at, 'localtime') >= ?
+          GROUP BY date, currency_code
         `,
           dates[0],
         );
 
+        // Financial services (OMT/WHISH/iPick/Katsh in USD or LBP)
+        const financialData = this.query<{
+          date: string;
+          currency: string;
+          daily_amount: number;
+        }>(
+          `
+          SELECT
+            DATE(created_at, 'localtime') as date,
+            currency as currency,
+            SUM(price) as daily_amount
+          FROM financial_services
+          WHERE DATE(created_at, 'localtime') >= ?
+          GROUP BY date, currency
+        `,
+          dates[0],
+        );
+
+        // Combine all sources by date and currency
         const combined = new Map<string, { usd: number; lbp: number }>();
-        [...salesData, ...repaymentData].forEach((row) => {
+        const allData = [...salesData, ...rechargesData, ...financialData];
+
+        allData.forEach((row) => {
           const entry = combined.get(row.date) || { usd: 0, lbp: 0 };
-          entry.usd += row.daily_usd ?? 0;
-          entry.lbp += row.daily_lbp ?? 0;
+          if (row.currency === 'USD') {
+            entry.usd += row.daily_amount ?? 0;
+          } else if (row.currency === 'LBP') {
+            entry.lbp += row.daily_amount ?? 0;
+          }
           combined.set(row.date, entry);
         });
 
