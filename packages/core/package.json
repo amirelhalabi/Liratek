@@ -10,11 +10,13 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "tsc -p tsconfig.json",
     "test": "node ../../node_modules/jest/bin/jest.js --config jest.config.cjs",
     "test:coverage": "node ../../node_modules/jest/bin/jest.js --config jest.config.cjs --coverage"
   },
   "dependencies": {
-    "better-sqlite3": "^12.6.2",
+    "better-sqlite3": "^12.8.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {

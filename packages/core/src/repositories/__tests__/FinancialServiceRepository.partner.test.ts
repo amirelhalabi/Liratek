@@ -124,6 +124,8 @@ function createTestDb(): Database.Database {
       created_by            INTEGER,
       edited_by             TEXT,
       edited_at             TEXT,
+      paid_amount           REAL DEFAULT NULL,
+      paid_currency         TEXT DEFAULT NULL,
       partner_id            INTEGER REFERENCES partners(id),
       partner_mode          TEXT CHECK(partner_mode IN ('THROUGH', 'FOR'))
     );
