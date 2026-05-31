@@ -311,17 +311,236 @@ Reflects changes merged to main after the review above.
 
 ### Still Open (not yet addressed)
 
-| Scenario | Status |
-|----------|--------|
-| S2 — split USD + LBP in Debts, Loto, Sessions | Not verified — needs confirmation that `MultiPaymentInput` in these modules accepts split lines |
-| S8 — partial payment → debt in POS | Not addressed in this batch — POS checkout debt creation path needs explicit verification |
-| S8 — partial payment → debt in Sessions | Backend handler needs verification (see above) |
-| S14 — pre-populated from session in Debts | Still open — depends on whether Debts reads session context; unverified |
-| S22 — TransactionTimeOverride past date in all 8 locations | Only 3 locations tested originally; Expenses, Maintenance, Loto, POS not yet covered |
-| S26 — override date shows in history (all 7 locations) | Only Recharge + Custom Services originally; remaining 5 not yet covered |
-| S30 — DataTable multi-select: which modules have it enabled | Unconfirmed — need to verify beyond Debts and Inventory |
-| S34 — DataTable date range filter in all 7 DateRangeFilter locations | Only Exchange + Expenses covered; 5 remaining locations not yet tested |
-| S40 — EditHistoryPopover opens in all 5 locations | Only Recharge + Expenses covered; Custom Services, Exchange, Maintenance not yet added |
-| S44 — ConfirmModal: explicit module list | "Any void action" still not replaced with a concrete list |
-| S46 — ConfirmModal confirm executes: POS void | Only Inventory delete covered; POS void not yet added |
-| S48 — ConfirmModal danger variant: specific modules | Still vague — needs explicit module list |
+All items resolved — see section below.
+
+---
+
+## Resolution of Still-Open Items
+
+### S2 — Split USD + LBP in Debts, Loto, Sessions
+
+**Investigation findings:**
+- **Debts**: `MultiPaymentInput` rendered with no `maxLines` or restricting props — split payment fully supported.
+- **Loto**: Same — no restrictions in either the ticket sale form or the settlement/payout modal.
+- **Sessions**: Does NOT use `MultiPaymentInput` at all. Payment is set per-cart-item via individual dropdowns, not a shared payment input.
+
+**Decision:** Expand S2 to include Debts and Loto. Sessions correctly excluded — the component is absent.
+**Final scope: Expenses, Custom Services, Maintenance, POS, Debts, Loto (all 6 that use MultiPaymentInput).**
+
+---
+
+### S8 — Partial payment → debt in POS
+
+**Investigation findings:**
+`SalesRepository` (packages/core/src/repositories/SalesRepository.ts) creates a `debt_ledger` entry automatically when `final_amount - totalPaidUSD > $0.05`, provided a `client_id` is present. Anonymous sales cannot create debt.
+
+**Decision:** Add POS to S8. Test requires a client to be attached (C3/C4 context). Correctly excluded for anonymous/C1 checkouts.
+**Final scope for S8: Debts, Custom Services, Maintenance, POS (with client attached).**
+
+---
+
+### S8 — Partial payment → debt in Sessions
+
+**Investigation findings:**
+The session checkout handler delegates each cart item to its individual module handler (sales, recharge, custom-service, etc.). Debt creation happens at the module level, not the session level. Sessions does not independently insert into `debt_ledger`.
+
+**Decision:** Sessions correctly excluded from S8 as a direct scenario. POS-within-session debt is already covered by the POS scenario above.
+
+---
+
+### S14 — Debts pre-populated from session context
+
+**Investigation findings:**
+`Debts/index.tsx` has no `useSession()` call, no `SessionContext` import, and no `activeSession` variable. The credit/repay modal requires explicit client selection — it is entirely session-agnostic.
+
+**Decision:** Debts correctly excluded from S14. No pre-population from session context exists.
+
+---
+
+### S22 — TransactionTimeOverride past date in all locations
+
+No code investigation needed — doc update only.
+**Final scope: all 8 locations — Recharge (x5 forms), Custom Services, Exchange, Expenses, Maintenance, Loto, POS.**
+
+---
+
+### S26 — Override date shows correctly in history
+
+No code investigation needed — doc update only.
+**Final scope: all 7 history locations — Recharge, Custom Services, Exchange, Expenses, Maintenance, Loto, POS.**
+
+---
+
+### S30 — DataTable multi-select: which modules
+
+**Investigation findings:**
+- **Inventory / ProductList**: passes `onShiftSelect` prop → true shift+click range select enabled.
+- **Settings / CategoriesManager**: passes `selectAll` prop only → select-all/deselect-all, no shift+click range.
+- **Debts**: no `onShiftSelect` or `selectAll` prop — was incorrectly listed in the original catalog.
+- All other modules (Loto, Sessions, Recharge, etc.): no multi-select props.
+
+**Decision:** S30 scope corrected to **Inventory (ProductList) only**. Debts removed. CategoriesManager gets a separate note: select-all is present but shift+click range is not.
+
+---
+
+### S34 — DataTable date range filter in all DateRangeFilter locations
+
+No code investigation needed — doc update only.
+**Final scope: all 7 locations — Recharge, Custom Services, Exchange, Expenses, Loto, Maintenance, Sessions.**
+
+---
+
+### S40 — EditHistoryPopover opens in all 5 locations
+
+No code investigation needed — doc update only.
+**Final scope: all 5 locations — Recharge, Custom Services, Exchange, Expenses, Maintenance.**
+
+---
+
+### S44 — ConfirmModal: explicit module list
+
+**Investigation findings:**
+ConfirmModal appears in exactly 3 files for 4 distinct destructive actions:
+1. **Inventory / ProductList** — delete single product (`danger`)
+2. **Inventory / ProductList** — batch delete selected products (`danger`)
+3. **POS / SaleDetailModal** — refund sale (`danger`)
+4. **POS / index** — clear cart (`danger`)
+
+All 4 usages use the `danger` variant. No `warning` or `info` variants exist in the codebase currently.
+
+**Decision:** Replace "any module with a void action" with the explicit list above.
+
+---
+
+### S46 — ConfirmModal confirm executes: add POS
+
+**Decision:** Expand to cover both Inventory delete and POS refund sale. POS clear cart is also a candidate.
+
+---
+
+### S48 — ConfirmModal danger variant: specific modules
+
+**Decision:** All 4 usages are `danger` — Inventory delete, Inventory batch delete, POS refund sale, POS clear cart. Replace vague "void actions" with this list.
+
+---
+
+## Final Corrected Scenario Catalog
+
+This section is the authoritative, updated version of the catalog with all review decisions applied. Use this as the source of truth for test implementation.
+
+### MultiPaymentInput
+
+| # | Scenario | Locations |
+|---|----------|-----------|
+| S1 | Single payment line fills full amount | All 6 (Expenses, Custom Services, Debts, Loto, Maintenance, POS) |
+| S2 | Split across cash USD + cash LBP | All 6 |
+| S3 | CUSTOMER_ACCOUNT line appears when client attached | Debts, Custom Services, Sessions, Maintenance, POS |
+| S4 | Customer account auto-selected when client is picked | Custom Services (implemented); Debts/Maintenance/POS delegate to CheckoutModal; Sessions per-item |
+| S5 | Remove a payment line | All 6 |
+| S6 | Total exceeds invoice amount → submit blocked | All 6 |
+| S7 | Total is zero → submit blocked | All 6 |
+| S8 | Partial payment creates debt entry | Debts, Custom Services, Maintenance, POS (client must be attached; threshold > $0.05) |
+
+> Sessions excluded from S1–S8: does not use `MultiPaymentInput` — payment is per-cart-item.
+
+---
+
+### ClientAutocompleteInput
+
+| # | Scenario | Locations |
+|---|----------|-----------|
+| S9 | Search by partial name → results appear | All 6 (Recharge x4, Custom Services, Debts, Sessions) |
+| S10 | Search by phone number → results appear | All 6 |
+| S11 | Select result → parent form autofills name/phone | All 6 |
+| S12 | No results → empty state shown | All 6 |
+| S13 | Clear selection → form resets | All 6 |
+| S14 | Session client → field pre-populated (C4) | Recharge (C4), Custom Services (C4) only — Debts is session-agnostic, Sessions itself is the source |
+| S15 | Client has open debt → debt badge visible | All 6 (`showDebtBadge` prop passed everywhere) |
+
+---
+
+### SaveAsClientCheckbox
+
+| # | Scenario | Locations |
+|---|----------|-----------|
+| S16 | Hidden when client selected via autocomplete (C3/C4) | Recharge, Custom Services, Maintenance, Sessions |
+| S17 | Visible when name/phone typed manually (C1/C2) | Recharge, Custom Services, Maintenance, Sessions |
+| S18 | Checked + submit → new client in Clients module | Recharge, Custom Services, Maintenance, Sessions |
+| S19 | Unchecked + submit → no client created | All 4 |
+| S20 | Duplicate name/phone → warning shown, checkbox disabled | All 4 |
+
+---
+
+### TransactionTimeOverride
+
+| # | Scenario | Locations |
+|---|----------|-----------|
+| S21 | Collapsed by default → shows "now" | All 8 (Recharge x5, Custom Services, Exchange, Expenses, Maintenance, Loto, POS) |
+| S22 | Expand, pick a past date/time → saved on submit | All 8 |
+| S23 | Pick a future date/time → blocked | All 8 |
+| S24 | Collapse after picking → value retained | All 8 |
+| S25 | Submit without changing → timestamp is today | All 8 |
+| S26 | Override date shows correctly in history table | Recharge, Custom Services, Exchange, Expenses, Maintenance, Loto, POS (all 7 with history views) |
+
+---
+
+### DataTable
+
+| # | Scenario | Locations |
+|---|----------|-----------|
+| S27 | Render list → rows appear correctly | Recharge, Maintenance (representative) |
+| S28 | Sort by column ascending/descending | Exchange, Expenses (representative) |
+| S29 | Pagination → navigate pages | Custom Services (large dataset) |
+| S30 | Shift+click multi-row select | Inventory / ProductList only (only module with `onShiftSelect` enabled) |
+| S31 | Export to Excel → file downloads | Recharge, Maintenance, + 1 additional |
+| S32 | Export to PDF → file downloads | Recharge, Maintenance, + 1 additional |
+| S33 | Empty state → "no records" message | Any fresh module |
+| S34 | Date range filter narrows rows | Recharge, Custom Services, Exchange, Expenses, Loto, Maintenance, Sessions (all 7) |
+
+> CategoriesManager (Settings): has select-all checkbox but NOT shift+click range select — test select-all separately, do not group with S30.
+
+---
+
+### DateRangeFilter
+
+| # | Scenario | Locations |
+|---|----------|-----------|
+| S35 | Set From date → older rows disappear | Recharge, Expenses (representative) |
+| S36 | Set To date → newer rows disappear | Exchange, Maintenance (representative) |
+| S37 | From > To → table empties or error shown | Any |
+| S38 | Clear both dates → all rows return | Any |
+| S39 | Boundary date (From = To) → only that day's rows | Custom Services |
+
+---
+
+### EditHistoryPopover
+
+| # | Scenario | Locations |
+|---|----------|-----------|
+| S40 | Popover opens on click | All 5 (Recharge, Custom Services, Exchange, Expenses, Maintenance) |
+| S41 | Shows correct before/after values | Custom Services, Exchange (representative) |
+| S42 | Multiple edits show full timeline | Maintenance |
+| S43 | Record never edited → badge hidden | Any |
+
+---
+
+### ConfirmModal
+
+| # | Scenario | Locations |
+|---|----------|-----------|
+| S44 | Opens on destructive action click | Inventory delete product, Inventory batch delete, POS refund sale, POS clear cart |
+| S45 | Cancel → nothing changes | All 4 |
+| S46 | Confirm → action executes | Inventory delete product, POS refund sale |
+| S47 | Keyboard focus works after close (Electron Windows bug) | All 4 |
+| S48 | Danger variant shows red styling | All 4 (all usages are `danger`) |
+
+---
+
+### CheckoutModal
+
+| # | Scenario | POS | Maintenance |
+|---|----------|-----|-------------|
+| S49 | Assign client mid-checkout (C1 → client selected) | ✓ | ✓ |
+| S50 | Payment method auto-switches to CUSTOMER_ACCOUNT | ✓ | ✓ |
+| S51 | Partial payment → debt created | ✓ | ✓ |
+| S52 | Override transaction time before submitting | ✓ | ✓ |
