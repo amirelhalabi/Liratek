@@ -1,11 +1,12 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import type { FormEvent } from "react";
 import { useSession } from "../context/SessionContext";
-import { Search, X } from "lucide-react";
+import { X } from "lucide-react";
 import type { Client } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { useSaveAsClient } from "@/shared/hooks/useSaveAsClient";
 import { SaveAsClientCheckbox } from "@/shared/components/SaveAsClientCheckbox";
+import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
 
 interface StartSessionModalProps {
   isOpen: boolean;
@@ -15,7 +16,6 @@ interface StartSessionModalProps {
 export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
   useModalFocusFix(isOpen);
   const { startSession } = useSession();
-  const [clients, setClients] = useState<Client[]>([]);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
@@ -24,8 +24,6 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
   const [error, setError] = useState<string | null>(null);
   const [todaySessionNames, setTodaySessionNames] = useState<string[]>([]);
   const [loadingNames, setLoadingNames] = useState(false);
-  const nameInputRef = useRef<HTMLInputElement>(null);
-  const [showDropdown, setShowDropdown] = useState(false);
   const {
     saveAsClient,
     setSaveAsClient,
@@ -34,10 +32,9 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
     resetSaveAsClient,
   } = useSaveAsClient(customerName, customerPhone);
 
-  // Focus name input and fetch today's session names when modal opens
+  // Fetch today's session names when modal opens
   useEffect(() => {
     if (isOpen) {
-      nameInputRef.current?.focus();
       setLoadingNames(true);
       const fetchTodayNames = async () => {
         try {
@@ -58,29 +55,6 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
       fetchTodayNames();
     }
   }, [isOpen]);
-
-  // Debounced server-side client search (same pattern as Debts page)
-  const [searchLoading, setSearchLoading] = useState(false);
-  useEffect(() => {
-    if (customerName.length === 0 || selectedClient) {
-      setClients([]);
-      return;
-    }
-    setSearchLoading(true);
-    const timer = setTimeout(async () => {
-      try {
-        const data = await window.api.clients.getAll(customerName);
-        setClients(data);
-      } catch {
-        setClients([]);
-      } finally {
-        setSearchLoading(false);
-      }
-    }, 250);
-    return () => clearTimeout(timer);
-  }, [customerName, selectedClient]);
-
-  const filteredClients = clients;
 
   // Reset form when modal closes
   useEffect(() => {
@@ -204,6 +178,7 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
                     setSelectedClient(null);
                     setCustomerName("");
                     setCustomerPhone("");
+                    resetSaveAsClient();
                   }}
                   className="text-slate-400 hover:text-white"
                 >
@@ -211,61 +186,29 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
                 </button>
               </div>
             ) : (
-              <div className="relative">
-                <Search
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                  size={15}
-                />
-                <input
-                  id="customer-name"
-                  type="text"
-                  value={customerName}
-                  onChange={(e) => {
-                    setCustomerName(e.target.value);
-                    setShowDropdown(true);
-                  }}
-                  onFocus={() => setShowDropdown(true)}
-                  onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
-                  placeholder="Search client by name or phone..."
-                  className="w-full bg-slate-800 border border-slate-600 rounded-lg pl-9 pr-4 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
-                  ref={nameInputRef}
-                  disabled={loading}
-                  required
-                />
-                {customerName.length > 0 && showDropdown && (
-                  <div className="absolute z-10 top-full mt-1 w-full bg-slate-800 border border-slate-600 rounded-lg shadow-xl max-h-48 overflow-y-auto">
-                    {searchLoading ? (
-                      <div className="px-3 py-2 text-sm text-slate-500">
-                        Searching...
-                      </div>
-                    ) : filteredClients.length > 0 ? (
-                      filteredClients.slice(0, 10).map((client) => (
-                        <button
-                          key={client.id}
-                          type="button"
-                          onClick={() => {
-                            setSelectedClient(client);
-                            setCustomerName(client.full_name);
-                            setCustomerPhone(client.phone_number || "");
-                          }}
-                          className="w-full text-left px-3 py-2 hover:bg-slate-700 text-sm text-white border-b border-slate-700/50 last:border-0"
-                        >
-                          <div className="font-medium">{client.full_name}</div>
-                          {client.phone_number && (
-                            <div className="text-xs text-slate-400">
-                              {client.phone_number}
-                            </div>
-                          )}
-                        </button>
-                      ))
-                    ) : (
-                      <div className="px-3 py-2 text-sm text-slate-500">
-                        No clients found
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
+              <ClientAutocompleteInput
+                id="customer-name"
+                value={customerName}
+                onChange={(v) => {
+                  setCustomerName(v);
+                  if (!v) {
+                    setSelectedClient(null);
+                    setCustomerPhone("");
+                    resetSaveAsClient();
+                  }
+                }}
+                onClientSelect={(client) => {
+                  setSelectedClient(client);
+                  setCustomerName(client.full_name);
+                  setCustomerPhone(client.phone_number || "");
+                  resetSaveAsClient();
+                }}
+                placeholder="Search client by name or phone..."
+                className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
+                disabled={loading}
+                showDebtBadge
+                autoFocus={isOpen}
+              />
             )}
           </div>
 

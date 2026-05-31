@@ -21,6 +21,10 @@ export interface ClientAutocompleteInputProps {
   searchByPhone?: boolean;
   /** Disable the autocomplete dropdown (just render a plain input) */
   disabled?: boolean;
+  /** Show a debt badge next to clients who have an open balance */
+  showDebtBadge?: boolean;
+  /** Auto-focus the input on mount */
+  autoFocus?: boolean;
 }
 
 /**
@@ -38,10 +42,13 @@ export function ClientAutocompleteInput({
   type = "text",
   searchByPhone = false,
   disabled = false,
+  showDebtBadge = false,
+  autoFocus = false,
 }: ClientAutocompleteInputProps) {
   const [clients, setClients] = useState<Client[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const [highlightIndex, setHighlightIndex] = useState(-1);
+  const [debtMap, setDebtMap] = useState<Map<number, number>>(new Map());
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -57,6 +64,24 @@ export function ClientAutocompleteInput({
     };
     fetch();
   }, []);
+
+  // Fetch debt balances when showDebtBadge is enabled
+  useEffect(() => {
+    if (!showDebtBadge) return;
+    const fetchDebts = async () => {
+      try {
+        const debtors = await window.api.debt.getDebtors();
+        const map = new Map<number, number>();
+        for (const d of debtors) {
+          if (d.total_debt_usd > 0.01) map.set(d.id, d.total_debt_usd);
+        }
+        setDebtMap(map);
+      } catch (err) {
+        logger.error("ClientAutocompleteInput: failed to fetch debts", err);
+      }
+    };
+    fetchDebts();
+  }, [showDebtBadge]);
 
   // Filter clients based on current value
   const filtered =
@@ -161,6 +186,7 @@ export function ClientAutocompleteInput({
         placeholder={placeholder}
         className={className}
         autoComplete="off"
+        autoFocus={autoFocus}
       />
       {showDropdown && filtered.length > 0 && (
         <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-slate-800 border border-slate-600 rounded-lg shadow-xl max-h-48 overflow-y-auto">
@@ -177,11 +203,18 @@ export function ClientAutocompleteInput({
               }}
             >
               <span className="text-white truncate">{client.full_name}</span>
-              {client.phone_number && (
-                <span className="text-slate-400 text-xs ml-2 shrink-0">
-                  {client.phone_number}
-                </span>
-              )}
+              <span className="flex items-center gap-1.5 shrink-0 ml-2">
+                {client.phone_number && (
+                  <span className="text-slate-400 text-xs">
+                    {client.phone_number}
+                  </span>
+                )}
+                {showDebtBadge && debtMap.has(client.id) && (
+                  <span className="px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-400 text-[10px] font-bold">
+                    ${debtMap.get(client.id)!.toFixed(2)}
+                  </span>
+                )}
+              </span>
             </button>
           ))}
         </div>

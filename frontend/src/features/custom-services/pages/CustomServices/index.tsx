@@ -37,6 +37,8 @@ import { useSaveAsClient } from "@/shared/hooks/useSaveAsClient";
 import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
 import { SaveAsClientCheckbox } from "@/shared/components/SaveAsClientCheckbox";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
+import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
+import type { Client } from "@liratek/ui";
 
 // =============================================================================
 // Helper
@@ -140,8 +142,10 @@ export default function CustomServices() {
   const [clientId, setClientId] = useState<number | null>(null);
   const [clientName, setClientName] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
-  const [clientSearchResults, setClientSearchResults] = useState<any[]>([]);
-  const [showClientSearch, setShowClientSearch] = useState(false);
+  const [paymentInputKey, setPaymentInputKey] = useState(0);
+  const [paymentInitialMethod, setPaymentInitialMethod] = useState<
+    string | undefined
+  >();
   const {
     saveAsClient,
     setSaveAsClient,
@@ -177,38 +181,25 @@ export default function CustomServices() {
     { select: (s) => s.customer_phone, set: setPhoneNumber, clearValue: "" },
   ]);
 
-  const searchClients = useCallback(
-    async (query: string) => {
-      if (!query || query.length < 2) {
-        setClientSearchResults([]);
-        return;
-      }
-      try {
-        const results = await api.getClients(query);
-        setClientSearchResults(results.slice(0, 8));
-      } catch {
-        setClientSearchResults([]);
-      }
-    },
-    [api],
-  );
-
-  const selectClient = (client: any) => {
-    setClientName(client.full_name || client.name);
+  const selectClient = (client: Client) => {
+    setClientName(client.full_name);
     setClientId(client.id);
     if (client.phone_number) setPhoneNumber(client.phone_number);
-    setShowClientSearch(false);
-    setClientSearchResults([]);
     resetSaveAsClient();
+    const hasCustomerAccount = methods.some((m) => m.code === "CUSTOMER_ACCOUNT");
+    if (hasCustomerAccount) {
+      setPaymentInitialMethod("CUSTOMER_ACCOUNT");
+      setPaymentInputKey((k) => k + 1);
+    }
   };
 
   const clearClient = () => {
     setClientId(null);
     setClientName("");
     setPhoneNumber("");
-    setShowClientSearch(false);
-    setClientSearchResults([]);
     resetSaveAsClient();
+    setPaymentInitialMethod(undefined);
+    setPaymentInputKey((k) => k + 1);
   };
 
   // ─── Computed ───
@@ -740,44 +731,18 @@ export default function CustomServices() {
                     </button>
                   </div>
                 ) : (
-                  <div className="relative">
-                    <input
-                      id="svc-client"
-                      type="text"
-                      value={clientName}
-                      onChange={(e) => {
-                        setClientName(e.target.value);
-                        setShowClientSearch(true);
-                        searchClients(e.target.value);
-                      }}
-                      onFocus={() => {
-                        if (clientName.length >= 2) {
-                          setShowClientSearch(true);
-                          searchClients(clientName);
-                        }
-                      }}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-teal-500 transition-all"
-                      placeholder="Search or type name..."
-                    />
-                    {showClientSearch && clientSearchResults.length > 0 && (
-                      <div className="absolute z-10 top-full mt-1 w-full bg-slate-800 border border-slate-600 rounded-xl shadow-2xl max-h-40 overflow-auto">
-                        {clientSearchResults.map((c: any) => (
-                          <button
-                            key={c.id}
-                            onClick={() => selectClient(c)}
-                            className="w-full text-left px-4 py-2 hover:bg-slate-700 text-sm text-white transition-colors first:rounded-t-xl last:rounded-b-xl"
-                          >
-                            <span>{c.full_name || c.name}</span>
-                            {c.phone_number && (
-                              <span className="text-slate-500 ml-2 text-xs">
-                                {c.phone_number}
-                              </span>
-                            )}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                  <ClientAutocompleteInput
+                    id="svc-client"
+                    value={clientName}
+                    onChange={(v) => {
+                      setClientName(v);
+                      if (!v) clearClient();
+                    }}
+                    onClientSelect={selectClient}
+                    placeholder="Search or type name..."
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-teal-500 transition-all"
+                    showDebtBadge
+                  />
                 )}
                 <SaveAsClientCheckbox
                   checked={saveAsClient}
@@ -829,6 +794,7 @@ export default function CustomServices() {
                 Payment Method
               </label>
               <MultiPaymentInput
+                key={paymentInputKey}
                 totalAmount={priceUsdVal || costUsdVal}
                 currency="USD"
                 onChange={setPaymentLines}
@@ -842,6 +808,9 @@ export default function CustomServices() {
                 exchangeRate={exchangeRate}
                 clientId={clientId}
                 fetchClientVouchers={fetchClientVouchers}
+                {...(paymentInitialMethod
+                  ? { initialMethod: paymentInitialMethod }
+                  : {})}
               />
             </div>
           </div>
