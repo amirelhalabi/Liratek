@@ -34,24 +34,53 @@ export {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Test DB location — isolated from the user's real database
-const TEST_DB_DIR = path.join(os.tmpdir(), "liratek-e2e-test");
+// Per-worker index so parallel workers never share a DB or user-data-dir.
+// Playwright sets TEST_WORKER_INDEX per worker process; the fixture module
+// state below is per-worker-process, so reading it once at module load is safe.
+const WORKER_INDEX = process.env.TEST_WORKER_INDEX ?? "0";
+
+// Test DB location — isolated from the user's real database AND per-worker.
+const TEST_DB_DIR = path.join(os.tmpdir(), `liratek-e2e-test-${WORKER_INDEX}`);
 const TEST_DB_PATH = path.join(TEST_DB_DIR, "phone_shop.db");
 // Isolated user-data-dir so the test instance never collides with a
-// running yarn dev session or installed app. Electron's
-// requestSingleInstanceLock() is per user-data-dir, so without this
-// the test instance would immediately quit when another Electron
-// instance (e.g. yarn dev) is already running.
-const TEST_USER_DATA_DIR = path.join(os.tmpdir(), "liratek-e2e-userdata");
+// running yarn dev session, installed app, or a sibling parallel worker.
+// Electron's requestSingleInstanceLock() is per user-data-dir, so each
+// worker MUST get its own directory or the second worker's Electron quits
+// immediately ("Process failed to launch").
+const TEST_USER_DATA_DIR = path.join(
+  os.tmpdir(),
+  `liratek-e2e-userdata-${WORKER_INDEX}`,
+);
 
 // Shared state across all tests in a worker
 let sharedApp: ElectronApplication | null = null;
 let sharedPage: Page | null = null;
 let setupDone = false;
 
-export const test = base.extend<{
-  appPage: Page;
-}>({
+export const test = base.extend<
+  {
+    appPage: Page;
+  },
+  {
+    _appCleanup: void;
+  }
+>({
+  // Worker-scoped auto fixture: guarantees the shared Electron instance is
+  // closed when the worker finishes, so cancelled/finished runs never leave a
+  // stray electron.exe holding the per-worker user-data-dir lock.
+  _appCleanup: [
+    // eslint-disable-next-line no-empty-pattern
+    async ({}, use) => {
+      await use();
+      if (sharedApp) {
+        await sharedApp.close().catch(() => {});
+        sharedApp = null;
+        sharedPage = null;
+        setupDone = false;
+      }
+    },
+    { scope: "worker", auto: true },
+  ],
   // eslint-disable-next-line no-empty-pattern
   appPage: async ({}, use) => {
     if (!sharedApp) {

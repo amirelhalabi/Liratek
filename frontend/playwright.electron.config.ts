@@ -16,8 +16,17 @@ export default defineConfig({
   testDir: "./tests/e2e-electron",
   timeout: 90_000,
   retries: 0,
+  // Each spec file runs in its own worker; workers do NOT share an Electron
+  // instance or DB (fixtures key the user-data-dir + DB path by worker index),
+  // so Electron's per-user-data-dir single-instance lock never collides.
+  // Within a file, tests stay ordered (specs use test.describe.serial +
+  // beforeAll seeding), so fullyParallel is left off.
   fullyParallel: false,
-  workers: 1,
+  // Override with `--workers=N` or PWTEST_WORKERS. 3 is a safe default —
+  // each worker spawns a full Electron app, so this is RAM/CPU-bound.
+  workers: process.env.PWTEST_WORKERS
+    ? Number(process.env.PWTEST_WORKERS)
+    : 3,
   use: {
     trace: "on-first-retry",
   },
