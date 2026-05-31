@@ -253,6 +253,7 @@ export type {
   CreateCheckpointData,
   CheckpointRecord,
   CheckpointFilters,
+  DrawerCheckpointStatus,
 } from "./ClosingRepository.js";
 
 // Customer Session Repository

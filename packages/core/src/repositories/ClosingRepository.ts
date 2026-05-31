@@ -60,9 +60,16 @@ export interface CheckpointAmount {
 
 export interface CreateCheckpointData {
   user_id: number;
+  drawer_name: string;
   notes?: string;
   report_path?: string;
   amounts: CheckpointAmount[];
+}
+
+export interface DrawerCheckpointStatus {
+  drawer_name: string;
+  checked_at: string;
+  amounts: Record<string, { physical: number; expected: number }>;
 }
 
 export interface CheckpointCurrency {
@@ -204,10 +211,11 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
           closing_date, drawer_name, opening_balance_usd, opening_balance_lbp,
           physical_usd, physical_lbp, physical_eur, system_expected_usd,
           system_expected_lbp, variance_usd, notes, report_path, created_by
-        ) VALUES (?, 'AGGREGATED', 0, 0, 0, 0, 0, 0, 0, 0, ?, ?, ?)
+        ) VALUES (?, ?, 0, 0, 0, 0, 0, 0, 0, 0, ?, ?, ?)
       `);
       const result = stmt.run(
         closingDate,
+        data.drawer_name,
         data.notes || null,
         data.report_path || null,
         data.user_id,
@@ -242,7 +250,7 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
         user_id: data.user_id,
         amount_usd: 0,
         amount_lbp: 0,
-        summary: `Checkpoint for ${closingDate}`,
+        summary: `Checkpoint: ${data.drawer_name} for ${closingDate}`,
         metadata_json: { amounts: data.amounts },
       });
 
@@ -555,6 +563,49 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
     }
 
     return checkpoints;
+  }
+
+  /**
+   * Get the most recent checkpoint for each drawer (excluding AGGREGATED rows).
+   * Returns Record<drawerName, DrawerCheckpointStatus>
+   */
+  getLastCheckpointPerDrawer(): Record<string, DrawerCheckpointStatus> {
+    const rows = this.db
+      .prepare(
+        `SELECT dc.drawer_name, dc.created_at as checked_at,
+                dca.currency_code, dca.physical_amount, dca.opening_amount
+         FROM daily_closings dc
+         JOIN daily_closing_amounts dca ON dca.closing_id = dc.id
+         WHERE dc.id IN (
+           SELECT MAX(id) FROM daily_closings
+           WHERE drawer_name != 'AGGREGATED'
+           GROUP BY drawer_name
+         )
+         ORDER BY dc.drawer_name, dca.currency_code`,
+      )
+      .all() as {
+      drawer_name: string;
+      checked_at: string;
+      currency_code: string;
+      physical_amount: number;
+      opening_amount: number;
+    }[];
+
+    const result: Record<string, DrawerCheckpointStatus> = {};
+    for (const row of rows) {
+      if (!result[row.drawer_name]) {
+        result[row.drawer_name] = {
+          drawer_name: row.drawer_name,
+          checked_at: row.checked_at,
+          amounts: {},
+        };
+      }
+      result[row.drawer_name].amounts[row.currency_code] = {
+        physical: row.physical_amount,
+        expected: row.opening_amount,
+      };
+    }
+    return result;
   }
 }
 

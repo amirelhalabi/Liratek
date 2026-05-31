@@ -3,6 +3,7 @@ import {
   DynamicSystemExpectedBalances,
   DailyStatsSnapshot,
   CreateCheckpointData,
+  DrawerCheckpointStatus,
   getClosingRepository,
 } from "../repositories/ClosingRepository.js";
 import { closingLogger } from "../utils/logger.js";
@@ -178,6 +179,7 @@ export class ClosingService {
     try {
       return this.repo.createCheckpoint({
         user_id: data.userId ?? 0,
+        drawer_name: "AGGREGATED",
         notes: `Opening balances for ${data.closingDate ?? new Date().toISOString().split("T")[0]}`,
         amounts: data.amounts ?? [],
       });
@@ -210,6 +212,7 @@ export class ClosingService {
     try {
       return this.repo.createCheckpoint({
         user_id: data.userId ?? 0,
+        drawer_name: "AGGREGATED",
         notes:
           data.notes ??
           `Daily closing for ${data.closingDate ?? new Date().toISOString().split("T")[0]}`,
@@ -271,6 +274,22 @@ export class ClosingService {
         "ClosingService.getCheckpointVariance error",
       );
       return { checkpointId, hasVariance: false, drawers: [] };
+    }
+  }
+
+  /**
+   * Get the most recent checkpoint for each drawer.
+   * Returns Record<drawerName, DrawerCheckpointStatus>
+   */
+  getLastCheckpointPerDrawer(): Record<string, DrawerCheckpointStatus> {
+    try {
+      return this.repo.getLastCheckpointPerDrawer();
+    } catch (error) {
+      closingLogger.error(
+        { error },
+        "ClosingService.getLastCheckpointPerDrawer error",
+      );
+      return {};
     }
   }
 
