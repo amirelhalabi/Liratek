@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Post-Refactor Verification Tests
  *
  * Comprehensive automated verification that confirms:
@@ -890,6 +890,7 @@ describe("Post-Refactor Verification", () => {
       const service = new ClosingService();
       const result = service.createCheckpoint({
         user_id: 1,
+        drawer_name: "AGGREGATED",
         notes: "Morning checkpoint",
         amounts: [
           {
@@ -917,6 +918,7 @@ describe("Post-Refactor Verification", () => {
       const service = new ClosingService();
       const result = service.createCheckpoint({
         user_id: 1,
+        drawer_name: "AGGREGATED",
         notes: "Checkpoint with multiple drawers",
         amounts: [
           {
@@ -1000,6 +1002,7 @@ describe("Post-Refactor Verification", () => {
       // Create checkpoint with matching expected amounts
       const result = closingService.createCheckpoint({
         user_id: 1,
+        drawer_name: "AGGREGATED",
         notes: "Accuracy test checkpoint",
         amounts: [
           {
@@ -1169,6 +1172,7 @@ describe("Post-Refactor Verification", () => {
       // Create a checkpoint
       closingService.createCheckpoint({
         user_id: 1,
+        drawer_name: "AGGREGATED",
         notes: "Mid-day checkpoint",
         amounts: [
           {
@@ -1230,6 +1234,7 @@ describe("Post-Refactor Verification", () => {
       // Create checkpoint — should NOT affect daily stats
       closingService.createCheckpoint({
         user_id: 1,
+        drawer_name: "AGGREGATED",
         notes: "End of day checkpoint",
         amounts: [],
       });
@@ -1266,6 +1271,7 @@ describe("Post-Refactor Verification", () => {
       // Create checkpoint
       closingService.createCheckpoint({
         user_id: 1,
+        drawer_name: "AGGREGATED",
         notes: "Checkpoint after expense",
         amounts: [],
       });
@@ -1286,6 +1292,7 @@ describe("Post-Refactor Verification", () => {
 
       const r1 = service.createCheckpoint({
         user_id: 1,
+        drawer_name: "AGGREGATED",
         notes: "Opening checkpoint",
         amounts: [
           {
@@ -1299,6 +1306,7 @@ describe("Post-Refactor Verification", () => {
 
       const r2 = service.createCheckpoint({
         user_id: 1,
+        drawer_name: "AGGREGATED",
         notes: "Closing checkpoint",
         amounts: [
           {
@@ -1327,7 +1335,7 @@ describe("Post-Refactor Verification", () => {
 
       expect(service.hasOpeningBalanceToday()).toBe(false);
 
-      service.createCheckpoint({ user_id: 1, notes: "First", amounts: [] });
+      service.createCheckpoint({ user_id: 1, drawer_name: "AGGREGATED", notes: "First", amounts: [] });
 
       expect(service.hasOpeningBalanceToday()).toBe(true);
     });

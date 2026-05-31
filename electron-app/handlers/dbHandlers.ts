@@ -288,6 +288,7 @@ export function registerDatabaseHandlers(): void {
       e,
       data: {
         user_id: number;
+        drawer_name: string;
         notes?: string;
         report_path?: string;
         amounts: Array<{
@@ -309,7 +310,7 @@ export function registerDatabaseHandlers(): void {
             action: "create_checkpoint",
             entity_type: "daily_closings",
             entity_id: String(result.id ?? ""),
-            summary: `Checkpoint created`,
+            summary: `Checkpoint created: ${data.drawer_name}`,
           });
         }
         return result;
@@ -331,6 +332,25 @@ export function registerDatabaseHandlers(): void {
         data: closingService.getLastCheckpointActuals(),
       };
     } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  });
+
+  // Get last checkpoint per drawer (for drawer status board)
+  ipcMain.handle("closing:get-last-checkpoint-per-drawer", async () => {
+    try {
+      return {
+        success: true,
+        data: getClosingService().getLastCheckpointPerDrawer(),
+      };
+    } catch (err) {
+      closingLogger.error(
+        { err },
+        "closing:get-last-checkpoint-per-drawer failed",
+      );
       return {
         success: false,
         error: err instanceof Error ? err.message : String(err),

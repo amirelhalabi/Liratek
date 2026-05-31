@@ -3553,6 +3553,24 @@ export const MIGRATIONS: Migration[] = [
       console.log("Migration v90 rolled back (no-op)");
     },
   },
+  {
+    version: 91,
+    name: "per_drawer_checkpoint_index",
+    description:
+      "Add index on daily_closings(drawer_name, id DESC) to support efficient per-drawer last-checkpoint queries",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_daily_closings_drawer_id
+         ON daily_closings(drawer_name, id DESC)`,
+      );
+      console.log("Migration v91: per-drawer checkpoint index added");
+    },
+    down(db: Database.Database) {
+      db.exec(`DROP INDEX IF EXISTS idx_daily_closings_drawer_id`);
+      console.log("Migration v91 rolled back");
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

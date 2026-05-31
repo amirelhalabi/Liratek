@@ -20,7 +20,7 @@ export function ProviderTabs({
   onSelectProvider,
 }: ProviderTabsProps) {
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="flex flex-wrap gap-1">
       {providers.map((provider) => {
         const IconComponent =
           ICON_COMPONENTS[provider.iconKey] || ICON_COMPONENTS.Zap;

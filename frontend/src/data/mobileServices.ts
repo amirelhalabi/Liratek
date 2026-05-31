@@ -317,7 +317,7 @@ const mobileServices: Record<string, ServiceCatalog | Record<string, never>> = {
         "3.6": { cost: "318978", sell: "355000" },
         "5.24": { cost: "462075", sell: "500000" },
         "8.65": { cost: "765007", sell: "800000" },
-        "11.32": { cost: "10003274", sell: "1100000" },
+        "11.32": { cost: "1003274", sell: "1100000" },
         "17.06": { cost: "1511601", sell: "1600000" },
         "25.47": { cost: "2256769", sell: "2400000" },
         "86": { cost: "7620030", sell: "8000000" },

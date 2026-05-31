@@ -29,7 +29,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
     });
   };
 
-  const [isCheckpointModalOpen, setIsCheckpointModalOpen] = useState(false);
+  const [checkpointDrawer, setCheckpointDrawer] = useState<string | null>(null);
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const { flags } = useFeatureFlags();
@@ -43,9 +43,15 @@ export default function MainLayout({ children }: MainLayoutProps) {
   // Listen to app-wide events so modals work from anywhere
   // Only open if the feature flag is enabled
   useEffect(() => {
-    const offCheckpoint = appEvents.on("checkpoint:open", () => {
-      if (flags.sessionManagement) setIsCheckpointModalOpen(true);
-    });
+    const offCheckpoint = appEvents.on(
+      "checkpoint:open",
+      (...args: unknown[]) => {
+        const payload = args[0] as { drawerName?: string } | undefined;
+        if (flags.sessionManagement && payload?.drawerName) {
+          setCheckpointDrawer(payload.drawerName);
+        }
+      },
+    );
 
     return () => {
       offCheckpoint();
@@ -78,13 +84,12 @@ export default function MainLayout({ children }: MainLayoutProps) {
     <>
       {layoutContent}
       <NotificationCenter />
-      {/* Checkpoint Modal (unified Opening/Closing) */}
-      {isAdmin && isCheckpointModalOpen && (
+      {/* Per-drawer Checkpoint Modal */}
+      {isAdmin && checkpointDrawer != null && (
         <CheckpointModal
-          isOpen={isCheckpointModalOpen}
-          onClose={() => {
-            setIsCheckpointModalOpen(false);
-          }}
+          isOpen={checkpointDrawer != null}
+          drawerName={checkpointDrawer}
+          onClose={() => setCheckpointDrawer(null)}
         />
       )}
     </>

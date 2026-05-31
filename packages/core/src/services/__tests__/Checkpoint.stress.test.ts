@@ -1,4 +1,4 @@
-/**
+﻿/**
  * LIRA-008: Checkpoint Stress Test & Acceptance Validation
  *
  * Integration tests that replicate a real shop day flow for the checkpoint system.
@@ -471,6 +471,7 @@ describe("Checkpoint Stress Test — Full Shop Day Flow", () => {
       // Create checkpoint with actuals (some intentional variance on General/USD)
       const result = service.createCheckpoint({
         user_id: 1,
+        drawer_name: "AGGREGATED",
         notes: "Checkpoint #1 — end of morning shift",
         amounts: [
           {
@@ -510,6 +511,7 @@ describe("Checkpoint Stress Test — Full Shop Day Flow", () => {
 
       const result = service.createCheckpoint({
         user_id: 1,
+        drawer_name: "AGGREGATED",
         notes: "Checkpoint #1",
         amounts: [
           {
@@ -580,6 +582,7 @@ describe("Checkpoint Stress Test — Full Shop Day Flow", () => {
       // Create Checkpoint #1
       service.createCheckpoint({
         user_id: 1,
+        drawer_name: "AGGREGATED",
         notes: "Checkpoint #1",
         amounts: [
           {
@@ -629,6 +632,7 @@ describe("Checkpoint Stress Test — Full Shop Day Flow", () => {
       // Create Checkpoint #1
       const cp1 = service.createCheckpoint({
         user_id: 1,
+        drawer_name: "AGGREGATED",
         notes: "Checkpoint #1",
         amounts: [
           {
@@ -707,6 +711,7 @@ describe("Checkpoint Stress Test — Full Shop Day Flow", () => {
 
       const cp2 = service.createCheckpoint({
         user_id: 1,
+        drawer_name: "AGGREGATED",
         notes: "Checkpoint #2 — end of afternoon shift",
         amounts: cp2Amounts,
       });
@@ -728,6 +733,7 @@ describe("Checkpoint Stress Test — Full Shop Day Flow", () => {
       // Checkpoint #1 with variance on General/USD
       service.createCheckpoint({
         user_id: 1,
+        drawer_name: "AGGREGATED",
         notes: "Checkpoint #1",
         amounts: [
           {
@@ -804,6 +810,7 @@ describe("Checkpoint Stress Test — Full Shop Day Flow", () => {
       // General LBP = +18,000,000
       const result = service.createCheckpoint({
         user_id: 1,
+        drawer_name: "AGGREGATED",
         notes: "Multi-currency checkpoint",
         amounts: [
           {
@@ -851,6 +858,7 @@ describe("Checkpoint Stress Test — Full Shop Day Flow", () => {
     it("should handle checkpoint with all-zero amounts", () => {
       const result = service.createCheckpoint({
         user_id: 1,
+        drawer_name: "AGGREGATED",
         notes: "Empty checkpoint",
         amounts: [
           {
@@ -879,6 +887,7 @@ describe("Checkpoint Stress Test — Full Shop Day Flow", () => {
       // Checkpoint A
       service.createCheckpoint({
         user_id: 1,
+        drawer_name: "AGGREGATED",
         notes: "Checkpoint A",
         amounts: [
           {
@@ -903,6 +912,7 @@ describe("Checkpoint Stress Test — Full Shop Day Flow", () => {
       // Checkpoint B (will have a later created_at than A after the update above)
       service.createCheckpoint({
         user_id: 1,
+        drawer_name: "AGGREGATED",
         notes: "Checkpoint B",
         amounts: [
           {
@@ -952,6 +962,7 @@ describe("Checkpoint Stress Test — Full Shop Day Flow", () => {
 
       const result = service.createCheckpoint({
         user_id: 1,
+        drawer_name: "AGGREGATED",
         notes: "Variance test",
         amounts: [
           {

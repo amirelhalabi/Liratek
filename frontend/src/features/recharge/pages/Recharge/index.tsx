@@ -886,9 +886,9 @@ export default function MobileRecharge() {
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 min-h-0 flex flex-col overflow-hidden animate-in fade-in duration-500">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-2">
         {/* Left: Provider Tabs + Stats */}
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-1">
           <ProviderTabs
             providers={PROVIDER_CONFIGS}
             activeProvider={activeProvider}
@@ -922,7 +922,7 @@ export default function MobileRecharge() {
 
         {/* Right: Action Buttons */}
         {activeConfig && (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
             {(activeConfig.formMode === "financial" ||
               activeConfig.formMode === "crypto" ||
               activeConfig.formMode === "telecom") && (

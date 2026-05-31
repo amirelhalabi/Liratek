@@ -1,9 +1,19 @@
 import { useState, useEffect, useMemo } from "react";
 import { PageHeader } from "@liratek/ui";
-import { Clock, Eye, X, AlertTriangle } from "lucide-react";
-import { DataTable } from "@liratek/ui";
+import {
+  Clock,
+  Eye,
+  X,
+  AlertTriangle,
+  CheckCircle,
+  ClipboardCheck,
+} from "lucide-react";
+import { DataTable, appEvents } from "@liratek/ui";
 import { DrawerVarianceBreakdown } from "../../components/VarianceCard";
 import type { DrawerVariance } from "../../types";
+import { DRAWER_CONFIGS, DRAWER_ORDER } from "../../config/drawers";
+import type { DrawerType } from "../../types";
+import { useModules } from "@/contexts/ModuleContext";
 
 interface CheckpointCurrency {
   currency_code: string;
@@ -32,11 +42,166 @@ interface CheckpointFilters {
   user_id?: number;
 }
 
+interface DrawerStatus {
+  drawer_name: string;
+  checked_at: string;
+  amounts: Record<string, { physical: number; expected: number }>;
+}
+
+const DRAWER_MODULE_MAP: Partial<Record<string, string>> = {
+  OMT_App: "ipec_katch",
+  OMT_System: "ipec_katch",
+  Whish_App: "ipec_katch",
+  Whish_System: "ipec_katch",
+  Binance: "binance",
+  MTC: "recharge",
+  Alfa: "recharge",
+  iPick: "ipec_katch",
+  Katsh: "ipec_katch",
+};
+
 function todayISO(): string {
   return new Date().toISOString().split("T")[0];
 }
 
+function formatRelativeTime(iso: string): string {
+  const now = Date.now();
+  const then = new Date(iso).getTime();
+  const diffMs = now - then;
+  const diffH = diffMs / (1000 * 60 * 60);
+  const diffM = diffMs / (1000 * 60);
+
+  if (diffM < 1) return "Just now";
+  if (diffM < 60) return `${Math.floor(diffM)}m ago`;
+  if (diffH < 24) return `${Math.floor(diffH)}h ago`;
+  const days = Math.floor(diffH / 24);
+  return `${days}d ago`;
+}
+
+function stalenessColor(iso: string | null): string {
+  if (!iso) return "border-red-500/40 bg-red-500/5";
+  const diffH = (Date.now() - new Date(iso).getTime()) / (1000 * 60 * 60);
+  if (diffH < 8) return "border-green-500/40 bg-green-500/5";
+  if (diffH < 24) return "border-yellow-500/40 bg-yellow-500/5";
+  return "border-red-500/40 bg-red-500/5";
+}
+
+function stalenessTextColor(iso: string | null): string {
+  if (!iso) return "text-red-400";
+  const diffH = (Date.now() - new Date(iso).getTime()) / (1000 * 60 * 60);
+  if (diffH < 8) return "text-green-400";
+  if (diffH < 24) return "text-yellow-400";
+  return "text-red-400";
+}
+
+function formatAmount(amount: number, code: string): string {
+  if (code === "LBP") return amount.toLocaleString();
+  return amount.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function DrawerStatusCard({
+  drawerName,
+  status,
+}: {
+  drawerName: DrawerType;
+  status: DrawerStatus | null;
+}) {
+  const config = DRAWER_CONFIGS[drawerName];
+  const checkedAt = status?.checked_at ?? null;
+  const colorClass = stalenessColor(checkedAt);
+  const textColorClass = stalenessTextColor(checkedAt);
+
+  const handleCheckpoint = () => {
+    appEvents.emit("checkpoint:open", { drawerName });
+  };
+
+  const nonZeroAmounts = status
+    ? Object.entries(status.amounts).filter(([, v]) => v.physical !== 0)
+    : [];
+
+  return (
+    <div
+      className={`rounded-xl border p-4 flex flex-col gap-3 ${colorClass}`}
+    >
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm font-semibold text-white">
+            {config?.label ?? drawerName}
+          </p>
+          <p className="text-xs text-slate-500">{config?.description}</p>
+        </div>
+        <button
+          onClick={handleCheckpoint}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 hover:bg-violet-500 text-white text-xs font-medium rounded-lg transition-colors"
+        >
+          <ClipboardCheck size={13} />
+          Checkpoint
+        </button>
+      </div>
+
+      {/* Last checkpoint info */}
+      <div className="flex items-center gap-1.5">
+        {checkedAt ? (
+          <CheckCircle size={13} className={textColorClass} />
+        ) : (
+          <AlertTriangle size={13} className="text-red-400" />
+        )}
+        <span className={`text-xs font-medium ${textColorClass}`}>
+          {checkedAt
+            ? formatRelativeTime(checkedAt)
+            : "Never checkpointed"}
+        </span>
+        {checkedAt && (
+          <span className="text-xs text-slate-600">
+            —{" "}
+            {new Date(checkedAt).toLocaleTimeString("en-US", {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </span>
+        )}
+      </div>
+
+      {/* Last physical amounts */}
+      {nonZeroAmounts.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {nonZeroAmounts.map(([code, { physical }]) => (
+            <div
+              key={code}
+              className="bg-slate-900/60 rounded px-2 py-1 flex items-center gap-1"
+            >
+              <span className="text-xs text-slate-400">{code}</span>
+              <span className="text-xs font-mono text-slate-200">
+                {formatAmount(physical, code)}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!status && (
+        <p className="text-xs text-slate-600 italic">No checkpoint on record</p>
+      )}
+    </div>
+  );
+}
+
 export default function CheckpointTimeline() {
+  const { isModuleEnabled } = useModules();
+
+  const activeDrawerOrder = DRAWER_ORDER.filter((drawer) => {
+    const requiredModule = DRAWER_MODULE_MAP[drawer];
+    return !requiredModule || isModuleEnabled(requiredModule);
+  });
+
+  const [drawerStatuses, setDrawerStatuses] = useState<
+    Record<string, DrawerStatus>
+  >({});
+  const [statusLoading, setStatusLoading] = useState(true);
+
   const [checkpoints, setCheckpoints] = useState<CheckpointRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState<CheckpointFilters>({
@@ -51,10 +216,30 @@ export default function CheckpointTimeline() {
     null,
   );
 
-  /**
-   * Compute per-drawer variance for a checkpoint from its currencies data.
-   * Returns only entries that have physical_amount set (i.e., actual was recorded).
-   */
+  const loadDrawerStatuses = async () => {
+    setStatusLoading(true);
+    try {
+      const result = await window.api.closing.getLastCheckpointPerDrawer();
+      if (result.success && result.data) {
+        setDrawerStatuses(result.data);
+      }
+    } catch {
+      // non-fatal
+    } finally {
+      setStatusLoading(false);
+    }
+  };
+
+  // Refresh drawer statuses after a checkpoint completes
+  useEffect(() => {
+    loadDrawerStatuses();
+    const off = appEvents.on("closing:completed", () => {
+      loadDrawerStatuses();
+      loadCheckpoints();
+    });
+    return () => off();
+  }, []);
+
   const getCheckpointVariances = (
     checkpoint: CheckpointRecord,
   ): DrawerVariance[] => {
@@ -72,7 +257,6 @@ export default function CheckpointTimeline() {
       .filter((d) => Math.abs(d.variance) > 0.01);
   };
 
-  /** Check if a checkpoint has any variance */
   const checkpointHasVariance = (checkpoint: CheckpointRecord): boolean => {
     return getCheckpointVariances(checkpoint).length > 0;
   };
@@ -88,8 +272,8 @@ export default function CheckpointTimeline() {
       if (result.success && result.checkpoints) {
         setCheckpoints(result.checkpoints);
       }
-    } catch (error) {
-      console.error("Failed to load checkpoints:", error);
+    } catch {
+      // non-fatal
     } finally {
       setLoading(false);
     }
@@ -111,7 +295,6 @@ export default function CheckpointTimeline() {
     });
   };
 
-  // Determine which currencies to show based on all checkpoints
   const allCurrencies = useMemo(() => {
     const currencySet = new Set<string>();
     checkpoints.forEach((cp) => {
@@ -120,7 +303,6 @@ export default function CheckpointTimeline() {
     return Array.from(currencySet).sort();
   }, [checkpoints]);
 
-  // Get aggregated totals by currency (for timeline display)
   const getAggregatedTotals = (checkpoint: CheckpointRecord) => {
     const totals: Record<string, number> = {};
     checkpoint.currencies.forEach((c) => {
@@ -133,44 +315,66 @@ export default function CheckpointTimeline() {
   };
 
   return (
-    <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500">
-      <PageHeader icon={Clock} title="Checkpoint Timeline" />
+    <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col gap-6 overflow-auto animate-in fade-in duration-500">
+      <PageHeader icon={Clock} title="Checkpoints" />
 
-      {/* Filters */}
-      <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 flex gap-4 flex-wrap">
-        <div className="flex items-center gap-2">
-          <label className="text-sm text-slate-400">Date:</label>
-          <input
-            type="date"
-            value={filters.date}
-            onChange={(e) => setFilters({ ...filters, date: e.target.value })}
-            className="bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
-          />
-        </div>
-
-        <select
-          value={filters.drawer_name}
-          onChange={(e) =>
-            setFilters({ ...filters, drawer_name: e.target.value })
-          }
-          className="bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
-        >
-          <option value="">All Drawers</option>
-          <option value="General">General</option>
-          <option value="OMT_App">OMT App</option>
-          <option value="OMT_System">OMT System</option>
-          <option value="Whish_App">Whish App</option>
-          <option value="Whish_System">Whish System</option>
-          <option value="MTC">MTC</option>
-          <option value="Alfa">Alfa</option>
-          <option value="Binance">Binance</option>
-          <option value="iPick">iPick</option>
-          <option value="Katsh">Katsh</option>
-        </select>
+      {/* Drawer Status Board */}
+      <div>
+        <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">
+          Drawer Status
+        </h2>
+        {statusLoading ? (
+          <div className="text-slate-500 text-sm animate-pulse">
+            Loading drawer statuses...
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+            {activeDrawerOrder.map((drawer) => (
+              <DrawerStatusCard
+                key={drawer}
+                drawerName={drawer}
+                status={drawerStatuses[drawer] ?? null}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* Timeline */}
-      <div className="flex-1 min-h-0 bg-slate-800 rounded-xl border border-slate-700 overflow-auto">
+      {/* Timeline Filters */}
+      <div>
+        <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">
+          History
+        </h2>
+        <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 flex gap-4 flex-wrap">
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-slate-400">Date:</label>
+            <input
+              type="date"
+              value={filters.date}
+              onChange={(e) => setFilters({ ...filters, date: e.target.value })}
+              className="bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
+            />
+          </div>
+
+          <select
+            value={filters.drawer_name}
+            onChange={(e) =>
+              setFilters({ ...filters, drawer_name: e.target.value })
+            }
+            className="bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
+          >
+            <option value="">All Drawers</option>
+            {DRAWER_ORDER.map((d) => (
+              <option key={d} value={d}>
+                {DRAWER_CONFIGS[d]?.label ?? d}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {/* Timeline Table */}
+      <div className="min-h-0 bg-slate-800 rounded-xl border border-slate-700 overflow-auto">
         {loading ? (
           <div className="p-8 text-center text-slate-400 animate-pulse">
             Loading checkpoints...
@@ -187,6 +391,10 @@ export default function CheckpointTimeline() {
                 header: "Time",
                 className: "p-4 border-b border-slate-700 w-24",
               },
+              {
+                header: "Drawer",
+                className: "p-4 border-b border-slate-700 w-36",
+              },
               ...allCurrencies.map((code) => ({
                 header: code,
                 className: "p-4 border-b border-slate-700 text-right w-40",
@@ -201,6 +409,9 @@ export default function CheckpointTimeline() {
             renderRow={(checkpoint) => {
               const hasVariance = checkpointHasVariance(checkpoint);
               const isExpanded = expandedVarianceId === checkpoint.id;
+              const drawerLabel =
+                DRAWER_CONFIGS[checkpoint.drawer_name as DrawerType]?.label ??
+                checkpoint.drawer_name;
               return (
                 <>
                   <tr
@@ -209,6 +420,9 @@ export default function CheckpointTimeline() {
                   >
                     <td className="p-4 text-slate-300 font-mono">
                       {formatTime(checkpoint.created_at)}
+                    </td>
+                    <td className="p-4 text-slate-300 text-sm">
+                      {drawerLabel}
                     </td>
                     {allCurrencies.map((code) => {
                       const totals = getAggregatedTotals(checkpoint);
@@ -265,7 +479,7 @@ export default function CheckpointTimeline() {
                   {hasVariance && isExpanded && (
                     <tr key={`${checkpoint.id}-variance`}>
                       <td
-                        colSpan={allCurrencies.length + 4}
+                        colSpan={allCurrencies.length + 5}
                         className="px-4 pb-4 pt-0"
                       >
                         <div className="bg-amber-950/20 border border-amber-800/30 rounded-lg p-4 mt-1">
@@ -292,7 +506,9 @@ export default function CheckpointTimeline() {
           <div className="bg-slate-800 border border-slate-700 rounded-xl shadow-2xl w-full max-w-lg p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-white">
-                Checkpoint Details
+                Checkpoint Details —{" "}
+                {DRAWER_CONFIGS[viewCheckpoint.drawer_name as DrawerType]
+                  ?.label ?? viewCheckpoint.drawer_name}
               </h2>
               <button
                 onClick={() => setViewCheckpoint(null)}
@@ -323,17 +539,20 @@ export default function CheckpointTimeline() {
             </div>
             <div className="border-t border-slate-700 pt-4">
               <p className="text-xs text-slate-400 mb-3 uppercase tracking-wide">
-                Currency Totals
+                Amounts
               </p>
               {(() => {
-                const totals: Record<string, number> = {};
-                viewCheckpoint.currencies.forEach((c) => {
-                  const amount = c.physical_amount ?? c.opening_amount ?? 0;
-                  if (amount === 0) return;
-                  totals[c.currency_code] =
-                    (totals[c.currency_code] || 0) + amount;
-                });
-                const entries = Object.entries(totals);
+                const entries = viewCheckpoint.currencies
+                  .filter(
+                    (c) =>
+                      (c.physical_amount ?? c.opening_amount ?? 0) !== 0,
+                  )
+                  .map((c) => ({
+                    code: c.currency_code,
+                    amount: c.physical_amount ?? c.opening_amount ?? 0,
+                    expected: c.opening_amount ?? 0,
+                  }));
+
                 if (entries.length === 0) {
                   return (
                     <p className="text-sm text-slate-500 italic">
@@ -343,86 +562,51 @@ export default function CheckpointTimeline() {
                 }
                 return (
                   <div className="grid grid-cols-2 gap-2">
-                    {entries.map(([code, amount]) => (
-                      <div
-                        key={code}
-                        className="bg-slate-900/60 rounded-lg px-3 py-2 border border-slate-700/50 flex justify-between items-center"
-                      >
-                        <span className="text-sm font-medium text-white">
-                          {code}
-                        </span>
-                        <span className="text-emerald-400 font-mono font-semibold text-sm">
-                          {code === "LBP"
-                            ? Number(amount).toLocaleString()
-                            : Number(amount).toLocaleString(undefined, {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                              })}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                );
-              })()}
-            </div>
-            <div className="border-t border-slate-700 pt-4 mt-4">
-              <p className="text-xs text-slate-400 mb-3 uppercase tracking-wide">
-                By Drawer
-              </p>
-              <div className="space-y-3">
-                {(() => {
-                  // Group by drawer, filter out zero amounts
-                  const grouped: Record<
-                    string,
-                    { code: string; amount: number }[]
-                  > = {};
-                  viewCheckpoint.currencies.forEach((c) => {
-                    const amount = c.physical_amount ?? c.opening_amount ?? 0;
-                    if (amount === 0) return;
-                    const drawer = c.drawer_name || "Other";
-                    if (!grouped[drawer]) grouped[drawer] = [];
-                    grouped[drawer].push({ code: c.currency_code, amount });
-                  });
-
-                  const entries = Object.entries(grouped);
-                  if (entries.length === 0) {
-                    return (
-                      <p className="text-sm text-slate-500 italic">
-                        No amounts recorded
-                      </p>
-                    );
-                  }
-
-                  return entries.map(([drawer, currencies]) => (
-                    <div
-                      key={drawer}
-                      className="bg-slate-900/50 rounded-lg p-3 border border-slate-700/50"
-                    >
-                      <p className="text-xs text-slate-500 font-medium mb-2">
-                        {drawer}
-                      </p>
-                      <div className="space-y-1">
-                        {currencies.map((c) => (
-                          <div
-                            key={c.code}
-                            className="flex justify-between text-sm"
-                          >
-                            <span className="text-slate-300">{c.code}</span>
-                            <span className="text-emerald-400 font-mono font-medium">
-                              {c.code === "LBP"
-                                ? Number(c.amount).toLocaleString()
-                                : Number(c.amount).toLocaleString(undefined, {
+                    {entries.map(({ code, amount, expected }) => {
+                      const variance = amount - expected;
+                      return (
+                        <div
+                          key={code}
+                          className="bg-slate-900/60 rounded-lg px-3 py-2 border border-slate-700/50"
+                        >
+                          <div className="flex justify-between items-center">
+                            <span className="text-sm font-medium text-white">
+                              {code}
+                            </span>
+                            <span className="text-emerald-400 font-mono font-semibold text-sm">
+                              {code === "LBP"
+                                ? Number(amount).toLocaleString()
+                                : Number(amount).toLocaleString(undefined, {
                                     minimumFractionDigits: 2,
                                     maximumFractionDigits: 2,
                                   })}
                             </span>
                           </div>
-                        ))}
-                      </div>
-                    </div>
-                  ));
-                })()}
-              </div>
+                          {Math.abs(variance) > 0.01 && (
+                            <div className="text-xs mt-0.5 text-right">
+                              <span
+                                className={
+                                  variance >= 0
+                                    ? "text-green-400"
+                                    : "text-red-400"
+                                }
+                              >
+                                {variance > 0 ? "+" : ""}
+                                {code === "LBP"
+                                  ? variance.toLocaleString()
+                                  : variance.toLocaleString(undefined, {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                    })}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
             </div>
             <div className="mt-4 flex justify-end">
               <button

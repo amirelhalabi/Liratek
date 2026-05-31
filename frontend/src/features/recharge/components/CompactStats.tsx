@@ -67,7 +67,7 @@ export function CompactStats({
 
   if (showCryptoStats) {
     return (
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-1">
         {isAdmin && (
           <div
             className={`px-3 py-1.5 rounded-lg font-medium text-xs ${activeConfig?.activeBg} ${activeConfig?.activeText}`}
@@ -114,7 +114,7 @@ export function CompactStats({
   }
 
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="flex flex-wrap gap-1">
       {isAdmin && (
         <div
           className={`px-3 py-1.5 rounded-lg font-medium text-xs ${activeConfig?.activeBg} ${activeConfig?.activeText}`}

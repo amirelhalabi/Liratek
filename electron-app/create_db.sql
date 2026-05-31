@@ -762,6 +762,7 @@ CREATE INDEX IF NOT EXISTS idx_financial_services_client_id ON financial_service
 CREATE INDEX IF NOT EXISTS idx_custom_services_created_at ON custom_services(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_custom_services_client_id ON custom_services(client_id);
 CREATE INDEX IF NOT EXISTS idx_daily_closings_date ON daily_closings(closing_date);
+CREATE INDEX IF NOT EXISTS idx_daily_closings_drawer_id ON daily_closings(drawer_name, id DESC);
 CREATE INDEX IF NOT EXISTS idx_recharges_carrier_date ON recharges(carrier, created_at);
 CREATE INDEX IF NOT EXISTS idx_recharges_date ON recharges(created_at);
 CREATE INDEX IF NOT EXISTS idx_payments_drawer_currency ON payments(drawer_name, currency_code, created_at);
@@ -1208,4 +1209,5 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (87, 'add_paid_amount_currency_to_financial_services'),
     (88, 'fix_katsh_supplier_provider_name'),
     (89, 'add_vouchers_module'),
-    (90, 'heal_unredeemed_gift_card_credit');
+    (90, 'heal_unredeemed_gift_card_credit'),
+    (91, 'per_drawer_checkpoint_index');

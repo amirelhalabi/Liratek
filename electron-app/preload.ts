@@ -507,6 +507,7 @@ contextBridge.exposeInMainWorld("api", {
     // Unified checkpoint API
     createCheckpoint: (data: {
       user_id: number;
+      drawer_name: string;
       notes?: string;
       report_path?: string;
       amounts: Array<{
@@ -518,6 +519,8 @@ contextBridge.exposeInMainWorld("api", {
     }) => ipcRenderer.invoke("closing:create-checkpoint", data),
     getLastCheckpointActuals: () =>
       ipcRenderer.invoke("closing:get-last-checkpoint-actuals"),
+    getLastCheckpointPerDrawer: () =>
+      ipcRenderer.invoke("closing:get-last-checkpoint-per-drawer"),
     hasOpeningBalanceToday: () =>
       ipcRenderer.invoke("closing:has-opening-balance-today"),
     updateDailyClosing: (data: any) =>

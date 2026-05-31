@@ -1164,6 +1164,7 @@ export interface ElectronAPI {
     // Unified checkpoint API
     createCheckpoint: (data: {
       user_id: number;
+      drawer_name: string;
       notes?: string;
       report_path?: string;
       amounts: Array<{
@@ -1176,6 +1177,18 @@ export interface ElectronAPI {
     getLastCheckpointActuals: () => Promise<{
       success: boolean;
       data?: Record<string, Record<string, number>>;
+      error?: string;
+    }>;
+    getLastCheckpointPerDrawer: () => Promise<{
+      success: boolean;
+      data?: Record<
+        string,
+        {
+          drawer_name: string;
+          checked_at: string;
+          amounts: Record<string, { physical: number; expected: number }>;
+        }
+      >;
       error?: string;
     }>;
   };
