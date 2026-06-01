@@ -155,13 +155,47 @@ export { expect } from "@playwright/test";
 /**
  * Navigate to a route via sidebar NavLink or hash change.
  * Avoids page.goto() which causes a full reload and loses the session.
+ * Dismisses any open overlay before attempting navigation so modals left
+ * open by a previous test cannot block the sidebar click.
  */
 export async function navigateTo(page: Page, route: string) {
   const path = route.startsWith("/") ? route : `/${route}`;
-  // Click sidebar NavLink (rendered as <a> with href="#/path")
+
+  // Dismiss any open overlay before trying to navigate
+  const hasOverlay = await page
+    .locator("div.fixed.inset-0")
+    .first()
+    .isVisible({ timeout: 300 })
+    .catch(() => false);
+  if (hasOverlay) {
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(200);
+    // Second press in case of nested overlays
+    const stillOpen = await page
+      .locator("div.fixed.inset-0")
+      .first()
+      .isVisible({ timeout: 300 })
+      .catch(() => false);
+    if (stillOpen) {
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(200);
+    }
+  }
+
+  // Try clicking the sidebar link (short timeout so we don't hang)
   const link = page.locator(`nav a[href="#${path}"]`).first();
-  if (await link.isVisible({ timeout: 2000 }).catch(() => false)) {
-    await link.click();
+  const linkVisible = await link
+    .isVisible({ timeout: 2000 })
+    .catch(() => false);
+  if (linkVisible) {
+    try {
+      await link.click({ timeout: 5000 });
+    } catch {
+      // Link blocked (e.g. modal still present) — fall back to hash change
+      await page.evaluate((p) => {
+        window.location.hash = `#${p}`;
+      }, path);
+    }
   } else {
     // Fallback: direct hash change (no reload)
     await page.evaluate((p) => {

@@ -174,8 +174,10 @@ test.describe.serial("MultiPaymentInput", () => {
       const mpi = new MultiPaymentInputPO(appPage);
       await mpi.expectVisible();
 
-      // Enable split
+      // Enable split then explicitly add a second line
       await mpi.enableSplit();
+      await appPage.waitForTimeout(300);
+      await mpi.addLine();
       await appPage.waitForTimeout(300);
 
       // Fill first line — USD cash
@@ -210,8 +212,10 @@ test.describe.serial("MultiPaymentInput", () => {
       const mpi = new MultiPaymentInputPO(appPage);
       await mpi.expectVisible();
 
-      // Enable split so there are two lines
+      // Enable split then explicitly add a second line
       await mpi.enableSplit();
+      await appPage.waitForTimeout(300);
+      await mpi.addLine();
       await appPage.waitForTimeout(300);
 
       const linesBefore = await appPage
@@ -323,6 +327,8 @@ test.describe.serial("MultiPaymentInput", () => {
 
       await mpi.enableSplit();
       await appPage.waitForTimeout(300);
+      await mpi.addLine();
+      await appPage.waitForTimeout(300);
 
       const firstId = await mpi.firstLineId();
       await mpi.fillLine(firstId, 25);
@@ -414,6 +420,8 @@ test.describe.serial("MultiPaymentInput", () => {
       await mpi.expectVisible();
 
       await mpi.enableSplit();
+      await appPage.waitForTimeout(300);
+      await mpi.addLine();
       await appPage.waitForTimeout(300);
 
       const linesBefore = await appPage
@@ -552,6 +560,8 @@ test.describe.serial("MultiPaymentInput", () => {
 
       await mpi.enableSplit();
       await appPage.waitForTimeout(300);
+      await mpi.addLine();
+      await appPage.waitForTimeout(300);
 
       const firstId = await mpi.firstLineId();
       await mpi.fillLine(firstId, 10);
@@ -588,6 +598,8 @@ test.describe.serial("MultiPaymentInput", () => {
       await mpi.expectVisible();
 
       await mpi.enableSplit();
+      await appPage.waitForTimeout(300);
+      await mpi.addLine();
       await appPage.waitForTimeout(300);
 
       const linesBefore = await appPage
@@ -701,6 +713,8 @@ test.describe.serial("MultiPaymentInput", () => {
 
       await mpi.enableSplit();
       await appPage.waitForTimeout(300);
+      await mpi.addLine();
+      await appPage.waitForTimeout(300);
 
       const firstId = await mpi.firstLineId();
       await mpi.fillLine(firstId, 10000);
@@ -736,6 +750,8 @@ test.describe.serial("MultiPaymentInput", () => {
       await mpi.expectVisible();
 
       await mpi.enableSplit();
+      await appPage.waitForTimeout(300);
+      await mpi.addLine();
       await appPage.waitForTimeout(300);
 
       const linesBefore = await appPage
@@ -847,6 +863,8 @@ test.describe.serial("MultiPaymentInput", () => {
 
       await mpi.enableSplit();
       await appPage.waitForTimeout(300);
+      await mpi.addLine();
+      await appPage.waitForTimeout(300);
 
       const firstId = await mpi.firstLineId();
       await mpi.fillLine(firstId, 50);
@@ -882,6 +900,8 @@ test.describe.serial("MultiPaymentInput", () => {
       await mpi.expectVisible();
 
       await mpi.enableSplit();
+      await appPage.waitForTimeout(300);
+      await mpi.addLine();
       await appPage.waitForTimeout(300);
 
       const linesBefore = await appPage
@@ -1009,6 +1029,8 @@ test.describe.serial("MultiPaymentInput", () => {
       await mpi.expectVisible();
 
       await mpi.enableSplit();
+      await appPage.waitForTimeout(300);
+      await mpi.addLine();
       await appPage.waitForTimeout(300);
 
       const firstId = await mpi.firstLineId();
