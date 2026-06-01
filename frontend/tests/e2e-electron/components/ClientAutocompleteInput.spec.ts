@@ -572,12 +572,26 @@ test.describe.serial("ClientAutocompleteInput", () => {
         await appPage.waitForTimeout(300);
       }
 
-      // Clear the search field
-      await clientSearch.fill("");
-      await appPage.waitForTimeout(200);
-
-      const inputValue = await clientSearch.inputValue();
-      expect(inputValue).toBe("");
+      // After selecting a client the search input may be replaced by a chip.
+      // Guard: only call fill("") when the input is still in the DOM.
+      const inputStillVisible = await clientSearch
+        .isVisible({ timeout: 500 })
+        .catch(() => false);
+      if (inputStillVisible) {
+        await clientSearch.fill("");
+        await appPage.waitForTimeout(200);
+        const inputValue = await clientSearch.inputValue();
+        expect(inputValue).toBe("");
+      } else {
+        // Chip replaced the input — clear via its X button
+        const chipXBtn = appPage
+          .locator('div.bg-emerald-500\\/10 button')
+          .first();
+        if (await chipXBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
+          await chipXBtn.click();
+          await appPage.waitForTimeout(200);
+        }
+      }
 
       await appPage.keyboard.press("Escape");
       await appPage.waitForTimeout(300);

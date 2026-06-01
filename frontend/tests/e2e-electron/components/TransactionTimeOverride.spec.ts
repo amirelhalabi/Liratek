@@ -271,6 +271,18 @@ test.describe.serial("TransactionTimeOverride", () => {
     await goToCustomServicesForm(appPage);
     await appPage.waitForTimeout(500);
 
+    // If a session is active (from an earlier test) Custom Services routes
+    // submissions into the session cart instead of the DB.  Close it via the
+    // floating UI button so the service is actually recorded.
+    appPage.on("dialog", (dialog) => dialog.accept().catch(() => {}));
+    const closeSessionBtn = appPage
+      .locator('button[title="Close Session"]')
+      .first();
+    if (await closeSessionBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
+      await closeSessionBtn.click();
+      await appPage.waitForTimeout(1000);
+    }
+
     // Expand TransactionTimeOverride
     await txoPO.expand();
     await txoPO.expectExpanded();
@@ -295,6 +307,9 @@ test.describe.serial("TransactionTimeOverride", () => {
       .catch(() => false);
     if (sbVisible) {
       await searchInput.fill("S26 History Date Check");
+      // SearchBar debounces 300ms before hasSearched becomes true; onFreeText
+      // only fires on Enter when hasSearched=true && results empty.
+      await appPage.waitForTimeout(700);
       await appPage.keyboard.press("Enter");
       await appPage.waitForTimeout(300);
     }

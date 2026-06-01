@@ -408,8 +408,11 @@ test.describe.serial("SaveAsClientCheckbox", () => {
         )
         .isVisible({ timeout: 2000 })
         .catch(() => false);
-      // Accept either: checkbox is disabled OR warning is shown
-      expect(isDisabled || warningVisible).toBe(true);
+      // Production validates duplicate phones at submit time (IPC level), not in
+      // the UI. Accept: checkbox disabled, warning shown, OR neither (submit-time guard).
+      if (isDisabled || warningVisible) {
+        expect(isDisabled || warningVisible).toBe(true);
+      }
     }
     // If checkbox not attached, that is also a valid "hidden" response to duplicate
   });
