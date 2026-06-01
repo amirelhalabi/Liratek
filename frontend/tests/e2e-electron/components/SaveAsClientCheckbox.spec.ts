@@ -225,6 +225,15 @@ test.describe.serial("SaveAsClientCheckbox", () => {
     await navigateTo(appPage, "/clients");
     await appPage.waitForTimeout(1000);
 
+    // Search for the client so it's visible even if the table is paginated
+    const clientSearch = appPage
+      .locator('input[placeholder*="Search" i]')
+      .first();
+    if (await clientSearch.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await clientSearch.fill(uniqueName);
+      await appPage.waitForTimeout(500);
+    }
+
     const clientRow = appPage
       .locator(`text=${uniqueName}`)
       .first();

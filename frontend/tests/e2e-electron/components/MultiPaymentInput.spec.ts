@@ -201,7 +201,9 @@ test.describe.serial("MultiPaymentInput", () => {
           await methodSel.selectOption({ label: /LBP/i });
         }
         await mpi.fillLine(secondId, 20000);
-        await expect(mpi.amountInput(secondId)).toHaveValue("20000");
+        // Input may format large numbers with commas (e.g. "20,000")
+        const rawVal = await mpi.amountInput(secondId).inputValue();
+        expect(rawVal.replace(/,/g, "")).toBe("20000");
       }
     });
 

@@ -161,22 +161,38 @@ export { expect } from "@playwright/test";
 export async function navigateTo(page: Page, route: string) {
   const path = route.startsWith("/") ? route : `/${route}`;
 
-  // Dismiss any open overlay before trying to navigate
-  const hasOverlay = await page
-    .locator("div.fixed.inset-0")
-    .first()
-    .isVisible({ timeout: 300 })
-    .catch(() => false);
-  if (hasOverlay) {
-    await page.keyboard.press("Escape");
-    await page.waitForTimeout(200);
-    // Second press in case of nested overlays
-    const stillOpen = await page
+  // Helper: is any fixed overlay currently visible?
+  const overlayVisible = () =>
+    page
       .locator("div.fixed.inset-0")
       .first()
       .isVisible({ timeout: 300 })
       .catch(() => false);
-    if (stillOpen) {
+
+  // Dismiss any open overlay before trying to navigate
+  if (await overlayVisible()) {
+    // 1. Escape closes popovers and modals that listen for keydown
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(200);
+
+    if (await overlayVisible()) {
+      // 2. Click backdrop corner — closes modals with onClick={onClose} on the overlay div
+      //    (e.g. HistoryModal for Expenses/Custom Services/Maintenance)
+      await page.mouse.click(5, 5);
+      await page.waitForTimeout(200);
+    }
+
+    if (await overlayVisible()) {
+      // 3. POS checkout modal uses onCancel (not onClose) — click its Cancel Order button
+      const cancelBtn = page.locator('button[title="Cancel Order"]').first();
+      if (await cancelBtn.isVisible({ timeout: 300 }).catch(() => false)) {
+        await cancelBtn.click();
+        await page.waitForTimeout(300);
+      }
+    }
+
+    if (await overlayVisible()) {
+      // 4. Final Escape as safety net
       await page.keyboard.press("Escape");
       await page.waitForTimeout(200);
     }
@@ -299,21 +315,20 @@ export const clientContexts: ClientContext = {
    * providing the returned clientId.
    */
   async c4(page: Page, clientId: number): Promise<void> {
-    // Click the floating session FAB (always visible in the top bar)
+    // Click the CustomerSessionButton in the TopBar.
+    // Title is "Start Customer Session" when no sessions exist,
+    // or "N active session(s)" when sessions are running.
     const fab = page.locator(
-      'button[title="New Customer Session"], button[title="Manage Sessions"]',
+      'button[title="Start Customer Session"], button[title*="active session"]',
     );
-    await fab.first().click();
+    await fab.first().click({ timeout: 10_000 });
+    await page.waitForTimeout(500);
 
-    // If the speed-dial expanded (because sessions already exist), click the
-    // inner "New Customer Session" button (UserPlus icon at the top)
-    const newSessionInDial = page.locator(
-      'button[title="New Customer Session"]',
-    );
-    const dialCount = await newSessionInDial.count();
-    if (dialCount > 1) {
-      // Multiple buttons with that title — the second one is the inner dial item
-      await newSessionInDial.nth(1).click();
+    // The click opens a dropdown — click "New Session" inside it
+    const newSessionBtn = page.locator('button:has-text("New Session")').first();
+    if (await newSessionBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await newSessionBtn.click();
+      await page.waitForTimeout(300);
     }
 
     // Wait for the StartSessionModal to appear

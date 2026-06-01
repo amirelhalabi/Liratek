@@ -201,6 +201,7 @@ export function HistoryModal({
                 { header: "", className: "px-4 py-3 w-16" },
               ]}
               data={filteredData}
+              paginate
               exportExcel
               exportPdf
               exportFilename="custom-services-history"
