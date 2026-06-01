@@ -355,7 +355,12 @@ export const clientContexts: ClientContext = {
 
     // Click the matching client button in the inline dropdown
     if (clientName) {
-      const clientBtn = page.locator('button', { hasText: clientName }).first();
+      // Scope to div.absolute to avoid matching the session floating button,
+      // which also displays the client name when a session is active.
+      const clientBtn = page
+        .locator('div.absolute button')
+        .filter({ hasText: clientName })
+        .first();
       const btnVisible = await clientBtn
         .isVisible({ timeout: 3000 })
         .catch(() => false);

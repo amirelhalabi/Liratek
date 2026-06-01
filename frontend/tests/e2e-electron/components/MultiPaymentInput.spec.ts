@@ -721,7 +721,9 @@ test.describe.serial("MultiPaymentInput", () => {
 
       const lineId = await mpi.firstLineId();
       await mpi.fillLine(lineId, 10000);
-      await expect(mpi.amountInput(lineId)).toHaveValue("10000");
+      // LBP amounts may be formatted with thousand separators ("10,000")
+      const rawVal = await mpi.amountInput(lineId).inputValue();
+      expect(rawVal.replace(/,/g, "")).toBe("10000");
     });
 
     test("S2: split USD + LBP", async ({ appPage }) => {
@@ -758,7 +760,9 @@ test.describe.serial("MultiPaymentInput", () => {
           .getAttribute("data-testid");
         const secondId = secondTestId!.replace("payment-line-", "");
         await mpi.fillLine(secondId, 10000);
-        await expect(mpi.amountInput(secondId)).toHaveValue("10000");
+        // LBP amounts may be formatted with thousand separators ("10,000")
+        const rawValLoto = await mpi.amountInput(secondId).inputValue();
+        expect(rawValLoto.replace(/,/g, "")).toBe("10000");
       }
     });
 
@@ -908,7 +912,9 @@ test.describe.serial("MultiPaymentInput", () => {
           .getAttribute("data-testid");
         const secondId = secondTestId!.replace("payment-line-", "");
         await mpi.fillLine(secondId, 200000);
-        await expect(mpi.amountInput(secondId)).toHaveValue("200000");
+        // LBP amounts may be formatted with thousand separators ("200,000")
+        const rawValMaint = await mpi.amountInput(secondId).inputValue();
+        expect(rawValMaint.replace(/,/g, "")).toBe("200000");
       }
 
       const closeBtn = appPage
@@ -1075,7 +1081,9 @@ test.describe.serial("MultiPaymentInput", () => {
           .getAttribute("data-testid");
         const secondId = secondTestId!.replace("payment-line-", "");
         await mpi.fillLine(secondId, 50000);
-        await expect(mpi.amountInput(secondId)).toHaveValue("50000");
+        // LBP amounts may be formatted with thousand separators ("50,000")
+        const rawValPos = await mpi.amountInput(secondId).inputValue();
+        expect(rawValPos.replace(/,/g, "")).toBe("50000");
       }
 
       await appPage.keyboard.press("Escape");
