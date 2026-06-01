@@ -150,6 +150,21 @@ test.describe.serial("SaveAsClientCheckbox", () => {
     const uniqueName = `S18Client-${Date.now()}`;
     const uniquePhone = `04${Math.floor(Math.random() * 9000000 + 1000000)}`;
 
+    // Close any active customer session so that useSessionAutoFill doesn't
+    // overwrite our test phone with the session's phone (which is already
+    // registered, making clients:create fail with "phone taken").
+    await appPage.evaluate(async () => {
+      const r = await (window.api.session as { getActive: () => Promise<{ success: boolean; session?: { id: number } }> }).getActive();
+      if (r.success && r.session?.id) {
+        await (window.api.session as { close: (id: number, by: string) => Promise<unknown> }).close(r.session.id, "test-cleanup");
+      }
+    }).catch(() => {/* ignore if session API unavailable */});
+    await appPage.waitForTimeout(300);
+
+    // Navigate away first to force a fresh remount of Custom Services so all
+    // persisted form state (clientName, phone, clientId) is reset.
+    await navigateTo(appPage, "/debts");
+    await appPage.waitForTimeout(300);
     await navigateTo(appPage, "/custom-services");
     await appPage.waitForTimeout(500);
 

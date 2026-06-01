@@ -390,6 +390,16 @@ test.describe.serial("MultiPaymentInput", () => {
       const mpi = new MultiPaymentInputPO(appPage);
       await mpi.expectVisible();
 
+      // S3 may have left a selected-client chip (clientId persists in the page
+      // component across navigations to the same route). Clear it so the plain
+      // input is visible.
+      const tealChip = appPage.locator('div.bg-teal-500\\/10').first();
+      const chipVisible = await tealChip.isVisible({ timeout: 500 }).catch(() => false);
+      if (chipVisible) {
+        await tealChip.locator('button').first().click();
+        await appPage.waitForTimeout(200);
+      }
+
       // Custom Services uses a plain input (id="svc-client") — no ClientAutocompleteInput
       const clientInput = appPage.locator('#svc-client').first();
       await clientInput.fill("MPI");

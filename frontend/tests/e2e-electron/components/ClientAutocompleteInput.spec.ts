@@ -72,6 +72,16 @@ async function openDebtsCreditModal(page: Page): Promise<void> {
   const addCreditBtn = page.locator("button", { hasText: /Add Credit/i });
   await addCreditBtn.first().click();
   await page.waitForTimeout(500);
+
+  // If a client chip is still selected from a previous test (creditSelectedClient
+  // state persists in the Debts page component across modal open/close), clear it
+  // so the search input is visible.
+  const creditChip = page.locator('div.bg-emerald-500\\/10').first();
+  const chipVisible = await creditChip.isVisible({ timeout: 500 }).catch(() => false);
+  if (chipVisible) {
+    await creditChip.locator('button').first().click();
+    await page.waitForTimeout(200);
+  }
 }
 
 // ---------------------------------------------------------------------------
