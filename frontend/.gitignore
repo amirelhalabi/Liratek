@@ -93,3 +93,5 @@ tmp
 temp
 *.tmp
 *.temp
+frontend/test-run.log
+frontend/test-run2.log
