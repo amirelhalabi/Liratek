@@ -319,19 +319,18 @@ export const clientContexts: ClientContext = {
     // the backend rejects duplicates ("already exists today").
     const alreadyActive = await page
       .evaluate(async (cId: number) => {
-        const [clientsResult, sessions] = await Promise.all([
+        const [clientsResult, sessionsResult] = await Promise.all([
           window.api.clients.getAll(""),
           window.api.session.getActiveSessions(),
         ]);
         const clients = clientsResult as { id: number; full_name: string }[];
         const clientName = clients.find((c) => c.id === cId)?.full_name ?? "";
         if (!clientName) return false;
-        return (
-          Array.isArray(sessions) &&
-          sessions.some(
-            (s: { customer_name?: string }) => s.customer_name === clientName,
-          )
-        );
+        // getActiveSessions returns { success, sessions } or a plain array
+        const sessionList: { customer_name?: string }[] = Array.isArray(sessionsResult)
+          ? sessionsResult
+          : (sessionsResult as { sessions?: { customer_name?: string }[] }).sessions ?? [];
+        return sessionList.some((s) => s.customer_name === clientName);
       }, clientId)
       .catch(() => false);
     if (alreadyActive) return;

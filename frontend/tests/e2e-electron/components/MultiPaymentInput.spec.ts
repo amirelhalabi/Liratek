@@ -853,8 +853,9 @@ test.describe.serial("MultiPaymentInput", () => {
         await appPage.waitForTimeout(300);
       }
 
-      // Leave saleAmount empty → button is disabled
-      const sellBtn = appPage.locator("button", { hasText: /^Sell Ticket$/ });
+      // Leave saleAmount empty → submit button is disabled.
+      // .nth(1) because the Loto page has two "Sell Ticket" buttons: a tab (.nth(0)) and the form submit (.nth(1)).
+      const sellBtn = appPage.locator("button", { hasText: /^Sell Ticket$/ }).nth(1);
       await expect(sellBtn).toBeDisabled();
     });
   });
