@@ -62,6 +62,7 @@ export function TransactionTimeOverride({
     return (
       <button
         type="button"
+        data-testid="txn-time-toggle"
         onClick={() => setExpanded(true)}
         className="flex items-center gap-1 text-xs text-slate-400 hover:text-white transition-colors mt-1"
       >
@@ -78,6 +79,7 @@ export function TransactionTimeOverride({
       </label>
       <input
         type="datetime-local"
+        data-testid="txn-time-input"
         value={toLocalInput(value)}
         onChange={handleChange}
         max={getMaxDatetime()}
@@ -85,6 +87,7 @@ export function TransactionTimeOverride({
       />
       <button
         type="button"
+        data-testid="txn-time-clear"
         onClick={handleClear}
         className="text-xs text-red-400 hover:text-red-300 transition-colors"
       >

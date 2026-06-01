@@ -150,6 +150,7 @@ export function ClientAutocompleteInput({
         ref={inputRef}
         id={id}
         type={type}
+        data-testid="client-autocomplete-field"
         value={value}
         onChange={handleChange}
         onFocus={() =>
@@ -163,11 +164,12 @@ export function ClientAutocompleteInput({
         autoComplete="off"
       />
       {showDropdown && filtered.length > 0 && (
-        <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-slate-800 border border-slate-600 rounded-lg shadow-xl max-h-48 overflow-y-auto">
+        <div data-testid="client-dropdown" className="absolute z-50 top-full left-0 right-0 mt-1 bg-slate-800 border border-slate-600 rounded-lg shadow-xl max-h-48 overflow-y-auto">
           {filtered.map((client, idx) => (
             <button
               key={client.id}
               type="button"
+              data-testid={`client-option-${client.id}`}
               className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between hover:bg-slate-700 transition-colors ${
                 idx === highlightIndex ? "bg-slate-700" : ""
               } ${idx === 0 ? "rounded-t-lg" : ""} ${idx === filtered.length - 1 ? "rounded-b-lg" : ""}`}

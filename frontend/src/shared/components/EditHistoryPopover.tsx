@@ -167,6 +167,7 @@ export const EditHistoryPopover: React.FC<EditHistoryPopoverProps> = ({
       <div
         role="button"
         tabIndex={0}
+        data-testid="edit-history-trigger"
         aria-expanded={open}
         aria-haspopup="true"
         onClick={handleTriggerClick}
@@ -192,6 +193,7 @@ export const EditHistoryPopover: React.FC<EditHistoryPopoverProps> = ({
       {/* Popover panel */}
       {open && (
         <div
+          data-testid="edit-history-popover"
           className="
             absolute z-50 top-full mt-1.5 left-1/2 -translate-x-1/2
             w-80 max-h-96 overflow-y-auto
