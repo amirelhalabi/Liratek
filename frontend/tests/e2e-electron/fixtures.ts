@@ -315,6 +315,27 @@ export const clientContexts: ClientContext = {
    * providing the returned clientId.
    */
   async c4(page: Page, clientId: number): Promise<void> {
+    // If an active session already exists for this client, skip creation —
+    // the backend rejects duplicates ("already exists today").
+    const alreadyActive = await page
+      .evaluate(async (cId: number) => {
+        const [clientsResult, sessions] = await Promise.all([
+          window.api.clients.getAll(""),
+          window.api.session.getActiveSessions(),
+        ]);
+        const clients = clientsResult as { id: number; full_name: string }[];
+        const clientName = clients.find((c) => c.id === cId)?.full_name ?? "";
+        if (!clientName) return false;
+        return (
+          Array.isArray(sessions) &&
+          sessions.some(
+            (s: { customer_name?: string }) => s.customer_name === clientName,
+          )
+        );
+      }, clientId)
+      .catch(() => false);
+    if (alreadyActive) return;
+
     // Click the CustomerSessionButton in the TopBar.
     // Title is "Start Customer Session" when no sessions exist,
     // or "N active session(s)" when sessions are running.

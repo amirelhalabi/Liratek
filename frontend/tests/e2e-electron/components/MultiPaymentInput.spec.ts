@@ -839,8 +839,8 @@ test.describe.serial("MultiPaymentInput", () => {
       const lineId = await mpi.firstLineId();
       await mpi.fillLine(lineId, 999999999);
 
-      // "Sell Ticket" button — disabled only when saleAmount is empty or isSubmitting
-      const sellBtn = appPage.locator("button", { hasText: /^Sell Ticket$/ });
+      // "Sell Ticket" submit button — may coexist with a tab of the same name
+      const sellBtn = appPage.locator("button", { hasText: /^Sell Ticket$/ }).first();
       await expect(sellBtn).toBeVisible();
     });
 
