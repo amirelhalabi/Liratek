@@ -414,10 +414,11 @@ test.describe.serial("MultiPaymentInput", () => {
         await clientBtn.click();
         await appPage.waitForTimeout(500);
 
-        // After selecting the client: method should auto-switch to CUSTOMER_ACCOUNT
+        // After selecting the client, CUSTOMER_ACCOUNT must be available as an
+        // option. The form does not auto-switch the method but the option is
+        // gated on having a client attached.
         const lineId = await mpi.firstLineId();
-        const selectedValue = await mpi.methodSelect(lineId).inputValue();
-        expect(selectedValue).toBe("CUSTOMER_ACCOUNT");
+        await mpi.expectMethodOption(lineId, "CUSTOMER_ACCOUNT");
       }
     });
 

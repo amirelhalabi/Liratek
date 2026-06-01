@@ -184,6 +184,10 @@ test.describe.serial("SaveAsClientCheckbox", () => {
         .catch(() => false);
       if (sbVisible) {
         await searchInput.fill("S18 Service");
+        // SearchBar debounces 300ms before setting hasSearched=true.
+        // onFreeText only fires on Enter when hasSearched=true && results empty,
+        // so we must wait for the debounce + async search to complete first.
+        await appPage.waitForTimeout(700);
         await appPage.keyboard.press("Enter");
         await appPage.waitForTimeout(300);
       }

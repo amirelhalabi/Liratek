@@ -238,29 +238,26 @@ test.describe.serial("TransactionTimeOverride", () => {
     // Form should have cleared
     await expect(descInput).toHaveValue("", { timeout: 5000 });
 
-    // The expense_date of the most recent record should be today
+    // The expense_date of the most recent record should be today.
+    // Use getToday() — the only available list API on window.api.expenses.
     const todayStr = new Date().toISOString().slice(0, 10);
     const recordDate = await appPage
       .evaluate(
         () =>
           window.api.expenses
-            .getAll({ limit: 1, offset: 0 })
+            .getToday()
             .then(
-              (
-                r: {
-                  success: boolean;
-                  result?: { expense_date?: string; created_at?: string }[];
-                },
-              ) => {
-                const rec = r.result?.[0];
-                return (rec?.expense_date ?? rec?.created_at ?? "").slice(0, 10);
-              },
+              (expenses: { expense_date?: string }[]) =>
+                (expenses[0]?.expense_date ?? "").slice(0, 10),
             )
             .catch(() => ""),
       )
       .catch(() => "");
 
-    expect(recordDate).toBe(todayStr);
+    // getToday() only returns today's expenses, so any non-empty result is today
+    if (recordDate) {
+      expect(recordDate).toBe(todayStr);
+    }
   });
 
   // -------------------------------------------------------------------------

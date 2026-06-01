@@ -531,12 +531,17 @@ test.describe.serial("ClientAutocompleteInput", () => {
         .first();
       await expect(clientSearch).toBeVisible({ timeout: 5000 });
 
+      // Capture baseline — there may be non-dropdown .absolute buttons in the
+      // modal (e.g. close/cancel buttons). We only care that the search produces
+      // NO additional buttons.
+      const baselineCount = await appPage.locator(".absolute button").count();
+
       await clientSearch.fill("XXXXNOTEXIST99999");
       await appPage.waitForTimeout(500);
 
-      // No dropdown options should appear
+      // No dropdown options should appear — count must not exceed baseline
       const results = appPage.locator(".absolute button");
-      await expect(results).toHaveCount(0);
+      await expect(results).toHaveCount(baselineCount);
 
       await appPage.keyboard.press("Escape");
       await appPage.waitForTimeout(300);
