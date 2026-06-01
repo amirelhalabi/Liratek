@@ -209,7 +209,7 @@ test("Expenses: record an expense", async ({ appPage }) => {
   await descInput.fill("E2E Test Expense - Office Supplies");
 
   // Amount
-  const amountInput = appPage.getByPlaceholder("0.00").first();
+  const amountInput = appPage.getByPlaceholder("0").first();
   await amountInput.fill("35");
 
   // Submit
@@ -232,8 +232,10 @@ test("Debts: add credit and settle", async ({ appPage }) => {
     "Search client by name or phone...",
   );
   await expect(clientSearch).toBeVisible({ timeout: 5000 });
-  await clientSearch.fill("E2E Test Client");
-  await appPage.waitForTimeout(2000); // wait for debounced search results
+  // pressSequentially types char-by-char, reliably triggering React onChange
+  await clientSearch.click();
+  await clientSearch.pressSequentially("E2E Test Client", { delay: 30 });
+  await appPage.waitForTimeout(1000); // wait for debounced search + IPC
 
   // Click client from dropdown (button inside dropdown with client name)
   const clientOption = appPage
@@ -245,7 +247,7 @@ test("Debts: add credit and settle", async ({ appPage }) => {
   await appPage.waitForTimeout(500);
 
   // Enter amount
-  await appPage.getByPlaceholder("0.00").first().fill("25");
+  await appPage.getByPlaceholder("0").first().fill("25");
 
   // Submit (triggers native alert — auto-dismissed by global handler)
   await appPage

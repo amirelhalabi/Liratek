@@ -404,6 +404,7 @@ function DataTableInner<T>({
 
       <table
         ref={tableRef}
+        data-testid="data-table"
         className={className}
         style={resizable ? { tableLayout: "fixed" } : undefined}
       >
