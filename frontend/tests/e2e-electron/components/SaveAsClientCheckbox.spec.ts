@@ -189,17 +189,14 @@ test.describe.serial("SaveAsClientCheckbox", () => {
       .catch(() => false);
     if (costVisible) await costInput.fill("2");
 
-    // Type client name manually in the autocomplete field
-    const autocompleteInput = appPage
-      .locator('[data-testid="client-autocomplete-field"]')
-      .first();
-    const acVisible = await autocompleteInput
+    // Custom Services uses plain <input id="svc-client"> for name
+    const svcClientInput = appPage.locator('#svc-client').first();
+    const svcClientVisible = await svcClientInput
       .isVisible({ timeout: 2000 })
       .catch(() => false);
-    if (acVisible) {
-      await autocompleteInput.fill(uniqueName);
-      await appPage.keyboard.press("Escape");
-      await appPage.waitForTimeout(400);
+    if (svcClientVisible) {
+      await svcClientInput.fill(uniqueName);
+      await appPage.waitForTimeout(500); // wait for 300ms debounce
     }
 
     // Type phone
@@ -209,7 +206,7 @@ test.describe.serial("SaveAsClientCheckbox", () => {
       .catch(() => false);
     if (pVisible) {
       await phoneInput.fill(uniquePhone);
-      await appPage.waitForTimeout(300);
+      await appPage.waitForTimeout(600);
     }
 
     // The checkbox should now be visible — check it
@@ -272,17 +269,14 @@ test.describe.serial("SaveAsClientCheckbox", () => {
       .catch(() => false);
     if (costVisible) await costInput.fill("2");
 
-    // Type client name manually
-    const autocompleteInput = appPage
-      .locator('[data-testid="client-autocomplete-field"]')
-      .first();
-    const acVisible = await autocompleteInput
+    // Custom Services uses plain <input id="svc-client"> for name
+    const svcClientInput = appPage.locator('#svc-client').first();
+    const svcClientVisible = await svcClientInput
       .isVisible({ timeout: 2000 })
       .catch(() => false);
-    if (acVisible) {
-      await autocompleteInput.fill(uniqueName);
-      await appPage.keyboard.press("Escape");
-      await appPage.waitForTimeout(400);
+    if (svcClientVisible) {
+      await svcClientInput.fill(uniqueName);
+      await appPage.waitForTimeout(500); // wait for 300ms debounce
     }
 
     const phoneInput = appPage.locator("#svc-phone").first();
@@ -291,7 +285,7 @@ test.describe.serial("SaveAsClientCheckbox", () => {
       .catch(() => false);
     if (pVisible) {
       await phoneInput.fill(uniquePhone);
-      await appPage.waitForTimeout(300);
+      await appPage.waitForTimeout(600);
     }
 
     // The checkbox should be visible — ensure it is UNCHECKED
@@ -358,16 +352,14 @@ test.describe.serial("SaveAsClientCheckbox", () => {
     if (costVisible) await costInput.fill("1");
 
     // Type a different name but the SAME phone as existing client
-    const autocompleteInput = appPage
-      .locator('[data-testid="client-autocomplete-field"]')
-      .first();
-    const acVisible = await autocompleteInput
+    // Custom Services uses plain <input id="svc-client"> for name
+    const svcClientInput = appPage.locator('#svc-client').first();
+    const svcClientVisible = await svcClientInput
       .isVisible({ timeout: 2000 })
       .catch(() => false);
-    if (acVisible) {
-      await autocompleteInput.fill(`S20DupName-${Date.now()}`);
-      await appPage.keyboard.press("Escape");
-      await appPage.waitForTimeout(400);
+    if (svcClientVisible) {
+      await svcClientInput.fill(`S20DupName-${Date.now()}`);
+      await appPage.waitForTimeout(500); // wait for 300ms debounce
     }
 
     const phoneInput = appPage.locator("#svc-phone").first();
@@ -376,7 +368,7 @@ test.describe.serial("SaveAsClientCheckbox", () => {
       .catch(() => false);
     if (pVisible) {
       await phoneInput.fill(existingPhone);
-      await appPage.waitForTimeout(400);
+      await appPage.waitForTimeout(600);
     }
 
     // Either the checkbox is disabled/not attached, OR a warning text is shown,
