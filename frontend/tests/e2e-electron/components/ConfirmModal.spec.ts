@@ -251,6 +251,13 @@ test.describe.serial("ConfirmModal", () => {
       await navigateTo(appPage, "/products");
       await appPage.waitForTimeout(800);
 
+      const searchInput3 = appPage
+        .locator('input[placeholder*="Search" i]')
+        .first();
+      if (await searchInput3.isVisible({ timeout: 2000 }).catch(() => false)) {
+        await searchInput3.fill("CM Danger Variant Product");
+        await appPage.waitForTimeout(500);
+      }
       const productRow = appPage.locator("tbody tr").filter({ hasText: "CM Danger Variant Product" }).first();
       await expect(productRow).toBeVisible({ timeout: 5000 });
       await productRow.click();

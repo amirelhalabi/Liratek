@@ -221,23 +221,16 @@ test.describe.serial("SaveAsClientCheckbox", () => {
     await submitBtn.click();
     await appPage.waitForTimeout(2000);
 
-    // Navigate to Clients and verify the new client exists
-    await navigateTo(appPage, "/clients");
-    await appPage.waitForTimeout(1000);
-
-    // Search for the client so it's visible even if the table is paginated
-    const clientSearch = appPage
-      .locator('input[placeholder*="Search" i]')
-      .first();
-    if (await clientSearch.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await clientSearch.fill(uniqueName);
-      await appPage.waitForTimeout(500);
-    }
-
-    const clientRow = appPage
-      .locator(`text=${uniqueName}`)
-      .first();
-    await expect(clientRow).toBeVisible({ timeout: 10_000 });
+    // Verify the client was created via the API (more reliable than UI navigation)
+    const clientCreated = await appPage
+      .evaluate(async (name) => {
+        const clients = await window.api.clients.getAll(name);
+        return clients.some(
+          (c: { full_name: string }) => c.full_name === name,
+        );
+      }, uniqueName)
+      .catch(() => false);
+    expect(clientCreated).toBe(true);
   });
 
   // -------------------------------------------------------------------------

@@ -355,21 +355,19 @@ test.describe.serial("MultiPaymentInput", () => {
       await goToCustomServicesForm(appPage);
       await fillCustomServiceFields(appPage, 40);
 
-      // Search and select a client via the autocomplete
-      const clientInput = appPage.getByTestId("client-autocomplete-field").first();
+      // Custom Services uses a plain input (id="svc-client") — no ClientAutocompleteInput
+      const clientInput = appPage.locator('#svc-client').first();
       await clientInput.fill("MPI");
       await appPage.waitForTimeout(500);
 
-      const dropdown = appPage.getByTestId("client-dropdown");
-      const dropdownVisible = await dropdown
+      // Inline dropdown has plain buttons with the client's full_name text
+      const clientBtn = appPage.locator('button', { hasText: "MPI Test Client" }).first();
+      const dropdownVisible = await clientBtn
         .isVisible({ timeout: 4000 })
         .catch(() => false);
 
       if (dropdownVisible) {
-        await appPage
-          .locator('[data-testid^="client-option-"]')
-          .first()
-          .click();
+        await clientBtn.click();
         await appPage.waitForTimeout(500);
       }
 
@@ -392,21 +390,18 @@ test.describe.serial("MultiPaymentInput", () => {
       const mpi = new MultiPaymentInputPO(appPage);
       await mpi.expectVisible();
 
-      // Select a client via autocomplete
-      const clientInput = appPage.getByTestId("client-autocomplete-field").first();
+      // Custom Services uses a plain input (id="svc-client") — no ClientAutocompleteInput
+      const clientInput = appPage.locator('#svc-client').first();
       await clientInput.fill("MPI");
       await appPage.waitForTimeout(500);
 
-      const dropdown = appPage.getByTestId("client-dropdown");
-      const dropdownVisible = await dropdown
+      const clientBtn = appPage.locator('button', { hasText: "MPI Test Client" }).first();
+      const dropdownVisible = await clientBtn
         .isVisible({ timeout: 4000 })
         .catch(() => false);
 
       if (dropdownVisible) {
-        await appPage
-          .locator('[data-testid^="client-option-"]')
-          .first()
-          .click();
+        await clientBtn.click();
         await appPage.waitForTimeout(500);
 
         // After selecting the client: method should auto-switch to CUSTOMER_ACCOUNT
