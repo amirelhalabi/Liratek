@@ -500,6 +500,20 @@ test.describe.serial("MultiPaymentInput", () => {
     test("S8: partial payment creates debt", async ({ appPage }) => {
       await goToCustomServicesForm(appPage);
 
+      // A session left active by an earlier test (e.g. the S14 session
+      // pre-population tests) makes Custom Services route submissions into the
+      // session cart instead of the DB, so no debt is recorded. Close it first.
+      appPage.on("dialog", (dialog) => dialog.accept().catch(() => {}));
+      const closeSessionBtn = appPage
+        .locator('button[title="Close Session"]')
+        .first();
+      if (
+        await closeSessionBtn.isVisible({ timeout: 1000 }).catch(() => false)
+      ) {
+        await closeSessionBtn.click();
+        await appPage.waitForTimeout(1000);
+      }
+
       // Clear any teal chip (client selection) left over from S4
       const tealChip = appPage.locator('div.bg-teal-500\\/10').first();
       if (await tealChip.isVisible({ timeout: 500 }).catch(() => false)) {
