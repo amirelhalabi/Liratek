@@ -603,7 +603,9 @@ test.describe.serial("MultiPaymentInput", () => {
           .getAttribute("data-testid");
         const secondId = secondTestId!.replace("payment-line-", "");
         await mpi.fillLine(secondId, 50000);
-        await expect(mpi.amountInput(secondId)).toHaveValue("50000");
+        // LBP amounts may be formatted with thousand separators ("50,000")
+        const rawVal = await mpi.amountInput(secondId).inputValue();
+        expect(rawVal.replace(/,/g, "")).toBe("50000");
       }
     });
 
