@@ -343,7 +343,9 @@ test.describe.serial("MultiPaymentInput", () => {
           .getAttribute("data-testid");
         const secondId = secondTestId!.replace("payment-line-", "");
         await mpi.fillLine(secondId, 100000);
-        await expect(mpi.amountInput(secondId)).toHaveValue("100000");
+        // Input may format large numbers with commas (e.g. "100,000")
+        const rawVal2 = await mpi.amountInput(secondId).inputValue();
+        expect(rawVal2.replace(/,/g, "")).toBe("100000");
       }
     });
 

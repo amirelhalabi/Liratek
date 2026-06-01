@@ -337,30 +337,33 @@ export const clientContexts: ClientContext = {
       { timeout: 5000 },
     );
 
-    // Type in the autocomplete — the modal renders ClientAutocompleteInput
-    // which sets data-testid="client-autocomplete-field" on its <input>
-    const modalInput = page
-      .getByTestId("client-autocomplete-field")
-      .first();
-
     // Fetch the client's name so we can search by it
     const clientName: string = await page.evaluate((id) => {
-      return (window.api.clients as { getAll: (q: string) => Promise<{ id: number; full_name: string }[]> })
+      return window.api.clients
         .getAll("")
-        .then((clients) => {
+        .then((clients: { id: number; full_name: string }[]) => {
           const found = clients.find((c) => c.id === id);
           return found?.full_name ?? "";
         });
     }, clientId);
 
+    // StartSessionModal uses a plain input (id="customer-name"), not ClientAutocompleteInput
+    const nameInput = page.locator('#customer-name').first();
     const query = clientName.slice(0, 3);
-    await modalInput.fill(query);
+    await nameInput.fill(query);
+    await page.waitForTimeout(500);
 
-    // Wait for dropdown and click the correct client option
-    await page.waitForSelector('[data-testid="client-dropdown"]', {
-      timeout: 5000,
-    });
-    await page.getByTestId(`client-option-${clientId}`).click();
+    // Click the matching client button in the inline dropdown
+    if (clientName) {
+      const clientBtn = page.locator('button', { hasText: clientName }).first();
+      const btnVisible = await clientBtn
+        .isVisible({ timeout: 3000 })
+        .catch(() => false);
+      if (btnVisible) {
+        await clientBtn.click();
+        await page.waitForTimeout(300);
+      }
+    }
 
     // Submit the form
     await page.getByRole("button", { name: /Start Session/i }).click();

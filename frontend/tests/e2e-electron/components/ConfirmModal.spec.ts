@@ -202,6 +202,14 @@ test.describe.serial("ConfirmModal", () => {
       await navigateTo(appPage, "/products");
       await appPage.waitForTimeout(800);
 
+      // Search so the product is visible even if inventory is paginated
+      const searchInput2 = appPage
+        .locator('input[placeholder*="Search" i]')
+        .first();
+      if (await searchInput2.isVisible({ timeout: 2000 }).catch(() => false)) {
+        await searchInput2.fill("CM Focus Test Product");
+        await appPage.waitForTimeout(500);
+      }
       const productRow = appPage.locator("tbody tr").filter({ hasText: "CM Focus Test Product" }).first();
       await expect(productRow).toBeVisible({ timeout: 5000 });
       await productRow.click();

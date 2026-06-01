@@ -103,7 +103,7 @@ test.describe.serial("TransactionTimeOverride", () => {
     await descInput.fill("S22 TxoTest Expense");
 
     const amountInput = appPage
-      .locator('input[placeholder="0.00"]')
+      .locator('[data-testid^="payment-amount-"]')
       .first();
     await amountInput.fill("7");
 
