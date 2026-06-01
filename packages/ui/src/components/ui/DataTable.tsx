@@ -504,13 +504,13 @@ function DataTableInner<T>({
 
         <tbody className={tbodyClassName}>
           {loading ? (
-            <tr>
+            <tr data-testid="data-table-loading">
               <td colSpan={colCount} className="p-4 text-center text-slate-500">
                 Loading…
               </td>
             </tr>
           ) : visibleRows.length === 0 ? (
-            <tr>
+            <tr data-testid="data-table-empty">
               <td colSpan={colCount} className="p-4 text-center text-slate-500">
                 {emptyContent ?? emptyMessage}
               </td>

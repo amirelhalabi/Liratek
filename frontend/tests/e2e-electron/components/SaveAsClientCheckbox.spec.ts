@@ -114,17 +114,13 @@ test.describe.serial("SaveAsClientCheckbox", () => {
       await navigateTo(appPage, "/custom-services");
       await appPage.waitForTimeout(500);
 
-      // Type in the ClientAutocompleteInput as a free-text (manual entry)
-      const autocompleteInput = appPage
-        .locator('[data-testid="client-autocomplete-field"]')
-        .first();
-      const autocompleteVisible = await autocompleteInput
+      // CustomServices uses a plain <input id="svc-client"> for the client name field
+      const svcClientInput = appPage.locator('#svc-client').first();
+      const svcClientVisible = await svcClientInput
         .isVisible({ timeout: 2000 })
         .catch(() => false);
-      if (autocompleteVisible) {
-        await autocompleteInput.fill("ManualTypedClientName");
-        // DO NOT select from dropdown — manual entry only
-        await appPage.keyboard.press("Escape");
+      if (svcClientVisible) {
+        await svcClientInput.fill("ManualTypedClientName");
         await appPage.waitForTimeout(400);
       }
 

@@ -28,9 +28,9 @@ export class DataTablePO {
     return this.page.getByTestId("select-all-checkbox");
   }
 
-  /** Get visible tbody rows */
+  /** Get visible data rows (excludes empty-state and loading placeholder rows) */
   rows(): Locator {
-    return this.table.locator("tbody tr");
+    return this.table.locator("tbody tr:not([data-testid='data-table-empty']):not([data-testid='data-table-loading'])");
   }
 
   async expectRowCount(n: number): Promise<void> {
