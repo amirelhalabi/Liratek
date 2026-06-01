@@ -146,7 +146,9 @@ export async function goToRechargeForm(
   const tabBtn = page.locator("button", { hasText: label }).first();
   const visible = await tabBtn.isVisible({ timeout: 2000 }).catch(() => false);
   if (visible) {
-    await tabBtn.click();
+    // force:true bypasses overlay interception that can occur when a session
+    // modal was just closed and the header z-layer hasn't fully settled
+    await tabBtn.click({ force: true });
     await page.waitForTimeout(300);
   }
 }

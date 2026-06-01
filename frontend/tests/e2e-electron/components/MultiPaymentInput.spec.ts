@@ -853,8 +853,21 @@ test.describe.serial("MultiPaymentInput", () => {
         await appPage.waitForTimeout(300);
       }
 
-      // Leave saleAmount empty → submit button is disabled.
-      // .nth(1) because the Loto page has two "Sell Ticket" buttons: a tab (.nth(0)) and the form submit (.nth(1)).
+      // Clear saleAmount — previous tests (S6) leave it filled, and hash-routing
+      // does not remount the Loto component, so state persists across serial tests.
+      // Button is disabled={!saleAmount}, so clearing it makes the button disabled.
+      const saleAmountInput = appPage
+        .locator('input[placeholder*="Enter sale amount"]')
+        .first();
+      const saVisible = await saleAmountInput
+        .isVisible({ timeout: 2000 })
+        .catch(() => false);
+      if (saVisible) {
+        await saleAmountInput.fill("");
+        await appPage.waitForTimeout(300);
+      }
+
+      // Submit button (tab is .nth(0)) — disabled when saleAmount is empty
       const sellBtn = appPage.locator("button", { hasText: /^Sell Ticket$/ }).nth(1);
       await expect(sellBtn).toBeDisabled();
     });
