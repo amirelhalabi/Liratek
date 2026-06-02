@@ -827,6 +827,7 @@ export default function CheckoutModal({
                           customerSearchRef.current?.focus();
                         });
                       }}
+                      data-testid="client-autocomplete-field"
                       className="bg-transparent border-none text-white w-full px-3 focus:outline-none"
                       placeholder="Search Name or Phone..."
                     />
@@ -849,10 +850,11 @@ export default function CheckoutModal({
                     !selectedClient &&
                     !isAutoFilledFromSession &&
                     filteredClients.length > 0 && (
-                      <div className="absolute top-full left-0 right-0 mt-2 bg-slate-800 border border-slate-700 rounded-xl shadow-xl z-20 max-h-48 overflow-y-auto">
+                      <div data-testid="client-dropdown" className="absolute top-full left-0 right-0 mt-2 bg-slate-800 border border-slate-700 rounded-xl shadow-xl z-20 max-h-48 overflow-y-auto">
                         {filteredClients.map((client) => (
                           <button
                             key={client.id}
+                            data-testid={`client-option-${client.id}`}
                             onClick={() => {
                               setSelectedClient(client);
                               setClientSearch(client.full_name);

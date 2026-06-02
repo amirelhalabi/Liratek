@@ -64,7 +64,7 @@ test("Inventory: create a product", async ({ appPage }) => {
   const addBtn = appPage.locator("button").filter({ hasText: "Add Product" });
   await expect(addBtn).toBeVisible({ timeout: 10_000 });
   await addBtn.click();
-  await appPage.waitForTimeout(500);
+  await expect(appPage.locator("#product-name")).toBeVisible({ timeout: 5000 });
 
   await appPage.locator("#product-name").fill("E2E Test Widget");
   await appPage.locator("#product-cost-price").fill("5");
@@ -72,7 +72,6 @@ test("Inventory: create a product", async ({ appPage }) => {
   await appPage.locator("#product-stock").fill("50");
 
   await appPage.getByRole("button", { name: /Save Product/i }).click();
-  await appPage.waitForTimeout(2000);
 
   // Verify in list
   await expect(appPage.locator("text=E2E Test Widget").first()).toBeVisible({
@@ -84,13 +83,14 @@ test("Clients: create a client", async ({ appPage }) => {
   await navigateTo(appPage, "/clients");
 
   await appPage.getByRole("button", { name: /Add Client/i }).click();
-  await appPage.waitForTimeout(500);
+  await expect(appPage.locator("#client-full-name")).toBeVisible({
+    timeout: 5000,
+  });
 
   await appPage.locator("#client-full-name").fill("E2E Test Client");
   await appPage.locator("#client-phone").fill("03999888");
 
   await appPage.getByRole("button", { name: /Save Client/i }).click();
-  await appPage.waitForTimeout(2000);
 
   await expect(appPage.locator("text=E2E Test Client").first()).toBeVisible({
     timeout: 10_000,
@@ -110,20 +110,20 @@ test("POS: search product, add to cart, complete sale", async ({ appPage }) => {
   await expect(searchInput).toBeVisible({ timeout: 10_000 });
 
   await searchInput.fill("E2E Test Widget");
-  await appPage.waitForTimeout(1000);
+  await expect(appPage.locator("text=E2E Test Widget").first()).toBeVisible({
+    timeout: 5000,
+  });
 
   // Click product to add to cart
   const productItem = appPage.locator("text=E2E Test Widget").first();
   await expect(productItem).toBeVisible({ timeout: 5000 });
   await productItem.click();
-  await appPage.waitForTimeout(500);
 
   // Verify in cart
   await expect(appPage.locator("text=Cart is empty")).not.toBeVisible();
 
   // Checkout
   await appPage.getByRole("button", { name: /Proceed to Checkout/i }).click();
-  await appPage.waitForTimeout(1000);
 
   await expect(appPage.locator("text=Checkout").first()).toBeVisible({
     timeout: 5000,
@@ -131,7 +131,6 @@ test("POS: search product, add to cart, complete sale", async ({ appPage }) => {
 
   // Complete sale
   await appPage.getByRole("button", { name: /Complete Sale/i }).click();
-  await appPage.waitForTimeout(3000);
 
   // Verify cart empty
   await expect(appPage.locator("text=Cart is empty")).toBeVisible({
@@ -145,12 +144,10 @@ test("Exchange: complete USD to LBP exchange", async ({ appPage }) => {
   // Select USD from
   const usdBtn = appPage.locator("button").filter({ hasText: /^USD$/ }).first();
   await usdBtn.click();
-  await appPage.waitForTimeout(300);
 
   // Select LBP to
   const lbpBtn = appPage.locator("button").filter({ hasText: /^LBP$/ }).nth(1);
   await lbpBtn.click();
-  await appPage.waitForTimeout(300);
 
   // Enter amount
   const amountInputs = appPage.locator(
@@ -158,13 +155,11 @@ test("Exchange: complete USD to LBP exchange", async ({ appPage }) => {
   );
   const youReceive = amountInputs.first();
   await youReceive.fill("100");
-  await appPage.waitForTimeout(500);
 
   // Confirm
   const confirmBtn = appPage.getByRole("button", { name: /Confirm Exchange/i });
   await expect(confirmBtn).toBeEnabled({ timeout: 5000 });
   await confirmBtn.click();
-  await appPage.waitForTimeout(2000);
 
   // Verify cleared
   await expect(youReceive).toHaveValue("", { timeout: 5000 });
@@ -179,22 +174,18 @@ test("Services: complete OMT send transaction", async ({ appPage }) => {
     .filter({ hasText: /OMT/ })
     .filter({ hasText: /↑/ })
     .first();
-  if (await omtSendBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-    await omtSendBtn.click();
-    await appPage.waitForTimeout(300);
-  }
+  await expect(omtSendBtn).toBeVisible({ timeout: 5000 });
+  await omtSendBtn.click();
 
   // Enter amount
   const amountInput = appPage.locator("#service-amount");
   await expect(amountInput).toBeVisible({ timeout: 5000 });
   await amountInput.fill("50");
-  await appPage.waitForTimeout(300);
 
   // Submit
   const submitBtn = appPage.getByRole("button", { name: /Record Send/i });
   await expect(submitBtn).toBeVisible({ timeout: 5000 });
   await submitBtn.click();
-  await appPage.waitForTimeout(2000);
 
   // Verify reset
   await expect(amountInput).toHaveValue("", { timeout: 5000 });
@@ -214,77 +205,71 @@ test("Expenses: record an expense", async ({ appPage }) => {
 
   // Submit
   await appPage.getByRole("button", { name: /Record Expense/i }).click();
-  await appPage.waitForTimeout(2000);
 
   // Verify form cleared (success)
   await expect(descInput).toHaveValue("", { timeout: 5000 });
 });
 
-test("Debts: add credit and settle", async ({ appPage }) => {
-  await navigateTo(appPage, "/debts");
-  await appPage.waitForTimeout(1000);
+test("Debts: add sale debt and settle", async ({ appPage }) => {
+  // Create a debt by completing a POS sale on Customer Account
+  await navigateTo(appPage, "/pos");
 
-  // Add Credit
-  await appPage.getByRole("button", { name: /Add Credit/i }).click();
-  await appPage.waitForTimeout(500);
-
-  const clientSearch = appPage.getByPlaceholder(
-    "Search client by name or phone...",
+  const searchInput = appPage.getByPlaceholder(
+    "Search products by name or barcode...",
   );
-  await expect(clientSearch).toBeVisible({ timeout: 5000 });
-  // pressSequentially types char-by-char, reliably triggering React onChange
-  await clientSearch.click();
-  await clientSearch.pressSequentially("E2E Test Client", { delay: 30 });
-  await appPage.waitForTimeout(1000); // wait for debounced search + IPC
+  await expect(searchInput).toBeVisible({ timeout: 10_000 });
+  await searchInput.fill("E2E Test Widget");
+  await expect(appPage.locator("text=E2E Test Widget").first()).toBeVisible({
+    timeout: 5000,
+  });
+  await appPage.locator("text=E2E Test Widget").first().click();
+  await expect(appPage.locator("text=Cart is empty")).not.toBeVisible();
 
-  // Click client from dropdown (button inside dropdown with client name)
-  const clientOption = appPage
-    .locator(".absolute button")
-    .filter({ hasText: "E2E Test Client" })
-    .first();
-  await expect(clientOption).toBeVisible({ timeout: 10_000 });
-  await clientOption.click();
-  await appPage.waitForTimeout(500);
+  await appPage.getByRole("button", { name: /Proceed to Checkout/i }).click();
+  await expect(appPage.locator('[data-testid="checkout-modal"]')).toBeVisible({
+    timeout: 5000,
+  });
 
-  // Enter amount
-  await appPage.getByPlaceholder("0").first().fill("25");
+  // Assign E2E Test Client — payment auto-switches to Customer Account
+  const clientField = appPage.locator(
+    '[data-testid="checkout-modal"] [data-testid="client-autocomplete-field"]',
+  );
+  await expect(clientField).toBeVisible({ timeout: 5000 });
+  await clientField.fill("E2E Test");
+  await expect(
+    appPage.locator('[data-testid="client-dropdown"]'),
+  ).toBeVisible({ timeout: 5000 });
+  await appPage.locator('[data-testid^="client-option-"]').first().click();
 
-  // Submit (triggers native alert — auto-dismissed by global handler)
-  await appPage
-    .getByRole("button", { name: /Add Credit/i })
-    .last()
-    .click();
-  await appPage.waitForTimeout(3000);
+  // Complete sale on Customer Account
+  await appPage.getByRole("button", { name: /Complete Sale/i }).click();
+  await expect(appPage.locator("text=Cart is empty")).toBeVisible({
+    timeout: 10_000,
+  });
 
-  // Select client from left panel
+  // Navigate to Debts and settle
+  await navigateTo(appPage, "/debts");
+
   const clientRow = appPage
     .locator("button")
     .filter({ hasText: "E2E Test Client" })
     .first();
   await expect(clientRow).toBeVisible({ timeout: 10_000 });
   await clientRow.click();
-  await appPage.waitForTimeout(2000);
 
-  // Settle debt
   const settleBtn = appPage.getByRole("button", { name: /Settle Debt/i });
-  if (await settleBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
-    await settleBtn.click();
-    await appPage.waitForTimeout(500);
+  await expect(settleBtn).toBeVisible({ timeout: 10_000 });
+  await settleBtn.click();
 
-    // Quick fill
-    const fullDebtBtn = appPage
-      .locator("button")
-      .filter({ hasText: /Full debt/i })
-      .first();
-    if (await fullDebtBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await fullDebtBtn.click();
-      await appPage.waitForTimeout(300);
-    }
+  const fullDebtBtn = appPage
+    .locator("button")
+    .filter({ hasText: /Full debt/i })
+    .first();
+  await expect(fullDebtBtn).toBeVisible({ timeout: 5000 });
+  await fullDebtBtn.click();
 
-    // Confirm (triggers native alert — auto-dismissed)
-    await appPage.getByRole("button", { name: /Confirm Payment/i }).click();
-    await appPage.waitForTimeout(2000);
-  }
+  // Confirm (triggers native alert — auto-dismissed)
+  await appPage.getByRole("button", { name: /Confirm Payment/i }).click();
 });
 
 test("Services: WHISH disabled without partner (OMT-base)", async ({
@@ -292,10 +277,10 @@ test("Services: WHISH disabled without partner (OMT-base)", async ({
 }) => {
   await navigateTo(appPage, "/services");
 
-  const whishBtns = appPage.locator("button").filter({ hasText: "WHISH" });
-  const count = await whishBtns.count();
-  if (count > 0) {
-    const firstWhish = whishBtns.first();
-    await expect(firstWhish).toBeDisabled();
-  }
+  const firstWhish = appPage
+    .locator("button")
+    .filter({ hasText: "WHISH" })
+    .first();
+  await expect(firstWhish).toBeVisible({ timeout: 5000 });
+  await expect(firstWhish).toBeDisabled();
 });

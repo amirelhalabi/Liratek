@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@liratek/core": "workspace:*",
-    "better-sqlite3": "^12.6.2",
+    "better-sqlite3": "^12.8.0",
     "electron-squirrel-startup": "^1.0.1"
   },
   "devDependencies": {
