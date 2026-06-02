@@ -777,6 +777,7 @@ export default function CheckoutModal({
           className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-7xl shadow-2xl flex overflow-hidden h-[85vh]"
           role="presentation"
           onMouseDown={(e) => e.stopPropagation()}
+          data-testid="checkout-modal"
         >
           {/* Left: Summary & Client */}
           <div className="w-1/2 bg-slate-800 p-8 border-r border-slate-700 flex flex-col">
@@ -1382,6 +1383,7 @@ export default function CheckoutModal({
                   onClick={handleSaveDraft}
                   disabled={isLoading}
                   className="px-6 py-4 rounded-xl text-violet-300 hover:text-violet-100 hover:bg-violet-900/30 transition-colors font-medium border border-violet-500/30"
+                  data-testid="checkout-save-draft-btn"
                 >
                   Save Draft
                 </button>
@@ -1407,6 +1409,7 @@ export default function CheckoutModal({
                 onClick={handleComplete}
                 disabled={isLoading}
                 className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-lg shadow-lg shadow-emerald-900/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+                data-testid="checkout-complete-btn"
               >
                 {isLoading ? "Processing..." : "Complete Sale"}
               </button>

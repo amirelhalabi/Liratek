@@ -49,6 +49,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
         data-testid="confirm-modal"
         className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200"
         onMouseDown={(e) => e.stopPropagation()}
+        data-testid="confirm-modal"
       >
         <div className="p-6">
           <div className="flex items-start gap-4">
@@ -75,6 +76,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
             data-testid="confirm-modal-cancel-btn"
             onClick={onCancel}
             className="flex-1 px-4 py-2.5 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 hover:text-white transition-colors font-medium"
+            data-testid="confirm-modal-cancel-btn"
           >
             {cancelLabel}
           </button>
@@ -82,6 +84,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
             data-testid="confirm-modal-confirm-btn"
             onClick={onConfirm}
             className={`flex-1 px-4 py-2.5 rounded-lg text-white font-bold transition-all shadow-lg ${variantClasses[variant]}`}
+            data-testid="confirm-modal-confirm-btn"
           >
             {confirmLabel}
           </button>

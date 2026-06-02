@@ -407,6 +407,7 @@ function DataTableInner<T>({
         data-testid="data-table"
         className={className}
         style={resizable ? { tableLayout: "fixed" } : undefined}
+        data-testid="data-table"
       >
         <thead className={theadClassName}>
           {table.getHeaderGroups().map((hg) => (
@@ -456,6 +457,7 @@ function DataTableInner<T>({
                         onChange={(e) => selectAll.onChange(e.target.checked)}
                         className="w-4 h-4 rounded border-slate-600 bg-slate-700 accent-violet-600 cursor-pointer"
                         title="Select all (all pages)"
+                        data-testid="select-all-checkbox"
                       />
                     ) : (
                       <span
@@ -565,6 +567,7 @@ function DataTableInner<T>({
               onClick={() => table.previousPage()}
               disabled={!table.getCanPreviousPage()}
               className="p-1.5 rounded bg-slate-700 border border-slate-600 text-slate-300 hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              data-testid="pagination-prev"
             >
               <ChevronLeft size={16} />
             </button>
@@ -577,6 +580,7 @@ function DataTableInner<T>({
               onClick={() => table.nextPage()}
               disabled={!table.getCanNextPage()}
               className="p-1.5 rounded bg-slate-700 border border-slate-600 text-slate-300 hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              data-testid="pagination-next"
             >
               <ChevronRight size={16} />
             </button>
