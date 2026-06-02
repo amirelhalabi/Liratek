@@ -88,7 +88,16 @@ async function fillCustomServiceFields(page: Page, priceUsd: number): Promise<vo
   const visible = await searchInput.isVisible({ timeout: 3000 }).catch(() => false);
   if (visible) {
     await searchInput.fill("MPI Test Service");
-    await page.waitForTimeout(700); // wait for SearchBar 300ms debounce → hasSearched=true
+    // Wait for async search to complete + no-results message to appear.
+    // onFreeText fires only when hasSearched=true AND results.length===0.
+    // hasSearched is set AFTER the IPC search resolves (not just after debounce),
+    // so fixed timeouts are unreliable. Waiting for the no-results text is precise.
+    const noResults = page.locator(
+      'text="No items found. Press Enter to use as description."',
+    );
+    await noResults.waitFor({ state: "visible", timeout: 5000 }).catch(
+      () => page.waitForTimeout(1500),
+    );
     await searchInput.press("Enter");
     await page.waitForTimeout(300);
   } else {
