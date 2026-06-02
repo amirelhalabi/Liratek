@@ -566,7 +566,26 @@ test.describe.serial("MultiPaymentInput", () => {
       const clientDebt = (
         debtors as Array<{ id: number; total_debt_usd: number }>
       ).find((d) => d.id === debtClientId);
-      expect(clientDebt).toBeDefined();
+
+      if (!clientDebt) {
+        // Diagnostic: gather info to understand why debt wasn't created
+        const [activeSessions, recentServices] = await Promise.all([
+          appPage.evaluate(async () => {
+            const r = await window.api.session.getActiveSessions();
+            return Array.isArray(r) ? r : (r as { sessions?: unknown[] }).sessions ?? [];
+          }),
+          appPage.evaluate(async () => {
+            const all = await (window.api.customServices as { list: () => Promise<Array<{ description: string; paid_by: string; client_id: number | null }>> }).list();
+            return all.slice(0, 3);
+          }).catch(() => []),
+        ]);
+        throw new Error(
+          `S8 debt not found for client ${debtClientId}. ` +
+          `Active sessions: ${JSON.stringify(activeSessions)}. ` +
+          `Recent services: ${JSON.stringify(recentServices)}. ` +
+          `All debtor IDs: ${JSON.stringify((debtors as Array<{ id: number }>).map(d => d.id))}`
+        );
+      }
       expect(clientDebt!.total_debt_usd).toBeGreaterThan(0);
     });
   });
