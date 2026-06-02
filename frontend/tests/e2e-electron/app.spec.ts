@@ -13,6 +13,10 @@
 
 import { test, expect, navigateTo } from "./fixtures";
 
+// Tests share sequential state (product + client created in earlier tests).
+// Retries would relaunch Electron fresh, losing that state — disable them.
+test.describe.configure({ retries: 0 });
+
 // ============================================================
 // SMOKE TESTS — verify pages load
 // ============================================================
@@ -249,6 +253,9 @@ test("Debts: add sale debt and settle", async ({ appPage }) => {
 
   // Navigate to Debts and settle
   await navigateTo(appPage, "/debts");
+  // Wait for the debtor list to finish loading before clicking — avoids
+  // detach-on-click when the list re-renders during the initial data fetch.
+  await appPage.waitForLoadState("networkidle", { timeout: 10_000 });
 
   const clientRow = appPage
     .locator("button")

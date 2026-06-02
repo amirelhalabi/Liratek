@@ -53,9 +53,8 @@ test.describe.serial("CheckoutModal", () => {
     await expect(appPage.locator('[data-testid="client-dropdown"]')).toBeVisible({ timeout: 5000 });
     await appPage.locator('[data-testid^="client-option-"]').first().click();
 
-    await expect(
-      appPage.locator(`[data-testid="checkout-modal"] :text("${clientName}")`),
-    ).toBeVisible({ timeout: 5000 });
+    // After selection the name populates the input's value (not a text node).
+    await expect(clientSearch).toHaveValue(clientName, { timeout: 5000 });
 
     await appPage.keyboard.press("Escape");
     await expect(appPage.locator('[data-testid="checkout-modal"]')).not.toBeVisible({ timeout: 5000 });
@@ -143,10 +142,7 @@ test.describe.serial("CheckoutModal", () => {
         (cId) =>
           window.api.debt
             .getDebtors()
-            .then(
-              (res: { success: boolean; result?: { client_id: number }[] }) =>
-                res.result?.some((d: { client_id: number }) => d.client_id === cId) ?? false,
-            )
+            .then((debtors) => debtors.some((d) => d.id === cId))
             .catch(() => false),
         clientId,
       )

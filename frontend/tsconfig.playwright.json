@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "types": ["@playwright/test", "node"],
+    "skipLibCheck": true,
+    "noEmit": true,
+    "strict": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"],
+      "@liratek/core": ["../packages/core/dist/index.d.ts"]
+    }
+  },
+  "include": [
+    "src/types/electron.d.ts",
+    "tests/e2e-electron/**/*.ts"
+  ]
+}
