@@ -46,11 +46,16 @@ fast, trustworthy e2e suite that runs in CI again.
 
 **Goals**
 - The suite tells the truth: a green run means the behavior works; a failure is real.
-- The suite runs in CI again (non-blocking → blocking once stable).
-- Meaningfully faster wall-clock — but as a *consequence* of the correctness fixes, not the
-  primary lever.
+- **Fastest, most efficient execution.** Minimize total Electron boots and bootstrap cost by
+  **grouping similar/related tests into shared spec files** so they run together off one boot +
+  one setup (each spec file currently = one full Electron launch + one `completeSetup()` — see
+  §5 Phase 5 and §6). Wall-clock is a first-class goal here, not just a side effect.
+- Faster wall-clock also falls out of the correctness fixes (removing the ~169s of hard sleeps).
 
 **Non-goals**
+- **Running e2e in CI (for now).** Per team decision, e2e is *not* required in CI at this time;
+  it must stay fast and runnable locally / on demand. The broken CI recipe is documented but
+  parked (see §5 "Deferred").
 - Rewriting the app to be more testable (out of scope, except the one polling note in §6).
 - 100% e2e coverage. E2E should cover **cross-cutting business journeys**, not component units.
 - Changing the product's behavior in any way.
@@ -170,24 +175,43 @@ Each phase is independently shippable and leaves CI green. Recommended PR bounda
 - **Acceptance:** e2e suite is journeys-only; the 7 currently-untested components have RTL tests;
   `yarn workspace @liratek/frontend test` covers what the deleted specs covered.
 
-### Phase 5 — Fix & re-enable CI
-- Correct the `e2e-tests` job: build `electron-app` (`cd electron-app && npm run build`), invoke
-  with `--config playwright.electron.config.ts`, align the webServer/preview wiring with the
-  fixture's expectations.
-- Set `retries: 2` in CI; keep `trace: "on-first-retry"` (now meaningful) + `video`/`screenshot`
-  on failure. Upload the Playwright report (already wired at `ci.yml:174-180`).
-- Re-enable **non-blocking first**: run on a nightly `schedule` and/or behind an `e2e` PR label,
-  `continue-on-error: true`, until it's green N consecutive runs — *then* make it a required check
-  on `main`.
-- Consider `--shard` across a small matrix if wall-clock is still high after Phases 1–4.
-- **Acceptance:** e2e job runs green on a schedule; promoted to required check once stable.
+### Phase 5 — Consolidate & group remaining e2e specs (fastest execution)
+**Boots = spec files.** Each spec file launches its own Electron app and runs its own
+`completeSetup()` — workers don't share an instance (`playwright.electron.config.ts:19-24`,
+`fixtures.ts`). Boot + bootstrap dominates runtime, so fewer, well-grouped files = fewer boots
+= faster. After Phase 4 shrinks the suite to journeys, organize what remains for throughput:
+
+- **Group tests by shared setup / domain** so related journeys share one boot and one seeded
+  dataset, e.g.:
+  - `pos-checkout.spec.ts` — product search, cart, checkout, partial-payment→debt, time override
+  - `financial-services.spec.ts` — OMT/Whish, recharge, exchange
+  - `debts-clients.spec.ts` — client create, add credit, settle
+- Within a grouped file, keep tests **independent** (each seeds its own data per §3) but sharing
+  the single Electron instance + setup — so grouping cuts boots without re-coupling tests.
+- **Tune file count to worker count.** With shared-per-worker boots, aim for #spec files ≈
+  worker count, balanced so workers finish around the same time (split a too-heavy group, merge
+  trivially-small ones). Don't collapse into one giant serial file — that starves parallelism.
+- **Acceptance:** total Electron boots per run ≈ worker count; no group runs `completeSetup()`
+  more than once; wall-clock measurably down vs the Phase 0 baseline.
 
 ### Phase 6 — Guardrails (prevent regression)
-- ESLint rule (or a CI grep gate) banning `waitForTimeout` and class/`nth()` selectors in
-  `e2e-electron/**`, with an allowlist-by-comment escape hatch.
+- ESLint rule banning `waitForTimeout` and class/`nth()` selectors in `e2e-electron/**`, with an
+  allowlist-by-comment escape hatch. (Runs in the existing, enabled `lint` CI job — no e2e job
+  needed.)
 - Document the convention: all selectors live in page objects, `data-testid` only, every test
-  asserts unconditionally.
-- **Acceptance:** a PR reintroducing a hard wait or class selector fails the lint/grep gate.
+  asserts unconditionally, related tests grouped per Phase 5.
+- **Acceptance:** a PR reintroducing a hard wait or class selector fails the `lint` job.
+
+### Deferred — CI re-enablement (out of scope for now)
+Not doing this now (team decision); captured so it's ready when wanted:
+- The `e2e-tests` job (`ci.yml:131`) is broken regardless of `if:` — to revive it, build
+  `electron-app` (`cd electron-app && npm run build`), invoke with
+  `--config playwright.electron.config.ts`, and align the webServer/preview wiring with the
+  fixture's expectations.
+- When re-enabled: set `retries: 2` (makes `trace: "on-first-retry"` meaningful), keep the
+  report upload (already wired at `ci.yml:174-180`), start non-blocking (nightly/label-gated)
+  before becoming a required check, and consider `--shard`.
+- Until then, the **local command is the contract**: `yarn workspace @liratek/frontend test:e2e`.
 
 ---
 
@@ -199,7 +223,9 @@ Each phase is independently shippable and leaves CI green. Recommended PR bounda
    - **(A) Keep shared-per-worker, make tests independent** — each test seeds its own data and
      asserts unconditionally; cheap, recommended once Phase 3 makes seeding fast.
    - **(B) Fresh DB per describe block** — stronger isolation, more startup cost.
-   - **Recommendation:** (A). Revisit worker count (`PWTEST_WORKERS`) against CI runner cores.
+   - **Recommendation:** (A). Then size the **number of grouped spec files (§5) to the worker
+     count** so every worker boots once and finishes around the same time — this, plus
+     `PWTEST_WORKERS` tuned to local/runner cores, is the main efficiency lever.
 
 2. **App polling vs tests.** `SessionContext` polling forces `closeAllActiveSessions()` to sleep.
    Options: expose a deterministic "session changed" event the test can await, or a test hook to
@@ -209,11 +235,12 @@ Each phase is independently shippable and leaves CI green. Recommended PR bounda
 
 ## 7. Metrics to track (report before/after in each PR)
 
-- Wall-clock for `test:e2e` (local, fixed worker count).
+- **Wall-clock for `test:e2e`** (local, fixed worker count) — the headline number.
+- **Electron boots per run / spec-file count vs worker count** (target → ≈ worker count).
 - Count of `waitForTimeout` in `e2e-electron/**` (target → ~0).
 - Count of `.catch(() => false)`-guarded assertions (target → 0).
-- Number of e2e spec files (target → 1–2) and RTL tests added.
-- CI e2e pass rate over the trial (target → green N consecutive nightly runs).
+- Number of e2e spec files after grouping, and RTL tests added.
+- _(CI pass-rate metric deferred — e2e not in CI for now.)_
 
 ---
 
@@ -224,13 +251,15 @@ Each phase is independently shippable and leaves CI green. Recommended PR bounda
 3. **PR3** — Phase 2: hard-wait removal, `navigateTo` first.
 4. **PR4** — Phase 3: programmatic setup + seeding.
 5. **PR5..N** — Phase 4: one component-spec → RTL migration per PR (small, reviewable).
-6. **PR (final)** — Phase 5: CI fix + non-blocking re-enable; Phase 6 guardrails.
+6. **PR (next)** — Phase 5: consolidate/group remaining e2e specs for fastest execution.
+7. **PR (final)** — Phase 6: guardrails (ESLint rule in the existing lint job).
 
 ---
 
 ## 9. Open questions for the team
 
 - Is the §6.2 app-side polling change in scope, or should tests keep working around it?
-- Acceptable CI wall-clock budget for e2e (drives shard count / smoke-vs-full split)?
-- Re-enable as nightly, label-gated PR check, or both before becoming required?
+- Target local wall-clock budget for the full e2e run (drives how aggressively we group)?
 - Any component in §4 we want to *keep* at e2e level for a specific reason?
+
+> Resolved: **e2e in CI** — out of scope for now (kept local/on-demand; see §5 "Deferred").
