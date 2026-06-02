@@ -178,7 +178,6 @@ export const EditHistoryPopover: React.FC<EditHistoryPopoverProps> = ({
           }
         }}
         className="cursor-pointer select-none"
-        data-testid="edit-history-trigger"
       >
         <span className="inline-flex items-center gap-1">
           {trigger}
@@ -203,7 +202,6 @@ export const EditHistoryPopover: React.FC<EditHistoryPopoverProps> = ({
           "
           role="dialog"
           aria-label="Edit history"
-          data-testid="edit-history-popover"
         >
           {/* Header */}
           <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-700/70 sticky top-0 bg-slate-900 rounded-t-xl z-10">

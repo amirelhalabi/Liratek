@@ -176,7 +176,6 @@ export function ClientAutocompleteInput({
         id={id}
         data-testid="client-autocomplete-field"
         type={type}
-        data-testid="client-autocomplete-field"
         value={value}
         onChange={handleChange}
         onFocus={() =>

@@ -92,9 +92,7 @@ async function fillCustomServiceFields(page: Page, priceUsd: number): Promise<vo
     // onFreeText fires only when hasSearched=true AND results.length===0.
     // hasSearched is set AFTER the IPC search resolves (not just after debounce),
     // so fixed timeouts are unreliable. Waiting for the no-results text is precise.
-    const noResults = page.locator(
-      'text="No results found. Press Enter to use as description."',
-    );
+    const noResults = page.locator('[data-testid="search-bar-no-results"]');
     await noResults.waitFor({ state: "visible", timeout: 5000 }).catch(
       () => page.waitForTimeout(1500),
     );
