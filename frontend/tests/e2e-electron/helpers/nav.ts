@@ -2,9 +2,16 @@ import type { Page } from "@playwright/test";
 import { navigateTo } from "../fixtures.js";
 
 /**
- * Close all active customer sessions via direct API call.
- * More reliable than clicking the floating-window UI button, which requires
- * the SessionFloatingWindow to be expanded and visible.
+ * Close all active customer sessions via direct API call, then wait for the
+ * React SessionContext to reflect the change.
+ *
+ * The session:close IPC closes the record in the DB immediately, but the
+ * React SessionContext polls the backend on an interval — the component's
+ * `activeSession` stays truthy until the next poll fires.  We wait for the
+ * session FAB button to switch from "*active session*" to "Start Customer
+ * Session" as confirmation that the context has been updated, so any Custom
+ * Services / Maintenance submit that checks `if (activeSession)` will
+ * correctly take the direct-DB path rather than the session-cart path.
  */
 export async function closeAllActiveSessions(page: Page): Promise<void> {
   await page
@@ -22,7 +29,18 @@ export async function closeAllActiveSessions(page: Page): Promise<void> {
       }
     })
     .catch(() => {});
-  await page.waitForTimeout(500);
+
+  // Wait up to 6s for the React SessionContext to re-poll and reflect the
+  // close. The FAB title changes from "*active session(s)*" to
+  // "Start Customer Session" once activeSession becomes null.
+  const noSessionFab = page.locator('button[title="Start Customer Session"]');
+  await noSessionFab.waitFor({ state: "visible", timeout: 6000 }).catch(
+    async () => {
+      // FAB not visible on this particular page — fall back to a fixed wait
+      // that covers a typical 2-3s poll interval with margin.
+      await page.waitForTimeout(3000);
+    },
+  );
 }
 
 /**
