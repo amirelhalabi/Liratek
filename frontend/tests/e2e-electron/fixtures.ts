@@ -39,17 +39,27 @@ const __dirname = path.dirname(__filename);
 // state below is per-worker-process, so reading it once at module load is safe.
 const WORKER_INDEX = process.env.TEST_WORKER_INDEX ?? "0";
 
+// Unique run ID prevents a stale Electron process from a previous (crashed/killed)
+// test run from holding requestSingleInstanceLock() on the same user-data-dir and
+// causing the new run's Electron to call app.quit() before opening any window.
+const RUN_ID = process.env.PLAYWRIGHT_TEST_RUN_UID ?? process.pid.toString();
+
 // Test DB location — isolated from the user's real database AND per-worker.
-const TEST_DB_DIR = path.join(os.tmpdir(), `liratek-e2e-test-${WORKER_INDEX}`);
+const TEST_DB_DIR = path.join(
+  os.tmpdir(),
+  `liratek-e2e-test-${WORKER_INDEX}-${RUN_ID}`,
+);
 const TEST_DB_PATH = path.join(TEST_DB_DIR, "phone_shop.db");
 // Isolated user-data-dir so the test instance never collides with a
 // running yarn dev session, installed app, or a sibling parallel worker.
 // Electron's requestSingleInstanceLock() is per user-data-dir, so each
 // worker MUST get its own directory or the second worker's Electron quits
 // immediately ("Process failed to launch").
+// The RUN_ID suffix ensures a stale process from a prior crashed run cannot
+// hold the lock for directories used by the current run.
 const TEST_USER_DATA_DIR = path.join(
   os.tmpdir(),
-  `liratek-e2e-userdata-${WORKER_INDEX}`,
+  `liratek-e2e-userdata-${WORKER_INDEX}-${RUN_ID}`,
 );
 
 // Shared state across all tests in a worker
@@ -128,10 +138,20 @@ export const test = base.extend<
         process.stdout.write(`[electron] ${chunk.toString()}`);
       });
 
-      sharedPage = await sharedApp.waitForEvent("window", {
-        predicate: (p) => !p.url().includes("devtools://"),
-        timeout: 30_000,
-      });
+      try {
+        sharedPage = await sharedApp.waitForEvent("window", {
+          predicate: (p) => !p.url().includes("devtools://"),
+          timeout: 30_000,
+        });
+      } catch (err) {
+        // Electron launched but the BrowserWindow never appeared — most likely
+        // requestSingleInstanceLock() was grabbed by a stale process and the app
+        // called app.quit() before creating a window. Clean up sharedApp so the
+        // next retry attempt starts a completely fresh Electron instance.
+        await sharedApp.close().catch(() => {});
+        sharedApp = null;
+        throw err;
+      }
       await sharedPage.waitForLoadState("load");
       await sharedPage.waitForSelector(
         'button:has-text("Set Up New Shop"), nav a[href], [data-testid="sidebar"]',

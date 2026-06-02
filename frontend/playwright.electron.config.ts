@@ -22,11 +22,14 @@ export default defineConfig({
   // Within a file, tests stay ordered (specs use test.describe.serial +
   // beforeAll seeding), so fullyParallel is left off.
   fullyParallel: false,
-  // Override with `--workers=N` or PWTEST_WORKERS. 3 is a safe default —
-  // each worker spawns a full Electron app, so this is RAM/CPU-bound.
+  // Default 1 worker: Electron's requestSingleInstanceLock() can conflict when
+  // multiple instances start simultaneously on Windows, even with different
+  // --user-data-dir values. Sequential boots (1 worker) are reliable everywhere.
+  // Override with PWTEST_WORKERS=2 on macOS/Linux or CI environments that
+  // support concurrent Electron instances.
   workers: process.env.PWTEST_WORKERS
     ? Number(process.env.PWTEST_WORKERS)
-    : 3,
+    : 1,
   use: {
     trace: "on-first-retry",
   },
