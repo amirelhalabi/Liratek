@@ -88,6 +88,7 @@ async function fillCustomServiceFields(page: Page, priceUsd: number): Promise<vo
   const visible = await searchInput.isVisible({ timeout: 3000 }).catch(() => false);
   if (visible) {
     await searchInput.fill("MPI Test Service");
+    await page.waitForTimeout(700); // wait for SearchBar 300ms debounce → hasSearched=true
     await searchInput.press("Enter");
     await page.waitForTimeout(300);
   } else {
