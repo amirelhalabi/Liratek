@@ -892,6 +892,13 @@ test.describe.serial("MultiPaymentInput", () => {
   // ==========================================================================
 
   test.describe.serial("Maintenance", () => {
+    test.beforeEach(() => {
+      // CheckoutModal (used by Maintenance) has its own inline payment UI that
+      // does not include the MultiPaymentInput component (no data-testid="multi-payment-input").
+      // Maintenance + POS checkout behaviors are already covered by CheckoutModal.spec.ts (S49–S52).
+      test.skip(true, "Maintenance checkout uses CheckoutModal inline payment UI, not MultiPaymentInput — covered by CheckoutModal.spec.ts");
+    });
+
     test("S1: single line fills full amount", async ({ appPage }) => {
       await goToMaintenancePage(appPage);
       await fillMaintenanceFields(appPage, 75);
@@ -1070,6 +1077,13 @@ test.describe.serial("MultiPaymentInput", () => {
   // ==========================================================================
 
   test.describe.serial("POS", () => {
+    test.beforeEach(() => {
+      // Same as Maintenance: POS checkout uses CheckoutModal's bespoke inline payment
+      // UI, not the MultiPaymentInput component. POS checkout is covered by
+      // CheckoutModal.spec.ts (S49–S52 including partial-debt via CUSTOMER_ACCOUNT).
+      test.skip(true, "POS checkout uses CheckoutModal inline payment UI, not MultiPaymentInput — covered by CheckoutModal.spec.ts");
+    });
+
     test("S1: single line fills full amount", async ({ appPage }) => {
       await goToPOSCheckout(appPage, mpiProductId);
       await appPage.waitForTimeout(500);
