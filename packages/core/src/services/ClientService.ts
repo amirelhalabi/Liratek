@@ -346,6 +346,27 @@ export class ClientService {
 
         // Import debt entries
         for (const entry of clientData.entries) {
+          // Defence-in-depth: never persist spreadsheet footer/summary rows
+          // ("TOTAL ON ACCOUNT", "TOTAL PAID", "Balance Remaining"). The
+          // frontend parser already drops these by their label column; this
+          // guards any other caller that mislabels a total as a real entry.
+          const note = (entry.description ?? "").toLowerCase();
+          if (
+            note.includes("total on account") ||
+            note.includes("total paid") ||
+            note.includes("balance remaining")
+          ) {
+            clientLogger.warn(
+              {
+                clientName: name,
+                amount_usd: entry.amount_usd,
+                amount_lbp: entry.amount_lbp,
+              },
+              `Skipped summary/total row for "${name}" during import`,
+            );
+            continue;
+          }
+
           try {
             const isPayment = entry.type === "payment";
             debtRepo.insertRawEntry({

@@ -600,6 +600,20 @@ export default function Debts() {
     return null;
   };
 
+  /**
+   * Footer rows in the ledger template carry summed amounts, not real
+   * transactions: column A reads "TOTAL ON ACCOUNT", column F reads
+   * "TOTAL PAID", and below them sit "Balance Remaining" rows. They must
+   * never be imported as debts/payments. Detect them by the marker text in
+   * the row's date/label cell — real entries only ever hold a date there.
+   */
+  const isSummaryRowLabel = (val: unknown): boolean => {
+    const s = String(val ?? "")
+      .toLowerCase()
+      .trim();
+    return s.includes("total") || s.includes("balance");
+  };
+
   const handleImportFile = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
@@ -716,7 +730,10 @@ export default function Debts() {
                 ? leftLbp
                 : parseFloat(String(leftLbp ?? "0").replace(/,/g, "")) || 0;
 
-            if (leftUsdVal > 0 || leftLbpVal > 0) {
+            if (
+              (leftUsdVal > 0 || leftLbpVal > 0) &&
+              !isSummaryRowLabel(leftDate)
+            ) {
               entries.push({
                 date: parseExcelDate(leftDate),
                 amount_usd: leftUsdVal,
@@ -740,7 +757,10 @@ export default function Debts() {
                 ? rightLbp
                 : parseFloat(String(rightLbp ?? "0").replace(/,/g, "")) || 0;
 
-            if (rightUsdVal > 0 || rightLbpVal > 0) {
+            if (
+              (rightUsdVal > 0 || rightLbpVal > 0) &&
+              !isSummaryRowLabel(rightDate)
+            ) {
               entries.push({
                 date: parseExcelDate(rightDate),
                 amount_usd: rightUsdVal,
