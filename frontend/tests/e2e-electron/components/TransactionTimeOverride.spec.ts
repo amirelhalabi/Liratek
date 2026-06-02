@@ -12,7 +12,7 @@
  */
 
 import { test, expect } from "../fixtures.js";
-import { goToExpensesForm, goToRechargeForm, goToPOSCheckout, goToCustomServicesForm } from "../helpers/nav.js";
+import { goToExpensesForm, goToRechargeForm, goToPOSCheckout, goToCustomServicesForm, closeAllActiveSessions } from "../helpers/nav.js";
 import { seedProduct, seedExpense } from "../fixtures.js";
 import { TransactionTimeOverridePO } from "../page-objects/components/TransactionTimeOverride.po.js";
 
@@ -272,16 +272,10 @@ test.describe.serial("TransactionTimeOverride", () => {
     await appPage.waitForTimeout(500);
 
     // If a session is active (from an earlier test) Custom Services routes
-    // submissions into the session cart instead of the DB.  Close it via the
-    // floating UI button so the service is actually recorded.
-    appPage.on("dialog", (dialog) => dialog.accept().catch(() => {}));
-    const closeSessionBtn = appPage
-      .locator('button[title="Close Session"]')
-      .first();
-    if (await closeSessionBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
-      await closeSessionBtn.click();
-      await appPage.waitForTimeout(1000);
-    }
+    // submissions into the session cart instead of the DB, bypassing the
+    // transaction_time override. Close via direct API — more reliable than
+    // the UI button which requires the SessionFloatingWindow to be expanded.
+    await closeAllActiveSessions(appPage);
 
     // Expand TransactionTimeOverride
     await txoPO.expand();

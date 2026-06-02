@@ -2,6 +2,30 @@ import type { Page } from "@playwright/test";
 import { navigateTo } from "../fixtures.js";
 
 /**
+ * Close all active customer sessions via direct API call.
+ * More reliable than clicking the floating-window UI button, which requires
+ * the SessionFloatingWindow to be expanded and visible.
+ */
+export async function closeAllActiveSessions(page: Page): Promise<void> {
+  await page
+    .evaluate(async () => {
+      try {
+        const result = await window.api.session.getActiveSessions();
+        const sessions: { id: number }[] = Array.isArray(result)
+          ? result
+          : ((result as { sessions?: { id: number }[] }).sessions ?? []);
+        for (const s of sessions) {
+          await window.api.session.close(s.id, "test-cleanup").catch(() => {});
+        }
+      } catch {
+        // ignore — no active sessions or API not ready
+      }
+    })
+    .catch(() => {});
+  await page.waitForTimeout(500);
+}
+
+/**
  * Navigate to the Expenses page (form is always visible on that page).
  */
 export async function goToExpensesForm(page: Page): Promise<void> {
