@@ -133,7 +133,10 @@ export const test = base.extend<
         timeout: 30_000,
       });
       await sharedPage.waitForLoadState("load");
-      await sharedPage.waitForTimeout(2000);
+      await sharedPage.waitForSelector(
+        'button:has-text("Set Up New Shop"), nav a[href], [data-testid="sidebar"]',
+        { timeout: 15_000 },
+      );
 
       // Auto-dismiss native alert/confirm/prompt dialogs globally
       sharedPage.on("dialog", (dialog) => dialog.accept());
@@ -173,13 +176,13 @@ export async function navigateTo(page: Page, route: string) {
   if (await overlayVisible()) {
     // 1. Escape closes popovers and modals that listen for keydown
     await page.keyboard.press("Escape");
-    await page.waitForTimeout(200);
+    await page.locator("div.fixed.inset-0").first().waitFor({ state: "hidden", timeout: 500 }).catch(() => {});
 
     if (await overlayVisible()) {
       // 2. Click backdrop corner — closes modals with onClick={onClose} on the overlay div
       //    (e.g. HistoryModal for Expenses/Custom Services/Maintenance)
       await page.mouse.click(5, 5);
-      await page.waitForTimeout(200);
+      await page.locator("div.fixed.inset-0").first().waitFor({ state: "hidden", timeout: 500 }).catch(() => {});
     }
 
     if (await overlayVisible()) {
@@ -187,14 +190,14 @@ export async function navigateTo(page: Page, route: string) {
       const cancelBtn = page.locator('button[title="Cancel Order"]').first();
       if (await cancelBtn.isVisible({ timeout: 300 }).catch(() => false)) {
         await cancelBtn.click();
-        await page.waitForTimeout(300);
+        await cancelBtn.waitFor({ state: "hidden", timeout: 500 }).catch(() => {});
       }
     }
 
     if (await overlayVisible()) {
       // 4. Final Escape as safety net
       await page.keyboard.press("Escape");
-      await page.waitForTimeout(200);
+      await page.locator("div.fixed.inset-0").first().waitFor({ state: "hidden", timeout: 500 }).catch(() => {});
     }
   }
 
@@ -218,7 +221,27 @@ export async function navigateTo(page: Page, route: string) {
       window.location.hash = `#${p}`;
     }, path);
   }
-  await page.waitForTimeout(3000);
+  // Route-specific anchor signals that the page has rendered
+  const routeAnchors: Record<string, string> = {
+    "/pos": 'input[placeholder*="Search"]',
+    "/products": 'button:has-text("Add Product")',
+    "/services": 'button:has-text("OMT")',
+    "/exchange": "text=Exchange",
+    "/debts": "text=Debt",
+    "/expenses": "#expense-description",
+    "/clients": 'button:has-text("Add Client")',
+    "/recharge": 'button:has-text("Telecom"), button:has-text("Financial")',
+    "/maintenance": "#maintenance-device-name",
+    "/loto": "text=Loto",
+    "/custom-services": '#service-amount, button:has-text("Record Service")',
+    "/customer-sessions": "text=Customer Session",
+  };
+  const anchor = routeAnchors[path];
+  if (anchor) {
+    await page.waitForSelector(anchor, { timeout: 10_000 }).catch(() => {
+      // page loaded but anchor not found — proceed without blocking
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -342,13 +365,12 @@ export const clientContexts: ClientContext = {
       'button[title="Start Customer Session"], button[title*="active session"]',
     );
     await fab.first().click({ timeout: 10_000 });
-    await page.waitForTimeout(500);
+    await page.locator('button:has-text("New Session")').waitFor({ state: "visible", timeout: 3000 }).catch(() => {});
 
     // The click opens a dropdown — click "New Session" inside it
     const newSessionBtn = page.locator('button:has-text("New Session")').first();
     if (await newSessionBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
       await newSessionBtn.click();
-      await page.waitForTimeout(300);
     }
 
     // Wait for the StartSessionModal to appear
@@ -371,7 +393,7 @@ export const clientContexts: ClientContext = {
     const nameInput = page.locator('#customer-name').first();
     const query = clientName.slice(0, 3);
     await nameInput.fill(query);
-    await page.waitForTimeout(500);
+    await page.locator("div.absolute button").waitFor({ state: "visible", timeout: 3000 }).catch(() => {});
 
     // Click the matching client button in the inline dropdown
     if (clientName) {
@@ -386,7 +408,6 @@ export const clientContexts: ClientContext = {
         .catch(() => false);
       if (btnVisible) {
         await clientBtn.click();
-        await page.waitForTimeout(300);
       }
     }
 
@@ -434,8 +455,18 @@ export async function completeSetup(page: Page) {
   );
   let toggleCount = await offToggles.count();
   while (toggleCount > 0) {
+    const prevCount = toggleCount;
     await offToggles.first().click();
-    await page.waitForTimeout(100);
+    await page
+      .waitForFunction(
+        (n: number) =>
+          document.querySelectorAll(
+            'button[class*="rounded-full"][class*="bg-slate-700"]',
+          ).length < n,
+        prevCount,
+        { timeout: 3000 },
+      )
+      .catch(() => {});
     toggleCount = await offToggles.count();
   }
   await page.getByRole("button", { name: /Next/i }).click();
@@ -457,5 +488,7 @@ export async function completeSetup(page: Page) {
   await page.getByRole("button", { name: /Launch App/i }).click();
 
   // Wait for app to leave setup
-  await page.waitForTimeout(5000);
+  await page.waitForSelector('nav a[href], [data-testid="sidebar"]', {
+    timeout: 15_000,
+  });
 }

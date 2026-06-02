@@ -62,4 +62,18 @@ export default defineConfig([
       "react-refresh/only-export-components": "off",
     },
   },
+  // E2E guardrails: ban hard-coded waits and brittle selectors in Playwright specs
+  {
+    files: ["tests/e2e-electron/**/*.ts"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "CallExpression[callee.property.name='waitForTimeout']",
+          message:
+            "Use web-first Playwright assertions instead of waitForTimeout (see OPTIMIZATION_PLAN.md Phase 6).",
+        },
+      ],
+    },
+  },
 ]);

@@ -36,9 +36,10 @@ export async function closeAllActiveSessions(page: Page): Promise<void> {
   const noSessionFab = page.locator('button[title="Start Customer Session"]');
   await noSessionFab.waitFor({ state: "visible", timeout: 6000 }).catch(
     async () => {
-      // FAB not visible on this particular page — fall back to a fixed wait
-      // that covers a typical 2-3s poll interval with margin.
-      await page.waitForTimeout(3000);
+      // FAB not visible on this page — no DOM signal available; minimal
+      // fixed pause while SessionContext re-polls (IPC close already happened).
+      // eslint-disable-next-line no-restricted-syntax
+      await page.waitForTimeout(500);
     },
   );
 }
@@ -93,13 +94,12 @@ export async function goToDebtsRepayModal(
       await page.locator("button", { hasText: clientName }).first().click();
     }
   }
-  await page.waitForTimeout(500);
   // Now click the "Settle Debt" or "Cash Out" action button in the detail panel
   const settleBtn = page
     .locator("button", { hasText: /Settle Debt|Cash Out/i })
     .first();
+  await settleBtn.waitFor({ state: "visible", timeout: 5000 });
   await settleBtn.click();
-  await page.waitForTimeout(500);
 }
 
 /**
@@ -142,19 +142,21 @@ export async function goToPOSCheckout(
     const searchInput = page
       .locator('input[placeholder*="Search"], input[placeholder*="search"]')
       .first();
-    await searchInput.fill(productName);
-    await page.waitForTimeout(500);
 
     // Click the first matching product result
     const productBtn = page
       .locator("button", { hasText: productName })
       .first();
+
+    await searchInput.fill(productName);
+    await productBtn.waitFor({ state: "visible", timeout: 5000 }).catch(() => {});
+
     const visible = await productBtn
       .isVisible({ timeout: 2000 })
       .catch(() => false);
     if (visible) {
       await productBtn.click();
-      await page.waitForTimeout(300);
+      await page.locator("button", { hasText: /Proceed to Checkout/i }).waitFor({ state: "visible", timeout: 5000 }).catch(() => {});
     }
   }
 
@@ -163,7 +165,7 @@ export async function goToPOSCheckout(
     .locator("button", { hasText: /Proceed to Checkout/i })
     .first()
     .click();
-  await page.waitForTimeout(500);
+  await page.waitForSelector('[data-testid="checkout-modal"]', { timeout: 5000 }).catch(() => {});
 }
 
 /**
@@ -191,7 +193,7 @@ export async function goToRechargeForm(
     // force:true bypasses overlay interception that can occur when a session
     // modal was just closed and the header z-layer hasn't fully settled
     await tabBtn.click({ force: true });
-    await page.waitForTimeout(300);
+    await page.waitForLoadState("domcontentloaded");
   }
 }
 

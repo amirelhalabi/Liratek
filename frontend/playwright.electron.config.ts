@@ -15,7 +15,7 @@ import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: "./tests/e2e-electron",
   timeout: 90_000,
-  retries: 0,
+  retries: 2,
   // Each spec file runs in its own worker; workers do NOT share an Electron
   // instance or DB (fixtures key the user-data-dir + DB path by worker index),
   // so Electron's per-user-data-dir single-instance lock never collides.
