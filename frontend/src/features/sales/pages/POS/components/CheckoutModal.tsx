@@ -535,15 +535,16 @@ export default function CheckoutModal({
   const remaining = calculateRemaining(totalPaidInUSD, finalAmount);
   const change = calculateChange(totalPaidInUSD, finalAmount);
 
-  // Close on Escape key
+  // Close on Escape key (prefer onClose, fall back to onCancel)
   useEffect(() => {
-    if (!onClose) return;
+    const closeHandler = onClose ?? onCancel;
+    if (!closeHandler) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") closeHandler();
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [onClose]);
+  }, [onClose, onCancel]);
 
   // Auto-switch to CUSTOMER_ACCOUNT when a client is selected
   useEffect(() => {
@@ -789,6 +790,12 @@ export default function CheckoutModal({
       <div
         className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200"
         role="presentation"
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            const closeHandler = onClose ?? onCancel;
+            closeHandler?.();
+          }
+        }}
         onMouseDown={(e) => {
           if (e.target === e.currentTarget && onClose) {
             onClose();
