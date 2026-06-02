@@ -1,3 +1,7 @@
+# Playwright
+frontend/test-results/
+frontend/playwright-report/
+
 # Logs
 logs
 *.log
