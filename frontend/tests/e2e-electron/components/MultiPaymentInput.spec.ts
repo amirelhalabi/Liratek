@@ -503,9 +503,12 @@ test.describe.serial("MultiPaymentInput", () => {
 
       // A session left active by an earlier test makes Custom Services route
       // submissions into the session cart instead of the DB, so no debt is
-      // recorded. Close all active sessions via direct API (UI button is
-      // unreliable when the SessionFloatingWindow is collapsed).
+      // recorded. Close all active sessions via direct API, then navigate away
+      // and back to force a full component remount — ensures useSessionAutoFill
+      // initialises with activeSession=null so the direct-DB path is taken.
       await closeAllActiveSessions(appPage);
+      await goToExpensesForm(appPage);
+      await goToCustomServicesForm(appPage);
 
       // Clear any teal chip (client selection) left over from S4
       const tealChip = appPage.locator('div.bg-teal-500\\/10').first();

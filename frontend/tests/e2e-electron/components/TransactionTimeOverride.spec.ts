@@ -273,9 +273,12 @@ test.describe.serial("TransactionTimeOverride", () => {
 
     // If a session is active (from an earlier test) Custom Services routes
     // submissions into the session cart instead of the DB, bypassing the
-    // transaction_time override. Close via direct API — more reliable than
-    // the UI button which requires the SessionFloatingWindow to be expanded.
+    // transaction_time override. Close via direct API, then navigate away
+    // and back to force a full component remount — ensures activeSession=null
+    // before we interact with the form so the direct-DB path is taken.
     await closeAllActiveSessions(appPage);
+    await goToExpensesForm(appPage);
+    await goToCustomServicesForm(appPage);
 
     // Expand TransactionTimeOverride
     await txoPO.expand();
