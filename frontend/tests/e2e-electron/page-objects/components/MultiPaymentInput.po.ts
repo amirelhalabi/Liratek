@@ -39,6 +39,24 @@ export class MultiPaymentInputPO {
     await this.splitToggle.click();
   }
 
+  /**
+   * Click the "+ Add Payment Line" button that appears after split mode is
+   * enabled.  Enabling split does NOT automatically add a second line — the
+   * user (or test) must click this button explicitly.
+   */
+  async addLine(): Promise<void> {
+    const addBtn = this.root
+      .locator("button", { hasText: /Add.*Line/i })
+      .first();
+    const visible = await addBtn
+      .isVisible({ timeout: 2000 })
+      .catch(() => false);
+    if (visible) {
+      await addBtn.click();
+      await this.page.waitForTimeout(300);
+    }
+  }
+
   async fillLine(
     lineId: string,
     amount: number,

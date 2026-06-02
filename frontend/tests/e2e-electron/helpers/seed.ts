@@ -13,7 +13,7 @@ export async function seedClient(
       window.api.clients.create({
         full_name: name,
         phone_number: phone,
-        updated_at: new Date().toISOString(),
+        whatsapp_opt_in: false,
       }),
     data,
   );
@@ -41,16 +41,11 @@ export async function seedProduct(
       window.api.inventory.createProduct({
         name,
         cost_price,
-        sell_price,
         retail_price: sell_price,
-        quantity: quantity ?? 0,
-        category: "",
-        barcode: null,
-        imei: null,
-        unit: null,
+        stock_quantity: quantity ?? 0,
+        category: "General",
+        barcode: "",
         min_stock_level: 0,
-        supplier_id: null,
-        updated_at: new Date().toISOString(),
       }),
     data,
   );
@@ -76,7 +71,7 @@ export async function seedCustomService(
         description,
         price_usd: amount_usd,
         cost_usd: 0,
-        status: "submitted",
+        status: "completed",
         ...(client_id != null ? { client_id } : {}),
       }),
     data,

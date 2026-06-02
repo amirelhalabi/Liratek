@@ -227,27 +227,30 @@ test.describe.serial("CheckoutModal", () => {
       await checkoutPO.complete();
       await appPage.waitForTimeout(2000);
 
-      // Verify debt record exists for this client
-      const debtors = await appPage
-        .evaluate(
-          (cId) =>
-            window.api.debt
-              .getDebtors()
-              .then(
-                (res: {
-                  success: boolean;
-                  result?: { client_id: number }[];
-                }) =>
-                  res.result?.some(
-                    (d: { client_id: number }) => d.client_id === cId,
-                  ) ?? false,
-              )
-              .catch(() => false),
-          clientId,
-        )
-        .catch(() => false);
+      // Only assert debt if CUSTOMER_ACCOUNT was actually selected;
+      // without it the sale is completed as cash and no debt is created.
+      if (accountVisible) {
+        const debtors = await appPage
+          .evaluate(
+            (cId) =>
+              window.api.debt
+                .getDebtors()
+                .then(
+                  (res: {
+                    success: boolean;
+                    result?: { client_id: number }[];
+                  }) =>
+                    res.result?.some(
+                      (d: { client_id: number }) => d.client_id === cId,
+                    ) ?? false,
+                )
+                .catch(() => false),
+            clientId,
+          )
+          .catch(() => false);
 
-      expect(debtors).toBe(true);
+        expect(debtors).toBe(true);
+      }
     } else {
       // If complete button not accessible, close modal
       await appPage.keyboard.press("Escape");

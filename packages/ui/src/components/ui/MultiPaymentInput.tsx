@@ -577,7 +577,7 @@ export default function MultiPaymentInput({
   };
 
   return (
-    <div className="bg-slate-900/50 border border-slate-700/50 rounded-2xl overflow-hidden" data-testid="multi-payment-input">
+    <div data-testid="multi-payment-input" className="bg-slate-900/50 border border-slate-700/50 rounded-2xl overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700/40">
         <span className="text-sm font-semibold text-slate-200 tracking-wide">
@@ -585,8 +585,8 @@ export default function MultiPaymentInput({
         </span>
         <button
           type="button"
-          onClick={toggleSplitMode}
           data-testid="split-toggle"
+          onClick={toggleSplitMode}
           className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full transition-all ${
             isSplitMode
               ? "bg-violet-500/20 text-violet-300 border border-violet-500/40"
@@ -654,8 +654,8 @@ export default function MultiPaymentInput({
             {paymentLines.map((line, idx) => (
               <div
                 key={line.id}
-                className="bg-slate-800/60 border border-slate-700/40 rounded-xl p-3 space-y-2"
                 data-testid={`payment-line-${line.id}`}
+                className="bg-slate-800/60 border border-slate-700/40 rounded-xl p-3 space-y-2"
               >
                 <div className="flex items-center gap-2">
                   {/* Line number badge */}
@@ -665,12 +665,12 @@ export default function MultiPaymentInput({
 
                   {/* Payment Method */}
                   <select
+                    data-testid={`payment-method-${line.id}`}
                     value={line.method}
                     onChange={(e) =>
                       updatePaymentLine(line.id, "method", e.target.value)
                     }
                     className="flex-1 min-w-0 bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500 transition-colors"
-                    data-testid={`payment-method-${line.id}`}
                   >
                     {paymentMethods.map((pm) => (
                       <option key={pm.code} value={pm.code}>
@@ -704,6 +704,7 @@ export default function MultiPaymentInput({
                     <input
                       type="text"
                       inputMode="decimal"
+                      data-testid={`payment-amount-${line.id}`}
                       value={fmtNum(line.amount)}
                       onChange={(e) =>
                         updatePaymentLine(
@@ -718,7 +719,6 @@ export default function MultiPaymentInput({
                           : "pl-3"
                       }`}
                       placeholder="0"
-                      data-testid={`payment-amount-${line.id}`}
                     />
                   </div>
 
@@ -783,16 +783,16 @@ export default function MultiPaymentInput({
           </>
         ) : (
           /* Single payment mode */
-          <div className="space-y-2" data-testid={paymentLines[0] ? `payment-line-${paymentLines[0].id}` : undefined}>
+          <div data-testid={`payment-line-${paymentLines[0]?.id}`} className="space-y-2">
             <div className="flex items-center gap-2">
             {/* Payment Method */}
             <select
+              data-testid={`payment-method-${paymentLines[0]?.id}`}
               value={paymentLines[0]?.method || "CASH"}
               onChange={(e) =>
                 updatePaymentLine(paymentLines[0]?.id, "method", e.target.value)
               }
               className="flex-1 min-w-0 bg-slate-800/80 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-violet-500 transition-colors"
-              data-testid={paymentLines[0] ? `payment-method-${paymentLines[0].id}` : undefined}
             >
               {paymentMethods.map((pm) => (
                 <option key={pm.code} value={pm.code}>
@@ -832,6 +832,7 @@ export default function MultiPaymentInput({
               <input
                 type="text"
                 inputMode="decimal"
+                data-testid={`payment-amount-${paymentLines[0]?.id}`}
                 value={fmtNum(paymentLines[0]?.amount)}
                 onChange={(e) =>
                   updatePaymentLine(
@@ -848,7 +849,6 @@ export default function MultiPaymentInput({
                     : "pl-3"
                 }`}
                 placeholder="0"
-                data-testid={paymentLines[0] ? `payment-amount-${paymentLines[0].id}` : undefined}
               />
             </div>
             </div>
@@ -864,7 +864,7 @@ export default function MultiPaymentInput({
       </div>
 
       {/* Summary */}
-      <div className="px-4 py-3 bg-slate-800/30 border-t border-slate-700/40 space-y-1.5" data-testid="payment-summary">
+      <div data-testid="payment-summary" className="px-4 py-3 bg-slate-800/30 border-t border-slate-700/40 space-y-1.5">
         {/* Provider fee breakdown */}
         {providerFee > 0 && (
           <>

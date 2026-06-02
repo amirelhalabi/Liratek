@@ -55,14 +55,14 @@ test.describe.serial("EditHistoryPopover", () => {
       // Create an edit on the expense so the trigger badge appears
       await appPage.evaluate(
         ({ id }) =>
-          window.api.expenses.update(id, { description: "EHP Click Test Expense (edited)" }),
+          window.api.expenses.updateMetadata({ id, description: "EHP Click Test Expense (edited)" }),
         { id: expenseId },
       );
 
       // Create an edit on the service
       await appPage.evaluate(
         ({ id }) =>
-          window.api.customServices.update(id, { description: "EHP Click Test Service (edited)" }),
+          window.api.customServices.updateMetadata({ id, description: "EHP Click Test Service (edited)" }),
         { id: serviceId },
       );
 
@@ -134,7 +134,7 @@ test.describe.serial("EditHistoryPopover", () => {
       // Edit the description so we have a known before/after pair
       await appPage.evaluate(
         ({ id }) =>
-          window.api.customServices.update(id, { description: "EHP After Value" }),
+          window.api.customServices.updateMetadata({ id, description: "EHP After Value" }),
         { id: serviceIdForEdit },
       );
     });
@@ -177,12 +177,12 @@ test.describe.serial("EditHistoryPopover", () => {
       // Edit twice to create 2 audit entries
       await appPage.evaluate(
         ({ id }) =>
-          window.api.expenses.update(id, { description: "EHP Multi Edit v2" }),
+          window.api.expenses.updateMetadata({ id, description: "EHP Multi Edit v2" }),
         { id: multiEditExpenseId },
       );
       await appPage.evaluate(
         ({ id }) =>
-          window.api.expenses.update(id, { description: "EHP Multi Edit v3" }),
+          window.api.expenses.updateMetadata({ id, description: "EHP Multi Edit v3" }),
         { id: multiEditExpenseId },
       );
     });

@@ -2,6 +2,48 @@ import type { Page } from "@playwright/test";
 import { navigateTo } from "../fixtures.js";
 
 /**
+ * Close all active customer sessions via direct API call, then wait for the
+ * React SessionContext to reflect the change.
+ *
+ * The session:close IPC closes the record in the DB immediately, but the
+ * React SessionContext polls the backend on an interval — the component's
+ * `activeSession` stays truthy until the next poll fires.  We wait for the
+ * session FAB button to switch from "*active session*" to "Start Customer
+ * Session" as confirmation that the context has been updated, so any Custom
+ * Services / Maintenance submit that checks `if (activeSession)` will
+ * correctly take the direct-DB path rather than the session-cart path.
+ */
+export async function closeAllActiveSessions(page: Page): Promise<void> {
+  await page
+    .evaluate(async () => {
+      try {
+        const result = await window.api.session.getActiveSessions();
+        const sessions: { id: number }[] = Array.isArray(result)
+          ? result
+          : ((result as { sessions?: { id: number }[] }).sessions ?? []);
+        for (const s of sessions) {
+          await window.api.session.close(s.id, "test-cleanup").catch(() => {});
+        }
+      } catch {
+        // ignore — no active sessions or API not ready
+      }
+    })
+    .catch(() => {});
+
+  // Wait up to 6s for the React SessionContext to re-poll and reflect the
+  // close. The FAB title changes from "*active session(s)*" to
+  // "Start Customer Session" once activeSession becomes null.
+  const noSessionFab = page.locator('button[title="Start Customer Session"]');
+  await noSessionFab.waitFor({ state: "visible", timeout: 6000 }).catch(
+    async () => {
+      // FAB not visible on this particular page — fall back to a fixed wait
+      // that covers a typical 2-3s poll interval with margin.
+      await page.waitForTimeout(3000);
+    },
+  );
+}
+
+/**
  * Navigate to the Expenses page (form is always visible on that page).
  */
 export async function goToExpensesForm(page: Page): Promise<void> {
@@ -146,7 +188,9 @@ export async function goToRechargeForm(
   const tabBtn = page.locator("button", { hasText: label }).first();
   const visible = await tabBtn.isVisible({ timeout: 2000 }).catch(() => false);
   if (visible) {
-    await tabBtn.click();
+    // force:true bypasses overlay interception that can occur when a session
+    // modal was just closed and the header z-layer hasn't fully settled
+    await tabBtn.click({ force: true });
     await page.waitForTimeout(300);
   }
 }

@@ -25,10 +25,10 @@ export function SaveAsClientCheckbox({
     <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-500 hover:text-white transition-colors mt-1.5">
       <input
         type="checkbox"
+        data-testid="save-as-client-checkbox"
         checked={checked}
         onChange={(e) => onChange(e.target.checked)}
         className="rounded border-slate-600 bg-slate-900 text-teal-500 focus:ring-teal-500 focus:ring-offset-0 h-3 w-3"
-        data-testid="save-as-client-checkbox"
       />
       <UserPlus size={12} />
       Save as client

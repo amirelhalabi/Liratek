@@ -359,6 +359,7 @@ export const CustomServiceCreateSchema = z.object({
       }),
     )
     .optional(),
+  transaction_time: z.string().optional(),
 });
 
 // =============================================================================

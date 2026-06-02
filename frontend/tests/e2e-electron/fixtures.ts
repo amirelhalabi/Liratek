@@ -155,13 +155,63 @@ export { expect } from "@playwright/test";
 /**
  * Navigate to a route via sidebar NavLink or hash change.
  * Avoids page.goto() which causes a full reload and loses the session.
+ * Dismisses any open overlay before attempting navigation so modals left
+ * open by a previous test cannot block the sidebar click.
  */
 export async function navigateTo(page: Page, route: string) {
   const path = route.startsWith("/") ? route : `/${route}`;
-  // Click sidebar NavLink (rendered as <a> with href="#/path")
+
+  // Helper: is any fixed overlay currently visible?
+  const overlayVisible = () =>
+    page
+      .locator("div.fixed.inset-0")
+      .first()
+      .isVisible({ timeout: 300 })
+      .catch(() => false);
+
+  // Dismiss any open overlay before trying to navigate
+  if (await overlayVisible()) {
+    // 1. Escape closes popovers and modals that listen for keydown
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(200);
+
+    if (await overlayVisible()) {
+      // 2. Click backdrop corner — closes modals with onClick={onClose} on the overlay div
+      //    (e.g. HistoryModal for Expenses/Custom Services/Maintenance)
+      await page.mouse.click(5, 5);
+      await page.waitForTimeout(200);
+    }
+
+    if (await overlayVisible()) {
+      // 3. POS checkout modal uses onCancel (not onClose) — click its Cancel Order button
+      const cancelBtn = page.locator('button[title="Cancel Order"]').first();
+      if (await cancelBtn.isVisible({ timeout: 300 }).catch(() => false)) {
+        await cancelBtn.click();
+        await page.waitForTimeout(300);
+      }
+    }
+
+    if (await overlayVisible()) {
+      // 4. Final Escape as safety net
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(200);
+    }
+  }
+
+  // Try clicking the sidebar link (short timeout so we don't hang)
   const link = page.locator(`nav a[href="#${path}"]`).first();
-  if (await link.isVisible({ timeout: 2000 }).catch(() => false)) {
-    await link.click();
+  const linkVisible = await link
+    .isVisible({ timeout: 2000 })
+    .catch(() => false);
+  if (linkVisible) {
+    try {
+      await link.click({ timeout: 5000 });
+    } catch {
+      // Link blocked (e.g. modal still present) — fall back to hash change
+      await page.evaluate((p) => {
+        window.location.hash = `#${p}`;
+      }, path);
+    }
   } else {
     // Fallback: direct hash change (no reload)
     await page.evaluate((p) => {
@@ -265,21 +315,40 @@ export const clientContexts: ClientContext = {
    * providing the returned clientId.
    */
   async c4(page: Page, clientId: number): Promise<void> {
-    // Click the floating session FAB (always visible in the top bar)
-    const fab = page.locator(
-      'button[title="New Customer Session"], button[title="Manage Sessions"]',
-    );
-    await fab.first().click();
+    // If an active session already exists for this client, skip creation —
+    // the backend rejects duplicates ("already exists today").
+    const alreadyActive = await page
+      .evaluate(async (cId: number) => {
+        const [clientsResult, sessionsResult] = await Promise.all([
+          window.api.clients.getAll(""),
+          window.api.session.getActiveSessions(),
+        ]);
+        const clients = clientsResult as { id: number; full_name: string }[];
+        const clientName = clients.find((c) => c.id === cId)?.full_name ?? "";
+        if (!clientName) return false;
+        // getActiveSessions returns { success, sessions } or a plain array
+        const sessionList: { customer_name?: string }[] = Array.isArray(sessionsResult)
+          ? sessionsResult
+          : (sessionsResult as { sessions?: { customer_name?: string }[] }).sessions ?? [];
+        return sessionList.some((s) => s.customer_name === clientName);
+      }, clientId)
+      .catch(() => false);
+    if (alreadyActive) return;
 
-    // If the speed-dial expanded (because sessions already exist), click the
-    // inner "New Customer Session" button (UserPlus icon at the top)
-    const newSessionInDial = page.locator(
-      'button[title="New Customer Session"]',
+    // Click the CustomerSessionButton in the TopBar.
+    // Title is "Start Customer Session" when no sessions exist,
+    // or "N active session(s)" when sessions are running.
+    const fab = page.locator(
+      'button[title="Start Customer Session"], button[title*="active session"]',
     );
-    const dialCount = await newSessionInDial.count();
-    if (dialCount > 1) {
-      // Multiple buttons with that title — the second one is the inner dial item
-      await newSessionInDial.nth(1).click();
+    await fab.first().click({ timeout: 10_000 });
+    await page.waitForTimeout(500);
+
+    // The click opens a dropdown — click "New Session" inside it
+    const newSessionBtn = page.locator('button:has-text("New Session")').first();
+    if (await newSessionBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await newSessionBtn.click();
+      await page.waitForTimeout(300);
     }
 
     // Wait for the StartSessionModal to appear
@@ -288,30 +357,38 @@ export const clientContexts: ClientContext = {
       { timeout: 5000 },
     );
 
-    // Type in the autocomplete — the modal renders ClientAutocompleteInput
-    // which sets data-testid="client-autocomplete-field" on its <input>
-    const modalInput = page
-      .getByTestId("client-autocomplete-field")
-      .first();
-
     // Fetch the client's name so we can search by it
     const clientName: string = await page.evaluate((id) => {
-      return (window.api.clients as { getAll: (q: string) => Promise<{ id: number; full_name: string }[]> })
+      return window.api.clients
         .getAll("")
-        .then((clients) => {
+        .then((clients: { id: number; full_name: string }[]) => {
           const found = clients.find((c) => c.id === id);
           return found?.full_name ?? "";
         });
     }, clientId);
 
+    // StartSessionModal uses a plain input (id="customer-name"), not ClientAutocompleteInput
+    const nameInput = page.locator('#customer-name').first();
     const query = clientName.slice(0, 3);
-    await modalInput.fill(query);
+    await nameInput.fill(query);
+    await page.waitForTimeout(500);
 
-    // Wait for dropdown and click the correct client option
-    await page.waitForSelector('[data-testid="client-dropdown"]', {
-      timeout: 5000,
-    });
-    await page.getByTestId(`client-option-${clientId}`).click();
+    // Click the matching client button in the inline dropdown
+    if (clientName) {
+      // Scope to div.absolute to avoid matching the session floating button,
+      // which also displays the client name when a session is active.
+      const clientBtn = page
+        .locator('div.absolute button')
+        .filter({ hasText: clientName })
+        .first();
+      const btnVisible = await clientBtn
+        .isVisible({ timeout: 3000 })
+        .catch(() => false);
+      if (btnVisible) {
+        await clientBtn.click();
+        await page.waitForTimeout(300);
+      }
+    }
 
     // Submit the form
     await page.getByRole("button", { name: /Start Session/i }).click();

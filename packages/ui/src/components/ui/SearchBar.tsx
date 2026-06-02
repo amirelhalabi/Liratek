@@ -222,7 +222,10 @@ export function SearchBar<T>({
               </button>
             ))
           ) : hasSearched && !isSearching ? (
-            <div className="px-4 py-3 text-sm text-slate-400 text-center">
+            <div
+              data-testid="search-bar-no-results"
+              className="px-4 py-3 text-sm text-slate-400 text-center"
+            >
               {noResultsMessage}
             </div>
           ) : null}

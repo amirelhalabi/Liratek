@@ -404,6 +404,7 @@ function DataTableInner<T>({
 
       <table
         ref={tableRef}
+        data-testid="data-table"
         className={className}
         style={resizable ? { tableLayout: "fixed" } : undefined}
       >
@@ -503,13 +504,13 @@ function DataTableInner<T>({
 
         <tbody className={tbodyClassName}>
           {loading ? (
-            <tr>
+            <tr data-testid="data-table-loading">
               <td colSpan={colCount} className="p-4 text-center text-slate-500">
                 Loading…
               </td>
             </tr>
           ) : visibleRows.length === 0 ? (
-            <tr>
+            <tr data-testid="data-table-empty">
               <td colSpan={colCount} className="p-4 text-center text-slate-500">
                 {emptyContent ?? emptyMessage}
               </td>
@@ -560,6 +561,7 @@ function DataTableInner<T>({
           </span>
           <div className="flex items-center gap-2">
             <button
+              data-testid="pagination-prev"
               onClick={() => table.previousPage()}
               disabled={!table.getCanPreviousPage()}
               className="p-1.5 rounded bg-slate-700 border border-slate-600 text-slate-300 hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
@@ -571,6 +573,7 @@ function DataTableInner<T>({
               {table.getPageCount()}
             </span>
             <button
+              data-testid="pagination-next"
               onClick={() => table.nextPage()}
               disabled={!table.getCanNextPage()}
               className="p-1.5 rounded bg-slate-700 border border-slate-600 text-slate-300 hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"

@@ -45,6 +45,7 @@ export default function DateRangeFilter({
       <label className="text-xs text-gray-400">From</label>
       <input
         type="date"
+        data-testid="date-range-from"
         value={from}
         onChange={(e) => onFromChange(e.target.value)}
         className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-white"
@@ -52,6 +53,7 @@ export default function DateRangeFilter({
       <label className="text-xs text-gray-400">To</label>
       <input
         type="date"
+        data-testid="date-range-to"
         value={to}
         onChange={(e) => onToChange(e.target.value)}
         className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-white"

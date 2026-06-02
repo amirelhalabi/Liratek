@@ -190,7 +190,7 @@ export function ClientAutocompleteInput({
         autoFocus={autoFocus}
       />
       {showDropdown && filtered.length > 0 && (
-        <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-slate-800 border border-slate-600 rounded-lg shadow-xl max-h-48 overflow-y-auto" data-testid="client-dropdown">
+        <div data-testid="client-dropdown" className="absolute z-50 top-full left-0 right-0 mt-1 bg-slate-800 border border-slate-600 rounded-lg shadow-xl max-h-48 overflow-y-auto">
           {filtered.map((client, idx) => (
             <button
               key={client.id}
