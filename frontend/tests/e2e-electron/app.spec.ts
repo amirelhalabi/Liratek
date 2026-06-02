@@ -210,44 +210,46 @@ test("Expenses: record an expense", async ({ appPage }) => {
   await expect(descInput).toHaveValue("", { timeout: 5000 });
 });
 
-test("Debts: add credit and settle", async ({ appPage }) => {
-  await navigateTo(appPage, "/debts");
+test("Debts: add sale debt and settle", async ({ appPage }) => {
+  // Create a debt by completing a POS sale on Customer Account
+  await navigateTo(appPage, "/pos");
 
-  // Add Credit
-  await appPage.getByRole("button", { name: /Add Credit/i }).click();
-
-  const clientSearch = appPage.getByPlaceholder(
-    "Search client by name or phone...",
+  const searchInput = appPage.getByPlaceholder(
+    "Search products by name or barcode...",
   );
-  await expect(clientSearch).toBeVisible({ timeout: 5000 });
-  // pressSequentially types char-by-char, reliably triggering React onChange
-  await clientSearch.click();
-  await clientSearch.pressSequentially("E2E Test Client", { delay: 30 });
+  await expect(searchInput).toBeVisible({ timeout: 10_000 });
+  await searchInput.fill("E2E Test Widget");
+  await expect(appPage.locator("text=E2E Test Widget").first()).toBeVisible({
+    timeout: 5000,
+  });
+  await appPage.locator("text=E2E Test Widget").first().click();
+  await expect(appPage.locator("text=Cart is empty")).not.toBeVisible();
 
-  // Click client from dropdown (button inside dropdown with client name)
-  const clientOption = appPage
-    .locator(".absolute button")
-    .filter({ hasText: "E2E Test Client" })
-    .first();
-  await expect(clientOption).toBeVisible({ timeout: 10_000 });
-  await clientOption.click();
-  await expect(appPage.getByPlaceholder("0").first()).toBeVisible({
+  await appPage.getByRole("button", { name: /Proceed to Checkout/i }).click();
+  await expect(appPage.locator('[data-testid="checkout-modal"]')).toBeVisible({
     timeout: 5000,
   });
 
-  // Enter amount
-  await appPage.getByPlaceholder("0").first().fill("25");
-
-  // Submit (triggers native alert — auto-dismissed by global handler)
-  await appPage
-    .getByRole("button", { name: /Add Credit/i })
-    .last()
-    .click();
+  // Assign E2E Test Client — payment auto-switches to Customer Account
+  const clientField = appPage.locator(
+    '[data-testid="checkout-modal"] [data-testid="client-autocomplete-field"]',
+  );
+  await expect(clientField).toBeVisible({ timeout: 5000 });
+  await clientField.fill("E2E Test");
   await expect(
-    appPage.locator("button").filter({ hasText: "E2E Test Client" }).first(),
-  ).toBeVisible({ timeout: 10_000 });
+    appPage.locator('[data-testid="client-dropdown"]'),
+  ).toBeVisible({ timeout: 5000 });
+  await appPage.locator('[data-testid^="client-option-"]').first().click();
 
-  // Select client from left panel
+  // Complete sale on Customer Account
+  await appPage.getByRole("button", { name: /Complete Sale/i }).click();
+  await expect(appPage.locator("text=Cart is empty")).toBeVisible({
+    timeout: 10_000,
+  });
+
+  // Navigate to Debts and settle
+  await navigateTo(appPage, "/debts");
+
   const clientRow = appPage
     .locator("button")
     .filter({ hasText: "E2E Test Client" })
@@ -255,7 +257,6 @@ test("Debts: add credit and settle", async ({ appPage }) => {
   await expect(clientRow).toBeVisible({ timeout: 10_000 });
   await clientRow.click();
 
-  // Settle debt
   const settleBtn = appPage.getByRole("button", { name: /Settle Debt/i });
   await expect(settleBtn).toBeVisible({ timeout: 10_000 });
   await settleBtn.click();
