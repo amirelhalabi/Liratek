@@ -535,6 +535,29 @@ export default function CheckoutModal({
   const remaining = calculateRemaining(totalPaidInUSD, finalAmount);
   const change = calculateChange(totalPaidInUSD, finalAmount);
 
+  // Close on Escape key
+  useEffect(() => {
+    if (!onClose) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  // Auto-switch to CUSTOMER_ACCOUNT when a client is selected
+  useEffect(() => {
+    if (!selectedClient) return;
+    const hasCA = paymentMethodOptions.some((pm) => pm.code === "CUSTOMER_ACCOUNT");
+    if (!hasCA) return;
+    setPaymentLines((prev) => {
+      if (prev.length === 1 && prev[0].method !== "CUSTOMER_ACCOUNT") {
+        return [{ ...prev[0], method: "CUSTOMER_ACCOUNT" }];
+      }
+      return prev;
+    });
+  }, [selectedClient, paymentMethodOptions]);
+
   // LIRA-017: Auto-fill payment amount when modal opens (if no draft and amount is 0)
   useEffect(() => {
     if (draftData) return;
