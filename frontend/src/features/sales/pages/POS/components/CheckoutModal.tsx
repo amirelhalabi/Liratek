@@ -535,6 +535,30 @@ export default function CheckoutModal({
   const remaining = calculateRemaining(totalPaidInUSD, finalAmount);
   const change = calculateChange(totalPaidInUSD, finalAmount);
 
+  // Close on Escape key (prefer onClose, fall back to onCancel)
+  useEffect(() => {
+    const closeHandler = onClose ?? onCancel;
+    if (!closeHandler) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeHandler();
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onClose, onCancel]);
+
+  // Auto-switch to CUSTOMER_ACCOUNT when a client is selected
+  useEffect(() => {
+    if (!selectedClient) return;
+    const hasCA = paymentMethodOptions.some((pm) => pm.code === "CUSTOMER_ACCOUNT");
+    if (!hasCA) return;
+    setPaymentLines((prev) => {
+      if (prev.length === 1 && prev[0].method !== "CUSTOMER_ACCOUNT") {
+        return [{ ...prev[0], method: "CUSTOMER_ACCOUNT" }];
+      }
+      return prev;
+    });
+  }, [selectedClient, paymentMethodOptions]);
+
   // LIRA-017: Auto-fill payment amount when modal opens (if no draft and amount is 0)
   useEffect(() => {
     if (draftData) return;
@@ -766,6 +790,12 @@ export default function CheckoutModal({
       <div
         className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200"
         role="presentation"
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            const closeHandler = onClose ?? onCancel;
+            closeHandler?.();
+          }
+        }}
         onMouseDown={(e) => {
           if (e.target === e.currentTarget && onClose) {
             onClose();
@@ -827,6 +857,7 @@ export default function CheckoutModal({
                           customerSearchRef.current?.focus();
                         });
                       }}
+                      data-testid="client-autocomplete-field"
                       className="bg-transparent border-none text-white w-full px-3 focus:outline-none"
                       placeholder="Search Name or Phone..."
                     />
@@ -849,10 +880,11 @@ export default function CheckoutModal({
                     !selectedClient &&
                     !isAutoFilledFromSession &&
                     filteredClients.length > 0 && (
-                      <div className="absolute top-full left-0 right-0 mt-2 bg-slate-800 border border-slate-700 rounded-xl shadow-xl z-20 max-h-48 overflow-y-auto">
+                      <div data-testid="client-dropdown" className="absolute top-full left-0 right-0 mt-2 bg-slate-800 border border-slate-700 rounded-xl shadow-xl z-20 max-h-48 overflow-y-auto">
                         {filteredClients.map((client) => (
                           <button
                             key={client.id}
+                            data-testid={`client-option-${client.id}`}
                             onClick={() => {
                               setSelectedClient(client);
                               setClientSearch(client.full_name);

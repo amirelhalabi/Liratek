@@ -192,10 +192,21 @@ export interface ElectronAPI {
       barcode: string,
     ) => Promise<import("@liratek/core").Product | null>;
     createProduct: (
-      product: Omit<
-        import("@liratek/core").Product,
-        "id" | "created_at" | "is_active"
-      > & { is_active?: number },
+      product: {
+        barcode?: string | null;
+        name: string;
+        category: string;
+        category_id?: number | null;
+        cost_price: number;
+        retail_price: number;
+        whish_price?: number;
+        stock_quantity?: number;
+        min_stock_level?: number;
+        image_url?: string | null;
+        item_type?: string;
+        supplier?: string | null;
+        is_active?: number;
+      },
     ) => Promise<{
       success: boolean;
       id?: number;
@@ -274,7 +285,12 @@ export interface ElectronAPI {
     getAll: (search?: string) => Promise<Array<import("@liratek/core").Client>>;
     get: (id: number) => Promise<import("@liratek/core").Client | null>;
     create: (
-      client: Omit<import("@liratek/core").Client, "id" | "created_at">,
+      client: {
+        full_name: string;
+        phone_number: string;
+        notes?: string | null;
+        whatsapp_opt_in?: boolean | number;
+      },
     ) => Promise<{ success: boolean; id?: number; error?: string }>;
     update: (
       client: Partial<import("@liratek/core").Client> & { id: number },
