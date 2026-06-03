@@ -9,6 +9,9 @@
     },
     {
       "path": "./tsconfig.jest.json"
+    },
+    {
+      "path": "./tsconfig.playwright.json"
     }
   ]
 }

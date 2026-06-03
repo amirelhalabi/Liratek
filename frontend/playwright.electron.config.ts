@@ -31,7 +31,7 @@ export default defineConfig({
     ? Number(process.env.PWTEST_WORKERS)
     : 1,
   use: {
-    trace: "on-first-retry",
+    trace: "off",
   },
   webServer: {
     command: "npm run dev",

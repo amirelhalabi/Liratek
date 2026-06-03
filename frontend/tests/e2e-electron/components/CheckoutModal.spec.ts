@@ -53,9 +53,8 @@ test.describe.serial("CheckoutModal", () => {
     await expect(appPage.locator('[data-testid="client-dropdown"]')).toBeVisible({ timeout: 5000 });
     await appPage.locator('[data-testid^="client-option-"]').first().click();
 
-    await expect(
-      appPage.locator(`[data-testid="checkout-modal"] :text("${clientName}")`),
-    ).toBeVisible({ timeout: 5000 });
+    // After selection the name populates the input's value (not a text node).
+    await expect(clientSearch).toHaveValue(clientName, { timeout: 5000 });
 
     await appPage.keyboard.press("Escape");
     await expect(appPage.locator('[data-testid="checkout-modal"]')).not.toBeVisible({ timeout: 5000 });
@@ -84,17 +83,12 @@ test.describe.serial("CheckoutModal", () => {
     await expect(appPage.locator('[data-testid="client-dropdown"]')).toBeVisible({ timeout: 5000 });
     await appPage.locator('[data-testid^="client-option-"]').first().click();
 
-    // CUSTOMER_ACCOUNT should auto-switch after client is selected
-    const caElement = appPage
-      .locator(
-        '[data-testid="checkout-modal"] button[class*="active"]:has-text("CUSTOMER"), ' +
-        '[data-testid="checkout-modal"] [aria-pressed="true"]:has-text("CUSTOMER"), ' +
-        '[data-testid="checkout-modal"] :text("CUSTOMER_ACCOUNT"), ' +
-        '[data-testid="checkout-modal"] :text("Customer Account")',
-      )
+    // CUSTOMER_ACCOUNT should auto-switch after client is selected.
+    // The payment method is rendered as a <select>; check its value.
+    const paymentSelect = appPage
+      .locator('[data-testid="checkout-modal"] select')
       .first();
-
-    await expect(caElement).toBeVisible({ timeout: 5000 });
+    await expect(paymentSelect).toHaveValue("CUSTOMER_ACCOUNT", { timeout: 5000 });
 
     await appPage.keyboard.press("Escape");
     await expect(appPage.locator('[data-testid="checkout-modal"]')).not.toBeVisible({ timeout: 5000 });
@@ -124,14 +118,11 @@ test.describe.serial("CheckoutModal", () => {
     await expect(appPage.locator('[data-testid="client-dropdown"]')).toBeVisible({ timeout: 5000 });
     await appPage.locator('[data-testid^="client-option-"]').first().click();
 
-    // Select CUSTOMER_ACCOUNT payment method
-    const accountBtn = appPage
-      .locator(
-        '[data-testid="checkout-modal"] button:has-text("Account"), [data-testid="checkout-modal"] button:has-text("CUSTOMER")',
-      )
+    // CUSTOMER_ACCOUNT is auto-selected when a client is picked; verify it
+    const paymentSelect = appPage
+      .locator('[data-testid="checkout-modal"] select')
       .first();
-    await expect(accountBtn).toBeVisible({ timeout: 5000 });
-    await accountBtn.click();
+    await expect(paymentSelect).toHaveValue("CUSTOMER_ACCOUNT", { timeout: 5000 });
 
     // Complete the sale
     await expect(checkoutPO.completeBtn).toBeVisible({ timeout: 5000 });
@@ -143,10 +134,7 @@ test.describe.serial("CheckoutModal", () => {
         (cId) =>
           window.api.debt
             .getDebtors()
-            .then(
-              (res: { success: boolean; result?: { client_id: number }[] }) =>
-                res.result?.some((d: { client_id: number }) => d.client_id === cId) ?? false,
-            )
+            .then((debtors) => debtors.some((d) => d.id === cId))
             .catch(() => false),
         clientId,
       )

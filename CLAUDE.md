@@ -40,6 +40,10 @@ liratek/
 └── .github/workflows/     # CI/CD pipelines
 ```
 
+## Shell Commands
+
+- Always use the **Bash tool** with `cmd /c "..."` for yarn, npm, and any CLI commands — never the PowerShell tool. PowerShell output is unreliable for yarn on this Windows setup.
+
 ## Non-Negotiable Rules
 
 1. **TypeScript strict mode** — no `any` types
