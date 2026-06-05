@@ -38,6 +38,13 @@ export type PaymentData = Omit<SaleRequest, "items" | "status" | "id"> & {
 interface CheckoutModalProps {
   items?: CartItem[];
   totalAmount: number;
+  /**
+   * Currency the total/discount/net are expressed in. Defaults to "USD".
+   * When "LBP", the modal treats `totalAmount` as an LBP amount and performs
+   * all settlement (remaining/change/debt) in LBP. The USD path is unchanged
+   * when this prop is omitted.
+   */
+  currency?: "USD" | "LBP";
   onClose?: () => void;
   onComplete: (paymentData: PaymentData) => Promise<void>;
   onSaveDraft: (paymentData: PaymentData) => Promise<void>;
@@ -194,6 +201,7 @@ function SimplePaymentFields({
 export default function CheckoutModal({
   items,
   totalAmount,
+  currency,
   onClose,
   onComplete,
   onSaveDraft,
@@ -205,6 +213,15 @@ export default function CheckoutModal({
   isDraft,
 }: CheckoutModalProps) {
   useModalFocusFix(true);
+  // Currency the total is expressed in ("USD" by default). When "LBP" the
+  // settlement math runs in LBP; otherwise behaviour is identical to before.
+  const totalCurrency = currency ?? "USD";
+  const isLbpTotal = totalCurrency === "LBP";
+  /** Format a value in the job currency. */
+  const fmtTotal = (v: number) =>
+    isLbpTotal
+      ? `${Math.round(v).toLocaleString()} LBP`
+      : `$${v.toFixed(2)}`;
   const api = useApi();
   const { activeSession } = useSession();
   const [isLoading, setIsLoading] = useState(false);
@@ -530,10 +547,12 @@ export default function CheckoutModal({
 
   const finalAmount = Math.max(0, totalAmount - (discount ?? 0));
   const effectiveExchangeRate = parseFloat(customExchangeRate) || exchangeRate;
-  const totalPaidInUSD =
-    paidUSD + convertLBPToUSD(paidLBP, effectiveExchangeRate);
-  const remaining = calculateRemaining(totalPaidInUSD, finalAmount);
-  const change = calculateChange(totalPaidInUSD, finalAmount);
+  // Total paid, converted into the job's currency for settlement comparison.
+  const totalPaidInTotalCurrency = isLbpTotal
+    ? paidLBP + paidUSD * effectiveExchangeRate
+    : paidUSD + convertLBPToUSD(paidLBP, effectiveExchangeRate);
+  const remaining = calculateRemaining(totalPaidInTotalCurrency, finalAmount);
+  const change = calculateChange(totalPaidInTotalCurrency, finalAmount);
 
   // Close on Escape key (prefer onClose, fall back to onCancel)
   useEffect(() => {
@@ -570,23 +589,40 @@ export default function CheckoutModal({
     setPaymentLines((prev) => {
       if (prev.length !== 1) return prev;
       const line = prev[0];
+      // Fill the line with finalAmount, converting between the job currency
+      // and the line's currency as needed.
       if (line.currency_code === "LBP") {
         return [
           {
             ...line,
-            amount: roundLBPUp(finalAmount * effectiveExchangeRate),
+            amount: isLbpTotal
+              ? roundLBPUp(finalAmount)
+              : roundLBPUp(finalAmount * effectiveExchangeRate),
           },
         ];
       }
-      return [{ ...line, amount: finalAmount }];
+      return [
+        {
+          ...line,
+          amount: isLbpTotal
+            ? Number((finalAmount / effectiveExchangeRate).toFixed(2))
+            : finalAmount,
+        },
+      ];
     });
-  }, [finalAmount, effectiveExchangeRate, draftData]);
+  }, [finalAmount, effectiveExchangeRate, draftData, isLbpTotal]);
 
-  // LIRA-017: Auto-fill change given (USD integer + LBP remainder)
+  // LIRA-017: Auto-fill change given.
+  // USD job: USD integer + LBP remainder. LBP job: change is given in LBP.
   useEffect(() => {
     if (change <= 0) {
       setChangeGivenUSD(0);
       setChangeGivenLBP(0);
+      return;
+    }
+    if (isLbpTotal) {
+      setChangeGivenUSD(0);
+      setChangeGivenLBP(roundLBPUp(change));
       return;
     }
     const integerUSD = Math.floor(change);
@@ -595,7 +631,7 @@ export default function CheckoutModal({
     const roundedLBP = roundLBPUp(rawLBP);
     setChangeGivenUSD(integerUSD);
     setChangeGivenLBP(roundedLBP);
-  }, [change, effectiveExchangeRate]);
+  }, [change, effectiveExchangeRate, isLbpTotal]);
 
   const getPaymentData = () => {
     // Determine effective client details
@@ -624,6 +660,8 @@ export default function CheckoutModal({
       total_amount: totalAmount,
       discount: discount,
       final_amount: finalAmount,
+      // Currency that total_amount/discount/final_amount are expressed in.
+      currency: totalCurrency,
       payment_usd: paidUSD,
       payment_lbp: paidLBP,
       payments: paymentLines.map(
@@ -645,7 +683,7 @@ export default function CheckoutModal({
   const handleComplete = async () => {
     // Block debt creation when DEBT payment method is disabled
     if (
-      !isPaymentComplete(totalPaidInUSD, finalAmount) &&
+      !isPaymentComplete(totalPaidInTotalCurrency, finalAmount) &&
       !debtPaymentEnabled
     ) {
       appEvents.emit(
@@ -657,7 +695,7 @@ export default function CheckoutModal({
     }
 
     // Validation: Debt requires a complete profile for new debts
-    if (!isPaymentComplete(totalPaidInUSD, finalAmount) && !canCreateDebt) {
+    if (!isPaymentComplete(totalPaidInTotalCurrency, finalAmount) && !canCreateDebt) {
       appEvents.emit(
         "notification:show",
         "To create or leave a debt, please ensure the client has a phone number (existing client) or provide both name and phone (new client).",
@@ -936,7 +974,7 @@ export default function CheckoutModal({
                         Add {secondaryLabel.toLowerCase()} to enable debt.
                       </span>
                     </div>
-                    {!isPaymentComplete(totalPaidInUSD, finalAmount) &&
+                    {!isPaymentComplete(totalPaidInTotalCurrency, finalAmount) &&
                       !canCreateDebt && (
                         <div className="text-sm text-red-400 mt-1 ml-1">
                           Debts require a valid client phone. Provide both name
@@ -1004,18 +1042,18 @@ export default function CheckoutModal({
               <div className="space-y-3">
                 <div className="flex justify-between text-slate-400">
                   <span>Subtotal</span>
-                  <span>${totalAmount.toFixed(2)}</span>
+                  <span>{fmtTotal(totalAmount)}</span>
                 </div>
                 <div className="flex justify-between items-center text-slate-400">
                   <span>Discount</span>
                   <div className="relative w-28">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">
-                      $
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs">
+                      {isLbpTotal ? "LBP" : "$"}
                     </span>
                     <NumInput
                       value={discount}
                       onChange={(v) => setDiscount(v)}
-                      className="w-full bg-slate-800 border border-slate-700 rounded-xl pl-7 pr-3 py-2 text-white font-mono focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500/30 text-right"
+                      className={`w-full bg-slate-800 border border-slate-700 rounded-xl ${isLbpTotal ? "pl-10" : "pl-7"} pr-3 py-2 text-white font-mono focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500/30 text-right`}
                       placeholder="0"
                     />
                   </div>
@@ -1025,11 +1063,13 @@ export default function CheckoutModal({
                     Net Total
                   </span>
                   <span className="text-2xl font-bold text-violet-400">
-                    ${finalAmount.toFixed(2)}
+                    {fmtTotal(finalAmount)}
                   </span>
                 </div>
                 <div className="text-right text-xs text-slate-500">
-                  ≈ {(finalAmount * effectiveExchangeRate).toLocaleString()} LBP
+                  {isLbpTotal
+                    ? `≈ $${(finalAmount / effectiveExchangeRate).toFixed(2)} USD`
+                    : `≈ ${(finalAmount * effectiveExchangeRate).toLocaleString()} LBP`}
                 </div>
               </div>
             </div>
@@ -1240,11 +1280,11 @@ export default function CheckoutModal({
               <div className="flex justify-between text-sm">
                 <span className="text-slate-400">Total Paid (Converted)</span>
                 <span className="text-white font-mono">
-                  ${totalPaidInUSD.toFixed(2)}
+                  {fmtTotal(totalPaidInTotalCurrency)}
                 </span>
               </div>
 
-              {!isPaymentComplete(totalPaidInUSD, finalAmount) ? (
+              {!isPaymentComplete(totalPaidInTotalCurrency, finalAmount) ? (
                 <>
                   <div className="flex justify-between items-center pt-2 border-t border-slate-700">
                     <span
@@ -1258,13 +1298,14 @@ export default function CheckoutModal({
                       <div
                         className={`font-bold text-xl ${debtPaymentEnabled ? "text-red-400" : "text-orange-400"}`}
                       >
-                        ${remaining.toFixed(2)}
+                        {fmtTotal(remaining)}
                       </div>
                       <div
                         className={`text-xs ${debtPaymentEnabled ? "text-red-500/70" : "text-orange-500/70"}`}
                       >
-                        ≈ {(remaining * effectiveExchangeRate).toLocaleString()}{" "}
-                        LBP
+                        {isLbpTotal
+                          ? `≈ $${(remaining / effectiveExchangeRate).toFixed(2)} USD`
+                          : `≈ ${(remaining * effectiveExchangeRate).toLocaleString()} LBP`}
                       </div>
                     </div>
                   </div>
@@ -1283,10 +1324,14 @@ export default function CheckoutModal({
                     </span>
                     <div className="text-right">
                       <div className="text-emerald-400 font-bold text-2xl">
-                        {(change * effectiveExchangeRate).toLocaleString()} LBP
+                        {isLbpTotal
+                          ? `${Math.round(change).toLocaleString()} LBP`
+                          : `${(change * effectiveExchangeRate).toLocaleString()} LBP`}
                       </div>
                       <div className="text-sm text-emerald-500/70">
-                        ${change.toFixed(2)} USD
+                        {isLbpTotal
+                          ? `≈ $${(change / effectiveExchangeRate).toFixed(2)} USD`
+                          : `$${change.toFixed(2)} USD`}
                       </div>
                     </div>
                   </div>
@@ -1349,14 +1394,21 @@ export default function CheckoutModal({
 
                       {/* Smart Change Logic — LIRA-017: removed red "Remaining change" indicator; kept overpay warning */}
                       {(() => {
-                        const totalGiven =
-                          changeGivenUSD +
-                          changeGivenLBP / effectiveExchangeRate;
+                        // Change given, converted into the job currency.
+                        const totalGiven = isLbpTotal
+                          ? changeGivenLBP + changeGivenUSD * effectiveExchangeRate
+                          : changeGivenUSD +
+                            changeGivenLBP / effectiveExchangeRate;
                         const diff = change - totalGiven;
                         const absDiff = Math.abs(diff);
 
                         // Smart Fix Handler - rounds to payable denominations
                         const handleSmartFix = () => {
+                          if (isLbpTotal) {
+                            setChangeGivenUSD(0);
+                            setChangeGivenLBP(roundLBPUp(change));
+                            return;
+                          }
                           const integerUSD = Math.floor(change);
                           const fractionUSD = change - integerUSD;
                           const rawLBP = fractionUSD * effectiveExchangeRate;
@@ -1370,8 +1422,8 @@ export default function CheckoutModal({
                           return (
                             <div className="text-center text-xs text-amber-400 font-medium bg-amber-500/10 py-2 rounded flex items-center justify-center gap-2">
                               <span>
-                                Caution: Returning excess change of $
-                                {absDiff.toFixed(2)}
+                                Caution: Returning excess change of{" "}
+                                {fmtTotal(absDiff)}
                               </span>
                               <button
                                 onClick={handleSmartFix}

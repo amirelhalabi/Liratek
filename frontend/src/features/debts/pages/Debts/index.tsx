@@ -833,10 +833,15 @@ export default function Debts() {
 
     if (!matchesSearch) return false;
 
+    // A debt is "ongoing" if EITHER currency still has an outstanding
+    // balance — a client can owe LBP only (USD 0) and must not be hidden.
+    // LBP has no sub-unit, so > 0.5 is effectively >= 1.
+    const hasOutstanding =
+      Math.abs(d.total_debt_usd) > 0.01 || Math.abs(d.total_debt_lbp) > 0.5;
     if (debtFilter === "ongoing") {
-      return Math.abs(d.total_debt_usd) > 0.01;
+      return hasOutstanding;
     } else if (debtFilter === "closed") {
-      return Math.abs(d.total_debt_usd) <= 0.01;
+      return !hasOutstanding;
     }
     return true; // 'all' filter
   });

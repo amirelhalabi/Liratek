@@ -1,8 +1,10 @@
 /**
- * Per-Drawer Checkpoint Modal
+ * Per-Drawer Checkpoint Modal (single page)
  *
- * Performs a checkpoint for a single drawer at a time.
- * Records physical counts vs system-expected per currency for that drawer.
+ * Performs a checkpoint for a single drawer. Fields pre-fill with the
+ * system-expected balance; the cashier edits only what differs. Each field
+ * shows a live three-tier variance status (green match / amber within tolerance
+ * / red beyond tolerance), and notes live on the same page — no wizard steps.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -13,13 +15,16 @@ import { useCurrencies } from "../../hooks/useCurrencies";
 import { useDrawerAmounts } from "../../hooks/useDrawerAmounts";
 import { useSystemExpected } from "../../hooks/useSystemExpected";
 import { DrawerCard } from "../../components/DrawerCard";
-import { VarianceCard } from "../../components/VarianceCard";
-import { AlertBanner } from "../../components/AlertBanner";
+import {
+  getVarianceStatus,
+  formatCurrencyAmount,
+  type VarianceStatus,
+} from "../../utils/variance";
 import { appEvents, useApi } from "@liratek/ui";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { generateClosingReport } from "../../utils/closingReportGenerator";
-import { X, ChevronLeft, ChevronRight } from "lucide-react";
+import { X } from "lucide-react";
 import { useShopBase } from "@/hooks/useShopBase";
 
 interface CheckpointModalProps {
@@ -27,6 +32,13 @@ interface CheckpointModalProps {
   drawerName: string;
   onClose: () => void;
 }
+
+/** Save-button styling per overall status. */
+const SAVE_STYLES: Record<VarianceStatus, string> = {
+  match: "bg-green-600 hover:bg-green-500",
+  within: "bg-amber-600 hover:bg-amber-500",
+  beyond: "bg-red-600 hover:bg-red-500",
+};
 
 export default function CheckpointModal({
   isOpen,
@@ -69,28 +81,33 @@ export default function CheckpointModal({
   const drawerAmounts = useDrawerAmounts({ currencies });
   const {
     systemExpected,
-    loading: systemLoading,
-    error: systemError,
     fetchSystemExpected,
   } = useSystemExpected();
 
-  const [step, setStep] = useState(1);
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
-  const [stepError, setStepError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [varianceThresholdPct, setVarianceThresholdPct] = useState(5);
   const [drawerCurrencyConfig, setDrawerCurrencyConfig] = useState<
     Record<string, string[]>
   >({});
 
   useEffect(() => {
-    if (isOpen) {
-      api
-        .getAllDrawerCurrencies()
-        .then(setDrawerCurrencyConfig)
-        .catch(() => {});
-      fetchSystemExpected();
-    }
+    if (!isOpen) return;
+    api
+      .getAllDrawerCurrencies()
+      .then(setDrawerCurrencyConfig)
+      .catch(() => {});
+    fetchSystemExpected();
+    api
+      .getAllSettings()
+      .then((settings: { key_name: string; value: string }[]) => {
+        const map = new Map(settings.map((s) => [s.key_name, s.value]));
+        const pct = Number(map.get("closing_variance_threshold_pct") ?? 5);
+        if (isFinite(pct) && pct >= 0) setVarianceThresholdPct(pct);
+      })
+      .catch((e) => logger.error("[Checkpoint] Failed to load threshold:", e));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
   const hasInitializedAmounts = useRef(false);
@@ -109,10 +126,9 @@ export default function CheckpointModal({
 
   useEffect(() => {
     if (!isOpen) {
-      setStep(1);
       hasInitializedAmounts.current = false;
       setNotes("");
-      setStepError(null);
+      setSaveError(null);
       drawerAmounts.reset();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -130,54 +146,51 @@ export default function CheckpointModal({
       ? drawerCurrencies.filter((c) => !["USD", "LBP", "EUR"].includes(c.code))
       : undefined;
 
-  const handleAmountChange = (
-    d: DrawerType,
-    code: string,
-    value: string,
-  ) => {
+  const getExpectedValue = (_d: DrawerType, code: string): number =>
+    systemExpected?.[drawerName]?.[code] ?? 0;
+
+  const handleAmountChange = (d: DrawerType, code: string, value: string) => {
     const numValue = value === "" || value === "-" ? 0 : parseFloat(value);
     drawerAmounts.updateAmount(d, code, isNaN(numValue) ? 0 : numValue);
   };
 
-  const handleNextStep = async () => {
-    setStepError(null);
-
-    if (step === 1) {
-      const drawerHasAmount = drawerCurrencies.some((c) => {
-        const v = drawerAmounts.amounts[drawer]?.[c.code];
-        return v !== undefined && !isNaN(v);
-      });
-      if (!drawerHasAmount) {
-        setStepError("Please enter at least one amount before proceeding.");
-        return;
-      }
-
-      setStep(2);
-      await fetchSystemExpected();
-
-      try {
-        const settings = await api.getAllSettings();
-        const map = new Map(settings.map((s: { key_name: string; value: string }) => [s.key_name, s.value]));
-        const pct = Number(map.get("closing_variance_threshold_pct") ?? 5);
-        if (isFinite(pct) && pct >= 0) setVarianceThresholdPct(pct);
-      } catch (e) {
-        logger.error("[Checkpoint] Failed to load variance threshold:", e);
-      }
-    } else if (step === 2) {
-      setStep(3);
-    }
+  const handleResetToExpected = (d: DrawerType, code: string) => {
+    drawerAmounts.updateAmount(d, code, getExpectedValue(d, code));
   };
 
-  const handlePreviousStep = () => {
-    if (step > 1) {
-      setStep((prev) => prev - 1);
-      setStepError(null);
-    }
-  };
+  // Overall status across the editable fields, for the Save button summary.
+  const statusFields = [...coreCurrencies, ...(otherCurrencies ?? [])];
+  let overallStatus: VarianceStatus = "match";
+  const diffs: { code: string; variance: number }[] = [];
+  for (const c of statusFields) {
+    const { status, variance } = getVarianceStatus(
+      drawerAmounts.amounts[drawer]?.[c.code] ?? 0,
+      getExpectedValue(drawer, c.code),
+      varianceThresholdPct,
+    );
+    if (status !== "match") diffs.push({ code: c.code, variance });
+    if (status === "beyond") overallStatus = "beyond";
+    else if (status === "within" && overallStatus === "match")
+      overallStatus = "within";
+  }
+
+  const saveLabel = (() => {
+    if (saving) return "Saving...";
+    if (overallStatus === "match" || diffs.length === 0)
+      return "Save Checkpoint — Balanced";
+    if (diffs.length > 2) return `Save — Variance in ${diffs.length} currencies`;
+    const summary = diffs
+      .map(
+        (d) =>
+          `${d.code} ${d.variance > 0 ? "+" : ""}${formatCurrencyAmount(d.variance, d.code)}`,
+      )
+      .join(", ");
+    return `Save — ${summary}`;
+  })();
 
   const handleSave = async () => {
     setSaving(true);
-    setStepError(null);
+    setSaveError(null);
 
     const amounts = drawerCurrencies.map((currency) => ({
       drawer_name: drawerName,
@@ -206,7 +219,7 @@ export default function CheckpointModal({
       const result = await window.api.closing.createCheckpoint(checkpointData);
 
       if (!result.success) {
-        setStepError(result.error || "Failed to save checkpoint");
+        setSaveError(result.error || "Failed to save checkpoint");
         return;
       }
 
@@ -260,12 +273,11 @@ export default function CheckpointModal({
         }
       }
 
-      alert(`Checkpoint saved for ${drawerConfig?.label ?? drawerName}!`);
       appEvents.emit("closing:completed", result);
       onClose();
     } catch (error) {
       logger.error("[Checkpoint] Save error:", error);
-      setStepError(
+      setSaveError(
         error instanceof Error ? error.message : "An unexpected error occurred",
       );
     } finally {
@@ -274,11 +286,16 @@ export default function CheckpointModal({
   };
 
   const handleCancel = () => {
-    const hasInput = drawerCurrencies.some((c) => {
-      const v = drawerAmounts.amounts[drawer]?.[c.code];
-      return v !== undefined && v !== 0;
+    const hasInput = statusFields.some((c) => {
+      const { status } = getVarianceStatus(
+        drawerAmounts.amounts[drawer]?.[c.code] ?? 0,
+        getExpectedValue(drawer, c.code),
+        varianceThresholdPct,
+      );
+      return status !== "match";
     });
-    if (step > 1 || hasInput) {
+    const hasNotes = notes.trim().length > 0;
+    if (hasInput || hasNotes) {
       if (confirm("You have unsaved changes. Are you sure you want to close?")) {
         onClose();
       }
@@ -288,8 +305,6 @@ export default function CheckpointModal({
   };
 
   if (!isOpen) return null;
-
-  const totalSteps = 3;
 
   return (
     <div
@@ -311,12 +326,8 @@ export default function CheckpointModal({
               Checkpoint — {drawerConfig?.label ?? drawerName}
             </h2>
             <p className="text-slate-400 text-sm mt-1">
-              Step {step} of {totalSteps}:{" "}
-              {step === 1
-                ? "Physical Count"
-                : step === 2
-                  ? "Variance Review"
-                  : "Notes & Confirmation"}
+              Adjust any amount that differs from the expected balance, then
+              save.
             </p>
           </div>
           <button
@@ -340,14 +351,13 @@ export default function CheckpointModal({
               <p className="text-red-200 text-sm">Error: {currenciesError}</p>
             </div>
           )}
-          {stepError && (
+          {saveError && (
             <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
-              <p className="text-red-200 text-sm">{stepError}</p>
+              <p className="text-red-200 text-sm">{saveError}</p>
             </div>
           )}
 
-          {/* Step 1: Physical Count */}
-          {step === 1 && !currenciesLoading && !currenciesError && (
+          {!currenciesLoading && !currenciesError && (
             <>
               {currencies.length === 0 ? (
                 <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
@@ -356,152 +366,47 @@ export default function CheckpointModal({
                     currency in Settings → Currency Manager.
                   </p>
                 </div>
-              ) : (
-                <>
-                  <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
-                    <p className="text-slate-300 text-sm">
-                      Count the physical cash in{" "}
-                      <span className="text-white font-medium">
-                        {drawerConfig?.label ?? drawerName}
-                      </span>{" "}
-                      and enter the actual amounts below.
-                    </p>
-                  </div>
-
-                  {coreCurrencies.length === 0 ? (
-                    <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
-                      <p className="text-yellow-200 text-sm">
-                        No currencies configured for this drawer.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="relative">
-                      {isPartnerDrawerInactive && (
-                        <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-slate-900/80 backdrop-blur-sm border-2 border-slate-600">
-                          <div className="text-center px-4">
-                            <span className="inline-block px-2 py-0.5 rounded text-xs font-bold bg-slate-700 text-slate-400 uppercase tracking-wide mb-2">
-                              Inactive
-                            </span>
-                            <p className="text-slate-400 text-sm">
-                              {partnerSystem} System debt is tracked via
-                              Partners.
-                            </p>
-                            <p className="text-slate-500 text-xs mt-1">
-                              No active partner — drawer is read-only.
-                            </p>
-                          </div>
-                        </div>
-                      )}
-                      <DrawerCard
-                        drawer={drawer}
-                        currencies={coreCurrencies}
-                        {...(otherCurrencies ? { otherCurrencies } : {})}
-                        getDisplayValue={(d, c) =>
-                          drawerAmounts.getDisplayValue(d, c)
-                        }
-                        onAmountChange={handleAmountChange}
-                        disabled={saving || isPartnerDrawerInactive}
-                        focusRingColor="violet-500"
-                      />
-                    </div>
-                  )}
-                </>
-              )}
-            </>
-          )}
-
-          {/* Step 2: Variance Review */}
-          {step === 2 && (
-            <>
-              <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
-                <p className="text-slate-300 text-sm">
-                  Review variance between your physical count and system
-                  expected balance for{" "}
-                  <span className="text-white font-medium">
-                    {drawerConfig?.label ?? drawerName}
-                  </span>
-                  .
-                </p>
-              </div>
-
-              {systemLoading && (
-                <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
-                  <p className="text-blue-200 text-sm">
-                    Calculating expected balances...
+              ) : coreCurrencies.length === 0 ? (
+                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
+                  <p className="text-yellow-200 text-sm">
+                    No currencies configured for this drawer.
                   </p>
                 </div>
-              )}
-
-              {systemError && (
-                <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
-                  <p className="text-red-200 text-sm">Error: {systemError}</p>
+              ) : (
+                <div className="relative">
+                  {isPartnerDrawerInactive && (
+                    <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-slate-900/80 backdrop-blur-sm border-2 border-slate-600">
+                      <div className="text-center px-4">
+                        <span className="inline-block px-2 py-0.5 rounded text-xs font-bold bg-slate-700 text-slate-400 uppercase tracking-wide mb-2">
+                          Inactive
+                        </span>
+                        <p className="text-slate-400 text-sm">
+                          {partnerSystem} System debt is tracked via Partners.
+                        </p>
+                        <p className="text-slate-500 text-xs mt-1">
+                          No active partner — drawer is read-only.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  <DrawerCard
+                    drawer={drawer}
+                    currencies={coreCurrencies}
+                    {...(otherCurrencies ? { otherCurrencies } : {})}
+                    getDisplayValue={(d, c) =>
+                      drawerAmounts.getDisplayValue(d, c)
+                    }
+                    onAmountChange={handleAmountChange}
+                    getExpectedValue={getExpectedValue}
+                    varianceThresholdPct={varianceThresholdPct}
+                    onResetToExpected={handleResetToExpected}
+                    disabled={saving || isPartnerDrawerInactive}
+                    focusRingColor="violet-500"
+                  />
                 </div>
               )}
 
-              {!systemLoading && !systemError && systemExpected && (() => {
-                const flagged: Array<{
-                  currency: string;
-                  variance: number;
-                  expected: number;
-                  pct: number;
-                }> = [];
-
-                const expectedObj = systemExpected[drawerName];
-                for (const currency of drawerCurrencies) {
-                  const expected = expectedObj?.[currency.code] || 0;
-                  const physical =
-                    drawerAmounts.amounts[drawer]?.[currency.code] ?? 0;
-                  const variance = physical - expected;
-                  const pct =
-                    expected !== 0
-                      ? (Math.abs(variance) / expected) * 100
-                      : 0;
-                  if (
-                    varianceThresholdPct > 0 &&
-                    pct >= varianceThresholdPct &&
-                    Math.abs(variance) > 0.01
-                  ) {
-                    flagged.push({ currency: currency.code, variance, expected, pct });
-                  }
-                }
-
-                return (
-                  <>
-                    {flagged.length > 0 && (
-                      <AlertBanner type="warning">
-                        Variance threshold exceeded ({varianceThresholdPct}%):{" "}
-                        {flagged
-                          .map(
-                            (f) =>
-                              `${f.currency} ${f.variance > 0 ? "+" : ""}${f.variance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${f.pct.toFixed(1)}%)`,
-                          )
-                          .join(" • ")}
-                      </AlertBanner>
-                    )}
-                    <VarianceCard
-                      drawer={drawer}
-                      currencies={drawerCurrencies}
-                      physicalAmounts={drawerAmounts.amounts[drawer] || {}}
-                      getExpectedAmount={(currencyCode: string) => {
-                        const expected = systemExpected[drawerName];
-                        if (!expected) return 0;
-                        return expected[currencyCode] || 0;
-                      }}
-                    />
-                  </>
-                );
-              })()}
-            </>
-          )}
-
-          {/* Step 3: Notes & Confirmation */}
-          {step === 3 && (
-            <>
-              <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
-                <p className="text-slate-300 text-sm">
-                  Add any notes before saving this checkpoint.
-                </p>
-              </div>
+              {/* Notes */}
               <div className="space-y-2">
                 <label
                   htmlFor="checkpoint-notes"
@@ -514,7 +419,7 @@ export default function CheckpointModal({
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   disabled={saving}
-                  rows={4}
+                  rows={3}
                   className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-white focus:ring-2 focus:ring-violet-600 focus:border-transparent transition-all disabled:opacity-50 resize-none"
                   placeholder="Explain any variances or issues..."
                 />
@@ -525,7 +430,7 @@ export default function CheckpointModal({
 
         {/* Footer */}
         <div className="border-t border-slate-700 p-6 bg-slate-800">
-          <div className="flex justify-between items-center">
+          <div className="flex justify-between items-center gap-3">
             <button
               type="button"
               onClick={handleCancel}
@@ -535,44 +440,22 @@ export default function CheckpointModal({
               Cancel
             </button>
 
-            <div className="flex items-center gap-3">
-              {step > 1 && (
-                <button
-                  type="button"
-                  onClick={handlePreviousStep}
-                  disabled={saving}
-                  className="px-4 py-2 rounded-lg text-slate-300 hover:text-white hover:bg-slate-700 transition-colors disabled:opacity-50 flex items-center gap-2"
-                >
-                  <ChevronLeft size={16} />
-                  Previous
-                </button>
-              )}
-
-              {step < totalSteps ? (
-                <button
-                  type="button"
-                  onClick={handleNextStep}
-                  disabled={saving || currenciesLoading || isPartnerDrawerInactive}
-                  className="px-6 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                >
-                  Next Step
-                  <ChevronRight size={16} />
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleSave}
-                  disabled={saving}
-                  className="px-6 py-2 bg-green-600 hover:bg-green-500 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {saving ? "Saving..." : "Save Checkpoint"}
-                </button>
-              )}
-            </div>
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={
+                saving ||
+                currenciesLoading ||
+                isPartnerDrawerInactive ||
+                coreCurrencies.length === 0
+              }
+              className={`px-6 py-2 ${SAVE_STYLES[overallStatus]} text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed max-w-[70%] truncate`}
+            >
+              {saveLabel}
+            </button>
           </div>
         </div>
       </div>
     </div>
   );
 }
-

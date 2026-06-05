@@ -12,6 +12,9 @@ type MaintenanceJob = {
   created_at?: string;
   cost_usd?: number;
   price_usd?: number;
+  cost_lbp?: number;
+  price_lbp?: number;
+  currency?: string;
   client_name?: string | null;
   client_phone?: string | null;
   status: string;
@@ -19,6 +22,7 @@ type MaintenanceJob = {
   paid_lbp?: number;
   discount_usd?: number;
   final_amount_usd?: number;
+  final_amount_lbp?: number;
   is_refunded?: number;
   refunded_at?: string | null;
   edited_by?: string | null;
@@ -202,18 +206,27 @@ export function HistoryModal({
                       </span>
                     </td>
                     <td className="px-6 py-4 text-sm font-bold text-white text-right">
-                      $
-                      {job.price_usd?.toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
+                      {job.currency === "LBP"
+                        ? `${(job.price_lbp ?? 0).toLocaleString()} LBP`
+                        : `$${(job.price_usd ?? 0).toLocaleString(undefined, {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}`}
                     </td>
                     <td className="px-6 py-4 text-sm text-emerald-400 text-right">
-                      $
-                      {job.paid_usd?.toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
+                      {(job.paid_lbp ?? 0) > 0 && (
+                        <div>{(job.paid_lbp ?? 0).toLocaleString()} LBP</div>
+                      )}
+                      {((job.paid_usd ?? 0) > 0 ||
+                        (job.paid_lbp ?? 0) === 0) && (
+                        <div>
+                          $
+                          {(job.paid_usd ?? 0).toLocaleString(undefined, {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}
+                        </div>
+                      )}
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-2">

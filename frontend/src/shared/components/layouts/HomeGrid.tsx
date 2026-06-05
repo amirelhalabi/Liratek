@@ -13,7 +13,6 @@ import {
   Send,
   Smartphone,
   SquareActivity,
-  Play,
   TrendingUp,
   Bitcoin,
   Zap,
@@ -26,7 +25,6 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import clsx from "clsx";
-import { appEvents } from "@liratek/ui";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { useModules } from "@/contexts/ModuleContext";
 import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
@@ -320,15 +318,6 @@ export default function HomeGrid() {
             Admin Actions
           </p>
           <div className="flex gap-3">
-            <button
-              onClick={() => appEvents.emit("checkpoint:open")}
-              className="flex items-center gap-2 px-2 py-2 bg-slate-800 border border-slate-700/50 rounded-xl transition-all hover:border-violet-500/60 hover:shadow-lg text-slate-300 hover:text-white group"
-            >
-              <div className="p-1.5 rounded-lg bg-violet-400/10">
-                <Play size={18} className="text-violet-400" />
-              </div>
-              <span className="text-sm font-medium">Checkpoint</span>
-            </button>
             <button
               onClick={() => navigate("/checkpoint-timeline")}
               className="flex items-center gap-2 px-2 py-2 bg-slate-800 border border-slate-700/50 rounded-xl transition-all hover:border-blue-500/60 hover:shadow-lg text-slate-300 hover:text-white group"

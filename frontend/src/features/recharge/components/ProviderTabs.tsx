@@ -30,7 +30,7 @@ export function ProviderTabs({
           <button
             key={provider.key}
             onClick={() => onSelectProvider(provider.key)}
-            className={`px-4 py-2 rounded-lg font-medium text-sm transition-all flex items-center gap-2 ${
+            className={`h-11 px-4 rounded-lg font-medium text-sm transition-all flex items-center gap-2 ${
               isActive
                 ? `${provider.activeBg} ${provider.activeText} shadow-lg`
                 : "bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white border border-slate-700"

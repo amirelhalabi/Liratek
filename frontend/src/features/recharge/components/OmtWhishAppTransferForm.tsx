@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { User, Phone } from "lucide-react";
-import { useApi, DoubleTab } from "@liratek/ui";
+import { useApi, ServiceTypeTabs } from "@liratek/ui";
 import { PaymentSheet } from "./PaymentSheet";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import type { FinancialTransaction } from "../types";
@@ -299,18 +299,17 @@ export function OmtWhishAppTransferForm({
   return (
     <div className="flex flex-col gap-5 flex-1 min-h-0">
       {/* Header with SEND/RECEIVE Tabs */}
-      <DoubleTab
-        leftOption={{ id: "SEND", label: "Send", iconKey: "Send" }}
-        rightOption={{
-          id: "RECEIVE",
-          label: "Receive",
-          iconKey: "Package",
-        }}
+      <ServiceTypeTabs
+        options={[
+          { id: "SEND", label: "Send", iconKey: "Send" },
+          { id: "RECEIVE", label: "Receive", iconKey: "Package" },
+        ]}
         value={serviceType}
         onChange={(val) => setServiceType(val as ServiceType)}
         accentColor={activeProvider === "OMT_APP" ? "amber" : "red"}
         customColor={activeProvider === "OMT_APP" ? "#ffde00" : "#ff0a46"}
         customTextColor={activeProvider === "OMT_APP" ? "black" : "white"}
+        size="sm"
       />
       <div className="flex items-center justify-between -mt-3 mb-1">
         <p className="text-xs text-slate-400">

@@ -1038,11 +1038,15 @@ export interface ElectronAPI {
       issue_description: string;
       cost_usd: number;
       price_usd: number;
+      cost_lbp?: number;
+      price_lbp?: number;
+      currency?: "USD" | "LBP";
       client_id?: number | null;
       client_name?: string;
       client_phone?: string;
       discount_usd?: number;
       final_amount_usd?: number;
+      final_amount_lbp?: number;
       paid_usd?: number;
       paid_lbp?: number;
       exchange_rate?: number;
@@ -1056,6 +1060,10 @@ export interface ElectronAPI {
         issue_description: string;
         cost_usd: number;
         price_usd: number;
+        cost_lbp: number;
+        price_lbp: number;
+        currency: string;
+        final_amount_lbp?: number;
         client_name?: string;
         client_phone?: string;
         status: string;

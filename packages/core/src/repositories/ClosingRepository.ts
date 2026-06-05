@@ -3,6 +3,17 @@ import { closingLogger } from "../utils/logger.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 
+/**
+ * Payments-journal method used for the balance adjustment posted when a
+ * checkpoint's physical count differs from the live drawer balance. It is a
+ * real (non-CUSTOMER_ACCOUNT) method so it is included in drawer-balance
+ * recalculations.
+ */
+const CHECKPOINT_ADJUSTMENT_METHOD = "CHECKPOINT_ADJUSTMENT";
+
+/** Sub-cent threshold below which a reconciliation delta is treated as zero. */
+const RECONCILE_EPSILON = 0.0001;
+
 export interface DailyClosingEntity {
   id: number;
   closing_date: string;
@@ -229,7 +240,28 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
           physical_amount = excluded.physical_amount
       `);
 
+      // Reconciliation: a checkpoint's physical count becomes the new truth for
+      // the drawer. For each currency we post the delta (physical − live
+      // balance) to the payments journal and bump drawer_balances, so the
+      // dashboard reflects the counted amount. Currencies whose count already
+      // matches the balance produce a zero delta and are skipped.
+      const getBalance = this.db.prepare(
+        `SELECT balance FROM drawer_balances WHERE drawer_name = ? AND currency_code = ?`,
+      );
+      const upsertBalance = this.db.prepare(`
+        INSERT INTO drawer_balances (drawer_name, currency_code, balance)
+        VALUES (?, ?, ?)
+        ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+          balance = drawer_balances.balance + excluded.balance,
+          updated_at = CURRENT_TIMESTAMP
+      `);
+      const insertPayment = this.db.prepare(`
+        INSERT INTO payments (transaction_id, method, drawer_name, currency_code, amount, note, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+
       const tx = this.db.transaction((rows: CheckpointAmount[]) => {
+        // 1. Persist the audit snapshot (expected vs physical) for variance reports.
         for (const r of rows) {
           upsertAmounts.run(
             result.lastInsertRowid,
@@ -239,20 +271,57 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
             r.physical_amount,
           );
         }
+
+        // 2. Compute per-currency reconciliation deltas against live balances.
+        const adjustments = rows
+          .map((r) => {
+            const existing = getBalance.get(r.drawer_name, r.currency_code) as
+              | { balance: number }
+              | undefined;
+            const current = existing?.balance ?? 0;
+            return {
+              drawer_name: r.drawer_name,
+              currency_code: r.currency_code,
+              delta: r.physical_amount - current,
+            };
+          })
+          .filter((a) => Math.abs(a.delta) > RECONCILE_EPSILON);
+
+        const netUsd = adjustments
+          .filter((a) => a.currency_code === "USD")
+          .reduce((sum, a) => sum + a.delta, 0);
+        const netLbp = adjustments
+          .filter((a) => a.currency_code === "LBP")
+          .reduce((sum, a) => sum + a.delta, 0);
+
+        // 3. Anchor the audit snapshot and reconciliation to one CHECKPOINT
+        //    transaction. Its headline amounts are the net journal movement.
+        const txnId = getTransactionRepository().createTransaction({
+          type: TRANSACTION_TYPES.CHECKPOINT,
+          source_table: "daily_closings",
+          source_id: Number(result.lastInsertRowid),
+          user_id: data.user_id,
+          amount_usd: netUsd,
+          amount_lbp: netLbp,
+          summary: `Checkpoint: ${data.drawer_name} for ${closingDate}`,
+          metadata_json: { amounts: data.amounts, adjustments },
+        });
+
+        // 4. Post the reconciliation entries to the journal + live balances.
+        for (const a of adjustments) {
+          insertPayment.run(
+            txnId,
+            CHECKPOINT_ADJUSTMENT_METHOD,
+            a.drawer_name,
+            a.currency_code,
+            a.delta,
+            `Checkpoint reconciliation for ${closingDate}`,
+            data.user_id,
+          );
+          upsertBalance.run(a.drawer_name, a.currency_code, a.delta);
+        }
       });
       tx(data.amounts);
-
-      // Create unified transaction row
-      getTransactionRepository().createTransaction({
-        type: TRANSACTION_TYPES.CHECKPOINT,
-        source_table: "daily_closings",
-        source_id: Number(result.lastInsertRowid),
-        user_id: data.user_id,
-        amount_usd: 0,
-        amount_lbp: 0,
-        summary: `Checkpoint: ${data.drawer_name} for ${closingDate}`,
-        metadata_json: { amounts: data.amounts },
-      });
 
       closingLogger.info(
         { closingDate, id: result.lastInsertRowid },

@@ -15,7 +15,6 @@ import {
   Send,
   Smartphone,
   SquareActivity,
-  Play,
   TrendingUp,
   Bitcoin,
   Clock,
@@ -32,7 +31,6 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import clsx from "clsx";
-import { appEvents } from "@liratek/ui";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { useModules } from "@/contexts/ModuleContext";
 import { useShopName } from "@/hooks/useShopName";
@@ -160,25 +158,6 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
             )}
           </NavLink>
         ))}
-        {/* Checkpoint Button (unified Opening/Closing) - admin only, only when session management is enabled */}
-        {isAdmin && flags.sessionManagement && (
-          <button
-            onClick={() => appEvents.emit("checkpoint:open")}
-            className={clsx(
-              "flex items-center gap-3 py-3 rounded-xl transition-all font-medium whitespace-nowrap w-full",
-              "text-slate-400 hover:bg-slate-800 hover:text-white",
-              isCollapsed ? "justify-center px-1" : "px-3",
-            )}
-            title={isCollapsed ? "Checkpoint" : undefined}
-          >
-            <Play size={20} className="min-w-[20px]" />
-            {!isCollapsed && (
-              <span className="opacity-100 transition-opacity duration-200">
-                Checkpoint
-              </span>
-            )}
-          </button>
-        )}
         {isAdmin && flags.sessionManagement && (
           <NavLink
             to="/checkpoint-timeline"

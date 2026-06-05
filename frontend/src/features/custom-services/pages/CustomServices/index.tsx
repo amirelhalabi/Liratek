@@ -99,6 +99,8 @@ export default function CustomServices() {
   const [costLbp, setCostLbp] = useState("");
   const [priceUsd, setPriceUsd] = useState("");
   const [priceLbp, setPriceLbp] = useState("");
+  // Active currency for cost/price entry (one currency at a time)
+  const [currency, setCurrency] = useState<"USD" | "LBP">("USD");
   const [note, setNote] = useState("");
   const [category, setCategory] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -461,14 +463,42 @@ export default function CustomServices() {
                           onClick={() => {
                             setDescription(preset.name);
                             setCategory(preset.category);
-                            if (preset.cost_usd > 0)
-                              setCostUsd(String(preset.cost_usd));
-                            if (preset.cost_lbp > 0)
-                              setCostLbp(String(preset.cost_lbp));
-                            if (preset.price_usd > 0)
-                              setPriceUsd(String(preset.price_usd));
-                            if (preset.price_lbp > 0)
-                              setPriceLbp(String(preset.price_lbp));
+                            // Single-currency model: pick the preset's currency
+                            // (prefer USD when present) and clear the other.
+                            const usePreset =
+                              preset.price_usd > 0 || preset.cost_usd > 0
+                                ? "USD"
+                                : preset.price_lbp > 0 || preset.cost_lbp > 0
+                                  ? "LBP"
+                                  : currency;
+                            setCurrency(usePreset);
+                            if (usePreset === "USD") {
+                              setCostUsd(
+                                preset.cost_usd > 0
+                                  ? String(preset.cost_usd)
+                                  : "",
+                              );
+                              setPriceUsd(
+                                preset.price_usd > 0
+                                  ? String(preset.price_usd)
+                                  : "",
+                              );
+                              setCostLbp("");
+                              setPriceLbp("");
+                            } else {
+                              setCostLbp(
+                                preset.cost_lbp > 0
+                                  ? String(preset.cost_lbp)
+                                  : "",
+                              );
+                              setPriceLbp(
+                                preset.price_lbp > 0
+                                  ? String(preset.price_lbp)
+                                  : "",
+                              );
+                              setCostUsd("");
+                              setPriceUsd("");
+                            }
                           }}
                           className="px-3 py-2 rounded-lg text-xs font-medium bg-slate-900/60 border border-slate-700 text-slate-300 hover:border-purple-500/40 hover:text-white transition-all"
                         >
@@ -535,6 +565,10 @@ export default function CustomServices() {
                         name: product.name,
                       });
                       setDescription(product.name);
+                      // Products are priced in USD — switch to USD entry.
+                      setCurrency("USD");
+                      setCostLbp("");
+                      setPriceLbp("");
                       setCostUsd(
                         product.cost_price > 0
                           ? String(product.cost_price)
@@ -586,99 +620,99 @@ export default function CustomServices() {
               )}
             </div>
 
-            {/* Cost & Price — Dual Currency */}
+            {/* Cost & Price — Single Currency (USD/LBP toggle) */}
             <div className="p-4 rounded-xl bg-teal-400/5 border border-teal-400/20 space-y-3">
-              <span className="block text-xs font-medium text-teal-400 uppercase tracking-wider">
-                Cost / Price
-              </span>
-
-              {/* USD Row */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label
-                    htmlFor="svc-cost-usd"
-                    className="block text-[10px] text-slate-500 mb-1 uppercase"
-                  >
-                    Cost USD
-                  </label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">
-                      $
-                    </span>
-                    <input
-                      id="svc-cost-usd"
-                      type="number"
-                      value={costUsd}
-                      onChange={(e) => setCostUsd(e.target.value)}
-                      className="w-full bg-slate-900/80 border border-slate-700 rounded-lg pl-8 pr-3 py-2.5 text-white font-mono text-sm focus:ring-2 focus:ring-teal-500 outline-none transition-all"
-                      placeholder="0.00"
-                      min="0"
-                      step="0.01"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label
-                    htmlFor="svc-price-usd"
-                    className="block text-[10px] text-slate-500 mb-1 uppercase"
-                  >
-                    Price USD
-                  </label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">
-                      $
-                    </span>
-                    <input
-                      id="svc-price-usd"
-                      type="number"
-                      value={priceUsd}
-                      onChange={(e) => setPriceUsd(e.target.value)}
-                      className="w-full bg-slate-900/80 border border-slate-700 rounded-lg pl-8 pr-3 py-2.5 text-white font-mono text-sm focus:ring-2 focus:ring-teal-500 outline-none transition-all"
-                      placeholder="0.00"
-                      min="0"
-                      step="0.01"
-                    />
-                  </div>
+              <div className="flex items-center justify-between">
+                <span className="block text-xs font-medium text-teal-400 uppercase tracking-wider">
+                  Cost / Price
+                </span>
+                {/* Currency toggle */}
+                <div className="flex items-center gap-1 bg-slate-900 rounded-lg border border-slate-600 p-0.5">
+                  {(["USD", "LBP"] as const).map((cur) => (
+                    <button
+                      key={cur}
+                      type="button"
+                      onClick={() => {
+                        setCurrency(cur);
+                        // One currency at a time — clear the other currency.
+                        if (cur === "USD") {
+                          setCostLbp("");
+                          setPriceLbp("");
+                        } else {
+                          setCostUsd("");
+                          setPriceUsd("");
+                        }
+                      }}
+                      className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all ${
+                        currency === cur
+                          ? "bg-teal-600 text-white"
+                          : "text-slate-400 hover:text-slate-200"
+                      }`}
+                    >
+                      {cur}
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              {/* LBP Row */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label
-                    htmlFor="svc-cost-lbp"
+                    htmlFor="svc-cost"
                     className="block text-[10px] text-slate-500 mb-1 uppercase"
                   >
-                    Cost LBP
+                    Cost {currency}
                   </label>
-                  <input
-                    id="svc-cost-lbp"
-                    type="number"
-                    value={costLbp}
-                    onChange={(e) => setCostLbp(e.target.value)}
-                    className="w-full bg-slate-900/80 border border-slate-700 rounded-lg px-3 py-2.5 text-white font-mono text-sm focus:ring-2 focus:ring-teal-500 outline-none transition-all"
-                    placeholder="0"
-                    min="0"
-                    step="1000"
-                  />
+                  <div className="relative">
+                    {currency === "USD" && (
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">
+                        $
+                      </span>
+                    )}
+                    <input
+                      id="svc-cost"
+                      type="number"
+                      value={currency === "USD" ? costUsd : costLbp}
+                      onChange={(e) =>
+                        currency === "USD"
+                          ? setCostUsd(e.target.value)
+                          : setCostLbp(e.target.value)
+                      }
+                      className={`w-full bg-slate-900/80 border border-slate-700 rounded-lg ${currency === "USD" ? "pl-8" : "pl-3"} pr-3 py-2.5 text-white font-mono text-sm focus:ring-2 focus:ring-teal-500 outline-none transition-all`}
+                      placeholder={currency === "USD" ? "0.00" : "0"}
+                      min="0"
+                      step={currency === "USD" ? "0.01" : "1000"}
+                    />
+                  </div>
                 </div>
                 <div>
                   <label
-                    htmlFor="svc-price-lbp"
+                    htmlFor="svc-price"
                     className="block text-[10px] text-slate-500 mb-1 uppercase"
                   >
-                    Price LBP
+                    Price {currency}
                   </label>
-                  <input
-                    id="svc-price-lbp"
-                    type="number"
-                    value={priceLbp}
-                    onChange={(e) => setPriceLbp(e.target.value)}
-                    className="w-full bg-slate-900/80 border border-slate-700 rounded-lg px-3 py-2.5 text-white font-mono text-sm focus:ring-2 focus:ring-teal-500 outline-none transition-all"
-                    placeholder="0"
-                    min="0"
-                    step="1000"
-                  />
+                  <div className="relative">
+                    {currency === "USD" && (
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">
+                        $
+                      </span>
+                    )}
+                    <input
+                      id="svc-price"
+                      type="number"
+                      value={currency === "USD" ? priceUsd : priceLbp}
+                      onChange={(e) =>
+                        currency === "USD"
+                          ? setPriceUsd(e.target.value)
+                          : setPriceLbp(e.target.value)
+                      }
+                      className={`w-full bg-slate-900/80 border border-slate-700 rounded-lg ${currency === "USD" ? "pl-8" : "pl-3"} pr-3 py-2.5 text-white font-mono text-sm focus:ring-2 focus:ring-teal-500 outline-none transition-all`}
+                      placeholder={currency === "USD" ? "0.00" : "0"}
+                      min="0"
+                      step={currency === "USD" ? "0.01" : "1000"}
+                    />
+                  </div>
                 </div>
               </div>
 

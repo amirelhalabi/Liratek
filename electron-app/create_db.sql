@@ -357,8 +357,12 @@ CREATE TABLE IF NOT EXISTS maintenance (
     issue_description TEXT,
     cost_usd DECIMAL(10, 2) DEFAULT 0,
     price_usd DECIMAL(10, 2) DEFAULT 0,
+    cost_lbp DECIMAL(15, 2) DEFAULT 0,
+    price_lbp DECIMAL(15, 2) DEFAULT 0,
     discount_usd DECIMAL(10, 2) DEFAULT 0,
     final_amount_usd DECIMAL(10, 2) DEFAULT 0,
+    final_amount_lbp DECIMAL(15, 2) DEFAULT 0,
+    currency TEXT NOT NULL DEFAULT 'USD',
     paid_usd DECIMAL(10, 2) DEFAULT 0,
     paid_lbp DECIMAL(15, 2) DEFAULT 0,
     exchange_rate DECIMAL(15, 2),
@@ -1210,4 +1214,5 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (88, 'fix_katsh_supplier_provider_name'),
     (89, 'add_vouchers_module'),
     (90, 'heal_unredeemed_gift_card_credit'),
-    (91, 'per_drawer_checkpoint_index');
+    (91, 'per_drawer_checkpoint_index'),
+    (92, 'maintenance_lbp_pricing');

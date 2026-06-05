@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Phone, User, Search, X, CheckCircle, CreditCard } from "lucide-react";
+import { Phone, User, Search, X, CreditCard } from "lucide-react";
 import {
   ServiceTypeTabs,
   type ServiceTypeOption,
@@ -15,6 +15,7 @@ import { TELECOM_SERVICE_TYPES, ALFA_GIFT_TIERS } from "../types";
 import { HistoryModal } from "./HistoryModal";
 import { getExchangeRates } from "@/utils/exchangeRates";
 import { PaymentSheet } from "./PaymentSheet";
+import { CardGridPayView, type CardGridPayItem } from "./CardGridPayView";
 import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 
@@ -36,6 +37,8 @@ interface TelecomFormProps {
   marginAlertThreshold?: number;
   telecomAmount: string;
   setTelecomAmount: (val: string) => void;
+  /** Sets the amount AND re-derives the suggested client price (like Quick Amount). */
+  onTelecomAmountChange: (val: string) => void;
   telecomPrice: string;
   setTelecomPrice: (val: string) => void;
   phoneNumber: string;
@@ -71,6 +74,8 @@ interface TelecomFormProps {
   setClientName: (val: string) => void;
   voucherItems?: VoucherItem[];
   alfaCreditCostRate?: number;
+  /** Admin sees cost + profit margin on gift/voucher cards. */
+  isAdmin?: boolean;
   onDiscountChange?: (discount: number) => void;
   /** Called after a successful metadata edit to reload the history list */
   onRefreshHistory?: () => void;
@@ -89,6 +94,7 @@ export function TelecomForm({
   marginAlertThreshold = 100000,
   telecomAmount,
   setTelecomAmount,
+  onTelecomAmountChange,
   telecomPrice,
   setTelecomPrice,
   phoneNumber,
@@ -124,6 +130,7 @@ export function TelecomForm({
   setClientName,
   voucherItems,
   alfaCreditCostRate = 85000,
+  isAdmin = false,
   onDiscountChange,
   onRefreshHistory,
   onTransactionTimeChange,
@@ -197,8 +204,48 @@ export function TelecomForm({
   void _paidBy;
   void clientName;
   void setClientName;
+  // Gift price/value are derived into giftItems and written via their setters in
+  // onSelect; the raw prop values are no longer read directly here.
+  void giftAmountUsd;
+  void giftPriceLbp;
 
   const accent = isMTC ? "cyan" : "red";
+
+  // Normalized card models for the shared CardGridPayView. Only one of these is
+  // rendered at a time (gift for Alfa, vouchers for MTC).
+  const giftItems: CardGridPayItem[] = Object.entries(ALFA_GIFT_TIERS).map(
+    ([key, tier]) => {
+      const sellRate =
+        Number(localStorage.getItem("alfa_credit_sell_rate_lbp") || "100000") /
+        1000;
+      return {
+        id: key,
+        label: tier.label,
+        valueUsd: tier.usd,
+        costLbp: tier.usd * costRate,
+        sellLbp: Math.round(tier.usd * sellRate * 1000),
+      };
+    },
+  );
+
+  const voucherCardItems: CardGridPayItem[] = (voucherItems ?? []).map(
+    (item) => ({
+      id: item.label,
+      label: item.label,
+      costLbp: item.cost_lbp,
+      sellLbp: item.sell_lbp,
+    }),
+  );
+
+  const handleCardTransactionTime = (t: string | undefined) => {
+    setTransactionTime(t);
+    onTransactionTimeChange?.(t);
+  };
+
+  const handleCardPaymentChange = (lines: PaymentLine[]) => {
+    setPaymentLines(lines);
+    if (lines.length === 1) setPaidBy(lines[0].method);
+  };
 
   return (
     <div className="flex flex-col gap-5 flex-1 min-h-0">
@@ -216,268 +263,57 @@ export function TelecomForm({
         value={rechargeType}
         onChange={(val) => setRechargeType(val as RechargeType)}
         accentColor={isMTC ? "cyan" : "red"}
+        size="sm"
       />
 
       {rechargeType === "ALFA_GIFT" ? (
-        /* Alfa Gift Form - Card Grid Selection */
-        <div className="flex flex-col gap-5 flex-1 min-h-0">
-          {/* Tier Grid */}
-          <div className="flex-1 min-h-0 overflow-auto pb-2">
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 mt-3">
-              {Object.entries(ALFA_GIFT_TIERS).map(([key, tier]) => {
-                const isSelected = giftTierKey === key;
-                const sellRate =
-                  Number(
-                    localStorage.getItem("alfa_credit_sell_rate_lbp") ||
-                      "100000",
-                  ) / 1000;
-                const priceLbp = (tier.usd * sellRate * 1000).toFixed(0);
-                const costLbp = tier.usd * costRate;
-                const profitLbp = parseFloat(priceLbp) - costLbp;
-
-                return (
-                  <div
-                    key={key}
-                    onClick={() => {
-                      setGiftTierKey(key as keyof typeof ALFA_GIFT_TIERS | "");
-                      setGiftAmountUsd(tier.usd.toString());
-                      setGiftPriceLbp(priceLbp);
-                    }}
-                    className={`relative p-4 rounded-xl border transition-all cursor-pointer ${
-                      isSelected
-                        ? "border-red-500/40 bg-red-500/5 ring-2 ring-red-500/50"
-                        : "border-slate-700 bg-slate-800 hover:border-slate-600"
-                    }`}
-                  >
-                    {/* Selected Checkmark */}
-                    {isSelected && (
-                      <div className="absolute top-2 right-2 text-red-400">
-                        <CheckCircle size={16} />
-                      </div>
-                    )}
-
-                    {/* Tier Label */}
-                    <div className="text-white font-bold text-lg mb-1">
-                      {tier.label}
-                    </div>
-
-                    {/* USD Value */}
-                    <div className="text-sm text-slate-400 mb-2">
-                      Value: ${tier.usd}
-                    </div>
-
-                    {/* Price Preview */}
-                    <div className="text-sm text-emerald-400 font-mono mb-1">
-                      Price: {parseFloat(priceLbp).toLocaleString()} LBP
-                    </div>
-
-                    {/* Profit Preview */}
-                    <div
-                      className={`text-sm font-mono ${profitLbp >= 0 ? "text-green-400" : "text-red-400"}`}
-                    >
-                      Profit: {profitLbp.toLocaleString()} LBP
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Sticky Trigger Bar */}
-          <div className="shrink-0 bg-slate-800 rounded-xl border border-slate-700/50 p-4 shadow-2xl">
-            <div className="flex items-center gap-4">
-              <div className="text-right flex-1">
-                <div className="text-xs text-slate-400">
-                  Value:{" "}
-                  <span className="text-white font-bold">
-                    ${giftAmountUsd || "0"}
-                  </span>
-                </div>
-                <div className="text-xs text-slate-400">
-                  Price:{" "}
-                  <span className="text-emerald-400 font-mono">
-                    {parseFloat(giftPriceLbp || "0").toLocaleString()} LBP
-                  </span>
-                </div>
-              </div>
-
-              <button
-                onClick={() => setSheetOpen(true)}
-                disabled={!giftTierKey}
-                className={`px-6 py-3 rounded-lg font-bold text-white transition-all flex items-center gap-2 ${
-                  !giftTierKey
-                    ? "bg-slate-600 text-slate-400 cursor-not-allowed"
-                    : "bg-red-600 hover:bg-red-500 shadow-lg shadow-red-500/20"
-                }`}
-              >
-                <CreditCard size={18} />
-                Pay
-              </button>
-            </div>
-          </div>
-
-          {/* Payment Sheet */}
-          <PaymentSheet
-            open={sheetOpen}
-            onClose={() => setSheetOpen(false)}
-            onConfirm={handleAlfaGiftSubmit}
-            isSubmitting={isSubmitting}
-            title="Alfa Gift Payment"
-            {...(giftTierKey && ALFA_GIFT_TIERS[giftTierKey]?.label
-              ? { subtitle: ALFA_GIFT_TIERS[giftTierKey].label }
-              : {})}
-            accentColor="bg-red-600 hover:bg-red-500 text-white"
-            totalAmount={parseFloat(giftPriceLbp) || 0}
-            totalAmountCurrency="LBP"
-            currency="LBP"
-            paymentMethods={methods}
-            clientId={telecomClientId}
-            fetchClientVouchers={fetchClientVouchers}
-            exchangeRate={exchangeRate}
-            showDiscount={true}
-            maxDiscount={Math.max(
-              0,
-              (parseFloat(giftPriceLbp) || 0) -
-                parseFloat(giftAmountUsd || "0") * costRate,
-            )}
-            onPaymentChange={(lines) => {
-              setPaymentLines(lines);
-              if (lines.length === 1) {
-                setPaidBy(lines[0].method);
-              }
-            }}
-            onDiscountChange={handleDiscountChange}
-            summary={[
-              { label: "Value", value: `$${giftAmountUsd || "0"}` },
-              {
-                label: "Price",
-                value: `${parseFloat(giftPriceLbp || "0").toLocaleString()} LBP`,
-                color: "text-emerald-400",
-              },
-            ]}
-          >
-            <input
-              type="text"
-              value={clientName}
-              onChange={(e) => setTelecomClientName(e.target.value)}
-              placeholder="Client name (optional)"
-              className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-red-500"
-            />
-            <TransactionTimeOverride
-              value={transactionTime}
-              onChange={(t) => {
-                setTransactionTime(t);
-                onTransactionTimeChange?.(t);
-              }}
-            />
-          </PaymentSheet>
-        </div>
+        /* Alfa Gift — shared card-grid pay flow */
+        <CardGridPayView
+          heading="Select Alfa Gift"
+          items={giftItems}
+          selectedId={giftTierKey || null}
+          onSelect={(item) => {
+            setGiftTierKey(item.id as keyof typeof ALFA_GIFT_TIERS);
+            setGiftAmountUsd(String(item.valueUsd ?? ""));
+            setGiftPriceLbp(String(item.sellLbp));
+          }}
+          accent={accent}
+          showProfit={isAdmin}
+          sheetTitle="Alfa Gift Payment"
+          onConfirm={handleAlfaGiftSubmit}
+          isSubmitting={isSubmitting}
+          paymentMethods={methods}
+          clientId={telecomClientId}
+          exchangeRate={exchangeRate}
+          onPaymentChange={handleCardPaymentChange}
+          onDiscountChange={handleDiscountChange}
+          clientName={telecomClientName}
+          onClientNameChange={setTelecomClientName}
+          transactionTime={transactionTime}
+          onTransactionTimeChange={handleCardTransactionTime}
+        />
       ) : rechargeType === "VOUCHER" && isMTC ? (
-        /* Voucher Form - MTC Card Grid */
-        <div className="flex flex-col gap-5 flex-1 min-h-0">
-          {/* MTC Voucher Card Grid - loaded from DB */}
-          <div className="flex-1 min-h-0 overflow-auto pb-2">
-            <div className="text-sm text-slate-400 mb-3">
-              Select MTC Voucher:
-            </div>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-              {(voucherItems ?? []).map((item) => (
-                <div
-                  key={item.label}
-                  onClick={() => setTelecomAmount(item.label)}
-                  className={`p-3 rounded-lg border transition-all cursor-pointer ${
-                    telecomAmount === item.label
-                      ? "border-cyan-500/40 bg-cyan-500/5 ring-2 ring-cyan-500/50"
-                      : "border-slate-700 bg-slate-800 hover:border-slate-600"
-                  }`}
-                >
-                  <div className="text-white font-bold text-sm mb-1">
-                    {item.label}
-                  </div>
-                  <div className="text-xs text-slate-400">
-                    Cost: {item.cost_lbp.toLocaleString()} LBP
-                  </div>
-                  <div className="text-sm text-emerald-400 font-mono">
-                    Sell: {item.sell_lbp.toLocaleString()} LBP
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Sticky Trigger Bar */}
-          <div className="shrink-0 bg-slate-800 rounded-xl border border-slate-700/50 p-4 shadow-2xl">
-            <div className="flex items-center gap-4">
-              <div className="text-right flex-1">
-                <div className="text-xs text-slate-400">Amount:</div>
-                <div className="text-base text-emerald-400 font-mono font-bold">
-                  {telecomAmount || "0"}
-                </div>
-              </div>
-
-              <button
-                onClick={() => setSheetOpen(true)}
-                disabled={!telecomAmount}
-                className={`px-6 py-3 rounded-lg font-bold text-white transition-all flex items-center gap-2 ${
-                  !telecomAmount
-                    ? "bg-slate-600 text-slate-400 cursor-not-allowed"
-                    : "bg-cyan-600 hover:bg-cyan-500 shadow-lg shadow-cyan-500/20"
-                }`}
-              >
-                <CreditCard size={18} />
-                Pay
-              </button>
-            </div>
-          </div>
-
-          {/* Payment Sheet */}
-          <PaymentSheet
-            open={sheetOpen}
-            onClose={() => setSheetOpen(false)}
-            onConfirm={handleTelecomSubmit}
-            isSubmitting={isSubmitting}
-            title="MTC Voucher Payment"
-            {...(telecomAmount ? { subtitle: telecomAmount } : {})}
-            accentColor="bg-cyan-600 hover:bg-cyan-500 text-white"
-            totalAmount={
-              telecomAmount
-                ? ((voucherItems ?? []).find((v) => v.label === telecomAmount)
-                    ?.sell_lbp ?? 0)
-                : 0
-            }
-            totalAmountCurrency="LBP"
-            currency="LBP"
-            paymentMethods={methods}
-            clientId={telecomClientId}
-            fetchClientVouchers={fetchClientVouchers}
-            exchangeRate={exchangeRate}
-            showDiscount={true}
-            maxDiscount={Math.max(
-              0,
-              (() => {
-                const v = (voucherItems ?? []).find(
-                  (item) => item.label === telecomAmount,
-                );
-                return v ? v.sell_lbp - v.cost_lbp : 0;
-              })(),
-            )}
-            onPaymentChange={(lines) => {
-              setPaymentLines(lines);
-              if (lines.length === 1) {
-                setPaidBy(lines[0].method);
-              }
-            }}
-            onDiscountChange={handleDiscountChange}
-            summary={[
-              { label: "Voucher", value: telecomAmount || "—" },
-              {
-                label: "Sell Price",
-                value: `${((voucherItems ?? []).find((v) => v.label === telecomAmount)?.sell_lbp ?? 0).toLocaleString()} LBP`,
-                color: "text-emerald-400",
-              },
-            ]}
-          />
-        </div>
+        /* MTC Voucher — shared card-grid pay flow */
+        <CardGridPayView
+          heading="Select MTC Voucher"
+          items={voucherCardItems}
+          selectedId={telecomAmount || null}
+          onSelect={(item) => setTelecomAmount(item.id)}
+          accent={accent}
+          showProfit={isAdmin}
+          sheetTitle="MTC Voucher Payment"
+          onConfirm={handleTelecomSubmit}
+          isSubmitting={isSubmitting}
+          paymentMethods={methods}
+          clientId={telecomClientId}
+          exchangeRate={exchangeRate}
+          onPaymentChange={handleCardPaymentChange}
+          onDiscountChange={handleDiscountChange}
+          clientName={telecomClientName}
+          onClientNameChange={setTelecomClientName}
+          transactionTime={transactionTime}
+          onTransactionTimeChange={handleCardTransactionTime}
+        />
       ) : rechargeType === "VOUCHER" ? (
         /* Voucher Form - Only for MTC (fallback) */
         <div className="bg-slate-800 rounded-2xl border border-slate-700/50 p-6">
@@ -596,7 +432,7 @@ export function TelecomForm({
                   id="telecom-amount"
                   type="number"
                   value={telecomAmount}
-                  onChange={(e) => setTelecomAmount(e.target.value)}
+                  onChange={(e) => onTelecomAmountChange(e.target.value)}
                   className={`w-full bg-slate-900/80 border border-slate-600 rounded-xl pl-9 pr-4 py-3 text-white font-bold focus:outline-none focus:border-${accent}-500 focus:ring-1 focus:ring-${accent}-500/30 transition-all`}
                   placeholder="0.00"
                 />

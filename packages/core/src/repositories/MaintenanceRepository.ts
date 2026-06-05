@@ -21,8 +21,13 @@ export interface MaintenanceJob {
   issue_description?: string | null;
   cost_usd?: number;
   price_usd?: number;
+  cost_lbp?: number;
+  price_lbp?: number;
   discount_usd?: number;
   final_amount_usd?: number;
+  final_amount_lbp?: number;
+  /** Job pricing currency: "USD" or "LBP". Defaults to "USD". */
+  currency?: string;
   paid_usd?: number;
   paid_lbp?: number;
   exchange_rate?: number;
@@ -42,8 +47,12 @@ export interface MaintenanceRow {
   issue_description: string | null;
   cost_usd: number;
   price_usd: number;
+  cost_lbp: number;
+  price_lbp: number;
   discount_usd: number;
   final_amount_usd: number;
+  final_amount_lbp: number;
+  currency: string;
   paid_usd: number;
   paid_lbp: number;
   exchange_rate: number;
@@ -63,7 +72,7 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
 
   // Override getColumns() to use explicit columns instead of SELECT *
   protected getColumns(): string {
-    return "id, client_id, client_name, device_name, issue_description, cost_usd, price_usd, discount_usd, final_amount_usd, paid_usd, paid_lbp, exchange_rate, status, paid_by, note, created_at, updated_at, edited_by, edited_at";
+    return "id, client_id, client_name, device_name, issue_description, cost_usd, price_usd, cost_lbp, price_lbp, discount_usd, final_amount_usd, final_amount_lbp, currency, paid_usd, paid_lbp, exchange_rate, status, paid_by, note, created_at, updated_at, edited_by, edited_at";
   }
 
   /**
@@ -73,9 +82,10 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
     const stmt = this.db.prepare(`
       INSERT INTO maintenance (
         client_id, client_name, device_name, issue_description,
-        cost_usd, price_usd, discount_usd, final_amount_usd,
+        cost_usd, price_usd, cost_lbp, price_lbp,
+        discount_usd, final_amount_usd, final_amount_lbp, currency,
         paid_usd, paid_lbp, exchange_rate, status, paid_by, note, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
     `);
     const result = stmt.run(
       job.client_id ?? null,
@@ -84,8 +94,12 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
       job.issue_description ?? null,
       job.cost_usd ?? 0,
       job.price_usd ?? 0,
+      job.cost_lbp ?? 0,
+      job.price_lbp ?? 0,
       job.discount_usd ?? 0,
       job.final_amount_usd ?? 0,
+      job.final_amount_lbp ?? 0,
+      job.currency ?? "USD",
       job.paid_usd ?? 0,
       job.paid_lbp ?? 0,
       job.exchange_rate ?? 0,
@@ -102,9 +116,10 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
    */
   updateJob(id: number, job: MaintenanceJob): void {
     const stmt = this.db.prepare(`
-      UPDATE maintenance SET 
+      UPDATE maintenance SET
         client_id = ?, client_name = ?, device_name = ?, issue_description = ?,
-        cost_usd = ?, price_usd = ?, discount_usd = ?, final_amount_usd = ?,
+        cost_usd = ?, price_usd = ?, cost_lbp = ?, price_lbp = ?,
+        discount_usd = ?, final_amount_usd = ?, final_amount_lbp = ?, currency = ?,
         paid_usd = ?, paid_lbp = ?, exchange_rate = ?, status = ?, paid_by = ?, note = ?,
         updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
@@ -116,8 +131,12 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
       job.issue_description ?? null,
       job.cost_usd ?? 0,
       job.price_usd ?? 0,
+      job.cost_lbp ?? 0,
+      job.price_lbp ?? 0,
       job.discount_usd ?? 0,
       job.final_amount_usd ?? 0,
+      job.final_amount_lbp ?? 0,
+      job.currency ?? "USD",
       job.paid_usd ?? 0,
       job.paid_lbp ?? 0,
       job.exchange_rate ?? 0,
@@ -165,8 +184,12 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
     jobId: number,
     paymentLines: MaintenancePaymentLine[],
     opts: {
+      /** Job pricing currency: "USD" or "LBP". Defaults to "USD". */
+      currency?: string;
+      /** Final amount due, expressed in the job's currency. */
       finalAmount: number;
-      profitUsd?: number;
+      /** Profit, expressed in the job's currency. */
+      profit?: number;
       exchangeRate: number;
       clientId: number | null;
       changeUsd?: number;
@@ -175,20 +198,28 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
     },
   ): void {
     const createdBy = 1;
+    const isLbp = opts.currency === "LBP";
+    const profit = opts.profit ?? 0;
+    const summary = isLbp
+      ? `Maintenance Job #${jobId}: ${opts.finalAmount.toLocaleString()} LBP`
+      : `Maintenance Job #${jobId}: $${opts.finalAmount}`;
 
-    // Create unified transaction row
+    // Create unified transaction row — record the amount in the job's currency
     const txnId = getTransactionRepository().createTransaction({
       type: TRANSACTION_TYPES.MAINTENANCE,
       source_table: "maintenance",
       source_id: jobId,
       user_id: createdBy,
-      amount_usd: opts.finalAmount,
-      profit_usd: opts.profitUsd ?? 0,
+      amount_usd: isLbp ? 0 : opts.finalAmount,
+      amount_lbp: isLbp ? opts.finalAmount : 0,
+      profit_usd: isLbp ? 0 : profit,
+      profit_lbp: isLbp ? profit : 0,
       client_id: opts.clientId ?? null,
       exchange_rate: opts.exchangeRate,
-      summary: `Maintenance Job #${jobId}: $${opts.finalAmount}`,
+      summary,
       metadata_json: {
         final_amount: opts.finalAmount,
+        currency: opts.currency ?? "USD",
         payment_count: paymentLines.length,
       },
     });
@@ -270,28 +301,33 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
       else if (p.currency_code === "LBP") paidLbp += p.amount;
     }
     const rate = opts.exchangeRate || 1;
-    const totalPaidUsd = paidUsd + paidLbp / rate;
-    const debtAmount = opts.finalAmount - totalPaidUsd;
+    // Compute the outstanding balance in the job's currency.
+    const debtAmount = isLbp
+      ? opts.finalAmount - (paidLbp + paidUsd * rate)
+      : opts.finalAmount - (paidUsd + paidLbp / rate);
+    // Threshold check in USD-equivalent (~5 cents) to ignore rounding dust.
+    const debtUsdEquiv = isLbp ? debtAmount / rate : debtAmount;
 
-    if (debtAmount > 0.05) {
+    if (debtUsdEquiv > 0.05) {
       if (!opts.clientId) {
         throw new Error("Cannot create debt for anonymous client");
       }
       this.db
         .prepare(
-          `INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, transaction_id, note, due_date)
-           VALUES (?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
+          `INSERT INTO debt_ledger (client_id, transaction_type, amount_usd, amount_lbp, transaction_id, note, due_date)
+           VALUES (?, ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
         )
         .run(
           opts.clientId,
           "Maintenance Debt",
-          debtAmount,
+          isLbp ? 0 : debtAmount,
+          isLbp ? debtAmount : 0,
           txnId,
           "Balance from Maintenance",
         );
       maintenanceLogger.info(
-        { jobId, clientId: opts.clientId, debtAmount },
-        `Debt created for maintenance job #${jobId}: $${debtAmount.toFixed(2)}`,
+        { jobId, clientId: opts.clientId, debtAmount, currency: opts.currency },
+        `Debt created for maintenance job #${jobId}: ${debtAmount} ${opts.currency ?? "USD"}`,
       );
     }
   }
