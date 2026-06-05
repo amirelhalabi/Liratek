@@ -266,9 +266,10 @@ describe("CustomServices Page", () => {
     expect(
       screen.getByPlaceholderText(/Phone screen repair/),
     ).toBeInTheDocument();
-    // Dual-currency: 2 USD inputs (0.00 placeholder) + 2 LBP inputs (0 placeholder)
+    // Currency toggle defaults to USD: Cost + Price inputs both use the "0.00"
+    // placeholder. (In LBP mode the same two inputs switch to a "0" placeholder.)
     expect(screen.getAllByPlaceholderText("0.00")).toHaveLength(2);
-    expect(screen.getAllByPlaceholderText("0")).toHaveLength(2);
+    expect(screen.queryByPlaceholderText("0")).not.toBeInTheDocument();
     expect(screen.getByText("Submit Service")).toBeInTheDocument();
   });
 

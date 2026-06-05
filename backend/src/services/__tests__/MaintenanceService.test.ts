@@ -184,14 +184,19 @@ describe("MaintenanceService", () => {
           issue_description: null,
           cost_usd: 0,
           price_usd: 0,
+          cost_lbp: 0,
+          price_lbp: 0,
           discount_usd: 0,
           final_amount_usd: 0,
+          final_amount_lbp: 0,
+          currency: "USD",
           paid_usd: 0,
           paid_lbp: 0,
           exchange_rate: 0,
           status: "In Progress",
           paid_by: "CASH",
           note: null,
+          transaction_time: undefined,
         });
       });
     });
