@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import {
   AlertTriangle,
@@ -136,7 +136,7 @@ const SECTION_CONFIG: Record<
     actions: ["link", "keep", "discard"],
   },
   2: {
-    label: "Page Without List Entry",
+    label: "Unmatched Client Page Name",
     color: "text-purple-400",
     badgeColor: "bg-purple-500/20 text-purple-400",
     icon: FileX2,
@@ -213,27 +213,53 @@ export function ImportValidationModal({
   const { listToPageMap, pageToListMap } = useMemo(() => {
     const l2p = new Map<number, number>();
     const p2l = new Map<number, number>();
+    const usedPages = new Set<number>();
+    const usedLists = new Set<number>();
 
+    // Phase 1 — exact phone match. The phone is the only reliable way to tell
+    // same-named people apart (e.g. several "MARWAN HALAWI" cousins, whose
+    // distinguishing nickname lives in parentheses that normalizeName strips).
+    // Pair these first so a shared name can't make one page steal another's
+    // roster entry. Phones are already normalized to digits on both sides.
     for (let li = 0; li < listNameEntries.length; li++) {
-      let bestPageIdx = -1;
-      let bestSim = 0;
+      const listPhone = listNameEntries[li].phone;
+      if (!listPhone) continue;
       for (let pi = 0; pi < parsedPages.length; pi++) {
+        if (usedPages.has(pi)) continue;
+        if (parsedPages[pi].phone && parsedPages[pi].phone === listPhone) {
+          l2p.set(li, pi);
+          p2l.set(pi, li);
+          usedLists.add(li);
+          usedPages.add(pi);
+          break;
+        }
+      }
+    }
+
+    // Phase 2 — name similarity for whatever's left, assigned best-match-first
+    // so each page and each list entry is claimed at most once (a proper 1:1
+    // pairing rather than the old greedy per-list scan that could orphan pages).
+    const candidates: { li: number; pi: number; sim: number }[] = [];
+    for (let li = 0; li < listNameEntries.length; li++) {
+      if (usedLists.has(li)) continue;
+      for (let pi = 0; pi < parsedPages.length; pi++) {
+        if (usedPages.has(pi)) continue;
         const sim = nameSimilarity(
           listNameEntries[li].name,
           parsedPages[pi].name,
         );
-        if (sim >= MATCH_THRESHOLD && sim > bestSim) {
-          bestSim = sim;
-          bestPageIdx = pi;
-        }
-      }
-      if (bestPageIdx >= 0) {
-        l2p.set(li, bestPageIdx);
-        if (!p2l.has(bestPageIdx)) {
-          p2l.set(bestPageIdx, li);
-        }
+        if (sim >= MATCH_THRESHOLD) candidates.push({ li, pi, sim });
       }
     }
+    candidates.sort((a, b) => b.sim - a.sim);
+    for (const c of candidates) {
+      if (usedLists.has(c.li) || usedPages.has(c.pi)) continue;
+      l2p.set(c.li, c.pi);
+      p2l.set(c.pi, c.li);
+      usedLists.add(c.li);
+      usedPages.add(c.pi);
+    }
+
     return { listToPageMap: l2p, pageToListMap: p2l };
   }, [listNameEntries, parsedPages]);
 
@@ -640,14 +666,25 @@ export function ImportValidationModal({
 
   const totalIssues = issues.length;
 
+  // When there are no issues to resolve, auto-confirm. This MUST happen in an
+  // effect, never during render: calling onConfirm() in the render body fires
+  // it twice under StrictMode's double-invoke, importing every entry twice.
+  // The ref guard makes it fire exactly once even across StrictMode remounts.
+  const autoConfirmedRef = useRef(false);
+  useEffect(() => {
+    if (totalIssues === 0 && !autoConfirmedRef.current) {
+      autoConfirmedRef.current = true;
+      onConfirm(
+        parsedPages.map((p) => ({
+          name: p.name,
+          phone: p.phone,
+          entries: [...p.entries],
+        })),
+      );
+    }
+  }, [totalIssues, parsedPages, onConfirm]);
+
   if (totalIssues === 0) {
-    onConfirm(
-      parsedPages.map((p) => ({
-        name: p.name,
-        phone: p.phone,
-        entries: [...p.entries],
-      })),
-    );
     return null;
   }
 

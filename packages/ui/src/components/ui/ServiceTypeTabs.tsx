@@ -6,6 +6,8 @@ import {
   Zap,
   Send,
   Package,
+  FileText,
+  ArrowLeftRight,
 } from "lucide-react";
 
 export interface ServiceTypeOption {
@@ -21,7 +23,9 @@ export type ServiceTypeIcon =
   | "ArrowUpCircle"
   | "Zap"
   | "Send"
-  | "Package";
+  | "Package"
+  | "FileText"
+  | "ArrowLeftRight";
 
 const ICON_COMPONENTS: Record<ServiceTypeIcon, typeof DollarSign> = {
   DollarSign: DollarSign,
@@ -31,6 +35,8 @@ const ICON_COMPONENTS: Record<ServiceTypeIcon, typeof DollarSign> = {
   Zap: Zap,
   Send: Send,
   Package: Package,
+  FileText: FileText,
+  ArrowLeftRight: ArrowLeftRight,
 };
 
 export interface ServiceTypeTabsProps {
@@ -45,6 +51,12 @@ export interface ServiceTypeTabsProps {
     | "lime"
     | "amber"
     | "emerald";
+  /** Custom hex color (e.g. "#ffde00") for the active tab. Overrides accentColor when provided. */
+  customColor?: string | undefined;
+  /** Text color for the active tab when using customColor. Defaults to "white". */
+  customTextColor?: string | undefined;
+  /** Visual scale. "md" (default) is the original 60px bar; "sm" is a slimmer control. */
+  size?: "sm" | "md";
   className?: string;
 }
 
@@ -53,6 +65,9 @@ export default function ServiceTypeTabs({
   value,
   onChange,
   accentColor = "cyan",
+  customColor,
+  customTextColor = "white",
+  size = "md",
   className = "",
 }: ServiceTypeTabsProps) {
   const accentClasses = {
@@ -88,25 +103,46 @@ export default function ServiceTypeTabs({
 
   const accent = accentClasses[accentColor];
 
+  const container =
+    size === "sm"
+      ? "p-1 rounded-xl h-11"
+      : "p-1.5 rounded-2xl h-[60px]";
+  const button =
+    size === "sm" ? "py-1.5 px-2 rounded-lg" : "py-3 px-2 rounded-xl";
+
   return (
     <div
-      className={`flex gap-2 p-1.5 bg-slate-800 rounded-2xl border border-slate-700/50 h-[60px] ${className}`}
+      className={`flex gap-2 bg-slate-800 border border-slate-700/50 ${container} ${className}`}
     >
       {options.map((option) => {
         const Icon = ICON_COMPONENTS[option.iconKey];
         const active = value === option.id;
+        // Custom hex color wins over the accent palette, except for the special
+        // emerald TOP_UP tab which always keeps its own styling.
+        const useCustom = Boolean(customColor) && active && option.id !== "TOP_UP";
 
         return (
           <button
             key={option.id}
             onClick={() => onChange(option.id)}
-            className={`flex-1 h-full py-3 px-2 rounded-xl font-semibold text-sm transition-all flex items-center justify-center gap-2 ${
+            className={`flex-1 h-full font-semibold text-sm transition-all flex items-center justify-center gap-2 ${button} ${
               active
                 ? option.id === "TOP_UP"
                   ? "bg-emerald-600 text-white shadow-lg"
-                  : accent.active
+                  : useCustom
+                    ? "shadow-lg"
+                    : accent.active
                 : "text-slate-400 hover:text-white hover:bg-slate-700/60"
             }`}
+            style={
+              useCustom
+                ? {
+                    backgroundColor: customColor,
+                    color: customTextColor,
+                    boxShadow: `0 10px 15px -3px ${customColor}33`,
+                  }
+                : undefined
+            }
           >
             <Icon size={16} />
             {option.label}

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { ChevronDown, Phone, Search, X, Plus } from "lucide-react";
-import { useApi, DoubleTab, type PaymentLine } from "@liratek/ui";
+import { useApi, ServiceTypeTabs, type PaymentLine } from "@liratek/ui";
 import { PaymentSheet } from "./PaymentSheet";
 import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
 import { useSession } from "@/features/sessions/context/SessionContext";
@@ -472,13 +472,11 @@ export function FinancialForm({
         {activeProvider !== "WISH_APP" && activeProvider !== "MTC" && (
           <div className="flex items-center justify-between gap-3">
             <div className="flex-1">
-              <DoubleTab
-                leftOption={{ id: "SEND", label: "Money In", iconKey: "Send" }}
-                rightOption={{
-                  id: "RECEIVE",
-                  label: "Money Out",
-                  iconKey: "Package",
-                }}
+              <ServiceTypeTabs
+                options={[
+                  { id: "SEND", label: "Money In", iconKey: "Send" },
+                  { id: "RECEIVE", label: "Money Out", iconKey: "Package" },
+                ]}
                 value={serviceType || "SEND"}
                 onChange={(val) => setServiceType?.(val as ServiceType)}
                 accentColor={
@@ -492,6 +490,7 @@ export function FinancialForm({
                 customTextColor={
                   activeProvider === "OMT_APP" ? "black" : "white"
                 }
+                size="sm"
               />
             </div>
             <PartnerSelector

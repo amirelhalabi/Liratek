@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { User, Hash, Phone } from "lucide-react";
-import { DoubleTab, type PaymentLine } from "@liratek/ui";
+import { ServiceTypeTabs, type PaymentLine } from "@liratek/ui";
 import { PaymentSheet } from "./PaymentSheet";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import type {
@@ -100,17 +100,16 @@ export function CryptoForm({
   return (
     <div className="flex flex-col gap-5 flex-1 min-h-0">
       {/* Send / Receive Tabs */}
-      <DoubleTab
-        leftOption={{ id: "SEND", label: "Send Crypto", iconKey: "Send" }}
-        rightOption={{
-          id: "RECEIVE",
-          label: "Receive Crypto",
-          iconKey: "Package",
-        }}
+      <ServiceTypeTabs
+        options={[
+          { id: "SEND", label: "Send Crypto", iconKey: "Send" },
+          { id: "RECEIVE", label: "Receive Crypto", iconKey: "Package" },
+        ]}
         value={cryptoType}
         onChange={(val) => setCryptoType(val as "SEND" | "RECEIVE")}
         accentColor="amber"
         customColor="#f59e0b"
+        size="sm"
       />
       <p className="text-xs text-slate-400 text-center -mt-3 mb-1">
         {cryptoType === "SEND"

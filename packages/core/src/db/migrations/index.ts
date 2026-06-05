@@ -3571,6 +3571,47 @@ export const MIGRATIONS: Migration[] = [
       console.log("Migration v91 rolled back");
     },
   },
+  {
+    version: 92,
+    name: "maintenance_lbp_pricing",
+    description:
+      "Add LBP cost/price/final-amount columns and a currency column to maintenance so repair jobs can be priced natively in USD or LBP",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      const cols = db.prepare("PRAGMA table_info(maintenance)").all() as {
+        name: string;
+      }[];
+      const has = (name: string) => cols.some((c) => c.name === name);
+
+      if (!has("cost_lbp")) {
+        db.exec(
+          `ALTER TABLE maintenance ADD COLUMN cost_lbp DECIMAL(15, 2) DEFAULT 0;`,
+        );
+      }
+      if (!has("price_lbp")) {
+        db.exec(
+          `ALTER TABLE maintenance ADD COLUMN price_lbp DECIMAL(15, 2) DEFAULT 0;`,
+        );
+      }
+      if (!has("final_amount_lbp")) {
+        db.exec(
+          `ALTER TABLE maintenance ADD COLUMN final_amount_lbp DECIMAL(15, 2) DEFAULT 0;`,
+        );
+      }
+      if (!has("currency")) {
+        db.exec(
+          `ALTER TABLE maintenance ADD COLUMN currency TEXT NOT NULL DEFAULT 'USD';`,
+        );
+      }
+      console.log("Migration v92: maintenance LBP pricing columns added");
+    },
+    down(db: Database.Database) {
+      // SQLite cannot easily drop columns; leave columns in place on rollback.
+      console.log(
+        "Migration v92 rolled back (columns retained — SQLite limitation)",
+      );
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

@@ -16,8 +16,13 @@ export interface SaveJobParams {
   issue_description?: string | null;
   cost_usd?: number;
   price_usd?: number;
+  cost_lbp?: number;
+  price_lbp?: number;
   discount_usd?: number;
   final_amount_usd?: number;
+  final_amount_lbp?: number;
+  /** Job pricing currency: "USD" or "LBP". Defaults to "USD". */
+  currency?: string;
   paid_usd?: number;
   paid_lbp?: number;
   exchange_rate?: number;
@@ -81,8 +86,12 @@ export class MaintenanceService {
           issue_description: params.issue_description ?? null,
           cost_usd: params.cost_usd ?? 0,
           price_usd: params.price_usd ?? 0,
+          cost_lbp: params.cost_lbp ?? 0,
+          price_lbp: params.price_lbp ?? 0,
           discount_usd: params.discount_usd ?? 0,
           final_amount_usd: params.final_amount_usd ?? 0,
+          final_amount_lbp: params.final_amount_lbp ?? 0,
+          currency: params.currency ?? "USD",
           paid_usd: params.paid_usd ?? 0,
           paid_lbp: params.paid_lbp ?? 0,
           exchange_rate: params.exchange_rate ?? 0,
@@ -91,6 +100,15 @@ export class MaintenanceService {
           note: params.note ?? null,
           transaction_time: params.transaction_time,
         };
+
+        // Resolve job-currency final amount & profit for payment processing.
+        const isLbpJob = (params.currency ?? "USD") === "LBP";
+        const jobFinalAmount = isLbpJob
+          ? (params.final_amount_lbp ?? 0)
+          : (params.final_amount_usd ?? 0);
+        const jobProfit = isLbpJob
+          ? (params.final_amount_lbp ?? 0) - (params.cost_lbp ?? 0)
+          : (params.final_amount_usd ?? 0) - (params.cost_usd ?? 0);
 
         // Determine primary payment method from payment lines
         if (params.payments?.length) {
@@ -114,9 +132,9 @@ export class MaintenanceService {
           if (isPaidStatus && params.payments?.length) {
             if (!this.repo.hasPayments(params.id)) {
               this.repo.processPayments(params.id, params.payments, {
-                finalAmount: params.final_amount_usd ?? 0,
-                profitUsd:
-                  (params.final_amount_usd ?? 0) - (params.cost_usd ?? 0),
+                currency: params.currency ?? "USD",
+                finalAmount: jobFinalAmount,
+                profit: jobProfit,
                 exchangeRate: params.exchange_rate ?? 1,
                 clientId: clientId,
                 changeUsd: params.change_given_usd,
@@ -146,9 +164,9 @@ export class MaintenanceService {
           // If creating with payment data (checkout from new job form)
           if (isPaidStatus && params.payments?.length) {
             this.repo.processPayments(newId, params.payments, {
-              finalAmount: params.final_amount_usd ?? 0,
-              profitUsd:
-                (params.final_amount_usd ?? 0) - (params.cost_usd ?? 0),
+              currency: params.currency ?? "USD",
+              finalAmount: jobFinalAmount,
+              profit: jobProfit,
               exchangeRate: params.exchange_rate ?? 1,
               clientId: clientId,
               changeUsd: params.change_given_usd,

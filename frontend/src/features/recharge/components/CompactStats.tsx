@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { ProviderConfig, CurrencyStats } from "../types";
 
 function formatCurrencyAmount(amount: number, currency: string): string {
@@ -31,6 +32,44 @@ function formatByCurrency(byCurrency: CurrencyStats[]): string {
 interface DrawerBalance {
   usdBalance: number;
   lbpBalance: number;
+}
+
+/** A single read-only metric cell inside the grouped stats panel. */
+function Metric({
+  label,
+  value,
+  valueClass = "text-white",
+  accentBg,
+}: {
+  label: string;
+  value: string | number;
+  valueClass?: string;
+  accentBg?: string | undefined;
+}) {
+  return (
+    <div
+      className={`flex flex-col justify-center px-3.5 py-1.5 ${accentBg ?? ""}`}
+    >
+      <span className="text-[10px] uppercase tracking-wide text-slate-500 leading-tight">
+        {label}
+      </span>
+      <span className={`text-sm font-bold leading-tight ${valueClass}`}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Bordered, non-interactive container that groups the metrics so they read as a
+ * read-only dashboard rather than another row of clickable tabs.
+ */
+function StatsPanel({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex h-11 items-stretch divide-x divide-slate-700/60 overflow-hidden rounded-xl border border-slate-700/60 bg-slate-800/40">
+      {children}
+    </div>
+  );
 }
 
 interface CompactStatsProps {
@@ -67,91 +106,68 @@ export function CompactStats({
 
   if (showCryptoStats) {
     return (
-      <div className="flex flex-wrap gap-1">
+      <StatsPanel>
         {isAdmin && (
-          <div
-            className={`px-3 py-1.5 rounded-lg font-medium text-xs ${activeConfig?.activeBg} ${activeConfig?.activeText}`}
-          >
-            <span className="text-white/70 text-[10px] block mb-0.5">
-              Profit
-            </span>
-            <span className="font-bold">{profitDisplay}</span>
-          </div>
+          <Metric
+            label="Profit"
+            value={profitDisplay}
+            valueClass={activeConfig?.color ?? "text-white"}
+            accentBg={activeConfig?.bgTint}
+          />
         )}
-        <div className="px-3 py-1.5 rounded-lg font-medium text-xs bg-slate-800 border border-slate-700">
-          <span className="text-slate-400 text-[10px] block mb-0.5">Sent</span>
-          <span className="text-red-400 font-bold">
-            ${cryptoOutToday?.toFixed(2) ?? "0.00"}
-          </span>
-        </div>
-
-        <div className="px-3 py-1.5 rounded-lg font-medium text-xs bg-slate-800 border border-slate-700">
-          <span className="text-slate-400 text-[10px] block mb-0.5">
-            Received
-          </span>
-          <span className="text-emerald-400 font-bold">
-            ${cryptoInToday?.toFixed(2) ?? "0.00"}
-          </span>
-        </div>
-
-        <div className="px-3 py-1.5 rounded-lg font-medium text-xs bg-slate-800 border border-slate-700">
-          <span className="text-slate-400 text-[10px] block mb-0.5">Count</span>
-          <span className="text-slate-300 font-bold">{todayCount ?? 0}</span>
-        </div>
-
+        <Metric
+          label="Sent"
+          value={`$${cryptoOutToday?.toFixed(2) ?? "0.00"}`}
+          valueClass="text-red-400"
+        />
+        <Metric
+          label="Received"
+          value={`$${cryptoInToday?.toFixed(2) ?? "0.00"}`}
+          valueClass="text-emerald-400"
+        />
+        <Metric label="Count" value={todayCount ?? 0} valueClass="text-slate-300" />
         {drawerBalance && (
-          <div className="px-3 py-1.5 rounded-lg font-medium text-xs bg-slate-800 border border-slate-700">
-            <span className="text-slate-400 text-[10px] block mb-0.5">
-              Drawer
-            </span>
-            <span className="text-emerald-400 font-bold">
-              {formatDrawerBalance(drawerBalance)}
-            </span>
-          </div>
+          <Metric
+            label="Drawer"
+            value={formatDrawerBalance(drawerBalance)}
+            valueClass="text-emerald-400"
+          />
         )}
-      </div>
+      </StatsPanel>
     );
   }
 
   return (
-    <div className="flex flex-wrap gap-1">
+    <StatsPanel>
       {isAdmin && (
-        <div
-          className={`px-3 py-1.5 rounded-lg font-medium text-xs ${activeConfig?.activeBg} ${activeConfig?.activeText}`}
-        >
-          <span className="text-white/70 text-[10px] block mb-0.5">Profit</span>
-          <span className="font-bold">{profitDisplay}</span>
-        </div>
+        <Metric
+          label="Profit"
+          value={profitDisplay}
+          valueClass={activeConfig?.color ?? "text-white"}
+          accentBg={activeConfig?.bgTint}
+        />
       )}
 
       {allProvidersCommission !== undefined && (
-        <div className="px-3 py-1.5 rounded-lg font-medium text-xs bg-slate-800 border border-slate-700">
-          <span className="text-slate-400 text-[10px] block mb-0.5">
-            Total Profit
-          </span>
-          <span className="text-white font-bold">
-            {allProvidersByCurrency && allProvidersByCurrency.length > 0
+        <Metric
+          label="Total Profit"
+          value={
+            allProvidersByCurrency && allProvidersByCurrency.length > 0
               ? formatByCurrency(allProvidersByCurrency)
-              : `$${allProvidersCommission.toFixed(2)}`}
-          </span>
-        </div>
+              : `$${allProvidersCommission.toFixed(2)}`
+          }
+        />
       )}
 
-      <div className="px-3 py-1.5 rounded-lg font-medium text-xs bg-slate-800 border border-slate-700">
-        <span className="text-slate-400 text-[10px] block mb-0.5">Count</span>
-        <span className="text-slate-300 font-bold">{todayCount ?? 0}</span>
-      </div>
+      <Metric label="Count" value={todayCount ?? 0} valueClass="text-slate-300" />
 
       {drawerBalance && (
-        <div className="px-3 py-1.5 rounded-lg font-medium text-xs bg-slate-800 border border-slate-700">
-          <span className="text-slate-400 text-[10px] block mb-0.5">
-            Drawer
-          </span>
-          <span className="text-emerald-400 font-bold">
-            {formatDrawerBalance(drawerBalance)}
-          </span>
-        </div>
+        <Metric
+          label="Drawer"
+          value={formatDrawerBalance(drawerBalance)}
+          valueClass="text-emerald-400"
+        />
       )}
-    </div>
+    </StatsPanel>
   );
 }

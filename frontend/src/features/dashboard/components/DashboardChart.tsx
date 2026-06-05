@@ -36,10 +36,10 @@ export default function DashboardChart({
   formatAmount,
 }: DashboardChartProps) {
   return (
-    <ResponsiveContainer width="100%" height={320}>
+    <ResponsiveContainer width="100%" height="100%">
       <LineChart
         data={chartData}
-        margin={{ top: 5, right: 20, left: 20, bottom: 5 }}
+        margin={{ top: 5, right: 16, left: 8, bottom: 5 }}
       >
         <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.1} />
         <XAxis dataKey="date" tick={{ fill: "#94a3b8" }} fontSize={12} />

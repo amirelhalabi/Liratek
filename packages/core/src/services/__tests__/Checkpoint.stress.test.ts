@@ -667,12 +667,13 @@ describe("Checkpoint Stress Test — Full Shop Day Flow", () => {
       simulateSale(db, SALE2_USD); // General USD +75
       simulateExpense(db, EXPENSE2_USD); // General USD -10
 
-      // After Phase 2, drawer_balances reflect ALL transactions (Phase 1 + Phase 2)
+      // After Phase 2, drawer_balances reflect Phase 2 transactions on top of
+      // Checkpoint #1's reconciled count (the count becomes the new truth).
       const expected2 = service.getSystemExpectedBalancesDynamic();
 
-      // General USD = 75 (Phase 1) + 75 (sale2) - 10 (expense2) = 140
+      // General USD = 160 (CP1 reconciled count) + 75 (sale2) - 10 (expense2) = 225
       expect(expected2["General"]["USD"]).toBe(
-        EXPECTED_GENERAL_USD_PHASE1 + SALE2_USD - EXPENSE2_USD,
+        CP1_GENERAL_USD_ACTUAL + SALE2_USD - EXPENSE2_USD,
       );
       // General LBP unchanged
       expect(expected2["General"]["LBP"]).toBe(EXPECTED_GENERAL_LBP_PHASE1);
@@ -762,9 +763,8 @@ describe("Checkpoint Stress Test — Full Shop Day Flow", () => {
       // Phase 2 transactions
       simulateSale(db, SALE2_USD);
 
-      // The "ideal" next checkpoint expected = baseline + new deltas
-      // But the system uses drawer_balances (cumulative), not baseline + delta
-      // So the system expected is just the current drawer_balances total
+      // A checkpoint reconciles drawer_balances to the counted amount, so the
+      // next system-expected = CP1's reconciled count + later transactions.
       const expected2 = service.getSystemExpectedBalancesDynamic();
 
       // Verify: baseline from CP1 is the physical (actual) values
@@ -772,10 +772,10 @@ describe("Checkpoint Stress Test — Full Shop Day Flow", () => {
       expect(baseline["General"]["LBP"]).toBe(CP1_GENERAL_LBP_ACTUAL); // 4,500,000
       expect(baseline["OMT_System"]["USD"]).toBe(CP1_OMT_SYSTEM_USD_ACTUAL); // 100
 
-      // System expected = cumulative drawer_balances (all Phase 1 + Phase 2)
-      // General USD = 75 + 75 = 150
+      // System expected = CP1 reconciled count + Phase 2 sale
+      // General USD = 160 + 75 = 235
       expect(expected2["General"]["USD"]).toBe(
-        EXPECTED_GENERAL_USD_PHASE1 + SALE2_USD,
+        CP1_GENERAL_USD_ACTUAL + SALE2_USD,
       );
     });
   });

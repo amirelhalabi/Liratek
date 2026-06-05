@@ -65,16 +65,14 @@ export function VouchersPage() {
   const loadVouchers = useCallback(async () => {
     setLoading(true);
     setListError(null);
-    const filters =
-      statusFilter === "all" ? undefined : { status: statusFilter };
-    const result = await window.api.vouchers.getAll(filters);
+    const result = await window.api.vouchers.getAll();
     if (result.success) {
       setVouchers(result.vouchers ?? []);
     } else {
       setListError(result.error ?? "Failed to load vouchers");
     }
     setLoading(false);
-  }, [statusFilter]);
+  }, []);
 
   useEffect(() => {
     loadVouchers();
@@ -217,6 +215,11 @@ export function VouchersPage() {
       /* clipboard unavailable */
     }
   };
+
+  const filteredVouchers =
+    statusFilter === "all"
+      ? vouchers
+      : vouchers.filter((v) => v.status === statusFilter);
 
   return (
     <div className="h-full p-6 overflow-auto">
@@ -413,104 +416,104 @@ export function VouchersPage() {
 
         {/* ─── Voucher list ─── */}
         <div className="lg:col-span-2">
-          {/* Status tabs */}
-          <div className="flex flex-wrap gap-2 mb-4">
-            {STATUS_TABS.map((tab) => (
-              <button
-                key={tab.key}
-                type="button"
-                onClick={() => setStatusFilter(tab.key)}
-                className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
-                  statusFilter === tab.key
-                    ? "bg-orange-500 text-white"
-                    : "bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-700"
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
+          <div className="bg-slate-800/60 rounded-xl border border-slate-700/50 p-4">
+            <h3 className="text-sm font-semibold text-slate-300 mb-3 flex items-center gap-2">
+              <Gift size={14} className="text-amber-400" />
+              Vouchers ({filteredVouchers.length})
+            </h3>
 
-          <div className="bg-slate-800 rounded-xl border border-slate-700/50 overflow-hidden">
+            {/* Status tabs */}
+            <div className="flex flex-wrap gap-2 mb-3">
+              {STATUS_TABS.map((tab) => {
+                const count = vouchers.filter((v) =>
+                  tab.key === "all" ? true : v.status === tab.key,
+                ).length;
+                return (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => setStatusFilter(tab.key)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                      statusFilter === tab.key
+                        ? "bg-violet-600 text-white"
+                        : "bg-slate-900/60 text-slate-400 border border-slate-700 hover:text-slate-200 hover:border-slate-600"
+                    }`}
+                  >
+                    {tab.label}
+                    <span className="ml-1.5 opacity-70">{count}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Voucher list */}
             {loading ? (
-              <div className="p-8 text-center text-slate-400 flex items-center justify-center gap-2">
+              <div className="py-8 text-center text-sm text-slate-500 flex items-center justify-center gap-2">
                 <Loader2 className="w-4 h-4 animate-spin" /> Loading...
               </div>
             ) : listError ? (
-              <div className="p-8 text-center text-red-400">{listError}</div>
-            ) : vouchers.length === 0 ? (
-              <div className="p-8 text-center text-slate-400">
-                No vouchers found
+              <div className="py-8 text-center text-sm text-red-400">
+                {listError}
+              </div>
+            ) : filteredVouchers.length === 0 ? (
+              <div className="py-8 text-center text-sm text-slate-500">
+                No vouchers in this status
               </div>
             ) : (
-              <table className="w-full">
-                <thead className="bg-slate-900">
-                  <tr>
-                    <th className="text-left text-xs text-slate-400 px-4 py-3">
-                      Code
-                    </th>
-                    <th className="text-left text-xs text-slate-400 px-4 py-3">
-                      Client
-                    </th>
-                    <th className="text-right text-xs text-slate-400 px-4 py-3">
-                      Amount
-                    </th>
-                    <th className="text-left text-xs text-slate-400 px-4 py-3">
-                      Expiry
-                    </th>
-                    <th className="text-left text-xs text-slate-400 px-4 py-3">
-                      Status
-                    </th>
-                    <th className="text-right text-xs text-slate-400 px-4 py-3">
-                      Action
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-700">
-                  {vouchers.map((v) => (
-                    <tr key={v.id} className="hover:bg-slate-700/50">
-                      <td className="px-4 py-3 text-sm font-mono text-white">
-                        {v.code}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-white">
-                        <div>{v.client_name}</div>
-                        {v.client_phone && (
-                          <div className="text-xs text-slate-400">
-                            {v.client_phone}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-white text-right font-mono">
-                        ${v.amount.toFixed(2)}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-slate-300">
-                        {v.expiry_date ?? "—"}
-                      </td>
-                      <td className="px-4 py-3">
+              <div className="space-y-2 max-h-64 overflow-auto custom-scrollbar">
+                {filteredVouchers.map((v) => (
+                  <div
+                    key={v.id}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-all hover:bg-slate-700/70 bg-slate-900/50 border border-slate-700/40"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-mono font-medium text-white truncate">
+                          {v.code}
+                        </span>
                         <span
-                          className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium border capitalize ${STATUS_STYLES[v.status]}`}
+                          className={`text-[10px] px-1.5 py-0.5 rounded font-medium border capitalize ${STATUS_STYLES[v.status]}`}
                         >
                           {v.status}
                         </span>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        {isAdmin && v.status === "pending" ? (
-                          <button
-                            type="button"
-                            onClick={() => handleCancel(v)}
-                            className="inline-flex items-center gap-1 text-xs text-red-400 hover:text-red-300 transition-colors"
-                            title="Cancel voucher"
-                          >
-                            <Ban size={14} /> Cancel
-                          </button>
-                        ) : (
-                          <span className="text-slate-600">—</span>
+                      </div>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        {v.client_name && (
+                          <span className="text-xs text-slate-500 truncate">
+                            {v.client_name}
+                          </span>
                         )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                        <span className="text-[10px] text-slate-600">
+                          {v.expiry_date
+                            ? `expires ${v.expiry_date}`
+                            : "no expiry"}
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => copyCode(v.code)}
+                      className="text-[10px] px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors whitespace-nowrap"
+                      title="Copy code"
+                    >
+                      Copy
+                    </button>
+                    {isAdmin && v.status === "pending" && (
+                      <button
+                        type="button"
+                        onClick={() => handleCancel(v)}
+                        className="text-[10px] px-2 py-1 rounded bg-red-500/20 hover:bg-red-500/30 text-red-300 transition-colors whitespace-nowrap inline-flex items-center gap-1"
+                        title="Cancel voucher"
+                      >
+                        <Ban size={12} /> Cancel
+                      </button>
+                    )}
+                    <span className="text-xs font-mono text-emerald-400">
+                      ${v.amount.toFixed(2)}
+                    </span>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         </div>

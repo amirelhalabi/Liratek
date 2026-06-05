@@ -21,7 +21,7 @@ import {
   ProviderTabs,
   OmtWhishAppTransferForm,
 } from "../../components";
-import { TopUpModal, DoubleTab } from "@liratek/ui";
+import { TopUpModal, ServiceTypeTabs } from "@liratek/ui";
 import type {
   AnyProvider,
   ProviderConfig,
@@ -826,6 +826,18 @@ export default function MobileRecharge() {
     [alfaCreditSellRate],
   );
 
+  // Typing in the Amount field should re-derive the suggested client price the
+  // same way Quick Amount does, so the two stay in sync. The price field stays
+  // editable afterwards for custom overrides.
+  const handleTelecomAmountChange = useCallback(
+    (val: string) => {
+      setTelecomAmount(val);
+      const num = parseFloat(val);
+      setTelecomPrice(num > 0 ? (num * alfaCreditSellRate).toString() : "");
+    },
+    [alfaCreditSellRate],
+  );
+
   const resolveVoucherImage = useCallback(
     (provider: string, amount: number) => {
       const items = getServiceItems(provider as ProviderKey);
@@ -885,17 +897,18 @@ export default function MobileRecharge() {
 
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 min-h-0 flex flex-col overflow-hidden animate-in fade-in duration-500">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-2">
-        {/* Left: Provider Tabs + Stats */}
-        <div className="flex items-center gap-1">
-          <ProviderTabs
-            providers={PROVIDER_CONFIGS}
-            activeProvider={activeProvider}
-            onSelectProvider={setActiveProvider}
-          />
+      {/* Header — two zones: provider controls (left) vs. read-only metrics + actions (right) */}
+      <div className="flex items-start justify-between gap-4 mb-3">
+        {/* Left zone: provider selection (the controls) */}
+        <ProviderTabs
+          providers={PROVIDER_CONFIGS}
+          activeProvider={activeProvider}
+          onSelectProvider={setActiveProvider}
+        />
 
-          {activeConfig && (
+        {/* Right zone: today's metrics, then a divider, then actions */}
+        {activeConfig && (
+          <div className="flex shrink-0 items-center gap-3">
             <CompactStats
               activeConfig={activeConfig}
               todayCommission={telecomStats.commission}
@@ -917,42 +930,41 @@ export default function MobileRecharge() {
               isAdmin={isAdmin}
               drawerBalance={activeDrawerBalance}
             />
-          )}
-        </div>
 
-        {/* Right: Action Buttons */}
-        {activeConfig && (
-          <div className="flex items-center gap-1">
-            {(activeConfig.formMode === "financial" ||
-              activeConfig.formMode === "crypto" ||
-              activeConfig.formMode === "telecom") && (
-              <button
-                onClick={async () => {
-                  if (activeConfig?.formMode === "telecom") {
-                    await loadRechargeHistory();
-                  }
-                  setShowHistory(true);
-                }}
-                className="px-4 py-2 rounded-lg font-medium text-sm bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 hover:text-white transition-all"
-              >
-                History
-              </button>
-            )}
+            <div className="h-9 w-px bg-slate-700/60" />
 
-            {(activeConfig.key === "MTC" ||
-              activeConfig.key === "Alfa" ||
-              activeConfig.key === "OMT_APP" ||
-              activeConfig.key === "WISH_APP" ||
-              activeConfig.key === "iPick" ||
-              activeConfig.key === "Katsh" ||
-              activeConfig.key === "BINANCE") && (
-              <button
-                onClick={handleTopUpClick}
-                className="px-4 py-2 rounded-lg font-medium text-sm bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 hover:text-white transition-all"
-              >
-                Top-Up
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              {(activeConfig.formMode === "financial" ||
+                activeConfig.formMode === "crypto" ||
+                activeConfig.formMode === "telecom") && (
+                <button
+                  onClick={async () => {
+                    if (activeConfig?.formMode === "telecom") {
+                      await loadRechargeHistory();
+                    }
+                    setShowHistory(true);
+                  }}
+                  className="h-11 px-4 inline-flex items-center rounded-lg font-medium text-sm bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 hover:text-white transition-all"
+                >
+                  History
+                </button>
+              )}
+
+              {(activeConfig.key === "MTC" ||
+                activeConfig.key === "Alfa" ||
+                activeConfig.key === "OMT_APP" ||
+                activeConfig.key === "WISH_APP" ||
+                activeConfig.key === "iPick" ||
+                activeConfig.key === "Katsh" ||
+                activeConfig.key === "BINANCE") && (
+                <button
+                  onClick={handleTopUpClick}
+                  className="h-11 px-4 inline-flex items-center rounded-lg font-medium text-sm bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 hover:text-white transition-all"
+                >
+                  Top-Up
+                </button>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -972,6 +984,7 @@ export default function MobileRecharge() {
             marginAlertThreshold={marginAlertThreshold}
             telecomAmount={telecomAmount}
             setTelecomAmount={setTelecomAmount}
+            onTelecomAmountChange={handleTelecomAmountChange}
             telecomPrice={telecomPrice}
             setTelecomPrice={setTelecomPrice}
             phoneNumber={phoneNumber}
@@ -1007,6 +1020,7 @@ export default function MobileRecharge() {
             setClientName={setClientName}
             voucherItems={mtcVoucherItems}
             alfaCreditCostRate={alfaCreditCostRate}
+            isAdmin={isAdmin}
             onRefreshHistory={loadRechargeHistory}
             onTransactionTimeChange={setTelecomTransactionTime}
           />
@@ -1028,22 +1042,21 @@ export default function MobileRecharge() {
           ) : activeProvider === "WISH_APP" ? (
             // Whish App - Bills (cards) or Transfer (send/receive)
             <>
-              {/* Mode Tabs - DoubleTab Component */}
-              <DoubleTab
-                leftOption={{
-                  id: "bills",
-                  label: "Bills",
-                  iconKey: "FileText",
-                }}
-                rightOption={{
-                  id: "transfer",
-                  label: "Transfer",
-                  iconKey: "ArrowLeftRight",
-                }}
+              {/* Mode Tabs - Bills / Transfer */}
+              <ServiceTypeTabs
+                options={[
+                  { id: "bills", label: "Bills", iconKey: "FileText" },
+                  {
+                    id: "transfer",
+                    label: "Transfer",
+                    iconKey: "ArrowLeftRight",
+                  },
+                ]}
                 value={whishAppMode}
                 onChange={(val) => setWhishAppMode(val as "bills" | "transfer")}
                 accentColor="red"
                 customColor="#ff0a46"
+                size="sm"
                 className="mb-4"
               />
 

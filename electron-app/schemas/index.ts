@@ -141,6 +141,9 @@ export const MaintenanceJobSchema = z.object({
   issue_description: z.string().min(1, "Issue description is required"),
   cost_usd: z.number().nonnegative(),
   price_usd: z.number().nonnegative(),
+  cost_lbp: z.number().nonnegative().optional(),
+  price_lbp: z.number().nonnegative().optional(),
+  currency: z.enum(["USD", "LBP"]).optional().default("USD"),
   client_id: z.number().int().positive().optional().nullable(),
   client_name: z.string().optional().nullable(),
   client_phone: z.string().optional().nullable(),
@@ -153,6 +156,7 @@ export const MaintenanceJobSchema = z.object({
   exchange_rate: z.number().positive().optional(),
   discount_usd: z.number().nonnegative().optional(),
   final_amount_usd: z.number().nonnegative().optional(),
+  final_amount_lbp: z.number().nonnegative().optional(),
   payments: z
     .array(
       z.object({

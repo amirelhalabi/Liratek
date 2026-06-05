@@ -600,6 +600,20 @@ export default function Debts() {
     return null;
   };
 
+  /**
+   * Footer rows in the ledger template carry summed amounts, not real
+   * transactions: column A reads "TOTAL ON ACCOUNT", column F reads
+   * "TOTAL PAID", and below them sit "Balance Remaining" rows. They must
+   * never be imported as debts/payments. Detect them by the marker text in
+   * the row's date/label cell — real entries only ever hold a date there.
+   */
+  const isSummaryRowLabel = (val: unknown): boolean => {
+    const s = String(val ?? "")
+      .toLowerCase()
+      .trim();
+    return s.includes("total") || s.includes("balance");
+  };
+
   const handleImportFile = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
@@ -716,7 +730,10 @@ export default function Debts() {
                 ? leftLbp
                 : parseFloat(String(leftLbp ?? "0").replace(/,/g, "")) || 0;
 
-            if (leftUsdVal > 0 || leftLbpVal > 0) {
+            if (
+              (leftUsdVal > 0 || leftLbpVal > 0) &&
+              !isSummaryRowLabel(leftDate)
+            ) {
               entries.push({
                 date: parseExcelDate(leftDate),
                 amount_usd: leftUsdVal,
@@ -740,7 +757,10 @@ export default function Debts() {
                 ? rightLbp
                 : parseFloat(String(rightLbp ?? "0").replace(/,/g, "")) || 0;
 
-            if (rightUsdVal > 0 || rightLbpVal > 0) {
+            if (
+              (rightUsdVal > 0 || rightLbpVal > 0) &&
+              !isSummaryRowLabel(rightDate)
+            ) {
               entries.push({
                 date: parseExcelDate(rightDate),
                 amount_usd: rightUsdVal,
@@ -813,10 +833,15 @@ export default function Debts() {
 
     if (!matchesSearch) return false;
 
+    // A debt is "ongoing" if EITHER currency still has an outstanding
+    // balance — a client can owe LBP only (USD 0) and must not be hidden.
+    // LBP has no sub-unit, so > 0.5 is effectively >= 1.
+    const hasOutstanding =
+      Math.abs(d.total_debt_usd) > 0.01 || Math.abs(d.total_debt_lbp) > 0.5;
     if (debtFilter === "ongoing") {
-      return Math.abs(d.total_debt_usd) > 0.01;
+      return hasOutstanding;
     } else if (debtFilter === "closed") {
-      return Math.abs(d.total_debt_usd) <= 0.01;
+      return !hasOutstanding;
     }
     return true; // 'all' filter
   });

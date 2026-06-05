@@ -23,6 +23,9 @@ type MaintenanceJob = {
   created_at?: string;
   cost_usd?: number;
   price_usd?: number;
+  cost_lbp?: number;
+  price_lbp?: number;
+  currency?: string;
   client_name?: string | null;
   client_phone?: string | null;
   status: string;
@@ -30,6 +33,7 @@ type MaintenanceJob = {
   paid_lbp?: number;
   discount_usd?: number;
   final_amount_usd?: number;
+  final_amount_lbp?: number;
 };
 
 /** Status tabs for the jobs list (client-side filtered). */
@@ -99,6 +103,8 @@ export default function Maintenance() {
   const [issue, setIssue] = useState("");
   const [cost, setCost] = useState("");
   const [price, setPrice] = useState("");
+  // Active pricing currency for the job ("USD" or "LBP").
+  const [currency, setCurrency] = useState<"USD" | "LBP">("USD");
   const [clientName, setClientName] = useState("");
   const [clientPhone, setClientPhone] = useState("");
   const {
@@ -152,12 +158,49 @@ export default function Maintenance() {
     };
   }, [filter]);
 
+  /**
+   * Build the currency-scoped pricing fields for a save payload.
+   * The unselected currency's columns are zeroed so a job is priced in
+   * exactly one currency at a time.
+   */
+  const buildPricing = (
+    costStr: string,
+    priceStr: string,
+    cur: "USD" | "LBP",
+    finalAmount?: number,
+  ) => {
+    const c = parseFloat(costStr) || 0;
+    const p = parseFloat(priceStr) || 0;
+    const final = finalAmount ?? p;
+    if (cur === "LBP") {
+      return {
+        currency: "LBP" as const,
+        cost_usd: 0,
+        price_usd: 0,
+        cost_lbp: c,
+        price_lbp: p,
+        final_amount_usd: 0,
+        final_amount_lbp: final,
+      };
+    }
+    return {
+      currency: "USD" as const,
+      cost_usd: c,
+      price_usd: p,
+      cost_lbp: 0,
+      price_lbp: 0,
+      final_amount_usd: final,
+      final_amount_lbp: 0,
+    };
+  };
+
   const handleNewJob = () => {
     setEditingJob(null);
     setDeviceName("");
     setIssue("");
     setCost("");
     setPrice("");
+    setCurrency("USD");
     setClientName("");
     setClientPhone("");
     setTransactionTime(undefined);
@@ -165,11 +208,18 @@ export default function Maintenance() {
   };
 
   const handleEdit = (job: MaintenanceJob) => {
+    const cur: "USD" | "LBP" = job.currency === "LBP" ? "LBP" : "USD";
     setEditingJob(job);
     setDeviceName(job.device_name);
     setIssue(job.issue_description);
-    setCost(job.cost_usd?.toString() || "");
-    setPrice(job.price_usd?.toString() || "");
+    setCurrency(cur);
+    if (cur === "LBP") {
+      setCost(job.cost_lbp?.toString() || "");
+      setPrice(job.price_lbp?.toString() || "");
+    } else {
+      setCost(job.cost_usd?.toString() || "");
+      setPrice(job.price_usd?.toString() || "");
+    }
     setClientName(job.client_name || "");
     setClientPhone(job.client_phone || "");
   };
@@ -187,19 +237,24 @@ export default function Maintenance() {
     const newStatus = nextStatus[job.status];
     if (!newStatus || newStatus === job.status) return;
 
+    const cur: "USD" | "LBP" = job.currency === "LBP" ? "LBP" : "USD";
     const result = await api.saveMaintenanceJob({
       id: job.id,
       device_name: job.device_name,
       issue_description: job.issue_description,
+      currency: cur,
       cost_usd: job.cost_usd ?? 0,
       price_usd: job.price_usd ?? 0,
+      cost_lbp: job.cost_lbp ?? 0,
+      price_lbp: job.price_lbp ?? 0,
       client_name: job.client_name || "",
       client_phone: job.client_phone || "",
       status: newStatus,
       paid_usd: job.paid_usd || 0,
       paid_lbp: job.paid_lbp || 0,
       discount_usd: job.discount_usd || 0,
-      final_amount_usd: job.price_usd ?? 0,
+      final_amount_usd: cur === "USD" ? (job.price_usd ?? 0) : 0,
+      final_amount_lbp: cur === "LBP" ? (job.price_lbp ?? 0) : 0,
     });
     if (result.success) {
       const data = await api.getMaintenanceJobs(filter);
@@ -224,15 +279,13 @@ export default function Maintenance() {
       ...(editingJob?.id != null ? { id: editingJob.id } : {}),
       device_name: deviceName,
       issue_description: issue,
-      cost_usd: parseFloat(cost) || 0,
-      price_usd: parseFloat(price) || 0,
+      ...buildPricing(cost, price, currency),
       client_name: clientName,
       client_phone: clientPhone,
       status: (editingJob?.status as Status) || "Received",
       paid_usd: editingJob?.paid_usd || 0,
       paid_lbp: editingJob?.paid_lbp || 0,
       discount_usd: editingJob?.discount_usd || 0,
-      final_amount_usd: parseFloat(price) || 0,
       transaction_time: transactionTime,
     };
 
@@ -249,19 +302,26 @@ export default function Maintenance() {
   const handleCheckoutComplete = async (paymentData: any) => {
     await trySaveAsClient();
 
+    // The checkout total (final_amount/discount) is expressed in the job's
+    // currency — fall back to the form's currency if the modal omitted it.
+    const cur: "USD" | "LBP" =
+      paymentData.currency === "LBP" || paymentData.currency === "USD"
+        ? paymentData.currency
+        : currency;
+
     const jobData = {
       ...(editingJob?.id != null ? { id: editingJob.id } : {}),
       device_name: deviceName,
       issue_description: issue,
-      cost_usd: parseFloat(cost) || 0,
-      price_usd: parseFloat(price) || 0,
+      ...buildPricing(cost, price, cur, paymentData.final_amount),
       ...(paymentData.client_id != null
         ? { client_id: paymentData.client_id }
         : {}),
       client_name: paymentData.client_name || clientName,
       client_phone: paymentData.client_phone || clientPhone,
-      discount_usd: paymentData.discount,
-      final_amount_usd: paymentData.final_amount,
+      // Only USD discounts have a dedicated column; LBP net is captured in
+      // final_amount_lbp.
+      discount_usd: cur === "USD" ? paymentData.discount || 0 : 0,
       paid_usd: paymentData.payment_usd,
       paid_lbp: paymentData.payment_lbp,
       exchange_rate: paymentData.exchange_rate,
@@ -275,13 +335,19 @@ export default function Maintenance() {
 
     // If session is active, add to cart instead of submitting
     if (activeSession) {
-      const label = `Maintenance: ${deviceName || "Device"} - $${(paymentData.final_amount || parseFloat(price) || 0).toFixed(2)}`;
+      const finalAmt =
+        paymentData.final_amount || parseFloat(price) || 0;
+      const amountLabel =
+        cur === "LBP"
+          ? `${Math.round(finalAmt).toLocaleString()} LBP`
+          : `$${finalAmt.toFixed(2)}`;
+      const label = `Maintenance: ${deviceName || "Device"} - ${amountLabel}`;
 
       addToSessionCart({
         module: "maintenance",
         label,
-        amount: paymentData.final_amount || parseFloat(price) || 0,
-        currency: "USD",
+        amount: finalAmt,
+        currency: cur,
         ipcChannel: "maintenance:save",
         formData: jobData,
       });
@@ -419,11 +485,17 @@ export default function Maintenance() {
                           {job.status === "Received" ? "Start" : "Ready"}
                         </button>
                       )}
-                      {(job.price_usd ?? 0) > 0 && (
-                        <span className="text-xs font-mono text-emerald-400">
-                          ${job.price_usd?.toFixed(2)}
-                        </span>
-                      )}
+                      {job.currency === "LBP"
+                        ? (job.price_lbp ?? 0) > 0 && (
+                            <span className="text-xs font-mono text-emerald-400">
+                              {(job.price_lbp ?? 0).toLocaleString()} LBP
+                            </span>
+                          )
+                        : (job.price_usd ?? 0) > 0 && (
+                            <span className="text-xs font-mono text-emerald-400">
+                              ${job.price_usd?.toFixed(2)}
+                            </span>
+                          )}
                       <ChevronRight size={14} className="text-slate-600" />
                     </button>
                   );
@@ -476,48 +548,84 @@ export default function Maintenance() {
               />
             </div>
 
-            {/* Cost & Price */}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label
-                  htmlFor="maintenance-cost"
-                  className="text-xs text-slate-400 block mb-1"
-                >
-                  Repair Cost
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm">
-                    $
-                  </span>
-                  <input
-                    id="maintenance-cost"
-                    type="number"
-                    value={cost}
-                    onChange={(e) => setCost(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-600 rounded-lg pl-7 pr-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-orange-500"
-                    placeholder="0.00"
-                  />
+            {/* Cost & Price — single currency (USD/LBP toggle) */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-xs text-slate-400">Repair Cost / Price</span>
+                {/* Currency toggle */}
+                <div className="flex items-center gap-1 bg-slate-900 rounded-lg border border-slate-600 p-0.5">
+                  {(["USD", "LBP"] as const).map((cur) => (
+                    <button
+                      key={cur}
+                      type="button"
+                      onClick={() => {
+                        if (cur === currency) return;
+                        setCurrency(cur);
+                        // One currency at a time — clear amounts on switch.
+                        setCost("");
+                        setPrice("");
+                      }}
+                      className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all ${
+                        currency === cur
+                          ? "bg-violet-600 text-white"
+                          : "text-slate-400 hover:text-slate-200"
+                      }`}
+                    >
+                      {cur}
+                    </button>
+                  ))}
                 </div>
               </div>
-              <div>
-                <label
-                  htmlFor="maintenance-price"
-                  className="text-xs text-emerald-400 block mb-1"
-                >
-                  Price to Client
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-500 text-sm">
-                    $
-                  </span>
-                  <input
-                    id="maintenance-price"
-                    type="number"
-                    value={price}
-                    onChange={(e) => setPrice(e.target.value)}
-                    className="w-full bg-slate-900 border border-emerald-500/50 rounded-lg pl-7 pr-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-emerald-500"
-                    placeholder="0.00"
-                  />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label
+                    htmlFor="maintenance-cost"
+                    className="text-[10px] text-slate-500 block mb-1 uppercase"
+                  >
+                    Repair Cost ({currency})
+                  </label>
+                  <div className="relative">
+                    {currency === "USD" && (
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm">
+                        $
+                      </span>
+                    )}
+                    <input
+                      id="maintenance-cost"
+                      type="number"
+                      value={cost}
+                      onChange={(e) => setCost(e.target.value)}
+                      className={`w-full bg-slate-900 border border-slate-600 rounded-lg ${currency === "USD" ? "pl-7" : "pl-3"} pr-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-orange-500`}
+                      placeholder={currency === "USD" ? "0.00" : "0"}
+                      min="0"
+                      step={currency === "USD" ? "0.01" : "1000"}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label
+                    htmlFor="maintenance-price"
+                    className="text-[10px] text-emerald-400 block mb-1 uppercase"
+                  >
+                    Price to Client ({currency})
+                  </label>
+                  <div className="relative">
+                    {currency === "USD" && (
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-500 text-sm">
+                        $
+                      </span>
+                    )}
+                    <input
+                      id="maintenance-price"
+                      type="number"
+                      value={price}
+                      onChange={(e) => setPrice(e.target.value)}
+                      className={`w-full bg-slate-900 border border-emerald-500/50 rounded-lg ${currency === "USD" ? "pl-7" : "pl-3"} pr-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-emerald-500`}
+                      placeholder={currency === "USD" ? "0.00" : "0"}
+                      min="0"
+                      step={currency === "USD" ? "0.01" : "1000"}
+                    />
+                  </div>
                 </div>
               </div>
             </div>
@@ -592,6 +700,7 @@ export default function Maintenance() {
         <div className="fixed inset-0 z-[60]">
           <CheckoutModal
             totalAmount={parseFloat(price) || 0}
+            currency={currency}
             onClose={() => setIsCheckoutOpen(false)}
             onComplete={handleCheckoutComplete}
             onSaveDraft={async (data) => {
