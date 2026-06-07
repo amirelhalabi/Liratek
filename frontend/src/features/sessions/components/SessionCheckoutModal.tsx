@@ -5,14 +5,14 @@ import {
   AlertTriangle,
   CheckCircle,
   Loader2,
-  ChevronDown,
 } from "lucide-react";
 import logger from "@/utils/logger";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
-import { appEvents } from "@liratek/ui";
+import { appEvents, MultiPaymentInput, type PaymentLine } from "@liratek/ui";
 import { useSession } from "../context/SessionContext";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
+import { useExchangeRate } from "@/hooks/useExchangeRate";
 import type { CartItem } from "../types/cart";
 
 interface SessionCheckoutModalProps {
@@ -195,6 +195,24 @@ function formatAmount(amount: number, currency: string): string {
   return `$${Math.abs(amount).toFixed(2)}`;
 }
 
+/**
+ * Determine the initial payment method for MultiPaymentInput.
+ * Returns "CUSTOMER_ACCOUNT" when a client is in session and the method is available,
+ * otherwise "CASH".
+ */
+function resolveInitialMethod(
+  hasClient: boolean,
+  methods: Array<{ code: string }>,
+): string {
+  if (
+    hasClient &&
+    methods.some((m) => m.code === "CUSTOMER_ACCOUNT")
+  ) {
+    return "CUSTOMER_ACCOUNT";
+  }
+  return "CASH";
+}
+
 export function SessionCheckoutModal({
   isOpen,
   onClose,
@@ -209,6 +227,7 @@ export function SessionCheckoutModal({
   } = useSession();
   const { user } = useAuth();
   const { allMethods } = usePaymentMethods();
+  const { rate: exchangeRate } = useExchangeRate("USD", "LBP");
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -226,6 +245,31 @@ export function SessionCheckoutModal({
   const [voucherFeedback, setVoucherFeedback] = useState<
     Record<string, { status: "loading" | "ok" | "error"; message: string }>
   >({});
+
+  // ── MultiPaymentInput state ──────────────────────────────────────────────
+  // Payment legs emitted by MultiPaymentInput for USD totals
+  const [usdPaymentLines, setUsdPaymentLines] = useState<PaymentLine[]>([]);
+  // Payment legs emitted by MultiPaymentInput for LBP totals
+  const [lbpPaymentLines, setLbpPaymentLines] = useState<PaymentLine[]>([]);
+
+  // Key used to force-remount MultiPaymentInput when client context changes
+  const [paymentInputKey, setPaymentInputKey] = useState(0);
+
+  // Whether the session has a named client (drives CUSTOMER_ACCOUNT auto-select)
+  const hasClient = !!(activeSession?.customer_name);
+
+  // Initial method for MultiPaymentInput — recomputed when methods load or client changes
+  const initialMethod = useMemo(
+    () => resolveInitialMethod(hasClient, allMethods),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [hasClient, allMethods.map((m) => m.code).join(",")],
+  );
+
+  // Remount MultiPaymentInput whenever initialMethod or cart totals change so
+  // the first line tracks the current state correctly.
+  useEffect(() => {
+    setPaymentInputKey((k) => k + 1);
+  }, [initialMethod]);
 
   const validateItemVoucher = useCallback(async (itemId: string, code: string) => {
     const normalized = code.trim().toUpperCase();
@@ -270,7 +314,7 @@ export function SessionCheckoutModal({
     }
   }, [isOpen, cartItems]);
 
-  const totals = useMemo(() => getCartTotals(), [cartItems, getCartTotals]);
+  const totals = useMemo(() => getCartTotals(), [getCartTotals]);
 
   // Group items by module for display
   const groupedItems = useMemo(() => {
@@ -290,16 +334,70 @@ export function SessionCheckoutModal({
     [],
   );
 
-  const handleBulkSetAll = useCallback(
-    (method: string) => {
-      const updated: Record<string, string> = {};
-      for (const item of cartItems) {
-        updated[item.id] = method;
-      }
-      setItemPaymentMethods(updated);
-    },
-    [cartItems],
+  // Currency configs for MultiPaymentInput
+  const currencies = [
+    { code: "USD", symbol: "$" },
+    { code: "LBP", symbol: "LBP" },
+  ];
+
+  // Payment methods typed as required by MultiPaymentInput
+  const paymentMethodOptions = allMethods.map((m) => ({
+    code: m.code,
+    label: m.label,
+  }));
+
+  // Derive combined payment legs from both MultiPaymentInput instances
+  const allPaymentLegs: Array<{ method: string; currency_code: string; amount: number }> =
+    useMemo(() => {
+      const usdLegs = usdPaymentLines.map((l) => ({
+        method: l.method,
+        currency_code: l.currencyCode,
+        amount: l.amount,
+      }));
+      const lbpLegs = lbpPaymentLines.map((l) => ({
+        method: l.method,
+        currency_code: l.currencyCode,
+        amount: l.amount,
+      }));
+      return [...usdLegs, ...lbpLegs];
+    }, [usdPaymentLines, lbpPaymentLines]);
+
+  // Primary method is the first non-zero leg's method, or CASH as fallback
+  const primaryMethod = allPaymentLegs.find((l) => l.amount > 0)?.method ?? "CASH";
+
+  // Validate payment totals are covered
+  const usdPaymentTolerance = 0.01;
+  const lbpPaymentTolerance = 100;
+
+  const usdPaid = useMemo(
+    () =>
+      usdPaymentLines.reduce((sum, l) => {
+        if (l.currencyCode === "USD") return sum + (l.amount || 0);
+        if (l.currencyCode === "LBP") return sum + (l.amount || 0) / exchangeRate;
+        return sum;
+      }, 0),
+    [usdPaymentLines, exchangeRate],
   );
+
+  const lbpPaid = useMemo(
+    () =>
+      lbpPaymentLines.reduce((sum, l) => {
+        if (l.currencyCode === "LBP") return sum + (l.amount || 0);
+        if (l.currencyCode === "USD") return sum + (l.amount || 0) * exchangeRate;
+        return sum;
+      }, 0),
+    [lbpPaymentLines, exchangeRate],
+  );
+
+  const isUsdCovered =
+    totals.usd <= 0 ||
+    Math.abs(usdPaid - totals.usd) <= usdPaymentTolerance;
+
+  const isLbpCovered =
+    totals.lbp <= 0 ||
+    Math.abs(lbpPaid - totals.lbp) <= lbpPaymentTolerance;
+
+  const isPaymentValid = isUsdCovered && isLbpCovered;
 
   if (!isOpen || !activeSession) return null;
 
@@ -311,6 +409,11 @@ export function SessionCheckoutModal({
 
     if (cartItems.length === 0) {
       setError("Cart is empty");
+      return;
+    }
+
+    if (!isPaymentValid) {
+      setError("Payment total does not match cart total");
       return;
     }
 
@@ -359,14 +462,11 @@ export function SessionCheckoutModal({
         };
       });
 
-      // Use the first item's payment method as the fallback paidByMethod
-      const primaryMethod = itemPaymentMethods[cartItems[0]?.id] || "CASH";
-
       const result = await window.api.session.checkout({
         sessionId: activeSession.id,
         cartItems: updatedCartItems,
         paidByMethod: primaryMethod,
-        payments: [],
+        payments: allPaymentLegs,
         userId: user.id,
       });
 
@@ -399,7 +499,7 @@ export function SessionCheckoutModal({
       <div className="absolute inset-0 bg-black/70" onClick={onClose} />
 
       {/* Modal */}
-      <div className="relative bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden">
+      <div className="relative bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700/50">
           <div className="flex items-center gap-3">
@@ -427,35 +527,6 @@ export function SessionCheckoutModal({
 
         {/* Body — scrollable */}
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-          {/* Bulk Payment Method */}
-          <div className="flex items-center justify-between bg-slate-800/50 border border-slate-700/40 rounded-lg px-3 py-2">
-            <span className="text-xs font-medium text-slate-400">
-              Set all items to:
-            </span>
-            <div className="relative">
-              <select
-                onChange={(e) => {
-                  if (e.target.value) {
-                    handleBulkSetAll(e.target.value);
-                    e.target.value = "";
-                  }
-                }}
-                defaultValue=""
-                className="appearance-none bg-slate-700 border border-slate-600 text-slate-200 text-xs font-medium rounded-md px-3 py-1.5 pr-7 cursor-pointer hover:bg-slate-600 transition-colors focus:outline-none focus:ring-1 focus:ring-violet-500"
-              >
-                <option value="" disabled>
-                  Choose...
-                </option>
-                {allMethods.map((m) => (
-                  <option key={m.code} value={m.code}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
-            </div>
-          </div>
-
           {/* Cart Items with Per-Item Payment Method */}
           <div className="space-y-3">
             <h3 className="text-sm font-medium text-slate-300">Cart Items</h3>
@@ -490,25 +561,22 @@ export function SessionCheckoutModal({
                           </span>
                           <div className="flex items-center gap-2 shrink-0">
                             {/* Per-item payment method dropdown */}
-                            <div className="relative">
-                              <select
-                                value={selectedMethod}
-                                onChange={(e) =>
-                                  handleItemMethodChange(
-                                    item.id,
-                                    e.target.value,
-                                  )
-                                }
-                                className="appearance-none bg-slate-700 border border-slate-600 text-xs font-medium rounded-md px-2 py-1 pr-6 cursor-pointer hover:bg-slate-600 transition-colors focus:outline-none focus:ring-1 focus:ring-violet-500 text-slate-200"
-                              >
-                                {methodOptions.map((m) => (
-                                  <option key={m.code} value={m.code}>
-                                    {m.label}
-                                  </option>
-                                ))}
-                              </select>
-                              <ChevronDown className="absolute right-1 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400 pointer-events-none" />
-                            </div>
+                            <select
+                              value={selectedMethod}
+                              onChange={(e) =>
+                                handleItemMethodChange(
+                                  item.id,
+                                  e.target.value,
+                                )
+                              }
+                              className="appearance-none bg-slate-700 border border-slate-600 text-xs font-medium rounded-md px-2 py-1 cursor-pointer hover:bg-slate-600 transition-colors focus:outline-none focus:ring-1 focus:ring-violet-500 text-slate-200"
+                            >
+                              {methodOptions.map((m) => (
+                                <option key={m.code} value={m.code}>
+                                  {m.label}
+                                </option>
+                              ))}
+                            </select>
                             {/* Amount */}
                             <span
                               className={`text-sm font-mono whitespace-nowrap min-w-[5rem] text-right ${
@@ -564,36 +632,65 @@ export function SessionCheckoutModal({
             ))}
           </div>
 
-          {/* Totals */}
-          <div className="bg-slate-800/50 border border-slate-700/40 rounded-lg p-3 space-y-1">
-            <h3 className="text-sm font-medium mb-2 text-emerald-400">
-              Cart Totals
-            </h3>
-            {totals.usd !== 0 && (
+          {/* MultiPaymentInput — USD */}
+          {totals.usd > 0 && (
+            <div className="space-y-1">
+              <h3 className="text-sm font-medium text-slate-300">
+                USD Payment
+              </h3>
+              <MultiPaymentInput
+                key={`usd-${paymentInputKey}`}
+                totalAmount={totals.usd}
+                currency="USD"
+                totalAmountCurrency="USD"
+                onChange={setUsdPaymentLines}
+                requiresClientForDebt={true}
+                hasClient={hasClient}
+                paymentMethods={paymentMethodOptions}
+                currencies={currencies}
+                exchangeRate={exchangeRate}
+                showDiscount={false}
+                label="USD Payment"
+                initialMethod={initialMethod}
+              />
+            </div>
+          )}
+
+          {/* MultiPaymentInput — LBP */}
+          {totals.lbp > 0 && (
+            <div className="space-y-1">
+              <h3 className="text-sm font-medium text-slate-300">
+                LBP Payment
+              </h3>
+              <MultiPaymentInput
+                key={`lbp-${paymentInputKey}`}
+                totalAmount={totals.lbp}
+                currency="LBP"
+                totalAmountCurrency="LBP"
+                onChange={setLbpPaymentLines}
+                requiresClientForDebt={true}
+                hasClient={hasClient}
+                paymentMethods={paymentMethodOptions}
+                currencies={currencies}
+                exchangeRate={exchangeRate}
+                showDiscount={false}
+                label="LBP Payment"
+                initialMethod={initialMethod}
+              />
+            </div>
+          )}
+
+          {/* USDT totals (display only — no MultiPaymentInput for USDT) */}
+          {totals.usdt !== 0 && (
+            <div className="bg-slate-800/50 border border-slate-700/40 rounded-lg p-3">
               <div className="flex justify-between text-sm">
-                <span className="text-slate-400">USD</span>
-                <span className="font-mono text-emerald-400">
-                  ${totals.usd.toFixed(2)}
-                </span>
-              </div>
-            )}
-            {totals.lbp !== 0 && (
-              <div className="flex justify-between text-sm">
-                <span className="text-slate-400">LBP</span>
-                <span className="font-mono text-blue-400">
-                  {totals.lbp.toLocaleString()} LBP
-                </span>
-              </div>
-            )}
-            {totals.usdt !== 0 && (
-              <div className="flex justify-between text-sm">
-                <span className="text-slate-400">USDT</span>
+                <span className="text-slate-400">USDT Total</span>
                 <span className="font-mono text-yellow-400">
                   {totals.usdt.toFixed(2)} USDT
                 </span>
               </div>
-            )}
-          </div>
+            </div>
+          )}
 
           {/* Error Display */}
           {error && (
@@ -615,7 +712,7 @@ export function SessionCheckoutModal({
           </button>
           <button
             onClick={handleCheckout}
-            disabled={isProcessing || cartItems.length === 0}
+            disabled={isProcessing || cartItems.length === 0 || !isPaymentValid}
             className="flex-1 py-2.5 rounded-lg font-semibold text-sm text-white bg-emerald-600 hover:bg-emerald-500 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {isProcessing ? (
