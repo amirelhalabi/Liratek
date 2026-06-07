@@ -686,18 +686,6 @@ export default function MultiPaymentInput({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [returnLegsKey]);
 
-  /** Format a value in an explicit currency (used for the return amount). */
-  const fmtInCurrency = (v: number, ccy: string): string => {
-    const decimals = ccy === "LBP" ? 0 : 2;
-    const sym = getSymbol(ccy);
-    const parts = Math.abs(v).toFixed(decimals).split(".");
-    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-    const formatted = parts.join(".");
-    return ["$", "€", "£"].includes(sym)
-      ? `${sym}${formatted}`
-      : `${formatted} ${sym}`;
-  };
-
   // Summary formatting helpers — in single mode, display in the line's currency
   const displayCurrency =
     !isSplitMode && paymentLines.length === 1
