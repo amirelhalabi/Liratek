@@ -89,22 +89,45 @@ const SETTLEMENT_METHODS = [
   { value: "CLIENT_ACCOUNT", label: "Client Account" },
 ];
 
-const TRANSACTION_TYPES = [
-  { value: "ADJUSTMENT", label: "Adjustment" },
-  { value: "SETTLEMENT", label: "Settlement" },
-  { value: "OMT_SEND", label: "OMT Send (legacy)" },
-  { value: "OMT_RECEIVE", label: "OMT Receive (legacy)" },
-  { value: "WHISH_SEND", label: "Whish Send (legacy)" },
-  { value: "WHISH_RECEIVE", label: "Whish Receive (legacy)" },
-  { value: "THROUGH_OMT_SEND", label: "Through Partner – OMT Send" },
-  { value: "THROUGH_OMT_RECEIVE", label: "Through Partner – OMT Receive" },
-  { value: "THROUGH_WHISH_SEND", label: "Through Partner – Whish Send" },
-  { value: "THROUGH_WHISH_RECEIVE", label: "Through Partner – Whish Receive" },
-  { value: "FOR_OMT_SEND", label: "For Partner – OMT Send" },
-  { value: "FOR_OMT_RECEIVE", label: "For Partner – OMT Receive" },
-  { value: "FOR_WHISH_SEND", label: "For Partner – Whish Send" },
-  { value: "FOR_WHISH_RECEIVE", label: "For Partner – Whish Receive" },
-  { value: "CUSTOM_SERVICE", label: "Custom Service" },
+/**
+ * Manual "Record Transaction" types — LIRA-051.
+ *
+ * Grouped logically for readability. Only the plain types below are accepted by
+ * the manual record path (handler `RecordTransactionInput` / backend
+ * `CreateLedgerEntryData`). The `THROUGH_*` / `FOR_*` variants are written
+ * automatically by real OMT/Whish transactions (FinancialServiceRepository) and
+ * are intentionally NOT offered here — historical entries of those types still
+ * display correctly in the ledger table (see LedgerRow).
+ */
+const TRANSACTION_TYPE_GROUPS: {
+  label: string;
+  options: { value: string; label: string }[];
+}[] = [
+  {
+    label: "General",
+    options: [
+      { value: "ADJUSTMENT", label: "Adjustment" },
+      { value: "SETTLEMENT", label: "Settlement" },
+    ],
+  },
+  {
+    label: "OMT",
+    options: [
+      { value: "OMT_SEND", label: "OMT Send" },
+      { value: "OMT_RECEIVE", label: "OMT Receive" },
+    ],
+  },
+  {
+    label: "Whish",
+    options: [
+      { value: "WHISH_SEND", label: "Whish Send" },
+      { value: "WHISH_RECEIVE", label: "Whish Receive" },
+    ],
+  },
+  {
+    label: "Other",
+    options: [{ value: "CUSTOM_SERVICE", label: "Custom Service" }],
+  },
 ];
 
 // ─── Modal shell ──────────────────────────────────────────────────────────────
@@ -501,10 +524,14 @@ function RecordTxModal({ partner, onClose, onRecorded }: RecordTxModalProps) {
             onChange={(e) => setTxType(e.target.value)}
             className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
           >
-            {TRANSACTION_TYPES.map((t) => (
-              <option key={t.value} value={t.value}>
-                {t.label}
-              </option>
+            {TRANSACTION_TYPE_GROUPS.map((group) => (
+              <optgroup key={group.label} label={group.label}>
+                {group.options.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
+                ))}
+              </optgroup>
             ))}
           </select>
         </div>

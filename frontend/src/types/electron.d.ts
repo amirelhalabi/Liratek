@@ -77,17 +77,36 @@ export interface Partner {
   updated_at: string;
 }
 
+/**
+ * All `partner_ledger.transaction_type` values that may be returned for display.
+ *
+ * Plain types + SETTLEMENT/ADJUSTMENT/CUSTOM_SERVICE are recordable manually
+ * (see Partners "Record Transaction"). The `THROUGH_*` / `FOR_*` variants are
+ * written automatically by real OMT/Whish transactions (LIRA-047) and remain
+ * here so historical ledger rows stay type-safe even though they are no longer
+ * offered in the manual dropdown (LIRA-051).
+ */
+export type PartnerTransactionType =
+  | "OMT_SEND"
+  | "OMT_RECEIVE"
+  | "WHISH_SEND"
+  | "WHISH_RECEIVE"
+  | "THROUGH_OMT_SEND"
+  | "THROUGH_OMT_RECEIVE"
+  | "THROUGH_WHISH_SEND"
+  | "THROUGH_WHISH_RECEIVE"
+  | "FOR_OMT_SEND"
+  | "FOR_OMT_RECEIVE"
+  | "FOR_WHISH_SEND"
+  | "FOR_WHISH_RECEIVE"
+  | "CUSTOM_SERVICE"
+  | "SETTLEMENT"
+  | "ADJUSTMENT";
+
 export interface PartnerLedgerEntry {
   id: number;
   partner_id: number;
-  transaction_type:
-    | "OMT_SEND"
-    | "OMT_RECEIVE"
-    | "WHISH_SEND"
-    | "WHISH_RECEIVE"
-    | "CUSTOM_SERVICE"
-    | "SETTLEMENT"
-    | "ADJUSTMENT";
+  transaction_type: PartnerTransactionType;
   reference_table: string | null;
   reference_id: number | null;
   amount: number;
