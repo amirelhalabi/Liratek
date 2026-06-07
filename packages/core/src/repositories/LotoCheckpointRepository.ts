@@ -238,7 +238,12 @@ export class LotoCheckpointRepository {
     _totalCashPrizes: number, // DEPRECATED — read from checkpoint instead
     settledAt: string | undefined,
     userId: number,
-    payments?: Array<{ method: string; currency_code: string; amount: number }>,
+    payments?: Array<{
+      method: string;
+      currency_code: string;
+      amount: number;
+      direction?: "IN" | "OUT";
+    }>,
   ): LotoCheckpoint {
     const settleInTxn = this.db.transaction(() => {
       const settledDate = settledAt || new Date().toISOString();
@@ -342,6 +347,8 @@ export class LotoCheckpointRepository {
           VALUES (?, ?, ?, ?, ?, ?, ?)
         `);
         for (const p of payments) {
+          // OUT legs (returned change) are not part of a supplier settlement.
+          if (p.direction === "OUT") continue;
           if (!isDrawerAffectingMethod(p.method)) continue;
           const drawerName = paymentMethodToDrawerName(p.method);
           insertPayment.run(

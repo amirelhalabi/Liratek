@@ -68,12 +68,53 @@ export function paymentMethodToDrawerName(method: string): string {
 }
 
 /**
+ * Direction of a payment leg.
+ * - IN  → customer pays the shop (credits a drawer / uses account credit).
+ * - OUT → shop returns change to the customer (debits a drawer / issues store credit).
+ * Legs without an explicit direction are treated as IN (backward compatible).
+ */
+export type PaymentDirection = "IN" | "OUT";
+
+/** Minimal shape shared by all payment-leg variants across the codebase. */
+interface DirectionedLeg {
+  direction?: PaymentDirection;
+}
+
+/** A leg is a return (OUT) only when explicitly marked; default is IN. */
+export function isReturnLeg(leg: DirectionedLeg): boolean {
+  return leg.direction === "OUT";
+}
+
+/**
+ * Split a payment array into customer-paid IN legs and shop-returned OUT legs.
+ * Legs with no `direction` default to IN, so existing callers are unaffected.
+ */
+export function partitionLegs<T extends DirectionedLeg>(
+  payments: T[] | undefined | null,
+): { inLegs: T[]; outLegs: T[] } {
+  if (!payments || payments.length === 0) return { inLegs: [], outLegs: [] };
+  const inLegs: T[] = [];
+  const outLegs: T[] = [];
+  for (const leg of payments) {
+    if (isReturnLeg(leg)) outLegs.push(leg);
+    else inLegs.push(leg);
+  }
+  return { inLegs, outLegs };
+}
+
+/**
  * Sum CUSTOMER_ACCOUNT payment lines by currency.
  * Used to validate that a client has enough credit before persisting a transaction.
+ * Only IN legs consume credit — an OUT CUSTOMER_ACCOUNT leg is a store-credit deposit.
  */
 export function sumCustomerAccountByCurrency(
   payments:
-    | Array<{ method: string; currencyCode: string; amount: number }>
+    | Array<{
+        method: string;
+        currencyCode: string;
+        amount: number;
+        direction?: PaymentDirection;
+      }>
     | undefined
     | null,
 ): { usd: number; lbp: number } {
@@ -82,6 +123,7 @@ export function sumCustomerAccountByCurrency(
   let lbp = 0;
   for (const line of payments) {
     if (line.method !== "CUSTOMER_ACCOUNT") continue;
+    if (isReturnLeg(line)) continue;
     if (line.currencyCode === "USD") usd += line.amount;
     else if (line.currencyCode === "LBP") lbp += line.amount;
   }

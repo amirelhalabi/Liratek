@@ -467,7 +467,7 @@ export function FinancialForm({
 
   return (
     <>
-      <div className="flex flex-col gap-5 flex-1 min-h-0">
+      <div className="flex flex-col gap-3">
         {/* Header with SEND/RECEIVE Tabs - hidden for Whish App and MTC */}
         {activeProvider !== "WISH_APP" && activeProvider !== "MTC" && (
           <div className="flex items-center justify-between gap-3">
@@ -500,35 +500,61 @@ export function FinancialForm({
           </div>
         )}
 
-        {/* Search Bar - only for providers with items */}
-        {(activeProvider === "iPick" ||
-          activeProvider === "Katsh" ||
-          activeProvider === "WISH_APP") && (
-          <div className="relative">
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={`Search ${activeProvider === "iPick" ? "iPick" : activeProvider === "Katsh" ? "Katsh" : "Whish App"} items...`}
-              className="w-full px-4 py-2.5 pl-10 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500/50 transition-all"
-            />
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery("")}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
-                aria-label="Clear search"
-                type="button"
-              >
-                <X className="w-4 h-4" />
-              </button>
+        {/* Sticky top row: Search + Proceed to Pay — never scrolls away */}
+        <div className="sticky top-0 z-10 flex items-center gap-3 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 pb-1">
+          {(activeProvider === "iPick" ||
+            activeProvider === "Katsh" ||
+            activeProvider === "WISH_APP") && (
+            <div className="relative flex-1">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder={`Search ${activeProvider === "iPick" ? "iPick" : activeProvider === "Katsh" ? "Katsh" : "Whish App"} items...`}
+                className="w-full px-4 py-2.5 pl-10 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500/50 transition-all"
+              />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+                  aria-label="Clear search"
+                  type="button"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          )}
+          <div className="flex items-center gap-2 ml-auto shrink-0">
+            {totalItems > 0 && (
+              <div className="text-right leading-tight">
+                <div className="text-xs text-white font-bold">{totalItems} items</div>
+                <div className="text-xs text-emerald-400 font-mono font-semibold">{totalPrice.toLocaleString()} LBP</div>
+              </div>
             )}
+            <button
+              type="button"
+              onClick={() => setShowPaymentSheet(true)}
+              disabled={totalItems === 0}
+              className={`px-4 py-2.5 rounded-lg font-bold text-sm transition-all whitespace-nowrap ${
+                totalItems === 0
+                  ? "bg-slate-600 text-slate-400 cursor-not-allowed"
+                  : activeProvider === "WISH_APP"
+                    ? "bg-[#ff0a46] hover:bg-[#ff0a46]/80 text-white shadow-lg shadow-[#ff0a46]/20"
+                    : activeProvider === "OMT_APP"
+                      ? "bg-[#ffde00] hover:bg-[#ffde00]/80 text-black shadow-lg shadow-[#ffde00]/20"
+                      : "bg-violet-600 hover:bg-violet-500 text-white shadow-lg shadow-violet-500/20"
+              }`}
+            >
+              {activeSession ? "Add to Cart" : "Proceed to Pay"}
+            </button>
           </div>
-        )}
+        </div>
 
         {/* Card Grid - hidden for OMT_APP (no items) */}
         {activeProvider !== "OMT_APP" && (
-          <div className="flex-1 min-h-0 overflow-auto space-y-6 pb-2">
+          <div className="space-y-6 pb-2">
             {categories.map((category) => {
               const categoryItems = getServiceItems(
                 activeProvider as ProviderKey,
@@ -764,38 +790,6 @@ export function FinancialForm({
             </div>
           </div>
         )}
-
-        {/* Sticky Bottom Trigger Bar */}
-        <div className="shrink-0 bg-slate-800/95 backdrop-blur-sm rounded-xl border border-slate-700/50 p-3 shadow-2xl">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="text-xs text-slate-400">
-                Items:{" "}
-                <span className="text-white font-bold">{totalItems}</span>
-                <span className="text-slate-600 mx-1">·</span>
-                <span className="text-emerald-400 font-mono font-semibold">
-                  {totalPrice.toLocaleString()} LBP
-                </span>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setShowPaymentSheet(true)}
-              disabled={totalItems === 0}
-              className={`px-5 py-2.5 rounded-lg font-bold text-sm transition-all ${
-                totalItems === 0
-                  ? "bg-slate-600 text-slate-400 cursor-not-allowed"
-                  : activeProvider === "WISH_APP"
-                    ? "bg-[#ff0a46] hover:bg-[#ff0a46]/80 text-white shadow-lg shadow-[#ff0a46]/20"
-                    : activeProvider === "OMT_APP"
-                      ? "bg-[#ffde00] hover:bg-[#ffde00]/80 text-black shadow-lg shadow-[#ffde00]/20"
-                      : "bg-violet-600 hover:bg-violet-500 text-white shadow-lg shadow-violet-500/20"
-              }`}
-            >
-              {activeSession ? "Add to Cart" : "Proceed to Pay"}
-            </button>
-          </div>
-        </div>
 
         <PaymentSheet
           open={showPaymentSheet}

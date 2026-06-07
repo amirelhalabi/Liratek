@@ -77,6 +77,7 @@ interface TelecomFormProps {
   /** Admin sees cost + profit margin on gift/voucher cards. */
   isAdmin?: boolean;
   onDiscountChange?: (discount: number) => void;
+  onReturnChange?: (returnLegs: PaymentLine[]) => void;
   /** Called after a successful metadata edit to reload the history list */
   onRefreshHistory?: () => void;
   onTransactionTimeChange?: (time: string | undefined) => void;
@@ -132,6 +133,7 @@ export function TelecomForm({
   alfaCreditCostRate = 85000,
   isAdmin = false,
   onDiscountChange,
+  onReturnChange,
   onRefreshHistory,
   onTransactionTimeChange,
 }: TelecomFormProps) {
@@ -563,6 +565,7 @@ export function TelecomForm({
                 }
               }}
               onDiscountChange={handleDiscountChange}
+              {...(onReturnChange ? { onReturnChange } : {})}
               hasClient={!!telecomClientId}
               paymentInputKey={paymentInputKey}
               initialPaymentMethod={initialPaymentMethod}

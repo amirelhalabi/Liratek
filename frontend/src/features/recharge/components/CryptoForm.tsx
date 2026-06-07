@@ -36,6 +36,7 @@ interface CryptoFormProps {
   setShowHistory: (show: boolean) => void;
   paymentMethods: Array<{ code: string; label: string; drawer_name?: string }>;
   onPaymentLinesChange: (lines: PaymentLine[]) => void;
+  onReturnChange?: (returnLegs: PaymentLine[]) => void;
   onDiscountChange?: (discount: number) => void;
   exchangeRate: number;
   onTransactionTimeChange?: (time: string | undefined) => void;
@@ -65,6 +66,7 @@ export function CryptoForm({
   setShowHistory,
   paymentMethods,
   onPaymentLinesChange,
+  onReturnChange,
   onDiscountChange,
   exchangeRate,
   onTransactionTimeChange,
@@ -376,6 +378,7 @@ export function CryptoForm({
         paymentInputKey={paymentInputKey}
         initialPaymentMethod={initialPaymentMethod}
         onPaymentChange={onPaymentLinesChange}
+        {...(onReturnChange ? { onReturnChange } : {})}
       >
         {cryptoClientName.trim() &&
           cryptoClientPhone.trim() &&

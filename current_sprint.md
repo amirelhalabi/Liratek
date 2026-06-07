@@ -1,550 +1,353 @@
 # LiraTek POS — Current Sprint
 
-> **Sprint Focus:** Exchange Rate System, OMT/Whish fixes, Sell Prices, Cashout Parity & Base System  
-> **Created:** 2026-04-23  
-> **Last Updated:** 2026-05-23  
+> **Sprint Focus:** UI Consistency, Binance Fixes, Whish App UX, Transaction Enrichment & Session Checkout
+> **Created:** 2026-06-07
+> **Last Updated:** 2026-06-07
 > **Status Legend:** `TODO` | `IN PROGRESS` | `DONE` | `BLOCKED`
 
 ---
 
-## LIRA-047: Reverse Partner Flow — Partner Requests Transactions Through Our System (Highest Priority)
+## LIRA-048: Exchange Page — Show Dual USD/LBP Output Fields
 
-| Field                | Value                                                  |
-| -------------------- | ------------------------------------------------------ |
-| **Epic**             | Partner System                                         |
-| **Type**             | Feature                                                |
-| **Priority**         | Highest                                                |
-| **Status**           | IN PROGRESS                                            |
-| **Affected Modules** | OMT/Whish Services, Partners, Partner Ledger, Settings |
-| **Assigned To**      | —                                                      |
-| **Depends On**       | LIRA-037 (DONE), LIRA-045 (DONE), LIRA-046 (DONE)      |
-
----
+| Field                | Value                                    |
+| -------------------- | ---------------------------------------- |
+| **Epic**             | UI Consistency                           |
+| **Type**             | Feature / UX                             |
+| **Priority**         | High                                     |
+| **Status**           | TODO                                     |
+| **Affected Modules** | Exchange                                 |
+| **Assigned To**      | —                                        |
+| **Depends On**       | —                                        |
 
 ### Summary
 
-Allow partners to request transactions through **our** system. Currently partners are only used when **we** do transactions through **their** system ("through partner"). The new flow is the reverse: partner calls us to do a txn on our system on their behalf ("for partner").
+Currently the Exchange page shows a single "Customer Gets" field displaying the converted amount in the target currency. Replace this with two always-visible output fields — **USD** and **LBP** — mirroring the dual-currency display pattern used in the POS Checkpoint Modal.
 
-**Analogy:** This is like CUSTOMER_ACCOUNT payment/cashout — instead of affecting a cash drawer, we debit/credit the partner's balance.
+### Context
 
----
-
-### Context & Business Logic
-
-| Shop base  | Our system | Partner's system | Existing flow ("through partner") | New flow ("for partner")           |
-| ---------- | ---------- | ---------------- | --------------------------------- | ---------------------------------- |
-| OMT shop   | OMT        | WHISH            | We do WHISH txns through partner  | Partner does OMT txns through us   |
-| WHISH shop | WHISH      | OMT              | We do OMT txns through partner    | Partner does WHISH txns through us |
-
-**Example — OMT shop, partner has Whish system:**
-
-- Partner's customer needs to send $50 via OMT. Partner calls us.
-- We execute the OMT SEND on our system.
-- Partner owes us $50 (total incl fees) — recorded as DEBIT in partner ledger.
-- OMT_System drawer is credited (we owe OMT) — normal supplier tracking continues.
-- NO cash enters our General drawer (partner collected from their customer).
-
-- Partner's customer has incoming $100 OMT receive. Partner calls us.
-- We execute the OMT RECEIVE on our system.
-- We owe the partner $100 (payout amount) — recorded as CREDIT in partner ledger.
-- OMT_System drawer is debited (OMT owes us $100 + commission) — normal supplier tracking continues.
-- NO cash leaves our drawers (partner pays out their own customer).
-- Commission is OURS to keep (not owed to partner).
-
----
-
-### Two Partner Modes — Key Distinction
-
-| Mode                             | Who owns the system | Detection                              | System drawer           | Cash/General drawer                 | Partner ledger                  |
-| -------------------------------- | ------------------- | -------------------------------------- | ----------------------- | ----------------------------------- | ------------------------------- |
-| **"Through partner"** (existing) | Partner owns it     | `provider === partnerSystem`           | Not affected (not ours) | Not affected                        | DEBIT (SEND) / CREDIT (RECEIVE) |
-| **"For partner"** (NEW)          | WE own it           | `provider === baseSystem && partnerId` | IS affected (it's ours) | NOT affected (partner handles cash) | DEBIT (SEND) / CREDIT (RECEIVE) |
-
-**Detection logic:** Compare `data.provider` against shop's `baseSystem` setting:
-
-- `provider === baseSystem` + `partnerId` → **"For partner"** (they're using our system)
-- `provider === partnerSystem` + `partnerId` → **"Through partner"** (we're using theirs)
-
----
-
-### Current Backend Behavior vs Required (Bug Analysis)
-
-The existing partner logic in `FinancialServiceRepository.ts` was built for "through partner" only. Here's what's wrong for the "for partner" case:
-
-#### SEND
-
-| Step                  | Current behavior with `partnerId` | Correct for "through partner"   | Correct for "for partner"  |
-| --------------------- | --------------------------------- | ------------------------------- | -------------------------- |
-| General drawer credit | Skipped ✅                        | ✅ Skip (not our system)        | ✅ Skip (partner has cash) |
-| RESERVE from General  | Skipped ✅                        | ✅ Skip                         | ✅ Skip                    |
-| System drawer credit  | +totalCollected (always runs)     | ❌ Should skip (not our drawer) | ✅ Keep (we owe OMT)       |
-
-**Issue:** For "through partner" SEND, the system drawer (e.g., Whish_System) should NOT be credited either — but currently it is. This may already be handled correctly if `useSystemDrawerFlow` accounts for it. **Needs verification.**
-
-#### RECEIVE ⚠️ MAIN BUG
-
-| Step                 | Current behavior with `partnerId` | Correct for "through partner" | Correct for "for partner"          |
-| -------------------- | --------------------------------- | ----------------------------- | ---------------------------------- |
-| System drawer debit  | Skipped (line 1361-1374)          | ✅ Skip (not our system)      | ❌ **SHOULD debit** (OMT owes us!) |
-| Cashout drawer debit | Skipped (line 1394-1397)          | ✅ Skip                       | ✅ Skip (partner pays out)         |
-
-**Fix needed:** When `provider === baseSystem && partnerId` (for partner), the system drawer MUST be debited. Only skip it for "through partner".
-
-#### Partner Ledger Amounts
-
-| Scenario              | Current amount | Correct amount                                                                                      |
-| --------------------- | -------------- | --------------------------------------------------------------------------------------------------- |
-| SEND (for partner)    | `data.amount`  | `totalCollected` (amount + omtFee) — partner owes us everything                                     |
-| RECEIVE (for partner) | `data.amount`  | `receiveAmount` (just the payout) — we owe partner what they pay their customer, NOT our commission |
-
----
-
-### Implementation Plan
-
-#### Phase 1: Backend — Fix Partner Mode Detection & Drawer Logic
-
-- [x] **Add `partnerMode` field to `CreateFinancialServiceData`** — `'THROUGH' | 'FOR'`
-- [x] **Add `partner_mode` column to `financial_services` table** (migration v83)
-- [x] **Expand `partner_ledger.transaction_type` CHECK** to include `THROUGH_*` and `FOR_*` prefixed types
-- [x] **Add `isForPartner` / `isThroughPartner` helper logic** in repository
-- [x] **Fix drawer logic:**
-  - `THROUGH` → process General drawer, skip System drawer
-  - `FOR` → skip General drawer, process System drawer
-- [x] **Fix partner ledger amount:**
-  - `FOR` SEND: DEBIT partner (amount + fee)
-  - `FOR` RECEIVE: CREDIT partner (amount)
-  - `THROUGH` SEND: CREDIT partner (amount)
-  - `THROUGH` RECEIVE: DEBIT partner (amount)
-- [x] **Backfill existing partner transactions** as `'THROUGH'` mode
-
-#### Phase 2: Database — Migration & Schema
-
-- [x] Migration v83: Add `partner_mode` to `financial_services`, rebuild `partner_ledger` CHECK constraint
-- [x] Update `create_db.sql` with `partner_mode` column and expanded transaction types
-
-#### Phase 3: Frontend — Show PartnerSelector on Base System Transactions
-
-- [x] Add "For Partner" toggle on base system (OMT) tab in Services page
-- [x] Show `PartnerSelector` inline when toggle is ON
-- [x] Pass `partnerMode: 'FOR'` in payload when toggle active
-- [x] Pass `partnerMode: 'THROUGH'` for partner-system (WHISH) transactions
-- [x] Validation: block submission if "For Partner" toggled but no partner selected
-
-#### Phase 4: Frontend — Partners Page Transaction Types
-
-- [x] Add `THROUGH_*` and `FOR_*` transaction type labels to Partners page ledger dropdown
-- [x] Legacy types kept with "(legacy)" suffix
-
-#### Phase 5: IPC Schema & Validation
-
-- [x] Add `partnerId`, `partnerMode`, `cashoutMethod`, `transaction_time` to `FinancialServiceSchema` (Zod)
-- [x] Fixed critical bug: these fields were being silently stripped by Zod validation
-
-#### Phase 6: Testing & Verification (In Progress)
-
-- [x] Unit tests for new "for partner" flow in `FinancialServiceRepository` — `FinancialServiceRepository.partner.test.ts` created (20 tests)
-- [x] Test OMT SEND for partner → system drawer affected, partner DEBIT (amount+fee), no General movement
-- [x] Test OMT RECEIVE for partner → system drawer affected, partner CREDIT (amount), no cashout movement
-- [x] Test existing "through partner" flow unchanged
-- [x] Bug fix: `CUSTOMER_ACCOUNT` cashout path was missing `!skipSystemDrawer` guard — fixed in `FinancialServiceRepository.ts`
-- [ ] End-to-end verification in dev mode (`yarn dev`, perform FOR/THROUGH partner transactions manually)
-
-#### Phase 7: Future Enhancements (Backlog)
-
-- [ ] Enrich ledger entries with transaction details (JOIN financial_services)
-- [ ] Enhanced ledger row display with mode badges
-- [ ] Balance breakdown by mode and provider
-- [ ] Filters by mode/provider/direction on Partners page
-- [ ] Settlement improvements (mark individual entries as settled)
-- [ ] Transaction linking (ledger → original transaction)
-
----
+The POS Checkpoint Modal already has a proven dual-field layout where both USD and LBP amounts are shown simultaneously. The Exchange page should adopt the same pattern for output so the operator always sees both representations regardless of the exchange direction.
 
 ### Acceptance Criteria
 
-- [x] PartnerSelector appears on baseSystem SEND/RECEIVE (optional "For Partner" toggle)
-- [x] Explicit `partnerMode` field distinguishes THROUGH vs FOR flows
-- [x] "For partner" OMT SEND: partner DEBIT'd `amount + fee`, System drawer affected, no General movement
-- [x] "For partner" OMT RECEIVE: partner CREDIT'd `amount`, System drawer affected, no cashout drawer movement
-- [x] Commission on RECEIVE is kept by shop (NOT included in partner CREDIT)
-- [x] Works bidirectionally: OMT-base shop doing OMT for partner, WHISH-base shop doing WHISH for partner
-- [ ] Supplier ledger still records normally in all cases (we interact with provider regardless)
-- [x] Existing "through partner" flow updated with explicit THROUGH mode
-- [x] Normal (no partner) transactions unaffected
-- [ ] Partners page shows enriched transaction view with mode badges and details
-- [ ] Partners page filters by mode, provider, direction, date
-- [ ] Partners page balance breakdown by mode and provider
-- [ ] Partner ledger entries link to original financial_services transaction
-- [x] All tests pass, typecheck clean, build succeeds
-
----
-
-### Estimated Effort
-
-Medium-Large — ~6-8 hours total:
-
-- Backend logic fix: ~2 hours
-- Migration: ~30 min
-- Frontend PartnerSelector on base system: ~1 hour
-- Partners page enhanced view: ~3-4 hours
-- Testing: ~1 hour
-
----
+- [ ] Remove single "customer gets (to currency)" output field
+- [ ] Always show two output fields: USD and LBP
+- [ ] Field values computed using the current exchange rate (same logic as before, just surfaced in both currencies)
+- [ ] Layout matches the dual-field style from POS Checkpoint Modal
+- [ ] Typecheck and lint pass
 
 ### Files to Modify
 
-| Layer    | File                                                            | Change                                                                    |
-| -------- | --------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| Backend  | `packages/core/src/repositories/FinancialServiceRepository.ts`  | Fix RECEIVE system drawer for "for partner", fix ledger amounts, add mode |
-| Backend  | `packages/core/src/repositories/PartnerRepository.ts`           | Enrich `getLedger()` to JOIN financial_services details                   |
-| Backend  | `packages/core/src/services/PartnerService.ts`                  | Expose enriched ledger                                                    |
-| Database | `packages/core/src/db/migrations/index.ts`                      | Migration: add `mode` to `partner_ledger`                                 |
-| Database | `electron-app/create_db.sql`                                    | Update schema                                                             |
-| Frontend | `frontend/src/features/services/pages/Services/index.tsx`       | Show optional PartnerSelector for baseSystem                              |
-| Frontend | `frontend/src/features/partners/pages/Partners/index.tsx`       | Enhanced ledger view, filters, mode badges, balance breakdown             |
-| Frontend | `frontend/src/features/partners/components/PartnerSelector.tsx` | Ensure filter works for both modes                                        |
-| Electron | `electron-app/handlers/partnerHandlers.ts`                      | Expose enriched ledger endpoint                                           |
-| Types    | `frontend/src/types/electron.d.ts`                              | Update PartnerLedgerEntry with mode, txn details                          |
+| Layer    | File                                                           | Change                                          |
+| -------- | -------------------------------------------------------------- | ----------------------------------------------- |
+| Frontend | `frontend/src/features/exchange/pages/Exchange/index.tsx`      | Replace single output field with USD + LBP pair |
+| Frontend | Any exchange-related components showing the "customer gets" UI | Same dual-field replacement                     |
 
 ---
 
-## Exchange Rate System & OMT/Whish (High Priority)
+## LIRA-049: Recharge — Dual USD/LBP Fields + Payment Method Dropdown
 
-| ID     | Task                                 | Status | Notes                                                                       |
-| ------ | ------------------------------------ | ------ | --------------------------------------------------------------------------- |
-| CS-001 | Whish App SEND/RECEIVE toggle        | DONE   | ✅ Toggle implemented in Services/index.tsx and OmtWhishAppTransferForm.tsx |
-| CS-002 | OMT System Rate settings UI          | DONE   | ✅ Settings UI exists, rates loaded dynamically from DB (migration v48)     |
-| CS-003 | Whish System Rate settings UI        | DONE   | ✅ Settings UI exists, rates loaded dynamically from DB (migration v48)     |
-| CS-004 | All rates dynamically loaded from DB | DONE   | ✅ Rates stored in `exchange_rates` table, loaded via hooks/API calls       |
+| Field                | Value                                    |
+| -------------------- | ---------------------------------------- |
+| **Epic**             | UI Consistency                           |
+| **Type**             | Feature / UX                             |
+| **Priority**         | High                                     |
+| **Status**           | TODO                                     |
+| **Affected Modules** | Mobile Recharge (all forms)              |
+| **Assigned To**      | —                                        |
+| **Depends On**       | —                                        |
 
----
+### Summary
 
-## Cashout Method Parity (High Priority)
+Replace the current payment display in Recharge forms with:
+1. **Dual USD/LBP fields** — same appearance and functionality as in the POS Checkpoint Modal
+2. **Payment method dropdown** — lets the operator change the payment method when needed (instead of it being fixed)
 
-| ID       | Task                       | Status | Notes                                                                                                       |
-| -------- | -------------------------- | ------ | ----------------------------------------------------------------------------------------------------------- |
-| LIRA-044 | Full Cashout Method Parity | DONE   | ✅ All cashout methods (CASH, CUSTOMER_ACCOUNT, OMT, WHISH, BINANCE) implemented with correct drawer debits |
+### Context
 
-**Summary:** Currently RECEIVE transactions only support Cash or Client Account cashout. Need to add OMT wallet, Whish wallet, and Binance as cashout options — each debiting the correct drawer.
+Currently Recharge forms show amounts in a fixed way. The POS Checkpoint Modal has a well-designed dual-currency input/display pattern. Recharge should adopt this same pattern so operators can see USD and LBP simultaneously and switch payment method inline without extra steps.
 
-**Phases:**
+### Acceptance Criteria
 
-1. Backend — Expand cashout enum & drawer logic per method
-2. Frontend — Reusable `CashoutMethodPicker` on all RECEIVE forms
-3. Rename `CUSTOMER_ACCOUNT` → `CLIENT_ACCOUNT` everywhere
-4. Checkpoint & Closing integration
+- [ ] Recharge forms show two amount fields: USD and LBP (matching POS Checkpoint Modal style)
+- [ ] A payment method dropdown is added, allowing the operator to change the method if needed
+- [ ] Dropdown uses the same payment methods available in the current system
+- [ ] USD/LBP field interaction (editing one auto-calculates the other via exchange rate) mirrors POS Checkpoint Modal behavior
+- [ ] All recharge form variants (MTC, Alfa, etc.) updated consistently
+- [ ] Typecheck and lint pass
 
----
+### Files to Modify
 
-## Configurable Shop Base System (Medium Priority)
-
-| ID       | Task                                              | Status | Notes                                                                                                                                                    |
-| -------- | ------------------------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| LIRA-046 | Configurable Base System (OMT-Base vs Whish-Base) | DONE   | ✅ Migration v80 adds shop_base_system setting. Setup wizard step, useShopBase hook, dynamic partner logic in Services page, checkpoint inactive drawer. |
-
-**Summary:** After LIRA-045 hardcoded OMT-base behavior, this ticket makes it dynamic — shop chooses base system during setup, partner-routing logic adapts accordingly.
-
-**Implementation (completed 2026-05-15):**
-
-- Migration v80: `shop_base_system` setting (default OMT for existing shops)
-- Setup wizard: new Step 2 with OMT/Whish card selection
-- `useShopBase()` hook: globally cached, returns `{ baseSystem, partnerSystem }`
-- Services page: dynamic partner requirement based on `partnerSystem`
-- Checkpoint: partner-system drawer greyed out when no active partner
-- Setup handler: saves base system + deactivates partner supplier
+| Layer    | File                                                                  | Change                                       |
+| -------- | --------------------------------------------------------------------- | -------------------------------------------- |
+| Frontend | `frontend/src/features/recharge/components/TelecomForm.tsx`           | Add dual fields + payment method dropdown    |
+| Frontend | `frontend/src/features/recharge/components/FinancialForm.tsx`         | Same                                         |
+| Frontend | `frontend/src/features/recharge/components/CryptoForm.tsx`            | Same                                         |
+| Frontend | `frontend/src/features/recharge/components/KatchForm.tsx`             | Same                                         |
+| Frontend | `frontend/src/features/recharge/components/PaymentSheet.tsx`          | Update to support dropdown + dual fields     |
+| Frontend | `frontend/src/features/recharge/pages/Recharge/index.tsx`             | Propagate changes                            |
 
 ---
 
-## Sell Prices & Dev Mode Testing (Medium Priority)
+## LIRA-050: Mobile Recharge — Fix Layout (Proceed to Pay Position + Scrollable Grid)
 
-| ID     | Task                              | Status | Notes                                                    |
-| ------ | --------------------------------- | ------ | -------------------------------------------------------- |
-| CS-005 | Update remaining sell prices      | TODO   | ~48% done — 199 items still have sell price "0"          |
-| CS-006 | Dev mode full transaction testing | TODO   | End-to-end test of all transaction types in dev mode     |
-| CS-007 | Price validation (cost < sell)    | TODO   | Validate that selling price > cost price on product save |
+| Field                | Value                              |
+| -------------------- | ---------------------------------- |
+| **Epic**             | UI Layout                          |
+| **Type**             | Bug / UX                           |
+| **Priority**         | Medium                             |
+| **Status**           | TODO                               |
+| **Affected Modules** | Mobile Recharge                    |
+| **Assigned To**      | —                                  |
+| **Depends On**       | —                                  |
+
+### Summary
+
+Two layout issues in the Mobile Recharge page:
+
+1. **"Proceed to Pay" button/section** should be repositioned to the **top right**, aligned with the search bar, and its position should be fixed (not scroll away).
+2. **Only the recharge items grid** should be scrollable — the rest of the page (header, search bar, proceed-to-pay) stays fixed.
+
+### Acceptance Criteria
+
+- [ ] "Proceed to Pay" section is anchored to the top right, next to the search bar
+- [ ] "Proceed to Pay" does not scroll out of view
+- [ ] The recharge items grid scrolls independently within its container
+- [ ] No layout regressions on other parts of the page
+
+### Files to Modify
+
+| Layer    | File                                                                  | Change                                      |
+| -------- | --------------------------------------------------------------------- | ------------------------------------------- |
+| Frontend | `frontend/src/features/recharge/pages/Recharge/index.tsx`             | Restructure layout for fixed top-right CTA  |
+| Frontend | Any recharge sub-components that own the grid/proceed section         | Adjust scroll container and position        |
+
+---
+
+## LIRA-051: Partners Page — Simplify Record Transaction Types
+
+| Field                | Value                              |
+| -------------------- | ---------------------------------- |
+| **Epic**             | Partner System                     |
+| **Type**             | Cleanup / UX                       |
+| **Priority**         | Medium                             |
+| **Status**           | TODO                               |
+| **Affected Modules** | Partners                           |
+| **Assigned To**      | —                                  |
+| **Depends On**       | LIRA-047 (DONE)                    |
+
+### Summary
+
+Audit the "Record Transaction" dialog/modal on the Partners page. The transaction type options may be overly verbose or inconsistent after LIRA-047 added `THROUGH_*` / `FOR_*` prefixed types alongside legacy types. Simplify the type list so it is clean, readable, and reflects current business terminology.
+
+### Context
+
+After LIRA-047, the `partner_ledger.transaction_type` field has accumulated several formats: legacy plain types, `THROUGH_*` prefixed types, and `FOR_*` prefixed types. The UI dropdown for recording transactions should present these in a clear, consistent way — removing or consolidating anything confusing.
+
+### Acceptance Criteria
+
+- [ ] Review all `transaction_type` values currently shown in "Record Transaction" dropdown
+- [ ] Remove or relabel redundant/legacy entries (mark with "(legacy)" or remove where safe)
+- [ ] Group or order types logically (e.g., OMT Send/Receive, Whish Send/Receive, Settlement, Adjustment)
+- [ ] TypeScript types updated to match simplified set if any are removed
+- [ ] Typecheck and lint pass
+
+### Files to Modify
+
+| Layer    | File                                                                        | Change                                          |
+| -------- | --------------------------------------------------------------------------- | ----------------------------------------------- |
+| Frontend | `frontend/src/features/partners/pages/Partners/index.tsx`                   | Simplify type dropdown in Record Transaction UI |
+| Frontend | `frontend/src/features/partners/components/` (any relevant sub-components)  | Update type labels/options                      |
+| Types    | `frontend/src/types/electron.d.ts`                                          | Remove obsolete transaction type values if any  |
+
+---
+
+## LIRA-052: Binance — Fix SEND Drawer Logic (Cash Drawer Not Credited, Amount Goes to Wrong Place)
+
+| Field                | Value                                          |
+| -------------------- | ---------------------------------------------- |
+| **Epic**             | Binance / Financial Services                   |
+| **Type**             | Bug                                            |
+| **Priority**         | High                                           |
+| **Status**           | TODO                                           |
+| **Affected Modules** | Mobile Recharge > Binance, Drawers, Checkpoint |
+| **Assigned To**      | —                                              |
+| **Depends On**       | —                                              |
+
+### Summary
+
+Multiple bugs in the Binance SEND transaction flow:
+
+1. Sending $102 **adds 2 USDT to the General drawer** instead of crediting the Cash drawer with $102.
+2. The **Cash drawer is not affected at all** — it should be credited with the full $102 paid by the customer.
+3. The **Binance drawer is being checkpointed in USD ($500)** instead of in USDT — the Binance drawer should track USDT balances.
+4. The **fee is incorrectly routed to the General drawer**, and the send amount is not credited anywhere.
+
+### Root Cause Investigation Areas
+
+- `FinancialServiceRepository.ts` — Binance SEND drawer logic: which drawer is debited/credited, how fee and amount are split
+- Binance drawer currency: confirm drawer is set up as USDT, not USD
+- `create_db.sql` / migrations: verify Binance drawer currency_code is `USDT`
+- Checkpoint: verify Binance drawer reads/writes USDT amounts, not USD
+
+### Expected Behavior (Binance SEND — customer sends $102 to Binance)
+
+| Event            | Drawer Effect                                       |
+| ---------------- | --------------------------------------------------- |
+| Customer pays    | Cash (General) drawer +$102                         |
+| Binance deducted | Binance drawer (USDT) -100 USDT (amount sent)       |
+| Fee kept         | Shop profit — no separate drawer entry for fee      |
+
+*(Exact fee/amount split to be confirmed during investigation)*
+
+### Acceptance Criteria
+
+- [ ] Binance SEND with cash payment: Cash/General drawer is credited with the amount paid by customer
+- [ ] Binance drawer tracks USDT (not USD) and is correctly debited on SEND
+- [ ] Fee does not appear as a spurious entry in General drawer
+- [ ] Checkpoint correctly shows Binance drawer balance in USDT
+- [ ] Existing Binance RECEIVE logic reviewed for same class of bug
+- [ ] Unit or integration tests added/updated for Binance drawer flows
+- [ ] Typecheck and lint pass
+
+### Files to Modify
+
+| Layer    | File                                                                  | Change                                                      |
+| -------- | --------------------------------------------------------------------- | ----------------------------------------------------------- |
+| Backend  | `packages/core/src/repositories/FinancialServiceRepository.ts`        | Fix Binance SEND drawer credit/debit routing                |
+| Backend  | `packages/core/src/repositories/RechargeRepository.ts`                | Review if Binance logic lives here instead                  |
+| Database | `packages/core/src/db/migrations/index.ts`                            | Fix Binance drawer currency if needed                       |
+| Database | `electron-app/create_db.sql`                                          | Sync schema fix                                             |
+| Frontend | `frontend/src/features/recharge/components/CryptoForm.tsx`            | Verify correct fields passed for SEND                       |
+
+---
+
+## LIRA-053: Whish App — Flip Toggle Order (Bills/Transactions) + Flip Audit/Transactions Tab Order
+
+| Field                | Value                              |
+| -------------------- | ---------------------------------- |
+| **Epic**             | Whish App UX                       |
+| **Type**             | UX / Polish                        |
+| **Priority**         | Low                                |
+| **Status**           | TODO                               |
+| **Affected Modules** | Whish App                          |
+| **Assigned To**      | —                                  |
+| **Depends On**       | —                                  |
+
+### Summary
+
+Two ordering changes in the Whish App UI:
+
+1. **Bills / Transactions toggle** — flip the order so Transactions comes before Bills (or vice versa — confirm desired order with user).
+2. **Audit and Transactions page tab order** — flip so the preferred tab appears first.
+
+### Acceptance Criteria
+
+- [ ] Bills/Transactions toggle order is flipped
+- [ ] Audit/Transactions page tab order is flipped
+- [ ] No functional regressions — toggling and tab switching still work correctly
+- [ ] Typecheck and lint pass
+
+### Files to Modify
+
+| Layer    | File                                                                  | Change                                    |
+| -------- | --------------------------------------------------------------------- | ----------------------------------------- |
+| Frontend | Whish App toggle/tab component (locate in `frontend/src/features/`)   | Flip render order of toggle items         |
+| Frontend | Audit/Transactions page component                                     | Flip tab order                            |
+
+---
+
+## LIRA-054: Transaction Table — Add In/Out Amounts to Summary Description
+
+| Field                | Value                              |
+| -------------------- | ---------------------------------- |
+| **Epic**             | Transaction Visibility             |
+| **Type**             | Feature / UX                       |
+| **Priority**         | Medium                             |
+| **Status**           | TODO                               |
+| **Affected Modules** | All transaction tables             |
+| **Assigned To**      | —                                  |
+| **Depends On**       | —                                  |
+
+### Summary
+
+Each transaction row in transaction tables has a summary/description column. Enrich this description to include the **in** and **out** amounts for each transaction, so the operator can quickly see cash flow direction and magnitude without opening the transaction detail.
+
+### Context
+
+Currently transaction descriptions may only show type/label. Adding `IN: $X` / `OUT: $Y` (or equivalent) directly in the description text makes scanning the table faster and reduces the need to drill into individual records.
+
+### Acceptance Criteria
+
+- [ ] Each transaction row summary includes an in-amount and/or out-amount label
+- [ ] Format is consistent and readable (e.g., `↑ $50.00 / ↓ LBP 90,000` or similar)
+- [ ] Applied to all transaction tables that show a description/summary column
+- [ ] No performance regression (amounts should already be in the query result)
+- [ ] Typecheck and lint pass
+
+### Files to Modify
+
+| Layer    | File                                                                  | Change                                                  |
+| -------- | --------------------------------------------------------------------- | ------------------------------------------------------- |
+| Frontend | Transaction table component(s) across all modules                     | Append in/out amounts to description/summary cell       |
+| Backend  | Relevant repository `getAll` / `list` queries (if amounts not present) | Ensure in/out amounts are included in query response    |
+
+---
+
+## LIRA-055: Customer Session Checkout Modal — Add MultiPaymentInput Component
+
+| Field                | Value                                           |
+| -------------------- | ----------------------------------------------- |
+| **Epic**             | Customer Sessions                               |
+| **Type**             | Feature                                         |
+| **Priority**         | High                                            |
+| **Status**           | TODO                                            |
+| **Affected Modules** | POS > Customer Sessions > Checkout Modal        |
+| **Assigned To**      | —                                               |
+| **Depends On**       | —                                               |
+
+### Summary
+
+The Customer Session Checkout Modal currently uses a simpler payment input. Replace/augment it with the existing **`MultiPaymentInput`** component and its full functionality — matching the multi-payment capability available in other checkout contexts (split payments, USD + LBP, CUSTOMER_ACCOUNT auto-select, etc.).
+
+### Context
+
+`MultiPaymentInput` (`packages/ui/src/components/ui/MultiPaymentInput.tsx`) is already used in other checkout flows and supports:
+- Multiple simultaneous payment methods
+- USD + LBP split
+- CUSTOMER_ACCOUNT auto-selection when a client is in session
+- Dynamic total validation
+
+The Customer Session Checkout Modal should have the same richness instead of a reduced version.
+
+### Acceptance Criteria
+
+- [ ] Checkout Modal renders `MultiPaymentInput` in place of the existing simpler payment field
+- [ ] All `MultiPaymentInput` features work inside the modal (split payment, USD/LBP, CUSTOMER_ACCOUNT)
+- [ ] CUSTOMER_ACCOUNT auto-selects when a client is attached to the session (consistent with existing `MultiPaymentInput` behavior per [[project_recharge_payment_autoselect]])
+- [ ] Modal layout accommodates the wider component without overflow
+- [ ] Payment totals validate correctly before confirming checkout
+- [ ] Typecheck and lint pass
+
+### Files to Modify
+
+| Layer    | File                                                                          | Change                                                     |
+| -------- | ----------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| Frontend | Customer Session Checkout Modal component (locate in `frontend/src/features/`) | Replace simple payment input with `MultiPaymentInput`      |
+| Frontend | `packages/ui/src/components/ui/MultiPaymentInput.tsx`                         | Any props adjustments needed for modal context             |
+| Types    | `frontend/src/types/electron.d.ts`                                            | Update if checkout payload shape changes                   |
 
 ---
 
 ## Summary
 
-| Priority  | Total  | Done  | Remaining       |
-| --------- | ------ | ----- | --------------- |
-| Highest   | 1      | 0     | 1 (in progress) |
-| High      | 5      | 5     | 0               |
-| Medium    | 4      | 1     | 3               |
-| **Total** | **10** | **6** | **4**           |
+| Priority  | Total  | Done | Remaining |
+| --------- | ------ | ---- | --------- |
+| High      | 4      | 0    | 4         |
+| Medium    | 2      | 0    | 2         |
+| Low       | 1      | 0    | 1         |
+| Bug       | 1      | 0    | 1         |
+| **Total** | **8**  | **0** | **8**    |
 
 ---
 
-> **Recommendation:** Start with LIRA-044 (Cashout Method Parity) — high impact, unblocks LIRA-046 and improves all RECEIVE transaction flows.
-
----
-
-## Completed Tickets (Reference)
-
-### LIRA-041: Binance Receive Layout & Session Integration
-
-| Field               | Value                               |
-| ------------------- | ----------------------------------- |
-| **Epic**            | Customer Sessions Overhaul          |
-| **Type**            | Bug / Feature                       |
-| **Priority**        | Medium                              |
-| **Status**          | DONE                                |
-| **Affected Module** | Mobile Recharge > Binance, Sessions |
-| **Assigned To**     | —                                   |
-
-**Description:**  
-Binance Receive (customer sends crypto to shop, cashes out) may not be properly handled in the current layout. The shop increases its Binance drawer and decreases general drawer by the same amount, then gets paid the fee. When in a customer session, the receive amount minus fee should appear as a negative cart item (shop pays out to customer). Needs review and testing.
-
-**Notes:**
-
-- SEND: customer pays amount + fee (positive in cart)
-- RECEIVE: customer receives amount - fee (negative in cart)
-- Verify drawer logic is correct for both directions
-
----
-
-### LIRA-037: Partner System — Multi-Partner Transaction & Settlement
-
-| Field                | Value                                                             |
-| -------------------- | ----------------------------------------------------------------- |
-| **Epic**             | Partner System                                                    |
-| **Type**             | Feature                                                           |
-| **Priority**         | High                                                              |
-| **Status**           | ✅ DONE                                                           |
-| **Affected Modules** | OMT, Whish, Custom Services, Settings, Checkpoints                |
-| **Assigned To**      | —                                                                 |
-| **Depends On**       | LIRA-044 (cashout method parity — for settlement cashout methods) |
-
-**Description:**  
-A **Partner** is an external shop/business that collaborates with the user's shop. Partners typically don't have their own OMT/Whish systems, so the user performs transactions on their behalf. Each "As [Partner]" transaction creates a ledger entry tracking who owes whom. Settlement is partial — partners can pay or be paid any amount, not necessarily zeroing the balance.
-
-**Terminology:**
-
-- **Partner** = external business entity (e.g., Samer, Ahmad). NOT a client/customer.
-- **Client** = a saved customer in the DB with ± balance (debt/credit)
-- **Customer** = random passer to the shop, not saved
-
-**Background (from design discussion):**
-
-- LiraTek is for OMT-based shops. OMT shops are exclusively OMT (not Whish), because OMT and Whish are competitors — you work with one, not both.
-- Whish System transactions are currently all done via partners (e.g., Samer has the Whish system).
-- Partners contact the shop to perform transactions on their behalf. The money physically flows through the shop's drawers, and settlement happens later.
-- Multiple partners are supported. Any cashier can perform "As Partner" transactions.
-- This is internal bookkeeping — customers don't know/care about partner involvement.
-
----
-
-#### Data Model
-
-**`partners` table:**
-
-| Column       | Type    | Notes             |
-| ------------ | ------- | ----------------- |
-| `id`         | INTEGER | PK, autoincrement |
-| `name`       | TEXT    | Required, unique  |
-| `phone`      | TEXT    | Optional          |
-| `notes`      | TEXT    | Optional          |
-| `is_active`  | INTEGER | Default 1         |
-| `created_at` | TEXT    | CURRENT_TIMESTAMP |
-| `updated_at` | TEXT    | CURRENT_TIMESTAMP |
-
-**`partner_ledger` table:**
-
-| Column              | Type    | Notes                                                                                      |
-| ------------------- | ------- | ------------------------------------------------------------------------------------------ |
-| `id`                | INTEGER | PK, autoincrement                                                                          |
-| `partner_id`        | INTEGER | FK → partners.id                                                                           |
-| `transaction_type`  | TEXT    | OMT_SEND, OMT_RECEIVE, WHISH_SEND, WHISH_RECEIVE, CUSTOM_SERVICE, SETTLEMENT, ADJUSTMENT   |
-| `reference_table`   | TEXT    | Source table: `financial_services`, `custom_services`, or NULL (for settlement/adjustment) |
-| `reference_id`      | INTEGER | FK → source table row, or NULL                                                             |
-| `amount`            | REAL    | Always positive                                                                            |
-| `currency`          | TEXT    | USD or LBP                                                                                 |
-| `direction`         | TEXT    | DEBIT (partner owes us) or CREDIT (we owe partner)                                         |
-| `notes`             | TEXT    | Optional                                                                                   |
-| `user_id`           | INTEGER | FK → users.id (who recorded it)                                                            |
-| `settlement_method` | TEXT    | For SETTLEMENT type only: CASH, OMT, WHISH, BINANCE, CLIENT_ACCOUNT                        |
-| `created_at`        | TEXT    | CURRENT_TIMESTAMP                                                                          |
-
-**Balance convention:** `SUM(DEBIT) - SUM(CREDIT)` → Positive = partner owes us, Negative = we owe partner. Same convention as client balance.
-
-**`financial_services` table change:** Add nullable `partner_id` column. When set, the transaction was done "As [Partner]".
-
----
-
-#### Transaction Flows
-
-| Scenario                        | Drawer Effect                                     | Partner Ledger                                      | Example                                                                                                                   |
-| ------------------------------- | ------------------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| **OMT SEND as Partner**         | OMT_System debited (you sent the transfer)        | DEBIT — partner owes you (amount + fee paid to OMT) | Samer's customer needs to send $100. You send from your OMT system. Samer owes you $100 + fee.                            |
-| **OMT RECEIVE as Partner**      | OMT_System credited (you received the transfer)   | CREDIT — you owe partner (payout amount)            | Samer's customer has incoming $200. You record receive in your OMT system. You owe Samer $200 (he pays his own customer). |
-| **Whish SEND as Partner**       | Whish_System debited                              | DEBIT — partner owes you                            | Same as OMT SEND but via Whish system.                                                                                    |
-| **Whish RECEIVE as Partner**    | Whish_System credited                             | CREDIT — you owe partner                            | Same as OMT RECEIVE but via Whish system.                                                                                 |
-| **Buy service FROM Partner**    | No drawer effect                                  | CREDIT — you owe partner (purchase cost)            | Buy Netflix account from Samer for $10. Record immediately at purchase time.                                              |
-| **Settlement: partner pays us** | Depends on method (Cash → General credited, etc.) | DEBIT entry — reduces partner's debt to us          | Samer gives you $150 cash. General drawer +$150, partner balance decreases.                                               |
-| **Settlement: we pay partner**  | Depends on method (Cash → General debited, etc.)  | CREDIT entry — reduces what we owe partner          | You give Samer $200 cash. General drawer -$200, partner balance decreases.                                                |
-
-**Key:** No customer visits the shop for partner transactions. General drawer is NOT affected by the transaction itself — only by settlement. Commission from OMT/Whish is the shop's to keep, not tracked in partner ledger.
-
----
-
-#### Implementation Plan
-
-##### Phase 1: Database — Partners & Ledger
-
-- [x] Create `partners` table
-- [x] Create `partner_ledger` table
-- [x] Add `partner_id` (nullable) to `financial_services` table
-- [x] Migration version increment
-- [x] Update `create_db.sql` with new tables
-- [x] Update `schema_migrations` seed block
-
-##### Phase 2: Backend — Repository & Service
-
-- [x] Create `PartnerRepository` with:
-  - `create()`, `getById()`, `getAll()`, `update()`, `deactivate()`
-  - `addLedgerEntry()`, `getLedgerEntries(partnerId, filters)`
-  - `getBalance(partnerId)` → returns `{ usd: number, lbp: number }`
-  - `getAllBalances()` → summary for all partners
-- [x] Create `PartnerService` with:
-  - CRUD operations with validation
-  - `recordPartnerTransaction(partnerId, transactionType, referenceId, amount, currency, direction)`
-  - `settle(partnerId, amount, currency, settlementMethod)` — creates SETTLEMENT ledger entry + drawer effect via cashout method
-  - `getPartnerStatement(partnerId, dateRange?)` — full transaction history
-- [x] Singleton pattern, logger, exports in index files
-- [x] Update `FinancialServiceRepository.ts`:
-  - When `partner_id` is set on a SEND: debit system drawer, skip General drawer credit (no cash received by shop)
-  - When `partner_id` is set on a RECEIVE: credit system drawer, skip General drawer debit (no cash paid out by shop)
-  - Auto-create `partner_ledger` entry for each partner transaction
-- [x] Update `FinancialService.ts` to accept and pass `partnerId`
-
-##### Phase 3: Electron — IPC Handlers & Preload
-
-- [x] Create `partnerHandlers.ts`:
-  - `partner:create`, `partner:update`, `partner:deactivate`
-  - `partner:get-all`, `partner:get-by-id`
-  - `partner:get-balance`, `partner:get-all-balances`
-  - `partner:get-ledger`, `partner:get-statement`
-  - `partner:settle`
-- [x] Register in `main.ts`
-- [x] Add preload bindings in `preload.ts` under `window.api.partners.*`
-- [x] Add TypeScript types to `electron.d.ts`
-
-##### Phase 4: Frontend — Partner Management
-
-- [x] **Settings > Partners page**: list all partners, add/edit/deactivate
-- [x] **Partner Detail page**: balance (USD + LBP), full transaction history with details (date, type, amount, customer name, notes), settlement button
-- [x] **Settlement Modal**: amount field (partial settlement), currency selector, cashout method picker (reuse from LIRA-044), confirm button
-- [x] Add route in `App.tsx`
-
-##### Phase 5: Frontend — "As Partner" on Transaction Forms
-
-- [x] Create reusable `PartnerSelector` component — dropdown of active partners, shown on applicable forms
-- [x] Add partner selector to:
-  - OMT System Send/Receive forms
-  - Whish System Send/Receive forms
-  - Custom Services form (for sourcing from partner)
-- [x] When a partner is selected:
-  - Pass `partnerId` to the IPC call
-  - Visual indicator on the form ("As Samer" badge)
-  - No customer payment method needed for partner transactions (the partner handles their customer)
-- [x] In session cart: partner transactions should show partner name in the label
-
-##### Phase 6: Testing & Verification
-
-- [ ] Unit tests for `PartnerRepository` and `PartnerService`
-- [ ] Integration tests: partner transaction → ledger entry → balance calculation
-- [ ] Test settlement with various cashout methods
-- [ ] Test OMT SEND/RECEIVE as partner → verify correct drawer effects (no General drawer movement)
-- [x] Typecheck, lint, build verification
-
----
-
-#### Acceptance Criteria
-
-- [x] Multiple partners can be created and managed (CRUD)
-- [x] Partner selector dropdown on OMT Send/Receive, Whish System Send/Receive, Custom Services
-- [x] "As Partner" transactions affect system drawers (OMT/Whish) but NOT General drawer
-- [x] Partner ledger auto-created for each "As Partner" transaction with correct direction
-- [x] Partner balance calculated as net of all ledger entries (per currency: USD + LBP)
-- [x] Positive balance = partner owes shop, negative = shop owes partner
-- [x] Partner detail page shows full transaction history with details
-- [x] Partial settlement supported — amount field, not forced to zero
-- [x] Settlement uses cashout methods (CASH, OMT, WHISH, BINANCE, CLIENT_ACCOUNT) with correct drawer effects
-- [x] Buying services from a partner records CREDIT ledger entry at purchase time
-- [x] Commission from OMT/Whish is NOT tracked in partner ledger (shop keeps it)
-- [x] Any cashier can perform "As Partner" transactions
-- [x] Fresh start — no migration of existing Whish System/supplier data
-- [x] All tests pass, typecheck clean, build succeeds
-
----
-
-### LIRA-045: OMT-Base Shop — Whish System via Partner
-
-| Field                | Value                                           |
-| -------------------- | ----------------------------------------------- |
-| **Epic**             | Shop Base System & Partner Provider Routing     |
-| **Type**             | Feature / Refactor                              |
-| **Priority**         | High                                            |
-| **Status**           | ✅ DONE                                         |
-| **Affected Modules** | OMT/Whish, Partners, Suppliers, Setup, Settings |
-| **Assigned To**      | —                                               |
-| **Depends On**       | LIRA-037 (DONE)                                 |
-
-**Description:**  
-Currently the app assumes the shop owns both OMT and Whish systems. In reality, OMT-based shops don't own a Whish system — all Whish System transactions are done through a partner (e.g., Samer who owns the Whish system). This ticket formalizes that:
-
-- The shop's **base system** is OMT (the shop owns the OMT system)
-- **Whish System** transactions must go through a partner — the `PartnerSelector` becomes **required** (not optional) for Whish System SEND/RECEIVE
-- The WHISH supplier in Settings → Supplier Ledger is **deactivated** (replaced by partner ledger)
-- Whish System drawer movements remain the same, but General drawer is skipped for partner transactions (already implemented in LIRA-037)
-
-**Implementation Plan:**
-
-#### Phase 1: Make PartnerSelector Required for Whish System
-
-- [x] On the OMT/Whish services page, when provider is `WHISH` (System), enforce partner selection — block submission if no partner is selected
-- [x] Show a clear message: "Whish System transactions require a partner"
-- [x] PartnerSelector should auto-select if only one active partner exists
-
-#### Phase 2: Deactivate WHISH Supplier
-
-- [x] Deactivate the `WHISH` supplier in the `suppliers` table (don't delete — preserve history)
-- [x] Hide or disable Whish System in Supplier Ledger when shop base is OMT
-- [x] Add a migration or seed to mark existing WHISH supplier as inactive for OMT-base shops
-
-#### Phase 3: Settlement Flow Migration
-
-- [x] Settlement for Whish System transactions now happens on the Partners page, not Supplier Ledger
-- [x] Update dashboard/profits references that point to "Settings → Supplier Ledger" for Whish
-- [x] Ensure checkpoint/closing correctly handles partner-driven Whish System drawer balances
-
-**Acceptance Criteria:**
-
-- [x] Whish System SEND/RECEIVE requires a partner to be selected
-- [x] WHISH supplier deactivated in Supplier Ledger
-- [x] Whish System settlement happens via Partners page
-- [x] Existing historical supplier ledger data preserved (read-only)
-- [x] No impact on OMT System transactions (shop's own system, no partner needed)
-- [x] Typecheck, lint, build pass
-
----
-
-### LIRA-030: Customer Credit System (Reverse Debt)
-
-| Field                | Value                               |
-| -------------------- | ----------------------------------- |
-| **Epic**             | Reverse Debt                        |
-| **Type**             | Feature                             |
-| **Priority**         | High                                |
-| **Status**           | DONE                                |
-| **Affected Modules** | Debts, POS, All transaction screens |
-| **Assigned To**      | —                                   |
-
----
-
-## Known Tech Debt
-
-- [ ] **Re-enable negative amount validation** in `useDrawerAmounts.ts` — currently disabled to allow negative drawer balances during checkpoint. Restore the `value < 0` check and unskip the test in `useDrawerAmounts.test.ts` once the opening-balance workflow guarantees non-negative starting values. As part of this, create an e2e test that runs immediately after setup and tops up the general drawer — this way any transaction that debits any drawer won't result in negative amounts. _(from LIRA-006)_
-- [x] **~~Fix `getLastCheckpointActuals()` dropping negative balances~~** — Fixed: `WHERE physical_amount > 0` → `WHERE physical_amount IS NOT NULL`. _(from LIRA-008)_
-- [x] **~~Fix checkpoint timestamp ordering~~** — Fixed: `ORDER BY created_at DESC` → `ORDER BY id DESC`. _(from LIRA-008)_
+> **Recommendation:** Start with LIRA-052 (Binance bug) and LIRA-055 (Checkout Modal) — LIRA-052 is a correctness bug affecting financial accuracy, and LIRA-055 is high-impact for the core POS flow.

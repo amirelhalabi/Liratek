@@ -459,6 +459,7 @@ export interface ElectronAPI {
         method: string;
         currencyCode: string;
         amount: number;
+        direction?: "IN" | "OUT";
       }>;
       transaction_time?: string;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
@@ -805,6 +806,7 @@ export interface ElectronAPI {
         method: string;
         currency_code: string;
         amount: number;
+        direction?: "IN" | "OUT";
       }>;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
   };
@@ -932,6 +934,7 @@ export interface ElectronAPI {
           method: string;
           currency_code: string;
           amount: number;
+          direction?: "IN" | "OUT";
         }>;
       }) => Promise<{
         success: boolean;
@@ -1319,6 +1322,7 @@ export interface ElectronAPI {
         method: string;
         currency_code: string;
         amount: number;
+        direction?: "IN" | "OUT";
       }>;
       clientId?: number;
       clientName?: string;

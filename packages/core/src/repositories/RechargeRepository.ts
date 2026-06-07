@@ -11,9 +11,11 @@ import { rechargeLogger } from "../utils/logger.js";
 import {
   paymentMethodToDrawerName,
   isDrawerAffectingMethod,
+  partitionLegs,
 } from "../utils/payments.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { getVoucherRepository } from "./VoucherRepository.js";
+import { getDebtService } from "../services/DebtService.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import {
   type TopUpProvider,
@@ -48,6 +50,8 @@ export interface RechargeData {
     amount: number;
     /** Set when method === 'GIFT_CARD' — the voucher code being redeemed. */
     voucherCode?: string;
+    /** IN (customer pays, default) or OUT (shop returns change to customer). */
+    direction?: "IN" | "OUT";
   }>;
   phoneNumber?: string;
   clientId?: number;
@@ -463,11 +467,15 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             updated_at = CURRENT_TIMESTAMP
         `);
 
-        // Customer payment (cash-like inflow)
+        // Customer payment (cash-like inflow). Split returned-change (OUT) legs
+        // out so the inflow loop and debt calc only see customer-paid (IN) legs.
+        const { inLegs: inPayments, outLegs: returnLegs } = partitionLegs(
+          data.payments,
+        );
         let hasDebt = false;
-        if (data.payments && data.payments.length > 0) {
+        if (inPayments.length > 0) {
           // Multi-payment mode
-          for (const p of data.payments) {
+          for (const p of inPayments) {
             if (p.method === "GIFT_CARD") {
               // Voucher leg — deposit the voucher's full value to the owner's
               // account; the charge is then consumed from that account as debt.
@@ -535,8 +543,8 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             throw new Error("Cannot create debt without a client");
           }
           const debtAmount =
-            data.payments && data.payments.length > 0
-              ? data.payments
+            inPayments.length > 0
+              ? inPayments
                   .filter((p) => !isDrawerAffectingMethod(p.method))
                   .reduce((sum, p) => sum + Math.abs(p.amount), 0)
               : data.price;
@@ -555,6 +563,39 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
               note,
               createdBy,
             );
+        }
+
+        // Return (OUT) legs: change handed back via a chosen method or kept as
+        // store credit. Debits the method's drawer, or deposits client credit.
+        for (const r of returnLegs) {
+          const amt = Math.abs(r.amount);
+          if (amt <= 0) continue;
+          if (r.method === "CUSTOMER_ACCOUNT") {
+            if (!data.clientId) {
+              throw new Error(
+                "Client is required to return change as store credit",
+              );
+            }
+            getDebtService().addCredit({
+              clientId: data.clientId,
+              amountUsd: r.currencyCode === "USD" ? amt : 0,
+              amountLbp: r.currencyCode === "LBP" ? amt : 0,
+              note: "Change returned",
+              userId: createdBy,
+            });
+          } else if (isDrawerAffectingMethod(r.method)) {
+            const drawer = paymentMethodToDrawerName(r.method);
+            insertPayment.run(
+              txnId,
+              r.method,
+              drawer,
+              r.currencyCode,
+              -amt,
+              "Change returned",
+              createdBy,
+            );
+            upsertBalanceDelta.run(drawer, r.currencyCode, -amt);
+          }
         }
 
         return rechargeId;

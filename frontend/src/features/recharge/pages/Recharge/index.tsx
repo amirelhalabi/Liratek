@@ -7,6 +7,7 @@ import { useSession } from "@/features/sessions/context/SessionContext";
 import { useSessionAutoFill } from "@/features/sessions/hooks/useSessionAutoFill";
 import { getExchangeRates } from "@/utils/exchangeRates";
 import type { PaymentLine } from "@liratek/ui";
+import { toCamelLegs } from "@/utils/paymentUtils";
 import {
   useMobileServiceItems,
   type ProviderKey,
@@ -102,6 +103,7 @@ export default function MobileRecharge() {
   const [giftAmountUsd, setGiftAmountUsd] = useState("");
   const [giftPriceLbp, setGiftPriceLbp] = useState("");
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
+  const [returnLegs, setReturnLegs] = useState<PaymentLine[]>([]);
 
   const [cryptoType, setCryptoType] = useState<"SEND" | "RECEIVE">("SEND");
   const [cryptoAmount, setCryptoAmount] = useState("");
@@ -113,6 +115,7 @@ export default function MobileRecharge() {
   const [cryptoPaymentLines, setCryptoPaymentLines] = useState<PaymentLine[]>(
     [],
   );
+  const [cryptoReturnLegs, setCryptoReturnLegs] = useState<PaymentLine[]>([]);
   const [cryptoPaidBy, setCryptoPaidBy] = useState("CASH");
   const [cryptoTransactionTime, setCryptoTransactionTime] = useState<
     string | undefined
@@ -400,14 +403,7 @@ export default function MobileRecharge() {
           paid_by_method: paidBy,
           payments:
             paymentLines.length > 0
-              ? paymentLines.map((l) => ({
-                  method: l.method,
-                  currencyCode: l.currencyCode,
-                  amount: l.amount,
-                  ...(l.method === "GIFT_CARD" && l.voucherCode
-                    ? { voucherCode: l.voucherCode }
-                    : {}),
-                }))
+              ? toCamelLegs(paymentLines, returnLegs)
               : undefined,
           clientId: resolvedClientId || undefined,
           clientName: telecomClientName || undefined,
@@ -419,6 +415,7 @@ export default function MobileRecharge() {
       setTelecomPrice("");
       setPhoneNumber("");
       setTelecomClientPhone("");
+      setReturnLegs([]);
       return;
     }
 
@@ -437,14 +434,7 @@ export default function MobileRecharge() {
         paid_by_method: paidBy,
         payments:
           paymentLines.length > 0
-            ? paymentLines.map((l) => ({
-                method: l.method,
-                currencyCode: l.currencyCode,
-                amount: l.amount,
-                ...(l.method === "GIFT_CARD" && l.voucherCode
-                  ? { voucherCode: l.voucherCode }
-                  : {}),
-              }))
+            ? toCamelLegs(paymentLines, returnLegs)
             : undefined,
         clientId: resolvedClientId || undefined,
         clientName: telecomClientName || undefined,
@@ -474,6 +464,7 @@ export default function MobileRecharge() {
       setTelecomPrice("");
       setPhoneNumber("");
       setTelecomClientPhone("");
+      setReturnLegs([]);
       setTelecomTransactionTime(undefined);
       loadFinancialData();
       loadDrawerBalances();
@@ -490,6 +481,7 @@ export default function MobileRecharge() {
     phoneNumber,
     paidBy,
     paymentLines,
+    returnLegs,
     telecomClientId,
     telecomClientName,
     telecomClientPhone,
@@ -718,11 +710,7 @@ export default function MobileRecharge() {
           commission: fee,
           paidByMethod: isSplitPayment ? "MULTI" : paidByMethod,
           payments: isSplitPayment
-            ? cryptoPaymentLines.map((l) => ({
-                method: l.method,
-                currencyCode: l.currencyCode,
-                amount: l.amount,
-              }))
+            ? toCamelLegs(cryptoPaymentLines, cryptoReturnLegs)
             : undefined,
           ...(cryptoType === "RECEIVE" && derivedCashoutMethod !== "CASH"
             ? { cashoutMethod: derivedCashoutMethod }
@@ -738,6 +726,7 @@ export default function MobileRecharge() {
       setCryptoDescription("");
       setCryptoFee("");
       setCryptoPaymentLines([]);
+      setCryptoReturnLegs([]);
       return;
     }
 
@@ -754,11 +743,7 @@ export default function MobileRecharge() {
         commission: fee,
         paidByMethod: isSplitPayment ? "MULTI" : paidByMethod,
         payments: isSplitPayment
-          ? cryptoPaymentLines.map((l) => ({
-              method: l.method,
-              currencyCode: l.currencyCode,
-              amount: l.amount,
-            }))
+          ? toCamelLegs(cryptoPaymentLines, cryptoReturnLegs)
           : undefined,
         ...(cryptoType === "RECEIVE" && derivedCashoutMethod !== "CASH"
           ? { cashoutMethod: derivedCashoutMethod }
@@ -791,6 +776,7 @@ export default function MobileRecharge() {
       setCryptoDescription("");
       setCryptoFee("");
       setCryptoPaymentLines([]);
+      setCryptoReturnLegs([]);
       setCryptoTransactionTime(undefined);
       loadBinanceData();
       loadDrawerBalances();
@@ -808,6 +794,7 @@ export default function MobileRecharge() {
     cryptoDescription,
     cryptoFee,
     cryptoPaymentLines,
+    cryptoReturnLegs,
     cryptoPaidBy,
     cryptoTransactionTime,
     api,
@@ -1021,6 +1008,7 @@ export default function MobileRecharge() {
             voucherItems={mtcVoucherItems}
             alfaCreditCostRate={alfaCreditCostRate}
             isAdmin={isAdmin}
+            onReturnChange={setReturnLegs}
             onRefreshHistory={loadRechargeHistory}
             onTransactionTimeChange={setTelecomTransactionTime}
           />
@@ -1166,6 +1154,7 @@ export default function MobileRecharge() {
                 setCryptoPaidBy(lines[0].method);
               }
             }}
+            onReturnChange={setCryptoReturnLegs}
             exchangeRate={exchangeRate}
             onTransactionTimeChange={setCryptoTransactionTime}
           />

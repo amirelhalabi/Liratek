@@ -48,15 +48,25 @@ function parseDbDate(iso: string): Date {
   return new Date(`${iso.replace(" ", "T")}Z`);
 }
 
-/** Human-readable "time since last checkpoint" */
-function formatRelativeTime(iso: string): string {
-  const diffMs = Date.now() - parseDbDate(iso).getTime();
-  const diffM = diffMs / (1000 * 60);
-  const diffH = diffMs / (1000 * 60 * 60);
-  if (diffM < 1) return "Just now";
-  if (diffM < 60) return `${Math.floor(diffM)}m ago`;
-  if (diffH < 24) return `${Math.floor(diffH)}h ago`;
-  return `${Math.floor(diffH / 24)}d ago`;
+/**
+ * Absolute "last checkpoint" timestamp. Shows the time only when the
+ * checkpoint is from today, otherwise prefixes the date. 12-hour AM/PM format.
+ */
+function formatCheckpointTime(iso: string): string {
+  const date = parseDbDate(iso);
+  const now = new Date();
+  const time = date.toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+  const sameDay =
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate();
+  if (sameDay) return time;
+  const day = date.toLocaleDateString([], { month: "short", day: "numeric" });
+  return `${day}, ${time}`;
 }
 
 /** Staleness color buckets: <8h green, <24h yellow, else/never red */
@@ -447,7 +457,7 @@ export default function Dashboard() {
                               className={`text-[10px] font-medium ${stalenessTextColor(stat.checkedAt)}`}
                             >
                               {stat.checkedAt
-                                ? formatRelativeTime(stat.checkedAt)
+                                ? formatCheckpointTime(stat.checkedAt)
                                 : "Never checkpointed"}
                             </span>
                           </div>

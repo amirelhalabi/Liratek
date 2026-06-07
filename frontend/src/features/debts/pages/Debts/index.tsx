@@ -32,6 +32,7 @@ import { useExchangeRate } from "@/hooks/useExchangeRate";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { DataTable } from "@liratek/ui";
 import { MultiPaymentInput, type PaymentLine } from "@liratek/ui";
+import { toCamelLegs } from "@/utils/paymentUtils";
 import {
   ServiceDebtDetailModal,
   type FinancialServiceData,
@@ -168,6 +169,7 @@ export default function Debts() {
 
   // Repayment State
   const [repayPaymentLines, setRepayPaymentLines] = useState<PaymentLine[]>([]);
+  const [repayReturnLegs, setRepayReturnLegs] = useState<PaymentLine[]>([]);
   const [repayNote, setRepayNote] = useState("");
   const [repayTransactionTime, setRepayTransactionTime] = useState<
     string | undefined
@@ -440,12 +442,8 @@ export default function Debts() {
       }
     }
 
-    // Map frontend PaymentLine[] → backend leg format
-    const paymentLegs = validLines.map((l) => ({
-      method: l.method,
-      currencyCode: l.currencyCode,
-      amount: l.amount,
-    }));
+    // Map frontend PaymentLine[] → backend leg format (include OUT return leg if present)
+    const paymentLegs = toCamelLegs(validLines, repayReturnLegs);
 
     try {
       const result = window.api
@@ -476,6 +474,7 @@ export default function Debts() {
         alert("Repayment processed!");
         setShowRepaymentModal(false);
         setRepayPaymentLines([]);
+        setRepayReturnLegs([]);
         setRepayNote("");
         setRepayTransactionTime(undefined);
 
@@ -1039,6 +1038,7 @@ export default function Debts() {
                       <button
                         onClick={() => {
                           setRepayPaymentLines([]);
+                          setRepayReturnLegs([]);
                           setShowRepaymentModal(true);
                         }}
                         className={`shrink-0 px-6 py-2 rounded-lg font-bold shadow-lg active:scale-95 transition-all flex items-center gap-2 ${
@@ -1696,6 +1696,7 @@ export default function Debts() {
                   totalAmount={totalDebt}
                   currency="USD"
                   onChange={setRepayPaymentLines}
+                  onReturnChange={setRepayReturnLegs}
                   showPmFee={false}
                   paymentMethods={methods}
                   currencies={[

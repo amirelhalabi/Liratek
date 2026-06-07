@@ -45,6 +45,7 @@ export interface PaymentSheetProps {
   requiresClientForDebt?: boolean;
   hasClient?: boolean;
   onPaymentChange: (lines: PaymentLine[]) => void;
+  onReturnChange?: (returnLegs: PaymentLine[]) => void;
   onDiscountChange?: (discount: number) => void;
   onPmFeesChange?: (fees: Record<string, number>) => void;
   /** Increment this to remount MultiPaymentInput (e.g. when client is selected) */
@@ -80,6 +81,7 @@ export function PaymentSheet({
   requiresClientForDebt = true,
   hasClient = false,
   onPaymentChange,
+  onReturnChange,
   onDiscountChange,
   onPmFeesChange,
   paymentInputKey,
@@ -223,6 +225,7 @@ export function PaymentSheet({
               {...(exchangeRate !== undefined ? { exchangeRate } : {})}
               {...(clientId != null ? { clientId } : {})}
               {...(fetchClientVouchers ? { fetchClientVouchers } : {})}
+              {...(onReturnChange ? { onReturnChange } : {})}
             />
           </div>
         </div>

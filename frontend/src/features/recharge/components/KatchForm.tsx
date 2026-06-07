@@ -6,6 +6,7 @@ import { ensureRechargeClient } from "../utils/ensureClient";
 import AlfaLogo from "@/assets/logos/alfa.svg?react";
 import MtcLogo from "@/assets/logos/mtc.svg?react";
 import { type PaymentLine, useApi } from "@liratek/ui";
+import { toCamelLegs } from "@/utils/paymentUtils";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { useSessionAutoFill } from "@/features/sessions/hooks/useSessionAutoFill";
 import type { ProviderConfig, FinancialTransaction } from "../types";
@@ -105,6 +106,7 @@ export function KatchForm({
 
   const [paymentMethod, setPaymentMethod] = useState("CASH");
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
+  const [returnLegs, setReturnLegs] = useState<PaymentLine[]>([]);
   const isSplitPayment = paymentLines.length > 1;
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
   const [searchQuery, setSearchQuery] = useState("");
@@ -379,14 +381,7 @@ export function KatchForm({
       // single CUSTOMER_ACCOUNT line in USD against an LBP transaction).
       const paymentsPayload =
         paymentLines.length > 0
-          ? paymentLines.map((l) => ({
-              method: l.method,
-              currencyCode: l.currencyCode,
-              amount: l.amount,
-              ...(l.method === "GIFT_CARD" && l.voucherCode
-                ? { voucherCode: l.voucherCode }
-                : {}),
-            }))
+          ? toCamelLegs(paymentLines, returnLegs)
           : undefined;
 
       // Store each line item for replay at checkout
@@ -454,6 +449,7 @@ export function KatchForm({
       setClientPhone("");
       setClientId(null);
       setExpandedKeys(new Set());
+      setReturnLegs([]);
       return;
     }
 
@@ -463,14 +459,7 @@ export function KatchForm({
     const finalPaymentMethod = isSplitPayment ? "MULTI" : paymentMethod;
     const paymentsPayload =
       paymentLines.length > 0
-        ? paymentLines.map((l) => ({
-            method: l.method,
-            currencyCode: l.currencyCode,
-            amount: l.amount,
-            ...(l.method === "GIFT_CARD" && l.voucherCode
-              ? { voucherCode: l.voucherCode }
-              : {}),
-          }))
+        ? toCamelLegs(paymentLines, returnLegs)
         : undefined;
 
     // Aggregate all items into one transaction
@@ -547,6 +536,7 @@ export function KatchForm({
       setClientPhone("");
       setClientId(null);
       setExpandedKeys(new Set());
+      setReturnLegs([]);
       setTransactionTime(undefined);
       const hasDebtPayment =
         paymentMethod === "CUSTOMER_ACCOUNT" ||
@@ -566,55 +556,78 @@ export function KatchForm({
   const providerTransactions = filterProviderTransactions(finTransactions);
 
   return (
-    <div className="flex flex-col gap-5 flex-1 min-h-0">
-      {/* Search Bar */}
-      <div className="relative">
-        <input
-          type="text"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder={`Search ${activeProvider} items...`}
-          className="w-full px-4 py-2.5 pl-10 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500/50 transition-all"
-        />
-        <svg
-          className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+    <div className="flex flex-col gap-3">
+      {/* Top Row: Search Bar + Proceed to Pay — sticky so it never scrolls away */}
+      <div className="sticky top-0 z-10 flex items-center gap-3 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 pb-1">
+        <div className="relative flex-1">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder={`Search ${activeProvider} items...`}
+            className="w-full px-4 py-2.5 pl-10 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500/50 transition-all"
           />
-        </svg>
-        {searchQuery && (
-          <button
-            onClick={() => setSearchQuery("")}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
-            aria-label="Clear search"
-            type="button"
+          <svg
+            className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
           >
-            <svg
-              className="w-4 h-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+            />
+          </svg>
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery("")}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+              aria-label="Clear search"
+              type="button"
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M6 18L18 6M6 6l12 12"
-              />
-            </svg>
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M6 18L18 6M6 6l12 12"
+                />
+              </svg>
+            </button>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          {totalItems > 0 && (
+            <div className="text-right leading-tight">
+              <div className="text-xs text-white font-bold">{totalItems} items</div>
+              <div className="text-xs text-emerald-400 font-mono font-semibold">{totalPrice.toLocaleString()} LBP</div>
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={() => setShowPaymentSheet(true)}
+            disabled={totalItems === 0}
+            className={`px-4 py-2.5 rounded-lg font-bold text-sm transition-all whitespace-nowrap ${
+              totalItems === 0
+                ? "bg-slate-600 text-slate-400 cursor-not-allowed"
+                : "bg-orange-500 hover:bg-orange-600 text-white shadow-lg shadow-orange-500/20"
+            }`}
+          >
+            {activeSession ? "Add to Cart" : "Proceed to Pay"}
           </button>
-        )}
+        </div>
       </div>
 
       {/* Card Grid */}
-      <div className="flex-1 min-h-0 overflow-auto space-y-6 pb-2">
+      <div className="space-y-6 pb-2">
         {categories.map((category) => {
           const allCategoryItems = getServiceItems(activeProvider, category);
           const categoryItems = filterItemsBySearch(allCategoryItems);
@@ -901,33 +914,6 @@ export function KatchForm({
         })}
       </div>
 
-      {/* Sticky Bottom Trigger Bar */}
-      <div className="shrink-0 bg-slate-800/95 backdrop-blur-sm rounded-xl border border-slate-700/50 p-3 shadow-2xl">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="text-xs text-slate-400">
-              Items: <span className="text-white font-bold">{totalItems}</span>
-              <span className="text-slate-600 mx-1">·</span>
-              <span className="text-emerald-400 font-mono font-semibold">
-                {totalPrice.toLocaleString()} LBP
-              </span>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => setShowPaymentSheet(true)}
-            disabled={totalItems === 0}
-            className={`px-5 py-2.5 rounded-lg font-bold text-sm transition-all ${
-              totalItems === 0
-                ? "bg-slate-600 text-slate-400 cursor-not-allowed"
-                : "bg-orange-500 hover:bg-orange-600 text-white shadow-lg shadow-orange-500/20"
-            }`}
-          >
-            {activeSession ? "Add to Cart" : "Proceed to Pay"}
-          </button>
-        </div>
-      </div>
-
       <PaymentSheet
         open={showPaymentSheet}
         onClose={() => setShowPaymentSheet(false)}
@@ -957,6 +943,7 @@ export function KatchForm({
             setPaymentMethod(lines[0].method);
           }
         }}
+        onReturnChange={setReturnLegs}
       >
         <div className="space-y-2">
           <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">

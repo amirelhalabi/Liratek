@@ -17,6 +17,8 @@ const PaymentLineSchema = z.object({
   amount: z.number(),
   // Present only for GIFT_CARD legs — the voucher code being redeemed.
   voucher_code: z.string().optional(),
+  // IN (customer pays, default) or OUT (shop returns change to customer).
+  direction: z.enum(["IN", "OUT"]).optional(),
 });
 
 export const SaleProcessSchema = z.object({
@@ -163,6 +165,7 @@ export const MaintenanceJobSchema = z.object({
         method: z.string().min(1),
         currency_code: z.string().min(1),
         amount: z.number(),
+        direction: z.enum(["IN", "OUT"]).optional(),
       }),
     )
     .optional(),
@@ -188,6 +191,7 @@ export const RechargeSchema = z.object({
         currencyCode: z.string().min(1),
         amount: z.number(),
         voucherCode: z.string().optional(),
+        direction: z.enum(["IN", "OUT"]).optional(),
       }),
     )
     .optional(),
@@ -207,6 +211,7 @@ const FinancialPaymentLegSchema = z.object({
   currencyCode: z.string().min(1),
   amount: z.number(),
   voucherCode: z.string().optional(),
+  direction: z.enum(["IN", "OUT"]).optional(),
 });
 
 export const FinancialServiceSchema = z.object({
@@ -323,6 +328,7 @@ const CheckpointPaymentSchema = z.object({
   method: z.string().min(1),
   currency_code: z.string().min(1),
   amount: z.number(),
+  direction: z.enum(["IN", "OUT"]).optional(),
 });
 
 export const LotoCheckpointSettleSchema = z.object({
@@ -360,6 +366,7 @@ export const CustomServiceCreateSchema = z.object({
         currency_code: z.string().min(1),
         amount: z.number(),
         voucher_code: z.string().optional(),
+        direction: z.enum(["IN", "OUT"]).optional(),
       }),
     )
     .optional(),
@@ -374,6 +381,7 @@ const RepaymentPaymentLegSchema = z.object({
   method: z.string().min(1),
   currencyCode: z.string().min(1),
   amount: z.number(),
+  direction: z.enum(["IN", "OUT"]).optional(),
 });
 
 export const DebtRepaymentSchema = z.object({

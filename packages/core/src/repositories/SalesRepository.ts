@@ -63,10 +63,13 @@ export interface DraftSaleWithItems extends SaleWithClient {
 
 import {
   type PaymentMethod,
+  type PaymentDirection,
   isDrawerAffectingMethod,
   paymentMethodToDrawerName,
+  partitionLegs,
 } from "../utils/payments.js";
 import { getVoucherRepository } from "./VoucherRepository.js";
+import { getDebtService } from "../services/DebtService.js";
 
 // Backward compatible payment method type (DB values)
 // NOTE: exported for API typing.
@@ -79,6 +82,8 @@ export interface PaymentLine {
   amount: number;
   /** Set when method === 'GIFT_CARD' — the voucher code being redeemed. */
   voucher_code?: string;
+  /** IN (customer pays, default) or OUT (shop returns change to customer). */
+  direction?: PaymentDirection;
 }
 
 export interface SaleRequest {
@@ -228,6 +233,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         const sumPayments = (lines: PaymentLine[] | undefined) => {
           const totals: Record<string, number> = {};
           for (const p of lines || []) {
+            // OUT legs are returned change, not customer payment.
+            if (p.direction === "OUT") continue;
             // DEBT lines represent unpaid amounts and must not count as paid.
             if (!isDrawerAffectingMethod(p.method)) continue;
             totals[p.currency_code] = (totals[p.currency_code] || 0) + p.amount;
@@ -382,7 +389,10 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         const createdBy = userId;
         const note = sale.note || null;
 
-        for (const p of paymentLines) {
+        // Split customer-paid (IN) legs from shop-returned change (OUT) legs.
+        const { inLegs, outLegs } = partitionLegs(paymentLines);
+
+        for (const p of inLegs) {
           // DEBT means no drawer movement and should not create a payments row.
           if (!isDrawerAffectingMethod(p.method)) continue;
           const drawerName = paymentMethodToDrawerName(p.method);
@@ -403,7 +413,7 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         // GIFT_CARD leg is non-drawer, so the unpaid balance becomes a Sale Debt
         // that the deposited credit offsets.
         const voucherRepo = getVoucherRepository();
-        for (const p of paymentLines) {
+        for (const p of inLegs) {
           if (p.method !== "GIFT_CARD" || !p.voucher_code) continue;
           voucherRepo.redeemByCode({
             code: p.voucher_code,
@@ -411,6 +421,37 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
             transactionId: txnId,
             userId: createdBy,
           });
+        }
+
+        // Return (OUT) legs: change handed back via a non-cash method or kept as
+        // store credit. Cash change uses the change_given_usd/lbp path below.
+        for (const r of outLegs) {
+          const amt = Math.abs(r.amount);
+          if (amt <= 0) continue;
+          if (r.method === "CUSTOMER_ACCOUNT") {
+            if (!sale.client_id) {
+              throw new Error("Client is required to return change as store credit");
+            }
+            getDebtService().addCredit({
+              clientId: sale.client_id,
+              amountUsd: r.currency_code === "USD" ? amt : 0,
+              amountLbp: r.currency_code === "LBP" ? amt : 0,
+              note: "Change returned",
+              userId: createdBy,
+            });
+          } else if (isDrawerAffectingMethod(r.method)) {
+            const drawerName = paymentMethodToDrawerName(r.method);
+            insertPayment.run(
+              txnId,
+              r.method,
+              drawerName,
+              r.currency_code,
+              -amt,
+              "Change returned",
+              createdBy,
+            );
+            upsertBalanceDelta.run(drawerName, r.currency_code, -amt);
+          }
         }
 
         const changeUsd = Math.abs(sale.change_given_usd || 0);

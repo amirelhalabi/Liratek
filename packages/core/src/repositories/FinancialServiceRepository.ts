@@ -10,6 +10,7 @@ import {
   paymentMethodToDrawerName,
   isDrawerAffectingMethod,
   isNonCashDrawerMethod,
+  partitionLegs,
 } from "../utils/payments.js";
 import { getSupplierRepository } from "./SupplierRepository.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
@@ -116,6 +117,8 @@ export interface CreateFinancialServiceData {
     amount: number;
     /** Set when method === 'GIFT_CARD' — the voucher code being redeemed. */
     voucherCode?: string;
+    /** IN (customer pays, default) or OUT (shop returns change to customer). */
+    direction?: "IN" | "OUT";
   }>;
   clientId?: number;
   clientName?: string;
@@ -575,6 +578,16 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           balance = drawer_balances.balance + excluded.balance,
           updated_at = CURRENT_TIMESTAMP
       `);
+
+      // Separate shop→customer change (OUT) legs up front so every inflow branch
+      // below operates on customer-paid (IN) legs only. OUT legs are processed
+      // once at the end of the transaction.
+      const { inLegs: inPayments, outLegs: returnLegs } = partitionLegs(
+        data.payments,
+      );
+      if (returnLegs.length > 0) {
+        data.payments = inPayments;
+      }
 
       if (useCostPriceFlow) {
         // ─── COST/PRICE FLOW (iPick, Katsh, WISH_APP, OMT_APP, BINANCE) ───
@@ -1646,6 +1659,40 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             1,
             data.transaction_time ?? null,
           );
+      }
+
+      // Return (OUT) legs: change handed back to the customer via a chosen method,
+      // or kept as store credit. Debits the method's drawer (negative delta), or
+      // deposits credit to the client's account for CUSTOMER_ACCOUNT.
+      for (const r of returnLegs) {
+        const amt = Math.abs(r.amount);
+        if (amt <= 0) continue;
+        if (r.method === "CUSTOMER_ACCOUNT") {
+          if (!resolvedPrimaryClientId) {
+            throw new Error(
+              "Client is required to return change as store credit",
+            );
+          }
+          getDebtService().addCredit({
+            clientId: resolvedPrimaryClientId,
+            amountUsd: r.currencyCode === "USD" ? amt : 0,
+            amountLbp: r.currencyCode === "LBP" ? amt : 0,
+            note: "Change returned",
+            userId: createdBy,
+          });
+        } else if (isDrawerAffectingMethod(r.method)) {
+          const drawerName = paymentMethodToDrawerName(r.method);
+          insertPayment.run(
+            txnId,
+            r.method,
+            drawerName,
+            r.currencyCode,
+            -amt,
+            "Change returned",
+            createdBy,
+          );
+          upsertBalanceDelta.run(drawerName, r.currencyCode, -amt);
+        }
       }
 
       return { id, drawer: legacyDrawerLabel };

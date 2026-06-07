@@ -10,6 +10,8 @@ import { DatabaseError } from "../utils/errors.js";
 import {
   paymentMethodToDrawerName,
   isNonCashDrawerMethod,
+  isDrawerAffectingMethod,
+  partitionLegs,
 } from "../utils/payments.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
@@ -19,6 +21,8 @@ export interface RepaymentPaymentLine {
   method: string;
   currencyCode: string;
   amount: number;
+  /** IN (customer pays, default) or OUT (shop returns change to customer). */
+  direction?: "IN" | "OUT";
 }
 
 // Maps transaction_type stored in debt_ledger to the system drawer that should
@@ -238,16 +242,25 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
                 : []),
             ];
 
-      // Compute total USD equivalent for transaction summary & FIFO attribution
-      const totalUSD = paymentLegs
-        .filter((l) => l.currencyCode === "USD")
-        .reduce((s, l) => s + l.amount, 0);
-      const totalLBP = paymentLegs
-        .filter((l) => l.currencyCode === "LBP")
-        .reduce((s, l) => s + l.amount, 0);
+      // Split customer-paid (IN) legs from shop-returned change (OUT) legs.
+      const { inLegs, outLegs: returnLegs } = partitionLegs(paymentLegs);
+
+      // Compute NET total (IN − OUT) per currency for transaction summary &
+      // FIFO attribution — overpaid change is not applied to the debt.
+      const sumByCurrency = (
+        legs: RepaymentPaymentLine[],
+        ccy: string,
+      ): number =>
+        legs
+          .filter((l) => l.currencyCode === ccy)
+          .reduce((s, l) => s + Math.abs(l.amount), 0);
+      const totalUSD =
+        sumByCurrency(inLegs, "USD") - sumByCurrency(returnLegs, "USD");
+      const totalLBP =
+        sumByCurrency(inLegs, "LBP") - sumByCurrency(returnLegs, "LBP");
 
       // Derive primary method label for metadata (first leg, or SPLIT)
-      const uniqueMethods = [...new Set(paymentLegs.map((l) => l.method))];
+      const uniqueMethods = [...new Set(inLegs.map((l) => l.method))];
       const primaryMethod =
         uniqueMethods.length === 1 ? uniqueMethods[0] : "SPLIT";
 
@@ -322,8 +335,8 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
             ? "Whish_System"
             : null;
 
-      // Process each payment leg independently
-      for (const leg of paymentLegs) {
+      // Process each customer-paid (IN) leg independently
+      for (const leg of inLegs) {
         if (leg.amount <= 0) continue;
 
         const legDrawer = paymentMethodToDrawerName(leg.method);
@@ -370,9 +383,40 @@ export class DebtRepository extends BaseRepository<DebtLedgerEntity> {
         }
       }
 
+      // Return (OUT) legs: overpaid change handed back via a chosen method, or
+      // kept as store credit. Debits the method's drawer, or deposits credit.
+      for (const r of returnLegs) {
+        const amt = Math.abs(r.amount);
+        if (amt <= 0) continue;
+        if (r.method === "CUSTOMER_ACCOUNT") {
+          this.addCredit({
+            clientId: data.client_id,
+            amountUsd: r.currencyCode === "USD" ? amt : 0,
+            amountLbp: r.currencyCode === "LBP" ? amt : 0,
+            note: "Change returned",
+            createdBy: String(data.created_by),
+            ...(data.transaction_time
+              ? { transactionTime: data.transaction_time }
+              : {}),
+          });
+        } else if (isDrawerAffectingMethod(r.method)) {
+          const drawer = paymentMethodToDrawerName(r.method);
+          insertPayment.run(
+            txnId,
+            r.method,
+            drawer,
+            r.currencyCode,
+            -amt,
+            "Change returned",
+            data.created_by,
+          );
+          upsertBalance.run(drawer, r.currencyCode, -amt);
+        }
+      }
+
       // 4. Mark originating sales as paid (FIFO — oldest unpaid sale first)
       //    so that profit is recognized once fully paid.
-      //    Use totalUSD from legs (USD legs only) for accurate attribution.
+      //    Use net totalUSD (IN − OUT) for accurate attribution.
       this._markSalesPaidFIFO(data.client_id, totalUSD || data.amount_usd);
 
       return { id: repaymentId };

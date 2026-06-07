@@ -29,6 +29,7 @@ import { useSessionAutoFill } from "@/features/sessions/hooks/useSessionAutoFill
 import { useCustomServices } from "../../hooks/useCustomServices";
 import logger from "@/utils/logger";
 import { MultiPaymentInput, type PaymentLine, SearchBar } from "@liratek/ui";
+import { toSnakeLegs } from "@/utils/paymentUtils";
 import { HistoryModal } from "./components/HistoryModal";
 import { PresetManagerModal } from "./components/PresetManagerModal";
 import { StatsCards } from "../../components/StatsCards";
@@ -108,6 +109,7 @@ export default function CustomServices() {
 
   // ─── Payment lines (always multi-payment) ───
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
+  const [returnLegs, setReturnLegs] = useState<PaymentLine[]>([]);
 
   // ─── Item Selector ───
   const [selectedProduct, setSelectedProduct] = useState<{
@@ -253,14 +255,8 @@ export default function CustomServices() {
         price_usd: priceUsdVal,
         price_lbp: priceLbpVal,
         paid_by: primaryMethod,
-        ...(paymentLines.length > 0
-          ? {
-              payments: paymentLines.map((p) => ({
-                method: p.method,
-                currency_code: p.currencyCode,
-                amount: p.amount,
-              })),
-            }
+        ...(paymentLines.length > 0 || returnLegs.length > 0
+          ? { payments: toSnakeLegs(paymentLines, returnLegs) }
           : {}),
         // Voucher code for the GIFT_CARD leg (custom services use one primary method)
         ...(() => {
@@ -307,6 +303,7 @@ export default function CustomServices() {
         setNote("");
         setCategory("");
         setPaymentLines([]);
+        setReturnLegs([]);
         clearProduct();
         clearClient();
         setIsSubmitting(false);
@@ -325,6 +322,7 @@ export default function CustomServices() {
         setNote("");
         setCategory("");
         setPaymentLines([]);
+        setReturnLegs([]);
         setTransactionTime(undefined);
         clearProduct();
         clearClient();
@@ -832,6 +830,7 @@ export default function CustomServices() {
                 totalAmount={priceUsdVal || costUsdVal}
                 currency="USD"
                 onChange={setPaymentLines}
+                onReturnChange={setReturnLegs}
                 requiresClientForDebt={true}
                 hasClient={!!clientId || !!clientName}
                 paymentMethods={methods}
