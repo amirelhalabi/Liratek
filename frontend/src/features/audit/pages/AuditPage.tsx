@@ -16,17 +16,6 @@ export default function AuditPage() {
       <div className="flex-1 min-h-0 bg-slate-800 rounded-xl border border-slate-700 shadow-lg flex flex-col overflow-hidden">
         <div className="flex gap-2 p-2 border-b border-slate-700 shrink-0">
           <button
-            onClick={() => setActive("audit")}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors ${
-              active === "audit"
-                ? "bg-violet-600 text-white"
-                : "text-slate-300 hover:bg-slate-700"
-            }`}
-          >
-            <Shield size={14} />
-            Audit Log
-          </button>
-          <button
             onClick={() => setActive("transactions")}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors ${
               active === "transactions"
@@ -36,6 +25,17 @@ export default function AuditPage() {
           >
             <ArrowLeftRight size={14} />
             Transactions
+          </button>
+          <button
+            onClick={() => setActive("audit")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors ${
+              active === "audit"
+                ? "bg-violet-600 text-white"
+                : "text-slate-300 hover:bg-slate-700"
+            }`}
+          >
+            <Shield size={14} />
+            Audit Log
           </button>
         </div>
         <div className="flex-1 min-h-0 overflow-auto p-4">

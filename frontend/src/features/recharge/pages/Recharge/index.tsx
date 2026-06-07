@@ -1030,15 +1030,15 @@ export default function MobileRecharge() {
           ) : activeProvider === "WISH_APP" ? (
             // Whish App - Bills (cards) or Transfer (send/receive)
             <>
-              {/* Mode Tabs - Bills / Transfer */}
+              {/* Mode Tabs - Transfer / Bills */}
               <ServiceTypeTabs
                 options={[
-                  { id: "bills", label: "Bills", iconKey: "FileText" },
                   {
                     id: "transfer",
                     label: "Transfer",
                     iconKey: "ArrowLeftRight",
                   },
+                  { id: "bills", label: "Bills", iconKey: "FileText" },
                 ]}
                 value={whishAppMode}
                 onChange={(val) => setWhishAppMode(val as "bills" | "transfer")}
