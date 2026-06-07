@@ -56,6 +56,78 @@ function formatAmount(usd: number, lbp: number): string {
   return parts.join(" + ") || "\u2014";
 }
 
+/**
+ * Returns the cash-flow direction for a given transaction type.
+ * "in"  \u2192 money flows into the shop
+ * "out" \u2192 money flows out of the shop
+ * "both" \u2192 the row has both in and out legs (e.g. exchange)
+ * null \u2192 direction not meaningful for this type
+ */
+function getCashFlowDirection(
+  type: string,
+): "in" | "out" | "both" | null {
+  switch (type) {
+    case "SALE":
+    case "FINANCIAL_SERVICE":
+    case "CUSTOM_SERVICE":
+    case "MAINTENANCE":
+    case "DEBT_REPAYMENT":
+    case "SUPPLIER_PAYMENT":
+      return "in";
+    case "EXPENSE":
+    case "RECHARGE":
+    case "RECHARGE_TOPUP":
+      return "out";
+    case "EXCHANGE":
+      return "both";
+    case "BINANCE":
+      // Binance can be either; leave direction undecorated here
+      return null;
+    default:
+      return null;
+  }
+}
+
+interface CashFlowBadgeProps {
+  type: string;
+  amountUsd: number;
+  amountLbp: number;
+}
+
+function CashFlowBadge({ type, amountUsd, amountLbp }: CashFlowBadgeProps) {
+  const direction = getCashFlowDirection(type);
+  if (!direction) return null;
+
+  const amountStr = formatAmount(amountUsd, amountLbp);
+
+  if (direction === "both") {
+    return (
+      <span className="inline-flex items-center gap-1 text-[11px] font-mono">
+        <span className="text-emerald-400">\u2191</span>
+        <span className="text-emerald-400">/</span>
+        <span className="text-red-400">\u2193</span>
+        <span className="text-slate-300">{amountStr}</span>
+      </span>
+    );
+  }
+
+  if (direction === "in") {
+    return (
+      <span className="inline-flex items-center gap-1 text-[11px] font-mono">
+        <span className="text-emerald-400">\u2191</span>
+        <span className="text-emerald-400">{amountStr}</span>
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1 text-[11px] font-mono">
+      <span className="text-red-400">\u2193</span>
+      <span className="text-red-400">{amountStr}</span>
+    </span>
+  );
+}
+
 const ACTIONABLE_TYPES = new Set([
   "SALE",
   "FINANCIAL_SERVICE",
@@ -320,7 +392,20 @@ export default function TransactionsViewer() {
               <td className="p-2 truncate" style={{ width: 130 }}>
                 {row.source_table} #{row.source_id}
               </td>
-              <td className="p-2 truncate">{row.summary || ""}</td>
+              <td className="p-2">
+                <div className="flex flex-col gap-0.5">
+                  <CashFlowBadge
+                    type={row.type}
+                    amountUsd={row.amount_usd}
+                    amountLbp={row.amount_lbp}
+                  />
+                  {row.summary && (
+                    <span className="text-slate-400 truncate max-w-[220px]">
+                      {row.summary}
+                    </span>
+                  )}
+                </div>
+              </td>
               <td className="p-2" style={{ width: 80 }}>
                 {row.reverses_id ? `#${row.reverses_id}` : "\u2014"}
               </td>

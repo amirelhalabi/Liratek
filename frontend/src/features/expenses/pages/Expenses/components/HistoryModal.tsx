@@ -168,7 +168,13 @@ export function HistoryModal({
                       className={`hover:bg-slate-700/20 transition-colors${isRefunded ? " opacity-50" : ""}`}
                     >
                       <td className="px-6 py-4">
-                        <div className="text-sm text-white font-medium flex items-center gap-1">
+                        <div className="text-sm text-white font-medium flex items-center gap-1 flex-wrap">
+                          <span className="inline-flex items-center gap-0.5 text-[11px] font-mono text-red-400 shrink-0">
+                            ↓{" "}
+                            {expense.amount_usd > 0
+                              ? `$${expense.amount_usd.toFixed(2)}`
+                              : `${expense.amount_lbp.toLocaleString()} LBP`}
+                          </span>
                           {expense.description}
                           {isRefunded && (
                             <span className="ml-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">

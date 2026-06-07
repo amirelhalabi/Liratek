@@ -2040,10 +2040,12 @@ export default function Services() {
                         </span>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="flex items-center gap-2 text-slate-300">
-                          <Icon size={14} />
-                          <span className="text-sm">
-                            {SERVICE_TYPE_LABELS[tx.service_type]}
+                        <div className="flex items-center gap-2">
+                          <Icon size={14} className="text-slate-400 shrink-0" />
+                          <span
+                            className={`text-sm font-mono font-semibold ${tx.service_type === "SEND" ? "text-red-400" : "text-emerald-400"}`}
+                          >
+                            {tx.service_type === "SEND" ? "↓ Send" : "↑ Receive"}
                           </span>
                         </div>
                         {omtLabel && (

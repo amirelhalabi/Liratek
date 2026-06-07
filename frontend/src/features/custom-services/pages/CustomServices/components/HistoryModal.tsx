@@ -222,7 +222,10 @@ export function HistoryModal({
                         {formatTime(tx.created_at)}
                       </td>
                       <td className="px-4 py-3">
-                        <div className="text-sm text-white font-medium flex items-center gap-1">
+                        <div className="text-sm text-white font-medium flex items-center gap-1 flex-wrap">
+                          <span className="inline-flex items-center gap-0.5 text-[11px] font-mono text-emerald-400 shrink-0">
+                            ↑ {formatCurrency(tx.price_usd, tx.price_lbp)}
+                          </span>
                           {tx.description}
                           {isRefunded && (
                             <span className="ml-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">

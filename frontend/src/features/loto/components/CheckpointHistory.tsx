@@ -268,12 +268,12 @@ export function CheckpointHistory({ onClose }: CheckpointHistoryProps) {
                     sortKey: "total_tickets",
                   },
                   {
-                    header: "Sales (LBP)",
+                    header: "↓ Sales (LBP)",
                     className: "px-4 py-3 text-right",
                     sortKey: "total_sales",
                   },
                   {
-                    header: "Commission (LBP)",
+                    header: "↑ Commission (LBP)",
                     className: "px-4 py-3 text-right",
                     sortKey: "total_commission",
                   },
@@ -339,9 +339,11 @@ export function CheckpointHistory({ onClose }: CheckpointHistoryProps) {
                           {checkpoint.total_tickets}
                         </td>
                         <td className="px-4 py-3 text-right text-sm font-bold text-red-400 font-mono">
+                          <span className="mr-1 opacity-70">↓</span>
                           {checkpoint.total_sales.toLocaleString()}
                         </td>
                         <td className="px-4 py-3 text-right text-sm font-bold text-green-400 font-mono">
+                          <span className="mr-1 opacity-70">↑</span>
                           {checkpoint.total_commission.toLocaleString()}
                         </td>
                         <td className="px-4 py-3 text-right text-sm font-bold text-white font-mono">
