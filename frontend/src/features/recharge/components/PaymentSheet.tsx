@@ -97,6 +97,7 @@ export function PaymentSheet({
 
   useEffect(() => {
     if (open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setMounted(true);
       // Trigger animation on next frame
       requestAnimationFrame(() => {

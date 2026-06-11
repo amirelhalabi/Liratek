@@ -12,6 +12,7 @@ import {
   LotoFeeSchema,
   LotoCheckpointCreateSchema,
   LotoCheckpointSettleSchema,
+  LotoCheckpointsSettleBatchSchema,
   validatePayload,
 } from "../schemas/index.js";
 
@@ -503,6 +504,44 @@ export function registerLotoHandlers(): void {
           error instanceof Error
             ? error.message
             : "Failed to settle checkpoint",
+      };
+    }
+  });
+
+  ipcMain.handle("loto:checkpoints:settle-batch", async (e, data: unknown) => {
+    try {
+      const auth = requireRole(e.sender.id, ["admin"]);
+      if (!auth.ok) throw new Error(auth.error ?? "Admin access required");
+
+      const v = validatePayload(LotoCheckpointsSettleBatchSchema, data);
+      if (!v.ok) throw new Error(v.error);
+
+      const service = getLotoServiceInstance();
+      const checkpoints = service.settleCheckpoints(
+        v.data.checkpointIds,
+        v.data.totalSales,
+        v.data.totalCommission,
+        v.data.settledAt,
+        auth.userId,
+        v.data.payment,
+      );
+      audit(e.sender.id, {
+        action: "settle",
+        entity_type: "loto_checkpoint",
+        entity_id: v.data.checkpointIds.join(","),
+        summary: `Batch settled ${v.data.checkpointIds.length} loto checkpoint(s)`,
+        metadata: {
+          checkpointIds: v.data.checkpointIds,
+          totalSales: v.data.totalSales,
+          totalCommission: v.data.totalCommission,
+        },
+      });
+      return { success: true, checkpoints };
+    } catch (error) {
+      lotoLogger.error({ error }, "loto:checkpoints:settle-batch failed");
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to settle checkpoints",
       };
     }
   });

@@ -85,7 +85,7 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
       .filter((m) => !m.admin_only || isAdmin)
       .filter((m) => m.route !== "") // Exclude closing (no route — it's a button)
       .filter((m) => !["reports", "transactions"].includes(m.key)) // Exclude removed modules
-      .reduce<Array<{ to: string; icon: LucideIcon; label: string }>>(
+      .reduce<Array<{ to: string; icon: LucideIcon; label: string; prefetch?: () => void }>>(
         (acc, m) => {
           if (CONSOLIDATED_KEYS.has(m.key)) {
             if (!consolidatedInserted) {
@@ -94,6 +94,7 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
                 to: "/recharge",
                 icon: Smartphone,
                 label: "Mobile Recharge",
+                prefetch: () => import("@/features/recharge/pages/Recharge"),
               });
             }
             return acc;
@@ -139,6 +140,7 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
           <NavLink
             key={item.to}
             to={item.to}
+            onMouseEnter={item.prefetch}
             className={({ isActive }) =>
               clsx(
                 "flex items-center gap-3 py-3 rounded-xl transition-all font-medium whitespace-nowrap w-full",

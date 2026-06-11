@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import logger from "@/utils/logger";
 import { Phone, User, Search, X, CreditCard, ChevronDown } from "lucide-react";
 import {
   ServiceTypeTabs,
@@ -170,7 +171,7 @@ export function TelecomForm({
         const costVal = Number(settingsMap.get("alfa_credit_cost_lbp"));
         if (costVal > 0) setCostRate(costVal);
       } catch (error) {
-        console.error("Failed to load exchange rates:", error);
+        logger.error("Failed to load exchange rates:", error);
       }
     };
     loadRates();
@@ -195,7 +196,9 @@ export function TelecomForm({
       telecomClientName.trim().length > 0 &&
       telecomClientPhone.trim().length > 0;
     if (hasNewClientInfo && initialPaymentMethod !== "CUSTOMER_ACCOUNT") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setInitialPaymentMethod("CUSTOMER_ACCOUNT");
+       
       setPaymentInputKey((k) => k + 1);
     }
   }, [
@@ -363,40 +366,6 @@ export function TelecomForm({
       ) : (
         /* Recharge Form */
         <div className="flex flex-col gap-3 flex-1">
-          {/* Sticky top bar — amount summary + Proceed to Pay, always visible */}
-          <div className="sticky top-0 z-10 flex items-center gap-3 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 pb-1">
-            <div className="flex-1" />
-            {telecomAmount && (
-              <div className="text-right leading-tight">
-                {telecomPrice && (
-                  <div className="text-xs text-emerald-400 font-mono font-semibold">
-                    {Number(telecomPrice).toLocaleString()} LBP
-                    {exchangeRate > 0 && (
-                      <span className="text-slate-400 ml-1.5">
-                        (${convertLBPToUSD(parseFloat(telecomPrice), exchangeRate).toFixed(2)})
-                      </span>
-                    )}
-                  </div>
-                )}
-                <div className={`text-xs text-${accent}-400 font-mono font-semibold`}>
-                  ${telecomAmount}
-                </div>
-              </div>
-            )}
-            <button
-              onClick={() => setSheetOpen(true)}
-              disabled={isSubmitting || !telecomAmount}
-              className={`px-4 py-2.5 rounded-lg font-bold text-sm transition-all whitespace-nowrap flex items-center gap-1.5 ${
-                isSubmitting || !telecomAmount
-                  ? "bg-slate-600 text-slate-400 cursor-not-allowed"
-                  : `bg-${accent}-600 hover:bg-${accent}-500 text-white shadow-lg shadow-${accent}-500/20`
-              }`}
-            >
-              <CreditCard size={15} />
-              {activeSession ? "Add to Cart" : "Proceed to Pay"}
-            </button>
-          </div>
-
           <div className="grid grid-cols-12 gap-5 flex-1">
           <div className="col-span-7 bg-slate-800 rounded-2xl border border-slate-700/50 p-6 flex flex-col gap-6">
             {rechargeType === "CREDIT_TRANSFER" && (
@@ -776,6 +745,39 @@ export function TelecomForm({
               />
             </PaymentSheet>
           </div>
+          </div>
+
+          {/* Bottom bar — amount summary + Proceed to Pay */}
+          <div className="flex items-center justify-end gap-3 pt-1">
+            {telecomAmount && (
+              <div className="text-right leading-tight">
+                {telecomPrice && (
+                  <div className="text-xs text-emerald-400 font-mono font-semibold">
+                    {Number(telecomPrice).toLocaleString()} LBP
+                    {exchangeRate > 0 && (
+                      <span className="text-slate-400 ml-1.5">
+                        (${convertLBPToUSD(parseFloat(telecomPrice), exchangeRate).toFixed(2)})
+                      </span>
+                    )}
+                  </div>
+                )}
+                <div className={`text-xs text-${accent}-400 font-mono font-semibold`}>
+                  ${telecomAmount}
+                </div>
+              </div>
+            )}
+            <button
+              onClick={() => setSheetOpen(true)}
+              disabled={isSubmitting || !telecomAmount}
+              className={`px-4 py-2.5 rounded-lg font-bold text-sm transition-all whitespace-nowrap flex items-center gap-1.5 ${
+                isSubmitting || !telecomAmount
+                  ? "bg-slate-600 text-slate-400 cursor-not-allowed"
+                  : `bg-${accent}-600 hover:bg-${accent}-500 text-white shadow-lg shadow-${accent}-500/20`
+              }`}
+            >
+              <CreditCard size={15} />
+              {activeSession ? "Add to Cart" : "Proceed to Pay"}
+            </button>
           </div>
         </div>
       )}

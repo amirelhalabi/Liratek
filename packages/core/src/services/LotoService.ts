@@ -779,6 +779,41 @@ export class LotoService {
     }
   }
 
+  settleCheckpoints(
+    checkpointIds: number[],
+    totalSales: number,
+    totalCommission: number,
+    settledAt: string | undefined,
+    userId: number,
+    payment?: {
+      method: string;
+      drawer_name: string;
+      currency_code: string;
+      amount: number;
+    },
+  ): LotoCheckpoint[] {
+    try {
+      const checkpoints = this.checkpointRepo.settleCheckpoints(
+        checkpointIds,
+        totalSales,
+        totalCommission,
+        settledAt,
+        userId,
+        payment,
+      );
+      lotoLogger.info(
+        `Loto batch settlement: ${checkpointIds.length} checkpoint(s) settled, sales=${totalSales}, commission=${totalCommission}`,
+      );
+      return checkpoints;
+    } catch (error) {
+      lotoLogger.error(
+        { error: error instanceof Error ? error.message : String(error) },
+        "LotoService.settleCheckpoints failed",
+      );
+      throw error;
+    }
+  }
+
   /**
    * Get total sales from all unsettled checkpoints (what we owe to Loto guy)
    */

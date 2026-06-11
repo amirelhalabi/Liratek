@@ -127,12 +127,16 @@ export default function Maintenance() {
   // Autofill client name/phone from active customer session, clear when session closes
   useEffect(() => {
     if (!editingJob && activeSession?.customer_name) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setClientName(activeSession.customer_name);
       if (activeSession.customer_phone) {
+         
         setClientPhone(activeSession.customer_phone);
       }
     } else if (!activeSession && !editingJob) {
+       
       setClientName("");
+       
       setClientPhone("");
     }
   }, [activeSession, editingJob]);

@@ -2,7 +2,7 @@
 
 > **Sprint Focus:** UI Consistency, Binance Fixes, Whish App UX, Transaction Enrichment & Session Checkout
 > **Created:** 2026-06-07
-> **Last Updated:** 2026-06-07
+> **Last Updated:** 2026-06-08 (post-sprint follow-up)
 > **Status Legend:** `TODO` | `IN PROGRESS` | `DONE` | `BLOCKED`
 
 ---
@@ -14,7 +14,7 @@
 | **Epic**             | UI Consistency                           |
 | **Type**             | Feature / UX                             |
 | **Priority**         | High                                     |
-| **Status**           | TODO                                     |
+| **Status**           | DONE                                     |
 | **Affected Modules** | Exchange                                 |
 | **Assigned To**      | —                                        |
 | **Depends On**       | —                                        |
@@ -29,11 +29,11 @@ The POS Checkpoint Modal already has a proven dual-field layout where both USD a
 
 ### Acceptance Criteria
 
-- [ ] Remove single "customer gets (to currency)" output field
-- [ ] Always show two output fields: USD and LBP
-- [ ] Field values computed using the current exchange rate (same logic as before, just surfaced in both currencies)
-- [ ] Layout matches the dual-field style from POS Checkpoint Modal
-- [ ] Typecheck and lint pass
+- [x] Remove single "customer gets (to currency)" output field
+- [x] Always show two output fields: USD and LBP
+- [x] Field values computed using the current exchange rate (same logic as before, just surfaced in both currencies)
+- [x] Layout matches the dual-field style from POS Checkpoint Modal
+- [x] Typecheck and lint pass
 
 ### Files to Modify
 
@@ -51,7 +51,7 @@ The POS Checkpoint Modal already has a proven dual-field layout where both USD a
 | **Epic**             | UI Consistency                           |
 | **Type**             | Feature / UX                             |
 | **Priority**         | High                                     |
-| **Status**           | TODO                                     |
+| **Status**           | DONE                                     |
 | **Affected Modules** | Mobile Recharge (all forms)              |
 | **Assigned To**      | —                                        |
 | **Depends On**       | —                                        |
@@ -68,23 +68,25 @@ Currently Recharge forms show amounts in a fixed way. The POS Checkpoint Modal h
 
 ### Acceptance Criteria
 
-- [ ] Recharge forms show two amount fields: USD and LBP (matching POS Checkpoint Modal style)
-- [ ] A payment method dropdown is added, allowing the operator to change the method if needed
-- [ ] Dropdown uses the same payment methods available in the current system
-- [ ] USD/LBP field interaction (editing one auto-calculates the other via exchange rate) mirrors POS Checkpoint Modal behavior
-- [ ] All recharge form variants (MTC, Alfa, etc.) updated consistently
-- [ ] Typecheck and lint pass
+- [x] Recharge forms show two amount fields: USD and LBP (matching POS Checkpoint Modal style)
+- [x] A payment method dropdown is added, allowing the operator to change the method if needed
+- [x] Dropdown uses the same payment methods available in the current system
+- [x] USD/LBP field interaction (editing one auto-calculates the other via exchange rate) mirrors POS Checkout Modal behavior
+- [x] TelecomForm: dual LBP/USD price fields + payment method dropdown (MTC/Alfa)
+- [x] FinancialForm: USD equivalent shown below LBP total in sticky bar (OMT/Whish Bills/iPick)
+- [x] KatchForm: USD equivalent shown below LBP total in sticky bar (Katsh/iPick)
+- [x] CryptoForm: LBP equivalent shown below USD total in sticky bar + payment method dropdown (Binance)
+- [x] Typecheck and lint pass
 
 ### Files to Modify
 
-| Layer    | File                                                                  | Change                                       |
-| -------- | --------------------------------------------------------------------- | -------------------------------------------- |
-| Frontend | `frontend/src/features/recharge/components/TelecomForm.tsx`           | Add dual fields + payment method dropdown    |
-| Frontend | `frontend/src/features/recharge/components/FinancialForm.tsx`         | Same                                         |
-| Frontend | `frontend/src/features/recharge/components/CryptoForm.tsx`            | Same                                         |
-| Frontend | `frontend/src/features/recharge/components/KatchForm.tsx`             | Same                                         |
-| Frontend | `frontend/src/features/recharge/components/PaymentSheet.tsx`          | Update to support dropdown + dual fields     |
-| Frontend | `frontend/src/features/recharge/pages/Recharge/index.tsx`             | Propagate changes                            |
+| Layer    | File                                                                  | Change                                                          |
+| -------- | --------------------------------------------------------------------- | --------------------------------------------------------------- |
+| Frontend | `frontend/src/features/recharge/components/TelecomForm.tsx`           | Dual LBP/USD price fields + payment method dropdown ✓           |
+| Frontend | `frontend/src/features/recharge/components/FinancialForm.tsx`         | USD equivalent in sticky bar ✓                                  |
+| Frontend | `frontend/src/features/recharge/components/CryptoForm.tsx`            | LBP equivalent in sticky bar + payment method dropdown ✓        |
+| Frontend | `frontend/src/features/recharge/components/KatchForm.tsx`             | USD equivalent in sticky bar ✓                                  |
+| Frontend | `frontend/src/features/recharge/pages/Recharge/index.tsx`             | Propagate changes ✓                                             |
 
 ---
 
@@ -95,7 +97,7 @@ Currently Recharge forms show amounts in a fixed way. The POS Checkpoint Modal h
 | **Epic**             | UI Layout                          |
 | **Type**             | Bug / UX                           |
 | **Priority**         | Medium                             |
-| **Status**           | TODO                               |
+| **Status**           | DONE                               |
 | **Affected Modules** | Mobile Recharge                    |
 | **Assigned To**      | —                                  |
 | **Depends On**       | —                                  |
@@ -109,10 +111,10 @@ Two layout issues in the Mobile Recharge page:
 
 ### Acceptance Criteria
 
-- [ ] "Proceed to Pay" section is anchored to the top right, next to the search bar
-- [ ] "Proceed to Pay" does not scroll out of view
-- [ ] The recharge items grid scrolls independently within its container
-- [ ] No layout regressions on other parts of the page
+- [x] "Proceed to Pay" section is anchored to the top right, next to the search bar
+- [x] "Proceed to Pay" does not scroll out of view
+- [x] The recharge items grid scrolls independently within its container
+- [x] No layout regressions on other parts of the page
 
 ### Files to Modify
 
@@ -130,7 +132,7 @@ Two layout issues in the Mobile Recharge page:
 | **Epic**             | Partner System                     |
 | **Type**             | Cleanup / UX                       |
 | **Priority**         | Medium                             |
-| **Status**           | TODO                               |
+| **Status**           | DONE                               |
 | **Affected Modules** | Partners                           |
 | **Assigned To**      | —                                  |
 | **Depends On**       | LIRA-047 (DONE)                    |
@@ -145,11 +147,11 @@ After LIRA-047, the `partner_ledger.transaction_type` field has accumulated seve
 
 ### Acceptance Criteria
 
-- [ ] Review all `transaction_type` values currently shown in "Record Transaction" dropdown
-- [ ] Remove or relabel redundant/legacy entries (mark with "(legacy)" or remove where safe)
-- [ ] Group or order types logically (e.g., OMT Send/Receive, Whish Send/Receive, Settlement, Adjustment)
-- [ ] TypeScript types updated to match simplified set if any are removed
-- [ ] Typecheck and lint pass
+- [x] Review all `transaction_type` values currently shown in "Record Transaction" dropdown
+- [x] Remove or relabel redundant/legacy entries — THROUGH_*/FOR_* removed (auto-written by FSR, not for manual entry)
+- [x] Group or order types logically into optgroups: General, OMT, Whish, Other
+- [x] TypeScript types updated — `PartnerTransactionType` union added, covers all historical DB values for display
+- [x] Typecheck and lint pass
 
 ### Files to Modify
 
@@ -168,7 +170,7 @@ After LIRA-047, the `partner_ledger.transaction_type` field has accumulated seve
 | **Epic**             | Binance / Financial Services                   |
 | **Type**             | Bug                                            |
 | **Priority**         | High                                           |
-| **Status**           | TODO                                           |
+| **Status**           | DONE                                           |
 | **Affected Modules** | Mobile Recharge > Binance, Drawers, Checkpoint |
 | **Assigned To**      | —                                              |
 | **Depends On**       | —                                              |
@@ -201,13 +203,13 @@ Multiple bugs in the Binance SEND transaction flow:
 
 ### Acceptance Criteria
 
-- [ ] Binance SEND with cash payment: Cash/General drawer is credited with the amount paid by customer
-- [ ] Binance drawer tracks USDT (not USD) and is correctly debited on SEND
-- [ ] Fee does not appear as a spurious entry in General drawer
-- [ ] Checkpoint correctly shows Binance drawer balance in USDT
-- [ ] Existing Binance RECEIVE logic reviewed for same class of bug
-- [ ] Unit or integration tests added/updated for Binance drawer flows
-- [ ] Typecheck and lint pass
+- [x] Binance SEND with cash payment: Cash/General drawer is credited with the amount paid by customer
+- [x] Binance drawer tracks USDT (not USD) and is correctly debited on SEND
+- [x] Fee does not appear as a spurious entry in General drawer (implicit in cash-in vs crypto-out spread)
+- [x] Migration v93: remaps Binance drawer currency_code USD→USDT, merges stale balances, updates create_db.sql
+- [x] RECEIVE logic fixed: Binance drawer credited in USDT, General drawer debited in USD (amount−fee)
+- [x] `FinancialServiceRepository.binance.test.ts` added (12 tests covering SEND/RECEIVE/CUSTOMER_ACCOUNT)
+- [x] Typecheck and lint pass
 
 ### Files to Modify
 
@@ -228,7 +230,7 @@ Multiple bugs in the Binance SEND transaction flow:
 | **Epic**             | Whish App UX                       |
 | **Type**             | UX / Polish                        |
 | **Priority**         | Low                                |
-| **Status**           | TODO                               |
+| **Status**           | DONE                               |
 | **Affected Modules** | Whish App                          |
 | **Assigned To**      | —                                  |
 | **Depends On**       | —                                  |
@@ -242,10 +244,11 @@ Two ordering changes in the Whish App UI:
 
 ### Acceptance Criteria
 
-- [ ] Bills/Transactions toggle order is flipped
-- [ ] Audit/Transactions page tab order is flipped
-- [ ] No functional regressions — toggling and tab switching still work correctly
-- [ ] Typecheck and lint pass
+- [x] Bills/Transactions toggle order is flipped (Transfer now first)
+- [x] Audit/Transactions page tab order is flipped (Transactions now first)
+- [x] Whish App tab now defaults to Transfer on navigation (not Bills)
+- [x] No functional regressions — toggling and tab switching still work correctly
+- [x] Typecheck and lint pass
 
 ### Files to Modify
 
@@ -263,7 +266,7 @@ Two ordering changes in the Whish App UI:
 | **Epic**             | Transaction Visibility             |
 | **Type**             | Feature / UX                       |
 | **Priority**         | Medium                             |
-| **Status**           | TODO                               |
+| **Status**           | DONE                               |
 | **Affected Modules** | All transaction tables             |
 | **Assigned To**      | —                                  |
 | **Depends On**       | —                                  |
@@ -278,11 +281,12 @@ Currently transaction descriptions may only show type/label. Adding `IN: $X` / `
 
 ### Acceptance Criteria
 
-- [ ] Each transaction row summary includes an in-amount and/or out-amount label
-- [ ] Format is consistent and readable (e.g., `↑ $50.00 / ↓ LBP 90,000` or similar)
-- [ ] Applied to all transaction tables that show a description/summary column
-- [ ] No performance regression (amounts should already be in the query result)
-- [ ] Typecheck and lint pass
+- [x] Each transaction row summary includes directional arrow badges (↑ in / ↓ out)
+- [x] Consistent emerald/red color coding across all tables
+- [x] Applied to 7 tables: TransactionsViewer, Expenses, Maintenance, CustomServices, Recharge history, Services (OMT/Whish), Loto checkpoint history
+- [x] No performance regression — amounts already present in query results
+- [x] Typecheck and lint pass
+- [ ] **Follow-up:** BINANCE rows in TransactionsViewer show no directional badge — needs `service_type` on unified transaction row (backend join)
 
 ### Files to Modify
 
@@ -300,7 +304,7 @@ Currently transaction descriptions may only show type/label. Adding `IN: $X` / `
 | **Epic**             | Customer Sessions                               |
 | **Type**             | Feature                                         |
 | **Priority**         | High                                            |
-| **Status**           | TODO                                            |
+| **Status**           | DONE                                            |
 | **Affected Modules** | POS > Customer Sessions > Checkout Modal        |
 | **Assigned To**      | —                                               |
 | **Depends On**       | —                                               |
@@ -321,12 +325,15 @@ The Customer Session Checkout Modal should have the same richness instead of a r
 
 ### Acceptance Criteria
 
-- [ ] Checkout Modal renders `MultiPaymentInput` in place of the existing simpler payment field
-- [ ] All `MultiPaymentInput` features work inside the modal (split payment, USD/LBP, CUSTOMER_ACCOUNT)
-- [ ] CUSTOMER_ACCOUNT auto-selects when a client is attached to the session (consistent with existing `MultiPaymentInput` behavior per [[project_recharge_payment_autoselect]])
-- [ ] Modal layout accommodates the wider component without overflow
-- [ ] Payment totals validate correctly before confirming checkout
-- [ ] Typecheck and lint pass
+- [x] Checkout Modal renders `MultiPaymentInput` in place of the existing bulk payment selector
+- [x] All `MultiPaymentInput` features work inside the modal (split payment, USD/LBP, CUSTOMER_ACCOUNT)
+- [x] CUSTOMER_ACCOUNT auto-selects when session has a named client
+- [x] Separate MultiPaymentInput instances for USD and LBP totals; USDT shown as read-only display
+- [x] Payment legs now passed in checkout IPC call (previously always sent as empty array)
+- [x] Modal layout accommodates the wider component without overflow
+- [x] Payment totals validate correctly before confirming checkout
+- [x] Typecheck and lint pass
+- [ ] **Follow-up:** Voucher support at checkout requires `client_id` on session (currently only `customer_name`/`customer_phone` stored)
 
 ### Files to Modify
 
@@ -340,14 +347,19 @@ The Customer Session Checkout Modal should have the same richness instead of a r
 
 ## Summary
 
-| Priority  | Total  | Done | Remaining |
-| --------- | ------ | ---- | --------- |
-| High      | 4      | 0    | 4         |
-| Medium    | 2      | 0    | 2         |
-| Low       | 1      | 0    | 1         |
-| Bug       | 1      | 0    | 1         |
-| **Total** | **8**  | **0** | **8**    |
+| Priority  | Total  | Done  | Remaining |
+| --------- | ------ | ----- | --------- |
+| High      | 4      | 4     | 0         |
+| Medium    | 2      | 2     | 0         |
+| Low       | 1      | 1     | 0         |
+| Bug       | 1      | 1     | 0         |
+| **Total** | **8**  | **8** | **0**     |
 
 ---
 
-> **Recommendation:** Start with LIRA-052 (Binance bug) and LIRA-055 (Checkout Modal) — LIRA-052 is a correctness bug affecting financial accuracy, and LIRA-055 is high-impact for the core POS flow.
+## Open Follow-ups (Post-Sprint)
+
+| ID | Description | Priority |
+|----|-------------|----------|
+| LIRA-054-FU | BINANCE rows in TransactionsViewer missing directional badge — needs `service_type` joined onto unified transaction row | Low |
+| LIRA-055-FU | Voucher support at session checkout requires `client_id` stored on session (currently only name/phone) | Low |

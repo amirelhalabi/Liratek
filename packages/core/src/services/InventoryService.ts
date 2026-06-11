@@ -137,6 +137,9 @@ export class InventoryService {
     if (data.retail_price < 0) {
       return { success: false, error: "Retail price cannot be negative" };
     }
+    if (data.retail_price > 0 && data.cost_price > 0 && data.retail_price <= data.cost_price) {
+      return { success: false, error: "Selling price must be greater than cost price" };
+    }
 
     // Check for duplicate barcode
     if (barcode && this.productRepo.barcodeExists(barcode)) {
@@ -220,6 +223,10 @@ export class InventoryService {
     // Check if product exists
     if (!this.productRepo.exists(id)) {
       return { success: false, error: "Product not found" };
+    }
+
+    if (data.retail_price > 0 && data.cost_price > 0 && data.retail_price <= data.cost_price) {
+      return { success: false, error: "Selling price must be greater than cost price" };
     }
 
     // Check for duplicate barcode (excluding this product)
