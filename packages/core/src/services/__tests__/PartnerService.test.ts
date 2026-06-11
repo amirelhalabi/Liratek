@@ -31,6 +31,22 @@ function createTestDb(): Database.Database {
       settlement_method TEXT,
       created_at        TEXT DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE financial_services (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      provider         TEXT NOT NULL,
+      service_type     TEXT NOT NULL,
+      amount           REAL NOT NULL DEFAULT 0,
+      currency         TEXT NOT NULL DEFAULT 'USD',
+      omt_fee          REAL,
+      whish_fee        REAL,
+      sender_name      TEXT,
+      receiver_name    TEXT,
+      client_name      TEXT,
+      reference_number TEXT,
+      phone_number     TEXT,
+      created_at       TEXT DEFAULT CURRENT_TIMESTAMP
+    );
   `);
   return db;
 }

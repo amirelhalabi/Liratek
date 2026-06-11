@@ -446,6 +446,8 @@ export type {
   Partner,
   PartnerLedgerEntry,
   PartnerBalance,
+  PartnerBalanceBreakdown,
+  LedgerFilters,
   CreatePartnerData,
   UpdatePartnerData,
   CreateLedgerEntryData,

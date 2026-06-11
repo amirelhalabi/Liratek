@@ -420,6 +420,18 @@ contextBridge.exposeInMainWorld("api", {
           amount: number;
         }>;
       }) => ipcRenderer.invoke("loto:checkpoint:settle", data),
+      settleBatch: (data: {
+        checkpointIds: number[];
+        totalSales: number;
+        totalCommission: number;
+        settledAt?: string;
+        payment?: {
+          method: string;
+          drawer_name: string;
+          currency_code: string;
+          amount: number;
+        };
+      }) => ipcRenderer.invoke("loto:checkpoints:settle-batch", data),
       getTotalSalesUnsettled: () =>
         ipcRenderer.invoke("loto:checkpoint:get-total-sales-unsettled"),
       getTotalCommissionUnsettled: () =>
@@ -573,8 +585,15 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("partners:get-all-balances", includeInactive),
     getLedger: (
       partnerId: number,
-      dateRange?: { start: string; end: string },
-    ) => ipcRenderer.invoke("partners:get-ledger", partnerId, dateRange),
+      filters?: {
+        startDate?: string;
+        endDate?: string;
+        type?: string;
+        mode?: "FOR" | "THROUGH";
+        provider?: string;
+        direction?: "DEBIT" | "CREDIT";
+      },
+    ) => ipcRenderer.invoke("partners:get-ledger", partnerId, filters),
     recordTransaction: (data: unknown) =>
       ipcRenderer.invoke("partners:record-transaction", data),
     settle: (data: unknown) => ipcRenderer.invoke("partners:settle", data),

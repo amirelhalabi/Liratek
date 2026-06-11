@@ -29,6 +29,22 @@ function createTestDb(): Database.Database {
       settlement_method TEXT,
       created_at        TEXT DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE financial_services (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      provider         TEXT NOT NULL,
+      service_type     TEXT NOT NULL,
+      amount           REAL NOT NULL DEFAULT 0,
+      currency         TEXT NOT NULL DEFAULT 'USD',
+      omt_fee          REAL,
+      whish_fee        REAL,
+      sender_name      TEXT,
+      receiver_name    TEXT,
+      client_name      TEXT,
+      reference_number TEXT,
+      phone_number     TEXT,
+      created_at       TEXT DEFAULT CURRENT_TIMESTAMP
+    );
   `);
   return db;
 }
@@ -407,6 +423,141 @@ describe("PartnerRepository", () => {
 
       expect(repo.getBalance(p1.id).usd).toBeCloseTo(200, 2);
       expect(repo.getBalance(p2.id).usd).toBeCloseTo(-150, 2);
+    });
+  });
+
+  // ── Enriched ledger JOIN ───────────────────────────────────────────────────
+
+  describe("getLedgerEntries() — enriched JOIN", () => {
+    it("returns null fs_* fields when entry has no financial_services reference", () => {
+      const p = repo.create({ name: "JoinTest" });
+      repo.addLedgerEntry({
+        partner_id: p.id,
+        transaction_type: "SETTLEMENT",
+        amount: 50,
+        currency: "USD",
+        direction: "CREDIT",
+      });
+      const entries = repo.getLedgerEntries(p.id);
+      expect(entries).toHaveLength(1);
+      expect(entries[0].fs_provider).toBeNull();
+      expect(entries[0].fs_customer).toBeNull();
+    });
+
+    it("returns enriched fs_* fields when linked to financial_services row", () => {
+      const p = repo.create({ name: "Enriched" });
+      // Insert a stub financial_services row directly
+      const fsId = (db as any)
+        .prepare(
+          `INSERT INTO financial_services (provider, service_type, amount, currency, omt_fee, sender_name, reference_number, phone_number)
+           VALUES ('OMT', 'SEND', 100, 'USD', 2.5, 'Ali Hassan', 'REF123', '70123456')`,
+        )
+        .run().lastInsertRowid as number;
+
+      repo.addLedgerEntry({
+        partner_id: p.id,
+        transaction_type: "FOR_OMT_SEND",
+        reference_table: "financial_services",
+        reference_id: fsId,
+        amount: 102.5,
+        currency: "USD",
+        direction: "DEBIT",
+      });
+      const entries = repo.getLedgerEntries(p.id);
+      expect(entries).toHaveLength(1);
+      expect(entries[0].fs_provider).toBe("OMT");
+      expect(entries[0].fs_service_type).toBe("SEND");
+      expect(entries[0].fs_amount).toBe(100);
+      expect(entries[0].fs_fee).toBeCloseTo(2.5, 2);
+      expect(entries[0].fs_customer).toBe("Ali Hassan");
+      expect(entries[0].fs_reference_number).toBe("REF123");
+      expect(entries[0].fs_phone_number).toBe("70123456");
+    });
+  });
+
+  // ── getLedgerEntries() filters ─────────────────────────────────────────────
+
+  describe("getLedgerEntries() — filters", () => {
+    it("filters by FOR mode", () => {
+      const p = repo.create({ name: "ModeFilter" });
+      repo.addLedgerEntry({ partner_id: p.id, transaction_type: "FOR_OMT_SEND", amount: 100, currency: "USD", direction: "DEBIT" });
+      repo.addLedgerEntry({ partner_id: p.id, transaction_type: "THROUGH_WHISH_RECEIVE", amount: 50, currency: "USD", direction: "CREDIT" });
+      repo.addLedgerEntry({ partner_id: p.id, transaction_type: "SETTLEMENT", amount: 30, currency: "USD", direction: "CREDIT" });
+
+      const forEntries = repo.getLedgerEntries(p.id, { mode: "FOR" });
+      expect(forEntries).toHaveLength(1);
+      expect(forEntries[0].transaction_type).toBe("FOR_OMT_SEND");
+    });
+
+    it("filters by THROUGH mode", () => {
+      const p = repo.create({ name: "ThroughFilter" });
+      repo.addLedgerEntry({ partner_id: p.id, transaction_type: "FOR_OMT_SEND", amount: 100, currency: "USD", direction: "DEBIT" });
+      repo.addLedgerEntry({ partner_id: p.id, transaction_type: "THROUGH_WHISH_RECEIVE", amount: 50, currency: "USD", direction: "CREDIT" });
+
+      const throughEntries = repo.getLedgerEntries(p.id, { mode: "THROUGH" });
+      expect(throughEntries).toHaveLength(1);
+      expect(throughEntries[0].transaction_type).toBe("THROUGH_WHISH_RECEIVE");
+    });
+
+    it("filters by direction DEBIT", () => {
+      const p = repo.create({ name: "DirFilter" });
+      repo.addLedgerEntry({ partner_id: p.id, amount: 100, currency: "USD", direction: "DEBIT" });
+      repo.addLedgerEntry({ partner_id: p.id, amount: 50, currency: "USD", direction: "CREDIT" });
+
+      const debits = repo.getLedgerEntries(p.id, { direction: "DEBIT" });
+      expect(debits).toHaveLength(1);
+      expect(debits[0].direction).toBe("DEBIT");
+    });
+
+    it("combines mode + direction filters", () => {
+      const p = repo.create({ name: "ComboFilter" });
+      repo.addLedgerEntry({ partner_id: p.id, transaction_type: "FOR_OMT_SEND", amount: 100, currency: "USD", direction: "DEBIT" });
+      repo.addLedgerEntry({ partner_id: p.id, transaction_type: "FOR_OMT_RECEIVE", amount: 80, currency: "USD", direction: "CREDIT" });
+      repo.addLedgerEntry({ partner_id: p.id, transaction_type: "THROUGH_WHISH_SEND", amount: 60, currency: "USD", direction: "DEBIT" });
+
+      const result = repo.getLedgerEntries(p.id, { mode: "FOR", direction: "DEBIT" });
+      expect(result).toHaveLength(1);
+      expect(result[0].transaction_type).toBe("FOR_OMT_SEND");
+    });
+  });
+
+  // ── getBalanceBreakdown() ──────────────────────────────────────────────────
+
+  describe("getBalanceBreakdown()", () => {
+    it("returns zeros for a new partner", () => {
+      const p = repo.create({ name: "BreakdownEmpty" });
+      const bd = repo.getBalanceBreakdown(p.id);
+      expect(bd.usd.for).toBe(0);
+      expect(bd.usd.through).toBe(0);
+      expect(bd.usd.other).toBe(0);
+      expect(bd.usd.total).toBe(0);
+    });
+
+    it("correctly buckets FOR, THROUGH, and other entries", () => {
+      const p = repo.create({ name: "BreakdownFull" });
+      // FOR: net +$100 (100 DEBIT, 0 CREDIT)
+      repo.addLedgerEntry({ partner_id: p.id, transaction_type: "FOR_OMT_SEND", amount: 100, currency: "USD", direction: "DEBIT" });
+      // THROUGH: net -$50 (0 DEBIT, 50 CREDIT)
+      repo.addLedgerEntry({ partner_id: p.id, transaction_type: "THROUGH_WHISH_RECEIVE", amount: 50, currency: "USD", direction: "CREDIT" });
+      // Settlement (other): net -$30 (0 DEBIT, 30 CREDIT)
+      repo.addLedgerEntry({ partner_id: p.id, transaction_type: "SETTLEMENT", amount: 30, currency: "USD", direction: "CREDIT" });
+
+      const bd = repo.getBalanceBreakdown(p.id);
+      expect(bd.usd.for).toBeCloseTo(100, 2);
+      expect(bd.usd.through).toBeCloseTo(-50, 2);
+      expect(bd.usd.other).toBeCloseTo(-30, 2);
+      expect(bd.usd.total).toBeCloseTo(20, 2);
+    });
+
+    it("tracks LBP separately from USD", () => {
+      const p = repo.create({ name: "BreakdownLBP" });
+      repo.addLedgerEntry({ partner_id: p.id, transaction_type: "FOR_OMT_SEND", amount: 5_000_000, currency: "LBP", direction: "DEBIT" });
+      repo.addLedgerEntry({ partner_id: p.id, transaction_type: "FOR_OMT_SEND", amount: 100, currency: "USD", direction: "DEBIT" });
+
+      const bd = repo.getBalanceBreakdown(p.id);
+      expect(bd.lbp.for).toBeCloseTo(5_000_000, 0);
+      expect(bd.usd.for).toBeCloseTo(100, 2);
+      expect(bd.lbp.through).toBe(0);
     });
   });
 });

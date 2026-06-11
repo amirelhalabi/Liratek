@@ -116,11 +116,34 @@ export interface PartnerLedgerEntry {
   user_id: number | null;
   settlement_method: string | null;
   created_at: string;
+  // Enriched from financial_services JOIN (null when not linked)
+  fs_provider: string | null;
+  fs_service_type: string | null;
+  fs_amount: number | null;
+  fs_currency: string | null;
+  fs_fee: number | null;
+  fs_customer: string | null;
+  fs_reference_number: string | null;
+  fs_phone_number: string | null;
 }
 
 export interface PartnerBalance {
   usd: number;
   lbp: number;
+}
+
+export interface PartnerBalanceBreakdown {
+  usd: { for: number; through: number; other: number; total: number };
+  lbp: { for: number; through: number; other: number; total: number };
+}
+
+export interface LedgerFilters {
+  startDate?: string;
+  endDate?: string;
+  type?: string;
+  mode?: "FOR" | "THROUGH";
+  provider?: string;
+  direction?: "DEBIT" | "CREDIT";
 }
 
 export interface PartnerWithBalance extends Partner, PartnerBalance {}
@@ -979,6 +1002,18 @@ export interface ElectronAPI {
         checkpointDate?: string,
       ) => Promise<{ success: boolean; checkpoint?: any; error?: string }>;
       delete: (id: number) => Promise<{ success: boolean; error?: string }>;
+      settleBatch: (data: {
+        checkpointIds: number[];
+        totalSales: number;
+        totalCommission: number;
+        settledAt?: string;
+        payment?: {
+          method: string;
+          drawer_name: string;
+          currency_code: string;
+          amount: number;
+        };
+      }) => Promise<{ success: boolean; checkpoints?: any[]; error?: string }>;
     };
     cashPrize: {
       create: (data: {
@@ -2008,10 +2043,11 @@ export interface ElectronAPI {
     ) => Promise<PartnerWithBalance[]>;
     getLedger: (
       partnerId: number,
-      dateRange?: { start: string; end: string },
+      filters?: LedgerFilters,
     ) => Promise<{
       partner: Partner;
       balance: PartnerBalance;
+      breakdown: PartnerBalanceBreakdown;
       entries: PartnerLedgerEntry[];
     }>;
     recordTransaction: (data: {
