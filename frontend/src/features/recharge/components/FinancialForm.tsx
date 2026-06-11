@@ -105,7 +105,9 @@ export function FinancialForm({
     const hasNewClientInfo =
       !clientId && clientName.trim().length > 0 && clientPhone.trim().length > 0;
     if (hasNewClientInfo && initialPaymentMethod !== "CUSTOMER_ACCOUNT") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setInitialPaymentMethod("CUSTOMER_ACCOUNT");
+       
       setPaymentInputKey((k) => k + 1);
     }
   }, [clientId, clientName, clientPhone, initialPaymentMethod]);
@@ -118,7 +120,7 @@ export function FinancialForm({
         const { buyRate, sellRate } = getExchangeRates(list);
         setRates({ buyRate, sellRate });
       } catch (error) {
-        console.error("Failed to load exchange rates:", error);
+        logger.error("Failed to load exchange rates:", error);
       }
     };
     loadRates();
@@ -531,8 +533,27 @@ export function FinancialForm({
               <div className="text-right leading-tight">
                 <div className="text-xs text-white font-bold">{totalItems} items</div>
                 <div className="text-xs text-emerald-400 font-mono font-semibold">{totalPrice.toLocaleString()} LBP</div>
+                {exchangeRate > 0 && (
+                  <div className="text-xs text-slate-400 font-mono">${(totalPrice / exchangeRate).toFixed(2)}</div>
+                )}
               </div>
             )}
+            {/* Payment method quick-select */}
+            <div className="relative">
+              <select
+                value={initialPaymentMethod}
+                onChange={(e) => {
+                  setInitialPaymentMethod(e.target.value);
+                  setPaymentInputKey((k) => k + 1);
+                }}
+                className="appearance-none bg-slate-900 border border-slate-600 rounded-lg pl-3 pr-7 py-2 text-white text-xs font-medium focus:outline-none focus:border-violet-500 transition-all cursor-pointer"
+              >
+                {methods.map((m) => (
+                  <option key={m.code} value={m.code}>{m.label}</option>
+                ))}
+              </select>
+              <ChevronDown size={13} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            </div>
             <button
               type="button"
               onClick={() => setShowPaymentSheet(true)}
