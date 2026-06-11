@@ -168,6 +168,7 @@ export interface ElectronAPI {
       sessionToken?: string;
       error?: string;
     }>;
+    onSessionExpired: (callback: () => void) => () => void;
     getCurrentUser: (
       userId: number,
     ) => Promise<{ id: number; username: string; role: string } | null>;

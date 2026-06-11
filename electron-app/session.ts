@@ -34,36 +34,40 @@ function generateToken(): string {
 }
 
 /**
+ * Serialize and persist a session to disk.
+ * Uses safeStorage encryption; plaintext is only permitted in unpackaged
+ * (dev) builds where the OS keychain may be unavailable.
+ * Throws if the session cannot be stored securely.
+ */
+function writeSessionFile(sessionData: StoredSession): void {
+  let dataToStore: Buffer;
+
+  if (safeStorage.isEncryptionAvailable()) {
+    dataToStore = safeStorage.encryptString(JSON.stringify(sessionData));
+    logger.debug("Encrypted session stored (safeStorage)");
+  } else if (!app.isPackaged) {
+    // Dev-only fallback: plaintext JSON (no keychain in some dev environments)
+    logger.warn(
+      "safeStorage not available, storing session as plaintext (dev only)",
+    );
+    dataToStore = Buffer.from(JSON.stringify(sessionData), "utf-8");
+  } else {
+    throw new Error(
+      "safeStorage unavailable in packaged build — refusing to persist session as plaintext",
+    );
+  }
+
+  fs.writeFileSync(getSessionFilePath(), dataToStore);
+  storedSessionCache = sessionData;
+}
+
+/**
  * Encrypt and store session token to disk using safeStorage
- * Falls back to base64 encoding if safeStorage is not available (development mode)
  */
 export function storeEncryptedSession(userId: number): string | null {
   try {
     const token = generateToken();
-    const sessionData: StoredSession = {
-      userId,
-      token,
-      createdAt: Date.now(),
-    };
-
-    let dataToStore: Buffer;
-
-    if (safeStorage.isEncryptionAvailable()) {
-      dataToStore = safeStorage.encryptString(JSON.stringify(sessionData));
-      logger.debug("Encrypted session stored (safeStorage)");
-    } else {
-      // Fallback for development: use base64 encoding
-      logger.warn(
-        "safeStorage not available, using base64 fallback (NOT SECURE for production)",
-      );
-      dataToStore = Buffer.from(JSON.stringify(sessionData), "utf-8");
-    }
-
-    fs.writeFileSync(getSessionFilePath(), dataToStore);
-
-    // Update cache
-    storedSessionCache = sessionData;
-
+    writeSessionFile({ userId, token, createdAt: Date.now() });
     return token;
   } catch (error) {
     logger.error({ error }, "Failed to store session");
@@ -77,31 +81,7 @@ export function storeEncryptedSession(userId: number): string | null {
  */
 export function storeSessionTokenToFile(token: string, userId: number): void {
   try {
-    const sessionData: StoredSession = {
-      userId,
-      token,
-      createdAt: Date.now(),
-    };
-
-    let dataToStore: Buffer;
-
-    if (safeStorage.isEncryptionAvailable()) {
-      dataToStore = safeStorage.encryptString(JSON.stringify(sessionData));
-      logger.debug(
-        "Database session token stored to encrypted file (safeStorage)",
-      );
-    } else {
-      // Fallback for development: use base64 encoding
-      logger.warn(
-        "safeStorage not available, using base64 fallback (NOT SECURE for production)",
-      );
-      dataToStore = Buffer.from(JSON.stringify(sessionData), "utf-8");
-    }
-
-    fs.writeFileSync(getSessionFilePath(), dataToStore);
-
-    // Update cache
-    storedSessionCache = sessionData;
+    writeSessionFile({ userId, token, createdAt: Date.now() });
   } catch (error) {
     logger.error({ error }, "Failed to store session token to file");
     throw error;
@@ -129,24 +109,31 @@ export function getEncryptedSession(): StoredSession | null {
     let decrypted: string;
 
     if (safeStorage.isEncryptionAvailable()) {
-      // Try to decrypt with safeStorage
+      // Only accept sessions that decrypt successfully. A file that fails to
+      // decrypt is either corrupt or was written as plaintext — never trust it.
       try {
         decrypted = safeStorage.decryptString(fileData);
-      } catch (decryptError) {
-        // Might be a base64-encoded session from fallback mode
+      } catch {
         logger.warn(
-          "Failed to decrypt with safeStorage, trying base64 fallback",
+          "Session file failed safeStorage decryption — discarding it",
         );
-        decrypted = fileData.toString("utf-8");
+        clearEncryptedSession();
+        return null;
       }
-    } else {
-      // No safeStorage, treat as base64-encoded
+    } else if (!app.isPackaged) {
+      // Dev-only: plaintext sessions written by the dev fallback
       decrypted = fileData.toString("utf-8");
+    } else {
+      logger.error(
+        "safeStorage unavailable in packaged build — refusing to read plaintext session",
+      );
+      storedSessionCache = null;
+      return null;
     }
 
     const session: StoredSession = JSON.parse(decrypted);
 
-    // Check if session is expired ( days max)
+    // Check if session is expired (1 day max)
     const MAX_SESSION_AGE = 1 * 24 * 60 * 60 * 1000;
     if (Date.now() - session.createdAt > MAX_SESSION_AGE) {
       logger.info("Stored session expired, clearing");
@@ -227,12 +214,23 @@ export function isAuthenticated(webContentsId: number): boolean {
   return !!sessions.get(webContentsId);
 }
 
-// Optional: session timeout (30 min) placeholder
+// In-memory session idle timeout. Matches the DB-side inactive-session
+// cleanup (SessionRepository.deleteInactiveSessions) so both layers expire
+// together. Enforced by the periodic cleanup interval in main.ts.
 export const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
-export function purgeExpiredSessions(now = Date.now()) {
+
+/**
+ * Purge in-memory sessions idle past SESSION_TIMEOUT_MS.
+ * Returns the webContents ids of purged sessions so callers can notify
+ * the affected renderers.
+ */
+export function purgeExpiredSessions(now = Date.now()): number[] {
+  const purged: number[] = [];
   for (const [id, s] of sessions) {
     if (now - s.lastActivity > SESSION_TIMEOUT_MS) {
       sessions.delete(id);
+      purged.push(id);
     }
   }
+  return purged;
 }

@@ -3,7 +3,14 @@
  * Uses backend services directly (no REST API in Electron mode)
  */
 
-import { app, BrowserWindow, ipcMain, Menu, dialog } from "electron";
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  Menu,
+  dialog,
+  webContents,
+} from "electron";
 import {
   ELECTRON_RENDERER_URL,
   resolveDatabasePath,
@@ -15,6 +22,7 @@ import {
   runMigrations,
   logger,
 } from "@liratek/core";
+import { purgeExpiredSessions } from "./session.js";
 import * as path from "path";
 import { fileURLToPath } from "url";
 import * as fs from "fs";
@@ -553,7 +561,14 @@ function startSessionCleanup() {
       // Delete inactive short sessions (30+ min of inactivity)
       const inactiveCount = sessionRepo.deleteInactiveSessions();
 
-      const totalCleaned = expiredCount + inactiveCount;
+      // Purge idle in-memory IPC sessions and tell the affected renderers,
+      // so they can silently re-restore (rememberMe) or return to login.
+      const purgedIds = purgeExpiredSessions();
+      for (const id of purgedIds) {
+        webContents.fromId(id)?.send("session:expired");
+      }
+
+      const totalCleaned = expiredCount + inactiveCount + purgedIds.length;
 
       if (totalCleaned > 0) {
         logger.info(
@@ -561,6 +576,7 @@ function startSessionCleanup() {
             totalCleaned,
             expiredCount,
             inactiveCount,
+            inMemoryPurged: purgedIds.length,
           },
           "Session cleanup completed",
         );

@@ -5,8 +5,8 @@
 LiraTek is a **desktop POS system for retail management** built as an Electron app with a React frontend and SQLite backend.
 
 - **Monorepo**: Yarn Workspaces (`frontend`, `electron-app`, `packages/core`, `backend`)
-- **Stack**: React 18 + Vite + TypeScript + Electron 31 + SQLite (SQLCipher)
-- **DB**: Current migration version is **v83** — always increment when adding migrations
+- **Stack**: React 19 + Vite + TypeScript + Electron 31 + SQLite (SQLCipher) + TanStack Query
+- **DB**: Current migration version is **v93** — always check the last entry in `packages/core/src/db/migrations/index.ts` for the real current version and increment from it when adding migrations
 - **Package manager**: Yarn (use `yarn workspace @liratek/X` commands)
 
 ## Project Structure
@@ -637,34 +637,53 @@ myModule: {
 </div>
 ```
 
-### Custom Hook Template
+### Custom Hook Template (TanStack Query)
+
+Use TanStack Query for all data fetching — it replaces manual `useState`/`useEffect`/`loading`/`error` boilerplate. The `unwrapIpc` helper (`frontend/src/shared/api/unwrapIpc.ts`) unwraps the standard `{ success, error? }` envelope.
 
 ```typescript
-export function useModuleData() {
-  const [data, setData] = useState<Entity[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { unwrapIpc } from "@/shared/api/unwrapIpc";
 
-  async function load() {
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await window.api.myModule.getAll();
-      if (result.success) setData(result.result ?? []);
-      else setError(result.error ?? "Failed to load");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load");
-    } finally {
-      setLoading(false);
-    }
-  }
+// ── Query key constants (co-locate with the hooks that use them) ──────────────
+export const MODULE_KEYS = {
+  all: ["myModule"] as const,
+  detail: (id: number) => ["myModule", id] as const,
+};
 
-  useEffect(() => {
-    load();
-  }, []);
-  return { data, loading, error, refetch: load };
+// ── Read ──────────────────────────────────────────────────────────────────────
+export function useModuleListQuery() {
+  return useQuery({
+    queryKey: MODULE_KEYS.all,
+    queryFn: () =>
+      unwrapIpc(window.api.myModule.getAll(), (r) => r.items ?? []),
+  });
+}
+
+// ── Write ─────────────────────────────────────────────────────────────────────
+export function useCreateModuleMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: CreateData) =>
+      unwrapIpc(window.api.myModule.create(data), (r) => r.item),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: MODULE_KEYS.all });
+    },
+  });
 }
 ```
+
+**Usage in a component:**
+
+```typescript
+const { data: items = [], isLoading, isError, refetch } = useModuleListQuery();
+const create = useCreateModuleMutation();
+
+// trigger: create.mutate(payload)
+// loading: create.isPending
+```
+
+`QueryClientProvider` is already wired in `App.tsx` with IPC-appropriate defaults (`retry: false`, `refetchOnWindowFocus: false`, `staleTime: 30_000`). New features should follow this pattern; old pages can be migrated as they are touched.
 
 ### Frontend Commands
 

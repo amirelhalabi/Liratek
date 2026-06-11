@@ -104,6 +104,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  // The main process purges idle in-memory IPC sessions (30 min) and emits
+  // "session:expired". Try a silent restore from the stored token — valid
+  // rememberMe sessions recover invisibly; otherwise fall back to login.
+  useEffect(() => {
+    if (!window.api?.auth?.onSessionExpired) return;
+
+    const unsubscribe = window.api.auth.onSessionExpired(async () => {
+      try {
+        const storedToken = localStorage.getItem("sessionToken");
+        const result = await window.api.auth.restoreSession(
+          storedToken || undefined,
+        );
+
+        if (result.success && result.user) {
+          setUser(result.user);
+          if (result.sessionToken) {
+            setSessionToken(result.sessionToken);
+            localStorage.setItem("sessionToken", result.sessionToken);
+          }
+          return;
+        }
+      } catch (error) {
+        logger.error("Silent session restore failed:", error);
+      }
+
+      // No valid session left — clear auth state so ProtectedRoute redirects
+      setUser(null);
+      setSessionToken(null);
+      setNeedsOpening(false);
+      localStorage.removeItem("sessionToken");
+    });
+
+    return unsubscribe;
+  }, []);
+
   const login = async (
     username: string,
     password: string,

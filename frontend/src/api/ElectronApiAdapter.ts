@@ -414,6 +414,18 @@ export class ElectronApiAdapter implements ApiAdapter {
           amount: number;
         }>;
       }) => api.lotoCheckpointSettle(data),
+      settleBatch: (data: {
+        checkpointIds: number[];
+        totalSales: number;
+        totalCommission: number;
+        settledAt?: string;
+        payment?: {
+          method: string;
+          drawer_name: string;
+          currency_code: string;
+          amount: number;
+        };
+      }) => api.lotoCheckpointSettleBatch(data),
       getTotalSalesUnsettled: () => api.lotoCheckpointGetTotalSalesUnsettled(),
       getTotalCommissionUnsettled: () =>
         api.lotoCheckpointGetTotalCommissionUnsettled(),

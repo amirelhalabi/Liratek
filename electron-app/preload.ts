@@ -11,6 +11,11 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("auth:logout", sessionToken),
     restoreSession: (sessionToken?: string) =>
       ipcRenderer.invoke("auth:restore-session", sessionToken),
+    onSessionExpired: (callback: () => void) => {
+      const cb = () => callback();
+      ipcRenderer.on("session:expired", cb);
+      return () => ipcRenderer.removeListener("session:expired", cb);
+    },
     getCurrentUser: (userId: number) =>
       ipcRenderer.invoke("auth:get-current-user", userId),
     getNonAdminUsers: () => ipcRenderer.invoke("users:get-non-admins"),
