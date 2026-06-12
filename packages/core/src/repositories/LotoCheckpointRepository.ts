@@ -238,7 +238,12 @@ export class LotoCheckpointRepository {
     _totalCashPrizes: number, // DEPRECATED — read from checkpoint instead
     settledAt: string | undefined,
     userId: number,
-    payments?: Array<{ method: string; currency_code: string; amount: number }>,
+    payments?: Array<{
+      method: string;
+      currency_code: string;
+      amount: number;
+      direction?: "IN" | "OUT";
+    }>,
   ): LotoCheckpoint {
     const settleInTxn = this.db.transaction(() => {
       const settledDate = settledAt || new Date().toISOString();
@@ -342,6 +347,8 @@ export class LotoCheckpointRepository {
           VALUES (?, ?, ?, ?, ?, ?, ?)
         `);
         for (const p of payments) {
+          // OUT legs (returned change) are not part of a supplier settlement.
+          if (p.direction === "OUT") continue;
           if (!isDrawerAffectingMethod(p.method)) continue;
           const drawerName = paymentMethodToDrawerName(p.method);
           insertPayment.run(
@@ -374,6 +381,150 @@ export class LotoCheckpointRepository {
       updateCheckpoint.run(settledDate, settlementId, id);
 
       return this.getCheckpointById(id)!;
+    });
+
+    return settleInTxn();
+  }
+
+  /**
+   * Settle multiple checkpoints in one atomic operation.
+   * Creates a single loto_settlements record, one drawer transaction, and marks
+   * all checkpoints and their cash prizes as settled/reimbursed.
+   */
+  settleCheckpoints(
+    checkpointIds: number[],
+    totalSales: number,
+    totalCommission: number,
+    settledAt: string | undefined,
+    userId: number,
+    payment?: {
+      method: string;
+      drawer_name: string;
+      currency_code: string;
+      amount: number; // positive = supplier pays us (IN), negative = we pay supplier (OUT)
+    },
+  ): LotoCheckpoint[] {
+    if (checkpointIds.length === 0) throw new Error("No checkpoint IDs provided");
+
+    const settleInTxn = this.db.transaction(() => {
+      const settledDate = settledAt || new Date().toISOString();
+
+      const totalCashPrizes = checkpointIds.reduce((sum, id) => {
+        const cp = this.getCheckpointById(id);
+        if (!cp) throw new Error(`Checkpoint ${id} not found`);
+        if (cp.is_settled) throw new Error(`Checkpoint ${id} is already settled`);
+        return sum + cp.total_cash_prizes;
+      }, 0);
+
+      const netSettlement = totalCommission + totalCashPrizes - totalSales;
+
+      const supplier = this.db.prepare(
+        `SELECT id FROM suppliers WHERE provider = 'LOTO' LIMIT 1`,
+      ).get() as { id: number } | undefined;
+      const supplierId = supplier?.id || 1;
+
+      // 1. Create unified transaction
+      const txnRepo = getTransactionRepository();
+      const txnId = txnRepo.createTransaction({
+        type: TRANSACTION_TYPES.LOTO_SETTLEMENT,
+        source_table: "loto_checkpoints",
+        source_id: checkpointIds[checkpointIds.length - 1],
+        user_id: userId,
+        amount_usd: 0,
+        amount_lbp: netSettlement,
+        exchange_rate: 100000,
+        summary: `Loto batch settlement for ${checkpointIds.length} checkpoint(s)`,
+        metadata_json: {
+          checkpoint_ids: checkpointIds,
+          total_sales: totalSales,
+          total_commission: totalCommission,
+          total_cash_prizes: totalCashPrizes,
+          net_settlement: netSettlement,
+        },
+      });
+
+      // 2. Single loto_settlements record for all checkpoints
+      const settlementResult = this.db.prepare(`
+        INSERT INTO loto_settlements (
+          settlement_date, checkpoint_ids, total_sales, total_commission,
+          total_cash_prizes, net_settlement, note
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        settledDate,
+        JSON.stringify(checkpointIds),
+        totalSales,
+        totalCommission,
+        totalCashPrizes,
+        netSettlement,
+        `Batch settlement for checkpoints [${checkpointIds.join(", ")}]: sales=${totalSales}, commission=${totalCommission}`,
+      );
+      const settlementId = settlementResult.lastInsertRowid as number;
+
+      // 3. Supplier ledger entry
+      this.db.prepare(`
+        INSERT INTO supplier_ledger (
+          supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        supplierId,
+        "SETTLEMENT",
+        0,
+        netSettlement,
+        `Batch settlement for checkpoints [${checkpointIds.join(", ")}]`,
+        userId,
+        null,
+      );
+
+      // 4. Credit commission to General drawer once
+      const upsertBalance = this.db.prepare(`
+        INSERT INTO drawer_balances (drawer_name, currency_code, balance)
+        VALUES (?, ?, ?)
+        ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+          balance = drawer_balances.balance + excluded.balance,
+          updated_at = CURRENT_TIMESTAMP
+      `);
+
+      if (totalCommission > 0) {
+        upsertBalance.run("General", "LBP", totalCommission);
+      }
+
+      // 5. Record net payment and update drawer balance
+      if (payment && payment.amount !== 0) {
+        this.db.prepare(`
+          INSERT INTO payments (transaction_id, method, drawer_name, currency_code, amount, note, created_by)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          txnId,
+          payment.method,
+          payment.drawer_name,
+          payment.currency_code,
+          payment.amount,
+          `Loto batch settlement`,
+          userId,
+        );
+        upsertBalance.run(payment.drawer_name, payment.currency_code, payment.amount);
+      }
+
+      // 6 & 7. Mark each checkpoint's cash prizes as reimbursed and checkpoint as settled
+      const markReimbursed = this.db.prepare(`
+        UPDATE loto_cash_prizes
+        SET is_reimbursed = 1, reimbursed_date = ?, reimbursed_in_settlement_id = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE checkpoint_id = ? AND is_reimbursed = 0
+      `);
+      const markSettled = this.db.prepare(`
+        UPDATE loto_checkpoints
+        SET is_settled = 1, settled_at = ?, settlement_id = ?
+        WHERE id = ?
+      `);
+
+      const results: LotoCheckpoint[] = [];
+      for (const cpId of checkpointIds) {
+        markReimbursed.run(settledDate, settlementId, cpId);
+        markSettled.run(settledDate, settlementId, cpId);
+        results.push(this.getCheckpointById(cpId)!);
+      }
+
+      return results;
     });
 
     return settleInTxn();

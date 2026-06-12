@@ -19,6 +19,8 @@ import {
   ArrowUpRight,
   RefreshCw,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   AlertCircle,
   ToggleLeft,
 } from "lucide-react";
@@ -28,6 +30,8 @@ import type {
   Partner,
   PartnerLedgerEntry,
   PartnerBalance,
+  PartnerBalanceBreakdown,
+  LedgerFilters,
   PartnerWithBalance,
 } from "@/types/electron";
 import { appEvents, PageHeader } from "@liratek/ui";
@@ -89,22 +93,45 @@ const SETTLEMENT_METHODS = [
   { value: "CLIENT_ACCOUNT", label: "Client Account" },
 ];
 
-const TRANSACTION_TYPES = [
-  { value: "ADJUSTMENT", label: "Adjustment" },
-  { value: "SETTLEMENT", label: "Settlement" },
-  { value: "OMT_SEND", label: "OMT Send (legacy)" },
-  { value: "OMT_RECEIVE", label: "OMT Receive (legacy)" },
-  { value: "WHISH_SEND", label: "Whish Send (legacy)" },
-  { value: "WHISH_RECEIVE", label: "Whish Receive (legacy)" },
-  { value: "THROUGH_OMT_SEND", label: "Through Partner – OMT Send" },
-  { value: "THROUGH_OMT_RECEIVE", label: "Through Partner – OMT Receive" },
-  { value: "THROUGH_WHISH_SEND", label: "Through Partner – Whish Send" },
-  { value: "THROUGH_WHISH_RECEIVE", label: "Through Partner – Whish Receive" },
-  { value: "FOR_OMT_SEND", label: "For Partner – OMT Send" },
-  { value: "FOR_OMT_RECEIVE", label: "For Partner – OMT Receive" },
-  { value: "FOR_WHISH_SEND", label: "For Partner – Whish Send" },
-  { value: "FOR_WHISH_RECEIVE", label: "For Partner – Whish Receive" },
-  { value: "CUSTOM_SERVICE", label: "Custom Service" },
+/**
+ * Manual "Record Transaction" types — LIRA-051.
+ *
+ * Grouped logically for readability. Only the plain types below are accepted by
+ * the manual record path (handler `RecordTransactionInput` / backend
+ * `CreateLedgerEntryData`). The `THROUGH_*` / `FOR_*` variants are written
+ * automatically by real OMT/Whish transactions (FinancialServiceRepository) and
+ * are intentionally NOT offered here — historical entries of those types still
+ * display correctly in the ledger table (see LedgerRow).
+ */
+const TRANSACTION_TYPE_GROUPS: {
+  label: string;
+  options: { value: string; label: string }[];
+}[] = [
+  {
+    label: "General",
+    options: [
+      { value: "ADJUSTMENT", label: "Adjustment" },
+      { value: "SETTLEMENT", label: "Settlement" },
+    ],
+  },
+  {
+    label: "OMT",
+    options: [
+      { value: "OMT_SEND", label: "OMT Send" },
+      { value: "OMT_RECEIVE", label: "OMT Receive" },
+    ],
+  },
+  {
+    label: "Whish",
+    options: [
+      { value: "WHISH_SEND", label: "Whish Send" },
+      { value: "WHISH_RECEIVE", label: "Whish Receive" },
+    ],
+  },
+  {
+    label: "Other",
+    options: [{ value: "CUSTOM_SERVICE", label: "Custom Service" }],
+  },
 ];
 
 // ─── Modal shell ──────────────────────────────────────────────────────────────
@@ -501,10 +528,14 @@ function RecordTxModal({ partner, onClose, onRecorded }: RecordTxModalProps) {
             onChange={(e) => setTxType(e.target.value)}
             className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
           >
-            {TRANSACTION_TYPES.map((t) => (
-              <option key={t.value} value={t.value}>
-                {t.label}
-              </option>
+            {TRANSACTION_TYPE_GROUPS.map((group) => (
+              <optgroup key={group.label} label={group.label}>
+                {group.options.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
+                ))}
+              </optgroup>
             ))}
           </select>
         </div>
@@ -663,51 +694,160 @@ function DeactivateModal({
 
 // ─── Ledger Table Row ─────────────────────────────────────────────────────────
 
+function parseTransactionType(raw: string | null): {
+  modeBadge: string | null;
+  modeColor: string;
+  typeLabel: string;
+} {
+  if (!raw) return { modeBadge: null, modeColor: "", typeLabel: "—" };
+  if (raw.startsWith("FOR_")) {
+    return {
+      modeBadge: "FOR",
+      modeColor: "bg-violet-900/50 text-violet-300 border-violet-700/50",
+      typeLabel: raw.slice(4).replace(/_/g, " "),
+    };
+  }
+  if (raw.startsWith("THROUGH_")) {
+    return {
+      modeBadge: "THROUGH",
+      modeColor: "bg-sky-900/50 text-sky-300 border-sky-700/50",
+      typeLabel: raw.slice(8).replace(/_/g, " "),
+    };
+  }
+  return { modeBadge: null, modeColor: "", typeLabel: raw.replace(/_/g, " ") };
+}
+
 function LedgerRow({ entry }: { entry: PartnerLedgerEntry }) {
+  const [expanded, setExpanded] = useState(false);
   const isDebit = entry.direction === "DEBIT";
+  const { modeBadge, modeColor, typeLabel } = parseTransactionType(
+    entry.transaction_type,
+  );
+  const hasDetails =
+    entry.reference_table === "financial_services" &&
+    entry.reference_id != null;
+
   return (
-    <tr
-      className={`transition-colors ${
-        isDebit ? "hover:bg-emerald-900/10" : "hover:bg-red-900/10"
-      }`}
-    >
-      <td className="px-4 py-3 text-slate-300 whitespace-nowrap text-xs">
-        {fmtDate(entry.created_at)}
-      </td>
-      <td className="px-4 py-3">
-        <span className="text-slate-300 text-xs font-medium">
-          {(entry.transaction_type ?? "").replace(/_/g, " ")}
-        </span>
-        {entry.settlement_method && (
-          <span className="ml-1.5 text-xs text-slate-500">
-            via {entry.settlement_method}
+    <>
+      <tr
+        className={`transition-colors ${
+          isDebit ? "hover:bg-emerald-900/10" : "hover:bg-red-900/10"
+        } ${hasDetails ? "cursor-pointer" : ""}`}
+        onClick={() => hasDetails && setExpanded((v) => !v)}
+      >
+        <td className="px-4 py-3 text-slate-300 whitespace-nowrap text-xs">
+          {fmtDate(entry.created_at)}
+        </td>
+        <td className="px-4 py-3">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {modeBadge && (
+              <span
+                className={`inline-block text-[10px] px-1.5 py-0.5 rounded border font-semibold ${modeColor}`}
+              >
+                {modeBadge}
+              </span>
+            )}
+            <span className="text-slate-300 text-xs font-medium">
+              {typeLabel}
+            </span>
+            {entry.settlement_method && (
+              <span className="text-xs text-slate-500">
+                via {entry.settlement_method}
+              </span>
+            )}
+          </div>
+        </td>
+        <td className="px-4 py-3">
+          {isDebit ? (
+            <span className="inline-flex items-center gap-1 text-xs text-emerald-400 font-medium">
+              <ArrowUpRight className="w-3 h-3" />
+              DEBIT
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 text-xs text-red-400 font-medium">
+              <ArrowDownLeft className="w-3 h-3" />
+              CREDIT
+            </span>
+          )}
+        </td>
+        <td className="px-4 py-3 text-right font-mono font-semibold whitespace-nowrap">
+          <span className={isDebit ? "text-emerald-400" : "text-red-400"}>
+            {entry.currency === "USD"
+              ? fmtUSD(entry.amount)
+              : fmtLBP(entry.amount)}
           </span>
-        )}
-      </td>
-      <td className="px-4 py-3">
-        {isDebit ? (
-          <span className="inline-flex items-center gap-1 text-xs text-emerald-400 font-medium">
-            <ArrowUpRight className="w-3 h-3" />
-            DEBIT
-          </span>
-        ) : (
-          <span className="inline-flex items-center gap-1 text-xs text-red-400 font-medium">
-            <ArrowDownLeft className="w-3 h-3" />
-            CREDIT
-          </span>
-        )}
-      </td>
-      <td className="px-4 py-3 text-right font-mono font-semibold whitespace-nowrap">
-        <span className={isDebit ? "text-emerald-400" : "text-red-400"}>
-          {entry.currency === "USD"
-            ? fmtUSD(entry.amount)
-            : fmtLBP(entry.amount)}
-        </span>
-      </td>
-      <td className="px-4 py-3 text-slate-400 text-xs max-w-[200px] truncate">
-        {entry.notes ?? "—"}
-      </td>
-    </tr>
+        </td>
+        <td className="px-4 py-3 text-slate-400 text-xs max-w-[180px] truncate">
+          {entry.notes ?? "—"}
+        </td>
+        <td className="px-3 py-3 text-center w-8">
+          {hasDetails ? (
+            expanded ? (
+              <ChevronUp className="w-3.5 h-3.5 text-slate-400 mx-auto" />
+            ) : (
+              <ChevronDown className="w-3.5 h-3.5 text-slate-400 mx-auto" />
+            )
+          ) : null}
+        </td>
+      </tr>
+      {expanded && hasDetails && (
+        <tr className="bg-slate-900/60">
+          <td colSpan={6} className="px-6 py-3">
+            <div className="grid grid-cols-2 gap-x-8 gap-y-1 text-xs">
+              {entry.fs_customer && (
+                <div className="flex gap-2">
+                  <span className="text-slate-500 w-20 shrink-0">Customer</span>
+                  <span className="text-slate-200 font-medium">
+                    {entry.fs_customer}
+                  </span>
+                </div>
+              )}
+              {entry.fs_reference_number && (
+                <div className="flex gap-2">
+                  <span className="text-slate-500 w-20 shrink-0">Ref #</span>
+                  <span className="text-slate-200 font-medium">
+                    {entry.fs_reference_number}
+                  </span>
+                </div>
+              )}
+              {entry.fs_phone_number && (
+                <div className="flex gap-2">
+                  <span className="text-slate-500 w-20 shrink-0">Phone</span>
+                  <span className="text-slate-200">{entry.fs_phone_number}</span>
+                </div>
+              )}
+              {entry.fs_provider && (
+                <div className="flex gap-2">
+                  <span className="text-slate-500 w-20 shrink-0">Provider</span>
+                  <span className="text-slate-200">
+                    {entry.fs_provider} {entry.fs_service_type}
+                  </span>
+                </div>
+              )}
+              {entry.fs_amount != null && (
+                <div className="flex gap-2">
+                  <span className="text-slate-500 w-20 shrink-0">Amount</span>
+                  <span className="text-slate-200">
+                    {entry.fs_currency === "USD"
+                      ? fmtUSD(entry.fs_amount)
+                      : fmtLBP(entry.fs_amount)}
+                    {entry.fs_fee != null && entry.fs_fee > 0 && (
+                      <span className="text-slate-400 ml-1">
+                        + {fmtUSD(entry.fs_fee)} fee
+                      </span>
+                    )}
+                  </span>
+                </div>
+              )}
+              <div className="flex gap-2">
+                <span className="text-slate-500 w-20 shrink-0">Txn ID</span>
+                <span className="text-slate-400">#{entry.reference_id}</span>
+              </div>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
   );
 }
 
@@ -737,28 +877,51 @@ function DetailPanel({
     usd: partner.usd,
     lbp: partner.lbp,
   });
+  const [breakdown, setBreakdown] = useState<PartnerBalanceBreakdown | null>(
+    null,
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filterFrom, setFilterFrom] = useState("");
   const [filterTo, setFilterTo] = useState("");
+  const [filterMode, setFilterMode] = useState<"" | "FOR" | "THROUGH">("");
+  const [filterProvider, setFilterProvider] = useState<
+    "" | "OMT" | "WHISH" | "BINANCE"
+  >("");
+  const [filterDirection, setFilterDirection] = useState<
+    "" | "DEBIT" | "CREDIT"
+  >("");
 
   const loadLedger = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const dateRange =
-        filterFrom && filterTo
-          ? { start: filterFrom, end: filterTo }
-          : undefined;
-      const result = await window.api.partners.getLedger(partner.id, dateRange);
+      const filters: LedgerFilters = {};
+      if (filterFrom) filters.startDate = filterFrom;
+      if (filterTo) filters.endDate = filterTo;
+      if (filterMode) filters.mode = filterMode;
+      if (filterProvider) filters.provider = filterProvider;
+      if (filterDirection) filters.direction = filterDirection;
+      const result = await window.api.partners.getLedger(
+        partner.id,
+        Object.keys(filters).length ? filters : undefined,
+      );
       setEntries(result.entries);
       setBalance(result.balance);
+      setBreakdown(result.breakdown ?? null);
     } catch {
       setError("Failed to load ledger.");
     } finally {
       setLoading(false);
     }
-  }, [partner.id, filterFrom, filterTo]);
+  }, [
+    partner.id,
+    filterFrom,
+    filterTo,
+    filterMode,
+    filterProvider,
+    filterDirection,
+  ]);
 
   useEffect(() => {
     loadLedger();
@@ -860,6 +1023,52 @@ function DetailPanel({
                   ? "We owe them"
                   : "Settled"}
             </p>
+            {breakdown && (
+              <div className="mt-2 pt-2 border-t border-slate-700/50 space-y-0.5">
+                {breakdown.usd.for !== 0 && (
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-violet-400">FOR (our system)</span>
+                    <span
+                      className={
+                        breakdown.usd.for > 0
+                          ? "text-emerald-400"
+                          : "text-red-400"
+                      }
+                    >
+                      {fmtUSD(breakdown.usd.for)}
+                    </span>
+                  </div>
+                )}
+                {breakdown.usd.through !== 0 && (
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-sky-400">THROUGH (their system)</span>
+                    <span
+                      className={
+                        breakdown.usd.through > 0
+                          ? "text-emerald-400"
+                          : "text-red-400"
+                      }
+                    >
+                      {fmtUSD(breakdown.usd.through)}
+                    </span>
+                  </div>
+                )}
+                {breakdown.usd.other !== 0 && (
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-slate-500">Settlements / Adj.</span>
+                    <span
+                      className={
+                        breakdown.usd.other > 0
+                          ? "text-emerald-400"
+                          : "text-red-400"
+                      }
+                    >
+                      {fmtUSD(breakdown.usd.other)}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
           <div
             className={`rounded-lg border p-3 ${balanceBorderColor(0, balance.lbp)}`}
@@ -878,13 +1087,58 @@ function DetailPanel({
                   ? "We owe them"
                   : "Settled"}
             </p>
+            {breakdown && (
+              <div className="mt-2 pt-2 border-t border-slate-700/50 space-y-0.5">
+                {breakdown.lbp.for !== 0 && (
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-violet-400">FOR (our system)</span>
+                    <span
+                      className={
+                        breakdown.lbp.for > 0
+                          ? "text-emerald-400"
+                          : "text-red-400"
+                      }
+                    >
+                      {fmtLBP(breakdown.lbp.for)}
+                    </span>
+                  </div>
+                )}
+                {breakdown.lbp.through !== 0 && (
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-sky-400">THROUGH (their system)</span>
+                    <span
+                      className={
+                        breakdown.lbp.through > 0
+                          ? "text-emerald-400"
+                          : "text-red-400"
+                      }
+                    >
+                      {fmtLBP(breakdown.lbp.through)}
+                    </span>
+                  </div>
+                )}
+                {breakdown.lbp.other !== 0 && (
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-slate-500">Settlements / Adj.</span>
+                    <span
+                      className={
+                        breakdown.lbp.other > 0
+                          ? "text-emerald-400"
+                          : "text-red-400"
+                      }
+                    >
+                      {fmtLBP(breakdown.lbp.other)}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
 
       {/* Ledger Filters */}
-      <div className="flex items-center gap-3 mb-3">
-        <span className="text-xs text-slate-400 shrink-0">Filter by date:</span>
+      <div className="flex flex-wrap items-center gap-2 mb-3">
         <input
           type="date"
           value={filterFrom}
@@ -898,15 +1152,56 @@ function DetailPanel({
           onChange={(e) => setFilterTo(e.target.value)}
           className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-violet-500"
         />
-        {(filterFrom || filterTo) && (
+        <select
+          value={filterMode}
+          onChange={(e) =>
+            setFilterMode(e.target.value as "" | "FOR" | "THROUGH")
+          }
+          className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-violet-500"
+        >
+          <option value="">All modes</option>
+          <option value="FOR">FOR (our system)</option>
+          <option value="THROUGH">THROUGH (their system)</option>
+        </select>
+        <select
+          value={filterProvider}
+          onChange={(e) =>
+            setFilterProvider(e.target.value as "" | "OMT" | "WHISH" | "BINANCE")
+          }
+          className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-violet-500"
+        >
+          <option value="">All providers</option>
+          <option value="OMT">OMT</option>
+          <option value="WHISH">Whish</option>
+          <option value="BINANCE">Binance</option>
+        </select>
+        <select
+          value={filterDirection}
+          onChange={(e) =>
+            setFilterDirection(e.target.value as "" | "DEBIT" | "CREDIT")
+          }
+          className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-violet-500"
+        >
+          <option value="">All directions</option>
+          <option value="DEBIT">Debit (they owe us)</option>
+          <option value="CREDIT">Credit (we owe them)</option>
+        </select>
+        {(filterFrom ||
+          filterTo ||
+          filterMode ||
+          filterProvider ||
+          filterDirection) && (
           <button
             onClick={() => {
               setFilterFrom("");
               setFilterTo("");
+              setFilterMode("");
+              setFilterProvider("");
+              setFilterDirection("");
             }}
             className="text-xs text-slate-400 hover:text-white transition-colors"
           >
-            Clear
+            Clear all
           </button>
         )}
         <button
@@ -954,6 +1249,7 @@ function DetailPanel({
                 <th className="text-left text-xs text-slate-400 px-4 py-3 font-medium">
                   Notes
                 </th>
+                <th className="w-8" />
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-700/60">

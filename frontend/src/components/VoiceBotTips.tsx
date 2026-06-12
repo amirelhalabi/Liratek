@@ -27,6 +27,7 @@ export function VoiceBotTips({
 
   useEffect(() => {
     if (isOpen) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setCurrentPage(0);
     }
   }, [isOpen, activeModule]);

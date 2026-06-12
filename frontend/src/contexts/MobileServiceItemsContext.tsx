@@ -155,6 +155,7 @@ export function MobileServiceItemsProvider({
   // admin/staff session, and read handlers run after login. Re-runs whenever
   // the user logs in so a fresh DB gets seeded at that point (not at boot).
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (isAuthenticated) load();
   }, [isAuthenticated, load]);
 
@@ -211,6 +212,20 @@ export function MobileServiceItemsProvider({
     return map;
   }, [items]);
 
+  // Pre-sorted slices keyed by "provider|category" (category="" = all items for provider).
+  // Avoids re-running sortItems() on every getItems() call.
+  const sortedSlices = useMemo(() => {
+    const cache = new Map<string, ServiceItem[]>();
+    for (const [provider, provItems] of Object.entries(itemsByProvider) as [ProviderKey, ServiceItem[]][]) {
+      cache.set(`${provider}|`, sortItems(provItems));
+      const cats = [...new Set(provItems.map((i) => i.category))];
+      for (const cat of cats) {
+        cache.set(`${provider}|${cat}`, sortItems(provItems.filter((i) => i.category === cat)));
+      }
+    }
+    return cache;
+  }, [itemsByProvider]);
+
   const getCategoriesForProvider = useCallback(
     (provider: ProviderKey): string[] => {
       const provItems = itemsByProvider[provider] || [];
@@ -222,13 +237,9 @@ export function MobileServiceItemsProvider({
 
   const getItems = useCallback(
     (provider: ProviderKey, category?: string): ServiceItem[] => {
-      const provItems = itemsByProvider[provider] || [];
-      const filtered = category
-        ? provItems.filter((i) => i.category === category)
-        : provItems;
-      return sortItems(filtered);
+      return sortedSlices.get(`${provider}|${category ?? ""}`) ?? [];
     },
-    [itemsByProvider],
+    [sortedSlices],
   );
 
   const refresh = useCallback(async () => {

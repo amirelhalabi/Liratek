@@ -182,6 +182,18 @@ export type LotoCheckpointApi = {
     settledAt?: string;
     payments?: Array<{ method: string; currency_code: string; amount: number }>;
   }) => Promise<{ success: boolean; checkpoint?: any; error?: string }>;
+  settleBatch: (data: {
+    checkpointIds: number[];
+    totalSales: number;
+    totalCommission: number;
+    settledAt?: string;
+    payment?: {
+      method: string;
+      drawer_name: string;
+      currency_code: string;
+      amount: number;
+    };
+  }) => Promise<{ success: boolean; checkpoints?: any[]; error?: string }>;
   getTotalSalesUnsettled: () => Promise<{
     success: boolean;
     totalSales?: number;

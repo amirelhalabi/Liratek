@@ -664,7 +664,8 @@ INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALU
 INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('OMT_App', 'LBP', 0);
 INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Whish_App', 'USD', 0);
 INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Whish_App', 'LBP', 0);
-INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Binance', 'USD', 0);
+-- Binance holds crypto (USDT), so its drawer is denominated in USDT, not USD.
+INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Binance', 'USDT', 0);
 INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('MTC', 'USD', 0);
 INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Alfa', 'USD', 0);
 INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('iPick', 'USD', 0);
@@ -885,7 +886,7 @@ INSERT OR IGNORE INTO currency_drawers (currency_code, drawer_name) VALUES
   ('USD', 'OMT_System'), ('LBP', 'OMT_System'),
   ('USD', 'OMT_App'),    ('LBP', 'OMT_App'),
   ('USD', 'Whish_App'),  ('LBP', 'Whish_App'),
-  ('USD', 'Binance'),
+  ('USDT', 'Binance'),
   ('USD', 'MTC'),
   ('USD', 'Alfa'),
   ('USD', 'iPick'),       ('LBP', 'iPick'),
@@ -1215,4 +1216,5 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (89, 'add_vouchers_module'),
     (90, 'heal_unredeemed_gift_card_credit'),
     (91, 'per_drawer_checkpoint_index'),
-    (92, 'maintenance_lbp_pricing');
+    (92, 'maintenance_lbp_pricing'),
+    (93, 'binance_drawer_usdt_currency');

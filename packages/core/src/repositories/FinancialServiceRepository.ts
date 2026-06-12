@@ -10,6 +10,7 @@ import {
   paymentMethodToDrawerName,
   isDrawerAffectingMethod,
   isNonCashDrawerMethod,
+  partitionLegs,
 } from "../utils/payments.js";
 import { getSupplierRepository } from "./SupplierRepository.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
@@ -80,6 +81,8 @@ export interface FinancialServiceEntity {
   created_by: number | null;
   edited_by: string | null;
   edited_at: string | null;
+  partner_id: number | null;
+  partner_mode: "THROUGH" | "FOR" | null;
 }
 
 export interface UnsettledSummary {
@@ -116,6 +119,8 @@ export interface CreateFinancialServiceData {
     amount: number;
     /** Set when method === 'GIFT_CARD' — the voucher code being redeemed. */
     voucherCode?: string;
+    /** IN (customer pays, default) or OUT (shop returns change to customer). */
+    direction?: "IN" | "OUT";
   }>;
   clientId?: number;
   clientName?: string;
@@ -212,7 +217,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
 
   // Override getColumns() to use explicit columns instead of SELECT *
   protected getColumns(): string {
-    return "id, provider, service_type, amount, currency, commission, cost, price, paid_by, paid_amount, paid_currency, client_id, client_name, reference_number, phone_number, sender_name, sender_phone, receiver_name, receiver_phone, sender_client_id, receiver_client_id, omt_service_type, omt_fee, whish_fee, profit_rate, pay_fee, item_key, note, is_settled, settled_at, settlement_id, payment_method_fee, payment_method_fee_rate, created_at, created_by, edited_by, edited_at";
+    return "id, provider, service_type, amount, currency, commission, cost, price, paid_by, paid_amount, paid_currency, client_id, client_name, reference_number, phone_number, sender_name, sender_phone, receiver_name, receiver_phone, sender_client_id, receiver_client_id, omt_service_type, omt_fee, whish_fee, profit_rate, pay_fee, item_key, note, is_settled, settled_at, settlement_id, payment_method_fee, payment_method_fee_rate, created_at, created_by, edited_by, edited_at, partner_id, partner_mode";
   }
 
   // ---------------------------------------------------------------------------
@@ -245,6 +250,52 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       default:
         return "General";
     }
+  }
+
+  /**
+   * Resolve (or create) the client to debt-charge for a Binance CUSTOMER_ACCOUNT
+   * payment leg, and link the unified transaction row to that client.
+   *
+   * Throws if name/phone are missing and no clientId is available.
+   */
+  private resolveBinanceDebtClient(
+    data: CreateFinancialServiceData,
+    txnId: number,
+  ): number {
+    let resolvedClientId = data.clientId;
+
+    if (!resolvedClientId) {
+      if (!data.clientName?.trim()) {
+        throw new Error("Client name is required when paying by debt");
+      }
+      if (!data.phoneNumber?.trim()) {
+        throw new Error("Phone number is required when paying by debt");
+      }
+      const existing = this.db
+        .prepare(`SELECT id FROM clients WHERE phone_number = ? LIMIT 1`)
+        .get(data.phoneNumber) as { id: number } | undefined;
+      if (existing) {
+        resolvedClientId = existing.id;
+      } else {
+        const insertResult = this.db
+          .prepare(
+            `INSERT INTO clients (full_name, phone_number, notes)
+             VALUES (?, ?, ?)`,
+          )
+          .run(
+            data.clientName,
+            data.phoneNumber,
+            "Auto-created from Binance debt",
+          );
+        resolvedClientId = Number(insertResult.lastInsertRowid);
+      }
+    }
+
+    this.db
+      .prepare(`UPDATE transactions SET client_id = ? WHERE id = ?`)
+      .run(resolvedClientId, txnId);
+
+    return resolvedClientId;
   }
 
   /**
@@ -576,6 +627,16 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           updated_at = CURRENT_TIMESTAMP
       `);
 
+      // Separate shop→customer change (OUT) legs up front so every inflow branch
+      // below operates on customer-paid (IN) legs only. OUT legs are processed
+      // once at the end of the transaction.
+      const { inLegs: inPayments, outLegs: returnLegs } = partitionLegs(
+        data.payments,
+      );
+      if (returnLegs.length > 0) {
+        data.payments = inPayments;
+      }
+
       if (useCostPriceFlow) {
         // ─── COST/PRICE FLOW (iPick, Katsh, WISH_APP, OMT_APP, BINANCE) ───
         const providerDrawer = this.mapDrawerName(data.provider);
@@ -743,42 +804,149 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         if (isBINANCE) {
           // ─── BINANCE: crypto sent/received from shop's Binance account ───
           //
-          // SEND: shop sends crypto from Binance account to a customer's wallet.
-          //   - Binance drawer: -sentAmount (crypto leaves the account)
-          //   - Fee (commission): customer pays via payment method → credit to that drawer
+          // The crypto leg moves in USDT against the Binance drawer; the cash
+          // leg moves in the customer's payment currency (USD) against the cash /
+          // wallet drawer. These are two DIFFERENT currencies — never conflate
+          // `currency` (USDT, the crypto denomination) with the cash drawer.
           //
-          // RECEIVE: someone sends crypto to shop's Binance account.
-          //   - Binance drawer: +receivedAmount (crypto arrives in the account)
-          //   - Fee (commission): customer pays via payment method → credit to that drawer
+          // SEND: shop sends crypto from its Binance account to a customer.
+          //   - Binance drawer (USDT): -cryptoAmount   (crypto leaves the account)
+          //   - Cash drawer (USD):     +(cryptoAmount + fee)  (customer pays cash in)
+          //   - Fee is shop profit, captured implicitly (cash in − crypto out).
+          //
+          // RECEIVE: someone sends crypto to the shop's Binance account.
+          //   - Binance drawer (USDT): +cryptoAmount   (crypto arrives)
+          //   - Cash drawer (USD):     -(cryptoAmount - fee)  (shop pays customer out)
+          //   - Fee is shop profit, captured implicitly (crypto in − cash out).
           const cryptoAmount = Math.abs(data.amount);
           const fee = Math.abs(calculatedCommission);
 
+          // The Binance drawer always tracks the crypto denomination (USDT),
+          // regardless of what `currency` was passed. The cash side uses the
+          // payment-leg currency, defaulting to USD when no legs are provided.
+          const cryptoCurrency = "USDT";
+          const cashCurrency =
+            data.payments && data.payments.length > 0
+              ? data.payments[0].currencyCode
+              : "USD";
+
           if (data.serviceType === "SEND") {
-            // Debit Binance drawer: crypto leaves the shop's account
+            // 1. Debit Binance drawer (USDT): crypto leaves the shop's account
             insertPayment.run(
               txnId,
               "BINANCE",
               systemDrawer, // "Binance"
-              currency,
+              cryptoCurrency,
               -cryptoAmount,
               `Crypto sent to customer`,
               createdBy,
             );
-            upsertBalanceDelta.run(systemDrawer, currency, -cryptoAmount);
+            upsertBalanceDelta.run(systemDrawer, cryptoCurrency, -cryptoAmount);
+
+            // 2. Credit the cash the customer hands over (cryptoAmount + fee).
+            //    Multi-payment: credit each drawer-affecting leg in full; route
+            //    CUSTOMER_ACCOUNT legs to debt. Single-payment: credit the whole
+            //    total to the chosen drawer, or to debt for CUSTOMER_ACCOUNT.
+            if (data.payments && data.payments.length > 0) {
+              for (const p of data.payments) {
+                if (p.method === "CUSTOMER_ACCOUNT") continue;
+                if (!isDrawerAffectingMethod(p.method)) continue;
+                const drawerName = paymentMethodToDrawerName(p.method);
+                insertPayment.run(
+                  txnId,
+                  p.method,
+                  drawerName,
+                  p.currencyCode,
+                  Math.abs(p.amount),
+                  `Binance SEND payment`,
+                  createdBy,
+                );
+                upsertBalanceDelta.run(
+                  drawerName,
+                  p.currencyCode,
+                  Math.abs(p.amount),
+                );
+              }
+
+              // CUSTOMER_ACCOUNT legs → debt for the full on-account amount
+              const debtLegs = data.payments.filter(
+                (p) => p.method === "CUSTOMER_ACCOUNT",
+              );
+              if (debtLegs.length > 0) {
+                const debtClientId = this.resolveBinanceDebtClient(data, txnId);
+                for (const debtLeg of debtLegs) {
+                  this.db
+                    .prepare(
+                      `INSERT INTO debt_ledger (
+                        client_id, transaction_type, amount_usd, amount_lbp,
+                        transaction_id, note, created_by, due_date
+                      ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
+                    )
+                    .run(
+                      debtClientId,
+                      "Service Debt",
+                      debtLeg.currencyCode === "USD"
+                        ? Math.abs(debtLeg.amount)
+                        : 0,
+                      debtLeg.currencyCode === "LBP"
+                        ? Math.abs(debtLeg.amount)
+                        : 0,
+                      txnId,
+                      `Binance SEND — $${data.amount} USDT`,
+                      createdBy,
+                    );
+                }
+              }
+            } else {
+              // Single-payment fallback: customer pays cryptoAmount + fee.
+              const cashTotal = cryptoAmount + fee;
+              if (paidBy === "CUSTOMER_ACCOUNT") {
+                const debtClientId = this.resolveBinanceDebtClient(data, txnId);
+                this.db
+                  .prepare(
+                    `INSERT INTO debt_ledger (
+                      client_id, transaction_type, amount_usd, amount_lbp,
+                      transaction_id, note, created_by, due_date
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
+                  )
+                  .run(
+                    debtClientId,
+                    "Service Debt",
+                    cashCurrency === "USD" ? cashTotal : 0,
+                    cashCurrency === "LBP" ? cashTotal : 0,
+                    txnId,
+                    `Binance SEND — $${data.amount} USDT`,
+                    createdBy,
+                  );
+              } else if (isDrawerAffectingMethod(paidBy)) {
+                const cashDrawer = paymentMethodToDrawerName(paidBy);
+                insertPayment.run(
+                  txnId,
+                  paidBy,
+                  cashDrawer,
+                  cashCurrency,
+                  cashTotal,
+                  `Binance SEND payment`,
+                  createdBy,
+                );
+                upsertBalanceDelta.run(cashDrawer, cashCurrency, cashTotal);
+              }
+            }
           } else {
-            // Credit Binance drawer: crypto arrives in the shop's account
+            // ─── RECEIVE ─────────────────────────────────────────────────────
+            // 1. Credit Binance drawer (USDT): crypto arrives in the shop's account
             insertPayment.run(
               txnId,
               "BINANCE",
               systemDrawer, // "Binance"
-              currency,
+              cryptoCurrency,
               cryptoAmount,
               `Crypto received from customer`,
               createdBy,
             );
-            upsertBalanceDelta.run(systemDrawer, currency, cryptoAmount);
+            upsertBalanceDelta.run(systemDrawer, cryptoCurrency, cryptoAmount);
 
-            // Cash payout: shop pays customer (amount - fee)
+            // 2. Cash payout: shop pays customer (cryptoAmount - fee) in cash.
             const payoutAmount = cryptoAmount - fee;
             const cashoutMethod = data.cashoutMethod || "CASH";
 
@@ -793,208 +961,45 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 const debtService = getDebtService();
                 debtService.addCredit({
                   clientId: resolvedPrimaryClientId,
-                  amountUsd: currency === "USD" ? payoutAmount : 0,
-                  amountLbp: currency === "LBP" ? payoutAmount : 0,
+                  amountUsd: cashCurrency === "USD" ? payoutAmount : 0,
+                  amountLbp: cashCurrency === "LBP" ? payoutAmount : 0,
                   note: `Binance RECEIVE cashout — credited to account`,
                   userId: createdBy,
                 });
               } else {
-                // Debit the appropriate drawer based on cashout method
+                // Debit the appropriate cash/wallet drawer based on cashout method
                 const cashoutDrawer = paymentMethodToDrawerName(cashoutMethod);
                 insertPayment.run(
                   txnId,
                   cashoutMethod,
                   cashoutDrawer,
-                  currency,
+                  cashCurrency,
                   -payoutAmount,
                   `${cashoutMethod} paid to customer (Binance RECEIVE)`,
                   createdBy,
                 );
-                upsertBalanceDelta.run(cashoutDrawer, currency, -payoutAmount);
+                upsertBalanceDelta.run(
+                  cashoutDrawer,
+                  cashCurrency,
+                  -payoutAmount,
+                );
               }
             }
           }
 
-          // Fee payment: customer pays the fee via their chosen payment method
+          // Commission row for profit reporting (fee = commission for Binance).
+          // The fee is realized implicitly via the cash-vs-crypto spread above;
+          // this row is reporting-only and carries no drawer delta.
           if (fee > 0) {
-            if (data.payments && data.payments.length > 0) {
-              // Multi-payment: each leg goes to its respective drawer
-              for (const p of data.payments) {
-                if (p.method === "CUSTOMER_ACCOUNT") continue;
-                if (!isDrawerAffectingMethod(p.method)) continue;
-                const drawerName = paymentMethodToDrawerName(p.method);
-                insertPayment.run(
-                  txnId,
-                  p.method,
-                  drawerName,
-                  p.currencyCode,
-                  Math.abs(p.amount),
-                  `Binance fee payment`,
-                  createdBy,
-                );
-                upsertBalanceDelta.run(
-                  drawerName,
-                  p.currencyCode,
-                  Math.abs(p.amount),
-                );
-              }
-
-              // Handle DEBT legs
-              const debtLegs = data.payments.filter((p) => p.method === "CUSTOMER_ACCOUNT");
-              if (debtLegs.length > 0) {
-                if (!data.clientName?.trim()) {
-                  throw new Error(
-                    "Client name is required when paying by debt",
-                  );
-                }
-                if (!data.phoneNumber?.trim()) {
-                  throw new Error(
-                    "Phone number is required when paying by debt",
-                  );
-                }
-                let resolvedClientId = data.clientId;
-                if (!resolvedClientId && data.clientName && data.phoneNumber) {
-                  const existing = this.db
-                    .prepare(
-                      `SELECT id FROM clients WHERE phone_number = ? LIMIT 1`,
-                    )
-                    .get(data.phoneNumber) as { id: number } | undefined;
-                  if (existing) {
-                    resolvedClientId = existing.id;
-                  } else {
-                    const insertResult = this.db
-                      .prepare(
-                        `INSERT INTO clients (full_name, phone_number, notes)
-                         VALUES (?, ?, ?)`,
-                      )
-                      .run(
-                        data.clientName,
-                        data.phoneNumber,
-                        "Auto-created from Binance fee debt",
-                      );
-                    resolvedClientId = Number(insertResult.lastInsertRowid);
-                  }
-                }
-                if (resolvedClientId) {
-                  this.db
-                    .prepare(
-                      `UPDATE transactions SET client_id = ? WHERE id = ?`,
-                    )
-                    .run(resolvedClientId, txnId);
-                  for (const debtLeg of debtLegs) {
-                    this.db
-                      .prepare(
-                        `INSERT INTO debt_ledger (
-                          client_id, transaction_type, amount_usd, amount_lbp,
-                          transaction_id, note, created_by, due_date
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
-                      )
-                      .run(
-                        resolvedClientId,
-                        "Service Debt",
-                        debtLeg.currencyCode === "USD"
-                          ? Math.abs(debtLeg.amount)
-                          : 0,
-                        debtLeg.currencyCode === "LBP"
-                          ? Math.abs(debtLeg.amount)
-                          : 0,
-                        txnId,
-                        `Binance ${data.serviceType} fee — $${data.amount} USDT`,
-                        createdBy,
-                      );
-                  }
-                }
-              }
-            } else {
-              // Single payment for fee
-              if (paidBy === "CUSTOMER_ACCOUNT") {
-                if (!data.clientName?.trim()) {
-                  throw new Error(
-                    "Client name is required when paying by debt",
-                  );
-                }
-                if (!data.phoneNumber?.trim()) {
-                  throw new Error(
-                    "Phone number is required when paying by debt",
-                  );
-                }
-                const existingClient = this.db
-                  .prepare(
-                    `SELECT id FROM clients WHERE phone_number = ? LIMIT 1`,
-                  )
-                  .get(data.phoneNumber) as { id: number } | undefined;
-                const debtClientId = existingClient
-                  ? existingClient.id
-                  : Number(
-                      this.db
-                        .prepare(
-                          `INSERT INTO clients (full_name, phone_number, notes)
-                           VALUES (?, ?, ?)`,
-                        )
-                        .run(
-                          data.clientName,
-                          data.phoneNumber,
-                          "Auto-created from Binance fee debt",
-                        ).lastInsertRowid,
-                    );
-                this.db
-                  .prepare(`UPDATE transactions SET client_id = ? WHERE id = ?`)
-                  .run(debtClientId, txnId);
-                this.db
-                  .prepare(
-                    `INSERT INTO debt_ledger (
-                      client_id, transaction_type, amount_usd, amount_lbp,
-                      transaction_id, note, created_by, due_date
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', '+30 days'))`,
-                  )
-                  .run(
-                    debtClientId,
-                    "Service Debt",
-                    currency === "USD" ? fee : 0,
-                    currency === "LBP" ? fee : 0,
-                    txnId,
-                    `Binance ${data.serviceType} fee — $${data.amount} USDT`,
-                    createdBy,
-                  );
-              } else {
-                // Cash or other payment method
-                const feeDrawer = paymentMethodToDrawerName(paidBy);
-                if (isDrawerAffectingMethod(paidBy)) {
-                  insertPayment.run(
-                    txnId,
-                    paidBy,
-                    feeDrawer,
-                    currency,
-                    fee,
-                    `Binance fee`,
-                    createdBy,
-                  );
-                  upsertBalanceDelta.run(feeDrawer, currency, fee);
-                }
-              }
-            }
-
-            // Commission row for profit reporting (fee = commission for Binance)
-            // The fee amount is the shop's profit, already credited to the payment drawer above.
-            // This COMMISSION row is for reporting only — no extra drawer delta.
-            if (fee > 0) {
-              const commDrawer =
-                data.payments && data.payments.length > 0
-                  ? paymentMethodToDrawerName(data.payments[0].method)
-                  : paidBy
-                    ? paymentMethodToDrawerName(paidBy)
-                    : systemDrawer;
-              insertPayment.run(
-                txnId,
-                "COMMISSION",
-                commDrawer,
-                currency,
-                0, // No extra delta — fee already credited above
-                `Commission (Binance fee: $${fee})`,
-                createdBy,
-              );
-              // No upsertBalanceDelta — already handled above
-            }
+            insertPayment.run(
+              txnId,
+              "COMMISSION",
+              systemDrawer,
+              cashCurrency,
+              0, // No drawer delta — fee already realized in the spread above
+              `Commission (Binance fee: $${fee})`,
+              createdBy,
+            );
           }
         } else if (data.serviceType === "SEND") {
           // ─── SEND: customer gives money to shop, shop sends via provider ───
@@ -1646,6 +1651,40 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             1,
             data.transaction_time ?? null,
           );
+      }
+
+      // Return (OUT) legs: change handed back to the customer via a chosen method,
+      // or kept as store credit. Debits the method's drawer (negative delta), or
+      // deposits credit to the client's account for CUSTOMER_ACCOUNT.
+      for (const r of returnLegs) {
+        const amt = Math.abs(r.amount);
+        if (amt <= 0) continue;
+        if (r.method === "CUSTOMER_ACCOUNT") {
+          if (!resolvedPrimaryClientId) {
+            throw new Error(
+              "Client is required to return change as store credit",
+            );
+          }
+          getDebtService().addCredit({
+            clientId: resolvedPrimaryClientId,
+            amountUsd: r.currencyCode === "USD" ? amt : 0,
+            amountLbp: r.currencyCode === "LBP" ? amt : 0,
+            note: "Change returned",
+            userId: createdBy,
+          });
+        } else if (isDrawerAffectingMethod(r.method)) {
+          const drawerName = paymentMethodToDrawerName(r.method);
+          insertPayment.run(
+            txnId,
+            r.method,
+            drawerName,
+            r.currencyCode,
+            -amt,
+            "Change returned",
+            createdBy,
+          );
+          upsertBalanceDelta.run(drawerName, r.currencyCode, -amt);
+        }
       }
 
       return { id, drawer: legacyDrawerLabel };

@@ -11,6 +11,7 @@ import {
   ipcLogger,
   type CreatePartnerData,
   type UpdatePartnerData,
+  type LedgerFilters,
 } from "@liratek/core";
 import { requireRole } from "../session.js";
 import { audit } from "./auditHelper.js";
@@ -249,9 +250,9 @@ export function registerPartnerHandlers(): void {
   // Get partner ledger / statement (any role)
   ipcMain.handle(
     "partners:get-ledger",
-    (_event, partnerId: number, dateRange?: { start: string; end: string }) => {
+    (_event, partnerId: number, filters?: LedgerFilters) => {
       try {
-        return getServiceInstance().getPartnerStatement(partnerId, dateRange);
+        return getServiceInstance().getPartnerStatement(partnerId, filters);
       } catch (error) {
         ipcLogger.error({ error }, "partners:get-ledger failed");
         return {

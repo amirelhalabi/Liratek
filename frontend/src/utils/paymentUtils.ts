@@ -3,6 +3,58 @@
  */
 
 import { PAYMENT_TOLERANCE } from "@/constants/checkout";
+import type { PaymentLine } from "@liratek/ui";
+
+/** Backend payment leg (camelCase shape — Recharge, Financial, Debt). */
+export interface CamelPaymentLeg {
+  method: string;
+  currencyCode: string;
+  amount: number;
+  voucherCode?: string;
+  direction?: "IN" | "OUT";
+}
+
+/** Backend payment leg (snake_case shape — Sales, Custom Services, Loto). */
+export interface SnakePaymentLeg {
+  method: string;
+  currency_code: string;
+  amount: number;
+  voucher_code?: string;
+  direction?: "IN" | "OUT";
+}
+
+/**
+ * Build the camelCase `payments` array sent to the backend, appending any
+ * shop→customer return (OUT) legs when the customer overpaid.
+ */
+export function toCamelLegs(
+  lines: PaymentLine[],
+  returnLegs?: PaymentLine[],
+): CamelPaymentLeg[] {
+  const all = returnLegs?.length ? [...lines, ...returnLegs] : lines;
+  return all.map((l) => ({
+    method: l.method,
+    currencyCode: l.currencyCode,
+    amount: l.amount,
+    ...(l.voucherCode ? { voucherCode: l.voucherCode } : {}),
+    ...(l.direction ? { direction: l.direction } : {}),
+  }));
+}
+
+/** Same as {@link toCamelLegs} but with the snake_case leg shape. */
+export function toSnakeLegs(
+  lines: PaymentLine[],
+  returnLegs?: PaymentLine[],
+): SnakePaymentLeg[] {
+  const all = returnLegs?.length ? [...lines, ...returnLegs] : lines;
+  return all.map((l) => ({
+    method: l.method,
+    currency_code: l.currencyCode,
+    amount: l.amount,
+    ...(l.voucherCode ? { voucher_code: l.voucherCode } : {}),
+    ...(l.direction ? { direction: l.direction } : {}),
+  }));
+}
 
 /**
  * Calculates change due

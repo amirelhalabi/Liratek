@@ -312,7 +312,7 @@ describe("MultiPaymentInput", () => {
       expect(within(summary).getByText("$40.00")).toBeInTheDocument();
     });
 
-    it("shows an overpaid row when the line pays more than the total", () => {
+    it("shows a return/change block when the line pays more than the total", () => {
       renderMpi({ totalAmount: 100 });
 
       fireEvent.click(screen.getByTestId("split-toggle"));
@@ -322,12 +322,13 @@ describe("MultiPaymentInput", () => {
       fireEvent.change(firstAmount, { target: { value: "150" } });
 
       const summary = screen.getByTestId("payment-summary");
-      expect(within(summary).getByText(/Overpaid/i)).toBeInTheDocument();
-      // |100 - 150| = 50 → "$50.00".
-      expect(within(summary).getByText("$50.00")).toBeInTheDocument();
+      expect(within(summary).getByTestId("return-change")).toBeInTheDocument();
+      expect(within(summary).getByText(/Return \/ Change/i)).toBeInTheDocument();
+      // |100 - 150| = 50 → CASH return auto-fills the USD field with "50.00".
+      expect(screen.getByTestId("return-usd")).toHaveValue("50.00");
     });
 
-    it("shows neither remaining nor overpaid when the amount matches exactly", () => {
+    it("shows neither remaining nor return/change when the amount matches exactly", () => {
       renderMpi({ totalAmount: 100 });
 
       // Single mode auto-fills the exact total; no warning rows render.
@@ -335,7 +336,9 @@ describe("MultiPaymentInput", () => {
       expect(
         within(summary).queryByText(/Remaining \(Debt\)/i),
       ).not.toBeInTheDocument();
-      expect(within(summary).queryByText(/Overpaid/i)).not.toBeInTheDocument();
+      expect(
+        within(summary).queryByTestId("return-change"),
+      ).not.toBeInTheDocument();
     });
   });
 

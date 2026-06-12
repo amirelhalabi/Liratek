@@ -2533,6 +2533,31 @@ export async function lotoCheckpointSettle(data: {
   );
 }
 
+export async function lotoCheckpointSettleBatch(data: {
+  checkpointIds: number[];
+  totalSales: number;
+  totalCommission: number;
+  settledAt?: string;
+  payment?: {
+    method: string;
+    drawer_name: string;
+    currency_code: string;
+    amount: number;
+  };
+}): Promise<{ success: boolean; checkpoints?: any[]; error?: string }> {
+  return ipcOrHttp(
+    async () => getElectronApi().loto.checkpoint.settleBatch(data),
+    async () =>
+      requestJson<{ success: boolean; checkpoints?: any[]; error?: string }>(
+        `/api/loto/checkpoints/settle-batch`,
+        {
+          method: "POST",
+          body: data,
+        },
+      ),
+  );
+}
+
 export async function lotoCheckpointGetTotalSalesUnsettled(): Promise<{
   success: boolean;
   totalSales?: number;

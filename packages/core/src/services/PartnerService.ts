@@ -11,6 +11,8 @@ import {
   type Partner,
   type PartnerLedgerEntry,
   type PartnerBalance,
+  type PartnerBalanceBreakdown,
+  type LedgerFilters,
   type CreatePartnerData,
   type UpdatePartnerData,
   type CreateLedgerEntryData,
@@ -209,20 +211,19 @@ export class PartnerService {
 
   getPartnerStatement(
     partnerId: number,
-    dateRange?: { start: string; end: string },
+    filters?: LedgerFilters,
   ): {
     partner: Partner;
     balance: PartnerBalance;
+    breakdown: PartnerBalanceBreakdown;
     entries: PartnerLedgerEntry[];
   } {
     try {
       const partner = this.getPartnerById(partnerId);
       const balance = this.repo.getBalance(partnerId);
-      const entries = this.repo.getLedgerEntries(partnerId, {
-        startDate: dateRange?.start,
-        endDate: dateRange?.end,
-      });
-      return { partner, balance, entries };
+      const breakdown = this.repo.getBalanceBreakdown(partnerId);
+      const entries = this.repo.getLedgerEntries(partnerId, filters);
+      return { partner, balance, breakdown, entries };
     } catch (e) {
       partnerLogger.error(
         { error: e, partnerId },

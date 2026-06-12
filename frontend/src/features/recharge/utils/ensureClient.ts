@@ -49,7 +49,6 @@ export async function ensureRechargeClient({
       full_name: trimmedName,
       phone_number: trimmedPhone,
       whatsapp_opt_in: 0,
-      notes: null,
     });
     if (result?.success && result.id) {
       return { ok: true, id: result.id };

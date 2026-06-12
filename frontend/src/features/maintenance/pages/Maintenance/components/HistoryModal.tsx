@@ -191,8 +191,16 @@ export function HistoryModal({
                       )}
                     </td>
                     <td className="px-6 py-4">
-                      <div className="text-sm font-bold text-white">
-                        {job.device_name}
+                      <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
+                        <span className="inline-flex items-center gap-0.5 text-[11px] font-mono text-emerald-400 shrink-0">
+                          ↑{" "}
+                          {job.currency === "LBP"
+                            ? `${(job.price_lbp ?? 0).toLocaleString()} LBP`
+                            : `$${(job.price_usd ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                        </span>
+                        <span className="text-sm font-bold text-white">
+                          {job.device_name}
+                        </span>
                       </div>
                       <div className="text-xs text-slate-400 truncate max-w-[200px]">
                         {job.issue_description}

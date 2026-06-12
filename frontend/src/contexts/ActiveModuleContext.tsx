@@ -1,13 +1,6 @@
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useState,
-  type ReactNode,
-} from "react";
+import { createContext, useContext, type ReactNode } from "react";
 import { useLocation } from "react-router-dom";
 
-// Map routes to module keys
 const routeToModule: Record<string, string> = {
   "/pos": "pos",
   "/debts": "debts",
@@ -26,7 +19,6 @@ const routeToModule: Record<string, string> = {
 
 interface ActiveModuleContextType {
   activeModule: string | null;
-  setActiveModule: (module: string | null) => void;
 }
 
 const ActiveModuleContext = createContext<ActiveModuleContextType | undefined>(
@@ -35,16 +27,10 @@ const ActiveModuleContext = createContext<ActiveModuleContextType | undefined>(
 
 export function ActiveModuleProvider({ children }: { children: ReactNode }) {
   const location = useLocation();
-  const [activeModule, setActiveModule] = useState<string | null>(null);
-
-  useEffect(() => {
-    // Map current route to module key
-    const module = routeToModule[location.pathname] || null;
-    setActiveModule(module);
-  }, [location]);
+  const activeModule = routeToModule[location.pathname] ?? null;
 
   return (
-    <ActiveModuleContext.Provider value={{ activeModule, setActiveModule }}>
+    <ActiveModuleContext.Provider value={{ activeModule }}>
       {children}
     </ActiveModuleContext.Provider>
   );

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Select,
   useApi,
@@ -10,6 +10,15 @@ import { Truck } from "lucide-react";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { getExchangeRates } from "@/utils/exchangeRates";
 import { useShopBase } from "@/hooks/useShopBase";
+import { useQuery } from "@tanstack/react-query";
+import {
+  useSuppliersQuery,
+  useSupplierBalancesQuery,
+  useSupplierLedgerQuery,
+  useUnsettledTransactionsQuery,
+  useAddLedgerEntryMutation,
+  useSettleTransactionsMutation,
+} from "../../hooks/useSuppliers";
 
 type Supplier = {
   id: number;
@@ -92,14 +101,11 @@ export default function SuppliersPage() {
   const api = useApi();
   const { methods } = usePaymentMethods();
   const { partnerSystem } = useShopBase();
-  const [exchangeRate, setExchangeRate] = useState(90000);
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [balances, setBalances] = useState<SupplierBalance[]>([]);
+
+  // ── UI / form state (kept local — not server state) ──────────────────────
   const [selectedSupplierId, setSelectedSupplierId] = useState<number | null>(
     null,
   );
-  const [ledger, setLedger] = useState<LedgerEntry[]>([]);
-
   const [entryType, setEntryType] = useState<
     "TOP_UP" | "PAYMENT" | "ADJUSTMENT"
   >("PAYMENT");
@@ -107,33 +113,56 @@ export default function SuppliersPage() {
   const [amountLBP, setAmountLBP] = useState<number>(0);
   const [note, setNote] = useState<string>("");
   const [withdrawFromDrawer, setWithdrawFromDrawer] = useState(true);
-
-  const [unsettledTxns, setUnsettledTxns] = useState<UnsettledTransaction[]>(
-    [],
-  );
   const [selectedTxnIds, setSelectedTxnIds] = useState<Set<number>>(new Set());
   const [settleNote, setSettleNote] = useState("");
   const [settleDrawer] = useState("General");
   const [showSettleConfirm, setShowSettleConfirm] = useState(false);
-  const [settling, setSettling] = useState(false);
   const [settlePaymentLines, setSettlePaymentLines] = useState<PaymentLine[]>(
     [],
   );
   const [activeTab, setActiveTab] = useState<"settle" | "manual">("settle");
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const getRatesApi = (api as any)?.getRates;
-        if (!getRatesApi) return;
-        const ratesList = await getRatesApi();
-        const { sellRate } = getExchangeRates(ratesList);
-        setExchangeRate(sellRate);
-      } catch {
-        // silent
-      }
-    })();
-  }, []);
+  // ── Exchange rate ─────────────────────────────────────────────────────────
+  const { data: exchangeRate = 90000 } = useQuery({
+    queryKey: ["exchange-rate-sell"],
+    queryFn: async () => {
+      const getRatesApi = (api as unknown as { getRates?: () => Promise<unknown> })?.getRates;
+      if (!getRatesApi) return 90000;
+      const ratesList = await getRatesApi();
+      const { sellRate } = getExchangeRates(ratesList as Parameters<typeof getExchangeRates>[0]);
+      return sellRate;
+    },
+  });
+
+  // ── Server queries ────────────────────────────────────────────────────────
+  const suppliersQuery = useSuppliersQuery();
+  const balancesQuery = useSupplierBalancesQuery();
+
+  const selectedSupplier = useMemo(
+    () =>
+      (suppliersQuery.data as Supplier[] | undefined)?.find(
+        (s) => s.id === selectedSupplierId,
+      ) ?? null,
+    [suppliersQuery.data, selectedSupplierId],
+  );
+
+  const ledgerQuery = useSupplierLedgerQuery(selectedSupplierId);
+  const unsettledQuery = useUnsettledTransactionsQuery(
+    selectedSupplier?.provider ?? null,
+  );
+
+  // ── Mutations ─────────────────────────────────────────────────────────────
+  const addLedgerEntry = useAddLedgerEntryMutation(selectedSupplierId);
+  const settleTransactions = useSettleTransactionsMutation(
+    selectedSupplierId,
+    selectedSupplier?.provider ?? null,
+  );
+
+  // ── Derived data (pure computations, no state) ────────────────────────────
+  const suppliers = (suppliersQuery.data ?? []) as Supplier[];
+  const balances = (balancesQuery.data ?? []) as SupplierBalance[];
+  const ledger = (ledgerQuery.data ?? []) as LedgerEntry[];
+  const unsettledTxns = (unsettledQuery.data ?? []) as UnsettledTransaction[];
 
   const sortedSuppliers = useMemo(
     () =>
@@ -143,11 +172,6 @@ export default function SuppliersPage() {
           (a, b) => b.is_system - a.is_system || a.name.localeCompare(b.name),
         ),
     [suppliers, partnerSystem],
-  );
-
-  const selectedSupplier = useMemo(
-    () => sortedSuppliers.find((s) => s.id === selectedSupplierId) || null,
-    [sortedSuppliers, selectedSupplierId],
   );
 
   const balanceBySupplier = useMemo(() => {
@@ -203,82 +227,7 @@ export default function SuppliersPage() {
     [unsettledTxns],
   );
 
-  const refresh = async () => {
-    const [sups, bals] = await Promise.all([
-      api.getSuppliers(undefined, true),
-      api.getSupplierBalances(true),
-    ]);
-    setSuppliers(sups);
-    setBalances(bals);
-
-    if (selectedSupplierId) {
-      const rows = await api.getSupplierLedger(selectedSupplierId, 200);
-      setLedger(rows);
-    }
-  };
-
-  const refreshUnsettled = async () => {
-    if (!selectedSupplier?.provider) return;
-    const txns = await (api as any).getUnsettledTransactions(
-      selectedSupplier.provider,
-    );
-    setUnsettledTxns(txns || []);
-    setSelectedTxnIds(new Set());
-  };
-
-  const handleSettle = async () => {
-    if (!selectedSupplier || !selectedSupplierId) return;
-    if (selectedTxnIds.size === 0) return;
-    setSettling(true);
-    try {
-      const res = await (api as any).settleTransactions({
-        supplier_id: selectedSupplierId,
-        financial_service_ids: [...selectedTxnIds],
-        amount_usd: settleNetPayUsd,
-        amount_lbp: 0,
-        commission_usd: settleCommissionUsd,
-        commission_lbp: 0,
-        drawer_name: settleDrawer,
-        note: settleNote || `Settlement: ${selectedTxnIds.size} txns`,
-        payments: settlePaymentLines.map((p) => ({
-          method: p.method,
-          currency_code: p.currencyCode,
-          amount: p.amount,
-        })),
-      });
-      if (!res?.success) {
-        alert(res?.error || "Settlement failed");
-        return;
-      }
-      setShowSettleConfirm(false);
-      setSettleNote("");
-      setSelectedTxnIds(new Set());
-      await Promise.all([refresh(), refreshUnsettled()]);
-    } catch (_e) {
-      alert("Settlement failed");
-    } finally {
-      setSettling(false);
-    }
-  };
-
-  useEffect(() => {
-    refresh();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    if (!selectedSupplierId || !selectedSupplier) return;
-    api.getSupplierLedger(selectedSupplierId, 200).then(setLedger);
-    if (selectedSupplier.provider) {
-      (api as any)
-        .getUnsettledTransactions(selectedSupplier.provider)
-        .then((txns: UnsettledTransaction[]) => {
-          setUnsettledTxns(txns || []);
-          setSelectedTxnIds(new Set());
-        });
-    }
-  }, [selectedSupplierId]);
-
+  // ── Handlers ──────────────────────────────────────────────────────────────
   const handleAddEntry = async () => {
     if (!selectedSupplierId) {
       alert("Select a supplier first");
@@ -306,16 +255,49 @@ export default function SuppliersPage() {
       payload.drawer_name = supplierDrawer;
     }
 
-    const res = await api.addSupplierLedgerEntry(selectedSupplierId, payload);
-    if (!res.success) {
-      alert(res.error || "Failed to add entry");
+    const res = await addLedgerEntry.mutateAsync(payload);
+    if (!(res as { success: boolean }).success) {
+      alert((res as { error?: string }).error || "Failed to add entry");
       return;
     }
     setAmountUSD(0);
     setAmountLBP(0);
     setNote("");
-    await refresh();
   };
+
+  const handleSettle = async () => {
+    if (!selectedSupplier || !selectedSupplierId) return;
+    if (selectedTxnIds.size === 0) return;
+
+    try {
+      const res = await settleTransactions.mutateAsync({
+        supplier_id: selectedSupplierId,
+        financial_service_ids: [...selectedTxnIds],
+        amount_usd: settleNetPayUsd,
+        amount_lbp: 0,
+        commission_usd: settleCommissionUsd,
+        commission_lbp: 0,
+        drawer_name: settleDrawer,
+        note: settleNote || `Settlement: ${selectedTxnIds.size} txns`,
+        payments: settlePaymentLines.map((p) => ({
+          method: p.method,
+          currency_code: p.currencyCode,
+          amount: p.amount,
+        })),
+      });
+      if (!(res as { success: boolean })?.success) {
+        alert((res as { error?: string })?.error || "Settlement failed");
+        return;
+      }
+      setShowSettleConfirm(false);
+      setSettleNote("");
+      setSelectedTxnIds(new Set());
+    } catch {
+      alert("Settlement failed");
+    }
+  };
+
+  const settling = settleTransactions.isPending;
 
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col gap-6 overflow-auto animate-in fade-in duration-500">
@@ -429,8 +411,10 @@ export default function SuppliersPage() {
                 </div>
                 <button
                   onClick={() => {
-                    refresh();
-                    refreshUnsettled();
+                    suppliersQuery.refetch();
+                    balancesQuery.refetch();
+                    ledgerQuery.refetch();
+                    unsettledQuery.refetch();
                   }}
                   className="px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm"
                 >
@@ -671,9 +655,10 @@ export default function SuppliersPage() {
                     <div className="col-span-12 flex justify-end">
                       <button
                         onClick={handleAddEntry}
-                        className="px-4 py-2 rounded-lg bg-orange-600 hover:bg-orange-500 text-white font-medium"
+                        disabled={addLedgerEntry.isPending}
+                        className="px-4 py-2 rounded-lg bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white font-medium"
                       >
-                        Add Entry
+                        {addLedgerEntry.isPending ? "Adding..." : "Add Entry"}
                       </button>
                     </div>
                   </div>

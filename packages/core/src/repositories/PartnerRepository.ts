@@ -36,11 +36,34 @@ export interface PartnerLedgerEntry {
   user_id: number | null;
   settlement_method: string | null;
   created_at: string;
+  // Enriched fields from financial_services JOIN (null when reference_table != 'financial_services')
+  fs_provider: string | null;
+  fs_service_type: string | null;
+  fs_amount: number | null;
+  fs_currency: string | null;
+  fs_fee: number | null;
+  fs_customer: string | null;
+  fs_reference_number: string | null;
+  fs_phone_number: string | null;
 }
 
 export interface PartnerBalance {
   usd: number;
   lbp: number;
+}
+
+export interface PartnerBalanceBreakdown {
+  usd: { for: number; through: number; other: number; total: number };
+  lbp: { for: number; through: number; other: number; total: number };
+}
+
+export interface LedgerFilters {
+  startDate?: string;
+  endDate?: string;
+  type?: string;
+  mode?: "FOR" | "THROUGH";
+  provider?: string;
+  direction?: "DEBIT" | "CREDIT";
 }
 
 // =============================================================================
@@ -69,6 +92,14 @@ export interface CreateLedgerEntryData {
     | "OMT_RECEIVE"
     | "WHISH_SEND"
     | "WHISH_RECEIVE"
+    | "THROUGH_OMT_SEND"
+    | "THROUGH_OMT_RECEIVE"
+    | "THROUGH_WHISH_SEND"
+    | "THROUGH_WHISH_RECEIVE"
+    | "FOR_OMT_SEND"
+    | "FOR_OMT_RECEIVE"
+    | "FOR_WHISH_SEND"
+    | "FOR_WHISH_RECEIVE"
     | "CUSTOM_SERVICE"
     | "SETTLEMENT"
     | "ADJUSTMENT";
@@ -259,35 +290,118 @@ export class PartnerRepository extends BaseRepository<Partner> {
 
   getLedgerEntries(
     partnerId: number,
-    filters?: { startDate?: string; endDate?: string; type?: string },
+    filters?: LedgerFilters,
   ): PartnerLedgerEntry[] {
     try {
-      const conditions = ["partner_id = ?"];
+      const conditions = ["pl.partner_id = ?"];
       const params: unknown[] = [partnerId];
 
       if (filters?.startDate) {
-        conditions.push("created_at >= ?");
+        conditions.push("pl.created_at >= ?");
         params.push(filters.startDate);
       }
       if (filters?.endDate) {
-        conditions.push("created_at <= ?");
+        conditions.push("pl.created_at <= ?");
         params.push(filters.endDate);
       }
       if (filters?.type) {
-        conditions.push("transaction_type = ?");
+        conditions.push("pl.transaction_type = ?");
         params.push(filters.type);
+      }
+      if (filters?.mode) {
+        conditions.push("pl.transaction_type LIKE ?");
+        params.push(`${filters.mode}_%`);
+      }
+      if (filters?.provider) {
+        const p = filters.provider.toUpperCase();
+        conditions.push(
+          "(pl.transaction_type LIKE ? OR pl.transaction_type LIKE ?)",
+        );
+        params.push(`%_${p}_%`, `%_${p}`);
+      }
+      if (filters?.direction) {
+        conditions.push("pl.direction = ?");
+        params.push(filters.direction);
       }
 
       const sql = `
-        SELECT id, partner_id, transaction_type, reference_table, reference_id,
-               amount, currency, direction, notes, user_id, settlement_method, created_at
-        FROM partner_ledger
+        SELECT
+          pl.id, pl.partner_id, pl.transaction_type, pl.reference_table, pl.reference_id,
+          pl.amount, pl.currency, pl.direction, pl.notes, pl.user_id, pl.settlement_method,
+          pl.created_at,
+          fs.provider        AS fs_provider,
+          fs.service_type    AS fs_service_type,
+          fs.amount          AS fs_amount,
+          fs.currency        AS fs_currency,
+          COALESCE(fs.omt_fee, fs.whish_fee, 0) AS fs_fee,
+          CASE fs.service_type
+            WHEN 'SEND'    THEN COALESCE(fs.sender_name, fs.client_name)
+            WHEN 'RECEIVE' THEN COALESCE(fs.receiver_name, fs.client_name)
+            ELSE fs.client_name
+          END                AS fs_customer,
+          fs.reference_number AS fs_reference_number,
+          fs.phone_number     AS fs_phone_number
+        FROM partner_ledger pl
+        LEFT JOIN financial_services fs
+          ON pl.reference_table = 'financial_services' AND pl.reference_id = fs.id
         WHERE ${conditions.join(" AND ")}
-        ORDER BY created_at DESC
+        ORDER BY pl.created_at DESC
       `;
       return this.query<PartnerLedgerEntry>(sql, ...params);
     } catch (e) {
       throw new DatabaseError("Failed to get partner ledger entries", {
+        cause: e,
+      });
+    }
+  }
+
+  getBalanceBreakdown(partnerId: number): PartnerBalanceBreakdown {
+    try {
+      const row = this.db
+        .prepare(
+          `
+          SELECT
+            -- FOR mode (transaction_type starts with 'FOR_')
+            COALESCE(SUM(CASE WHEN currency='USD' AND direction='DEBIT'  AND transaction_type LIKE 'FOR_%'  THEN amount ELSE 0 END),0)
+            - COALESCE(SUM(CASE WHEN currency='USD' AND direction='CREDIT' AND transaction_type LIKE 'FOR_%'  THEN amount ELSE 0 END),0) AS usd_for,
+            COALESCE(SUM(CASE WHEN currency='LBP' AND direction='DEBIT'  AND transaction_type LIKE 'FOR_%'  THEN amount ELSE 0 END),0)
+            - COALESCE(SUM(CASE WHEN currency='LBP' AND direction='CREDIT' AND transaction_type LIKE 'FOR_%'  THEN amount ELSE 0 END),0) AS lbp_for,
+            -- THROUGH mode (transaction_type starts with 'THROUGH_')
+            COALESCE(SUM(CASE WHEN currency='USD' AND direction='DEBIT'  AND transaction_type LIKE 'THROUGH_%' THEN amount ELSE 0 END),0)
+            - COALESCE(SUM(CASE WHEN currency='USD' AND direction='CREDIT' AND transaction_type LIKE 'THROUGH_%' THEN amount ELSE 0 END),0) AS usd_through,
+            COALESCE(SUM(CASE WHEN currency='LBP' AND direction='DEBIT'  AND transaction_type LIKE 'THROUGH_%' THEN amount ELSE 0 END),0)
+            - COALESCE(SUM(CASE WHEN currency='LBP' AND direction='CREDIT' AND transaction_type LIKE 'THROUGH_%' THEN amount ELSE 0 END),0) AS lbp_through,
+            -- Other (settlement, adjustment, legacy types)
+            COALESCE(SUM(CASE WHEN currency='USD' AND direction='DEBIT'  AND transaction_type NOT LIKE 'FOR_%' AND transaction_type NOT LIKE 'THROUGH_%' THEN amount ELSE 0 END),0)
+            - COALESCE(SUM(CASE WHEN currency='USD' AND direction='CREDIT' AND transaction_type NOT LIKE 'FOR_%' AND transaction_type NOT LIKE 'THROUGH_%' THEN amount ELSE 0 END),0) AS usd_other,
+            COALESCE(SUM(CASE WHEN currency='LBP' AND direction='DEBIT'  AND transaction_type NOT LIKE 'FOR_%' AND transaction_type NOT LIKE 'THROUGH_%' THEN amount ELSE 0 END),0)
+            - COALESCE(SUM(CASE WHEN currency='LBP' AND direction='CREDIT' AND transaction_type NOT LIKE 'FOR_%' AND transaction_type NOT LIKE 'THROUGH_%' THEN amount ELSE 0 END),0) AS lbp_other
+          FROM partner_ledger
+          WHERE partner_id = ?
+        `,
+        )
+        .get(partnerId) as {
+        usd_for: number; lbp_for: number;
+        usd_through: number; lbp_through: number;
+        usd_other: number; lbp_other: number;
+      };
+
+      return {
+        usd: {
+          for: row.usd_for,
+          through: row.usd_through,
+          other: row.usd_other,
+          total: row.usd_for + row.usd_through + row.usd_other,
+        },
+        lbp: {
+          for: row.lbp_for,
+          through: row.lbp_through,
+          other: row.lbp_other,
+          total: row.lbp_for + row.lbp_through + row.lbp_other,
+        },
+      };
+    } catch (e) {
+      throw new DatabaseError("Failed to get partner balance breakdown", {
         cause: e,
       });
     }

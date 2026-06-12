@@ -63,6 +63,7 @@ export function FeatureFlagProvider({
   }, [api]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     refreshFlags();
     const handler = () => refreshFlags();
     window.addEventListener("feature-flags-changed", handler);

@@ -51,6 +51,18 @@ import { backendApiAdapter } from "@/api/adapter";
 import { FeatureFlagProvider } from "@/contexts/FeatureFlagContext";
 import { ErrorBoundary } from "@/shared/components/ErrorBoundary";
 import { useVoiceBotSettings } from "@/hooks/useVoiceBotSettings";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      // Local IPC calls don't benefit from retry/window-focus refetch
+      retry: false,
+      refetchOnWindowFocus: false,
+      staleTime: 30_000,
+    },
+  },
+});
 
 // Wrapper for protected routes
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -302,6 +314,7 @@ function App() {
   return (
     // ErrorBoundary catches any unhandled render crash and shows a recovery screen
     <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         {/* HashRouter is recommended for Electron to avoid path issues in production */}
         <ApiProvider adapter={backendApiAdapter}>
@@ -327,6 +340,7 @@ function App() {
           </ModuleProvider>
         </ApiProvider>
       </ThemeProvider>
+      </QueryClientProvider>
     </ErrorBoundary>
   );
 }

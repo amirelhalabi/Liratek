@@ -308,7 +308,7 @@ export default function CheckoutModal({
       });
       return changed ? next : prev;
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [clientVouchers, giftCardKey]);
 
   /** Vouchers a line may pick: its own + any not selected by another line. */

@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, startTransition } from "react";
+import logger from "@/utils/logger";
 import { useApi } from "@liratek/ui";
 import { useCurrencyContext } from "@/contexts/CurrencyContext";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
@@ -7,6 +8,7 @@ import { useSession } from "@/features/sessions/context/SessionContext";
 import { useSessionAutoFill } from "@/features/sessions/hooks/useSessionAutoFill";
 import { getExchangeRates } from "@/utils/exchangeRates";
 import type { PaymentLine } from "@liratek/ui";
+import { toCamelLegs } from "@/utils/paymentUtils";
 import {
   useMobileServiceItems,
   type ProviderKey,
@@ -58,8 +60,8 @@ export default function MobileRecharge() {
       }));
   }, [getServiceItems]);
 
-  const [activeProvider, setActiveProvider] = useState<AnyProvider | null>(
-    null,
+  const [activeProvider, setActiveProvider] = useState<AnyProvider>(
+    PROVIDER_CONFIGS[0].key,
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -102,6 +104,7 @@ export default function MobileRecharge() {
   const [giftAmountUsd, setGiftAmountUsd] = useState("");
   const [giftPriceLbp, setGiftPriceLbp] = useState("");
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
+  const [returnLegs, setReturnLegs] = useState<PaymentLine[]>([]);
 
   const [cryptoType, setCryptoType] = useState<"SEND" | "RECEIVE">("SEND");
   const [cryptoAmount, setCryptoAmount] = useState("");
@@ -113,6 +116,7 @@ export default function MobileRecharge() {
   const [cryptoPaymentLines, setCryptoPaymentLines] = useState<PaymentLine[]>(
     [],
   );
+  const [cryptoReturnLegs, setCryptoReturnLegs] = useState<PaymentLine[]>([]);
   const [cryptoPaidBy, setCryptoPaidBy] = useState("CASH");
   const [cryptoTransactionTime, setCryptoTransactionTime] = useState<
     string | undefined
@@ -152,7 +156,7 @@ export default function MobileRecharge() {
 
   // Whish App mode: 'bills' (card grid) or 'transfer' (send/receive money)
   const [whishAppMode, setWhishAppMode] = useState<"bills" | "transfer">(
-    "bills",
+    "transfer",
   );
 
   // Autofill client name from active customer session, clear when session closes
@@ -202,7 +206,7 @@ export default function MobileRecharge() {
         const { sellRate } = getExchangeRates(rates);
         setExchangeRate(sellRate);
       } catch (error) {
-        console.error("Failed to load alfa credit sell rate:", error);
+        logger.error("Failed to load alfa credit sell rate:", error);
       }
     };
     loadRate();
@@ -210,12 +214,10 @@ export default function MobileRecharge() {
 
   // Reset form state when provider changes
   useEffect(() => {
-    if (activeProvider === "WISH_APP") {
-      setWhishAppMode("bills");
-    }
-    // Reset rechargeType to avoid showing tabs that don't exist for the new provider
+    // Always reset to "transfer" so returning to WISH_APP renders the correct
+    // form on the first paint (prevents FinancialForm mount→unmount flash).
+    setWhishAppMode("transfer");
     setRechargeType("CREDIT_TRANSFER");
-    // Reset financial analytics so stale data from previous provider doesn't leak
     setFinAnalytics({
       today: { commission: 0, count: 0, byCurrency: [] },
       byProvider: [],
@@ -223,8 +225,9 @@ export default function MobileRecharge() {
     setFinTransactions([]);
   }, [activeProvider]);
 
-  const activeConfig = PROVIDER_CONFIGS.find(
-    (p: ProviderConfig) => p.key === activeProvider,
+  const activeConfig = useMemo(
+    () => PROVIDER_CONFIGS.find((p: ProviderConfig) => p.key === activeProvider),
+    [activeProvider],
   );
 
   const loadFinancialData = useCallback(async () => {
@@ -235,7 +238,6 @@ export default function MobileRecharge() {
         api.getOMTAnalytics([activeProvider]),
       ]);
       setFinTransactions(transactions ?? []);
-
       setFinAnalytics(
         analytics ?? {
           today: { commission: 0, count: 0, byCurrency: [] },
@@ -243,7 +245,7 @@ export default function MobileRecharge() {
         },
       );
     } catch (err) {
-      console.error("Failed to load financial data:", err);
+      logger.error("Failed to load financial data:", err);
     }
   }, [activeProvider, api]);
 
@@ -278,7 +280,7 @@ export default function MobileRecharge() {
         count: todayTx.length,
       });
     } catch (err) {
-      console.error("Failed to load binance data:", err);
+      logger.error("Failed to load binance data:", err);
     }
   }, [api]);
 
@@ -287,7 +289,7 @@ export default function MobileRecharge() {
       const drawers = await window.api.recharge.getDrawerBalances();
       setDrawerBalances(drawers ?? []);
     } catch (error) {
-      console.error("Failed to load drawer balances:", error);
+      logger.error("Failed to load drawer balances:", error);
     }
   }, []);
 
@@ -298,12 +300,6 @@ export default function MobileRecharge() {
       ? { usdBalance: drawer.usdBalance, lbpBalance: drawer.lbpBalance }
       : undefined;
   }, [activeConfig, drawerBalances]);
-
-  useEffect(() => {
-    if (!activeProvider && PROVIDER_CONFIGS.length > 0) {
-      setActiveProvider(PROVIDER_CONFIGS[0].key);
-    }
-  }, []);
 
   useEffect(() => {
     if (activeProvider) {
@@ -333,7 +329,7 @@ export default function MobileRecharge() {
         const results = await api.getClients(query);
         setClientSearchResults(results ?? []);
       } catch (err) {
-        console.error("Failed to search clients:", err);
+        logger.error("Failed to search clients:", err);
       }
     },
     [api],
@@ -400,14 +396,7 @@ export default function MobileRecharge() {
           paid_by_method: paidBy,
           payments:
             paymentLines.length > 0
-              ? paymentLines.map((l) => ({
-                  method: l.method,
-                  currencyCode: l.currencyCode,
-                  amount: l.amount,
-                  ...(l.method === "GIFT_CARD" && l.voucherCode
-                    ? { voucherCode: l.voucherCode }
-                    : {}),
-                }))
+              ? toCamelLegs(paymentLines, returnLegs)
               : undefined,
           clientId: resolvedClientId || undefined,
           clientName: telecomClientName || undefined,
@@ -419,6 +408,7 @@ export default function MobileRecharge() {
       setTelecomPrice("");
       setPhoneNumber("");
       setTelecomClientPhone("");
+      setReturnLegs([]);
       return;
     }
 
@@ -437,14 +427,7 @@ export default function MobileRecharge() {
         paid_by_method: paidBy,
         payments:
           paymentLines.length > 0
-            ? paymentLines.map((l) => ({
-                method: l.method,
-                currencyCode: l.currencyCode,
-                amount: l.amount,
-                ...(l.method === "GIFT_CARD" && l.voucherCode
-                  ? { voucherCode: l.voucherCode }
-                  : {}),
-              }))
+            ? toCamelLegs(paymentLines, returnLegs)
             : undefined,
         clientId: resolvedClientId || undefined,
         clientName: telecomClientName || undefined,
@@ -466,7 +449,7 @@ export default function MobileRecharge() {
             profitLbp: price - cost,
           });
         } catch (err) {
-          console.error("Failed to link recharge to session:", err);
+          logger.error("Failed to link recharge to session:", err);
         }
       }
 
@@ -474,11 +457,12 @@ export default function MobileRecharge() {
       setTelecomPrice("");
       setPhoneNumber("");
       setTelecomClientPhone("");
+      setReturnLegs([]);
       setTelecomTransactionTime(undefined);
       loadFinancialData();
       loadDrawerBalances();
     } catch (err) {
-      console.error("Failed to submit telecom recharge:", err);
+      logger.error("Failed to submit telecom recharge:", err);
     } finally {
       setIsSubmitting(false);
     }
@@ -490,6 +474,7 @@ export default function MobileRecharge() {
     phoneNumber,
     paidBy,
     paymentLines,
+    returnLegs,
     telecomClientId,
     telecomClientName,
     telecomClientPhone,
@@ -532,7 +517,7 @@ export default function MobileRecharge() {
         ),
       );
     } catch (error) {
-      console.error("Failed to load recharge history:", error);
+      logger.error("Failed to load recharge history:", error);
       setRechargeHistory([]);
     }
   }, [activeProvider]);
@@ -596,7 +581,7 @@ export default function MobileRecharge() {
       });
       setShowTopUpModal(true);
     } catch (error) {
-      console.error("Failed to load drawer balances:", error);
+      logger.error("Failed to load drawer balances:", error);
       alert("Failed to load drawer balances");
     }
   }, [activeProvider]);
@@ -662,7 +647,7 @@ export default function MobileRecharge() {
       setGiftPriceLbp("");
       setTelecomTransactionTime(undefined);
     } catch (err) {
-      console.error("Failed to submit alfa gift:", err);
+      logger.error("Failed to submit alfa gift:", err);
     } finally {
       setIsSubmitting(false);
     }
@@ -718,11 +703,7 @@ export default function MobileRecharge() {
           commission: fee,
           paidByMethod: isSplitPayment ? "MULTI" : paidByMethod,
           payments: isSplitPayment
-            ? cryptoPaymentLines.map((l) => ({
-                method: l.method,
-                currencyCode: l.currencyCode,
-                amount: l.amount,
-              }))
+            ? toCamelLegs(cryptoPaymentLines, cryptoReturnLegs)
             : undefined,
           ...(cryptoType === "RECEIVE" && derivedCashoutMethod !== "CASH"
             ? { cashoutMethod: derivedCashoutMethod }
@@ -738,6 +719,7 @@ export default function MobileRecharge() {
       setCryptoDescription("");
       setCryptoFee("");
       setCryptoPaymentLines([]);
+      setCryptoReturnLegs([]);
       return;
     }
 
@@ -754,11 +736,7 @@ export default function MobileRecharge() {
         commission: fee,
         paidByMethod: isSplitPayment ? "MULTI" : paidByMethod,
         payments: isSplitPayment
-          ? cryptoPaymentLines.map((l) => ({
-              method: l.method,
-              currencyCode: l.currencyCode,
-              amount: l.amount,
-            }))
+          ? toCamelLegs(cryptoPaymentLines, cryptoReturnLegs)
           : undefined,
         ...(cryptoType === "RECEIVE" && derivedCashoutMethod !== "CASH"
           ? { cashoutMethod: derivedCashoutMethod }
@@ -780,7 +758,7 @@ export default function MobileRecharge() {
             profitUsd: fee,
           });
         } catch (err) {
-          console.error("Failed to link crypto transaction to session:", err);
+          logger.error("Failed to link crypto transaction to session:", err);
         }
       }
 
@@ -791,11 +769,12 @@ export default function MobileRecharge() {
       setCryptoDescription("");
       setCryptoFee("");
       setCryptoPaymentLines([]);
+      setCryptoReturnLegs([]);
       setCryptoTransactionTime(undefined);
       loadBinanceData();
       loadDrawerBalances();
     } catch (err) {
-      console.error("Failed to submit crypto transaction:", err);
+      logger.error("Failed to submit crypto transaction:", err);
     } finally {
       setIsSubmitting(false);
     }
@@ -808,6 +787,7 @@ export default function MobileRecharge() {
     cryptoDescription,
     cryptoFee,
     cryptoPaymentLines,
+    cryptoReturnLegs,
     cryptoPaidBy,
     cryptoTransactionTime,
     api,
@@ -887,14 +867,6 @@ export default function MobileRecharge() {
 
   const telecomStats = getTelecomStats();
 
-  if (!activeProvider) {
-    return (
-      <div className="flex items-center justify-center h-full text-slate-400">
-        Select a provider to get started
-      </div>
-    );
-  }
-
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 min-h-0 flex flex-col overflow-hidden animate-in fade-in duration-500">
       {/* Header — two zones: provider controls (left) vs. read-only metrics + actions (right) */}
@@ -903,7 +875,9 @@ export default function MobileRecharge() {
         <ProviderTabs
           providers={PROVIDER_CONFIGS}
           activeProvider={activeProvider}
-          onSelectProvider={setActiveProvider}
+          onSelectProvider={(p) => {
+            startTransition(() => setActiveProvider(p));
+          }}
         />
 
         {/* Right zone: today's metrics, then a divider, then actions */}
@@ -1021,6 +995,7 @@ export default function MobileRecharge() {
             voucherItems={mtcVoucherItems}
             alfaCreditCostRate={alfaCreditCostRate}
             isAdmin={isAdmin}
+            onReturnChange={setReturnLegs}
             onRefreshHistory={loadRechargeHistory}
             onTransactionTimeChange={setTelecomTransactionTime}
           />
@@ -1042,15 +1017,15 @@ export default function MobileRecharge() {
           ) : activeProvider === "WISH_APP" ? (
             // Whish App - Bills (cards) or Transfer (send/receive)
             <>
-              {/* Mode Tabs - Bills / Transfer */}
+              {/* Mode Tabs - Transfer / Bills */}
               <ServiceTypeTabs
                 options={[
-                  { id: "bills", label: "Bills", iconKey: "FileText" },
                   {
                     id: "transfer",
                     label: "Transfer",
                     iconKey: "ArrowLeftRight",
                   },
+                  { id: "bills", label: "Bills", iconKey: "FileText" },
                 ]}
                 value={whishAppMode}
                 onChange={(val) => setWhishAppMode(val as "bills" | "transfer")}
@@ -1095,7 +1070,6 @@ export default function MobileRecharge() {
           ) : activeProvider === "Katsh" || activeProvider === "iPick" ? (
             <KatchForm
               activeConfig={activeConfig}
-              finTransactions={finTransactions}
               activeProvider={activeProvider as ProviderKey}
               getCategoriesForProvider={getCategoriesForProvider}
               getServiceItems={getServiceItems}
@@ -1104,6 +1078,7 @@ export default function MobileRecharge() {
               formatAmount={formatAmount}
               alfaCreditSellRate={alfaCreditSellRate}
               alfaCreditCostRate={alfaCreditCostRate}
+              exchangeRate={exchangeRate}
               showHistory={showHistory}
               setShowHistory={setShowHistory}
               onRefreshItems={refreshItems}
@@ -1166,6 +1141,7 @@ export default function MobileRecharge() {
                 setCryptoPaidBy(lines[0].method);
               }
             }}
+            onReturnChange={setCryptoReturnLegs}
             exchangeRate={exchangeRate}
             onTransactionTimeChange={setCryptoTransactionTime}
           />

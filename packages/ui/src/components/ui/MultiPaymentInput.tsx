@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { X } from "lucide-react";
 
 export type PaymentLine = {
@@ -8,6 +8,8 @@ export type PaymentLine = {
   amount: number;
   /** Set when method === 'GIFT_CARD' — the voucher code being redeemed. */
   voucherCode?: string;
+  /** IN (customer pays the shop, default) or OUT (shop returns change). */
+  direction?: "IN" | "OUT";
 };
 
 /** A redeemable voucher belonging to the selected client. */
@@ -42,6 +44,10 @@ export interface MultiPaymentInputProps {
    *  e.g. Whish/iPick/KATCH pass "LBP", POS sale passes "USD". */
   totalAmountCurrency?: string;
   onChange: (payments: PaymentLine[]) => void;
+  /** Emitted when the customer overpays — array of shop→customer change legs
+   *  (direction "OUT"), empty when balanced/underpaid.
+   *  Consumers append these to the `payments` array sent to the backend. */
+  onReturnChange?: (returnLegs: PaymentLine[]) => void;
   requiresClientForDebt?: boolean;
   hasClient?: boolean;
   onExchangeRateChange?: (rate: number) => void;
@@ -101,6 +107,7 @@ export default function MultiPaymentInput({
   currency,
   totalAmountCurrency = "USD",
   onChange,
+  onReturnChange,
   requiresClientForDebt = true,
   hasClient = false,
   onExchangeRateChange,
@@ -137,6 +144,21 @@ export default function MultiPaymentInput({
   const [pmFeeOverrides, setPmFeeOverrides] = useState<Record<string, string>>(
     {},
   );
+
+  // --- Return / change (shop → customer) state ---
+  const [returnMethod, setReturnMethod] = useState<string>("CASH");
+  // For non-CASH returns: which currency to express the amount in.
+  const [returnCurrency, setReturnCurrency] = useState<string>(
+    totalAmountCurrency,
+  );
+  // For CASH returns: editable USD and LBP amounts (mirrors POS "Change Given").
+  const [returnAmountUSD, setReturnAmountUSD] = useState<string>("");
+  const [returnAmountLBP, setReturnAmountLBP] = useState<string>("");
+  // Stable id prefix for return legs (consumers don't use the id).
+  const returnLegIdRef = useRef<string>(crypto.randomUUID());
+  // Tracks whether the user manually edited the single-mode amount, so a
+  // deliberate overpayment isn't clobbered by the auto-sync-to-total effect.
+  const singleAmountTouchedRef = useRef<boolean>(false);
 
   const [customExchangeRate, setCustomExchangeRate] = useState<string>(
     (exchangeRate || 89000).toString(),
@@ -194,8 +216,11 @@ export default function MultiPaymentInput({
       ? paymentLines[0].currencyCode
       : null;
 
-  // In single mode, auto-sync the line amount with effectiveTotalAmount (currency-aware)
+  // In single mode, auto-sync the line amount with effectiveTotalAmount (currency-aware).
+  // Skipped once the user manually edits the amount, so a deliberate overpayment
+  // (customer hands more than the total) is preserved instead of being reset.
   useEffect(() => {
+    if (singleAmountTouchedRef.current) return;
     if (!isSplitMode && paymentLines.length === 1) {
       const line = paymentLines[0];
       // Convert effectiveTotalAmount (in totalAmountCurrency) to the line's currency
@@ -348,6 +373,11 @@ export default function MultiPaymentInput({
     field: keyof PaymentLine,
     value: string | number,
   ) => {
+    // A manual amount edit in single mode opts out of auto-sync-to-total, so a
+    // deliberate overpayment is preserved.
+    if (field === "amount" && !isSplitMode) {
+      singleAmountTouchedRef.current = true;
+    }
     const updatedLines = paymentLines.map((line) => {
       if (line.id !== id) return line;
       const updated = { ...line, [field]: value };
@@ -528,6 +558,134 @@ export default function MultiPaymentInput({
     return curr?.symbol || "$";
   };
 
+  // --- Return / change derivation ---
+  // Overpaid amount (in totalAmountCurrency); only positive when the customer
+  // paid more than the (post-discount) total.
+  const overpaidTarget = Math.max(0, totalPaid - effectiveTotalAmount);
+  const isOverpaid = overpaidTarget > matchTolerance;
+  // When the shop only has cash as a payment method, the change is obviously cash —
+  // show a simple currency toggle. Any non-cash method available surfaces the full
+  // method picker regardless of what the customer selected.
+  const isCashOnlyPayment = paymentMethods.every((pm) => pm.code === "CASH");
+  const effectiveReturnMethod = isCashOnlyPayment ? "CASH" : returnMethod;
+
+  // Auto-init / reset CASH return fields whenever the overpaid amount changes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!isOverpaid) {
+      setReturnAmountUSD("");
+      setReturnAmountLBP("");
+      return;
+    }
+    if (totalAmountCurrency === "USD") {
+      setReturnAmountUSD(overpaidTarget.toFixed(2));
+      setReturnAmountLBP("");
+    } else {
+      setReturnAmountUSD("");
+      setReturnAmountLBP(String(Math.round(overpaidTarget)));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOverpaid, overpaidTarget, totalAmountCurrency]);
+
+  // CASH return handlers: entering one currency auto-fills the other with the remainder.
+  const handleReturnUSDChange = (raw: string) => {
+    setReturnAmountUSD(raw);
+    const parsed = parseNum(raw);
+    const overpaidUSD =
+      totalAmountCurrency === "USD" ? overpaidTarget : overpaidTarget / effectiveRate;
+    const remaining = overpaidUSD - parsed;
+    if (remaining > 0.005) {
+      setReturnAmountLBP(String(Math.round(remaining * effectiveRate)));
+    } else {
+      setReturnAmountLBP("");
+    }
+  };
+
+  const handleReturnLBPChange = (raw: string) => {
+    setReturnAmountLBP(raw);
+    const parsed = parseNum(raw);
+    const overpaidUSD =
+      totalAmountCurrency === "USD" ? overpaidTarget : overpaidTarget / effectiveRate;
+    const remaining = overpaidUSD - parsed / effectiveRate;
+    if (remaining > 0.005) {
+      setReturnAmountUSD(remaining.toFixed(2));
+    } else {
+      setReturnAmountUSD("");
+    }
+  };
+
+  /** Convert a value from totalAmountCurrency into an arbitrary currency. */
+  const convertFromTarget = (v: number, toCurrency: string): number => {
+    if (toCurrency === totalAmountCurrency) return v;
+    if (totalAmountCurrency === "USD" && toCurrency === "LBP")
+      return v * effectiveRate;
+    if (totalAmountCurrency === "LBP" && toCurrency === "USD")
+      return v / effectiveRate;
+    return v;
+  };
+
+  const rawReturnAmount = convertFromTarget(overpaidTarget, returnCurrency);
+  const returnAmount =
+    returnCurrency === "LBP"
+      ? Math.round(rawReturnAmount)
+      : Number(rawReturnAmount.toFixed(2));
+
+  // CUSTOMER_ACCOUNT return requires a client (it becomes store credit).
+  const returnNeedsClient =
+    effectiveReturnMethod === "CUSTOMER_ACCOUNT" && !hasClient;
+
+  const parsedReturnUSD = parseNum(returnAmountUSD);
+  const parsedReturnLBP = parseNum(returnAmountLBP);
+
+  // Array of shop→customer change legs (up to 2 for CASH, 0-1 for non-CASH).
+  const returnLegsValue: PaymentLine[] = (() => {
+    if (!isOverpaid) return [];
+    if (effectiveReturnMethod === "CASH") {
+      const legs: PaymentLine[] = [];
+      if (parsedReturnUSD > 0) {
+        legs.push({
+          id: `${returnLegIdRef.current}_usd`,
+          method: "CASH",
+          currencyCode: "USD",
+          amount: parsedReturnUSD,
+          direction: "OUT",
+        });
+      }
+      if (parsedReturnLBP > 0) {
+        legs.push({
+          id: `${returnLegIdRef.current}_lbp`,
+          method: "CASH",
+          currencyCode: "LBP",
+          amount: parsedReturnLBP,
+          direction: "OUT",
+        });
+      }
+      return legs;
+    }
+    // Non-CASH: single derived leg
+    if (returnAmount > 0 && !returnNeedsClient) {
+      return [
+        {
+          id: returnLegIdRef.current,
+          method: effectiveReturnMethod,
+          currencyCode: returnCurrency,
+          amount: returnAmount,
+          direction: "OUT",
+        },
+      ];
+    }
+    return [];
+  })();
+
+  // Emit return legs whenever they change.
+  const returnLegsKey = returnLegsValue
+    .map((l) => `${l.method}:${l.currencyCode}:${l.amount}`)
+    .join("|");
+  useEffect(() => {
+    onReturnChange?.(returnLegsValue);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [returnLegsKey]);
+
   // Summary formatting helpers — in single mode, display in the line's currency
   const displayCurrency =
     !isSplitMode && paymentLines.length === 1
@@ -561,7 +719,8 @@ export default function MultiPaymentInput({
 
   const toggleSplitMode = () => {
     if (isSplitMode) {
-      // Switching to single: reset to one line with full amount
+      // Switching to single: reset to one line with full amount (re-enable auto-sync)
+      singleAmountTouchedRef.current = false;
       const singleLine: PaymentLine[] = [
         {
           id: crypto.randomUUID(),
@@ -1022,37 +1181,105 @@ export default function MultiPaymentInput({
           </span>
         </div>
 
-        {/* Remaining / Overpaid warning */}
-        {Math.abs(totalPaid - effectiveTotalAmount) > matchTolerance && (
+        {/* Remaining (underpaid → debt) warning */}
+        {totalPaid < effectiveTotalAmount - matchTolerance && (
+          <div className="flex justify-between text-xs px-2 py-1 rounded-md bg-red-500/10 border border-red-500/20">
+            <span className="text-red-400">Remaining (Debt)</span>
+            <span className="font-mono font-bold text-red-400">
+              {fmtTarget(toDisplayCurrency(effectiveTotalAmount - totalPaid))}
+            </span>
+          </div>
+        )}
+
+        {/* Return / Change (overpaid) — choose how to hand the change back */}
+        {isOverpaid && (
           <div
-            className={`flex justify-between text-xs px-2 py-1 rounded-md ${
-              totalPaid < effectiveTotalAmount
-                ? "bg-red-500/10 border border-red-500/20"
-                : "bg-amber-500/10 border border-amber-500/20"
-            }`}
+            data-testid="return-change"
+            className="px-2 py-2 rounded-md bg-amber-500/10 border border-amber-500/20 space-y-1.5"
           >
-            <span
-              className={
-                totalPaid < effectiveTotalAmount
-                  ? "text-red-400"
-                  : "text-amber-400"
-              }
-            >
-              {totalPaid < effectiveTotalAmount
-                ? "Remaining (Debt)"
-                : "Overpaid"}
-            </span>
-            <span
-              className={`font-mono font-bold ${
-                totalPaid < effectiveTotalAmount
-                  ? "text-red-400"
-                  : "text-amber-400"
-              }`}
-            >
-              {fmtTarget(
-                toDisplayCurrency(Math.abs(totalPaid - effectiveTotalAmount)),
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs text-amber-400 font-medium whitespace-nowrap">
+                {isCashOnlyPayment ? "Change to return" : "Return / Change"}
+              </span>
+              {/* Method selector — only when non-cash methods are available */}
+              {!isCashOnlyPayment && (
+                <select
+                  data-testid="return-method"
+                  value={returnMethod}
+                  onChange={(e) => setReturnMethod(e.target.value)}
+                  className="bg-slate-900 border border-amber-700/40 rounded-md px-1.5 py-0.5 text-amber-200 text-[11px] focus:outline-none focus:border-amber-500"
+                >
+                  {paymentMethods.map((pm) => (
+                    <option key={pm.code} value={pm.code}>
+                      {pm.label}
+                    </option>
+                  ))}
+                </select>
               )}
-            </span>
+            </div>
+
+            {/* CASH: dual USD + LBP editable fields */}
+            {effectiveReturnMethod === "CASH" ? (
+              <div className="flex gap-2">
+                <div className="flex-1 relative">
+                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-[11px] pointer-events-none">
+                    $
+                  </span>
+                  <input
+                    data-testid="return-usd"
+                    type="text"
+                    inputMode="decimal"
+                    value={returnAmountUSD}
+                    onChange={(e) => handleReturnUSDChange(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full pl-5 pr-2 py-1 bg-slate-900 border border-amber-700/40 rounded-md text-amber-200 text-sm font-mono text-right focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+                <div className="flex-1 relative">
+                  <input
+                    data-testid="return-lbp"
+                    type="text"
+                    inputMode="numeric"
+                    value={returnAmountLBP}
+                    onChange={(e) => handleReturnLBPChange(e.target.value)}
+                    placeholder="0"
+                    className="w-full pl-2 pr-8 py-1 bg-slate-900 border border-amber-700/40 rounded-md text-amber-200 text-sm font-mono text-right focus:outline-none focus:border-amber-500"
+                  />
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-[11px] pointer-events-none">
+                    LBP
+                  </span>
+                </div>
+              </div>
+            ) : (
+              /* Non-CASH: currency dropdown + derived read-only amount */
+              <div className="flex items-center gap-1.5 justify-end">
+                {currencies.length > 1 && (
+                  <select
+                    data-testid="return-currency"
+                    value={returnCurrency}
+                    onChange={(e) => setReturnCurrency(e.target.value)}
+                    className="bg-slate-900 border border-amber-700/40 rounded-md px-1.5 py-0.5 text-amber-200 text-[11px] focus:outline-none focus:border-amber-500"
+                  >
+                    {currencies.map((curr) => (
+                      <option key={curr.code} value={curr.code}>
+                        {curr.code}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <span className="font-mono font-bold text-amber-300">
+                  {returnCurrency === "USD"
+                    ? `$${returnAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                    : Math.round(returnAmount).toLocaleString()}
+                </span>
+              </div>
+            )}
+
+            {returnNeedsClient && (
+              <p className="text-[11px] text-red-400">
+                Select a client to return change as store credit.
+              </p>
+            )}
           </div>
         )}
 

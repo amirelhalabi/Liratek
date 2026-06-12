@@ -22,6 +22,7 @@ import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { PageHeader, Select, useApi, appEvents } from "@liratek/ui";
 import { DataTable } from "@liratek/ui";
 import { MultiPaymentInput, type PaymentLine } from "@liratek/ui";
+import { toCamelLegs } from "@/utils/paymentUtils";
 import { StatsCards } from "../../components/StatsCards";
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
 import { getExchangeRates } from "@/utils/exchangeRates";
@@ -325,6 +326,7 @@ export default function Services() {
 
   // Payment lines (MultiPaymentInput manages single/split internally)
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
+  const [returnLegs, setReturnLegs] = useState<PaymentLine[]>([]);
   const isSplitPayment = paymentLines.length > 1;
   const [includingFees, setIncludingFees] = useState<boolean>(false); // For SEND: amount includes fees
 
@@ -822,18 +824,22 @@ export default function Services() {
         includingFees: serviceType === "SEND" ? includingFees : false,
         ...(isSplitPayment && paymentLines.length > 0
           ? {
-              payments: paymentLines.map((p) => ({
-                method: p.method,
-                currencyCode: p.currencyCode,
-                // For non-cash legs on SEND, bake in the PM fee so the backend
-                // credits the correct (amount + pmFee) to the wallet drawer
-                amount:
-                  multiPmFeeApplies && multiPmFees[p.id]
-                    ? p.amount + multiPmFees[p.id]
-                    : p.amount,
-              })),
+              payments: toCamelLegs(
+                paymentLines.map((p) => ({
+                  ...p,
+                  // For non-cash legs on SEND, bake in the PM fee so the backend
+                  // credits the correct (amount + pmFee) to the wallet drawer
+                  amount:
+                    multiPmFeeApplies && multiPmFees[p.id]
+                      ? p.amount + multiPmFees[p.id]
+                      : p.amount,
+                })),
+                returnLegs,
+              ),
             }
-          : { paidByMethod }),
+          : returnLegs.length > 0
+            ? { payments: returnLegs.map((l) => ({ method: l.method, currencyCode: l.currencyCode, amount: l.amount, direction: "OUT" as const })), paidByMethod }
+            : { paidByMethod }),
         // Payment method fee — single non-cash SEND: pass explicit fields
         // Multi-payment: total PM fee derived from per-leg fees above (baked into amounts)
         ...(finalPmFee > 0
@@ -919,6 +925,7 @@ export default function Services() {
         setPayFee(false);
         setBinanceSupplier("");
         setPaymentLines([]);
+        setReturnLegs([]);
         setIncludingFees(false);
         setPmFeeAmount("");
         setMultiPmFees({});
@@ -972,6 +979,7 @@ export default function Services() {
         setPayFee(false);
         setBinanceSupplier("");
         setPaymentLines([]);
+        setReturnLegs([]);
         setIncludingFees(false);
         setPmFeeAmount("");
         setMultiPmFees({});
@@ -1781,6 +1789,7 @@ export default function Services() {
                     { code: "LBP", symbol: "LBP" },
                   ]}
                   exchangeRate={exchangeRate}
+                  onReturnChange={setReturnLegs}
                 />
               </div>
 
@@ -2031,10 +2040,12 @@ export default function Services() {
                         </span>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="flex items-center gap-2 text-slate-300">
-                          <Icon size={14} />
-                          <span className="text-sm">
-                            {SERVICE_TYPE_LABELS[tx.service_type]}
+                        <div className="flex items-center gap-2">
+                          <Icon size={14} className="text-slate-400 shrink-0" />
+                          <span
+                            className={`text-sm font-mono font-semibold ${tx.service_type === "SEND" ? "text-red-400" : "text-emerald-400"}`}
+                          >
+                            {tx.service_type === "SEND" ? "↓ Send" : "↑ Receive"}
                           </span>
                         </div>
                         {omtLabel && (

@@ -17,6 +17,8 @@ const PaymentLineSchema = z.object({
   amount: z.number(),
   // Present only for GIFT_CARD legs — the voucher code being redeemed.
   voucher_code: z.string().optional(),
+  // IN (customer pays, default) or OUT (shop returns change to customer).
+  direction: z.enum(["IN", "OUT"]).optional(),
 });
 
 export const SaleProcessSchema = z.object({
@@ -54,7 +56,16 @@ export const SaleRefundSchema = z.number().int().positive();
 // Inventory
 // =============================================================================
 
-const ProductBaseSchema = z.object({
+const PRICE_GT_COST_MSG = {
+  message: "Selling price must be greater than cost price",
+  path: ["retail_price"],
+} as const;
+
+function priceGtCostCheck(d: { retail_price: number; cost_price: number }): boolean {
+  return !(d.retail_price > 0 && d.cost_price > 0 && d.retail_price <= d.cost_price);
+}
+
+const ProductBaseShape = z.object({
   barcode: z.string(),
   name: z.string().min(1, "Product name is required"),
   category: z.string().min(1),
@@ -68,17 +79,26 @@ const ProductBaseSchema = z.object({
 });
 
 /** Create: id must NOT be sent — the database auto-generates it. */
-export const ProductCreateSchema = ProductBaseSchema;
+export const ProductCreateSchema = ProductBaseShape.refine(
+  (d) => priceGtCostCheck(d),
+  { message: PRICE_GT_COST_MSG.message, path: ["retail_price"] },
+);
 
 /** Update: id is required to identify the row to modify. */
-export const ProductUpdateSchema = ProductBaseSchema.extend({
+export const ProductUpdateSchema = ProductBaseShape.extend({
   id: z.number().int().positive("Product ID is required for updates"),
-});
+}).refine(
+  (d) => priceGtCostCheck(d),
+  { message: PRICE_GT_COST_MSG.message, path: ["retail_price"] },
+);
 
 /** @deprecated Use ProductCreateSchema or ProductUpdateSchema instead. */
-export const ProductInputSchema = ProductBaseSchema.extend({
+export const ProductInputSchema = ProductBaseShape.extend({
   id: z.number().int().positive().optional(),
-});
+}).refine(
+  (d) => priceGtCostCheck(d),
+  { message: PRICE_GT_COST_MSG.message, path: ["retail_price"] },
+);
 
 export const BatchUpdateSchema = z.object({
   ids: z.array(z.number().int().positive()).min(1),
@@ -163,6 +183,7 @@ export const MaintenanceJobSchema = z.object({
         method: z.string().min(1),
         currency_code: z.string().min(1),
         amount: z.number(),
+        direction: z.enum(["IN", "OUT"]).optional(),
       }),
     )
     .optional(),
@@ -188,6 +209,7 @@ export const RechargeSchema = z.object({
         currencyCode: z.string().min(1),
         amount: z.number(),
         voucherCode: z.string().optional(),
+        direction: z.enum(["IN", "OUT"]).optional(),
       }),
     )
     .optional(),
@@ -207,6 +229,7 @@ const FinancialPaymentLegSchema = z.object({
   currencyCode: z.string().min(1),
   amount: z.number(),
   voucherCode: z.string().optional(),
+  direction: z.enum(["IN", "OUT"]).optional(),
 });
 
 export const FinancialServiceSchema = z.object({
@@ -323,6 +346,7 @@ const CheckpointPaymentSchema = z.object({
   method: z.string().min(1),
   currency_code: z.string().min(1),
   amount: z.number(),
+  direction: z.enum(["IN", "OUT"]).optional(),
 });
 
 export const LotoCheckpointSettleSchema = z.object({
@@ -333,6 +357,21 @@ export const LotoCheckpointSettleSchema = z.object({
   totalCashPrizes: z.number().optional(),
   settledAt: z.string().optional(),
   payments: z.array(CheckpointPaymentSchema).optional(),
+});
+
+export const LotoCheckpointsSettleBatchSchema = z.object({
+  checkpointIds: z.array(z.number().int().positive()).min(1, "At least one checkpoint required"),
+  totalSales: z.number().nonnegative(),
+  totalCommission: z.number().nonnegative(),
+  settledAt: z.string().optional(),
+  payment: z
+    .object({
+      method: z.string().min(1),
+      drawer_name: z.string().min(1),
+      currency_code: z.string().min(1),
+      amount: z.number(), // can be negative (we pay out)
+    })
+    .optional(),
 });
 
 // =============================================================================
@@ -360,6 +399,7 @@ export const CustomServiceCreateSchema = z.object({
         currency_code: z.string().min(1),
         amount: z.number(),
         voucher_code: z.string().optional(),
+        direction: z.enum(["IN", "OUT"]).optional(),
       }),
     )
     .optional(),
@@ -374,6 +414,7 @@ const RepaymentPaymentLegSchema = z.object({
   method: z.string().min(1),
   currencyCode: z.string().min(1),
   amount: z.number(),
+  direction: z.enum(["IN", "OUT"]).optional(),
 });
 
 export const DebtRepaymentSchema = z.object({

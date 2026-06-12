@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { User, Hash, Phone } from "lucide-react";
+import { User, Hash, Phone, ChevronDown } from "lucide-react";
 import { ServiceTypeTabs, type PaymentLine } from "@liratek/ui";
 import { PaymentSheet } from "./PaymentSheet";
 import { useSession } from "@/features/sessions/context/SessionContext";
@@ -36,6 +36,7 @@ interface CryptoFormProps {
   setShowHistory: (show: boolean) => void;
   paymentMethods: Array<{ code: string; label: string; drawer_name?: string }>;
   onPaymentLinesChange: (lines: PaymentLine[]) => void;
+  onReturnChange?: (returnLegs: PaymentLine[]) => void;
   onDiscountChange?: (discount: number) => void;
   exchangeRate: number;
   onTransactionTimeChange?: (time: string | undefined) => void;
@@ -65,6 +66,7 @@ export function CryptoForm({
   setShowHistory,
   paymentMethods,
   onPaymentLinesChange,
+  onReturnChange,
   onDiscountChange,
   exchangeRate,
   onTransactionTimeChange,
@@ -82,7 +84,9 @@ export function CryptoForm({
       cryptoClientName.trim().length > 0 &&
       cryptoClientPhone.trim().length > 0;
     if (hasNewClientInfo && initialPaymentMethod !== "CUSTOMER_ACCOUNT") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setInitialPaymentMethod("CUSTOMER_ACCOUNT");
+       
       setPaymentInputKey((k) => k + 1);
     }
   }, [
@@ -278,27 +282,54 @@ export function CryptoForm({
       {/* Sticky Bottom Trigger Bar */}
       <div className="sticky bottom-0 bg-slate-800/95 backdrop-blur-sm rounded-xl border border-slate-700/50 p-3 shadow-2xl">
         <div className="flex items-center justify-between gap-3">
-          <div className="text-xs text-slate-400">
-            {cryptoType === "RECEIVE" ? "Payout" : "Total"}:{" "}
-            <span className="text-emerald-400 font-mono font-semibold">
-              $
-              {cryptoType === "RECEIVE"
-                ? (parsedAmount - fee).toFixed(2)
-                : (parsedAmount + fee).toFixed(2)}
-            </span>
+          <div className="leading-tight">
+            <div className="text-xs text-slate-400">
+              {cryptoType === "RECEIVE" ? "Payout" : "Total"}:{" "}
+              <span className="text-emerald-400 font-mono font-semibold">
+                $
+                {cryptoType === "RECEIVE"
+                  ? (parsedAmount - fee).toFixed(2)
+                  : (parsedAmount + fee).toFixed(2)}
+              </span>
+            </div>
+            {exchangeRate > 0 && parsedAmount > 0 && (
+              <div className="text-xs text-slate-500 font-mono">
+                ≈ {(
+                  (cryptoType === "RECEIVE" ? parsedAmount - fee : parsedAmount + fee) * exchangeRate
+                ).toLocaleString()} LBP
+              </div>
+            )}
           </div>
-          <button
-            type="button"
-            onClick={() => setShowPaymentSheet(true)}
-            disabled={!cryptoAmount || parsedAmount <= 0}
-            className={`px-5 py-2.5 rounded-lg font-bold text-sm transition-all ${
-              !cryptoAmount || parsedAmount <= 0
-                ? "bg-slate-600 text-slate-400 cursor-not-allowed"
-                : "bg-amber-600 hover:bg-amber-500 text-white shadow-lg shadow-amber-500/20"
-            }`}
-          >
-            {cryptoType === "RECEIVE" ? "Confirm Payout" : "Proceed to Pay"}
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Compact payment method dropdown */}
+            <div className="relative">
+              <select
+                value={initialPaymentMethod}
+                onChange={(e) => {
+                  setInitialPaymentMethod(e.target.value);
+                  setPaymentInputKey((k) => k + 1);
+                }}
+                className="appearance-none bg-slate-900 border border-slate-600 rounded-lg pl-3 pr-8 py-2 text-white text-xs font-medium focus:outline-none focus:border-amber-500 transition-all cursor-pointer"
+              >
+                {paymentMethods.map((m) => (
+                  <option key={m.code} value={m.code}>{m.label}</option>
+                ))}
+              </select>
+              <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowPaymentSheet(true)}
+              disabled={!cryptoAmount || parsedAmount <= 0}
+              className={`px-5 py-2.5 rounded-lg font-bold text-sm transition-all ${
+                !cryptoAmount || parsedAmount <= 0
+                  ? "bg-slate-600 text-slate-400 cursor-not-allowed"
+                  : "bg-amber-600 hover:bg-amber-500 text-white shadow-lg shadow-amber-500/20"
+              }`}
+            >
+              {cryptoType === "RECEIVE" ? "Confirm Payout" : "Proceed to Pay"}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -376,6 +407,7 @@ export function CryptoForm({
         paymentInputKey={paymentInputKey}
         initialPaymentMethod={initialPaymentMethod}
         onPaymentChange={onPaymentLinesChange}
+        {...(onReturnChange ? { onReturnChange } : {})}
       >
         {cryptoClientName.trim() &&
           cryptoClientPhone.trim() &&

@@ -77,17 +77,36 @@ export interface Partner {
   updated_at: string;
 }
 
+/**
+ * All `partner_ledger.transaction_type` values that may be returned for display.
+ *
+ * Plain types + SETTLEMENT/ADJUSTMENT/CUSTOM_SERVICE are recordable manually
+ * (see Partners "Record Transaction"). The `THROUGH_*` / `FOR_*` variants are
+ * written automatically by real OMT/Whish transactions (LIRA-047) and remain
+ * here so historical ledger rows stay type-safe even though they are no longer
+ * offered in the manual dropdown (LIRA-051).
+ */
+export type PartnerTransactionType =
+  | "OMT_SEND"
+  | "OMT_RECEIVE"
+  | "WHISH_SEND"
+  | "WHISH_RECEIVE"
+  | "THROUGH_OMT_SEND"
+  | "THROUGH_OMT_RECEIVE"
+  | "THROUGH_WHISH_SEND"
+  | "THROUGH_WHISH_RECEIVE"
+  | "FOR_OMT_SEND"
+  | "FOR_OMT_RECEIVE"
+  | "FOR_WHISH_SEND"
+  | "FOR_WHISH_RECEIVE"
+  | "CUSTOM_SERVICE"
+  | "SETTLEMENT"
+  | "ADJUSTMENT";
+
 export interface PartnerLedgerEntry {
   id: number;
   partner_id: number;
-  transaction_type:
-    | "OMT_SEND"
-    | "OMT_RECEIVE"
-    | "WHISH_SEND"
-    | "WHISH_RECEIVE"
-    | "CUSTOM_SERVICE"
-    | "SETTLEMENT"
-    | "ADJUSTMENT";
+  transaction_type: PartnerTransactionType;
   reference_table: string | null;
   reference_id: number | null;
   amount: number;
@@ -97,11 +116,34 @@ export interface PartnerLedgerEntry {
   user_id: number | null;
   settlement_method: string | null;
   created_at: string;
+  // Enriched from financial_services JOIN (null when not linked)
+  fs_provider: string | null;
+  fs_service_type: string | null;
+  fs_amount: number | null;
+  fs_currency: string | null;
+  fs_fee: number | null;
+  fs_customer: string | null;
+  fs_reference_number: string | null;
+  fs_phone_number: string | null;
 }
 
 export interface PartnerBalance {
   usd: number;
   lbp: number;
+}
+
+export interface PartnerBalanceBreakdown {
+  usd: { for: number; through: number; other: number; total: number };
+  lbp: { for: number; through: number; other: number; total: number };
+}
+
+export interface LedgerFilters {
+  startDate?: string;
+  endDate?: string;
+  type?: string;
+  mode?: "FOR" | "THROUGH";
+  provider?: string;
+  direction?: "DEBIT" | "CREDIT";
 }
 
 export interface PartnerWithBalance extends Partner, PartnerBalance {}
@@ -126,6 +168,7 @@ export interface ElectronAPI {
       sessionToken?: string;
       error?: string;
     }>;
+    onSessionExpired: (callback: () => void) => () => void;
     getCurrentUser: (
       userId: number,
     ) => Promise<{ id: number; username: string; role: string } | null>;
@@ -459,6 +502,7 @@ export interface ElectronAPI {
         method: string;
         currencyCode: string;
         amount: number;
+        direction?: "IN" | "OUT";
       }>;
       transaction_time?: string;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
@@ -805,6 +849,7 @@ export interface ElectronAPI {
         method: string;
         currency_code: string;
         amount: number;
+        direction?: "IN" | "OUT";
       }>;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
   };
@@ -932,6 +977,7 @@ export interface ElectronAPI {
           method: string;
           currency_code: string;
           amount: number;
+          direction?: "IN" | "OUT";
         }>;
       }) => Promise<{
         success: boolean;
@@ -957,6 +1003,18 @@ export interface ElectronAPI {
         checkpointDate?: string,
       ) => Promise<{ success: boolean; checkpoint?: any; error?: string }>;
       delete: (id: number) => Promise<{ success: boolean; error?: string }>;
+      settleBatch: (data: {
+        checkpointIds: number[];
+        totalSales: number;
+        totalCommission: number;
+        settledAt?: string;
+        payment?: {
+          method: string;
+          drawer_name: string;
+          currency_code: string;
+          amount: number;
+        };
+      }) => Promise<{ success: boolean; checkpoints?: any[]; error?: string }>;
     };
     cashPrize: {
       create: (data: {
@@ -1319,6 +1377,7 @@ export interface ElectronAPI {
         method: string;
         currency_code: string;
         amount: number;
+        direction?: "IN" | "OUT";
       }>;
       clientId?: number;
       clientName?: string;
@@ -1985,10 +2044,11 @@ export interface ElectronAPI {
     ) => Promise<PartnerWithBalance[]>;
     getLedger: (
       partnerId: number,
-      dateRange?: { start: string; end: string },
+      filters?: LedgerFilters,
     ) => Promise<{
       partner: Partner;
       balance: PartnerBalance;
+      breakdown: PartnerBalanceBreakdown;
       entries: PartnerLedgerEntry[];
     }>;
     recordTransaction: (data: {

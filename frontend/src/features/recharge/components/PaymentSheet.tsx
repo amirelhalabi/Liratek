@@ -45,6 +45,7 @@ export interface PaymentSheetProps {
   requiresClientForDebt?: boolean;
   hasClient?: boolean;
   onPaymentChange: (lines: PaymentLine[]) => void;
+  onReturnChange?: (returnLegs: PaymentLine[]) => void;
   onDiscountChange?: (discount: number) => void;
   onPmFeesChange?: (fees: Record<string, number>) => void;
   /** Increment this to remount MultiPaymentInput (e.g. when client is selected) */
@@ -80,6 +81,7 @@ export function PaymentSheet({
   requiresClientForDebt = true,
   hasClient = false,
   onPaymentChange,
+  onReturnChange,
   onDiscountChange,
   onPmFeesChange,
   paymentInputKey,
@@ -95,6 +97,7 @@ export function PaymentSheet({
 
   useEffect(() => {
     if (open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setMounted(true);
       // Trigger animation on next frame
       requestAnimationFrame(() => {
@@ -223,6 +226,7 @@ export function PaymentSheet({
               {...(exchangeRate !== undefined ? { exchangeRate } : {})}
               {...(clientId != null ? { clientId } : {})}
               {...(fetchClientVouchers ? { fetchClientVouchers } : {})}
+              {...(onReturnChange ? { onReturnChange } : {})}
             />
           </div>
         </div>

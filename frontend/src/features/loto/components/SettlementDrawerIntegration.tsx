@@ -9,8 +9,12 @@ import {
   AlertTriangle,
 } from "lucide-react";
 
+interface UnsettledCheckpoint {
+  id: number;
+}
+
 interface SettlementDrawerIntegrationProps {
-  unsettledCheckpoints: any[];
+  unsettledCheckpoints: UnsettledCheckpoint[];
   ourData: {
     totalSales: number;
     totalCommission: number;
@@ -56,34 +60,28 @@ export function SettlementDrawerIntegration({
     setError(null);
 
     try {
-      // In a real implementation, this would involve:
-      // 1. Updating drawer balances
-      // 2. Creating transaction records
-      // 3. Marking checkpoints as settled
-      // 4. Recording the settlement in the supplier ledger
+      const checkpointIds = unsettledCheckpoints.map((cp) => cp.id);
 
-      // First, mark all checkpoints as settled
-      for (const checkpoint of unsettledCheckpoints) {
-        await api.loto.checkpoint.markSettled(checkpoint.id);
-      }
+      const result = await api.loto.checkpoint.settleBatch({
+        checkpointIds,
+        totalSales: claimedTotalSales,
+        totalCommission: claimedTotalCommission,
+        settledAt: new Date().toISOString(),
+        ...(claimedNetSettlement !== 0
+          ? {
+              payment: {
+                method: paymentMethod,
+                drawer_name: drawerName,
+                currency_code: "LBP",
+                amount: claimedNetSettlement,
+              },
+            }
+          : {}),
+      });
 
-      // For drawer integration, we need to:
-      // - If we owe money (negative net settlement), debit from Loto drawer
-      // - If we are owed money (positive net settlement), credit to Loto drawer (as commission)
-
-      // This would typically involve creating payment records and updating drawer balances
-      // In a real implementation, we'd make API calls to handle the drawer operations
-      // TODO: Integrate with drawer balance API
-      // - Settling {unsettledCheckpoints.length} checkpoints
-      // - Net settlement: {claimedNetSettlement} LBP
-      // - Direction: {weOweSupplier ? "We owe" : "We are owed"}: {Math.abs(claimedNetSettlement)} LBP
-
-      // Simulate the settlement process
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      if (!result.success) throw new Error(result.error ?? "Settlement failed");
 
       setSuccess(true);
-
-      // Notify parent component after a delay
       setTimeout(() => {
         onSettlementComplete?.();
       }, 1500);

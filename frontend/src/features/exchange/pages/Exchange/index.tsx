@@ -15,6 +15,8 @@ import { useCurrencyContext } from "@/contexts/CurrencyContext";
 import { HistoryModal } from "./components/HistoryModal";
 import {
   calculateExchange,
+  convertFromUSD,
+  TAKE_USD,
   type CurrencyRate,
   type CurrencyExchangeResult,
 } from "@liratek/core";
@@ -472,6 +474,46 @@ export default function Exchange() {
   // Effective result (base calc + any custom rate overrides)
   const effectiveResult = calcResult ? applyCustomRates(calcResult) : null;
 
+  /**
+   * Dual-currency view of what the customer receives.
+   * Surfaces the output amount in BOTH USD and LBP simultaneously, mirroring
+   * the POS Checkout Modal's dual-currency display — regardless of the exchange
+   * direction. Both values are derived from the same effective (possibly custom)
+   * rates already used by the calculation; no new conversion math is invented.
+   */
+  const outputDual = useMemo<{ usd: number; lbp: number } | null>(() => {
+    if (!effectiveResult) return null;
+
+    const total = effectiveResult.totalAmountOut;
+
+    // USD-equivalent of the output, taken from the transaction's internal USD pivot.
+    let usd: number;
+    if (toCurrency === "USD") {
+      usd = total; // output already in USD
+    } else if (fromCurrency === "USD") {
+      usd = effectiveResult.legs[0]?.amountIn ?? 0; // USD the customer gave
+    } else {
+      // Cross-currency (X → USD → Y): leg2 receives the USD pivot as its input.
+      usd =
+        effectiveResult.legs[1]?.amountIn ??
+        effectiveResult.legs[0]?.amountOut ??
+        0;
+    }
+
+    // LBP-equivalent of the output.
+    let lbp: number;
+    if (toCurrency === "LBP") {
+      lbp = total; // output already in LBP — exact, no re-conversion
+    } else {
+      const lbpRate = effectiveRates.find((r) => r.to_code === "LBP");
+      // Customer receives currency → shop sells USD (TAKE_USD), same direction
+      // as the final leg of the calculation.
+      lbp = lbpRate ? convertFromUSD(usd, lbpRate, TAKE_USD).amountOut : 0;
+    }
+
+    return { usd, lbp };
+  }, [effectiveResult, fromCurrency, toCurrency, effectiveRates]);
+
   // Sync amountOut with effectiveResult
   useEffect(() => {
     if (effectiveResult) {
@@ -869,19 +911,55 @@ export default function Exchange() {
 
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1 uppercase">
-                Customer Gets ({toCurrency})
+                Customer Gets
+                {toCurrency !== "USD" && toCurrency !== "LBP" && (
+                  <span className="ml-1 normal-case text-slate-500">
+                    ({toCurrency} equivalent)
+                  </span>
+                )}
               </label>
-              <div className="relative">
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-red-400 font-bold">
-                  {getCurrencySymbol(toCurrency)}
-                </span>
-                <input
-                  type="number"
-                  value={amountOut}
-                  readOnly
-                  className="w-full bg-slate-800/50 border border-slate-700 rounded-lg pl-14 pr-4 py-4 text-xl font-bold text-slate-300 cursor-not-allowed"
-                  placeholder="0.00"
-                />
+              <div className="grid grid-cols-2 gap-2">
+                {/* USD output */}
+                <div className="relative">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-red-400 font-bold">
+                    $
+                  </span>
+                  <input
+                    type="text"
+                    value={
+                      outputDual
+                        ? outputDual.usd.toLocaleString(undefined, {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })
+                        : ""
+                    }
+                    readOnly
+                    className="w-full bg-slate-800/50 border border-slate-700 rounded-lg pl-9 pr-12 py-4 text-xl font-bold text-slate-300 cursor-not-allowed"
+                    placeholder="0.00"
+                  />
+                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-slate-500 font-medium">
+                    USD
+                  </span>
+                </div>
+
+                {/* LBP output */}
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={
+                      outputDual
+                        ? Math.round(outputDual.lbp).toLocaleString()
+                        : ""
+                    }
+                    readOnly
+                    className="w-full bg-slate-800/50 border border-slate-700 rounded-lg pl-4 pr-12 py-4 text-xl font-bold text-slate-300 cursor-not-allowed"
+                    placeholder="0"
+                  />
+                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-slate-500 font-medium">
+                    LBP
+                  </span>
+                </div>
               </div>
             </div>
           </div>

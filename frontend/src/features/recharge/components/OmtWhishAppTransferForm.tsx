@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, memo } from "react";
 import { User, Phone } from "lucide-react";
 import { useApi, ServiceTypeTabs } from "@liratek/ui";
 import { PaymentSheet } from "./PaymentSheet";
@@ -29,7 +29,7 @@ interface OmtWhishAppTransferFormProps {
   onCloseHistory?: () => void;
 }
 
-export function OmtWhishAppTransferForm({
+function OmtWhishAppTransferFormInner({
   activeProvider,
   transactions,
   loadFinancialData,
@@ -805,3 +805,5 @@ export function OmtWhishAppTransferForm({
     </div>
   );
 }
+
+export const OmtWhishAppTransferForm = memo(OmtWhishAppTransferFormInner);

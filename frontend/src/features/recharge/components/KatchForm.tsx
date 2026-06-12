@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, memo, startTransition } from "react";
 import { ChevronDown, Phone, Plus, X } from "lucide-react";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
@@ -6,6 +6,7 @@ import { ensureRechargeClient } from "../utils/ensureClient";
 import AlfaLogo from "@/assets/logos/alfa.svg?react";
 import MtcLogo from "@/assets/logos/mtc.svg?react";
 import { type PaymentLine, useApi } from "@liratek/ui";
+import { toCamelLegs } from "@/utils/paymentUtils";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { useSessionAutoFill } from "@/features/sessions/hooks/useSessionAutoFill";
 import type { ProviderConfig, FinancialTransaction } from "../types";
@@ -14,8 +15,151 @@ import { getCategoryColor } from "../utils/categoryColors";
 import { HistoryModal } from "./HistoryModal";
 import { PaymentSheet } from "./PaymentSheet";
 import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
-import { getExchangeRates } from "@/utils/exchangeRates";
 import logger from "@/utils/logger";
+
+// ─── Module-level pure helpers ────────────────────────────────────────────────
+
+function isTelecomVoucher(item: ServiceItem): boolean {
+  return (
+    item.category === "alfa" ||
+    item.category === "mtc" ||
+    item.subcategory === "alfa" ||
+    item.subcategory === "mtc"
+  );
+}
+
+function calcReturnedCredits(denomination: number): number {
+  return Math.floor(denomination / 0.5) * 0.5;
+}
+
+function calcPrice(item: ServiceItem, onlyDays: boolean, returnedCredits: number, sellRate: number): number {
+  const sellPrice = item.catalogSellPrice ?? 0;
+  return onlyDays ? sellPrice - returnedCredits * sellRate : sellPrice;
+}
+
+function calcCost(item: ServiceItem, onlyDays: boolean, returnedCredits: number, costRate: number): number {
+  const cost = item.catalogCost ?? 0;
+  return onlyDays ? cost - returnedCredits * costRate : cost;
+}
+
+// ─── ItemCard (memo'd, module scope) ─────────────────────────────────────────
+
+interface ItemCardProps {
+  item: ServiceItem;
+  qty: number;
+  isExpanded: boolean;
+  onlyDays: boolean;
+  returnedCreditsUsd: number;
+  onCardClick: (item: ServiceItem) => void;
+  onQtyDecrease: (item: ServiceItem) => void;
+  onQtyIncrease: (item: ServiceItem) => void;
+  onOnlyDaysChange: (item: ServiceItem, checked: boolean) => void;
+  onReturnedCreditsChange: (item: ServiceItem, value: number) => void;
+}
+
+const ItemCard = memo(function ItemCard({
+  item,
+  qty,
+  isExpanded,
+  onlyDays,
+  returnedCreditsUsd,
+  onCardClick,
+  onQtyDecrease,
+  onQtyIncrease,
+  onOnlyDaysChange,
+  onReturnedCreditsChange,
+}: ItemCardProps) {
+  const cost = item.catalogCost ?? 0;
+  const sellPrice = item.catalogSellPrice ?? 0;
+  const isTelecom = isTelecomVoucher(item);
+
+  return (
+    <div className="relative">
+      <div
+        className={`w-full p-3 rounded-lg border transition-all ${
+          qty > 0
+            ? "border-orange-500/40 ring-1 ring-orange-500/30"
+            : "border-white/10 hover:border-white/20"
+        } ${isExpanded && qty > 0 ? "ring-2 ring-orange-500/50" : ""}`}
+        style={{ backgroundColor: `${getCategoryColor(item.category)}18` }}
+      >
+        <div onClick={() => onCardClick(item)} className="cursor-pointer">
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <div className="text-white font-medium text-sm truncate">{item.label}</div>
+            {qty > 0 && (
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  onClick={(e) => { e.stopPropagation(); onQtyDecrease(item); }}
+                  className="w-5 h-5 rounded-full bg-orange-500/20 hover:bg-orange-500/30 text-orange-400 flex items-center justify-center transition-colors cursor-pointer text-xs font-bold"
+                  type="button"
+                >−</button>
+                <span className="w-4 text-center text-xs font-bold text-orange-400">{qty}</span>
+                <button
+                  onClick={(e) => { e.stopPropagation(); onQtyIncrease(item); }}
+                  className="w-5 h-5 rounded-full bg-orange-500/20 hover:bg-orange-500/30 text-orange-400 flex items-center justify-center transition-colors cursor-pointer text-xs font-bold"
+                  type="button"
+                >+</button>
+              </div>
+            )}
+          </div>
+          <div className="flex flex-col items-center justify-center gap-0.5">
+            {item.subcategory === "alfa" || item.category === "alfa" ? (
+              <AlfaLogo className="h-4 w-auto" />
+            ) : item.subcategory === "mtc" || item.category === "mtc" ? (
+              <MtcLogo className="h-4 w-auto" />
+            ) : null}
+            <span className="text-slate-500 text-[10px] truncate max-w-full">{item.subcategory}</span>
+          </div>
+          <div className="mt-2 flex items-center justify-between">
+            <span className="text-xs text-slate-400">Cost:</span>
+            <span className="text-xs text-white font-mono">{cost.toLocaleString()} LBP</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-slate-400">Sell:</span>
+            <span className="text-xs text-emerald-400 font-mono">{sellPrice.toLocaleString()} LBP</span>
+          </div>
+        </div>
+      </div>
+
+      {qty > 0 && isExpanded && (
+        <div className="mt-2 p-3 bg-slate-900 rounded-lg border border-slate-700">
+          {isTelecom && (
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1.5 shrink-0">
+                <input
+                  type="checkbox"
+                  id={`onlydays-${item.key}`}
+                  checked={onlyDays}
+                  onChange={(e) => onOnlyDaysChange(item, e.target.checked)}
+                  className="w-4 h-4 rounded border-slate-600 text-orange-500 focus:ring-orange-500 cursor-pointer"
+                />
+                <label htmlFor={`onlydays-${item.key}`} className="text-xs text-slate-300 cursor-pointer select-none whitespace-nowrap">
+                  Only Days
+                </label>
+              </div>
+              {onlyDays && (
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <span className="text-xs text-slate-400 whitespace-nowrap">Credits</span>
+                  <input
+                    type="number"
+                    step="0.5"
+                    min="0"
+                    max={parseFloat(item.label) || 0}
+                    value={returnedCreditsUsd}
+                    onChange={(e) => onReturnedCreditsChange(item, parseFloat(e.target.value) || 0)}
+                    className="w-14 bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-orange-500"
+                  />
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+});
+
+// ─── KatchFormInner ──────────────────────────────────────────────────────────
 
 interface CartLineItem {
   item: ServiceItem;
@@ -36,7 +180,6 @@ interface NewItemForm {
 
 interface KatchFormProps {
   activeConfig: ProviderConfig | undefined;
-  finTransactions: FinancialTransaction[];
   activeProvider: ProviderKey | null;
   getCategoriesForProvider: (provider: ProviderKey) => string[];
   getServiceItems: (provider: ProviderKey, category: string) => ServiceItem[];
@@ -45,15 +188,15 @@ interface KatchFormProps {
   formatAmount: (val: number, currency: string) => string;
   alfaCreditSellRate: number;
   alfaCreditCostRate: number;
+  exchangeRate: number;
   showHistory: boolean;
   setShowHistory: (show: boolean) => void;
   onRefreshItems?: () => Promise<void>;
   isAdmin?: boolean;
 }
 
-export function KatchForm({
+function KatchFormInner({
   activeConfig,
-  finTransactions,
   activeProvider,
   getCategoriesForProvider,
   getServiceItems,
@@ -62,6 +205,7 @@ export function KatchForm({
   formatAmount,
   alfaCreditSellRate,
   alfaCreditCostRate,
+  exchangeRate,
   showHistory,
   setShowHistory,
   onRefreshItems,
@@ -98,43 +242,134 @@ export function KatchForm({
     const hasNewClientInfo =
       !clientId && clientName.trim().length > 0 && clientPhone.trim().length > 0;
     if (hasNewClientInfo && initialPaymentMethod !== "CUSTOMER_ACCOUNT") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setInitialPaymentMethod("CUSTOMER_ACCOUNT");
+       
       setPaymentInputKey((k) => k + 1);
     }
   }, [clientId, clientName, clientPhone, initialPaymentMethod]);
 
   const [paymentMethod, setPaymentMethod] = useState("CASH");
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
+  const [returnLegs, setReturnLegs] = useState<PaymentLine[]>([]);
   const isSplitPayment = paymentLines.length > 1;
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
   const [searchQuery, setSearchQuery] = useState("");
   const [discount, setDiscount] = useState(0);
   const [showPaymentSheet, setShowPaymentSheet] = useState(false);
-  const [rates, setRates] = useState({ buyRate: 89000, sellRate: 89500 });
+  const [itemsReady, setItemsReady] = useState(false);
+  const [historyTransactions, setHistoryTransactions] = useState<FinancialTransaction[]>([]);
 
-  // Fetch exchange rates on mount
+  // Lazy-load provider history only when the history modal is opened.
   useEffect(() => {
-    const loadRates = async () => {
-      try {
-        const list = await api.getRates();
-        const { buyRate, sellRate } = getExchangeRates(list);
-        setRates({ buyRate, sellRate });
-      } catch (error) {
-        console.error("Failed to load exchange rates:", error);
-      }
-    };
-    loadRates();
-  }, [api]);
+    if (showHistory && activeProvider) {
+      api.getOMTHistory(activeProvider).then((txs: FinancialTransaction[]) => {
+        setHistoryTransactions(
+          (txs ?? []).filter((tx: FinancialTransaction) => tx.provider === activeProvider),
+        );
+      }).catch((err: unknown) => {
+        logger.error("Failed to load Katch history:", err);
+      });
+    }
+  }, [showHistory, activeProvider, api]);
 
-  // Katsh/iPick transactions - customer always pays us (money IN)
-  // Use Customer Pays rate (higher - benefits shop)
-  const exchangeRate = rates.sellRate;
+  // Reset and defer card grid rendering on every provider switch so the shell
+  // (search bar + proceed button) paints before the heavy DOM is created.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setItemsReady(false);
+    const rafId = requestAnimationFrame(() => {
+      startTransition(() => setItemsReady(true));
+    });
+    return () => cancelAnimationFrame(rafId);
+  }, [activeProvider]);
+
+  // ─── Stable callbacks (empty deps — use only functional setState) ─────────
+
+  const handleCardClick = useCallback((item: ServiceItem) => {
+    if (isTelecomVoucher(item)) {
+      setExpandedKeys((prev) => {
+        if (prev.has(item.key)) return prev;
+        const next = new Set(prev);
+        next.add(item.key);
+        return next;
+      });
+    }
+    setCart((prev) => {
+      if (prev.has(item.key)) return prev;
+      const next = new Map(prev);
+      next.set(item.key, { item, quantity: 1, onlyDays: false, returnedCreditsUsd: 0 });
+      return next;
+    });
+  }, []);
+
+  const handleQtyDecrease = useCallback((item: ServiceItem) => {
+    setCart((prev) => {
+      const existing = prev.get(item.key);
+      if (!existing) return prev;
+      const newQty = existing.quantity - 1;
+      if (newQty <= 0) {
+        const next = new Map(prev);
+        next.delete(item.key);
+        return next;
+      }
+      const next = new Map(prev);
+      next.set(item.key, { ...existing, quantity: newQty });
+      return next;
+    });
+  }, []);
+
+  const handleQtyIncrease = useCallback((item: ServiceItem) => {
+    setCart((prev) => {
+      const existing = prev.get(item.key);
+      const next = new Map(prev);
+      if (existing) {
+        next.set(item.key, { ...existing, quantity: existing.quantity + 1 });
+      } else {
+        next.set(item.key, { item, quantity: 1, onlyDays: false, returnedCreditsUsd: 0 });
+      }
+      return next;
+    });
+  }, []);
+
+  const handleOnlyDaysChange = useCallback((item: ServiceItem, checked: boolean) => {
+    setCart((prev) => {
+      const existing = prev.get(item.key);
+      if (!existing) return prev;
+      let returnedCredits = 0;
+      if (checked) {
+        const denomination = parseFloat(item.label);
+        if (!isNaN(denomination)) returnedCredits = calcReturnedCredits(denomination);
+      }
+      const next = new Map(prev);
+      next.set(item.key, { ...existing, onlyDays: checked, returnedCreditsUsd: returnedCredits });
+      return next;
+    });
+  }, []);
+
+  const handleReturnedCreditsChange = useCallback((item: ServiceItem, value: number) => {
+    setCart((prev) => {
+      const existing = prev.get(item.key);
+      if (!existing) return prev;
+      const next = new Map(prev);
+      next.set(item.key, { ...existing, returnedCreditsUsd: value });
+      return next;
+    });
+  }, []);
+
+  const toggleCategoryCollapse = useCallback((category: string) => {
+    setCollapsedCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(category)) next.delete(category);
+      else next.add(category);
+      return next;
+    });
+  }, []);
 
   if (!activeConfig || !activeProvider) return null;
 
   const categories = getCategoriesForProvider(activeProvider);
 
-  // Filter items by search query
   const filterItemsBySearch = (items: ServiceItem[]): ServiceItem[] => {
     if (!searchQuery.trim()) return items;
     const query = searchQuery.toLowerCase();
@@ -146,154 +381,12 @@ export function KatchForm({
     );
   };
 
-  const isTelecomVoucher = (item: ServiceItem) => {
-    return (
-      item.category === "alfa" ||
-      item.category === "mtc" ||
-      item.subcategory === "alfa" ||
-      item.subcategory === "mtc"
-    );
-  };
-
-  const calculateReturnedCredits = (denomination: number): number => {
-    return Math.floor(denomination / 0.5) * 0.5;
-  };
-
-  const calculatePrice = (
-    item: ServiceItem,
-    onlyDays: boolean,
-    returnedCredits: number,
-  ): number => {
-    const sellPrice = item.catalogSellPrice ?? 0;
-    if (!onlyDays) {
-      return sellPrice;
-    }
-    return sellPrice - returnedCredits * alfaCreditSellRate;
-  };
-
-  const calculateCost = (
-    item: ServiceItem,
-    onlyDays: boolean,
-    returnedCredits: number,
-  ): number => {
-    const cost = item.catalogCost ?? 0;
-    if (!onlyDays) {
-      return cost;
-    }
-    return cost - returnedCredits * alfaCreditCostRate;
-  };
-
-  const updateCart = (
-    item: ServiceItem,
-    quantity: number,
-    onlyDays?: boolean,
-    returnedCreditsUsd?: number,
-  ) => {
-    setCart((prev) => {
-      const newCart = new Map(prev);
-      const existing = newCart.get(item.key);
-
-      if (quantity <= 0) {
-        newCart.delete(item.key);
-        setExpandedKeys((prevKeys) => {
-          const newKeys = new Set(prevKeys);
-          newKeys.delete(item.key);
-          return newKeys;
-        });
-      } else {
-        const newOnlyDays = onlyDays ?? existing?.onlyDays ?? false;
-        const newReturnedCredits =
-          returnedCreditsUsd ?? existing?.returnedCreditsUsd ?? 0;
-
-        newCart.set(item.key, {
-          item,
-          quantity,
-          onlyDays: newOnlyDays,
-          returnedCreditsUsd: newReturnedCredits,
-        });
-      }
-      return newCart;
-    });
-  };
-
-  const handleCardClick = (item: ServiceItem) => {
-    const itemKey = item.key;
-    // Only expand accordion for telecom vouchers (they have the "Only Days" option)
-    if (isTelecomVoucher(item)) {
-      setExpandedKeys((prev) => {
-        const newSet = new Set(prev);
-        newSet.add(itemKey);
-        return newSet;
-      });
-    }
-    if (!cart.has(itemKey)) {
-      updateCart(item, 1);
-    }
-  };
-
-  const toggleCategoryCollapse = (category: string) => {
-    setCollapsedCategories((prev) => {
-      const newSet = new Set(prev);
-      if (newSet.has(category)) {
-        newSet.delete(category);
-      } else {
-        newSet.add(category);
-      }
-      return newSet;
-    });
-  };
-
-  const handleQuantityChange = (item: ServiceItem, delta: number) => {
-    const existing = cart.get(item.key);
-    const newQty = (existing?.quantity ?? 0) + delta;
-
-    if (existing || delta > 0) {
-      updateCart(
-        item,
-        newQty,
-        existing?.onlyDays,
-        existing?.returnedCreditsUsd,
-      );
-    }
-  };
-
-  const handleOnlyDaysChange = (item: ServiceItem, checked: boolean) => {
-    const existing = cart.get(item.key);
-    if (!existing) return;
-
-    let returnedCredits = 0;
-    if (checked) {
-      const denomination = parseFloat(item.label);
-      if (!isNaN(denomination)) {
-        returnedCredits = calculateReturnedCredits(denomination);
-      }
-    }
-
-    updateCart(item, existing.quantity, checked, returnedCredits);
-  };
-
-  const handleReturnedCreditsChange = (item: ServiceItem, value: number) => {
-    const existing = cart.get(item.key);
-    if (!existing) return;
-    updateCart(item, existing.quantity, existing.onlyDays, value);
-  };
-
   const totalPrice = Array.from(cart.values()).reduce((sum, line) => {
-    const unitPrice = calculatePrice(
-      line.item,
-      line.onlyDays,
-      line.returnedCreditsUsd,
-    );
-    return sum + unitPrice * line.quantity;
+    return sum + calcPrice(line.item, line.onlyDays, line.returnedCreditsUsd, alfaCreditSellRate) * line.quantity;
   }, 0);
 
   const totalCost = Array.from(cart.values()).reduce((sum, line) => {
-    const unitCost = calculateCost(
-      line.item,
-      line.onlyDays,
-      line.returnedCreditsUsd,
-    );
-    return sum + unitCost * line.quantity;
+    return sum + calcCost(line.item, line.onlyDays, line.returnedCreditsUsd, alfaCreditCostRate) * line.quantity;
   }, 0);
 
   // Max discount = total commission (sell - cost), discount cannot exceed profit
@@ -379,37 +472,18 @@ export function KatchForm({
       // single CUSTOMER_ACCOUNT line in USD against an LBP transaction).
       const paymentsPayload =
         paymentLines.length > 0
-          ? paymentLines.map((l) => ({
-              method: l.method,
-              currencyCode: l.currencyCode,
-              amount: l.amount,
-              ...(l.method === "GIFT_CARD" && l.voucherCode
-                ? { voucherCode: l.voucherCode }
-                : {}),
-            }))
+          ? toCamelLegs(paymentLines, returnLegs)
           : undefined;
 
       // Store each line item for replay at checkout
       // Distribute discount proportionally across items based on sell price
       const sessionTotalSellPrice = cartItems.reduce((sum, line) => {
-        return (
-          sum +
-          calculatePrice(line.item, line.onlyDays, line.returnedCreditsUsd) *
-            line.quantity
-        );
+        return sum + calcPrice(line.item, line.onlyDays, line.returnedCreditsUsd, alfaCreditSellRate) * line.quantity;
       }, 0);
 
       const formDataItems = cartItems.flatMap((line) => {
-        const sellPrice = calculatePrice(
-          line.item,
-          line.onlyDays,
-          line.returnedCreditsUsd,
-        );
-        const cost = calculateCost(
-          line.item,
-          line.onlyDays,
-          line.returnedCreditsUsd,
-        );
+        const sellPrice = calcPrice(line.item, line.onlyDays, line.returnedCreditsUsd, alfaCreditSellRate);
+        const cost = calcCost(line.item, line.onlyDays, line.returnedCreditsUsd, alfaCreditCostRate);
         const unitDiscountShare =
           sessionTotalSellPrice > 0
             ? Math.round((discount * sellPrice) / sessionTotalSellPrice)
@@ -454,6 +528,7 @@ export function KatchForm({
       setClientPhone("");
       setClientId(null);
       setExpandedKeys(new Set());
+      setReturnLegs([]);
       return;
     }
 
@@ -463,31 +538,16 @@ export function KatchForm({
     const finalPaymentMethod = isSplitPayment ? "MULTI" : paymentMethod;
     const paymentsPayload =
       paymentLines.length > 0
-        ? paymentLines.map((l) => ({
-            method: l.method,
-            currencyCode: l.currencyCode,
-            amount: l.amount,
-            ...(l.method === "GIFT_CARD" && l.voucherCode
-              ? { voucherCode: l.voucherCode }
-              : {}),
-          }))
+        ? toCamelLegs(paymentLines, returnLegs)
         : undefined;
 
     // Aggregate all items into one transaction
     const totalSellPrice = cartItems.reduce((sum, line) => {
-      return (
-        sum +
-        calculatePrice(line.item, line.onlyDays, line.returnedCreditsUsd) *
-          line.quantity
-      );
+      return sum + calcPrice(line.item, line.onlyDays, line.returnedCreditsUsd, alfaCreditSellRate) * line.quantity;
     }, 0);
 
     const aggregatedCost = cartItems.reduce((sum, line) => {
-      return (
-        sum +
-        calculateCost(line.item, line.onlyDays, line.returnedCreditsUsd) *
-          line.quantity
-      );
+      return sum + calcCost(line.item, line.onlyDays, line.returnedCreditsUsd, alfaCreditCostRate) * line.quantity;
     }, 0);
 
     const discountedTotal = totalSellPrice - discount;
@@ -547,6 +607,7 @@ export function KatchForm({
       setClientPhone("");
       setClientId(null);
       setExpandedKeys(new Set());
+      setReturnLegs([]);
       setTransactionTime(undefined);
       const hasDebtPayment =
         paymentMethod === "CUSTOMER_ACCOUNT" ||
@@ -559,62 +620,106 @@ export function KatchForm({
     setLocalSubmitting(false);
   };
 
-  const filterProviderTransactions = (txs: FinancialTransaction[]) => {
-    return txs.filter((tx) => tx.provider === activeProvider);
-  };
-
-  const providerTransactions = filterProviderTransactions(finTransactions);
-
   return (
-    <div className="flex flex-col gap-5 flex-1 min-h-0">
-      {/* Search Bar */}
-      <div className="relative">
-        <input
-          type="text"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder={`Search ${activeProvider} items...`}
-          className="w-full px-4 py-2.5 pl-10 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500/50 transition-all"
-        />
-        <svg
-          className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+    <div className="flex flex-col gap-3">
+      {/* Top Row: Search Bar + Proceed to Pay — sticky so it never scrolls away */}
+      <div className="sticky top-0 z-10 flex items-center gap-3 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 pb-1">
+        <div className="relative flex-1">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder={`Search ${activeProvider} items...`}
+            className="w-full px-4 py-2.5 pl-10 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500/50 transition-all"
           />
-        </svg>
-        {searchQuery && (
-          <button
-            onClick={() => setSearchQuery("")}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
-            aria-label="Clear search"
-            type="button"
+          <svg
+            className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
           >
-            <svg
-              className="w-4 h-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+            />
+          </svg>
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery("")}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+              aria-label="Clear search"
+              type="button"
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M6 18L18 6M6 6l12 12"
-              />
-            </svg>
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M6 18L18 6M6 6l12 12"
+                />
+              </svg>
+            </button>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          {totalItems > 0 && (
+            <div className="text-right leading-tight">
+              <div className="text-xs text-white font-bold">{totalItems} items</div>
+              <div className="text-xs text-emerald-400 font-mono font-semibold">{totalPrice.toLocaleString()} LBP</div>
+              {exchangeRate > 0 && (
+                <div className="text-xs text-slate-400 font-mono">${(totalPrice / exchangeRate).toFixed(2)}</div>
+              )}
+            </div>
+          )}
+          {/* Payment method quick-select */}
+          <div className="relative">
+            <select
+              value={initialPaymentMethod}
+              onChange={(e) => {
+                setInitialPaymentMethod(e.target.value);
+                setPaymentInputKey((k) => k + 1);
+              }}
+              className="appearance-none bg-slate-900 border border-slate-600 rounded-lg pl-3 pr-7 py-2 text-white text-xs font-medium focus:outline-none focus:border-orange-500 transition-all cursor-pointer"
+            >
+              {methods.map((m) => (
+                <option key={m.code} value={m.code}>{m.label}</option>
+              ))}
+            </select>
+            <ChevronDown size={13} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowPaymentSheet(true)}
+            disabled={totalItems === 0}
+            className={`px-4 py-2.5 rounded-lg font-bold text-sm transition-all whitespace-nowrap ${
+              totalItems === 0
+                ? "bg-slate-600 text-slate-400 cursor-not-allowed"
+                : "bg-orange-500 hover:bg-orange-600 text-white shadow-lg shadow-orange-500/20"
+            }`}
+          >
+            {activeSession ? "Add to Cart" : "Proceed to Pay"}
           </button>
-        )}
+        </div>
       </div>
 
       {/* Card Grid */}
-      <div className="flex-1 min-h-0 overflow-auto space-y-6 pb-2">
+      {!itemsReady ? (
+        <div className="flex items-center justify-center py-20">
+          <div className="flex flex-col items-center gap-3 text-slate-400">
+            <div className="w-8 h-8 border-2 border-slate-700 border-t-orange-500 rounded-full animate-spin" />
+            <span className="text-sm">Loading items...</span>
+          </div>
+        </div>
+      ) : (
+      <div className="space-y-6 pb-2">
         {categories.map((category) => {
           const allCategoryItems = getServiceItems(activeProvider, category);
           const categoryItems = filterItemsBySearch(allCategoryItems);
@@ -754,144 +859,20 @@ export function KatchForm({
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 mt-3">
                   {categoryItems.map((item) => {
                     const inCart = cart.get(item.key);
-                    const qty = inCart?.quantity ?? 0;
-                    const isExpanded = expandedKeys.has(item.key);
-                    const isTelecom = isTelecomVoucher(item);
-                    const cost = item.catalogCost ?? 0;
-                    const sellPrice = item.catalogSellPrice ?? 0;
-
                     return (
-                      <div key={item.key} className="relative">
-                        <div
-                          className={`w-full p-3 rounded-lg border transition-all ${
-                            qty > 0
-                              ? "border-orange-500/40 ring-1 ring-orange-500/30"
-                              : "border-white/10 hover:border-white/20"
-                          } ${isExpanded ? "ring-2 ring-orange-500/50" : ""}`}
-                          style={{
-                            backgroundColor: `${getCategoryColor(item.category)}18`,
-                          }}
-                        >
-                          {/* Card Header - clickable area */}
-                          <div
-                            onClick={() => handleCardClick(item)}
-                            className="cursor-pointer"
-                          >
-                            {/* Label row with optional stepper */}
-                            <div className="flex items-center justify-between gap-2 mb-1">
-                              <div className="text-white font-medium text-sm truncate">
-                                {item.label}
-                              </div>
-                              {qty > 0 && (
-                                <div className="flex items-center gap-1 shrink-0">
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleQuantityChange(item, -1);
-                                    }}
-                                    className="w-5 h-5 rounded-full bg-orange-500/20 hover:bg-orange-500/30 text-orange-400 flex items-center justify-center transition-colors cursor-pointer text-xs font-bold"
-                                    type="button"
-                                  >
-                                    −
-                                  </button>
-                                  <span className="w-4 text-center text-xs font-bold text-orange-400">
-                                    {qty}
-                                  </span>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleQuantityChange(item, 1);
-                                    }}
-                                    className="w-5 h-5 rounded-full bg-orange-500/20 hover:bg-orange-500/30 text-orange-400 flex items-center justify-center transition-colors cursor-pointer text-xs font-bold"
-                                    type="button"
-                                  >
-                                    +
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                            <div className="flex flex-col items-center justify-center gap-0.5">
-                              {item.subcategory === "alfa" ||
-                              item.category === "alfa" ? (
-                                <AlfaLogo className="h-4 w-auto" />
-                              ) : item.subcategory === "mtc" ||
-                                item.category === "mtc" ? (
-                                <MtcLogo className="h-4 w-auto" />
-                              ) : null}
-                              <span className="text-slate-500 text-[10px] truncate max-w-full">
-                                {item.subcategory}
-                              </span>
-                            </div>
-                            <div className="mt-2 flex items-center justify-between">
-                              <span className="text-xs text-slate-400">
-                                Cost:
-                              </span>
-                              <span className="text-xs text-white font-mono">
-                                {cost.toLocaleString()} LBP
-                              </span>
-                            </div>
-                            <div className="flex items-center justify-between">
-                              <span className="text-xs text-slate-400">
-                                Sell:
-                              </span>
-                              <span className="text-xs text-emerald-400 font-mono">
-                                {sellPrice.toLocaleString()} LBP
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Accordion Detail */}
-                        {isExpanded && (
-                          <div className="mt-2 p-3 bg-slate-900 rounded-lg border border-slate-700">
-                            {isTelecom && (
-                              <div className="flex items-center gap-3">
-                                <div className="flex items-center gap-1.5 shrink-0">
-                                  <input
-                                    type="checkbox"
-                                    id={`onlydays-${item.key}`}
-                                    checked={inCart?.onlyDays ?? false}
-                                    onChange={(e) =>
-                                      handleOnlyDaysChange(
-                                        item,
-                                        e.target.checked,
-                                      )
-                                    }
-                                    className="w-4 h-4 rounded border-slate-600 text-orange-500 focus:ring-orange-500 cursor-pointer"
-                                  />
-                                  <label
-                                    htmlFor={`onlydays-${item.key}`}
-                                    className="text-xs text-slate-300 cursor-pointer select-none whitespace-nowrap"
-                                  >
-                                    Only Days
-                                  </label>
-                                </div>
-                                {(inCart?.onlyDays ?? false) && (
-                                  <div className="flex items-center gap-1.5 shrink-0">
-                                    <span className="text-xs text-slate-400 whitespace-nowrap">
-                                      Credits
-                                    </span>
-                                    <input
-                                      type="number"
-                                      step="0.5"
-                                      min="0"
-                                      max={parseFloat(item.label) || 0}
-                                      value={inCart?.returnedCreditsUsd ?? 0}
-                                      onChange={(e) =>
-                                        handleReturnedCreditsChange(
-                                          item,
-                                          parseFloat(e.target.value) || 0,
-                                        )
-                                      }
-                                      className="w-14 bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-orange-500"
-                                    />
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
+                      <ItemCard
+                        key={item.key}
+                        item={item}
+                        qty={inCart?.quantity ?? 0}
+                        isExpanded={expandedKeys.has(item.key)}
+                        onlyDays={inCart?.onlyDays ?? false}
+                        returnedCreditsUsd={inCart?.returnedCreditsUsd ?? 0}
+                        onCardClick={handleCardClick}
+                        onQtyDecrease={handleQtyDecrease}
+                        onQtyIncrease={handleQtyIncrease}
+                        onOnlyDaysChange={handleOnlyDaysChange}
+                        onReturnedCreditsChange={handleReturnedCreditsChange}
+                      />
                     );
                   })}
                 </div>
@@ -900,33 +881,7 @@ export function KatchForm({
           );
         })}
       </div>
-
-      {/* Sticky Bottom Trigger Bar */}
-      <div className="shrink-0 bg-slate-800/95 backdrop-blur-sm rounded-xl border border-slate-700/50 p-3 shadow-2xl">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="text-xs text-slate-400">
-              Items: <span className="text-white font-bold">{totalItems}</span>
-              <span className="text-slate-600 mx-1">·</span>
-              <span className="text-emerald-400 font-mono font-semibold">
-                {totalPrice.toLocaleString()} LBP
-              </span>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => setShowPaymentSheet(true)}
-            disabled={totalItems === 0}
-            className={`px-5 py-2.5 rounded-lg font-bold text-sm transition-all ${
-              totalItems === 0
-                ? "bg-slate-600 text-slate-400 cursor-not-allowed"
-                : "bg-orange-500 hover:bg-orange-600 text-white shadow-lg shadow-orange-500/20"
-            }`}
-          >
-            {activeSession ? "Add to Cart" : "Proceed to Pay"}
-          </button>
-        </div>
-      </div>
+      )}
 
       <PaymentSheet
         open={showPaymentSheet}
@@ -957,6 +912,7 @@ export function KatchForm({
             setPaymentMethod(lines[0].method);
           }
         }}
+        onReturnChange={setReturnLegs}
       >
         <div className="space-y-2">
           <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
@@ -1009,7 +965,7 @@ export function KatchForm({
       {/* History Modal */}
       {showHistory && (
         <HistoryModal
-          transactions={providerTransactions}
+          transactions={historyTransactions}
           provider={activeProvider as string}
           onClose={() => setShowHistory(false)}
           onRefresh={loadFinancialData}
@@ -1032,3 +988,5 @@ export function KatchForm({
     </div>
   );
 }
+
+export const KatchForm = memo(KatchFormInner);

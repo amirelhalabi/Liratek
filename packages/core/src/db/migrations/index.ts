@@ -3612,6 +3612,94 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  {
+    version: 93,
+    name: "binance_drawer_usdt_currency",
+    description:
+      "Switch the Binance drawer from USD to USDT. The Binance account holds crypto (USDT), so its drawer balance and currency_drawers mapping must track USDT, not USD. Merges any stray USDT balance created before the routing fix.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      // 0. Ensure the USDT currency exists (FK target for currency_drawers).
+      //    Fresh installs seed it via create_db.sql, but existing DBs upgrading
+      //    from older versions may not have it yet.
+      db.prepare(
+        `INSERT OR IGNORE INTO currencies (code, name, symbol, decimal_places, is_active)
+         VALUES ('USDT', 'Tether USD', 'USDT', 2, 0)`,
+      ).run();
+
+      // 1. drawer_balances: fold any existing 'USD' Binance balance into 'USDT'.
+      //    The buggy SEND/RECEIVE path may already have created a ('Binance','USDT')
+      //    row, so add the USD balance onto it rather than blindly renaming.
+      db.prepare(
+        `INSERT INTO drawer_balances (drawer_name, currency_code, balance)
+         VALUES ('Binance', 'USDT', 0)
+         ON CONFLICT(drawer_name, currency_code) DO NOTHING`,
+      ).run();
+
+      db.prepare(
+        `UPDATE drawer_balances
+            SET balance = balance + COALESCE(
+                  (SELECT balance FROM drawer_balances
+                    WHERE drawer_name = 'Binance' AND currency_code = 'USD'), 0),
+                updated_at = CURRENT_TIMESTAMP
+          WHERE drawer_name = 'Binance' AND currency_code = 'USDT'`,
+      ).run();
+
+      db.prepare(
+        `DELETE FROM drawer_balances
+          WHERE drawer_name = 'Binance' AND currency_code = 'USD'`,
+      ).run();
+
+      // 2. currency_drawers: map the Binance drawer to USDT instead of USD.
+      db.prepare(
+        `INSERT INTO currency_drawers (currency_code, drawer_name)
+         VALUES ('USDT', 'Binance')
+         ON CONFLICT(currency_code, drawer_name) DO NOTHING`,
+      ).run();
+
+      db.prepare(
+        `DELETE FROM currency_drawers
+          WHERE currency_code = 'USD' AND drawer_name = 'Binance'`,
+      ).run();
+
+      console.log("Migration v93: Binance drawer switched to USDT");
+    },
+    down(db: Database.Database) {
+      // Reverse: fold USDT balance back into USD and restore the USD mapping.
+      db.prepare(
+        `INSERT INTO drawer_balances (drawer_name, currency_code, balance)
+         VALUES ('Binance', 'USD', 0)
+         ON CONFLICT(drawer_name, currency_code) DO NOTHING`,
+      ).run();
+
+      db.prepare(
+        `UPDATE drawer_balances
+            SET balance = balance + COALESCE(
+                  (SELECT balance FROM drawer_balances
+                    WHERE drawer_name = 'Binance' AND currency_code = 'USDT'), 0),
+                updated_at = CURRENT_TIMESTAMP
+          WHERE drawer_name = 'Binance' AND currency_code = 'USD'`,
+      ).run();
+
+      db.prepare(
+        `DELETE FROM drawer_balances
+          WHERE drawer_name = 'Binance' AND currency_code = 'USDT'`,
+      ).run();
+
+      db.prepare(
+        `INSERT INTO currency_drawers (currency_code, drawer_name)
+         VALUES ('USD', 'Binance')
+         ON CONFLICT(currency_code, drawer_name) DO NOTHING`,
+      ).run();
+
+      db.prepare(
+        `DELETE FROM currency_drawers
+          WHERE currency_code = 'USDT' AND drawer_name = 'Binance'`,
+      ).run();
+
+      console.log("Migration v93 rolled back: Binance drawer reverted to USD");
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

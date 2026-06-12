@@ -277,10 +277,12 @@ export function HistoryModal({
                   >
                     {/* Type */}
                     <td className="px-5 py-3">
-                      <div className="flex items-center gap-2 text-slate-300">
-                        <Icon width={14} height={14} />
-                        <span className="text-sm">
-                          {tx.service_type === "SEND" ? "Out" : "In"}
+                      <div className="flex items-center gap-2">
+                        <Icon width={14} height={14} className="text-slate-400 shrink-0" />
+                        <span
+                          className={`text-sm font-mono font-semibold ${tx.service_type === "SEND" ? "text-red-400" : "text-emerald-400"}`}
+                        >
+                          {tx.service_type === "SEND" ? "↓ Out" : "↑ In"}
                         </span>
                         {isRefunded && (
                           <span className="ml-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
