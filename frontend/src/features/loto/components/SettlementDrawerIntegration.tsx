@@ -62,13 +62,16 @@ export function SettlementDrawerIntegration({
     try {
       const checkpointIds = unsettledCheckpoints.map((cp) => cp.id);
 
-      const result = await api.loto.checkpoint.settleBatch({
+      const baseArgs = {
         checkpointIds,
         totalSales: claimedTotalSales,
         totalCommission: claimedTotalCommission,
         settledAt: new Date().toISOString(),
-        ...(claimedNetSettlement !== 0
+      };
+      const result = await api.loto.checkpoint.settleBatch(
+        claimedNetSettlement !== 0
           ? {
+              ...baseArgs,
               payment: {
                 method: paymentMethod,
                 drawer_name: drawerName,
@@ -76,8 +79,8 @@ export function SettlementDrawerIntegration({
                 amount: claimedNetSettlement,
               },
             }
-          : {}),
-      });
+          : baseArgs,
+      );
 
       if (!result.success) throw new Error(result.error ?? "Settlement failed");
 
