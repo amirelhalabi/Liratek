@@ -128,13 +128,13 @@ jobs:
           flags: frontend
           fail_ci_if_error: false
 
-  # e2e-tests disabled temporarily (slow + flaky while refactoring)
-  # Re-enable once stable by removing the `if: false`.
+  # Launches the real Electron app (IPC + SQLite) via Playwright's _electron.
+  # The Vite dev server is started automatically by playwright.electron.config.ts.
   e2e-tests:
-    if: false
-    name: E2E Tests (disabled)
+    name: E2E Tests (Electron)
     runs-on: ubuntu-latest
     needs: install
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
@@ -145,31 +145,24 @@ jobs:
           path: ${{ env.CI_CACHE_PATHS }}
           key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
 
-      - name: Cache Playwright browsers
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('frontend/package.json') }}
-
-      - name: Install Playwright browsers
-        run: yarn workspace @liratek/frontend exec playwright install --with-deps chromium
-
-      - name: Build backend + frontend
+      - name: Install virtual display + allow Electron sandbox
         run: |
-          yarn workspace @liratek/backend build
-          yarn workspace @liratek/frontend build
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+          # Ubuntu 24.04 AppArmor blocks unprivileged user namespaces, which
+          # Electron's sandbox needs; relax it for this job.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
 
-      - name: Start backend
-        run: yarn workspace @liratek/backend start &
+      - name: Ensure better-sqlite3 is built for Electron
+        run: yarn rebuild:native
 
-      - name: Start frontend (preview)
-        run: yarn workspace @liratek/frontend preview --host 0.0.0.0 --port 5173 &
+      - name: Build core + electron-app
+        run: |
+          yarn workspace @liratek/core build
+          yarn workspace @liratek/electron-app build
 
-      - name: Wait for services
-        run: npx wait-on http://localhost:3000/health http://localhost:5173 --timeout 60000
-
-      - name: Run E2E tests
-        run: yarn workspace @liratek/frontend test:e2e:ci
+      - name: Run Electron E2E tests
+        run: xvfb-run --auto-servernum -- yarn workspace @liratek/frontend test:e2e
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@v4
@@ -178,6 +171,7 @@ jobs:
           name: playwright-report
           path: frontend/playwright-report/
           retention-days: 7
+          if-no-files-found: ignore
 
   build:
     name: Build
