@@ -67,15 +67,16 @@ export function SettlementDrawerIntegration({
         totalSales: claimedTotalSales,
         totalCommission: claimedTotalCommission,
         settledAt: new Date().toISOString(),
-        payment:
-          claimedNetSettlement !== 0
-            ? {
+        ...(claimedNetSettlement !== 0
+          ? {
+              payment: {
                 method: paymentMethod,
                 drawer_name: drawerName,
                 currency_code: "LBP",
                 amount: claimedNetSettlement,
-              }
-            : undefined,
+              },
+            }
+          : {}),
       });
 
       if (!result.success) throw new Error(result.error ?? "Settlement failed");

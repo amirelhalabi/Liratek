@@ -94,7 +94,6 @@ describe("ensureRechargeClient", () => {
       full_name: "Nour",
       phone_number: "03 999 888",
       whatsapp_opt_in: 0,
-      notes: null,
     });
   });
 

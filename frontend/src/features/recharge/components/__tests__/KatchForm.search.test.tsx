@@ -197,6 +197,7 @@ const mockProps = {
   formatAmount: (val: number) => val.toLocaleString(),
   alfaCreditSellRate: 100,
   alfaCreditCostRate: 0.0445,
+  exchangeRate: 90000,
   showHistory: false,
   setShowHistory: jest.fn(),
 };
