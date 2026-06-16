@@ -14,7 +14,14 @@ import { requireRole } from "../session.js";
 import { audit } from "./auditHelper.js";
 import type { RechargeData } from "@liratek/core";
 
-import { RechargeSchema, validatePayload } from "../schemas/index.js";
+import {
+  RechargeSchema,
+  RechargeCustomerTopUpSchema,
+  TopUpFromSupplierSchema,
+  TopUpFromPartnerSchema,
+  TopUpFromClientSchema,
+  validatePayload,
+} from "../schemas/index.js";
 
 export function registerRechargeHandlers(): void {
   const rechargeService = getRechargeService();
@@ -109,9 +116,10 @@ export function registerRechargeHandlers(): void {
           | "Alfa"
           | "OMT_APP"
           | "WHISH_APP"
+          | "OMT_SYSTEM"
+          | "WHISH_SYSTEM"
           | "iPick"
-          | "Katsh"
-          | "BINANCE";
+          | "Katsh";
         amount: number;
         currency: "USD" | "LBP";
         sourceDrawer: string;
@@ -142,6 +150,225 @@ export function registerRechargeHandlers(): void {
           amount: data.amount,
           currency: data.currency,
           sourceDrawer: data.sourceDrawer,
+        },
+      });
+      return result;
+    },
+  );
+
+  // Top up MTC/Alfa drawer with credits bought from a customer:
+  // credits in (provider drawer), cash out (General drawer)
+  ipcMain.handle(
+    "recharge:top-up-customer",
+    (
+      event: IpcMainInvokeEvent,
+      data: {
+        provider: "MTC" | "Alfa";
+        creditsAmount: number;
+        cashPaid: number;
+        cashPaidCurrency: "USD" | "LBP";
+      },
+    ) => {
+      const auth = requireRole(event.sender.id, ["admin", "staff"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+
+      const v = validatePayload(RechargeCustomerTopUpSchema, data);
+      if (!v.ok) return { success: false, error: v.error };
+
+      rechargeLogger.info(
+        {
+          provider: v.data.provider,
+          creditsAmount: v.data.creditsAmount,
+          cashPaid: v.data.cashPaid,
+          cashPaidCurrency: v.data.cashPaidCurrency,
+        },
+        "Processing customer top-up",
+      );
+      const result = rechargeService.topUpFromCustomer({
+        ...v.data,
+        cashPaidCurrency: v.data.cashPaidCurrency ?? "USD",
+        userId: auth.userId,
+      });
+      audit(event.sender.id, {
+        action: "create",
+        entity_type: "recharge_topup",
+        summary: `Customer top-up ${v.data.provider}: +${v.data.creditsAmount} credits, -${v.data.cashPaid} ${v.data.cashPaidCurrency} cash`,
+        metadata: {
+          provider: v.data.provider,
+          creditsAmount: v.data.creditsAmount,
+          cashPaid: v.data.cashPaid,
+          cashPaidCurrency: v.data.cashPaidCurrency,
+        },
+      });
+      return result;
+    },
+  );
+
+  // Top up provider drawer from external cash source (no source drawer deduction)
+  ipcMain.handle(
+    "recharge:top-up-app-external",
+    (
+      event: IpcMainInvokeEvent,
+      data: {
+        provider:
+          | "OMT_APP"
+          | "WHISH_APP"
+          | "OMT_SYSTEM"
+          | "WHISH_SYSTEM"
+          | "iPick"
+          | "Katsh";
+        amount: number;
+        currency: "USD" | "LBP";
+      },
+    ) => {
+      const auth = requireRole(event.sender.id, ["admin", "staff"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+
+      rechargeLogger.info(
+        { provider: data.provider, amount: data.amount, currency: data.currency },
+        "Processing external app top-up",
+      );
+      const result = rechargeService.topUpAppExternal({
+        ...data,
+        userId: auth.userId,
+      });
+      audit(event.sender.id, {
+        action: "create",
+        entity_type: "recharge_topup",
+        summary: `External top-up ${data.provider}: ${data.amount} ${data.currency}`,
+        metadata: { provider: data.provider, amount: data.amount, currency: data.currency },
+      });
+      return result;
+    },
+  );
+
+  // Top up Katsh/iPick drawer via supplier credit (admin and staff)
+  ipcMain.handle(
+    "recharge:top-up-from-supplier",
+    (
+      event: IpcMainInvokeEvent,
+      data: {
+        provider: "iPick" | "Katsh";
+        amount: number;
+        currency: "USD" | "LBP";
+      },
+    ) => {
+      const auth = requireRole(event.sender.id, ["admin", "staff"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+
+      const v = validatePayload(TopUpFromSupplierSchema, data);
+      if (!v.ok) return { success: false, error: v.error };
+
+      rechargeLogger.info(
+        { provider: v.data.provider, amount: v.data.amount, currency: v.data.currency },
+        "Processing supplier top-up",
+      );
+      const result = rechargeService.topUpFromSupplier({
+        ...v.data,
+        userId: auth.userId,
+      });
+      audit(event.sender.id, {
+        action: "create",
+        entity_type: "recharge_topup",
+        summary: `Supplier top-up ${v.data.provider}: ${v.data.amount} ${v.data.currency}`,
+        metadata: {
+          provider: v.data.provider,
+          amount: v.data.amount,
+          currency: v.data.currency,
+        },
+      });
+      return result;
+    },
+  );
+
+  // Top up Whish App drawer via partner credit (admin and staff)
+  ipcMain.handle(
+    "recharge:top-up-from-partner",
+    (
+      event: IpcMainInvokeEvent,
+      data: {
+        provider: "WHISH_APP";
+        partnerId: number;
+        amount: number;
+        currency: "USD" | "LBP";
+      },
+    ) => {
+      const auth = requireRole(event.sender.id, ["admin", "staff"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+
+      const v = validatePayload(TopUpFromPartnerSchema, data);
+      if (!v.ok) return { success: false, error: v.error };
+
+      rechargeLogger.info(
+        {
+          provider: v.data.provider,
+          partnerId: v.data.partnerId,
+          amount: v.data.amount,
+          currency: v.data.currency,
+        },
+        "Processing partner top-up",
+      );
+      const result = rechargeService.topUpFromPartner({
+        ...v.data,
+        userId: auth.userId,
+      });
+      audit(event.sender.id, {
+        action: "create",
+        entity_type: "recharge_topup",
+        summary: `Partner top-up ${v.data.provider}: ${v.data.amount} ${v.data.currency}`,
+        metadata: {
+          provider: v.data.provider,
+          partnerId: v.data.partnerId,
+          amount: v.data.amount,
+          currency: v.data.currency,
+        },
+      });
+      return result;
+    },
+  );
+
+  // Top up Whish App drawer from a client (admin and staff)
+  ipcMain.handle(
+    "recharge:top-up-from-client",
+    (
+      event: IpcMainInvokeEvent,
+      data: {
+        amount: number;
+        cashPaid: number;
+        currency: "USD" | "LBP";
+        clientName?: string;
+        clientId?: number;
+      },
+    ) => {
+      const auth = requireRole(event.sender.id, ["admin", "staff"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+
+      const v = validatePayload(TopUpFromClientSchema, data);
+      if (!v.ok) return { success: false, error: v.error };
+
+      rechargeLogger.info(
+        {
+          amount: v.data.amount,
+          cashPaid: v.data.cashPaid,
+          currency: v.data.currency,
+          clientId: v.data.clientId,
+        },
+        "Processing client top-up",
+      );
+      const result = rechargeService.topUpFromClient({
+        ...v.data,
+        userId: auth.userId,
+      });
+      audit(event.sender.id, {
+        action: "create",
+        entity_type: "recharge_topup",
+        summary: `Client top-up: ${v.data.amount} ${v.data.currency}`,
+        metadata: {
+          amount: v.data.amount,
+          cashPaid: v.data.cashPaid,
+          currency: v.data.currency,
+          clientName: v.data.clientName,
+          clientId: v.data.clientId,
         },
       });
       return result;

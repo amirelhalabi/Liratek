@@ -35,6 +35,7 @@ export function registerVoucherHandlers(): void {
         {
           clientId: v.data.clientId,
           amount: v.data.amount,
+          currency: v.data.currency,
           expiryDate: v.data.expiryDate ?? null,
           note: v.data.note ?? null,
         },

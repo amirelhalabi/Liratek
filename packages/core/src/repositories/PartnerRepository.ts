@@ -101,6 +101,7 @@ export interface CreateLedgerEntryData {
     | "FOR_WHISH_SEND"
     | "FOR_WHISH_RECEIVE"
     | "CUSTOM_SERVICE"
+    | "WHISH_TOPUP"
     | "SETTLEMENT"
     | "ADJUSTMENT";
   reference_table?: string;

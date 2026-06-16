@@ -1008,6 +1008,10 @@ export interface TransactionFiltersParam {
   source_table?: string;
   from?: string;
   to?: string;
+  provider?: string;
+  service_type?: string;
+  has_item_key?: boolean;
+  search?: string;
 }
 
 export async function getRecentTransactions(

@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { DateRangeFilter } from "@/shared/components/DateRangeFilter";
 import { PageHeader } from "@liratek/ui";
 import { Clock, Eye, X, Check, TrendingUp, TrendingDown } from "lucide-react";
 import { DataTable, appEvents } from "@liratek/ui";
@@ -27,7 +28,8 @@ interface CheckpointRecord {
 }
 
 interface CheckpointFilters {
-  date: string;
+  date_from: string;
+  date_to: string;
   type: "OPENING" | "CLOSING" | "CHECKPOINT" | "ALL";
   drawer_name: string;
   user_id?: number;
@@ -40,8 +42,11 @@ function todayISO(): string {
 export default function CheckpointTimeline() {
   const [checkpoints, setCheckpoints] = useState<CheckpointRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [limit, setLimit] = useState(100);
   const [filters, setFilters] = useState<CheckpointFilters>({
-    date: todayISO(),
+    date_from: todayISO(),
+    date_to: todayISO(),
     type: "ALL",
     drawer_name: "",
   });
@@ -91,14 +96,6 @@ export default function CheckpointTimeline() {
     });
   };
 
-  const allCurrencies = useMemo(() => {
-    const currencySet = new Set<string>();
-    checkpoints.forEach((cp) => {
-      cp.currencies.forEach((c) => currencySet.add(c.currency_code));
-    });
-    return Array.from(currencySet).sort();
-  }, [checkpoints]);
-
   const getAggregatedTotals = (checkpoint: CheckpointRecord) => {
     const totals: Record<string, number> = {};
     checkpoint.currencies.forEach((c) => {
@@ -110,25 +107,56 @@ export default function CheckpointTimeline() {
     return totals;
   };
 
+  const CURRENCY_ORDER = ["USD", "USDT", "LBP"];
+
+  const getAmountDisplay = (checkpoint: CheckpointRecord): string => {
+    const totals = getAggregatedTotals(checkpoint);
+    const parts: string[] = [];
+    CURRENCY_ORDER.forEach((code) => {
+      const amount = totals[code];
+      if (!amount) return;
+      if (code === "USD") parts.push(`$${formatCurrency(amount, code)}`);
+      else if (code === "LBP") parts.push(`${formatCurrency(amount, code)} LBP`);
+      else parts.push(`${formatCurrency(amount, code)} ${code}`);
+    });
+    Object.entries(totals).forEach(([code, amount]) => {
+      if (!CURRENCY_ORDER.includes(code) && amount) {
+        parts.push(`${formatCurrency(amount, code)} ${code}`);
+      }
+    });
+    return parts.join(" + ") || "—";
+  };
+
+  const filteredCheckpoints = useMemo(() => {
+    if (!search.trim()) return checkpoints;
+    const q = search.toLowerCase();
+    return checkpoints.filter(
+      (cp) =>
+        cp.drawer_name.toLowerCase().includes(q) ||
+        cp.user_name.toLowerCase().includes(q) ||
+        (cp.notes ?? "").toLowerCase().includes(q),
+    );
+  }, [checkpoints, search]);
+
+  const displayedCheckpoints = useMemo(
+    () => filteredCheckpoints.slice(0, limit),
+    [filteredCheckpoints, limit],
+  );
+
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col gap-6 overflow-auto animate-in fade-in duration-500">
       <PageHeader icon={Clock} title="Checkpoints" />
 
       {/* Timeline Filters */}
       <div>
-        <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">
-          History
-        </h2>
-        <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 flex gap-4 flex-wrap">
-          <div className="flex items-center gap-2">
-            <label className="text-sm text-slate-400">Date:</label>
-            <input
-              type="date"
-              value={filters.date}
-              onChange={(e) => setFilters({ ...filters, date: e.target.value })}
-              className="bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
-            />
-          </div>
+        <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 flex gap-4 flex-wrap items-center">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search drawer, user, notes…"
+            className="bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white text-sm focus:ring-2 focus:ring-violet-600 w-56"
+          />
 
           <select
             value={filters.drawer_name}
@@ -144,6 +172,23 @@ export default function CheckpointTimeline() {
               </option>
             ))}
           </select>
+
+          <DateRangeFilter
+            from={filters.date_from}
+            to={filters.date_to}
+            onFromChange={(v) => setFilters({ ...filters, date_from: v })}
+            onToChange={(v) => setFilters({ ...filters, date_to: v })}
+          />
+
+          <div className="flex items-center gap-2 ml-auto">
+            <label className="text-sm text-slate-400">Rows:</label>
+            <input
+              type="number"
+              value={limit}
+              onChange={(e) => setLimit(Number(e.target.value) || 100)}
+              className="bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white text-sm focus:ring-2 focus:ring-violet-600 w-20"
+            />
+          </div>
         </div>
       </div>
 
@@ -156,30 +201,55 @@ export default function CheckpointTimeline() {
         ) : checkpoints.length === 0 ? (
           <div className="p-8 text-center text-slate-400">
             <Clock size={48} className="mx-auto mb-4 opacity-50" />
-            <p>No checkpoints found for {filters.date}</p>
+            <p>No checkpoints found for {filters.date_from === filters.date_to ? filters.date_from : `${filters.date_from} – ${filters.date_to}`}</p>
           </div>
         ) : (
           <DataTable
             columns={[
               {
                 header: "Time",
-                className: "p-4 border-b border-slate-700 w-24",
+                sortKey: "created_at",
+                width: "100px",
+                className: "p-2 text-xs font-semibold uppercase text-slate-400",
               },
               {
                 header: "Drawer",
-                className: "p-4 border-b border-slate-700 w-36",
+                sortKey: "drawer_name",
+                width: "140px",
+                className: "p-2 text-xs font-semibold uppercase text-slate-400",
               },
-              ...allCurrencies.map((code) => ({
-                header: code,
-                className: "p-4 border-b border-slate-700 text-right w-40",
-              })),
-              { header: "User", className: "p-4 border-b border-slate-700" },
-              { header: "Notes", className: "p-4 border-b border-slate-700" },
-              { header: "", className: "p-4 border-b border-slate-700 w-20" },
+              {
+                header: "Amount",
+                sortKey: "amount",
+                className: "p-2 text-xs font-semibold uppercase text-slate-400",
+              },
+              { header: "User", sortKey: "user_name", width: "120px", className: "p-2 text-xs font-semibold uppercase text-slate-400" },
+              { header: "Notes", sortKey: "notes", className: "p-2 text-xs font-semibold uppercase text-slate-400" },
+              { header: "", width: "80px", className: "p-2 text-xs font-semibold uppercase text-slate-400" },
             ]}
-            data={checkpoints}
+            data={displayedCheckpoints}
             loading={loading}
             emptyMessage="No checkpoints found"
+            exportExcel
+            exportPdf
+            exportFilename="checkpoints"
+            showRowCount
+            totalRowCount={filteredCheckpoints.length}
+            defaultSortKey="created_at"
+            defaultSortDirection="desc"
+            className="w-full text-left"
+            theadClassName="bg-slate-900 text-slate-400 text-xs uppercase"
+            getSortValue={(row, key) => {
+              if (key === "created_at") return new Date(row.created_at).getTime();
+              if (key === "drawer_name") return row.drawer_name;
+              if (key === "user_name") return row.user_name;
+              if (key === "notes") return row.notes ?? "";
+              if (key === "amount") {
+                const totals = getAggregatedTotals(row);
+                return totals["USD"] ?? totals["USDT"] ?? 0;
+              }
+              return "";
+            }}
             renderRow={(checkpoint) => {
               const drawerLabel =
                 DRAWER_CONFIGS[checkpoint.drawer_name as DrawerType]?.label ??
@@ -187,52 +257,36 @@ export default function CheckpointTimeline() {
               return (
                 <tr
                   key={checkpoint.id}
-                  className="hover:bg-slate-700/50 transition-colors"
+                  className="border-t border-slate-800 text-xs hover:bg-slate-700/50 transition-colors"
                 >
-                    <td className="p-4 text-slate-300 font-mono">
-                      {formatTime(checkpoint.created_at)}
-                    </td>
-                    <td className="p-4 text-slate-300 text-sm">
-                      {drawerLabel}
-                    </td>
-                    {allCurrencies.map((code) => {
-                      const totals = getAggregatedTotals(checkpoint);
-                      const total = totals[code] || 0;
-                      if (total === 0) {
-                        return (
-                          <td
-                            key={code}
-                            className="p-4 text-right text-slate-600"
-                          >
-                            -
-                          </td>
-                        );
-                      }
-                      return (
-                        <td key={code} className="p-4 text-right">
-                          <div className="text-emerald-400 font-mono font-medium">
-                            {formatCurrency(total, code)}
-                          </div>
-                        </td>
-                      );
-                    })}
-                    <td className="p-4 text-slate-300">
-                      {checkpoint.user_name}
-                    </td>
-                    <td className="p-4 text-slate-400 italic max-w-xs truncate">
-                      {checkpoint.notes || "-"}
-                    </td>
-                    <td className="p-4 text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <button
-                          onClick={() => setViewCheckpoint(checkpoint)}
-                          className="p-2 hover:bg-slate-700 rounded-lg transition-colors text-slate-400 hover:text-white"
-                          title="View details"
-                        >
-                          <Eye size={16} />
-                        </button>
-                      </div>
-                    </td>
+                  <td className="p-2 text-slate-300 font-mono">
+                    {formatTime(checkpoint.created_at)}
+                  </td>
+                  <td className="p-2 text-slate-300">
+                    {drawerLabel}
+                  </td>
+                  <td className="p-2">
+                    <span className="text-emerald-400 font-mono font-medium">
+                      {getAmountDisplay(checkpoint)}
+                    </span>
+                  </td>
+                  <td className="p-2 text-slate-300">
+                    {checkpoint.user_name}
+                  </td>
+                  <td className="p-2 text-slate-400 italic max-w-xs truncate">
+                    {checkpoint.notes || "—"}
+                  </td>
+                  <td className="p-2 text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      <button
+                        onClick={() => setViewCheckpoint(checkpoint)}
+                        className="p-1.5 hover:bg-slate-700 rounded-lg transition-colors text-slate-400 hover:text-white"
+                        title="View details"
+                      >
+                        <Eye size={14} />
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               );
             }}

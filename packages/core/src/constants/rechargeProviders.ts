@@ -10,9 +10,10 @@ export const TOP_UP_PROVIDERS = [
   "Alfa",
   "OMT_APP",
   "WHISH_APP",
+  "OMT_SYSTEM",
+  "WHISH_SYSTEM",
   "iPick",
   "Katsh",
-  "BINANCE",
 ] as const;
 
 export type TopUpProvider = (typeof TOP_UP_PROVIDERS)[number];
@@ -25,9 +26,10 @@ export const TOP_UP_PROVIDER_DRAWERS: Record<TopUpProvider, string> = {
   Alfa: "Alfa",
   OMT_APP: "OMT_App",
   WHISH_APP: "Whish_App",
+  OMT_SYSTEM: "OMT_System",
+  WHISH_SYSTEM: "Whish_System",
   iPick: "iPick",
   Katsh: "Katsh",
-  BINANCE: "Binance",
 };
 
 /**
@@ -38,9 +40,10 @@ export const TOP_UP_PROVIDER_DEFAULT_SOURCES: Record<TopUpProvider, string> = {
   Alfa: "General",
   OMT_APP: "OMT_System",
   WHISH_APP: "General",
+  OMT_SYSTEM: "General",
+  WHISH_SYSTEM: "General",
   iPick: "General",
   Katsh: "General",
-  BINANCE: "General",
 };
 
 /**
@@ -51,9 +54,10 @@ export const TOP_UP_PROVIDER_LABELS: Record<TopUpProvider, string> = {
   Alfa: "Alfa",
   OMT_APP: "OMT App",
   WHISH_APP: "Whish App",
+  OMT_SYSTEM: "OMT System",
+  WHISH_SYSTEM: "Whish System",
   iPick: "iPick",
   Katsh: "Katsh",
-  BINANCE: "Binance",
 };
 
 /**

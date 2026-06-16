@@ -22,6 +22,7 @@ import { voucherLogger } from "../utils/logger.js";
 export interface CreateVoucherInput {
   clientId: number;
   amount: number;
+  currency?: string;
   expiryDate?: string | null;
   note?: string | null;
 }
@@ -87,6 +88,7 @@ export class VoucherService {
         client_name: client.full_name,
         client_phone: client.phone_number ?? null,
         amount: input.amount,
+        currency_code: input.currency ?? "USD",
         expiry_date: input.expiryDate ?? null,
         note: input.note ?? null,
         created_by: createdBy,

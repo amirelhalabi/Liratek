@@ -738,15 +738,36 @@ export default function MultiPaymentInput({
   return (
     <div data-testid="multi-payment-input" className="bg-slate-900/50 border border-slate-700/50 rounded-2xl overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700/40">
-        <span className="text-sm font-semibold text-slate-200 tracking-wide">
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-700/40">
+        <span className="text-sm font-semibold text-slate-200 tracking-wide shrink-0">
           {isSplitMode ? `${label || "Payment"} Split` : label || "Payment"}
         </span>
+
+        {/* Exchange Rate — centred between title and Split button */}
+        <div className="flex flex-1 items-center justify-center gap-1.5">
+          <span className="text-xs text-slate-500">1 USD =</span>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={fmtNum(customExchangeRate)}
+            onChange={(e) => {
+              const raw = e.target.value.replace(/,/g, "");
+              setCustomExchangeRate(raw);
+              const newRate = parseFloat(raw) || safeExchangeRate;
+              onRateChange?.(newRate);
+              onExchangeRateChange?.(newRate);
+            }}
+            className="w-24 bg-slate-900 border border-slate-600 rounded-lg px-2 py-1 text-white font-mono text-xs text-center focus:outline-none focus:border-violet-500 transition-colors"
+            placeholder={fmtNum(safeExchangeRate)}
+          />
+          <span className="text-xs text-slate-500">LBP</span>
+        </div>
+
         <button
           type="button"
           data-testid="split-toggle"
           onClick={toggleSplitMode}
-          className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full transition-all ${
+          className={`shrink-0 flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full transition-all ${
             isSplitMode
               ? "bg-violet-500/20 text-violet-300 border border-violet-500/40"
               : "bg-slate-800 text-slate-400 border border-slate-600 hover:text-slate-200 hover:border-slate-500"
@@ -783,28 +804,6 @@ export default function MultiPaymentInput({
           )}
         </button>
       </div>
-
-      {/* Exchange Rate (split mode only) */}
-      {isSplitMode && (
-        <div className="flex items-center justify-center gap-2 px-4 py-2 bg-slate-800/40 border-b border-slate-700/30">
-          <span className="text-xs text-slate-500">1 USD =</span>
-          <input
-            type="text"
-            inputMode="decimal"
-            value={fmtNum(customExchangeRate)}
-            onChange={(e) => {
-              const raw = e.target.value.replace(/,/g, "");
-              setCustomExchangeRate(raw);
-              const newRate = parseFloat(raw) || safeExchangeRate;
-              onRateChange?.(newRate);
-              onExchangeRateChange?.(newRate);
-            }}
-            className="w-28 bg-slate-900 border border-slate-600 rounded-lg px-3 py-1 text-white font-mono text-xs text-center focus:outline-none focus:border-violet-500 transition-colors"
-            placeholder={fmtNum(safeExchangeRate)}
-          />
-          <span className="text-xs text-slate-500">LBP</span>
-        </div>
-      )}
 
       {/* Payment Lines */}
       <div className="px-4 py-3 space-y-2">

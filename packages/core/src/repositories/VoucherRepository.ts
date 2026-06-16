@@ -47,6 +47,7 @@ export interface CreateVoucherData {
   client_name: string;
   client_phone: string | null;
   amount: number;
+  currency_code: string;
   expiry_date: string | null;
   note: string | null;
   created_by: number;
@@ -147,7 +148,7 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
       INSERT INTO vouchers (
         code, client_id, client_name, client_phone, amount, currency_code,
         expiry_date, status, note, created_by, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, 'USD', ?, 'pending', ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     `);
     const result = stmt.run(
       data.code,
@@ -155,6 +156,7 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
       data.client_name,
       data.client_phone,
       data.amount,
+      data.currency_code,
       data.expiry_date,
       data.note,
       data.created_by,
@@ -235,10 +237,11 @@ export class VoucherRepository extends BaseRepository<VoucherEntity> {
     }
 
     // Deposit the full face value to the owner's account as credit.
+    const isLbp = voucher.currency_code === "LBP";
     getDebtRepository().addCredit({
       clientId: voucher.client_id,
-      amountUsd: voucher.amount,
-      amountLbp: 0,
+      amountUsd: isLbp ? 0 : voucher.amount,
+      amountLbp: isLbp ? voucher.amount : 0,
       note: `Voucher redeemed ${code}`,
       createdBy: String(userId),
     });

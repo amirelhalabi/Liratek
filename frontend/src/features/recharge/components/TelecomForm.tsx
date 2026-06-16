@@ -22,12 +22,6 @@ import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOver
 import { convertLBPToUSD } from "@/utils/paymentUtils";
 import { useSession } from "@/features/sessions/context/SessionContext";
 
-interface VoucherItem {
-  label: string;
-  cost_lbp: number;
-  sell_lbp: number;
-}
-
 interface TelecomFormProps {
   isMTC: boolean;
   rechargeType: RechargeType;
@@ -60,7 +54,6 @@ interface TelecomFormProps {
   searchClients: (query: string) => void;
   clientSearchResults: any[];
   selectClient: (client: any) => void;
-  resolveVoucherImage: (provider: string, amount: number) => string | null;
   activeProvider: string | null;
   activeConfig: ProviderConfig | undefined;
   handleTelecomSubmit: () => void;
@@ -75,8 +68,9 @@ interface TelecomFormProps {
   setPaymentLines: (lines: PaymentLine[]) => void;
   clientName: string;
   setClientName: (val: string) => void;
-  voucherItems?: VoucherItem[];
   alfaCreditCostRate?: number;
+  telecomDaysCostUsd: string;
+  setTelecomDaysCostUsd: (val: string) => void;
   /** Admin sees cost + profit margin on gift/voucher cards. */
   isAdmin?: boolean;
   onDiscountChange?: (discount: number) => void;
@@ -97,7 +91,7 @@ export function TelecomForm({
   rechargeHistory,
   marginAlertThreshold = 100000,
   telecomAmount,
-  setTelecomAmount,
+  setTelecomAmount: _setTelecomAmount,
   onTelecomAmountChange,
   telecomPrice,
   setTelecomPrice,
@@ -117,9 +111,8 @@ export function TelecomForm({
   searchClients,
   clientSearchResults,
   selectClient,
-  resolveVoucherImage,
-  activeProvider,
-  activeConfig,
+  activeProvider: _activeProvider,
+  activeConfig: _activeConfig,
   handleTelecomSubmit,
   giftTierKey,
   setGiftTierKey,
@@ -132,8 +125,9 @@ export function TelecomForm({
   setPaymentLines,
   clientName,
   setClientName,
-  voucherItems,
   alfaCreditCostRate = 85000,
+  telecomDaysCostUsd,
+  setTelecomDaysCostUsd,
   isAdmin = false,
   onDiscountChange,
   onReturnChange,
@@ -144,6 +138,8 @@ export function TelecomForm({
   const { activeSession } = useSession();
   const [paymentInputKey, setPaymentInputKey] = useState(0);
   const [initialPaymentMethod, setInitialPaymentMethod] = useState("CASH");
+  const [daysPriceCurrency, setDaysPriceCurrency] = useState<"USD" | "LBP">("USD");
+  const [daysPriceUsdInput, setDaysPriceUsdInput] = useState("");
   const [rates, setRates] = useState({ buyRate: 89000, sellRate: 89500 });
   const [costRate, setCostRate] = useState(85000);
   const [discount, setDiscount] = useState(0);
@@ -180,6 +176,12 @@ export function TelecomForm({
   // Alfa Gift is always money IN (customer pays us)
   // So we always use SELL rate
   const exchangeRate = rates.sellRate;
+
+  // Reset Days price currency toggle when switching tabs
+  useEffect(() => {
+    setDaysPriceCurrency("USD");
+    setDaysPriceUsdInput("");
+  }, [rechargeType]);
 
   const handleDiscountChange = (d: number) => {
     setDiscount(d);
@@ -236,15 +238,6 @@ export function TelecomForm({
     },
   );
 
-  const voucherCardItems: CardGridPayItem[] = (voucherItems ?? []).map(
-    (item) => ({
-      id: item.label,
-      label: item.label,
-      costLbp: item.cost_lbp,
-      sellLbp: item.sell_lbp,
-    }),
-  );
-
   const handleCardTransactionTime = (t: string | undefined) => {
     setTransactionTime(t);
     onTransactionTimeChange?.(t);
@@ -263,8 +256,6 @@ export function TelecomForm({
           TELECOM_SERVICE_TYPES.filter((svc) => {
             // Hide Alfa Gift for MTC
             if (svc.id === "ALFA_GIFT" && isMTC) return false;
-            // Hide Voucher for Alfa (Alfa has Alfa Gift instead)
-            if (svc.id === "VOUCHER" && !isMTC) return false;
             return true;
           }) as ServiceTypeOption[]
         }
@@ -300,69 +291,6 @@ export function TelecomForm({
           transactionTime={transactionTime}
           onTransactionTimeChange={handleCardTransactionTime}
         />
-      ) : rechargeType === "VOUCHER" && isMTC ? (
-        /* MTC Voucher — shared card-grid pay flow */
-        <CardGridPayView
-          heading="Select MTC Voucher"
-          items={voucherCardItems}
-          selectedId={telecomAmount || null}
-          onSelect={(item) => setTelecomAmount(item.id)}
-          accent={accent}
-          showProfit={isAdmin}
-          sheetTitle="MTC Voucher Payment"
-          onConfirm={handleTelecomSubmit}
-          isSubmitting={isSubmitting}
-          paymentMethods={methods}
-          clientId={telecomClientId}
-          exchangeRate={exchangeRate}
-          onPaymentChange={handleCardPaymentChange}
-          onDiscountChange={handleDiscountChange}
-          clientName={telecomClientName}
-          onClientNameChange={setTelecomClientName}
-          transactionTime={transactionTime}
-          onTransactionTimeChange={handleCardTransactionTime}
-        />
-      ) : rechargeType === "VOUCHER" ? (
-        /* Voucher Form - Only for MTC (fallback) */
-        <div className="bg-slate-800 rounded-2xl border border-slate-700/50 p-6">
-          <div className="max-w-lg mx-auto space-y-6">
-            <div>
-              <label
-                htmlFor="telecom-amount"
-                className="block text-xs font-medium text-slate-500 mb-2 uppercase tracking-wider"
-              >
-                Amount / Value
-              </label>
-              <div className="relative">
-                <span
-                  className={`absolute left-3 top-1/2 -translate-y-1/2 font-bold text-${accent}-400`}
-                >
-                  $
-                </span>
-                <input
-                  id="telecom-amount"
-                  type="number"
-                  value={telecomAmount}
-                  onChange={(e) => setTelecomAmount(e.target.value)}
-                  className={`w-full bg-slate-900/80 border border-slate-600 rounded-xl pl-9 pr-4 py-3 text-white font-bold focus:outline-none focus:border-${accent}-500 focus:ring-1 focus:ring-${accent}-500/30 transition-all`}
-                  placeholder="0.00"
-                />
-              </div>
-            </div>
-
-            <button
-              onClick={handleTelecomSubmit}
-              disabled={isSubmitting || !telecomAmount}
-              className={`w-full py-4 rounded-xl font-bold text-lg text-white shadow-lg active:scale-[0.98] transition-all flex items-center justify-center gap-2 ${
-                isSubmitting || !telecomAmount
-                  ? "bg-slate-600 cursor-not-allowed"
-                  : `bg-${accent}-600 hover:bg-${accent}-500`
-              }`}
-            >
-              {isSubmitting ? "Processing..." : "Confirm Voucher Sale"}
-            </button>
-          </div>
-        </div>
       ) : (
         /* Recharge Form */
         <div className="flex flex-col gap-3 flex-1">
@@ -422,6 +350,40 @@ export function TelecomForm({
                 </div>
               </div>
             )}
+            {rechargeType === "DAYS" && (
+              <div className="flex-1">
+                <span
+                  aria-hidden="true"
+                  className="block text-xs font-medium text-slate-500 mb-3 uppercase tracking-wider"
+                >
+                  Quick Days
+                </span>
+                <div className="grid grid-cols-4 gap-3">
+                  {[
+                    { days: 10, label: "10d" },
+                    { days: 20, label: "20d" },
+                    { days: 30, label: "1mo" },
+                    { days: 60, label: "2mo" },
+                    { days: 90, label: "3mo" },
+                    { days: 120, label: "4mo" },
+                    { days: 180, label: "6mo" },
+                    { days: 360, label: "12mo" },
+                  ].map(({ days, label }) => (
+                    <button
+                      key={days}
+                      onClick={() => handleQuickAmount(days)}
+                      className={`py-4 rounded-xl font-bold text-base transition-all border ${
+                        telecomAmount === days.toString()
+                          ? `bg-${accent}-500/15 text-${accent}-400 border-${accent}-500/40 shadow-lg`
+                          : "bg-slate-900/50 border-slate-700 text-slate-400 hover:border-slate-500 hover:text-white"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
           <div className="col-span-5 bg-slate-800 rounded-2xl border border-slate-700/50 p-6 flex flex-col gap-5">
             <div>
@@ -429,75 +391,167 @@ export function TelecomForm({
                 htmlFor="telecom-amount"
                 className="block text-xs font-medium text-slate-500 mb-2 uppercase tracking-wider"
               >
-                Amount / Value
+                {rechargeType === "DAYS" ? "Days" : "Amount / Value"}
               </label>
               <div className="relative">
-                <span
-                  className={`absolute left-3 top-1/2 -translate-y-1/2 font-bold text-${accent}-400`}
-                >
-                  $
-                </span>
+                {rechargeType !== "DAYS" && (
+                  <span
+                    className={`absolute left-3 top-1/2 -translate-y-1/2 font-bold text-${accent}-400`}
+                  >
+                    $
+                  </span>
+                )}
                 <input
                   id="telecom-amount"
                   type="number"
                   value={telecomAmount}
                   onChange={(e) => onTelecomAmountChange(e.target.value)}
-                  className={`w-full bg-slate-900/80 border border-slate-600 rounded-xl pl-9 pr-4 py-3 text-white font-bold focus:outline-none focus:border-${accent}-500 focus:ring-1 focus:ring-${accent}-500/30 transition-all`}
-                  placeholder="0.00"
+                  className={`w-full bg-slate-900/80 border border-slate-600 rounded-xl ${rechargeType !== "DAYS" ? "pl-9" : "pl-4"} pr-4 py-3 text-white font-bold focus:outline-none focus:border-${accent}-500 focus:ring-1 focus:ring-${accent}-500/30 transition-all`}
+                  placeholder={rechargeType === "DAYS" ? "0" : "0.00"}
                 />
               </div>
             </div>
+
+            {/* Cost field — manual entry for Days type */}
+            {rechargeType === "DAYS" && (
+              <div>
+                <label
+                  htmlFor="telecom-days-cost"
+                  className="block text-xs font-medium text-slate-500 mb-2 uppercase tracking-wider"
+                >
+                  Cost ($)
+                </label>
+                <div className="relative mb-1.5">
+                  <span
+                    className={`absolute left-3 top-1/2 -translate-y-1/2 font-bold text-${accent}-400`}
+                  >
+                    $
+                  </span>
+                  <input
+                    id="telecom-days-cost"
+                    type="number"
+                    value={telecomDaysCostUsd}
+                    onChange={(e) => setTelecomDaysCostUsd(e.target.value)}
+                    className={`w-full bg-slate-900/80 border border-slate-600 rounded-xl pl-9 pr-4 py-3 text-white font-bold focus:outline-none focus:border-${accent}-500 focus:ring-1 focus:ring-${accent}-500/30 transition-all`}
+                    placeholder="0.00"
+                    min="0"
+                    step="0.1"
+                  />
+                </div>
+                <div className="text-xs text-slate-500 font-mono pl-1">
+                  {parseFloat(telecomDaysCostUsd) > 0
+                    ? `≈ ${(parseFloat(telecomDaysCostUsd) * alfaCreditCostRate).toLocaleString()} LBP`
+                    : ""}
+                </div>
+              </div>
+            )}
 
             {/* Dual-currency price display */}
             <div>
-              <label
-                className="block text-xs font-medium text-slate-500 mb-2 uppercase tracking-wider"
-              >
-                Price to Client
-              </label>
-              {/* LBP field — editable */}
-              <div className="relative mb-2">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-emerald-400 text-xs">
-                  LBP
-                </span>
-                <input
-                  id="telecom-price"
-                  type="text"
-                  inputMode="decimal"
-                  value={
-                    telecomPrice ? Number(telecomPrice).toLocaleString() : ""
-                  }
-                  onChange={(e) => {
-                    const cleaned = e.target.value.replace(/,/g, "");
-                    if (/^[0-9]*\.?[0-9]*$/.test(cleaned)) {
-                      setTelecomPrice(cleaned);
-                    }
-                  }}
-                  className="w-full bg-slate-900/80 border border-slate-600 rounded-xl pl-14 pr-4 py-3 text-emerald-400 font-bold focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30 transition-all"
-                  placeholder="0"
-                />
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs font-medium text-slate-500 uppercase tracking-wider">
+                  Price to Client
+                </label>
+                {rechargeType === "DAYS" && (
+                  <div className="flex items-center gap-1 bg-slate-900 rounded-lg border border-slate-600 p-0.5">
+                    {(["USD", "LBP"] as const).map((cur) => (
+                      <button
+                        key={cur}
+                        type="button"
+                        onClick={() => {
+                          if (cur === daysPriceCurrency) return;
+                          setDaysPriceCurrency(cur);
+                          setDaysPriceUsdInput("");
+                          setTelecomPrice("");
+                        }}
+                        className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all ${
+                          daysPriceCurrency === cur
+                            ? `bg-${accent}-600 text-white`
+                            : "text-slate-400 hover:text-slate-200"
+                        }`}
+                      >
+                        {cur}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
-              {/* USD equivalent — read-only, computed from LBP / exchangeRate */}
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-slate-400 text-xs">
-                  USD
-                </span>
-                <div className="w-full bg-slate-900/40 border border-slate-700/50 rounded-xl pl-14 pr-4 py-3 text-slate-300 font-bold font-mono text-sm select-none">
-                  {telecomPrice && exchangeRate > 0
-                    ? `$${convertLBPToUSD(parseFloat(telecomPrice), exchangeRate).toFixed(2)}`
-                    : "$0.00"}
-                </div>
-              </div>
+
+              {rechargeType === "DAYS" && daysPriceCurrency === "USD" ? (
+                <>
+                  <div className="relative mb-1.5">
+                    <span className={`absolute left-3 top-1/2 -translate-y-1/2 font-bold text-${accent}-400`}>
+                      $
+                    </span>
+                    <input
+                      id="telecom-price"
+                      type="number"
+                      value={daysPriceUsdInput}
+                      onChange={(e) => {
+                        setDaysPriceUsdInput(e.target.value);
+                        const num = parseFloat(e.target.value);
+                        setTelecomPrice(num > 0 ? (num * exchangeRate).toString() : "");
+                      }}
+                      className={`w-full bg-slate-900/80 border border-slate-600 rounded-xl pl-9 pr-4 py-3 text-white font-bold focus:outline-none focus:border-${accent}-500 focus:ring-1 focus:ring-${accent}-500/30 transition-all`}
+                      placeholder="0.00"
+                    />
+                  </div>
+                  <div className="text-xs text-slate-500 font-mono pl-1">
+                    {parseFloat(daysPriceUsdInput) > 0
+                      ? `≈ ${(parseFloat(daysPriceUsdInput) * exchangeRate).toLocaleString()} LBP`
+                      : ""}
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* LBP field — editable */}
+                  <div className="relative mb-2">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-emerald-400 text-xs">
+                      LBP
+                    </span>
+                    <input
+                      id="telecom-price"
+                      type="text"
+                      inputMode="decimal"
+                      value={telecomPrice ? Number(telecomPrice).toLocaleString() : ""}
+                      onChange={(e) => {
+                        const cleaned = e.target.value.replace(/,/g, "");
+                        if (/^[0-9]*\.?[0-9]*$/.test(cleaned)) {
+                          setTelecomPrice(cleaned);
+                        }
+                      }}
+                      className="w-full bg-slate-900/80 border border-slate-600 rounded-xl pl-14 pr-4 py-3 text-emerald-400 font-bold focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30 transition-all"
+                      placeholder="0"
+                    />
+                  </div>
+                  {/* USD equivalent — read-only */}
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-slate-400 text-xs">
+                      USD
+                    </span>
+                    <div className="w-full bg-slate-900/40 border border-slate-700/50 rounded-xl pl-14 pr-4 py-3 text-slate-300 font-bold font-mono text-sm select-none">
+                      {telecomPrice && exchangeRate > 0
+                        ? `$${convertLBPToUSD(parseFloat(telecomPrice), exchangeRate).toFixed(2)}`
+                        : "$0.00"}
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
 
-            {telecomAmount && telecomPrice && (
+            {telecomPrice &&
+              (rechargeType === "DAYS"
+                ? parseFloat(telecomDaysCostUsd) > 0
+                : !!telecomAmount) && (
               <div className="bg-slate-900/60 rounded-xl p-3 border border-slate-700/50">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-slate-400">Profit</span>
                   <span
                     className={`font-bold font-mono ${
                       parseFloat(telecomPrice) -
-                        parseFloat(telecomAmount) * alfaCreditCostRate >=
+                        (rechargeType === "DAYS"
+                          ? parseFloat(telecomDaysCostUsd) * alfaCreditCostRate
+                          : parseFloat(telecomAmount) * alfaCreditCostRate) >=
                       0
                         ? "text-emerald-400"
                         : "text-red-400"
@@ -505,7 +559,9 @@ export function TelecomForm({
                   >
                     {(
                       parseFloat(telecomPrice || "0") -
-                      parseFloat(telecomAmount || "0") * alfaCreditCostRate
+                      (rechargeType === "DAYS"
+                        ? parseFloat(telecomDaysCostUsd || "0") * alfaCreditCostRate
+                        : parseFloat(telecomAmount || "0") * alfaCreditCostRate)
                     ).toLocaleString()}{" "}
                     LBP
                   </span>
@@ -545,46 +601,20 @@ export function TelecomForm({
               </div>
             </div>
 
-            {/* Voucher Image Preview */}
-            {rechargeType === ("VOUCHER" as RechargeType) &&
-              telecomAmount &&
-              (() => {
-                const imgPath = resolveVoucherImage(
-                  activeProvider || "",
-                  parseFloat(telecomAmount),
-                );
-                if (!imgPath) return null;
-                return (
-                  <div className="flex items-center gap-3 bg-slate-900/60 rounded-xl p-3 border border-slate-700/50">
-                    <img
-                      src={imgPath}
-                      alt={`${activeConfig?.label} ${telecomAmount} voucher`}
-                      className="w-24 h-16 object-contain rounded-lg border border-slate-600 bg-white/5"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-white">
-                        {activeConfig?.label} Voucher
-                      </p>
-                      <p className={`text-sm font-mono ${activeConfig?.color}`}>
-                        ${telecomAmount}
-                      </p>
-                    </div>
-                  </div>
-                );
-              })()}
-
             {/* Payment Sheet */}
             <PaymentSheet
               open={sheetOpen}
               onClose={() => setSheetOpen(false)}
               onConfirm={handleTelecomSubmit}
               isSubmitting={isSubmitting}
-              title={`${isMTC ? "MTC" : "Alfa"} ${rechargeType === "CREDIT_TRANSFER" ? "Credit Transfer" : "Voucher"}`}
+              title={`${isMTC ? "MTC" : "Alfa"} ${rechargeType === "DAYS" ? "Days" : "Credit Transfer"}`}
               accentColor={`bg-${accent}-600 hover:bg-${accent}-500 text-white`}
               totalAmount={
                 telecomPrice
                   ? parseFloat(telecomPrice)
-                  : parseFloat(telecomAmount || "0") * alfaCreditCostRate
+                  : rechargeType === "DAYS"
+                    ? 0
+                    : parseFloat(telecomAmount || "0") * alfaCreditCostRate
               }
               totalAmountCurrency="LBP"
               currency="LBP"
@@ -596,7 +626,9 @@ export function TelecomForm({
               maxDiscount={Math.max(
                 0,
                 (telecomPrice ? parseFloat(telecomPrice) : 0) -
-                  parseFloat(telecomAmount || "0") * alfaCreditCostRate,
+                  (rechargeType === "DAYS"
+                    ? parseFloat(telecomDaysCostUsd || "0") * alfaCreditCostRate
+                    : parseFloat(telecomAmount || "0") * alfaCreditCostRate),
               )}
               onPaymentChange={(lines) => {
                 setPaymentLines(lines);
@@ -610,7 +642,12 @@ export function TelecomForm({
               paymentInputKey={paymentInputKey}
               initialPaymentMethod={initialPaymentMethod}
               summary={[
-                { label: "Amount", value: `$${telecomAmount || "0"}` },
+                {
+                  label: rechargeType === "DAYS" ? "Days" : "Amount",
+                  value: rechargeType === "DAYS"
+                    ? `${telecomAmount || "0"} days`
+                    : `$${telecomAmount || "0"}`,
+                },
                 {
                   label: "Price",
                   value: `${(telecomPrice ? parseFloat(telecomPrice) : parseFloat(telecomAmount || "0") * alfaCreditCostRate).toLocaleString()} LBP`,
@@ -762,15 +799,23 @@ export function TelecomForm({
                   </div>
                 )}
                 <div className={`text-xs text-${accent}-400 font-mono font-semibold`}>
-                  ${telecomAmount}
+                  {rechargeType === "DAYS" ? `${telecomAmount} days` : `$${telecomAmount}`}
                 </div>
               </div>
             )}
             <button
               onClick={() => setSheetOpen(true)}
-              disabled={isSubmitting || !telecomAmount}
+              disabled={
+                isSubmitting ||
+                !telecomAmount ||
+                (rechargeType === "DAYS" &&
+                  (!(parseFloat(telecomDaysCostUsd) > 0) || !telecomPrice))
+              }
               className={`px-4 py-2.5 rounded-lg font-bold text-sm transition-all whitespace-nowrap flex items-center gap-1.5 ${
-                isSubmitting || !telecomAmount
+                isSubmitting ||
+                !telecomAmount ||
+                (rechargeType === "DAYS" &&
+                  (!(parseFloat(telecomDaysCostUsd) > 0) || !telecomPrice))
                   ? "bg-slate-600 text-slate-400 cursor-not-allowed"
                   : `bg-${accent}-600 hover:bg-${accent}-500 text-white shadow-lg shadow-${accent}-500/20`
               }`}

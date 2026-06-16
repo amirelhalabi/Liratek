@@ -248,6 +248,54 @@ html:not(.dark) .shadow-inner {
   box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.04) !important;
 }
 
+/* === COLORED ACCENTS (fintech card design — preserve in light mode) === */
+
+/* Left-border color accents */
+html:not(.dark) .border-l-blue-500    { border-left-color: rgb(59 130 246)   !important; }
+html:not(.dark) .border-l-violet-500  { border-left-color: rgb(139 92 246)   !important; }
+html:not(.dark) .border-l-emerald-500 { border-left-color: rgb(16 185 129)   !important; }
+html:not(.dark) .border-l-green-500   { border-left-color: rgb(34 197 94)    !important; }
+html:not(.dark) .border-l-lime-500    { border-left-color: rgb(132 204 22)   !important; }
+html:not(.dark) .border-l-sky-500     { border-left-color: rgb(14 165 233)   !important; }
+html:not(.dark) .border-l-rose-500    { border-left-color: rgb(244 63 94)    !important; }
+html:not(.dark) .border-l-red-500     { border-left-color: rgb(239 68 68)    !important; }
+html:not(.dark) .border-l-orange-500  { border-left-color: rgb(249 115 22)   !important; }
+html:not(.dark) .border-l-amber-500   { border-left-color: rgb(245 158 11)   !important; }
+html:not(.dark) .border-l-yellow-500  { border-left-color: rgb(234 179 8)    !important; }
+html:not(.dark) .border-l-fuchsia-500 { border-left-color: rgb(217 70 239)   !important; }
+html:not(.dark) .border-l-slate-500   { border-left-color: rgb(100 116 139)  !important; }
+
+/* Hover border color accents */
+html:not(.dark) .hover\:border-blue-500\/50:hover    { border-color: rgba(59, 130, 246, 0.5)   !important; }
+html:not(.dark) .hover\:border-violet-500\/50:hover  { border-color: rgba(139, 92, 246, 0.5)   !important; }
+html:not(.dark) .hover\:border-emerald-500\/50:hover { border-color: rgba(16, 185, 129, 0.5)   !important; }
+html:not(.dark) .hover\:border-green-500\/50:hover   { border-color: rgba(34, 197, 94, 0.5)    !important; }
+html:not(.dark) .hover\:border-lime-500\/50:hover    { border-color: rgba(132, 204, 22, 0.5)   !important; }
+html:not(.dark) .hover\:border-sky-500\/50:hover     { border-color: rgba(14, 165, 233, 0.5)   !important; }
+html:not(.dark) .hover\:border-rose-500\/50:hover    { border-color: rgba(244, 63, 94, 0.5)    !important; }
+html:not(.dark) .hover\:border-red-500\/50:hover     { border-color: rgba(239, 68, 68, 0.5)    !important; }
+html:not(.dark) .hover\:border-orange-500\/50:hover  { border-color: rgba(249, 115, 22, 0.5)   !important; }
+html:not(.dark) .hover\:border-amber-500\/50:hover   { border-color: rgba(245, 158, 11, 0.5)   !important; }
+html:not(.dark) .hover\:border-yellow-500\/50:hover  { border-color: rgba(234, 179, 8, 0.5)    !important; }
+html:not(.dark) .hover\:border-fuchsia-500\/50:hover { border-color: rgba(217, 70, 239, 0.5)   !important; }
+html:not(.dark) .hover\:border-slate-500\/50:hover   { border-color: rgba(100, 116, 139, 0.5)  !important; }
+
+/* Hover colored shadows — these have higher specificity (:hover pseudo-class) so they
+   beat the !important shadow-lg override above and show the accent glow on hover */
+html:not(.dark) .hover\:shadow-blue-500\/20:hover    { box-shadow: 0 8px 24px -4px rgba(59, 130, 246, 0.3)   !important; }
+html:not(.dark) .hover\:shadow-violet-500\/20:hover  { box-shadow: 0 8px 24px -4px rgba(139, 92, 246, 0.3)   !important; }
+html:not(.dark) .hover\:shadow-emerald-500\/20:hover { box-shadow: 0 8px 24px -4px rgba(16, 185, 129, 0.3)   !important; }
+html:not(.dark) .hover\:shadow-green-500\/20:hover   { box-shadow: 0 8px 24px -4px rgba(34, 197, 94, 0.3)    !important; }
+html:not(.dark) .hover\:shadow-lime-500\/20:hover    { box-shadow: 0 8px 24px -4px rgba(132, 204, 22, 0.3)   !important; }
+html:not(.dark) .hover\:shadow-sky-500\/20:hover     { box-shadow: 0 8px 24px -4px rgba(14, 165, 233, 0.3)   !important; }
+html:not(.dark) .hover\:shadow-rose-500\/20:hover    { box-shadow: 0 8px 24px -4px rgba(244, 63, 94, 0.3)    !important; }
+html:not(.dark) .hover\:shadow-red-500\/20:hover     { box-shadow: 0 8px 24px -4px rgba(239, 68, 68, 0.3)    !important; }
+html:not(.dark) .hover\:shadow-orange-500\/20:hover  { box-shadow: 0 8px 24px -4px rgba(249, 115, 22, 0.3)   !important; }
+html:not(.dark) .hover\:shadow-amber-500\/20:hover   { box-shadow: 0 8px 24px -4px rgba(245, 158, 11, 0.3)   !important; }
+html:not(.dark) .hover\:shadow-yellow-500\/20:hover  { box-shadow: 0 8px 24px -4px rgba(234, 179, 8, 0.3)    !important; }
+html:not(.dark) .hover\:shadow-fuchsia-500\/20:hover { box-shadow: 0 8px 24px -4px rgba(217, 70, 239, 0.3)   !important; }
+html:not(.dark) .hover\:shadow-slate-500\/20:hover   { box-shadow: 0 8px 24px -4px rgba(100, 116, 139, 0.15) !important; }
+
 /* === SCROLLBAR === */
 ::-webkit-scrollbar {
   width: 4px;
@@ -274,6 +322,18 @@ html:not(.dark) ::-webkit-scrollbar-thumb:hover {
 }
 .dark ::-webkit-scrollbar-thumb:hover {
   background: #475569;
+}
+
+/* === DATE PICKER CALENDAR ICON === */
+/* Dark mode: invert the browser's dark icon to slate-300 white */
+.dark input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(1) opacity(0.7);
+  cursor: pointer;
+}
+/* Light mode: keep the native dark icon as-is (already correct) */
+html:not(.dark) input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: none;
+  cursor: pointer;
 }
 
 /* === MISC === */

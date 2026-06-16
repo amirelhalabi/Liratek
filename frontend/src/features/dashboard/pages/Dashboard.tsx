@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   Plus,
   ClipboardCheck,
+  Banknote,
 } from "lucide-react";
 import { DrawerTopUpModal } from "../components/DrawerTopUpModal";
 import { useCurrencyContext } from "@/contexts/CurrencyContext";
@@ -338,8 +339,36 @@ export default function Dashboard() {
     MTC: () => isModuleEnabled("recharge"),
     Alfa: () => isModuleEnabled("recharge"),
     iPick: () => isModuleEnabled("ipec_katch"),
-    Katsh: () => false, // Katsh drawer is internal cost-tracking only — never show on dashboard
+    Katsh: () => isModuleEnabled("ipec_katch"),
   };
+
+  const DRAWER_COLORS: Record<string, { label: string; btn: string; borderL: string; glow: string; hoverShadow: string }> = {
+    General:      { label: "text-blue-400",    btn: "text-blue-400    hover:text-white hover:bg-slate-700", borderL: "border-l-blue-500",    glow: "bg-blue-500",    hoverShadow: "hover:shadow-blue-500/20 hover:border-blue-500/50" },
+    OMT_System:   { label: "text-green-400",   btn: "text-green-400   hover:text-white hover:bg-slate-700", borderL: "border-l-green-500",   glow: "bg-green-500",   hoverShadow: "hover:shadow-green-500/20 hover:border-green-500/50" },
+    OMT_App:      { label: "text-lime-400",    btn: "text-lime-400    hover:text-white hover:bg-slate-700", borderL: "border-l-lime-500",    glow: "bg-lime-500",    hoverShadow: "hover:shadow-lime-500/20 hover:border-lime-500/50" },
+    Whish_App:    { label: "text-emerald-400", btn: "text-emerald-400 hover:text-white hover:bg-slate-700", borderL: "border-l-emerald-500", glow: "bg-emerald-500", hoverShadow: "hover:shadow-emerald-500/20 hover:border-emerald-500/50" },
+    Whish_System: { label: "text-fuchsia-400", btn: "text-fuchsia-400 hover:text-white hover:bg-slate-700", borderL: "border-l-fuchsia-500", glow: "bg-fuchsia-500", hoverShadow: "hover:shadow-fuchsia-500/20 hover:border-fuchsia-500/50" },
+    Binance:      { label: "text-yellow-400",  btn: "text-yellow-400  hover:text-white hover:bg-slate-700", borderL: "border-l-yellow-500",  glow: "bg-yellow-500",  hoverShadow: "hover:shadow-yellow-500/20 hover:border-yellow-500/50" },
+    MTC:          { label: "text-orange-400",  btn: "text-orange-400  hover:text-white hover:bg-slate-700", borderL: "border-l-orange-500",  glow: "bg-orange-500",  hoverShadow: "hover:shadow-orange-500/20 hover:border-orange-500/50" },
+    Alfa:         { label: "text-red-400",     btn: "text-red-400     hover:text-white hover:bg-slate-700", borderL: "border-l-red-500",     glow: "bg-red-500",     hoverShadow: "hover:shadow-red-500/20 hover:border-red-500/50" },
+    iPick:        { label: "text-sky-400",     btn: "text-sky-400     hover:text-white hover:bg-slate-700", borderL: "border-l-sky-500",     glow: "bg-sky-500",     hoverShadow: "hover:shadow-sky-500/20 hover:border-sky-500/50" },
+    Katsh:        { label: "text-amber-400",   btn: "text-amber-400   hover:text-white hover:bg-slate-700", borderL: "border-l-amber-500",   glow: "bg-amber-500",   hoverShadow: "hover:shadow-amber-500/20 hover:border-amber-500/50" },
+  };
+  const DRAWER_COLOR_DEFAULT = { label: "text-slate-400", btn: "text-slate-400 hover:text-white hover:bg-slate-700", borderL: "border-l-violet-500", glow: "bg-violet-500", hoverShadow: "hover:shadow-violet-500/20 hover:border-violet-500/50" };
+
+  type CardAccent = { labelColor: string; borderL: string; glow: string; hoverShadow: string };
+  const FINANCIAL_ACCENTS: Record<string, CardAccent> = {
+    "Sales Revenue (Today)":  { labelColor: "text-violet-400",  borderL: "border-l-violet-500",  glow: "bg-violet-500",  hoverShadow: "hover:shadow-violet-500/20 hover:border-violet-500/50" },
+    "Cash Collected (Today)": { labelColor: "text-emerald-400", borderL: "border-l-emerald-500", glow: "bg-emerald-500", hoverShadow: "hover:shadow-emerald-500/20 hover:border-emerald-500/50" },
+    "Orders Processed":       { labelColor: "text-sky-400",     borderL: "border-l-sky-500",     glow: "bg-sky-500",     hoverShadow: "hover:shadow-sky-500/20 hover:border-sky-500/50" },
+    "Total Debt":             { labelColor: "text-rose-400",    borderL: "border-l-rose-500",    glow: "bg-rose-500",    hoverShadow: "hover:shadow-rose-500/20 hover:border-rose-500/50" },
+  };
+  const STOCK_ACCENTS: Record<string, CardAccent> = {
+    "Stock Budget":       { labelColor: "text-amber-400", borderL: "border-l-amber-500", glow: "bg-amber-500", hoverShadow: "hover:shadow-amber-500/20 hover:border-amber-500/50" },
+    "Stock Count":        { labelColor: "text-cyan-400",  borderL: "border-l-cyan-500",  glow: "bg-cyan-500",  hoverShadow: "hover:shadow-cyan-500/20 hover:border-cyan-500/50" },
+    "Monthly Net Profit": { labelColor: "text-green-400", borderL: "border-l-green-500", glow: "bg-green-500", hoverShadow: "hover:shadow-green-500/20 hover:border-green-500/50" },
+  };
+  const ACCENT_DEFAULT: CardAccent = { labelColor: "text-slate-400", borderL: "border-l-slate-500", glow: "bg-slate-500", hoverShadow: "hover:shadow-slate-500/20 hover:border-slate-500/50" };
 
   // Drawer Balances (Row 2) — dynamic from drawer_balances table
   // Filter out drawers whose associated module/PM is disabled
@@ -388,38 +417,83 @@ export default function Dashboard() {
         <div className="flex-1 min-h-0 overflow-auto space-y-6">
           {/* Financial Metrics */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {financialCards.map((stat) => (
-              <div
-                key={stat.label}
-                className="bg-slate-800 p-4 rounded-xl border border-slate-700/50 shadow-lg hover:border-slate-600 transition-colors"
-              >
-                <h3 className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">
-                  {stat.label}
-                </h3>
-
-                {stat.singleValue && (
-                  <p className="text-xl font-bold text-white">
-                    {stat.singleValue}
-                  </p>
-                )}
-
-                {stat.usdValue !== undefined && stat.lbpValue !== undefined && (
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1">
-                      <p className="text-base font-bold text-emerald-400">
-                        {formatAmount(stat.usdValue, "USD")}
-                      </p>
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-base font-bold text-violet-400 text-right">
-                        {formatAmount(stat.lbpValue, "LBP")}
-                      </p>
-                    </div>
+            {financialCards.map((stat) => {
+              const accent = FINANCIAL_ACCENTS[stat.label] ?? ACCENT_DEFAULT;
+              return (
+                <div
+                  key={stat.label}
+                  className={`relative bg-slate-800 p-4 rounded-xl border border-slate-700/40 border-l-2 ${accent.borderL} shadow-lg ${accent.hoverShadow} hover:shadow-xl transition-all duration-200 overflow-hidden`}
+                >
+                  <div className={`absolute -top-5 -right-5 w-20 h-20 rounded-full blur-2xl opacity-15 pointer-events-none ${accent.glow}`} />
+                  <div className="relative">
+                    <h3 className={`text-xs font-bold uppercase tracking-wider mb-2 ${accent.labelColor}`}>
+                      {stat.label}
+                    </h3>
+                    {stat.singleValue && (
+                      <p className="text-xl font-bold text-white">{stat.singleValue}</p>
+                    )}
+                    {stat.usdValue !== undefined && stat.lbpValue !== undefined && (
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1">
+                          <p className="text-base font-bold text-emerald-400">
+                            {formatAmount(stat.usdValue, "USD")}
+                          </p>
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-base font-bold text-violet-400 text-right">
+                            {formatAmount(stat.lbpValue, "LBP")}
+                          </p>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            ))}
+                </div>
+              );
+            })}
           </div>
+
+          {/* Cash on Hand — compact strip */}
+          {(drawerBalances["General"] || drawerBalances["OMT_System"]) && (
+            <div className="flex items-stretch bg-slate-800 rounded-xl border border-slate-700/40 border-l-2 border-l-emerald-500 shadow-lg hover:shadow-emerald-500/20 hover:shadow-xl hover:border-emerald-500/50 transition-all duration-200 overflow-hidden self-start">
+              <div className="flex items-center gap-2 px-4 bg-slate-900/50 border-r border-slate-700/60 shrink-0">
+                <Banknote size={13} className="text-emerald-400" />
+                <span className="text-[11px] font-semibold uppercase tracking-widest text-slate-400">
+                  Cash on Hand
+                </span>
+              </div>
+              {(["General", "OMT_System"] as const).map((key, i) => {
+                const raw = drawerBalances[key];
+                const label = key === "General" ? "General" : "OMT System";
+                const nonZero = raw
+                  ? Object.fromEntries(Object.entries(raw).filter(([, v]) => v !== 0))
+                  : null;
+                const display = nonZero && Object.keys(nonZero).length > 0 ? nonZero : raw;
+                return (
+                  <div
+                    key={key}
+                    className={`px-5 py-3 ${i < 1 ? "border-r border-slate-700/60" : ""}`}
+                  >
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-500 mb-1">
+                      {label}
+                    </p>
+                    {display ? (
+                      <div className="flex items-baseline gap-3 flex-wrap">
+                        {Object.entries(display)
+                          .sort(([a], [b]) => CURRENCY_ORDER(a) - CURRENCY_ORDER(b))
+                          .map(([code, amount]) => (
+                            <span key={code} className="text-sm font-bold text-emerald-400">
+                              {formatAmount(amount, code)}
+                            </span>
+                          ))}
+                      </div>
+                    ) : (
+                      <span className="text-xs text-slate-500">—</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           {/* Drawer Balances — separate section */}
           {drawerCards.length > 0 && (
@@ -437,69 +511,66 @@ export default function Dashboard() {
                   Top Up
                 </button>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                {drawerCards.map((stat) => (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                {drawerCards.map((stat) => {
+                  const accent = DRAWER_COLORS[stat.name] ?? DRAWER_COLOR_DEFAULT;
+                  return (
                   <div
                     key={stat.label}
-                    className="bg-slate-800 p-4 rounded-xl border border-slate-700/50 shadow-lg hover:border-slate-600 transition-colors"
+                    className={`relative bg-slate-800 rounded-xl border border-slate-700/40 border-l-2 ${accent.borderL} shadow-lg ${accent.hoverShadow} hover:shadow-xl transition-all duration-200 overflow-hidden`}
                   >
-                    <div className="flex items-start justify-between gap-2 mb-2">
-                      <div className="min-w-0">
-                        <h3 className="text-slate-500 text-xs font-medium uppercase tracking-wider">
+                    {/* Corner glow orb */}
+                    <div className={`absolute -top-5 -right-5 w-20 h-20 rounded-full blur-2xl opacity-15 pointer-events-none ${accent.glow}`} />
+
+                    <div className="relative p-3">
+                      <div className="flex items-center justify-between gap-1 mb-1">
+                        <h3 className={`text-[11px] font-bold uppercase tracking-widest truncate ${accent.label}`}>
                           {stat.label}
                         </h3>
                         {checkpointsEnabled && (
-                          <div className="flex items-center gap-1 mt-0.5">
-                            <span
-                              className={`w-1.5 h-1.5 rounded-full ${stalenessDotColor(stat.checkedAt)}`}
-                            />
-                            <span
-                              className={`text-[10px] font-medium ${stalenessTextColor(stat.checkedAt)}`}
-                            >
-                              {stat.checkedAt
-                                ? formatCheckpointTime(stat.checkedAt)
-                                : "Never checkpointed"}
-                            </span>
-                          </div>
+                          <button
+                            onClick={() =>
+                              appEvents.emit("checkpoint:open", {
+                                drawerName: stat.name,
+                              })
+                            }
+                            className={`p-1 ${accent.btn} rounded transition-colors shrink-0`}
+                            title="Checkpoint"
+                          >
+                            <ClipboardCheck size={12} />
+                          </button>
                         )}
                       </div>
                       {checkpointsEnabled && (
-                        <button
-                          onClick={() =>
-                            appEvents.emit("checkpoint:open", {
-                              drawerName: stat.name,
-                            })
-                          }
-                          className="flex items-center gap-1 px-2 py-1 bg-violet-600 hover:bg-violet-500 text-white text-xs font-medium rounded-lg transition-colors shrink-0"
-                          title="Checkpoint this drawer"
-                        >
-                          <ClipboardCheck size={12} />
-                          Checkpoint
-                        </button>
-                      )}
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      {Object.entries(stat.currencies)
-                        .sort(
-                          ([a], [b]) =>
-                            CURRENCY_ORDER(a) - CURRENCY_ORDER(b),
-                        )
-                        .map(([code, amount], idx) => (
-                          <p
-                            key={code}
-                            className={`text-base font-bold text-emerald-400 ${
-                              idx > 0 ? "text-right" : ""
-                            }`}
+                        <div className="flex items-center gap-1 mb-2.5">
+                          <span
+                            className={`w-1.5 h-1.5 rounded-full shrink-0 ${stalenessDotColor(stat.checkedAt)}`}
+                          />
+                          <span
+                            className={`text-[10px] truncate ${stalenessTextColor(stat.checkedAt)}`}
                           >
-                            {formatAmount(amount, code)}
-                          </p>
-                        ))}
-                      {Object.keys(stat.currencies).length === 0 && (
-                        <p className="text-sm text-slate-500">No balance</p>
+                            {stat.checkedAt
+                              ? formatCheckpointTime(stat.checkedAt)
+                              : "Never"}
+                          </span>
+                        </div>
                       )}
+                      <div className="space-y-0.5">
+                        {Object.entries(stat.currencies)
+                          .sort(([a], [b]) => CURRENCY_ORDER(a) - CURRENCY_ORDER(b))
+                          .map(([code, amount]) => (
+                            <p key={code} className="text-sm font-bold text-white">
+                              {formatAmount(amount, code)}
+                            </p>
+                          ))}
+                        {Object.keys(stat.currencies).length === 0 && (
+                          <p className="text-xs text-slate-500">No balance</p>
+                        )}
+                      </div>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
@@ -511,19 +582,39 @@ export default function Dashboard() {
               Credits & Stock
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {creditsAndStockCards.map((stat) => (
-                <div
-                  key={stat.label}
-                  className="bg-slate-800 p-4 rounded-xl border border-slate-700/50 shadow-lg hover:border-slate-600 transition-colors"
-                >
-                  <h3 className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">
-                    {stat.label}
-                  </h3>
-                  <p className="text-xl font-bold text-white">
-                    {stat.singleValue}
-                  </p>
-                </div>
-              ))}
+              {creditsAndStockCards.map((stat) => {
+                const accent = STOCK_ACCENTS[stat.label] ?? ACCENT_DEFAULT;
+                return (
+                  <div
+                    key={stat.label}
+                    className={`relative bg-slate-800 p-4 rounded-xl border border-slate-700/40 border-l-2 ${accent.borderL} shadow-lg ${accent.hoverShadow} hover:shadow-xl transition-all duration-200 overflow-hidden`}
+                  >
+                    <div className={`absolute -top-5 -right-5 w-20 h-20 rounded-full blur-2xl opacity-15 pointer-events-none ${accent.glow}`} />
+                    <div className="relative">
+                      <h3 className={`text-xs font-bold uppercase tracking-wider mb-2 ${accent.labelColor}`}>
+                        {stat.label}
+                      </h3>
+                      {stat.singleValue && (
+                        <p className="text-xl font-bold text-white">{stat.singleValue}</p>
+                      )}
+                      {stat.usdValue !== undefined && stat.lbpValue !== undefined && (
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1">
+                            <p className="text-base font-bold text-emerald-400">
+                              {formatAmount(stat.usdValue, "USD")}
+                            </p>
+                          </div>
+                          <div className="flex-1">
+                            <p className="text-base font-bold text-violet-400 text-right">
+                              {formatAmount(stat.lbpValue, "LBP")}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
 
@@ -577,8 +668,9 @@ export default function Dashboard() {
             })()}
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:h-[520px]">
-            <div className="lg:col-span-2 bg-slate-800 p-4 rounded-xl border border-slate-700/50 shadow-lg flex flex-col min-h-0">
-              <div className="flex justify-between items-center mb-3">
+            <div className="lg:col-span-2 relative bg-slate-800 p-4 rounded-xl border border-slate-700/40 border-l-2 border-l-violet-500 shadow-lg hover:shadow-violet-500/20 hover:shadow-xl hover:border-violet-500/50 transition-all duration-200 flex flex-col min-h-0 overflow-hidden">
+              <div className="absolute -top-6 -right-6 w-24 h-24 rounded-full blur-3xl opacity-10 pointer-events-none bg-violet-500" />
+              <div className="relative flex justify-between items-center mb-3">
                 <h3 className="text-lg font-bold text-white">
                   {chartType} Trend (Last 30 Days)
                 </h3>
@@ -611,9 +703,10 @@ export default function Dashboard() {
 
             <div className="flex flex-col h-full gap-4 min-h-0">
               {debtEnabled && (
-                <div className="bg-slate-800 p-5 rounded-xl border border-slate-700/50 shadow-lg flex-1 flex flex-col min-h-0">
-                  <h3 className="text-md font-bold text-white mb-4 flex items-center gap-2">
-                    <BarChart2 size={16} className="text-red-400" />
+                <div className="relative bg-slate-800 p-5 rounded-xl border border-slate-700/40 border-l-2 border-l-rose-500 shadow-lg hover:shadow-rose-500/20 hover:shadow-xl hover:border-rose-500/50 transition-all duration-200 flex-1 flex flex-col min-h-0 overflow-hidden">
+                  <div className="absolute -top-5 -right-5 w-20 h-20 rounded-full blur-2xl opacity-15 pointer-events-none bg-rose-500" />
+                  <h3 className="relative text-md font-bold text-white mb-4 flex items-center gap-2">
+                    <BarChart2 size={16} className="text-rose-400" />
                     Top Debtors
                   </h3>
                   <div className="flex-1 min-h-0 overflow-y-auto space-y-2">
@@ -627,11 +720,11 @@ export default function Dashboard() {
                             {debtor.full_name}
                           </span>
                           <div className="text-right shrink-0">
-                            <span className="text-sm font-bold text-red-400">
+                            <span className="text-sm font-bold text-rose-400">
                               {formatAmount(debtor.total_debt_usd, "USD")}
                             </span>
                             {debtor.total_debt_lbp !== 0 && (
-                              <span className="text-xs text-red-400/70 ml-2">
+                              <span className="text-xs text-rose-400/70 ml-2">
                                 {formatAmount(debtor.total_debt_lbp, "LBP")}
                               </span>
                             )}
@@ -647,8 +740,9 @@ export default function Dashboard() {
                 </div>
               )}
 
-              <div className="bg-slate-800 p-5 rounded-xl border border-slate-700/50 shadow-lg flex-1 flex flex-col min-h-0">
-                <h3 className="text-md font-bold text-white mb-4 flex items-center gap-2">
+              <div className="relative bg-slate-800 p-5 rounded-xl border border-slate-700/40 border-l-2 border-l-blue-500 shadow-lg hover:shadow-blue-500/20 hover:shadow-xl hover:border-blue-500/50 transition-all duration-200 flex-1 flex flex-col min-h-0 overflow-hidden">
+                <div className="absolute -top-5 -right-5 w-20 h-20 rounded-full blur-2xl opacity-15 pointer-events-none bg-blue-500" />
+                <h3 className="relative text-md font-bold text-white mb-4 flex items-center gap-2">
                   <Clock size={16} className="text-blue-400" />
                   Today's Sales
                 </h3>

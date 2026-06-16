@@ -181,6 +181,7 @@ contextBridge.exposeInMainWorld("api", {
     create: (data: {
       clientId: number;
       amount: number;
+      currency?: "USD" | "LBP";
       expiryDate?: string | null;
       note?: string | null;
     }) => ipcRenderer.invoke("voucher:create", data),
@@ -313,11 +314,54 @@ contextBridge.exposeInMainWorld("api", {
       currency?: string;
     }) => ipcRenderer.invoke("recharge:top-up", data),
     topUpApp: (data: {
-      provider: "OMT_APP" | "WHISH_APP" | "iPick" | "Katsh" | "BINANCE";
+      provider:
+        | "MTC"
+        | "Alfa"
+        | "OMT_APP"
+        | "WHISH_APP"
+        | "OMT_SYSTEM"
+        | "WHISH_SYSTEM"
+        | "iPick"
+        | "Katsh";
       amount: number;
       currency: "USD" | "LBP";
       sourceDrawer: string;
     }) => ipcRenderer.invoke("recharge:top-up-app", data),
+    topUpAppExternal: (data: {
+      provider:
+        | "OMT_APP"
+        | "WHISH_APP"
+        | "OMT_SYSTEM"
+        | "WHISH_SYSTEM"
+        | "iPick"
+        | "Katsh";
+      amount: number;
+      currency: "USD" | "LBP";
+    }) => ipcRenderer.invoke("recharge:top-up-app-external", data),
+    topUpFromSupplier: (data: {
+      provider: "iPick" | "Katsh";
+      amount: number;
+      currency: "USD" | "LBP";
+    }) => ipcRenderer.invoke("recharge:top-up-from-supplier", data),
+    topUpFromPartner: (data: {
+      provider: "WHISH_APP";
+      partnerId: number;
+      amount: number;
+      currency: "USD" | "LBP";
+    }) => ipcRenderer.invoke("recharge:top-up-from-partner", data),
+    topUpFromClient: (data: {
+      amount: number;
+      cashPaid: number;
+      currency: "USD" | "LBP";
+      clientName?: string;
+      clientId?: number;
+    }) => ipcRenderer.invoke("recharge:top-up-from-client", data),
+    topUpFromCustomer: (data: {
+      provider: "MTC" | "Alfa";
+      creditsAmount: number;
+      cashPaid: number;
+      cashPaidCurrency: "USD" | "LBP";
+    }) => ipcRenderer.invoke("recharge:top-up-customer", data),
     updateMetadata: (data: {
       id: number;
       phone_number?: string;
@@ -380,6 +424,9 @@ contextBridge.exposeInMainWorld("api", {
       payment_method?: string;
       currency?: string;
       note?: string;
+      transaction_time?: string;
+      clientId?: number | null;
+      clientName?: string;
     }) => ipcRenderer.invoke("loto:sell", data),
     get: (id: number) => ipcRenderer.invoke("loto:get", id),
     getByDateRange: (from: string, to: string) =>
@@ -512,7 +559,8 @@ contextBridge.exposeInMainWorld("api", {
     getSystemExpectedBalancesDynamic: () =>
       ipcRenderer.invoke("closing:get-system-expected-balances-dynamic"),
     getCheckpointTimeline: (filters: {
-      date?: string;
+      date_from?: string;
+      date_to?: string;
       type?: "OPENING" | "CLOSING" | "CHECKPOINT" | "ALL";
       drawer_name?: string;
       user_id?: number;

@@ -16,12 +16,15 @@ import type {
   FinancialTransaction,
   ProviderAnalytics,
 } from "../../types";
+import { getExchangeRates } from "@/utils/exchangeRates";
 
 // ── Mock useApi ──
-const mockGetRates = jest.fn().mockResolvedValue([
-  { from_code: "USD", to_code: "LBP", rate: 89500 },
-  { from_code: "LBP", to_code: "USD", rate: 89000 },
-]);
+// Current schema (v59+) as returned by api.getRates(); the exchangeRate prop
+// below is derived from this the same way Recharge/index.tsx does in production.
+const MOCK_RATES = [
+  { to_code: "LBP", market_rate: 89250, buy_rate: 89000, sell_rate: 89500 },
+];
+const mockGetRates = jest.fn().mockResolvedValue(MOCK_RATES);
 
 jest.mock("@liratek/ui", () => ({
   ...jest.requireActual("@liratek/ui"),
@@ -197,7 +200,7 @@ const mockProps = {
   formatAmount: (val: number) => val.toLocaleString(),
   alfaCreditSellRate: 100,
   alfaCreditCostRate: 0.0445,
-  exchangeRate: 90000,
+  exchangeRate: getExchangeRates(MOCK_RATES).sellRate,
   showHistory: false,
   setShowHistory: jest.fn(),
 };

@@ -220,6 +220,34 @@ export const RechargeSchema = z.object({
   default_price_to_client: z.number().nonnegative().optional(),
 });
 
+export const RechargeCustomerTopUpSchema = z.object({
+  provider: z.enum(["MTC", "Alfa"]),
+  creditsAmount: z.number().positive(),
+  cashPaid: z.number().nonnegative(),
+  cashPaidCurrency: z.enum(["USD", "LBP"]).default("USD"),
+});
+
+export const TopUpFromSupplierSchema = z.object({
+  provider: z.enum(["iPick", "Katsh"]),
+  amount: z.number().positive(),
+  currency: z.enum(["USD", "LBP"]),
+});
+
+export const TopUpFromPartnerSchema = z.object({
+  provider: z.literal("WHISH_APP"),
+  partnerId: z.number().int().positive(),
+  amount: z.number().positive(),
+  currency: z.enum(["USD", "LBP"]),
+});
+
+export const TopUpFromClientSchema = z.object({
+  amount: z.number().positive(),
+  cashPaid: z.number().nonnegative(),
+  currency: z.enum(["USD", "LBP"]),
+  clientName: z.string().optional(),
+  clientId: z.number().int().positive().optional(),
+});
+
 // =============================================================================
 // Financial Services (OMT / WHISH / BOB / iPick / Katsh / Binance)
 // =============================================================================
@@ -317,6 +345,9 @@ export const LotoSellSchema = z.object({
   payment_method: z.string().optional(),
   currency: z.string().optional(),
   note: z.string().optional(),
+  transaction_time: z.string().optional(),
+  clientId: z.number().int().positive().nullable().optional(),
+  clientName: z.string().optional(),
 });
 
 export const LotoCashPrizeSchema = z.object({
@@ -461,7 +492,7 @@ export const ClientCreateSchema = z.object({
   id: z.number().int().positive().optional(),
   full_name: z.string().min(1, "Full name is required"),
   phone_number: z.string().min(1, "Phone number is required"),
-  notes: z.string().optional(),
+  notes: z.string().optional().nullable(),
   whatsapp_opt_in: z.union([z.boolean(), z.literal(0), z.literal(1)]),
 });
 
@@ -512,6 +543,7 @@ export const SupplierSettleSchema = z.object({
 export const VoucherCreateSchema = z.object({
   clientId: z.number().int().positive(),
   amount: z.number().positive(),
+  currency: z.enum(["USD", "LBP"]).optional().default("USD"),
   expiryDate: z.string().min(1).optional().nullable(),
   note: z.string().optional().nullable(),
 });

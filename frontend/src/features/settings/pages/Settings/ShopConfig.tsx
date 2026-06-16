@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
 import logger from "@/utils/logger";
+import {
+  formatWithCommas,
+  isPartialDecimal,
+} from "@/shared/utils/formatWithCommas";
 import { appEvents, useApi } from "@liratek/ui";
 import {
   PanelLeft,
@@ -281,9 +285,14 @@ export default function ShopConfig() {
             </label>
             <input
               id="alfa-credit-cost"
-              type="number"
-              value={alfaCreditCost}
-              onChange={(e) => setAlfaCreditCost(e.target.value)}
+              type="text"
+              inputMode="decimal"
+              autoComplete="off"
+              value={formatWithCommas(alfaCreditCost)}
+              onChange={(e) => {
+                const cleaned = e.target.value.replace(/,/g, "");
+                if (isPartialDecimal(cleaned)) setAlfaCreditCost(cleaned);
+              }}
               className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white"
             />
             <p className="text-xs text-slate-500 mt-1">
@@ -299,9 +308,14 @@ export default function ShopConfig() {
             </label>
             <input
               id="alfa-credit-sell"
-              type="number"
-              value={alfaCreditSellRate}
-              onChange={(e) => setAlfaCreditSellRate(e.target.value)}
+              type="text"
+              inputMode="decimal"
+              autoComplete="off"
+              value={formatWithCommas(alfaCreditSellRate)}
+              onChange={(e) => {
+                const cleaned = e.target.value.replace(/,/g, "");
+                if (isPartialDecimal(cleaned)) setAlfaCreditSellRate(cleaned);
+              }}
               className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white"
             />
             <p className="text-xs text-slate-500 mt-1">
@@ -324,9 +338,14 @@ export default function ShopConfig() {
           </label>
           <input
             id="margin-alert-threshold"
-            type="number"
-            value={marginAlertThreshold}
-            onChange={(e) => setMarginAlertThreshold(e.target.value)}
+            type="text"
+            inputMode="decimal"
+            autoComplete="off"
+            value={formatWithCommas(marginAlertThreshold)}
+            onChange={(e) => {
+              const cleaned = e.target.value.replace(/,/g, "");
+              if (isPartialDecimal(cleaned)) setMarginAlertThreshold(cleaned);
+            }}
             className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white"
           />
           <p className="text-xs text-slate-500 mt-1">

@@ -139,7 +139,7 @@ export default function CheckpointModal({
     ? currencies.filter((c) => allowed.includes(c.code))
     : currencies;
   const coreCurrencies = drawerCurrencies.filter((c) =>
-    ["USD", "LBP", "EUR"].includes(c.code),
+    ["USD", "LBP", "EUR", "USDT"].includes(c.code),
   );
   const otherCurrencies =
     drawerName === "General"

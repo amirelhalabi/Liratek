@@ -6,6 +6,10 @@ import {
   PageHeader,
   type PaymentLine,
 } from "@liratek/ui";
+import {
+  formatWithCommas,
+  isPartialDecimal,
+} from "@/shared/utils/formatWithCommas";
 import { Truck } from "lucide-react";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { getExchangeRates } from "@/utils/exchangeRates";
@@ -71,6 +75,7 @@ const PROVIDER_DRAWER: Record<string, string> = {
   Katsh: "Katsh",
   OMT_APP: "OMT_App",
   WHISH_APP: "Whish_App",
+  LOTO: "Loto",
 };
 
 function EntryTypeBadge({ type }: { type: string }) {
@@ -598,11 +603,15 @@ export default function SuppliersPage() {
                         Amount USD
                       </label>
                       <input
-                        type="number"
-                        value={amountUSD || ""}
-                        onChange={(e) =>
-                          setAmountUSD(parseFloat(e.target.value) || 0)
-                        }
+                        type="text"
+                        inputMode="decimal"
+                        autoComplete="off"
+                        value={amountUSD ? formatWithCommas(String(amountUSD)) : ""}
+                        onChange={(e) => {
+                          const cleaned = e.target.value.replace(/,/g, "");
+                          if (isPartialDecimal(cleaned))
+                            setAmountUSD(parseFloat(cleaned) || 0);
+                        }}
                         className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white font-mono"
                         placeholder="0"
                       />
@@ -612,11 +621,15 @@ export default function SuppliersPage() {
                         Amount LBP
                       </label>
                       <input
-                        type="number"
-                        value={amountLBP || ""}
-                        onChange={(e) =>
-                          setAmountLBP(parseFloat(e.target.value) || 0)
-                        }
+                        type="text"
+                        inputMode="decimal"
+                        autoComplete="off"
+                        value={amountLBP ? formatWithCommas(String(amountLBP)) : ""}
+                        onChange={(e) => {
+                          const cleaned = e.target.value.replace(/,/g, "");
+                          if (isPartialDecimal(cleaned))
+                            setAmountLBP(parseFloat(cleaned) || 0);
+                        }}
                         className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white font-mono"
                         placeholder="0"
                       />

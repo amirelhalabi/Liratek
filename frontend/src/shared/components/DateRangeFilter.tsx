@@ -7,7 +7,7 @@ interface DateRangeFilterProps {
 }
 
 const inputClass =
-  "px-2 py-1 rounded bg-slate-900 border border-slate-700 text-white text-sm focus:outline-none focus:ring-1 focus:ring-blue-500";
+  "bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white text-sm focus:ring-2 focus:ring-violet-600";
 
 export function DateRangeFilter({
   from,

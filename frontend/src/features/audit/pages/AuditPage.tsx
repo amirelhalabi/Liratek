@@ -1,20 +1,48 @@
 import { useState } from "react";
 import { Shield, ArrowLeftRight } from "lucide-react";
 import { PageHeader } from "@liratek/ui";
+import { DateRangeFilter } from "@/shared/components/DateRangeFilter";
 import AuditLogViewer from "./AuditLogViewer";
 import TransactionsViewer from "./TransactionsViewer";
+import {
+  ACTION_OPTIONS,
+  ENTITY_TYPE_OPTIONS,
+  FILTER_GROUPS,
+} from "../auditConstants";
 
 type TabKey = "audit" | "transactions";
 
+const selectClass = "bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white text-sm focus:ring-2 focus:ring-violet-600";
+const inputClass  = "bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white text-sm focus:ring-2 focus:ring-violet-600";
+
 export default function AuditPage() {
-  const [active, setActive] = useState<TabKey>("audit");
+  const [active, setActive] = useState<TabKey>("transactions");
+
+  // Shared row limit across both tabs
+  const [rowsLimit, setRowsLimit] = useState(50);
+
+  // Transaction filters
+  const [txSelectedFilter, setTxSelectedFilter] = useState("");
+  const [txSearchInput, setTxSearchInput] = useState("");
+  const [txSearch, setTxSearch] = useState("");
+  const [txFrom, setTxFrom] = useState("");
+  const [txTo, setTxTo] = useState("");
+
+  // Audit filters
+  const [auditAction, setAuditAction] = useState("");
+  const [auditEntityType, setAuditEntityType] = useState("");
+  const [auditSearch, setAuditSearch] = useState("");
+  const [auditFrom, setAuditFrom] = useState("");
+  const [auditTo, setAuditTo] = useState("");
 
   return (
-    <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500">
+    <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col gap-4 overflow-auto animate-in fade-in duration-500">
       <PageHeader icon={Shield} title="Audit & Transactions" />
 
-      <div className="flex-1 min-h-0 bg-slate-800 rounded-xl border border-slate-700 shadow-lg flex flex-col overflow-hidden">
-        <div className="flex gap-2 p-2 border-b border-slate-700 shrink-0">
+      {/* Card 1: Tabs + active filters */}
+      <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 flex flex-col gap-4 shrink-0">
+        {/* Tab switcher */}
+        <div className="flex gap-2">
           <button
             onClick={() => setActive("transactions")}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors ${
@@ -38,10 +66,137 @@ export default function AuditPage() {
             Audit Log
           </button>
         </div>
-        <div className="flex-1 min-h-0 overflow-auto p-4">
-          {active === "audit" && <AuditLogViewer />}
-          {active === "transactions" && <TransactionsViewer />}
-        </div>
+
+        {/* Transaction filters */}
+        {active === "transactions" && (
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2 flex-wrap">
+              <input
+                type="text"
+                value={txSearchInput}
+                onChange={(e) => setTxSearchInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") setTxSearch(txSearchInput.trim());
+                }}
+                placeholder="Search summary, client, user… (Enter)"
+                className={`${inputClass} w-64`}
+              />
+              <select
+                value={txSelectedFilter}
+                onChange={(e) => setTxSelectedFilter(e.target.value)}
+                className={selectClass}
+              >
+                <option value="">All types</option>
+                {FILTER_GROUPS.map(({ group, options }) => (
+                  <optgroup key={group} label={group}>
+                    {options.map((o) => (
+                      <option key={o.label} value={o.label}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+              <DateRangeFilter
+                from={txFrom}
+                to={txTo}
+                onFromChange={setTxFrom}
+                onToChange={setTxTo}
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-slate-400">Rows:</label>
+              <input
+                type="number"
+                value={rowsLimit}
+                onChange={(e) => setRowsLimit(Number(e.target.value) || 50)}
+                className={`${inputClass} w-16`}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Audit filters */}
+        {active === "audit" && (
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              placeholder="Search summary..."
+              value={auditSearch}
+              onChange={(e) => setAuditSearch(e.target.value)}
+              className={`${inputClass} w-48`}
+            />
+            <select
+              value={auditAction}
+              onChange={(e) => setAuditAction(e.target.value)}
+              className={selectClass}
+            >
+              <option value="">All actions</option>
+              {ACTION_OPTIONS.map((a) => (
+                <option key={a} value={a}>
+                  {a.replace(/_/g, " ")}
+                </option>
+              ))}
+            </select>
+            <select
+              value={auditEntityType}
+              onChange={(e) => setAuditEntityType(e.target.value)}
+              className={selectClass}
+            >
+              <option value="">All entities</option>
+              {ENTITY_TYPE_OPTIONS.map((et) => (
+                <option key={et} value={et}>
+                  {et.replace(/_/g, " ")}
+                </option>
+              ))}
+            </select>
+            <label className="text-xs text-slate-400">From:</label>
+            <input
+              type="date"
+              value={auditFrom}
+              onChange={(e) => setAuditFrom(e.target.value)}
+              className={inputClass}
+            />
+            <label className="text-xs text-slate-400">To:</label>
+            <input
+              type="date"
+              value={auditTo}
+              onChange={(e) => setAuditTo(e.target.value)}
+              className={inputClass}
+            />
+            <div className="flex items-center gap-2 ml-auto">
+              <label className="text-sm text-slate-400">Rows:</label>
+              <input
+                type="number"
+                value={rowsLimit}
+                onChange={(e) => setRowsLimit(Number(e.target.value) || 50)}
+                className={`${inputClass} w-16`}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Card 2: Table */}
+      <div className="flex-1 min-h-0 bg-slate-800 rounded-xl border border-slate-700 overflow-auto">
+        {active === "transactions" && (
+          <TransactionsViewer
+            limit={String(rowsLimit)}
+            selectedFilter={txSelectedFilter}
+            search={txSearch}
+            from={txFrom}
+            to={txTo}
+          />
+        )}
+        {active === "audit" && (
+          <AuditLogViewer
+            action={auditAction}
+            entityType={auditEntityType}
+            search={auditSearch}
+            from={auditFrom}
+            to={auditTo}
+            limit={rowsLimit}
+          />
+        )}
       </div>
     </div>
   );

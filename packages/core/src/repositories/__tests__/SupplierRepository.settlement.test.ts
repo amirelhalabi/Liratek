@@ -7,10 +7,14 @@
  * 3. Credits commission to General drawer
  * 4. Debits net payment from the specified drawer
  * 5. Creates a unified transactions row for audit trail
+ *
+ * Also tests the RechargeRepository.topUpFromSupplier() flow for
+ * Katsh/iPick supplier-credit topups.
  */
 
 import Database from "better-sqlite3";
 import { SupplierRepository } from "../SupplierRepository";
+import { RechargeRepository } from "../RechargeRepository";
 
 // ─── Minimal in-memory schema ─────────────────────────────────────────────────
 
@@ -568,5 +572,371 @@ describe("SupplierRepository.settleTransactions()", () => {
       )
       .get() as any;
     expect(general.balance).toBeCloseTo(0.3, 4);
+  });
+});
+
+// ─── Extended schema for topUpFromSupplier tests ─────────────────────────────
+// Adds the recharges table that RechargeRepository requires.
+
+function createExtendedTestDb(): Database.Database {
+  const db = new Database(":memory:");
+
+  db.exec(`
+    CREATE TABLE suppliers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      contact_name TEXT,
+      phone TEXT,
+      note TEXT,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      module_key TEXT,
+      provider TEXT,
+      is_system INTEGER NOT NULL DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE supplier_ledger (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      supplier_id INTEGER NOT NULL,
+      entry_type TEXT NOT NULL CHECK(entry_type IN ('TOP_UP','PAYMENT','ADJUSTMENT','SETTLEMENT')),
+      amount_usd REAL NOT NULL DEFAULT 0,
+      amount_lbp REAL NOT NULL DEFAULT 0,
+      note TEXT,
+      created_by INTEGER,
+      transaction_id INTEGER,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE recharges (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      carrier TEXT NOT NULL,
+      recharge_type TEXT NOT NULL,
+      amount REAL NOT NULL DEFAULT 0,
+      cost REAL NOT NULL DEFAULT 0,
+      price REAL NOT NULL DEFAULT 0,
+      default_price_to_client REAL,
+      currency_code TEXT NOT NULL DEFAULT 'USD',
+      paid_by TEXT NOT NULL,
+      phone_number TEXT,
+      client_id INTEGER,
+      client_name TEXT,
+      note TEXT,
+      created_by INTEGER NOT NULL DEFAULT 1,
+      edited_by TEXT,
+      edited_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE drawer_balances (
+      drawer_name TEXT NOT NULL,
+      currency_code TEXT NOT NULL,
+      balance REAL NOT NULL DEFAULT 0,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (drawer_name, currency_code)
+    );
+
+    CREATE TABLE transactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      type TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'ACTIVE',
+      source_table TEXT NOT NULL,
+      source_id INTEGER NOT NULL,
+      user_id INTEGER NOT NULL DEFAULT 1,
+      amount_usd REAL NOT NULL DEFAULT 0,
+      amount_lbp REAL NOT NULL DEFAULT 0,
+      profit_usd REAL,
+      profit_lbp REAL,
+      exchange_rate REAL,
+      client_id INTEGER,
+      client_name TEXT,
+      client_phone TEXT,
+      summary TEXT,
+      metadata_json TEXT,
+      device_id TEXT,
+      transaction_time DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE payments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      transaction_id INTEGER,
+      method TEXT NOT NULL,
+      drawer_name TEXT NOT NULL,
+      currency_code TEXT NOT NULL,
+      amount REAL NOT NULL,
+      note TEXT,
+      created_by INTEGER,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Seed provider drawers for Katsh and iPick
+    INSERT INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Katsh', 'USD', 0);
+    INSERT INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Katsh', 'LBP', 0);
+    INSERT INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('iPick', 'USD', 0);
+    INSERT INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('iPick', 'LBP', 0);
+    INSERT INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('General', 'USD', 500);
+    INSERT INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('General', 'LBP', 0);
+  `);
+
+  return db;
+}
+
+// ─── RechargeRepository.topUpFromSupplier() tests ────────────────────────────
+
+describe("RechargeRepository.topUpFromSupplier()", () => {
+  let db: Database.Database;
+  let rechargeRepo: RechargeRepository;
+  let supplierRepo: SupplierRepository;
+  const { setDb } = require("../../db/connection");
+
+  beforeEach(() => {
+    db = createExtendedTestDb();
+    setDb(db);
+    rechargeRepo = new RechargeRepository();
+    supplierRepo = new SupplierRepository();
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  it("increases Katsh drawer balance and creates supplier_ledger TOP_UP entry", () => {
+    // Arrange: seed a Katsh supplier
+    const supplierRes = db
+      .prepare("INSERT INTO suppliers (name, provider, is_active) VALUES (?, ?, 1)")
+      .run("Katsh Supplier", "Katsh");
+    const supplierId = Number(supplierRes.lastInsertRowid);
+
+    // Act
+    const result = rechargeRepo.topUpFromSupplier({
+      provider: "Katsh",
+      amount: 100,
+      currency: "USD",
+      userId: 1,
+    });
+
+    expect(result.success).toBe(true);
+
+    // Assert: Katsh drawer increased by 100 USD
+    const drawer = db
+      .prepare(
+        "SELECT balance FROM drawer_balances WHERE drawer_name = 'Katsh' AND currency_code = 'USD'",
+      )
+      .get() as any;
+    expect(drawer.balance).toBeCloseTo(100, 2);
+
+    // Assert: supplier_ledger has a TOP_UP entry with amount_usd = 100
+    const ledgerEntry = db
+      .prepare(
+        "SELECT * FROM supplier_ledger WHERE supplier_id = ? AND entry_type = 'TOP_UP'",
+      )
+      .get(supplierId) as any;
+    expect(ledgerEntry).toBeDefined();
+    expect(ledgerEntry.entry_type).toBe("TOP_UP");
+    expect(ledgerEntry.amount_usd).toBeCloseTo(100, 2);
+    expect(ledgerEntry.amount_lbp).toBe(0);
+
+    // Assert: NO source drawer was deducted — General stays at 500
+    const general = db
+      .prepare(
+        "SELECT balance FROM drawer_balances WHERE drawer_name = 'General' AND currency_code = 'USD'",
+      )
+      .get() as any;
+    expect(general.balance).toBeCloseTo(500, 2);
+  });
+
+  it("records a recharge row with paid_by = SUPPLIER and type = TOP_UP", () => {
+    db.prepare("INSERT INTO suppliers (name, provider, is_active) VALUES (?, ?, 1)")
+      .run("Katsh Supplier", "Katsh");
+
+    rechargeRepo.topUpFromSupplier({
+      provider: "Katsh",
+      amount: 50,
+      currency: "USD",
+      userId: 1,
+    });
+
+    const recharge = db
+      .prepare("SELECT * FROM recharges WHERE carrier = 'Katsh'")
+      .get() as any;
+    expect(recharge).toBeDefined();
+    expect(recharge.recharge_type).toBe("TOP_UP");
+    expect(recharge.paid_by).toBe("SUPPLIER");
+    expect(recharge.amount).toBeCloseTo(50, 2);
+    expect(recharge.currency_code).toBe("USD");
+  });
+
+  it("creates a unified transaction row for the top-up", () => {
+    db.prepare("INSERT INTO suppliers (name, provider, is_active) VALUES (?, ?, 1)")
+      .run("Katsh Supplier", "Katsh");
+
+    rechargeRepo.topUpFromSupplier({
+      provider: "Katsh",
+      amount: 75,
+      currency: "USD",
+      userId: 1,
+    });
+
+    const txn = db
+      .prepare("SELECT * FROM transactions WHERE type = 'RECHARGE_TOPUP'")
+      .get() as any;
+    expect(txn).toBeDefined();
+    expect(txn.amount_usd).toBeCloseTo(75, 2);
+    expect(txn.source_table).toBe("recharges");
+  });
+
+  it("works when no supplier is found — still increases drawer, skips ledger", () => {
+    // No supplier seeded for Katsh
+
+    const result = rechargeRepo.topUpFromSupplier({
+      provider: "Katsh",
+      amount: 200,
+      currency: "USD",
+      userId: 1,
+    });
+
+    expect(result.success).toBe(true);
+
+    // Drawer increased
+    const drawer = db
+      .prepare(
+        "SELECT balance FROM drawer_balances WHERE drawer_name = 'Katsh' AND currency_code = 'USD'",
+      )
+      .get() as any;
+    expect(drawer.balance).toBeCloseTo(200, 2);
+
+    // No ledger entries created
+    const ledgerCount = (
+      db.prepare("SELECT COUNT(*) as cnt FROM supplier_ledger").get() as any
+    ).cnt;
+    expect(ledgerCount).toBe(0);
+  });
+
+  it("handles LBP currency — sets amount_lbp in ledger and not amount_usd", () => {
+    const supplierRes = db
+      .prepare("INSERT INTO suppliers (name, provider, is_active) VALUES (?, ?, 1)")
+      .run("Katsh Supplier", "Katsh");
+    const supplierId = Number(supplierRes.lastInsertRowid);
+
+    rechargeRepo.topUpFromSupplier({
+      provider: "Katsh",
+      amount: 1_000_000,
+      currency: "LBP",
+      userId: 1,
+    });
+
+    const ledgerEntry = db
+      .prepare(
+        "SELECT * FROM supplier_ledger WHERE supplier_id = ? AND entry_type = 'TOP_UP'",
+      )
+      .get(supplierId) as any;
+    expect(ledgerEntry).toBeDefined();
+    expect(ledgerEntry.amount_lbp).toBeCloseTo(1_000_000, 0);
+    expect(ledgerEntry.amount_usd).toBe(0);
+
+    const drawer = db
+      .prepare(
+        "SELECT balance FROM drawer_balances WHERE drawer_name = 'Katsh' AND currency_code = 'LBP'",
+      )
+      .get() as any;
+    expect(drawer.balance).toBeCloseTo(1_000_000, 0);
+  });
+});
+
+// ─── Supplier settlement flow tests ──────────────────────────────────────────
+
+describe("Supplier settlement flow for Katsh", () => {
+  let db: Database.Database;
+  let supplierRepo: SupplierRepository;
+  const { setDb } = require("../../db/connection");
+
+  beforeEach(() => {
+    db = createExtendedTestDb();
+    setDb(db);
+    supplierRepo = new SupplierRepository();
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  it("deducts from General drawer and creates PAYMENT entry, netting balance to 0", () => {
+    // Arrange: seed supplier and a TOP_UP liability of $100
+    const supplierRes = db
+      .prepare("INSERT INTO suppliers (name, provider, is_active) VALUES (?, ?, 1)")
+      .run("Katsh Supplier", "Katsh");
+    const supplierId = Number(supplierRes.lastInsertRowid);
+
+    db.prepare(
+      "INSERT INTO supplier_ledger (supplier_id, entry_type, amount_usd, amount_lbp, created_by) VALUES (?, 'TOP_UP', 100, 0, 1)",
+    ).run(supplierId);
+
+    // Verify pre-condition: net owed = +100
+    const balanceBefore = db
+      .prepare(
+        "SELECT COALESCE(SUM(amount_usd), 0) as total FROM supplier_ledger WHERE supplier_id = ?",
+      )
+      .get(supplierId) as any;
+    expect(balanceBefore.total).toBeCloseTo(100, 2);
+
+    // Act: pay the supplier $100 from General drawer
+    supplierRepo.addLedgerEntry({
+      supplier_id: supplierId,
+      entry_type: "PAYMENT",
+      amount_usd: 100,
+      amount_lbp: 0,
+      drawer_name: "General",
+      created_by: 1,
+      note: "Settle Katsh supplier debt",
+    });
+
+    // Assert: General drawer decreased by 100 (was 500)
+    const general = db
+      .prepare(
+        "SELECT balance FROM drawer_balances WHERE drawer_name = 'General' AND currency_code = 'USD'",
+      )
+      .get() as any;
+    expect(general.balance).toBeCloseTo(400, 2); // 500 - 100
+
+    // Assert: supplier_ledger has a PAYMENT entry with amount_usd = -100
+    const paymentEntry = db
+      .prepare(
+        "SELECT * FROM supplier_ledger WHERE supplier_id = ? AND entry_type = 'PAYMENT'",
+      )
+      .get(supplierId) as any;
+    expect(paymentEntry).toBeDefined();
+    expect(paymentEntry.amount_usd).toBeCloseTo(-100, 2);
+
+    // Assert: net balance (SUM of all ledger entries) = 0
+    const netBalance = db
+      .prepare(
+        "SELECT COALESCE(SUM(amount_usd), 0) as total FROM supplier_ledger WHERE supplier_id = ?",
+      )
+      .get(supplierId) as any;
+    expect(netBalance.total).toBeCloseTo(0, 4);
+  });
+
+  it("creates a SUPPLIER_PAYMENT unified transaction on settlement", () => {
+    const supplierRes = db
+      .prepare("INSERT INTO suppliers (name, provider, is_active) VALUES (?, ?, 1)")
+      .run("Katsh Supplier", "Katsh");
+    const supplierId = Number(supplierRes.lastInsertRowid);
+
+    supplierRepo.addLedgerEntry({
+      supplier_id: supplierId,
+      entry_type: "PAYMENT",
+      amount_usd: 50,
+      amount_lbp: 0,
+      drawer_name: "General",
+      created_by: 1,
+    });
+
+    const txn = db
+      .prepare("SELECT * FROM transactions WHERE type = 'SUPPLIER_PAYMENT'")
+      .get() as any;
+    expect(txn).toBeDefined();
+    expect(txn.amount_usd).toBeCloseTo(50, 2);
+    expect(txn.source_table).toBe("supplier_ledger");
   });
 });

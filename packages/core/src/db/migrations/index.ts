@@ -3700,6 +3700,216 @@ export const MIGRATIONS: Migration[] = [
       console.log("Migration v93 rolled back: Binance drawer reverted to USD");
     },
   },
+
+  // ===========================================================================
+  // v94 – Add client_id / client_name to loto_tickets (CUSTOMER_ACCOUNT support)
+  // ===========================================================================
+  {
+    version: 94,
+    name: "loto_tickets_add_client_fields",
+    description:
+      "Add client_id (FK → clients) and client_name columns to loto_tickets so CUSTOMER_ACCOUNT payment can be linked to a client record",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.exec(`
+        ALTER TABLE loto_tickets ADD COLUMN client_id INTEGER REFERENCES clients(id) ON DELETE SET NULL;
+        ALTER TABLE loto_tickets ADD COLUMN client_name TEXT;
+        CREATE INDEX IF NOT EXISTS idx_loto_tickets_client_id ON loto_tickets(client_id);
+      `);
+      console.log("Migration v94: added client_id and client_name to loto_tickets");
+    },
+    down(db: Database.Database) {
+      // SQLite does not support DROP COLUMN before v3.35; recreate the table
+      db.exec(`
+        CREATE TABLE loto_tickets_v93 AS SELECT
+          id, ticket_number, sale_amount, commission_rate, commission_amount,
+          is_winner, prize_amount, prize_paid_date, sale_date, payment_method,
+          currency, note, checkpoint_id, is_refunded, edited_by, edited_at,
+          created_at, updated_at
+        FROM loto_tickets;
+        DROP TABLE loto_tickets;
+        ALTER TABLE loto_tickets_v93 RENAME TO loto_tickets;
+      `);
+      console.log("Migration v94 rolled back: removed client_id and client_name from loto_tickets");
+    },
+  },
+  {
+    version: 96,
+    name: "rename_supplier_katch_to_katsh",
+    description:
+      "Rename the 'Katch' supplier display name to 'Katsh' to match the canonical drawer name.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.prepare(`UPDATE suppliers SET name = 'Katsh' WHERE name = 'Katch'`).run();
+      console.log("Migration v96: supplier name Katch → Katsh");
+    },
+    down(db: Database.Database) {
+      db.prepare(`UPDATE suppliers SET name = 'Katch' WHERE name = 'Katsh' AND provider = 'Katsh'`).run();
+      console.log("Migration v96 rolled back: supplier name Katsh → Katch");
+    },
+  },
+  {
+    version: 95,
+    name: "usdt_currency_activate",
+    description:
+      "Activate the USDT currency (is_active=1) so the Binance drawer appears in the closing checkpoint and currency lists. USDT was previously seeded as inactive because it was only needed as a FK anchor; now that Binance is a live operational drawer it must be visible.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.prepare(`UPDATE currencies SET is_active = 1 WHERE code = 'USDT'`).run();
+      console.log("Migration v95: USDT currency activated");
+    },
+    down(db: Database.Database) {
+      db.prepare(`UPDATE currencies SET is_active = 0 WHERE code = 'USDT'`).run();
+      console.log("Migration v95 rolled back: USDT currency deactivated");
+    },
+  },
+  {
+    version: 97,
+    name: "widen_recharges_carrier_constraint",
+    description:
+      "Drop the restrictive CHECK(carrier IN ('MTC','Alfa')) on recharges. The recharges table is the unified top-up log for ALL providers — topUpApp (OMT_APP/WHISH_APP), topUpFromSupplier (Katsh/iPick), and the new Whish App partner/client top-ups all write carrier=provider, which the old constraint rejected with SQLITE_CONSTRAINT_CHECK. Recreates the table without the carrier CHECK, preserving all rows (and their ids, so unified-transaction source_id refs stay valid) and indexes.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      // SQLite can't ALTER a CHECK constraint — recreate the table.
+      db.exec(`
+        CREATE TABLE recharges_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          carrier TEXT NOT NULL,
+          recharge_type TEXT CHECK(recharge_type IN ('CREDIT_TRANSFER', 'VOUCHER', 'DAYS', 'TOP_UP')) NOT NULL DEFAULT 'CREDIT_TRANSFER',
+          amount DECIMAL(10, 2) NOT NULL,
+          cost DECIMAL(10, 2) NOT NULL DEFAULT 0,
+          price DECIMAL(10, 2) NOT NULL DEFAULT 0,
+          default_price_to_client REAL DEFAULT NULL,
+          currency_code TEXT NOT NULL DEFAULT 'USD',
+          paid_by TEXT DEFAULT 'CASH',
+          phone_number TEXT,
+          client_id INTEGER,
+          client_name TEXT,
+          note TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          created_by INTEGER DEFAULT 1,
+          edited_by TEXT DEFAULT NULL,
+          edited_at TEXT DEFAULT NULL,
+          is_refunded INTEGER DEFAULT 0,
+          refunded_at TEXT DEFAULT NULL,
+          FOREIGN KEY (client_id) REFERENCES clients(id),
+          FOREIGN KEY (created_by) REFERENCES users(id)
+        );
+
+        INSERT INTO recharges_new (
+          id, carrier, recharge_type, amount, cost, price, default_price_to_client,
+          currency_code, paid_by, phone_number, client_id, client_name, note,
+          created_at, created_by, edited_by, edited_at, is_refunded, refunded_at
+        )
+        SELECT
+          id, carrier, recharge_type, amount, cost, price, default_price_to_client,
+          currency_code, paid_by, phone_number, client_id, client_name, note,
+          created_at, created_by, edited_by, edited_at, is_refunded, refunded_at
+        FROM recharges;
+
+        DROP TABLE recharges;
+        ALTER TABLE recharges_new RENAME TO recharges;
+
+        CREATE INDEX IF NOT EXISTS idx_recharges_carrier ON recharges(carrier);
+        CREATE INDEX IF NOT EXISTS idx_recharges_created_at ON recharges(created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_recharges_carrier_date ON recharges(carrier, created_at);
+        CREATE INDEX IF NOT EXISTS idx_recharges_date ON recharges(created_at);
+      `);
+      console.log(
+        "Migration v97: removed MTC/Alfa-only CHECK on recharges.carrier",
+      );
+    },
+    down(db: Database.Database) {
+      // Restore the restrictive constraint. Will throw if non-MTC/Alfa rows
+      // exist (expected — you can't roll back after recording other carriers).
+      db.exec(`
+        CREATE TABLE recharges_old (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          carrier TEXT CHECK(carrier IN ('MTC', 'Alfa')) NOT NULL,
+          recharge_type TEXT CHECK(recharge_type IN ('CREDIT_TRANSFER', 'VOUCHER', 'DAYS', 'TOP_UP')) NOT NULL DEFAULT 'CREDIT_TRANSFER',
+          amount DECIMAL(10, 2) NOT NULL,
+          cost DECIMAL(10, 2) NOT NULL DEFAULT 0,
+          price DECIMAL(10, 2) NOT NULL DEFAULT 0,
+          default_price_to_client REAL DEFAULT NULL,
+          currency_code TEXT NOT NULL DEFAULT 'USD',
+          paid_by TEXT DEFAULT 'CASH',
+          phone_number TEXT,
+          client_id INTEGER,
+          client_name TEXT,
+          note TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          created_by INTEGER DEFAULT 1,
+          edited_by TEXT DEFAULT NULL,
+          edited_at TEXT DEFAULT NULL,
+          is_refunded INTEGER DEFAULT 0,
+          refunded_at TEXT DEFAULT NULL,
+          FOREIGN KEY (client_id) REFERENCES clients(id),
+          FOREIGN KEY (created_by) REFERENCES users(id)
+        );
+
+        INSERT INTO recharges_old (
+          id, carrier, recharge_type, amount, cost, price, default_price_to_client,
+          currency_code, paid_by, phone_number, client_id, client_name, note,
+          created_at, created_by, edited_by, edited_at, is_refunded, refunded_at
+        )
+        SELECT
+          id, carrier, recharge_type, amount, cost, price, default_price_to_client,
+          currency_code, paid_by, phone_number, client_id, client_name, note,
+          created_at, created_by, edited_by, edited_at, is_refunded, refunded_at
+        FROM recharges;
+
+        DROP TABLE recharges;
+        ALTER TABLE recharges_old RENAME TO recharges;
+
+        CREATE INDEX IF NOT EXISTS idx_recharges_carrier ON recharges(carrier);
+        CREATE INDEX IF NOT EXISTS idx_recharges_created_at ON recharges(created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_recharges_carrier_date ON recharges(carrier, created_at);
+        CREATE INDEX IF NOT EXISTS idx_recharges_date ON recharges(created_at);
+      `);
+      console.log("Migration v97 rolled back: restored MTC/Alfa-only CHECK");
+    },
+  },
+  {
+    version: 98,
+    name: "add_whish_topup_partner_ledger_type",
+    description:
+      "Add 'WHISH_TOPUP' to the partner_ledger.transaction_type CHECK so Whish App top-ups funded by a partner (LIRA-057) can be recorded. Recreates the table (SQLite can't ALTER a CHECK), preserving all rows + indexes — mirrors migration v83.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS partner_ledger_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            partner_id INTEGER NOT NULL REFERENCES partners(id),
+            transaction_type TEXT NOT NULL CHECK(transaction_type IN ('OMT_SEND', 'OMT_RECEIVE', 'WHISH_SEND', 'WHISH_RECEIVE', 'THROUGH_OMT_SEND', 'THROUGH_OMT_RECEIVE', 'THROUGH_WHISH_SEND', 'THROUGH_WHISH_RECEIVE', 'FOR_OMT_SEND', 'FOR_OMT_RECEIVE', 'FOR_WHISH_SEND', 'FOR_WHISH_RECEIVE', 'WHISH_TOPUP', 'CUSTOM_SERVICE', 'SETTLEMENT', 'ADJUSTMENT')),
+            reference_table TEXT,
+            reference_id INTEGER,
+            amount REAL NOT NULL,
+            currency TEXT NOT NULL DEFAULT 'USD',
+            direction TEXT NOT NULL CHECK(direction IN ('DEBIT', 'CREDIT')),
+            notes TEXT,
+            user_id INTEGER REFERENCES users(id),
+            settlement_method TEXT CHECK(settlement_method IN ('CASH', 'OMT', 'WHISH', 'BINANCE', 'CLIENT_ACCOUNT')),
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+
+        INSERT INTO partner_ledger_new (id, partner_id, transaction_type, reference_table, reference_id, amount, currency, direction, notes, user_id, settlement_method, created_at)
+        SELECT id, partner_id, transaction_type, reference_table, reference_id, amount, currency, direction, notes, user_id, settlement_method, created_at
+        FROM partner_ledger;
+
+        DROP TABLE partner_ledger;
+        ALTER TABLE partner_ledger_new RENAME TO partner_ledger;
+
+        CREATE INDEX IF NOT EXISTS idx_partner_ledger_partner_id ON partner_ledger(partner_id);
+        CREATE INDEX IF NOT EXISTS idx_partner_ledger_created_at ON partner_ledger(created_at);
+      `);
+      console.log(
+        "Migration v98: added 'WHISH_TOPUP' to partner_ledger.transaction_type",
+      );
+    },
+    down(db: Database.Database) {
+      console.log("Migration v98 rolled back (no-op for SQLite)");
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

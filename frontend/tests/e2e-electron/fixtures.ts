@@ -250,7 +250,7 @@ export async function navigateTo(page: Page, route: string) {
     "/debts": "text=Debt",
     "/expenses": "#expense-description",
     "/clients": 'button:has-text("Add Client")',
-    "/recharge": 'button:has-text("Telecom"), button:has-text("Financial")',
+    "/recharge": '#telecom-amount, button:has-text("MTC")',
     "/maintenance": "#maintenance-device-name",
     "/loto": "text=Loto",
     "/custom-services": '#service-amount, button:has-text("Record Service")',

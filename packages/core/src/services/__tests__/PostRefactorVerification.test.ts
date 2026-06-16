@@ -462,6 +462,8 @@ function buildSchema(db: Database.Database): void {
       currency         TEXT DEFAULT 'LBP',
       note             TEXT,
       checkpoint_id    INTEGER,
+      client_id        INTEGER,
+      client_name      TEXT,
       edited_by        TEXT,
       edited_at        TEXT,
       created_at       TEXT DEFAULT CURRENT_TIMESTAMP,

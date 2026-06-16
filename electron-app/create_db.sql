@@ -105,7 +105,7 @@ CREATE TABLE IF NOT EXISTS currencies (
 INSERT OR IGNORE INTO currencies (code, name, symbol, decimal_places, is_active) VALUES ('USD', 'US Dollar', '$', 2, 1);
 INSERT OR IGNORE INTO currencies (code, name, symbol, decimal_places, is_active) VALUES ('LBP', 'Lebanese Pound', 'LBP', 0, 1);
 INSERT OR IGNORE INTO currencies (code, name, symbol, decimal_places, is_active) VALUES ('EUR', 'Euro', '€', 2, 1);
-INSERT OR IGNORE INTO currencies (code, name, symbol, decimal_places, is_active) VALUES ('USDT', 'Tether USD', 'USDT', 2, 0);
+INSERT OR IGNORE INTO currencies (code, name, symbol, decimal_places, is_active) VALUES ('USDT', 'Tether USD', 'USDT', 2, 1);
 
 -- Exchange Rates (v30 schema: one row per non-USD currency)
 -- Universal formula: rate = market_rate + is_stronger × (action × delta)
@@ -401,7 +401,7 @@ CREATE TABLE IF NOT EXISTS expenses (
 -- Mobile Recharges
 CREATE TABLE IF NOT EXISTS recharges (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    carrier TEXT CHECK(carrier IN ('MTC', 'Alfa')) NOT NULL,
+    carrier TEXT NOT NULL,
     recharge_type TEXT CHECK(recharge_type IN ('CREDIT_TRANSFER', 'VOUCHER', 'DAYS', 'TOP_UP')) NOT NULL DEFAULT 'CREDIT_TRANSFER',
     amount DECIMAL(10, 2) NOT NULL,
     cost DECIMAL(10, 2) NOT NULL DEFAULT 0,
@@ -518,7 +518,7 @@ CREATE TABLE IF NOT EXISTS partners (
 CREATE TABLE IF NOT EXISTS partner_ledger (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     partner_id INTEGER NOT NULL REFERENCES partners(id),
-    transaction_type TEXT NOT NULL CHECK(transaction_type IN ('OMT_SEND', 'OMT_RECEIVE', 'WHISH_SEND', 'WHISH_RECEIVE', 'THROUGH_OMT_SEND', 'THROUGH_OMT_RECEIVE', 'THROUGH_WHISH_SEND', 'THROUGH_WHISH_RECEIVE', 'FOR_OMT_SEND', 'FOR_OMT_RECEIVE', 'FOR_WHISH_SEND', 'FOR_WHISH_RECEIVE', 'CUSTOM_SERVICE', 'SETTLEMENT', 'ADJUSTMENT')),
+    transaction_type TEXT NOT NULL CHECK(transaction_type IN ('OMT_SEND', 'OMT_RECEIVE', 'WHISH_SEND', 'WHISH_RECEIVE', 'THROUGH_OMT_SEND', 'THROUGH_OMT_RECEIVE', 'THROUGH_WHISH_SEND', 'THROUGH_WHISH_RECEIVE', 'FOR_OMT_SEND', 'FOR_OMT_RECEIVE', 'FOR_WHISH_SEND', 'FOR_WHISH_RECEIVE', 'WHISH_TOPUP', 'CUSTOM_SERVICE', 'SETTLEMENT', 'ADJUSTMENT')),
     reference_table TEXT,
     reference_id INTEGER,
     amount REAL NOT NULL,
@@ -925,7 +925,7 @@ INSERT OR IGNORE INTO payment_methods (code, label, drawer_name, affects_drawer,
 -- Seed system suppliers (linked to modules)
 INSERT OR IGNORE INTO suppliers (name, module_key, provider, is_system) VALUES
   ('iPick',         'ipec_katch', 'iPick',         1),
-  ('Katch',        'ipec_katch', 'Katsh',        1),
+  ('Katsh',        'ipec_katch', 'Katsh',        1),
   ('OMT',          'omt_whish',  'OMT',          1),
   ('Whish',        'omt_whish',  'WHISH',        0),
   ('OMT App',      'ipec_katch', 'OMT_APP',      1),
@@ -984,6 +984,8 @@ CREATE TABLE IF NOT EXISTS loto_tickets (
     currency TEXT DEFAULT 'LBP',
     note TEXT,
     checkpoint_id INTEGER REFERENCES loto_checkpoints(id),
+    client_id INTEGER REFERENCES clients(id) ON DELETE SET NULL,
+    client_name TEXT,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
     edited_by TEXT DEFAULT NULL,
@@ -995,6 +997,7 @@ CREATE TABLE IF NOT EXISTS loto_tickets (
 CREATE INDEX IF NOT EXISTS idx_loto_tickets_sale_date ON loto_tickets(sale_date);
 CREATE INDEX IF NOT EXISTS idx_loto_tickets_is_winner ON loto_tickets(is_winner);
 CREATE INDEX IF NOT EXISTS idx_loto_tickets_checkpoint ON loto_tickets(checkpoint_id);
+CREATE INDEX IF NOT EXISTS idx_loto_tickets_client_id ON loto_tickets(client_id);
 
 -- Loto settings (commission rate, monthly fee, etc.)
 CREATE TABLE IF NOT EXISTS loto_settings (
@@ -1217,4 +1220,9 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (90, 'heal_unredeemed_gift_card_credit'),
     (91, 'per_drawer_checkpoint_index'),
     (92, 'maintenance_lbp_pricing'),
-    (93, 'binance_drawer_usdt_currency');
+    (93, 'binance_drawer_usdt_currency'),
+    (94, 'loto_tickets_add_client_fields'),
+    (95, 'usdt_currency_activate'),
+    (96, 'rename_supplier_katch_to_katsh'),
+    (97, 'widen_recharges_carrier_constraint'),
+    (98, 'add_whish_topup_partner_ledger_type');

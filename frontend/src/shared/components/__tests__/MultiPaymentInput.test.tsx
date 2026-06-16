@@ -11,7 +11,8 @@
  *   - the initial line auto-fills with the full totalAmount
  *   - method options come from the paymentMethods prop
  *   - CUSTOMER_ACCOUNT selection surfaces the "client required" debt warning
- *   - enabling split reveals the exchange-rate field and the add-line button
+ *   - the exchange-rate field renders in both modes; split reveals the
+ *     add-line button
  *   - adding a line creates a second payment line auto-filled with the remainder
  *   - removing a line returns to a single line
  *   - switching a split line's currency (USD → LBP) converts the amount by rate
@@ -192,12 +193,18 @@ describe("MultiPaymentInput", () => {
   });
 
   describe("split mode — add / remove / currency", () => {
-    it("enabling split reveals the exchange-rate field and add-line button", () => {
+    it("shows the exchange-rate field in both modes; split reveals the add-line button", () => {
       renderMpi();
+
+      // Exchange-rate row ("1 USD = … LBP") renders in single mode too — the
+      // rate drives USD↔LBP conversion regardless of mode.
+      expect(screen.getByText(/1 USD =/)).toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: /Add .*Line/i }),
+      ).not.toBeInTheDocument();
 
       fireEvent.click(screen.getByTestId("split-toggle"));
 
-      // Exchange-rate row ("1 USD = … LBP") only renders in split mode.
       expect(screen.getByText(/1 USD =/)).toBeInTheDocument();
       expect(
         screen.getByRole("button", { name: /Add .*Line/i }),
