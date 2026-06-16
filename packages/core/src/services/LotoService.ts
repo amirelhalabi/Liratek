@@ -61,6 +61,8 @@ export interface SellTicketData {
   note?: string;
   userId: number;
   transaction_time?: string;
+  clientId?: number | null;
+  clientName?: string | null;
 }
 
 export interface SettlementData {
@@ -142,6 +144,8 @@ export class LotoService {
         note: data.note,
         userId: data.userId,
         transaction_time: data.transaction_time,
+        clientId: data.clientId,
+        clientName: data.clientName,
       };
 
       const ticket = this.ticketRepo.createTicket(ticketData);

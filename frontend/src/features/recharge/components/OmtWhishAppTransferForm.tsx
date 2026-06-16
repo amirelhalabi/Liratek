@@ -1,5 +1,9 @@
 import { useState, useEffect, memo } from "react";
 import { User, Phone } from "lucide-react";
+import {
+  formatWithCommas,
+  isPartialDecimal,
+} from "@/shared/utils/formatWithCommas";
 import { useApi, ServiceTypeTabs } from "@liratek/ui";
 import { PaymentSheet } from "./PaymentSheet";
 import { useSession } from "@/features/sessions/context/SessionContext";
@@ -361,13 +365,16 @@ function OmtWhishAppTransferFormInner({
           )}
           <input
             id="transfer-amount"
-            type="number"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            type="text"
+            inputMode="decimal"
+            autoComplete="off"
+            value={formatWithCommas(amount)}
+            onChange={(e) => {
+              const cleaned = e.target.value.replace(/,/g, "");
+              if (isPartialDecimal(cleaned)) setAmount(cleaned);
+            }}
             className={`w-full bg-slate-900 border border-slate-700 rounded-lg ${currency === "USD" ? "pl-8" : "pl-4"} pr-14 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all`}
             placeholder={currency === "LBP" ? "0" : "0.00"}
-            step={currency === "LBP" ? "1000" : "0.01"}
-            min="0"
           />
           <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs font-medium">
             {currency}
@@ -401,15 +408,18 @@ function OmtWhishAppTransferFormInner({
                 </span>
                 <input
                   id="transfer-fee"
-                  type="number"
-                  value={manualFee}
-                  onChange={(e) => setManualFee(e.target.value)}
+                  type="text"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  value={formatWithCommas(manualFee)}
+                  onChange={(e) => {
+                    const cleaned = e.target.value.replace(/,/g, "");
+                    if (isPartialDecimal(cleaned)) setManualFee(cleaned);
+                  }}
                   className="w-full bg-slate-800 border border-slate-600 rounded-lg pl-8 pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
                   placeholder={
                     autoFee > 0 ? autoFee.toFixed(2) + " (auto)" : "0.00"
                   }
-                  min="0"
-                  step="0.01"
                 />
               </div>
               {/* Auto-fee hint */}

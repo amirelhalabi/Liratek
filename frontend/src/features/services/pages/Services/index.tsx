@@ -1,5 +1,9 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import logger from "@/utils/logger";
+import {
+  formatWithCommas,
+  isPartialDecimal,
+} from "@/shared/utils/formatWithCommas";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { useSaveAsClient } from "@/shared/hooks/useSaveAsClient";
 import { SaveAsClientCheckbox } from "@/shared/components/SaveAsClientCheckbox";
@@ -19,7 +23,7 @@ import {
 } from "lucide-react";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
-import { PageHeader, Select, useApi, appEvents } from "@liratek/ui";
+import { PageHeader, Select, useApi, appEvents, TopUpModal } from "@liratek/ui";
 import { DataTable } from "@liratek/ui";
 import { MultiPaymentInput, type PaymentLine } from "@liratek/ui";
 import { toCamelLegs } from "@/utils/paymentUtils";
@@ -257,7 +261,7 @@ interface SupplierOwed {
 
 export default function Services() {
   const api = useApi();
-  const { partnerSystem } = useShopBase();
+  const { baseSystem, partnerSystem } = useShopBase();
   const {
     activeSession,
     linkTransaction,
@@ -333,6 +337,13 @@ export default function Services() {
   // History modal
   const [showHistory, setShowHistory] = useState(false);
   useModalFocusFix(showHistory);
+
+  // System drawer top-up modal
+  const [showTopUpModal, setShowTopUpModal] = useState(false);
+  useModalFocusFix(showTopUpModal);
+  const [topUpDrawers, setTopUpDrawers] = useState<
+    Array<{ name: string; usdBalance: number; lbpBalance: number }>
+  >([]);
 
   // ── Inline edit state for history ──────────────────────────────────
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -1055,6 +1066,49 @@ export default function Services() {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [showHistory]);
 
+  const systemTopUpProvider = baseSystem === "OMT" ? "OMT_SYSTEM" : "WHISH_SYSTEM" as const;
+  const systemDrawerName = baseSystem === "OMT" ? "OMT_System" : "Whish_System";
+
+  const handleSystemTopUpClick = useCallback(async () => {
+    try {
+      const drawers = await window.api.recharge.getDrawerBalances();
+      setTopUpDrawers(drawers);
+      setShowTopUpModal(true);
+    } catch (err) {
+      logger.error("Failed to load drawer balances for top-up:", err);
+      alert("Failed to load drawer balances");
+    }
+  }, []);
+
+  const handleSystemTopUpConfirm = useCallback(
+    async (data: {
+      amount: number;
+      currency: "USD" | "LBP";
+      sourceDrawer: string;
+    }) => {
+      const result = await window.api.recharge.topUpApp({
+        provider: systemTopUpProvider,
+        amount: data.amount,
+        currency: data.currency,
+        sourceDrawer: data.sourceDrawer,
+      });
+      if (!result.success) throw new Error(result.error ?? "Top-up failed");
+    },
+    [systemTopUpProvider],
+  );
+
+  const handleSystemTopUpConfirmExternal = useCallback(
+    async (data: { amount: number; currency: "USD" | "LBP" }) => {
+      const result = await window.api.recharge.topUpAppExternal({
+        provider: systemTopUpProvider,
+        amount: data.amount,
+        currency: data.currency,
+      });
+      if (!result.success) throw new Error(result.error ?? "Top-up failed");
+    },
+    [systemTopUpProvider],
+  );
+
   // Derived accent colors based on active provider
   const providerAccent = useMemo(
     () =>
@@ -1079,6 +1133,13 @@ export default function Services() {
               monthByCurrency={analytics.month.byCurrency}
               owedByProvider={owedByProvider}
             />
+            <button
+              type="button"
+              onClick={handleSystemTopUpClick}
+              className="px-4 py-2 rounded-lg font-medium text-sm bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 hover:text-white transition-all"
+            >
+              Top Up
+            </button>
             <button
               type="button"
               onClick={() => setShowHistory(true)}
@@ -1287,15 +1348,19 @@ export default function Services() {
                   )}
                   <input
                     id="service-amount"
-                    type="number"
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
+                    type="text"
+                    inputMode="decimal"
+                    autoComplete="off"
+                    value={formatWithCommas(amount)}
+                    onChange={(e) => {
+                      const cleaned = e.target.value.replace(/,/g, "");
+                      if (isPartialDecimal(cleaned)) setAmount(cleaned);
+                    }}
                     className={
                       INPUT_CLASS +
                       (currency === "USD" ? " pl-8 pr-16" : " pl-4 pr-16")
                     }
                     placeholder={currency === "LBP" ? "0" : "0.00"}
-                    step={currency === "LBP" ? "1000" : "0.01"}
                   />
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs font-medium">
                     {currency}
@@ -1520,9 +1585,14 @@ export default function Services() {
                         )}
                         <input
                           id="service-omt-fee"
-                          type="number"
-                          value={omtFee}
-                          onChange={(e) => setOmtFee(e.target.value)}
+                          type="text"
+                          inputMode="decimal"
+                          autoComplete="off"
+                          value={formatWithCommas(omtFee)}
+                          onChange={(e) => {
+                            const cleaned = e.target.value.replace(/,/g, "");
+                            if (isPartialDecimal(cleaned)) setOmtFee(cleaned);
+                          }}
                           className={INPUT_CLASS + (isLbp ? "" : " pl-8")}
                           placeholder={
                             autoFee != null
@@ -1533,7 +1603,6 @@ export default function Services() {
                                 ? "0"
                                 : "0.00"
                           }
-                          step={isLbp ? "1000" : "0.01"}
                         />
                       </div>
                       {/* Auto-fee hint */}
@@ -1808,16 +1877,19 @@ export default function Services() {
                     </span>
                     <input
                       id="service-pm-fee"
-                      type="number"
-                      value={pmFeeAmount}
-                      onChange={(e) => setPmFeeAmount(e.target.value)}
+                      type="text"
+                      inputMode="decimal"
+                      autoComplete="off"
+                      value={formatWithCommas(pmFeeAmount)}
+                      onChange={(e) => {
+                        const cleaned = e.target.value.replace(/,/g, "");
+                        if (isPartialDecimal(cleaned)) setPmFeeAmount(cleaned);
+                      }}
                       className={
                         INPUT_CLASS +
                         " pl-8 border-violet-500/40 focus:border-violet-400"
                       }
                       placeholder="0.00"
-                      step="0.01"
-                      min="0"
                     />
                   </div>
                   {amount && parseFloat(amount) > 0 && (
@@ -1875,12 +1947,16 @@ export default function Services() {
                           </span>
                           <input
                             id="binance-fee"
-                            type="number"
-                            value={omtFee}
-                            onChange={(e) => setOmtFee(e.target.value)}
+                            type="text"
+                            inputMode="decimal"
+                            autoComplete="off"
+                            value={formatWithCommas(omtFee)}
+                            onChange={(e) => {
+                              const cleaned = e.target.value.replace(/,/g, "");
+                              if (isPartialDecimal(cleaned)) setOmtFee(cleaned);
+                            }}
                             className="w-full bg-slate-900 border border-purple-500/30 rounded-lg pl-8 pr-4 py-2 text-purple-300 font-mono focus:outline-none focus:border-purple-500"
                             placeholder="0.00"
-                            step="0.01"
                           />
                         </div>
                         <p className="text-xs text-purple-300/70 mt-1">
@@ -1929,6 +2005,18 @@ export default function Services() {
           </div>
         </div>
       </div>
+
+      {/* System Drawer Top-Up Modal */}
+      <TopUpModal
+        isOpen={showTopUpModal}
+        onClose={() => setShowTopUpModal(false)}
+        onConfirm={handleSystemTopUpConfirm}
+        onConfirmExternal={handleSystemTopUpConfirmExternal}
+        provider={systemTopUpProvider}
+        allDrawers={topUpDrawers}
+        destinationDrawer={systemDrawerName}
+        defaultSourceDrawer="General"
+      />
 
       {/* History Modal — full-screen overlay, checkout-modal style */}
       {showHistory && (

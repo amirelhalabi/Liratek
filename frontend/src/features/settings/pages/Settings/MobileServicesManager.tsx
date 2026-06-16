@@ -18,6 +18,10 @@ import {
   FolderPlus,
 } from "lucide-react";
 import type { MobileServiceItem } from "@/types/electron";
+import {
+  formatWithCommas,
+  isPartialDecimal,
+} from "@/shared/utils/formatWithCommas";
 import { parseCatalogToSeedData } from "@/features/recharge/utils/parseCatalogToSeedData";
 
 const PROVIDERS = ["iPick", "Katsh", "WISH_APP", "OMT_APP", "VOUCHER"] as const;
@@ -493,11 +497,15 @@ export default function MobileServicesManager() {
                 Cost (LBP)
               </label>
               <input
-                type="number"
-                value={newItemForm.cost_lbp}
-                onChange={(e) =>
-                  setNewItemForm({ ...newItemForm, cost_lbp: e.target.value })
-                }
+                type="text"
+                inputMode="decimal"
+                autoComplete="off"
+                value={formatWithCommas(newItemForm.cost_lbp)}
+                onChange={(e) => {
+                  const cleaned = e.target.value.replace(/,/g, "");
+                  if (isPartialDecimal(cleaned))
+                    setNewItemForm({ ...newItemForm, cost_lbp: cleaned });
+                }}
                 className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm focus:outline-none focus:border-violet-500"
               />
             </div>
@@ -506,11 +514,15 @@ export default function MobileServicesManager() {
                 Sell (LBP)
               </label>
               <input
-                type="number"
-                value={newItemForm.sell_lbp}
-                onChange={(e) =>
-                  setNewItemForm({ ...newItemForm, sell_lbp: e.target.value })
-                }
+                type="text"
+                inputMode="decimal"
+                autoComplete="off"
+                value={formatWithCommas(newItemForm.sell_lbp)}
+                onChange={(e) => {
+                  const cleaned = e.target.value.replace(/,/g, "");
+                  if (isPartialDecimal(cleaned))
+                    setNewItemForm({ ...newItemForm, sell_lbp: cleaned });
+                }}
                 className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm focus:outline-none focus:border-violet-500"
               />
             </div>
@@ -855,14 +867,15 @@ export default function MobileServicesManager() {
                                                   C:
                                                 </span>
                                                 <input
-                                                  type="number"
-                                                  value={editing.cost_lbp}
-                                                  onChange={(e) =>
-                                                    setEditing({
-                                                      ...editing,
-                                                      cost_lbp: e.target.value,
-                                                    })
-                                                  }
+                                                  type="text"
+                                                  inputMode="decimal"
+                                                  autoComplete="off"
+                                                  value={formatWithCommas(editing.cost_lbp)}
+                                                  onChange={(e) => {
+                                                    const cleaned = e.target.value.replace(/,/g, "");
+                                                    if (isPartialDecimal(cleaned))
+                                                      setEditing({ ...editing, cost_lbp: cleaned });
+                                                  }}
                                                   onKeyDown={(e) => {
                                                     if (e.key === "Enter")
                                                       handleSaveEdit();
@@ -877,14 +890,15 @@ export default function MobileServicesManager() {
                                                   S:
                                                 </span>
                                                 <input
-                                                  type="number"
-                                                  value={editing.sell_lbp}
-                                                  onChange={(e) =>
-                                                    setEditing({
-                                                      ...editing,
-                                                      sell_lbp: e.target.value,
-                                                    })
-                                                  }
+                                                  type="text"
+                                                  inputMode="decimal"
+                                                  autoComplete="off"
+                                                  value={formatWithCommas(editing.sell_lbp)}
+                                                  onChange={(e) => {
+                                                    const cleaned = e.target.value.replace(/,/g, "");
+                                                    if (isPartialDecimal(cleaned))
+                                                      setEditing({ ...editing, sell_lbp: cleaned });
+                                                  }}
                                                   onKeyDown={(e) => {
                                                     if (e.key === "Enter")
                                                       handleSaveEdit();

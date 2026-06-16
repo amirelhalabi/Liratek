@@ -7,6 +7,10 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import logger from "@/utils/logger";
+import {
+  formatWithCommas,
+  isPartialDecimal,
+} from "@/shared/utils/formatWithCommas";
 import { appEvents, useApi } from "@liratek/ui";
 import PaymentMethodsManager from "./PaymentMethodsManager";
 import { ExportBar } from "@liratek/ui";
@@ -787,9 +791,14 @@ function DrawerLimitsSection() {
           </label>
           <input
             id="drawerLimitGeneral"
-            type="number"
-            value={drawerLimitGeneral}
-            onChange={(e) => setDrawerLimitGeneral(e.target.value)}
+            type="text"
+            inputMode="decimal"
+            autoComplete="off"
+            value={formatWithCommas(drawerLimitGeneral)}
+            onChange={(e) => {
+              const cleaned = e.target.value.replace(/,/g, "");
+              if (isPartialDecimal(cleaned)) setDrawerLimitGeneral(cleaned);
+            }}
             className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white text-sm"
           />
         </div>
@@ -802,9 +811,14 @@ function DrawerLimitsSection() {
           </label>
           <input
             id="drawerLimitOMT"
-            type="number"
-            value={drawerLimitOMT}
-            onChange={(e) => setDrawerLimitOMT(e.target.value)}
+            type="text"
+            inputMode="decimal"
+            autoComplete="off"
+            value={formatWithCommas(drawerLimitOMT)}
+            onChange={(e) => {
+              const cleaned = e.target.value.replace(/,/g, "");
+              if (isPartialDecimal(cleaned)) setDrawerLimitOMT(cleaned);
+            }}
             className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white text-sm"
           />
         </div>

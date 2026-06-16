@@ -1,6 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import logger from "@/utils/logger";
 import {
+  formatWithCommas,
+  isPartialDecimal,
+} from "@/shared/utils/formatWithCommas";
+import {
   Wrench,
   Plus,
   DollarSign,
@@ -596,13 +600,16 @@ export default function Maintenance() {
                     )}
                     <input
                       id="maintenance-cost"
-                      type="number"
-                      value={cost}
-                      onChange={(e) => setCost(e.target.value)}
+                      type="text"
+                      inputMode="decimal"
+                      autoComplete="off"
+                      value={formatWithCommas(cost)}
+                      onChange={(e) => {
+                        const cleaned = e.target.value.replace(/,/g, "");
+                        if (isPartialDecimal(cleaned)) setCost(cleaned);
+                      }}
                       className={`w-full bg-slate-900 border border-slate-600 rounded-lg ${currency === "USD" ? "pl-7" : "pl-3"} pr-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-orange-500`}
                       placeholder={currency === "USD" ? "0.00" : "0"}
-                      min="0"
-                      step={currency === "USD" ? "0.01" : "1000"}
                     />
                   </div>
                 </div>
@@ -621,13 +628,16 @@ export default function Maintenance() {
                     )}
                     <input
                       id="maintenance-price"
-                      type="number"
-                      value={price}
-                      onChange={(e) => setPrice(e.target.value)}
+                      type="text"
+                      inputMode="decimal"
+                      autoComplete="off"
+                      value={formatWithCommas(price)}
+                      onChange={(e) => {
+                        const cleaned = e.target.value.replace(/,/g, "");
+                        if (isPartialDecimal(cleaned)) setPrice(cleaned);
+                      }}
                       className={`w-full bg-slate-900 border border-emerald-500/50 rounded-lg ${currency === "USD" ? "pl-7" : "pl-3"} pr-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-emerald-500`}
                       placeholder={currency === "USD" ? "0.00" : "0"}
-                      min="0"
-                      step={currency === "USD" ? "0.01" : "1000"}
                     />
                   </div>
                 </div>

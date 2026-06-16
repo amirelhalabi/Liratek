@@ -10,6 +10,10 @@ import {
   Loader2,
 } from "lucide-react";
 import { PageHeader } from "@liratek/ui";
+import {
+  formatWithCommas,
+  isPartialDecimal,
+} from "@/shared/utils/formatWithCommas";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import type { Voucher } from "@/types/electron";
 
@@ -52,6 +56,7 @@ export function VouchersPage() {
   const [showResults, setShowResults] = useState(false);
   const [selectedClient, setSelectedClient] = useState<ClientLite | null>(null);
   const [clientPhone, setClientPhone] = useState("");
+  const [currency, setCurrency] = useState<"USD" | "LBP">("USD");
   const [amount, setAmount] = useState("");
   const [expiryDate, setExpiryDate] = useState("");
   const [note, setNote] = useState("");
@@ -116,6 +121,7 @@ export function VouchersPage() {
 
   const resetForm = () => {
     clearClient();
+    setCurrency("USD");
     setAmount("");
     setExpiryDate("");
     setNote("");
@@ -140,7 +146,6 @@ export function VouchersPage() {
     const created = await window.api.clients.create({
       full_name: name,
       phone_number: phone,
-      notes: null,
       whatsapp_opt_in: 1,
     });
     if (created.success && created.id) {
@@ -174,6 +179,7 @@ export function VouchersPage() {
       const result = await window.api.vouchers.create({
         clientId: resolved.clientId,
         amount: amountVal,
+        currency,
         expiryDate: expiryDate || null,
         note: note.trim() || null,
       });
@@ -191,9 +197,13 @@ export function VouchersPage() {
   };
 
   const handleCancel = async (voucher: Voucher) => {
+    const amtLabel =
+      voucher.currency_code === "LBP"
+        ? `${Math.round(voucher.amount).toLocaleString()} LBP`
+        : `$${voucher.amount.toFixed(2)}`;
     if (
       !window.confirm(
-        `Cancel voucher ${voucher.code} ($${voucher.amount.toFixed(2)})? This cannot be undone.`,
+        `Cancel voucher ${voucher.code} (${amtLabel})? This cannot be undone.`,
       )
     ) {
       return;
@@ -254,7 +264,9 @@ export function VouchersPage() {
                   </button>
                 </div>
                 <p className="text-sm text-emerald-200 mt-1">
-                  ${createdVoucher.amount.toFixed(2)}
+                  {createdVoucher.currency_code === "LBP"
+                    ? `${Math.round(createdVoucher.amount).toLocaleString()} LBP`
+                    : `$${createdVoucher.amount.toFixed(2)}`}
                   {createdVoucher.expiry_date
                     ? ` · expires ${createdVoucher.expiry_date}`
                     : " · no expiry"}
@@ -337,23 +349,50 @@ export function VouchersPage() {
               )}
             </div>
 
-            {/* Amount */}
+            {/* Amount + currency toggle */}
             <div className="mb-3">
-              <label className="text-xs text-slate-400 block mb-1">
-                Amount (USD) *
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs text-slate-400">
+                  Amount *
+                </label>
+                <div className="flex items-center gap-1 bg-slate-900 rounded-lg border border-slate-600 p-0.5">
+                  {(["USD", "LBP"] as const).map((cur) => (
+                    <button
+                      key={cur}
+                      type="button"
+                      onClick={() => {
+                        if (cur === currency) return;
+                        setCurrency(cur);
+                        setAmount("");
+                      }}
+                      className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all ${
+                        currency === cur
+                          ? "bg-violet-600 text-white"
+                          : "text-slate-400 hover:text-slate-200"
+                      }`}
+                    >
+                      {cur}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm">
-                  $
-                </span>
+                {currency === "USD" && (
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm">
+                    $
+                  </span>
+                )}
                 <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-600 rounded-lg pl-7 pr-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
-                  placeholder="0.00"
+                  type="text"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  value={formatWithCommas(amount)}
+                  onChange={(e) => {
+                    const cleaned = e.target.value.replace(/,/g, "");
+                    if (isPartialDecimal(cleaned)) setAmount(cleaned);
+                  }}
+                  className={`w-full bg-slate-900 border border-slate-600 rounded-lg ${currency === "USD" ? "pl-7" : "pl-3"} pr-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500`}
+                  placeholder={currency === "USD" ? "0.00" : "0"}
                 />
               </div>
             </div>
@@ -509,7 +548,9 @@ export function VouchersPage() {
                       </button>
                     )}
                     <span className="text-xs font-mono text-emerald-400">
-                      ${v.amount.toFixed(2)}
+                      {v.currency_code === "LBP"
+                        ? `${Math.round(v.amount).toLocaleString()} LBP`
+                        : `$${v.amount.toFixed(2)}`}
                     </span>
                   </div>
                 ))}

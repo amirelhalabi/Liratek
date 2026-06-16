@@ -537,6 +537,7 @@ export interface ElectronAPI {
     create: (data: {
       clientId: number;
       amount: number;
+      currency?: "USD" | "LBP";
       expiryDate?: string | null;
       note?: string | null;
     }) => Promise<{ success: boolean; voucher?: Voucher; error?: string }>;
@@ -736,18 +737,55 @@ export interface ElectronAPI {
         | "Alfa"
         | "OMT_APP"
         | "WHISH_APP"
+        | "OMT_SYSTEM"
+        | "WHISH_SYSTEM"
         | "iPick"
-        | "Katsh"
-        | "BINANCE";
+        | "Katsh";
       amount: number;
       currency: "USD" | "LBP";
       sourceDrawer: string;
+    }) => Promise<{ success: boolean; error?: string }>;
+    topUpAppExternal: (data: {
+      provider:
+        | "OMT_APP"
+        | "WHISH_APP"
+        | "OMT_SYSTEM"
+        | "WHISH_SYSTEM"
+        | "iPick"
+        | "Katsh";
+      amount: number;
+      currency: "USD" | "LBP";
+    }) => Promise<{ success: boolean; error?: string }>;
+    topUpFromSupplier: (data: {
+      provider: "iPick" | "Katsh";
+      amount: number;
+      currency: "USD" | "LBP";
+    }) => Promise<{ success: boolean; error?: string }>;
+    topUpFromPartner: (data: {
+      provider: "WHISH_APP";
+      partnerId: number;
+      amount: number;
+      currency: "USD" | "LBP";
+    }) => Promise<{ success: boolean; error?: string }>;
+    topUpFromClient: (data: {
+      amount: number;
+      cashPaid: number;
+      currency: "USD" | "LBP";
+      clientName?: string;
+      clientId?: number;
+    }) => Promise<{ success: boolean; error?: string }>;
+    topUpFromCustomer: (data: {
+      provider: "MTC" | "Alfa";
+      creditsAmount: number;
+      cashPaid: number;
+      cashPaidCurrency: "USD" | "LBP";
     }) => Promise<{ success: boolean; error?: string }>;
     getDrawerBalances: () => Promise<
       Array<{
         name: string;
         usdBalance: number;
         lbpBalance: number;
+        usdtBalance: number;
       }>
     >;
     updateMetadata: (data: {
@@ -867,6 +905,8 @@ export interface ElectronAPI {
       currency?: string;
       note?: string;
       transaction_time?: string;
+      clientId?: number | null;
+      clientName?: string;
     }) => Promise<{ success: boolean; ticket?: any; error?: string }>;
     get: (
       id: number,
@@ -1219,7 +1259,8 @@ export interface ElectronAPI {
       error?: string;
     }>;
     getCheckpointTimeline: (filters: {
-      date?: string;
+      date_from?: string;
+      date_to?: string;
       type?: "OPENING" | "CLOSING" | "CHECKPOINT" | "ALL";
       drawer_name?: string;
       user_id?: number;

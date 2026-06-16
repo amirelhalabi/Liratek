@@ -1,5 +1,9 @@
 import { useState, useEffect } from "react";
 import { ChevronDown, Phone, Search, X, Plus } from "lucide-react";
+import {
+  formatWithCommas,
+  isPartialDecimal,
+} from "@/shared/utils/formatWithCommas";
 import { useApi, ServiceTypeTabs, type PaymentLine } from "@liratek/ui";
 import { PaymentSheet } from "./PaymentSheet";
 import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
@@ -669,9 +673,15 @@ export function FinancialForm({
                         <div className="w-28">
                           <label className="text-slate-400 text-xs block mb-1">Cost</label>
                           <input
-                            type="number"
-                            value={newItemForm.cost_lbp}
-                            onChange={(e) => setNewItemForm({ ...newItemForm, cost_lbp: e.target.value })}
+                            type="text"
+                            inputMode="decimal"
+                            autoComplete="off"
+                            value={formatWithCommas(newItemForm.cost_lbp)}
+                            onChange={(e) => {
+                              const cleaned = e.target.value.replace(/,/g, "");
+                              if (isPartialDecimal(cleaned))
+                                setNewItemForm({ ...newItemForm, cost_lbp: cleaned });
+                            }}
                             placeholder="LBP"
                             className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500"
                           />
@@ -679,9 +689,15 @@ export function FinancialForm({
                         <div className="w-28">
                           <label className="text-slate-400 text-xs block mb-1">Sell</label>
                           <input
-                            type="number"
-                            value={newItemForm.sell_lbp}
-                            onChange={(e) => setNewItemForm({ ...newItemForm, sell_lbp: e.target.value })}
+                            type="text"
+                            inputMode="decimal"
+                            autoComplete="off"
+                            value={formatWithCommas(newItemForm.sell_lbp)}
+                            onChange={(e) => {
+                              const cleaned = e.target.value.replace(/,/g, "");
+                              if (isPartialDecimal(cleaned))
+                                setNewItemForm({ ...newItemForm, sell_lbp: cleaned });
+                            }}
                             placeholder="LBP"
                             className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500"
                           />

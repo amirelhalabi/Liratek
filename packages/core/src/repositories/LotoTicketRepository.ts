@@ -13,6 +13,12 @@ import {
   paymentMethodToDrawerName,
 } from "../utils/payments.js";
 
+function fmtPaymentMethod(method: string): string {
+  return method
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 export interface LotoTicket {
   id: number;
   ticket_number: string | null;
@@ -27,6 +33,8 @@ export interface LotoTicket {
   currency: string;
   note: string | null;
   checkpoint_id: number | null;
+  client_id: number | null;
+  client_name: string | null;
   created_at: string;
   updated_at: string;
   edited_by: string | null;
@@ -46,6 +54,8 @@ export interface LotoTicketCreate {
   note?: string;
   userId: number;
   transaction_time?: string;
+  clientId?: number | null;
+  clientName?: string | null;
 }
 
 export interface LotoTicketUpdate {
@@ -74,8 +84,9 @@ export class LotoTicketRepository {
       const stmt = this.db.prepare(`
         INSERT INTO loto_tickets (
           ticket_number, sale_amount, commission_rate, commission_amount,
-          is_winner, prize_amount, sale_date, payment_method, currency, note, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+          is_winner, prize_amount, sale_date, payment_method, currency, note,
+          client_id, client_name, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
       `);
 
       const result = stmt.run(
@@ -89,11 +100,17 @@ export class LotoTicketRepository {
         data.payment_method || null,
         data.currency || "LBP",
         data.note || null,
+        data.clientId ?? null,
+        data.clientName ?? null,
         data.transaction_time ?? null,
       );
 
       const ticketId = result.lastInsertRowid as number;
       const ticket = this.getTicketById(ticketId)!;
+
+      const paymentMethod = data.payment_method || "CASH";
+      const ticketLabel = data.ticket_number || `#${ticketId}`;
+      const txnSummary = `Loto ticket sale: ${ticketLabel} ${fmtPaymentMethod(paymentMethod)}`;
 
       // 2. Create unified transaction record
       const txnRepo = getTransactionRepository();
@@ -106,17 +123,18 @@ export class LotoTicketRepository {
         amount_lbp: data.sale_amount,
         profit_lbp: data.commission_amount,
         exchange_rate: 100000, // Default rate
-        summary: `Loto ticket sale: ${data.ticket_number || "#" + ticketId}`,
+        client_id: data.clientId ?? null,
+        client_name: data.clientName ?? null,
+        summary: txnSummary,
         metadata_json: {
           commission_amount: data.commission_amount,
           commission_rate: data.commission_rate ?? 0.0445,
-          payment_method: data.payment_method,
+          payment_method: paymentMethod,
         },
         transaction_time: data.transaction_time,
       });
 
       // 3. Record payment and update drawer balance
-      const paymentMethod = data.payment_method || "CASH";
       if (isDrawerAffectingMethod(paymentMethod)) {
         const drawerName = paymentMethodToDrawerName(paymentMethod);
         const currency = data.currency || "LBP";
@@ -133,8 +151,7 @@ export class LotoTicketRepository {
           drawerName,
           currency,
           data.sale_amount,
-          data.note ||
-            `Loto ticket sale: ${data.ticket_number || "#" + ticketId}`,
+          data.note || txnSummary,
           data.userId,
         );
 

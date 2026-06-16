@@ -31,6 +31,8 @@ export interface ExportBarProps {
   rowCount?: number | undefined;
   /** Optional content rendered on the left side of the bar (e.g. batch action buttons). */
   headerActions?: React.ReactNode;
+  /** Row count label rendered after headerActions, before export buttons. */
+  countLabel?: React.ReactNode;
 }
 
 /* ------------------------------------------------------------------ */
@@ -49,6 +51,7 @@ export function ExportBar({
   getExportData,
   rowCount,
   headerActions,
+  countLabel,
 }: ExportBarProps) {
   const handleExcel = useCallback(() => {
     if (getExportData) {
@@ -68,12 +71,15 @@ export function ExportBar({
 
   const hasExport =
     (exportExcel || exportPdf) && (rowCount === undefined || rowCount > 0);
-  if (!hasExport && !headerActions) return null;
+  if (!hasExport && !headerActions && !countLabel) return null;
 
   return (
     <div className="flex items-center justify-between px-1 py-1">
-      {/* Left: consumer-provided actions (e.g. batch buttons) */}
-      <div className="flex items-center gap-1">{headerActions}</div>
+      {/* Left: consumer-provided actions then row count */}
+      <div className="flex items-center gap-3">
+        {headerActions && <div className="flex items-center gap-1">{headerActions}</div>}
+        {countLabel && <span className="text-xs text-slate-500">{countLabel}</span>}
+      </div>
 
       {/* Right: export buttons */}
       {hasExport && (

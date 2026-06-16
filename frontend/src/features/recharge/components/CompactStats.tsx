@@ -8,15 +8,12 @@ function formatCurrencyAmount(amount: number, currency: string): string {
   return `$${amount.toFixed(2)}`;
 }
 
-function formatDrawerBalance(balance: {
-  usdBalance: number;
-  lbpBalance: number;
-}): string {
+function formatDrawerBalance(balance: DrawerBalance, fallback = "$0.00"): string {
   const parts: string[] = [];
   if (balance.usdBalance !== 0) parts.push(`$${balance.usdBalance.toFixed(2)}`);
-  if (balance.lbpBalance !== 0)
-    parts.push(`${Math.round(balance.lbpBalance).toLocaleString()} LBP`);
-  return parts.length > 0 ? parts.join(" + ") : "$0.00";
+  if (balance.lbpBalance !== 0) parts.push(`${Math.round(balance.lbpBalance).toLocaleString()} LBP`);
+  if (balance.usdtBalance) parts.push(`${balance.usdtBalance.toFixed(2)} USDT`);
+  return parts.length > 0 ? parts.join(" + ") : fallback;
 }
 
 function formatByCurrency(byCurrency: CurrencyStats[]): string {
@@ -32,6 +29,7 @@ function formatByCurrency(byCurrency: CurrencyStats[]): string {
 interface DrawerBalance {
   usdBalance: number;
   lbpBalance: number;
+  usdtBalance?: number;
 }
 
 /** A single read-only metric cell inside the grouped stats panel. */

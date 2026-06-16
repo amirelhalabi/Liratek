@@ -24,6 +24,7 @@ import {
   OmtWhishAppTransferForm,
 } from "../../components";
 import { TopUpModal, ServiceTypeTabs } from "@liratek/ui";
+import { PartnerSelector } from "@/features/partners/components/PartnerSelector";
 import type {
   AnyProvider,
   ProviderConfig,
@@ -47,18 +48,6 @@ export default function MobileRecharge() {
   } = useSession();
   const { getCategoriesForProvider, getItems: getServiceItems, refresh: refreshItems } =
     useMobileServiceItems();
-
-  // MTC voucher items from DB (provider=VOUCHER, category=mtc, subcategory=voucher)
-  const mtcVoucherItems = useMemo(() => {
-    const items = getServiceItems("VOUCHER" as ProviderKey, "mtc");
-    return items
-      .filter((i) => i.subcategory === "voucher")
-      .map((i) => ({
-        label: i.label,
-        cost_lbp: i.catalogCost ?? 0,
-        sell_lbp: i.catalogSellPrice ?? 0,
-      }));
-  }, [getServiceItems]);
 
   const [activeProvider, setActiveProvider] = useState<AnyProvider>(
     PROVIDER_CONFIGS[0].key,
@@ -88,6 +77,7 @@ export default function MobileRecharge() {
     useState<RechargeType>("CREDIT_TRANSFER");
   const [telecomAmount, setTelecomAmount] = useState("");
   const [telecomPrice, setTelecomPrice] = useState("");
+  const [telecomDaysCostUsd, setTelecomDaysCostUsd] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [paidBy, setPaidBy] = useState("CASH");
   const [showClientSearch, setShowClientSearch] = useState(false);
@@ -107,6 +97,7 @@ export default function MobileRecharge() {
   const [returnLegs, setReturnLegs] = useState<PaymentLine[]>([]);
 
   const [cryptoType, setCryptoType] = useState<"SEND" | "RECEIVE">("SEND");
+  const [cryptoFeeIncluded, setCryptoFeeIncluded] = useState(false);
   const [cryptoAmount, setCryptoAmount] = useState("");
   const [cryptoClientName, setCryptoClientName] = useState("");
   const [cryptoClientPhone, setCryptoClientPhone] = useState("");
@@ -127,8 +118,14 @@ export default function MobileRecharge() {
     FinancialTransaction[]
   >([]);
   const [showTopUpModal, setShowTopUpModal] = useState(false);
+  const [topUpPartnerId, setTopUpPartnerId] = useState<number | null>(null);
   const [drawerBalances, setDrawerBalances] = useState<
-    Array<{ name: string; usdBalance: number; lbpBalance: number }>
+    Array<{
+      name: string;
+      usdBalance: number;
+      lbpBalance: number;
+      usdtBalance: number;
+    }>
   >([]);
   const [topUpData, setTopUpData] = useState<{
     provider:
@@ -137,8 +134,7 @@ export default function MobileRecharge() {
       | "OMT_APP"
       | "WHISH_APP"
       | "iPick"
-      | "Katsh"
-      | "BINANCE";
+      | "Katsh";
     destinationDrawer: string;
     defaultSourceDrawer: string;
     availableDrawers: Array<{
@@ -218,6 +214,7 @@ export default function MobileRecharge() {
     // form on the first paint (prevents FinancialForm mount→unmount flash).
     setWhishAppMode("transfer");
     setRechargeType("CREDIT_TRANSFER");
+    setTelecomDaysCostUsd("");
     setFinAnalytics({
       today: { commission: 0, count: 0, byCurrency: [] },
       byProvider: [],
@@ -297,7 +294,7 @@ export default function MobileRecharge() {
     if (!activeConfig) return undefined;
     const drawer = drawerBalances.find((d) => d.name === activeConfig.drawer);
     return drawer
-      ? { usdBalance: drawer.usdBalance, lbpBalance: drawer.lbpBalance }
+      ? { usdBalance: drawer.usdBalance, lbpBalance: drawer.lbpBalance, usdtBalance: drawer.usdtBalance }
       : undefined;
   }, [activeConfig, drawerBalances]);
 
@@ -345,10 +342,17 @@ export default function MobileRecharge() {
 
   const handleTelecomSubmit = useCallback(async () => {
     if (!activeProvider || !telecomAmount) return;
+    if (rechargeType === "DAYS" && (!(parseFloat(telecomDaysCostUsd) > 0) || !telecomPrice)) return;
 
     const amount = parseFloat(telecomAmount);
-    const price = parseFloat(telecomPrice) || amount * alfaCreditSellRate;
-    const cost = amount * (alfaCreditCostRate || 85000);
+    const price =
+      rechargeType === "DAYS"
+        ? parseFloat(telecomPrice) || 0
+        : parseFloat(telecomPrice) || amount * alfaCreditSellRate;
+    const cost =
+      rechargeType === "DAYS"
+        ? parseFloat(telecomDaysCostUsd) * (alfaCreditCostRate || 85000)
+        : amount * (alfaCreditCostRate || 85000);
     const defaultPriceToClient = amount * alfaCreditSellRate;
 
     const clientResult = await ensureRechargeClient({
@@ -406,6 +410,7 @@ export default function MobileRecharge() {
       // Reset form
       setTelecomAmount("");
       setTelecomPrice("");
+      setTelecomDaysCostUsd("");
       setPhoneNumber("");
       setTelecomClientPhone("");
       setReturnLegs([]);
@@ -455,6 +460,7 @@ export default function MobileRecharge() {
 
       setTelecomAmount("");
       setTelecomPrice("");
+      setTelecomDaysCostUsd("");
       setPhoneNumber("");
       setTelecomClientPhone("");
       setReturnLegs([]);
@@ -470,6 +476,7 @@ export default function MobileRecharge() {
     activeProvider,
     telecomAmount,
     telecomPrice,
+    telecomDaysCostUsd,
     rechargeType,
     phoneNumber,
     paidBy,
@@ -537,8 +544,7 @@ export default function MobileRecharge() {
           | "OMT_APP"
           | "WHISH_APP"
           | "iPick"
-          | "Katsh"
-          | "BINANCE";
+          | "Katsh";
       }
     > = {
       MTC: { drawer: "MTC", defaultSource: "General", type: "MTC" },
@@ -555,7 +561,6 @@ export default function MobileRecharge() {
       },
       iPick: { drawer: "iPick", defaultSource: "General", type: "iPick" },
       Katsh: { drawer: "Katsh", defaultSource: "General", type: "Katsh" },
-      BINANCE: { drawer: "Binance", defaultSource: "General", type: "BINANCE" },
     };
 
     const config = providerConfig[activeProvider];
@@ -605,11 +610,8 @@ export default function MobileRecharge() {
         throw new Error(result.error || "Top-up failed");
       }
 
-      // Reload financial data to show updated balances
       if (activeConfig?.formMode === "financial") {
         loadFinancialData();
-      } else if (activeConfig?.formMode === "crypto") {
-        loadBinanceData();
       }
       loadDrawerBalances();
 
@@ -620,7 +622,6 @@ export default function MobileRecharge() {
         WHISH_APP: "Whish App",
         iPick: "iPick",
         Katsh: "Katsh",
-        BINANCE: "Binance",
       };
 
       alert(
@@ -628,6 +629,116 @@ export default function MobileRecharge() {
       );
     },
     [topUpData, activeConfig, loadFinancialData, loadDrawerBalances],
+  );
+
+  // MTC/Alfa: buy credits from a customer (credits in, cash out of General)
+  const handleTopUpConfirmCustomer = useCallback(
+    async (data: {
+      creditsAmount: number;
+      cashPaid: number;
+      cashPaidCurrency: "USD" | "LBP";
+    }) => {
+      if (
+        !topUpData ||
+        (topUpData.provider !== "MTC" && topUpData.provider !== "Alfa")
+      )
+        return;
+
+      const result = await window.api.recharge.topUpFromCustomer({
+        provider: topUpData.provider,
+        creditsAmount: data.creditsAmount,
+        cashPaid: data.cashPaid,
+        cashPaidCurrency: data.cashPaidCurrency,
+      });
+
+      if (!result.success) {
+        throw new Error(result.error || "Top-up failed");
+      }
+
+      loadDrawerBalances();
+
+      const cashDisplay =
+        data.cashPaidCurrency === "LBP"
+          ? `${data.cashPaid.toLocaleString()} LBP`
+          : `$${data.cashPaid.toFixed(2)}`;
+      alert(
+        `Successfully topped up ${topUpData.provider} drawer with ${data.creditsAmount} USD credits (paid ${cashDisplay} cash)`,
+      );
+    },
+    [topUpData, loadDrawerBalances],
+  );
+
+  // Katsh/iPick: supplier extends credit — no cash leaves any drawer
+  const handleTopUpConfirmSupplier = useCallback(
+    async (data: { amount: number; currency: "USD" | "LBP" }) => {
+      if (
+        !topUpData ||
+        (topUpData.provider !== "iPick" && topUpData.provider !== "Katsh")
+      )
+        return;
+
+      const result = await window.api.recharge.topUpFromSupplier({
+        provider: topUpData.provider as "iPick" | "Katsh",
+        amount: data.amount,
+        currency: data.currency,
+      });
+
+      if (!result.success) {
+        throw new Error(result.error || "Top-up failed");
+      }
+
+      loadFinancialData();
+      loadDrawerBalances();
+
+      alert(
+        `Successfully topped up ${topUpData.provider} via supplier credit: ${data.amount} ${data.currency}`,
+      );
+    },
+    [topUpData, loadFinancialData, loadDrawerBalances],
+  );
+
+  // Whish App: top up from a partner's credit line
+  const handleTopUpConfirmPartner = useCallback(
+    async (data: {
+      partnerId: number;
+      amount: number;
+      currency: "USD" | "LBP";
+    }) => {
+      const result = await window.api.recharge.topUpFromPartner({
+        provider: "WHISH_APP",
+        partnerId: data.partnerId,
+        amount: data.amount,
+        currency: data.currency,
+      });
+      if (!result.success) {
+        throw new Error(result.error || "Top-up failed");
+      }
+      loadFinancialData();
+      loadDrawerBalances();
+      alert(`Whish App topped up via partner: ${data.amount} ${data.currency}`);
+    },
+    [loadFinancialData, loadDrawerBalances],
+  );
+
+  // Whish App: buy credits from a client (client transfers credits, shop pays cash)
+  const handleTopUpConfirmClient = useCallback(
+    async (data: {
+      amount: number;
+      cashPaid: number;
+      currency: "USD" | "LBP";
+      clientName?: string;
+    }) => {
+      const result = await window.api.recharge.topUpFromClient(data);
+      if (!result.success) {
+        throw new Error(result.error || "Top-up failed");
+      }
+      loadFinancialData();
+      loadDrawerBalances();
+      alert(
+        `Whish App topped up from client: +${data.amount} ${data.currency}`,
+      );
+    },
+    [loadFinancialData, loadDrawerBalances],
   );
 
   const handleAlfaGiftSubmit = useCallback(async () => {
@@ -655,7 +766,18 @@ export default function MobileRecharge() {
 
   const handleCryptoSubmit = useCallback(async () => {
     const fee = parseFloat(cryptoFee) || 0;
-    const amount = parseFloat(cryptoAmount);
+    const rawAmount = parseFloat(cryptoAmount);
+    // fee included → the entered amount already contains the fee
+    // SEND:    feeIncluded → USDT sent = amount - fee;  !feeIncluded → USDT sent = amount
+    // RECEIVE: feeIncluded → USDT received = amount;    !feeIncluded → USDT received = amount + fee
+    let amount: number;
+    if (cryptoType === "SEND" && cryptoFeeIncluded) {
+      amount = rawAmount - fee;
+    } else if (cryptoType === "RECEIVE" && !cryptoFeeIncluded) {
+      amount = rawAmount + fee;
+    } else {
+      amount = rawAmount;
+    }
     const isSplitPayment = cryptoPaymentLines.length > 1;
     const paidByMethod =
       cryptoPaymentLines.length === 1
@@ -684,7 +806,7 @@ export default function MobileRecharge() {
     // If session is active, add to cart instead of submitting
     if (activeSession) {
       const isSend = cryptoType === "SEND";
-      const label = `Binance ${isSend ? "Send" : "Receive"} - $${amount} USDT${cryptoClientName ? ` - ${cryptoClientName}` : ""}`;
+      const label = `Binance ${isSend ? "Send" : "Cash Out"} - ${amount} USDT${cryptoClientName ? ` - ${cryptoClientName}` : ""}`;
 
       addToSessionCart({
         module: isSend ? "binance_send" : "binance_receive",
@@ -718,6 +840,7 @@ export default function MobileRecharge() {
       setCryptoClientId(null);
       setCryptoDescription("");
       setCryptoFee("");
+      setCryptoFeeIncluded(false);
       setCryptoPaymentLines([]);
       setCryptoReturnLegs([]);
       return;
@@ -768,6 +891,7 @@ export default function MobileRecharge() {
       setCryptoClientId(null);
       setCryptoDescription("");
       setCryptoFee("");
+      setCryptoFeeIncluded(false);
       setCryptoPaymentLines([]);
       setCryptoReturnLegs([]);
       setCryptoTransactionTime(undefined);
@@ -781,6 +905,7 @@ export default function MobileRecharge() {
   }, [
     cryptoType,
     cryptoAmount,
+    cryptoFeeIncluded,
     cryptoClientName,
     cryptoClientPhone,
     cryptoClientId,
@@ -801,9 +926,13 @@ export default function MobileRecharge() {
   const handleQuickAmount = useCallback(
     (val: number) => {
       setTelecomAmount(val.toString());
-      setTelecomPrice((val * alfaCreditSellRate).toString());
+      if (rechargeType === "DAYS") {
+        setTelecomDaysCostUsd(((val / 10) * 0.3).toFixed(2));
+      } else {
+        setTelecomPrice((val * alfaCreditSellRate).toString());
+      }
     },
-    [alfaCreditSellRate],
+    [alfaCreditSellRate, rechargeType],
   );
 
   // Typing in the Amount field should re-derive the suggested client price the
@@ -812,23 +941,15 @@ export default function MobileRecharge() {
   const handleTelecomAmountChange = useCallback(
     (val: string) => {
       setTelecomAmount(val);
-      const num = parseFloat(val);
-      setTelecomPrice(num > 0 ? (num * alfaCreditSellRate).toString() : "");
+      if (rechargeType === "DAYS") {
+        const days = parseFloat(val);
+        setTelecomDaysCostUsd(days > 0 ? ((days / 10) * 0.3).toFixed(2) : "");
+      } else {
+        const num = parseFloat(val);
+        setTelecomPrice(num > 0 ? (num * alfaCreditSellRate).toString() : "");
+      }
     },
-    [alfaCreditSellRate],
-  );
-
-  const resolveVoucherImage = useCallback(
-    (provider: string, amount: number) => {
-      const items = getServiceItems(provider as ProviderKey);
-      const item = items.find(
-        (i) =>
-          i.subcategory?.toLowerCase().includes("voucher") &&
-          i.catalogCost === amount,
-      );
-      return item?.imageData || null;
-    },
-    [getServiceItems],
+    [alfaCreditSellRate, rechargeType],
   );
 
   const isMTC = activeProvider === "MTC";
@@ -929,8 +1050,7 @@ export default function MobileRecharge() {
                 activeConfig.key === "OMT_APP" ||
                 activeConfig.key === "WISH_APP" ||
                 activeConfig.key === "iPick" ||
-                activeConfig.key === "Katsh" ||
-                activeConfig.key === "BINANCE") && (
+                activeConfig.key === "Katsh") && (
                 <button
                   onClick={handleTopUpClick}
                   className="h-11 px-4 inline-flex items-center rounded-lg font-medium text-sm bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 hover:text-white transition-all"
@@ -949,7 +1069,12 @@ export default function MobileRecharge() {
           <TelecomForm
             isMTC={isMTC}
             rechargeType={rechargeType}
-            setRechargeType={setRechargeType}
+            setRechargeType={(type) => {
+              setRechargeType(type);
+              setTelecomPrice("");
+              setTelecomAmount("");
+              setTelecomDaysCostUsd("");
+            }}
             isSubmitting={isSubmitting}
             handleQuickAmount={handleQuickAmount}
             showHistory={showHistory}
@@ -977,7 +1102,6 @@ export default function MobileRecharge() {
             searchClients={searchClients}
             clientSearchResults={clientSearchResults}
             selectClient={selectClient}
-            resolveVoucherImage={resolveVoucherImage}
             activeProvider={activeProvider}
             activeConfig={activeConfig}
             handleTelecomSubmit={handleTelecomSubmit}
@@ -992,8 +1116,9 @@ export default function MobileRecharge() {
             setPaymentLines={setPaymentLines}
             clientName={clientName}
             setClientName={setClientName}
-            voucherItems={mtcVoucherItems}
             alfaCreditCostRate={alfaCreditCostRate}
+            telecomDaysCostUsd={telecomDaysCostUsd}
+            setTelecomDaysCostUsd={setTelecomDaysCostUsd}
             isAdmin={isAdmin}
             onReturnChange={setReturnLegs}
             onRefreshHistory={loadRechargeHistory}
@@ -1122,6 +1247,8 @@ export default function MobileRecharge() {
             setCryptoDescription={setCryptoDescription}
             cryptoFee={cryptoFee}
             setCryptoFee={setCryptoFee}
+            feeIncluded={cryptoFeeIncluded}
+            setFeeIncluded={setCryptoFeeIncluded}
             handleCryptoSubmit={handleCryptoSubmit}
             isSubmitting={isSubmitting}
             binanceTransactions={binanceTransactions}
@@ -1155,8 +1282,25 @@ export default function MobileRecharge() {
           onClose={() => {
             setShowTopUpModal(false);
             setTopUpData(null);
+            setTopUpPartnerId(null);
           }}
           onConfirm={handleTopUpConfirm}
+          onConfirmCustomer={handleTopUpConfirmCustomer}
+          onConfirmSupplier={handleTopUpConfirmSupplier}
+          {...(topUpData.provider === "WHISH_APP"
+            ? {
+                onConfirmPartner: handleTopUpConfirmPartner,
+                onConfirmClient: handleTopUpConfirmClient,
+                selectedPartnerId: topUpPartnerId,
+                partnerSelector: (
+                  <PartnerSelector
+                    selectedPartnerId={topUpPartnerId}
+                    onSelect={setTopUpPartnerId}
+                    autoSelectSingle
+                  />
+                ),
+              }
+            : {})}
           provider={topUpData.provider}
           allDrawers={topUpData.availableDrawers}
           destinationDrawer={topUpData.destinationDrawer}

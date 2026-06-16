@@ -263,7 +263,8 @@ export function registerDatabaseHandlers(): void {
     async (
       _event,
       filters: {
-        date?: string;
+        date_from?: string;
+        date_to?: string;
         type?: "OPENING" | "CLOSING" | "CHECKPOINT" | "ALL";
         drawer_name?: string;
         user_id?: number;

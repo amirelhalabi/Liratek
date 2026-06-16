@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import {
   getRecentTransactions,
   voidTransaction,
@@ -6,8 +6,7 @@ import {
   type TransactionFiltersParam,
 } from "@/api/backendApi";
 import { DataTable } from "@liratek/ui";
-import { useDateRangeFilter } from "@/shared/hooks/useDateRangeFilter";
-import { DateRangeFilter } from "@/shared/components/DateRangeFilter";
+import { FILTER_GROUPS } from "../auditConstants";
 
 type TransactionRow = {
   id: number;
@@ -29,60 +28,217 @@ type TransactionRow = {
   client_name: string | null;
 };
 
+const ALL_OPTIONS = FILTER_GROUPS.flatMap((g) => g.options);
+
+// ---------------------------------------------------------------------------
+// Type label helpers
+// ---------------------------------------------------------------------------
+
+const PROVIDER_LABELS: Record<string, string> = {
+  OMT: "OMT System",
+  WHISH: "Whish System",
+  OMT_APP: "OMT App",
+  WISH_APP: "Whish App",
+  OMT_SYSTEM: "OMT System",
+  WHISH_SYSTEM: "Whish System",
+  iPick: "iPick",
+  Katsh: "Katsh",
+  BINANCE: "Binance",
+  MTC: "MTC",
+  Alfa: "Alfa",
+};
+
+const RECHARGE_SUBTYPE_LABELS: Record<string, string> = {
+  CREDIT_TRANSFER: "Credits",
+  VOUCHER: "Voucher",
+  DAYS: "Days",
+  TOP_UP: "Top-up",
+  ALFA_GIFT: "Gift",
+};
+
+const STATIC_TYPE_LABELS: Record<string, string> = {
+  LOTO: "Loto",
+  LOTO_CASH_PRIZE: "Loto Prize",
+  LOTO_MONTHLY_FEE: "Loto Monthly Fee",
+  LOTO_SETTLEMENT: "Loto Settlement",
+  MTC_TOPUP: "MTC Top-up",
+  ALFA_TOPUP: "Alfa Top-up",
+  DRAWER_TOPUP: "General Top-up",
+  CHECKPOINT: "Closing",
+  SUPPLIER_SETTLEMENT: "Supplier Settlement",
+};
+
+function getTypeLabel(row: TransactionRow): string {
+  try {
+    const meta = JSON.parse(row.metadata_json ?? "{}") as Record<
+      string,
+      unknown
+    >;
+    const p = meta.provider as string | undefined;
+    const st = meta.service_type as string | undefined;
+    const ik = meta.item_key;
+
+    if (row.type === "FINANCIAL_SERVICE") {
+      const base = (p && PROVIDER_LABELS[p]) ?? "Financial Service";
+      if (p === "OMT_APP" || p === "BINANCE" || (p === "WISH_APP" && !ik)) {
+        if (st === "SEND") return `${base} Send`;
+        if (st === "RECEIVE") return `${base} Recv`;
+      }
+      if (p === "WISH_APP" && ik) return "Whish App Bills";
+      return base;
+    }
+
+    if (row.type === "RECHARGE") {
+      const provLabel = (p && PROVIDER_LABELS[p]) ?? p ?? "Recharge";
+      const subLabel =
+        (meta.type && RECHARGE_SUBTYPE_LABELS[meta.type as string]) ?? "";
+      return subLabel ? `${provLabel} ${subLabel}` : provLabel;
+    }
+
+    if (row.type === "RECHARGE_TOPUP") {
+      const provLabel = (p && PROVIDER_LABELS[p]) ?? p ?? "Recharge";
+      return `${provLabel} Top-up`;
+    }
+  } catch {
+    // fall through
+  }
+
+  return STATIC_TYPE_LABELS[row.type] ?? row.type.replace(/_/g, " ");
+}
+
+// ---------------------------------------------------------------------------
+// Type color helpers
+// ---------------------------------------------------------------------------
+
 const TYPE_COLORS: Record<string, string> = {
   SALE: "text-green-400",
   FINANCIAL_SERVICE: "text-blue-400",
   EXCHANGE: "text-yellow-400",
-  BINANCE: "text-orange-400",
   RECHARGE: "text-purple-400",
   RECHARGE_TOPUP: "text-purple-300",
+  MTC_TOPUP: "text-violet-400",
+  ALFA_TOPUP: "text-violet-300",
   CUSTOM_SERVICE: "text-cyan-400",
   MAINTENANCE: "text-amber-400",
   EXPENSE: "text-red-400",
   DEBT_REPAYMENT: "text-emerald-400",
   SUPPLIER_PAYMENT: "text-indigo-400",
-  CLOSING: "text-slate-300",
-  OPENING: "text-slate-300",
+  SUPPLIER_SETTLEMENT: "text-indigo-300",
+  CHECKPOINT: "text-slate-400",
+  LOTO: "text-lime-500",
+  LOTO_CASH_PRIZE: "text-lime-400",
+  LOTO_MONTHLY_FEE: "text-lime-400",
+  LOTO_SETTLEMENT: "text-lime-300",
+  DRAWER_TOPUP: "text-slate-300",
   REFUND: "text-rose-400",
   CLIENT_CREATED: "text-teal-400",
   CLIENT_UPDATED: "text-teal-300",
   CLIENT_DELETED: "text-teal-500",
 };
 
-function formatAmount(usd: number, lbp: number): string {
+function getTypeColor(row: TransactionRow): string {
+  if (
+    row.type === "FINANCIAL_SERVICE" ||
+    row.type === "RECHARGE" ||
+    row.type === "RECHARGE_TOPUP"
+  ) {
+    try {
+      const meta = JSON.parse(row.metadata_json ?? "{}") as Record<
+        string,
+        unknown
+      >;
+      switch (meta.provider) {
+        case "OMT":
+        case "OMT_APP":
+        case "OMT_SYSTEM":
+          return "text-blue-400";
+        case "WHISH":
+        case "WISH_APP":
+        case "WHISH_SYSTEM":
+          return "text-cyan-400";
+        case "iPick":
+          return "text-orange-300";
+        case "Katsh":
+          return "text-orange-400";
+        case "BINANCE":
+          return "text-yellow-400";
+        case "MTC":
+          return "text-purple-400";
+        case "Alfa":
+          return "text-purple-300";
+      }
+    } catch {
+      // fall through
+    }
+  }
+  return TYPE_COLORS[row.type] ?? "text-slate-300";
+}
+
+// ---------------------------------------------------------------------------
+// Amount formatter
+// ---------------------------------------------------------------------------
+
+function formatAmount(usd: number, lbp: number, metaJson?: string | null): string {
   const parts: string[] = [];
   if (usd) parts.push(`$${usd.toLocaleString()}`);
   if (lbp) parts.push(`${lbp.toLocaleString()} LBP`);
-  return parts.join(" + ") || "\u2014";
+  if (!parts.length && metaJson) {
+    try {
+      const meta = JSON.parse(metaJson) as Record<string, unknown>;
+      const amt = meta.amount;
+      const cur = meta.currency;
+      if (typeof amt === "number" && amt && typeof cur === "string" && cur !== "USD") {
+        parts.push(`${amt.toFixed(2)} ${cur}`);
+      }
+    } catch { /* ignore */ }
+  }
+  return parts.join(" + ") || "—";
 }
 
-/**
- * Returns the cash-flow direction for a given transaction type.
- * "in"  \u2192 money flows into the shop
- * "out" \u2192 money flows out of the shop
- * "both" \u2192 the row has both in and out legs (e.g. exchange)
- * null \u2192 direction not meaningful for this type
- */
+// ---------------------------------------------------------------------------
+// Cash flow direction
+// ---------------------------------------------------------------------------
+
 function getCashFlowDirection(
   type: string,
+  metaJson?: string | null,
 ): "in" | "out" | "both" | null {
   switch (type) {
     case "SALE":
     case "FINANCIAL_SERVICE":
+    case "RECHARGE":
     case "CUSTOM_SERVICE":
     case "MAINTENANCE":
     case "DEBT_REPAYMENT":
     case "SUPPLIER_PAYMENT":
+    case "MTC_TOPUP":
+    case "ALFA_TOPUP":
       return "in";
+    case "RECHARGE_TOPUP": {
+      // RECHARGE_TOPUP covers two opposite flows. The classic "from drawer"
+      // top-up spends cash (out). But Whish App credit-acquisition top-ups —
+      // funded by a partner (partnerId) or bought from a client (cashPaid) —
+      // increase the provider drawer, so they are inflows (like MTC/ALFA_TOPUP).
+      if (metaJson) {
+        try {
+          const m = JSON.parse(metaJson) as {
+            partnerId?: number | null;
+            cashPaid?: number | null;
+          };
+          if (m.partnerId != null || m.cashPaid != null) return "in";
+        } catch {
+          /* fall through to default "out" */
+        }
+      }
+      return "out";
+    }
     case "EXPENSE":
-    case "RECHARGE":
-    case "RECHARGE_TOPUP":
+    case "LOTO_MONTHLY_FEE":
+    case "LOTO_SETTLEMENT":
+    case "SUPPLIER_SETTLEMENT":
       return "out";
     case "EXCHANGE":
       return "both";
-    case "BINANCE":
-      // Binance can be either; leave direction undecorated here
-      return null;
     default:
       return null;
   }
@@ -92,20 +248,21 @@ interface CashFlowBadgeProps {
   type: string;
   amountUsd: number;
   amountLbp: number;
+  metaJson?: string | null;
 }
 
-function CashFlowBadge({ type, amountUsd, amountLbp }: CashFlowBadgeProps) {
-  const direction = getCashFlowDirection(type);
+function CashFlowBadge({ type, amountUsd, amountLbp, metaJson }: CashFlowBadgeProps) {
+  const direction = getCashFlowDirection(type, metaJson);
   if (!direction) return null;
 
-  const amountStr = formatAmount(amountUsd, amountLbp);
+  const amountStr = formatAmount(amountUsd, amountLbp, metaJson);
 
   if (direction === "both") {
     return (
       <span className="inline-flex items-center gap-1 text-[11px] font-mono">
-        <span className="text-emerald-400">\u2191</span>
+        <span className="text-emerald-400">↓</span>
         <span className="text-emerald-400">/</span>
-        <span className="text-red-400">\u2193</span>
+        <span className="text-red-400">↑</span>
         <span className="text-slate-300">{amountStr}</span>
       </span>
     );
@@ -114,7 +271,7 @@ function CashFlowBadge({ type, amountUsd, amountLbp }: CashFlowBadgeProps) {
   if (direction === "in") {
     return (
       <span className="inline-flex items-center gap-1 text-[11px] font-mono">
-        <span className="text-emerald-400">\u2191</span>
+        <span className="text-emerald-400">↓</span>
         <span className="text-emerald-400">{amountStr}</span>
       </span>
     );
@@ -122,11 +279,15 @@ function CashFlowBadge({ type, amountUsd, amountLbp }: CashFlowBadgeProps) {
 
   return (
     <span className="inline-flex items-center gap-1 text-[11px] font-mono">
-      <span className="text-red-400">\u2193</span>
+      <span className="text-red-400">↑</span>
       <span className="text-red-400">{amountStr}</span>
     </span>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Actionable types (void / refund buttons)
+// ---------------------------------------------------------------------------
 
 const ACTIONABLE_TYPES = new Set([
   "SALE",
@@ -141,45 +302,57 @@ const ACTIONABLE_TYPES = new Set([
   "SUPPLIER_PAYMENT",
 ]);
 
-const TRANSACTION_TYPES = [
-  "SALE",
-  "FINANCIAL_SERVICE",
-  "EXCHANGE",
-  "BINANCE",
-  "RECHARGE",
-  "CUSTOM_SERVICE",
-  "MAINTENANCE",
-  "EXPENSE",
-  "DEBT_REPAYMENT",
-  "SUPPLIER_PAYMENT",
-  "CLOSING",
-  "REFUND",
-  "CLIENT_CREATED",
-  "CLIENT_UPDATED",
-  "CLIENT_DELETED",
-];
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
 
-export default function TransactionsViewer() {
+export interface TransactionsViewerProps {
+  limit: string;
+  selectedFilter: string;
+  search: string;
+  from: string;
+  to: string;
+}
+
+export default function TransactionsViewer({
+  limit,
+  selectedFilter,
+  search,
+  from,
+  to,
+}: TransactionsViewerProps) {
   const [rows, setRows] = useState<TransactionRow[]>([]);
-  const [limit, setLimit] = useState("50");
-  const [typeFilter, setTypeFilter] = useState("");
   const [loading, setLoading] = useState(false);
-  const { filteredData, from, to, setFrom, setTo } = useDateRangeFilter(
-    rows,
-    "created_at",
-  );
+
+  const filteredData = useMemo(() => {
+    if (!from && !to) return rows;
+    return rows.filter((row) => {
+      const dateVal = (row.created_at ?? "").slice(0, 10);
+      if (from && dateVal < from) return false;
+      if (to && dateVal > to) return false;
+      return true;
+    });
+  }, [rows, from, to]);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
+      const activeOption = ALL_OPTIONS.find((o) => o.label === selectedFilter);
       const filters: TransactionFiltersParam = {};
-      if (typeFilter) filters.type = typeFilter;
+      if (activeOption?.type) filters.type = activeOption.type;
+      if (activeOption?.provider) filters.provider = activeOption.provider;
+      if (activeOption?.service_type)
+        filters.service_type = activeOption.service_type;
+      if (activeOption?.has_item_key !== undefined)
+        filters.has_item_key = activeOption.has_item_key;
+      if (search) filters.search = search;
+
       const res = await getRecentTransactions(Number(limit) || 50, filters);
       setRows((res as TransactionRow[]) || []);
     } finally {
       setLoading(false);
     }
-  }, [limit, typeFilter]);
+  }, [limit, selectedFilter, search]);
 
   const handleVoid = useCallback(
     async (id: number) => {
@@ -217,224 +390,180 @@ export default function TransactionsViewer() {
   }, [load]);
 
   return (
-    <div className="space-y-3">
-      {/* Filters */}
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <select
-            value={typeFilter}
-            onChange={(e) => setTypeFilter(e.target.value)}
-            className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-sm"
-          >
-            <option value="">All types</option>
-            {TRANSACTION_TYPES.map((t) => (
-              <option key={t} value={t}>
-                {t.replace(/_/g, " ")}
-              </option>
-            ))}
-          </select>
-          <DateRangeFilter
-            from={from}
-            to={to}
-            onFromChange={setFrom}
-            onToChange={setTo}
-          />
-        </div>
-        <div className="flex items-center gap-2">
-          <label className="text-sm text-slate-400">Rows:</label>
-          <input
-            value={limit}
-            onChange={(e) => setLimit(e.target.value)}
-            className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white w-16"
-          />
-        </div>
-      </div>
-
-      {/* Table */}
-      <div className="border border-slate-700 rounded overflow-hidden">
-        <DataTable<TransactionRow>
-          columns={[
-            {
-              header: "Time",
-              sortKey: "created_at",
-              width: "160px",
-              className: "p-2 text-xs font-semibold uppercase text-slate-400",
-            },
-            {
-              header: "Type",
-              sortKey: "type",
-              width: "140px",
-              className: "p-2 text-xs font-semibold uppercase text-slate-400",
-            },
-            {
-              header: "Status",
-              sortKey: "status",
-              width: "80px",
-              className: "p-2 text-xs font-semibold uppercase text-slate-400",
-            },
-            {
-              header: "User",
-              sortKey: "username",
-              width: "90px",
-              className: "p-2 text-xs font-semibold uppercase text-slate-400",
-            },
-            {
-              header: "Amount",
-              sortKey: "amount_usd",
-              width: "160px",
-              className: "p-2 text-xs font-semibold uppercase text-slate-400",
-            },
-            {
-              header: "Client",
-              sortKey: "client_name",
-              width: "140px",
-              className: "p-2 text-xs font-semibold uppercase text-slate-400",
-            },
-            {
-              header: "Source",
-              sortKey: "source_table",
-              width: "130px",
-              className: "p-2 text-xs font-semibold uppercase text-slate-400",
-            },
-            {
-              header: "Summary",
-              sortKey: "summary",
-              className: "p-2 text-xs font-semibold uppercase text-slate-400",
-            },
-            {
-              header: "Reverses",
-              sortKey: "reverses_id",
-              width: "80px",
-              className: "p-2 text-xs font-semibold uppercase text-slate-400",
-            },
-            {
-              header: "Actions",
-              width: "100px",
-              className: "p-2 text-xs font-semibold uppercase text-slate-400",
-            },
-          ]}
-          data={filteredData}
-          loading={loading}
-          emptyMessage="No transactions found"
-          defaultSortKey="created_at"
-          defaultSortDirection="desc"
-          resizable
-          exportExcel
-          exportPdf
-          exportFilename="transactions"
-          className="w-full text-left"
-          theadClassName="bg-slate-900 text-slate-400 text-xs uppercase"
-          tbodyClassName=""
-          getSortValue={(row, key) => {
-            if (key === "created_at")
-              return row.created_at ? new Date(row.created_at).getTime() : 0;
-            if (key === "amount_usd") return row.amount_usd ?? 0;
-            if (key === "reverses_id") return row.reverses_id ?? 0;
-            return String((row as any)[key] ?? "");
-          }}
-          renderRow={(row) => (
-            <tr
-              key={row.id}
-              className={`border-t border-slate-800 text-xs ${row.status === "VOIDED" ? "bg-red-950/20" : ""}`}
-            >
-              <td className="p-2 truncate" style={{ width: 160 }}>
-                {row.created_at
-                  ? (() => {
-                      try {
-                        return new Date(row.created_at).toLocaleString(
-                          "en-GB",
-                          {
-                            day: "2-digit",
-                            month: "short",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          },
-                        );
-                      } catch {
-                        return row.created_at;
-                      }
-                    })()
-                  : ""}
-              </td>
-              <td className="p-2 truncate" style={{ width: 140 }}>
-                <span
-                  className={`${TYPE_COLORS[row.type] || "text-slate-300"} ${row.status === "VOIDED" ? "line-through opacity-60" : ""}`}
-                >
-                  {row.type.replace(/_/g, " ")}
-                </span>
-              </td>
-              <td className="p-2" style={{ width: 80 }}>
-                {row.status === "VOIDED" ? (
-                  <span className="bg-red-900/50 text-red-300 text-[10px] px-1.5 py-0.5 rounded font-medium">
-                    VOIDED
-                  </span>
-                ) : (
-                  <span className="text-green-500/80 text-[10px] font-medium">
-                    ACTIVE
-                  </span>
-                )}
-              </td>
-              <td className="p-2 truncate" style={{ width: 90 }}>
-                {row.username || `#${row.user_id}`}
-              </td>
-              <td className="p-2 truncate" style={{ width: 160 }}>
-                <span
-                  className={
-                    row.status === "VOIDED" ? "line-through opacity-60" : ""
+    <DataTable<TransactionRow>
+      columns={[
+        {
+          header: "Time",
+          sortKey: "created_at",
+          width: "160px",
+          className: "p-2 text-xs font-semibold uppercase text-slate-400",
+        },
+        {
+          header: "Summary",
+          sortKey: "summary",
+          className: "p-2 text-xs font-semibold uppercase text-slate-400",
+        },
+        {
+          header: "Type",
+          sortKey: "type",
+          width: "160px",
+          className: "p-2 text-xs font-semibold uppercase text-slate-400",
+        },
+        {
+          header: "Client",
+          sortKey: "client_name",
+          width: "140px",
+          className: "p-2 text-xs font-semibold uppercase text-slate-400",
+        },
+        {
+          header: "Amount",
+          sortKey: "amount_usd",
+          width: "160px",
+          className: "p-2 text-xs font-semibold uppercase text-slate-400",
+        },
+        {
+          header: "User",
+          sortKey: "username",
+          width: "90px",
+          className: "p-2 text-xs font-semibold uppercase text-slate-400",
+        },
+        {
+          header: "Status",
+          sortKey: "status",
+          width: "80px",
+          className: "p-2 text-xs font-semibold uppercase text-slate-400",
+        },
+        {
+          header: "Reverses",
+          sortKey: "reverses_id",
+          width: "60px",
+          className: "p-2 text-xs font-semibold uppercase text-slate-400",
+        },
+        {
+          header: "Actions",
+          width: "80px",
+          className: "p-2 text-xs font-semibold uppercase text-slate-400",
+        },
+      ]}
+      data={filteredData}
+      loading={loading}
+      emptyMessage="No transactions found"
+      defaultSortKey="created_at"
+      defaultSortDirection="desc"
+      showRowCount
+      totalRowCount={rows.length}
+      exportExcel
+      exportPdf
+      exportFilename="transactions"
+      className="w-full text-left"
+      theadClassName="bg-slate-900 text-slate-400 text-xs uppercase"
+      tbodyClassName=""
+      getSortValue={(row, key) => {
+        if (key === "created_at")
+          return row.created_at ? new Date(row.created_at).getTime() : 0;
+        if (key === "amount_usd") return row.amount_usd ?? 0;
+        if (key === "reverses_id") return row.reverses_id ?? 0;
+        return String((row as Record<string, unknown>)[key] ?? "");
+      }}
+      renderRow={(row) => (
+        <tr
+          key={row.id}
+          className={`border-t border-slate-800 text-xs ${row.status === "VOIDED" ? "bg-red-950/20" : ""}`}
+        >
+          <td className="p-2 truncate" style={{ width: 160 }}>
+            {row.created_at
+              ? (() => {
+                  try {
+                    return new Date(row.created_at).toLocaleString(
+                      "en-GB",
+                      {
+                        day: "2-digit",
+                        month: "short",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      },
+                    );
+                  } catch {
+                    return row.created_at;
                   }
-                >
-                  {formatAmount(row.amount_usd, row.amount_lbp)}
+                })()
+              : ""}
+          </td>
+          <td className="p-2">
+            <div className="flex flex-col gap-0.5">
+              <CashFlowBadge
+                type={row.type}
+                amountUsd={row.amount_usd}
+                amountLbp={row.amount_lbp}
+                metaJson={row.metadata_json}
+              />
+              {row.summary && (
+                <span className="text-slate-400 truncate max-w-[480px]">
+                  {row.summary}
                 </span>
-              </td>
-              <td className="p-2 truncate" style={{ width: 140 }}>
-                {row.client_name || "\u2014"}
-              </td>
-              <td className="p-2 truncate" style={{ width: 130 }}>
-                {row.source_table} #{row.source_id}
-              </td>
-              <td className="p-2">
-                <div className="flex flex-col gap-0.5">
-                  <CashFlowBadge
-                    type={row.type}
-                    amountUsd={row.amount_usd}
-                    amountLbp={row.amount_lbp}
-                  />
-                  {row.summary && (
-                    <span className="text-slate-400 truncate max-w-[220px]">
-                      {row.summary}
-                    </span>
-                  )}
-                </div>
-              </td>
-              <td className="p-2" style={{ width: 80 }}>
-                {row.reverses_id ? `#${row.reverses_id}` : "\u2014"}
-              </td>
-              <td className="p-2" style={{ width: 100 }}>
-                {ACTIONABLE_TYPES.has(row.type) &&
-                row.status !== "VOIDED" &&
-                row.type !== "REFUND" ? (
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => handleVoid(row.id)}
-                      className="px-1.5 py-0.5 text-[10px] rounded bg-red-900/40 text-red-300 hover:bg-red-900/80 transition-colors"
-                    >
-                      Void
-                    </button>
-                    <button
-                      onClick={() => handleRefund(row.id)}
-                      className="px-1.5 py-0.5 text-[10px] rounded bg-rose-900/40 text-rose-300 hover:bg-rose-900/80 transition-colors"
-                    >
-                      Refund
-                    </button>
-                  </div>
-                ) : (
-                  "\u2014"
-                )}
-              </td>
-            </tr>
-          )}
-        />
-      </div>
-    </div>
+              )}
+            </div>
+          </td>
+          <td className="p-2 truncate" style={{ width: 160 }}>
+            <span
+              className={`${getTypeColor(row)} ${row.status === "VOIDED" ? "line-through opacity-60" : ""}`}
+            >
+              {getTypeLabel(row)}
+            </span>
+          </td>
+          <td className="p-2 truncate" style={{ width: 140 }}>
+            {row.client_name || "—"}
+          </td>
+          <td className="p-2 truncate" style={{ width: 160 }}>
+            <span
+              className={
+                row.status === "VOIDED" ? "line-through opacity-60" : ""
+              }
+            >
+              {formatAmount(row.amount_usd, row.amount_lbp, row.metadata_json)}
+            </span>
+          </td>
+          <td className="p-2 truncate" style={{ width: 90 }}>
+            {row.username || `#${row.user_id}`}
+          </td>
+          <td className="p-2" style={{ width: 80 }}>
+            {row.status === "VOIDED" ? (
+              <span className="bg-red-900/50 text-red-300 text-[10px] px-1.5 py-0.5 rounded font-medium">
+                VOIDED
+              </span>
+            ) : (
+              <span className="text-green-500/80 text-[10px] font-medium">
+                ACTIVE
+              </span>
+            )}
+          </td>
+          <td className="p-2" style={{ width: 60 }}>
+            {row.reverses_id ? `#${row.reverses_id}` : "—"}
+          </td>
+          <td className="p-2" style={{ width: 80 }}>
+            {ACTIONABLE_TYPES.has(row.type) &&
+            row.status !== "VOIDED" &&
+            row.type !== "REFUND" ? (
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => handleVoid(row.id)}
+                  className="px-1.5 py-0.5 text-[10px] rounded bg-red-900/40 text-red-300 hover:bg-red-900/80 transition-colors"
+                >
+                  Void
+                </button>
+                <button
+                  onClick={() => handleRefund(row.id)}
+                  className="px-1.5 py-0.5 text-[10px] rounded bg-rose-900/40 text-rose-300 hover:bg-rose-900/80 transition-colors"
+                >
+                  Refund
+                </button>
+              </div>
+            ) : (
+              "—"
+            )}
+          </td>
+        </tr>
+      )}
+    />
   );
 }

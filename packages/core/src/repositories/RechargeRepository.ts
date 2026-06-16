@@ -16,6 +16,7 @@ import {
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { getVoucherRepository } from "./VoucherRepository.js";
 import { getDebtService } from "../services/DebtService.js";
+import { getSupplierRepository } from "./SupplierRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import {
   type TopUpProvider,
@@ -225,6 +226,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
       const destDrawer = TOP_UP_PROVIDER_DRAWERS[data.provider];
       const currency = data.currency;
       const amount = Math.abs(data.amount);
+
       // Validate source drawer has sufficient balance
       const sourceBalanceRow = this.db
         .prepare(
@@ -252,7 +254,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             amount,
             currency,
             data.sourceDrawer,
-            `${data.provider === "OMT_APP" ? "OMT App" : "Whish App"} top-up from ${data.sourceDrawer}: +${amount} ${currency}`,
+            `${TOP_UP_PROVIDER_LABELS[data.provider]} top-up from ${data.sourceDrawer}: +${amount} ${currency}`,
             data.userId,
           );
 
@@ -296,8 +298,6 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           .run(destDrawer, currency, amount);
       })();
 
-      const providerLabel = TOP_UP_PROVIDER_LABELS[data.provider];
-
       rechargeLogger.info(
         {
           provider: data.provider,
@@ -306,12 +306,204 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           sourceDrawer: data.sourceDrawer,
           destDrawer,
         },
-        `${providerLabel} top-up: ${data.sourceDrawer} → ${destDrawer}: ${amount} ${currency}`,
+        `${TOP_UP_PROVIDER_LABELS[data.provider]} top-up: ${data.sourceDrawer} → ${destDrawer}: ${amount} ${currency}`,
       );
 
       return { success: true };
     } catch (error) {
       rechargeLogger.error({ error, data }, "App top-up failed");
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * Top up a provider drawer from an external cash source (no source drawer deduction).
+   */
+  topUpAppExternal(data: {
+    provider: TopUpProvider;
+    amount: number;
+    currency: string;
+    userId: number;
+  }): { success: boolean; error?: string } {
+    try {
+      const destDrawer = TOP_UP_PROVIDER_DRAWERS[data.provider];
+      const currency = data.currency;
+      const amount = Math.abs(data.amount);
+
+      this.db.transaction(() => {
+        const rechargeResult = this.db
+          .prepare(
+            `INSERT INTO recharges (carrier, recharge_type, amount, cost, price, currency_code, paid_by, note, created_by)
+             VALUES (?, 'TOP_UP', ?, 0, 0, ?, 'EXTERNAL', ?, ?)`,
+          )
+          .run(
+            data.provider,
+            amount,
+            currency,
+            `${TOP_UP_PROVIDER_LABELS[data.provider]} external top-up: +${amount} ${currency}`,
+            data.userId,
+          );
+
+        const rechargeId = Number(rechargeResult.lastInsertRowid);
+
+        getTransactionRepository().createTransaction({
+          type: TRANSACTION_TYPES.RECHARGE_TOPUP,
+          source_table: "recharges",
+          source_id: rechargeId,
+          user_id: data.userId,
+          amount_usd: currency === "USD" ? amount : 0,
+          amount_lbp: currency === "LBP" ? amount : 0,
+          summary: `${TOP_UP_PROVIDER_LABELS[data.provider]} external top-up → ${destDrawer}: ${amount} ${currency}`,
+          metadata_json: {
+            provider: data.provider,
+            amount,
+            currency,
+            sourceDrawer: "EXTERNAL",
+            destDrawer,
+          },
+        });
+
+        this.db
+          .prepare(
+            `INSERT INTO drawer_balances (drawer_name, currency_code, balance)
+             VALUES (?, ?, ?)
+             ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+               balance = drawer_balances.balance + excluded.balance,
+               updated_at = CURRENT_TIMESTAMP`,
+          )
+          .run(destDrawer, currency, amount);
+      })();
+
+      rechargeLogger.info(
+        { provider: data.provider, amount, currency, destDrawer },
+        `${TOP_UP_PROVIDER_LABELS[data.provider]} external top-up → ${destDrawer}: ${amount} ${currency}`,
+      );
+
+      return { success: true };
+    } catch (error) {
+      rechargeLogger.error({ error, data }, "External app top-up failed");
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * Top up the MTC/Alfa drawer with credits bought from a customer.
+   * The customer transfers credits to the shop's line and is paid cash out of
+   * the General drawer. Credits stock is always tracked in USD.
+   * Books price = credits received and cost = cash paid, so the margin
+   * (credits - cash) shows up as recharge profit at acquisition time.
+   */
+  topUpFromCustomer(data: {
+    provider: "MTC" | "Alfa";
+    creditsAmount: number;
+    cashPaid: number;
+    cashPaidCurrency: "USD" | "LBP";
+    userId: number;
+  }): { success: boolean; error?: string } {
+    try {
+      const destDrawer = TOP_UP_PROVIDER_DRAWERS[data.provider];
+      const credits = Math.abs(data.creditsAmount);
+      const cashPaid = Math.abs(data.cashPaid);
+      const cashCurrency = data.cashPaidCurrency;
+
+      if (credits <= 0) {
+        return { success: false, error: "Credits amount must be greater than 0" };
+      }
+
+      // Validate the General drawer can cover the cash paid to the customer
+      const generalRow = this.db
+        .prepare(
+          "SELECT balance FROM drawer_balances WHERE drawer_name = 'General' AND currency_code = ?",
+        )
+        .get(cashCurrency) as { balance: number | null } | undefined;
+
+      const generalBalance = generalRow?.balance ?? 0;
+      if (generalBalance < cashPaid) {
+        return {
+          success: false,
+          error: `Insufficient balance in General drawer. Available: ${generalBalance} ${cashCurrency}`,
+        };
+      }
+
+      this.db.transaction(() => {
+        // Record the top-up in recharges table
+        const rechargeResult = this.db
+          .prepare(
+            `INSERT INTO recharges (carrier, recharge_type, amount, cost, price, currency_code, paid_by, note, created_by)
+             VALUES (?, 'TOP_UP', ?, ?, ?, 'USD', 'CUSTOMER', ?, ?)`,
+          )
+          .run(
+            data.provider,
+            credits,
+            cashPaid,
+            credits,
+            `${data.provider} top-up from customer: +${credits} credits, paid ${cashPaid} ${cashCurrency} cash`,
+            data.userId,
+          );
+
+        const rechargeId = Number(rechargeResult.lastInsertRowid);
+
+        // Create unified transaction record
+        getTransactionRepository().createTransaction({
+          type: data.provider === "MTC"
+            ? TRANSACTION_TYPES.MTC_TOPUP
+            : TRANSACTION_TYPES.ALFA_TOPUP,
+          source_table: "recharges",
+          source_id: rechargeId,
+          user_id: data.userId,
+          amount_usd: credits,
+          amount_lbp: 0,
+          // Profit is only tracked in USD (credits are always USD); LBP cash
+          // payments are recorded on the drawer side only, not as profit_lbp
+          profit_usd: cashCurrency === "USD" ? credits - cashPaid : credits,
+          profit_lbp: cashCurrency === "LBP" ? -cashPaid : 0,
+          summary: `${data.provider} top-up from customer: +${credits} credits, -${cashPaid} ${cashCurrency} cash`,
+          metadata_json: {
+            provider: data.provider,
+            creditsAmount: credits,
+            cashPaid,
+            cashPaidCurrency: cashCurrency,
+            sourceDrawer: "General",
+            destDrawer,
+          },
+        });
+
+        // Pay the customer from the General drawer (in the chosen currency)
+        if (cashPaid > 0) {
+          this.db
+            .prepare(
+              `UPDATE drawer_balances SET balance = balance - ?, updated_at = CURRENT_TIMESTAMP
+               WHERE drawer_name = 'General' AND currency_code = ?`,
+            )
+            .run(cashPaid, cashCurrency);
+        }
+
+        // Add the received credits to the provider drawer
+        this.db
+          .prepare(
+            `INSERT INTO drawer_balances (drawer_name, currency_code, balance)
+             VALUES (?, 'USD', ?)
+             ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+               balance = drawer_balances.balance + excluded.balance,
+               updated_at = CURRENT_TIMESTAMP`,
+          )
+          .run(destDrawer, credits);
+      })();
+
+      rechargeLogger.info(
+        { provider: data.provider, credits, cashPaid, cashCurrency, destDrawer },
+        `${data.provider} top-up from customer: +${credits} credits, -${cashPaid} ${cashCurrency} cash`,
+      );
+
+      return { success: true };
+    } catch (error) {
+      rechargeLogger.error({ error, data }, "Customer top-up failed");
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error),
@@ -326,13 +518,14 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
     name: string;
     usdBalance: number;
     lbpBalance: number;
+    usdtBalance: number;
   }> {
     try {
       const rows = this.db
         .prepare(
-          `SELECT drawer_name, currency_code, balance 
-           FROM drawer_balances 
-           WHERE currency_code IN ('USD', 'LBP')
+          `SELECT drawer_name, currency_code, balance
+           FROM drawer_balances
+           WHERE currency_code IN ('USD', 'LBP', 'USDT')
            ORDER BY drawer_name`,
         )
         .all() as Array<{
@@ -341,28 +534,26 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         balance: number;
       }>;
 
-      // Group by drawer name
       const drawerMap = new Map<
         string,
-        { usdBalance: number; lbpBalance: number }
+        { usdBalance: number; lbpBalance: number; usdtBalance: number }
       >();
 
       for (const row of rows) {
         if (!drawerMap.has(row.drawer_name)) {
-          drawerMap.set(row.drawer_name, { usdBalance: 0, lbpBalance: 0 });
+          drawerMap.set(row.drawer_name, { usdBalance: 0, lbpBalance: 0, usdtBalance: 0 });
         }
         const drawer = drawerMap.get(row.drawer_name)!;
-        if (row.currency_code === "USD") {
-          drawer.usdBalance = row.balance;
-        } else if (row.currency_code === "LBP") {
-          drawer.lbpBalance = row.balance;
-        }
+        if (row.currency_code === "USD") drawer.usdBalance = row.balance;
+        else if (row.currency_code === "LBP") drawer.lbpBalance = row.balance;
+        else if (row.currency_code === "USDT") drawer.usdtBalance = row.balance;
       }
 
       return Array.from(drawerMap.entries()).map(([name, balances]) => ({
         name,
         usdBalance: balances.usdBalance,
         lbpBalance: balances.lbpBalance,
+        usdtBalance: balances.usdtBalance,
       }));
     } catch (error) {
       rechargeLogger.error({ error }, "Failed to get drawer balances");
@@ -422,6 +613,14 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
 
         // 2. Create unified transaction row
         const rechargeCommission = data.price - data.cost;
+        const SMS_COST_PER_SMS_USD = 0.16;
+        const MAX_USD_PER_SMS = 3;
+        const smsCount =
+          data.type === "CREDIT_TRANSFER"
+            ? Math.ceil(data.amount / MAX_USD_PER_SMS)
+            : 0;
+        const smsCostUsd = smsCount * SMS_COST_PER_SMS_USD;
+        const netRechargeCommission = rechargeCommission - smsCostUsd;
         const txnId = getTransactionRepository().createTransaction({
           type: TRANSACTION_TYPES.RECHARGE,
           source_table: "recharges",
@@ -429,8 +628,8 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
           user_id: createdBy,
           amount_usd: currency === "USD" ? data.price : 0,
           amount_lbp: currency === "LBP" ? data.price : 0,
-          profit_usd: currency === "USD" ? rechargeCommission : 0,
-          profit_lbp: currency === "LBP" ? rechargeCommission : 0,
+          profit_usd: currency === "USD" ? netRechargeCommission : 0,
+          profit_lbp: currency === "LBP" ? netRechargeCommission : 0,
           client_id: data.clientId ?? null,
           client_name: clientName ?? null,
           summary: `Recharge: ${data.provider} ${data.type} ${currency === "LBP" ? "" : "$"}${data.price.toLocaleString()} ${currency}`,
@@ -537,6 +736,20 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         );
         upsertBalanceDelta.run(providerDrawerName, "USD", stockDelta);
 
+        // SMS cost deduction: each CREDIT_TRANSFER requires SMSes to send credits
+        if (data.type === "CREDIT_TRANSFER" && smsCostUsd > 0) {
+          insertPayment.run(
+            txnId,
+            "SMS_COST",
+            providerDrawerName,
+            "USD",
+            -smsCostUsd,
+            `SMS cost: ${smsCount} × $${SMS_COST_PER_SMS_USD}`,
+            createdBy,
+          );
+          upsertBalanceDelta.run(providerDrawerName, "USD", -smsCostUsd);
+        }
+
         // Debt: create ledger entry when paid by DEBT
         if (hasDebt) {
           if (!data.clientId) {
@@ -616,6 +829,338 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
       return { success: true, id: result };
     } catch (error) {
       rechargeLogger.error({ error, data }, "Recharge failed");
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * Top up a Katsh or iPick provider drawer via supplier credit.
+   * The supplier extends credit — no source drawer is deducted.
+   * Records a TOP_UP entry in supplier_ledger (we now owe the supplier).
+   */
+  topUpFromSupplier(data: {
+    provider: "iPick" | "Katsh";
+    amount: number;
+    currency: string;
+    userId: number;
+  }): { success: boolean; error?: string } {
+    try {
+      const destDrawer = TOP_UP_PROVIDER_DRAWERS[data.provider];
+      const currency = data.currency;
+      const amount = Math.abs(data.amount);
+
+      // Find matching active supplier for this provider
+      const supplier = getSupplierRepository().getByProvider(data.provider);
+
+      this.db.transaction(() => {
+        // Insert TOP_UP recharge record (no paid_by drawer — funded by supplier)
+        const rechargeResult = this.db
+          .prepare(
+            `INSERT INTO recharges (carrier, recharge_type, amount, cost, price, currency_code, paid_by, note, created_by)
+             VALUES (?, 'TOP_UP', ?, 0, 0, ?, 'SUPPLIER', ?, ?)`,
+          )
+          .run(
+            data.provider,
+            amount,
+            currency,
+            `${TOP_UP_PROVIDER_LABELS[data.provider]} supplier top-up: +${amount} ${currency}`,
+            data.userId,
+          );
+
+        const rechargeId = Number(rechargeResult.lastInsertRowid);
+
+        // Create unified transaction record
+        getTransactionRepository().createTransaction({
+          type: TRANSACTION_TYPES.RECHARGE_TOPUP,
+          source_table: "recharges",
+          source_id: rechargeId,
+          user_id: data.userId,
+          amount_usd: currency === "USD" ? amount : 0,
+          amount_lbp: currency === "LBP" ? amount : 0,
+          summary: `${TOP_UP_PROVIDER_LABELS[data.provider]} supplier top-up → ${destDrawer}: ${amount} ${currency}`,
+          metadata_json: {
+            provider: data.provider,
+            amount,
+            currency,
+            sourceDrawer: "SUPPLIER",
+            destDrawer,
+          },
+        });
+
+        // Record supplier ledger TOP_UP entry (liability — we now owe the supplier)
+        if (supplier) {
+          this.db
+            .prepare(
+              `INSERT INTO supplier_ledger (supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, created_at)
+               VALUES (?, 'TOP_UP', ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+            )
+            .run(
+              supplier.id,
+              currency === "USD" ? amount : 0,
+              currency === "LBP" ? amount : 0,
+              `${TOP_UP_PROVIDER_LABELS[data.provider]} supplier top-up: +${amount} ${currency}`,
+              data.userId,
+            );
+        }
+
+        // Increase the provider drawer balance
+        this.db
+          .prepare(
+            `INSERT INTO drawer_balances (drawer_name, currency_code, balance)
+             VALUES (?, ?, ?)
+             ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+               balance = drawer_balances.balance + excluded.balance,
+               updated_at = CURRENT_TIMESTAMP`,
+          )
+          .run(destDrawer, currency, amount);
+      })();
+
+      rechargeLogger.info(
+        {
+          provider: data.provider,
+          amount,
+          currency,
+          destDrawer,
+          supplierId: supplier?.id ?? null,
+        },
+        `${TOP_UP_PROVIDER_LABELS[data.provider]} supplier top-up → ${destDrawer}: ${amount} ${currency}`,
+      );
+
+      return { success: true };
+    } catch (error) {
+      rechargeLogger.error({ error, data }, "Supplier top-up failed");
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * Top up the Whish App drawer via a partner.
+   * The partner extends credit — no source drawer is deducted.
+   * Records a WHISH_TOPUP partner_ledger entry with direction CREDIT
+   * (we now owe the partner).
+   */
+  topUpFromPartner(data: {
+    provider: "WHISH_APP";
+    partnerId: number;
+    amount: number;
+    currency: string;
+    userId: number;
+  }): { success: boolean; error?: string } {
+    try {
+      const destDrawer = TOP_UP_PROVIDER_DRAWERS[data.provider];
+      const currency = data.currency;
+      const amount = Math.abs(data.amount);
+
+      // Validate the partner exists and is active
+      const partner = this.db
+        .prepare("SELECT id FROM partners WHERE id = ? AND is_active = 1")
+        .get(data.partnerId) as { id: number } | undefined;
+      if (!partner) {
+        return { success: false, error: "Partner not found" };
+      }
+
+      this.db.transaction(() => {
+        // Insert TOP_UP recharge record (funded by partner)
+        const rechargeResult = this.db
+          .prepare(
+            `INSERT INTO recharges (carrier, recharge_type, amount, cost, price, currency_code, paid_by, note, created_by)
+             VALUES ('WHISH_APP', 'TOP_UP', ?, 0, 0, ?, 'PARTNER', ?, ?)`,
+          )
+          .run(
+            amount,
+            currency,
+            `${TOP_UP_PROVIDER_LABELS[data.provider]} top-up via partner: +${amount} ${currency}`,
+            data.userId,
+          );
+
+        const rechargeId = Number(rechargeResult.lastInsertRowid);
+
+        // Record partner ledger CREDIT entry (we now owe the partner).
+        // Inlined here (not via addLedgerEntry) to stay in this transaction.
+        this.db
+          .prepare(
+            `INSERT INTO partner_ledger (partner_id, transaction_type, reference_table, reference_id, amount, currency, direction, user_id, created_at)
+             VALUES (?, 'WHISH_TOPUP', 'recharges', ?, ?, ?, 'CREDIT', ?, CURRENT_TIMESTAMP)`,
+          )
+          .run(data.partnerId, rechargeId, amount, currency, data.userId);
+
+        // Create unified transaction record
+        getTransactionRepository().createTransaction({
+          type: TRANSACTION_TYPES.RECHARGE_TOPUP,
+          source_table: "recharges",
+          source_id: rechargeId,
+          user_id: data.userId,
+          amount_usd: currency === "USD" ? amount : 0,
+          amount_lbp: currency === "LBP" ? amount : 0,
+          summary: `Whish App top-up via partner: +${amount} ${currency}`,
+          metadata_json: {
+            provider: data.provider,
+            partnerId: data.partnerId,
+            amount,
+            currency,
+            destDrawer,
+          },
+        });
+
+        // Increase the Whish App drawer balance
+        this.db
+          .prepare(
+            `INSERT INTO drawer_balances (drawer_name, currency_code, balance)
+             VALUES (?, ?, ?)
+             ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+               balance = drawer_balances.balance + excluded.balance,
+               updated_at = CURRENT_TIMESTAMP`,
+          )
+          .run(destDrawer, currency, amount);
+      })();
+
+      rechargeLogger.info(
+        {
+          provider: data.provider,
+          partnerId: data.partnerId,
+          amount,
+          currency,
+          destDrawer,
+        },
+        `Whish App top-up via partner: +${amount} ${currency}`,
+      );
+
+      return { success: true };
+    } catch (error) {
+      rechargeLogger.error({ error, data }, "Partner top-up failed");
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * Top up the Whish App drawer with credits transferred by a client.
+   * The client transfers Whish credits to the shop and is paid cash out of
+   * the General drawer. Both legs share the same currency. The shop's cut
+   * (credits received − cash paid) is booked as profit at acquisition time.
+   */
+  topUpFromClient(data: {
+    amount: number;
+    cashPaid: number;
+    currency: string;
+    clientName?: string;
+    clientId?: number;
+    userId: number;
+  }): { success: boolean; error?: string } {
+    try {
+      const destDrawer = TOP_UP_PROVIDER_DRAWERS.WHISH_APP;
+      const currency = data.currency;
+      const amount = Math.abs(data.amount);
+      const cashPaid = Math.abs(data.cashPaid);
+
+      if (amount <= 0) {
+        return { success: false, error: "Amount must be greater than 0" };
+      }
+
+      // Validate the General drawer can cover the cash paid to the client
+      const generalRow = this.db
+        .prepare(
+          "SELECT balance FROM drawer_balances WHERE drawer_name = 'General' AND currency_code = ?",
+        )
+        .get(currency) as { balance: number | null } | undefined;
+
+      const generalBalance = generalRow?.balance ?? 0;
+      if (generalBalance < cashPaid) {
+        return {
+          success: false,
+          error: `Insufficient balance in General drawer. Available: ${generalBalance} ${currency}`,
+        };
+      }
+
+      const profit = amount - cashPaid;
+
+      this.db.transaction(() => {
+        // Record the top-up in recharges table
+        const rechargeResult = this.db
+          .prepare(
+            `INSERT INTO recharges (carrier, recharge_type, amount, cost, price, currency_code, paid_by, note, created_by)
+             VALUES ('WHISH_APP', 'TOP_UP', ?, ?, ?, ?, 'CLIENT', ?, ?)`,
+          )
+          .run(
+            amount,
+            cashPaid,
+            amount,
+            currency,
+            `Whish App top-up from client: +${amount} credits, paid ${cashPaid} ${currency} cash`,
+            data.userId,
+          );
+
+        const rechargeId = Number(rechargeResult.lastInsertRowid);
+
+        // Create unified transaction record
+        getTransactionRepository().createTransaction({
+          type: TRANSACTION_TYPES.RECHARGE_TOPUP,
+          source_table: "recharges",
+          source_id: rechargeId,
+          user_id: data.userId,
+          amount_usd: currency === "USD" ? amount : 0,
+          amount_lbp: currency === "LBP" ? amount : 0,
+          profit_usd: currency === "USD" ? profit : 0,
+          profit_lbp: currency === "LBP" ? profit : 0,
+          client_id: data.clientId ?? null,
+          client_name: data.clientName ?? null,
+          summary: `Whish App top-up from client: +${amount} credits, -${cashPaid} ${currency} cash`,
+          metadata_json: {
+            provider: "WHISH_APP",
+            amount,
+            cashPaid,
+            currency,
+            clientId: data.clientId ?? null,
+            clientName: data.clientName ?? null,
+            sourceDrawer: "General",
+            destDrawer,
+          },
+        });
+
+        // Pay the client from the General drawer (same currency)
+        if (cashPaid > 0) {
+          this.db
+            .prepare(
+              `UPDATE drawer_balances SET balance = balance - ?, updated_at = CURRENT_TIMESTAMP
+               WHERE drawer_name = 'General' AND currency_code = ?`,
+            )
+            .run(cashPaid, currency);
+        }
+
+        // Add the received credits to the Whish App drawer
+        this.db
+          .prepare(
+            `INSERT INTO drawer_balances (drawer_name, currency_code, balance)
+             VALUES (?, ?, ?)
+             ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+               balance = drawer_balances.balance + excluded.balance,
+               updated_at = CURRENT_TIMESTAMP`,
+          )
+          .run(destDrawer, currency, amount);
+      })();
+
+      rechargeLogger.info(
+        {
+          amount,
+          cashPaid,
+          currency,
+          clientId: data.clientId ?? null,
+          destDrawer,
+        },
+        `Whish App top-up from client: +${amount} credits, -${cashPaid} ${currency} cash`,
+      );
+
+      return { success: true };
+    } catch (error) {
+      rechargeLogger.error({ error, data }, "Client top-up failed");
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error),

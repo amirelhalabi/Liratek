@@ -6,7 +6,7 @@ LiraTek is a **desktop POS system for retail management** built as an Electron a
 
 - **Monorepo**: Yarn Workspaces (`frontend`, `electron-app`, `packages/core`, `backend`)
 - **Stack**: React 19 + Vite + TypeScript + Electron 31 + SQLite (SQLCipher) + TanStack Query
-- **DB**: Current migration version is **v93** — always check the last entry in `packages/core/src/db/migrations/index.ts` for the real current version and increment from it when adding migrations
+- **DB**: Current migration version is **v97** — always check the last entry in `packages/core/src/db/migrations/index.ts` for the real current version and increment from it when adding migrations
 - **Package manager**: Yarn (use `yarn workspace @liratek/X` commands)
 
 ## Project Structure
@@ -56,6 +56,8 @@ liratek/
 8. **Import alias** — use `@/` for `frontend/src/` imports
 9. **Build verification** — always run `yarn typecheck` and `yarn lint` before considering work complete
 10. **Migrations** — always update BOTH `packages/core/src/db/migrations/index.ts` AND `electron-app/create_db.sql`
+11. **Client propagation** — any transaction submission form that has a client name/phone UI field MUST propagate `client_id` all the way through: UI state → IPC call payload → handler → service/repository → `createTransaction({ client_id })`. A missing link silently drops the association and the client column shows "—" in the transactions table.
+12. **Preload type completeness** — the `data` parameter type in every `preload.ts` IPC binding MUST include all fields the frontend sends. TypeScript types don't strip properties at runtime, but missing fields cause type errors when the renderer isn't using `as any`, and they make it easy to silently drop fields in future refactors.
 
 ---
 
@@ -211,6 +213,22 @@ yarn workspace @liratek/backend typecheck
 yarn workspace @liratek/backend test
 yarn workspace @liratek/backend test:coverage
 ```
+
+### Core Build & Sync (REQUIRED after every packages/core change)
+
+`node_modules/@liratek/core` is a **real copy**, not a symlink. After rebuilding core, you MUST sync it:
+
+```bash
+# Step 1 — rebuild
+cd packages/core && npm run build
+
+# Step 2 — sync into node_modules (Electron main process reads from here)
+xcopy /e /y /q "packages\core\dist" "node_modules\@liratek\core\dist\"
+```
+
+**If you skip Step 2, the Electron main process will run old code even after a full restart.** This manifests as schema changes, new fields, or logic fixes being silently ignored at runtime.
+
+Rule: whenever you edit any file under `packages/core/src/`, always run both commands before declaring the task complete.
 
 ---
 
@@ -500,9 +518,10 @@ export const MySchema = z.object({
 - [ ] Call `requireRole()` for protected operations
 - [ ] Validate input with `validatePayload()` + Zod schema on write paths
 - [ ] Return `{ success, data?, error? }` always
-- [ ] Add preload bindings in `preload.ts`
+- [ ] Add preload bindings in `preload.ts` — include ALL fields the frontend sends in the parameter type
 - [ ] Register handler function in `main.ts`
 - [ ] Add TypeScript types in `frontend/src/types/electron.d.ts`
+- [ ] If the form has a client name/phone field: pass `clientId` + `clientName` through IPC → service → `createTransaction({ client_id })`
 
 ---
 
@@ -798,7 +817,7 @@ When adding a new feature module, complete every step:
 - `console.log` → use the module logger
 - String SQL concatenation → use `?` parameterized queries
 - Skipping `create_db.sql` after a migration → always update both
-- Forgetting to rebuild core → `cd packages/core && npm run build` after any core change
+- Forgetting to rebuild core → `cd packages/core && npm run build` after any core change, then `xcopy /e /y /q "packages\core\dist" "node_modules\@liratek\core\dist\"` to sync (node_modules is a real copy, not a symlink)
 - Skipping `down()` in migrations → always implement rollback
 - `any` TypeScript type → define a proper interface
 - Write-path IPC handler missing Zod validation → add `validatePayload()` call

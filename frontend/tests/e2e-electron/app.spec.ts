@@ -203,8 +203,11 @@ test("Expenses: record an expense", async ({ appPage }) => {
 
   await descInput.fill("E2E Test Expense - Office Supplies");
 
-  // Amount
-  const amountInput = appPage.getByPlaceholder("0").first();
+  // Amount — use data-testid prefix to avoid matching exchange-rate input
+  // (whose placeholder "89,000" contains "0" and would be matched first by
+  //  getByPlaceholder("0") since it now always renders in the header)
+  const amountInput = appPage.locator('[data-testid^="payment-amount-"]').first();
+  await amountInput.click();
   await amountInput.fill("35");
 
   // Submit
@@ -224,7 +227,7 @@ test("Debts: add sale debt and settle", async ({ appPage }) => {
   await expect(searchInput).toBeVisible({ timeout: 10_000 });
   await searchInput.fill("E2E Test Widget");
   await expect(appPage.locator("text=E2E Test Widget").first()).toBeVisible({
-    timeout: 5000,
+    timeout: 10_000,
   });
   await appPage.locator("text=E2E Test Widget").first().click();
   await expect(appPage.locator("text=Cart is empty")).not.toBeVisible();

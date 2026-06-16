@@ -8,12 +8,18 @@ import { useApi, PageHeader } from "@liratek/ui";
 import { MultiPaymentInput, type PaymentLine } from "@liratek/ui";
 import { getExchangeRates } from "@/utils/exchangeRates";
 import { useSession } from "@/features/sessions/context/SessionContext";
-import { Ticket, Plus, History, ClipboardCheck, Trophy } from "lucide-react";
+import { Ticket, Plus, History, ClipboardCheck, Trophy, Phone } from "lucide-react";
 import { StatsCards } from "../../components/StatsCards";
 import { CheckpointHistory } from "../../components/CheckpointHistory";
 import { CheckpointScheduler } from "../../components/CheckpointScheduler";
 import { SettlementVerification } from "../../components/SettlementVerification";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
+import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
+import { ensureRechargeClient } from "@/features/recharge/utils/ensureClient";
+import {
+  formatWithCommas,
+  isPartialDecimal,
+} from "@/shared/utils/formatWithCommas";
 
 interface LotoSettings {
   commission_rate: string;
@@ -36,7 +42,13 @@ export function LotoPage() {
 
   // Sell ticket form state
   const [saleAmount, setSaleAmount] = useState<string>("");
-  const [_paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
+  const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
+  const [clientId, setClientId] = useState<number | null>(null);
+  const [clientName, setClientName] = useState("");
+  const [clientPhone, setClientPhone] = useState("");
+  const [paymentInputKey, setPaymentInputKey] = useState(0);
+  const [initialPaymentMethod, setInitialPaymentMethod] =
+    useState<string>("CASH");
 
   // Cash prize form state
   const [cashPrizeTicketNumber, setCashPrizeTicketNumber] = useState("");
@@ -65,6 +77,7 @@ export function LotoPage() {
   const commissionAmount = saleAmount
     ? parseFloat(saleAmount) * commissionRate
     : 0;
+
 
   useEffect(() => {
     loadSettings();
@@ -194,15 +207,34 @@ export function LotoPage() {
       return;
     }
 
+    // Resolve client (creates one on-the-fly if name+phone entered without existing clientId)
+    const clientResult = await ensureRechargeClient({
+      clientId,
+      name: clientName,
+      phone: clientPhone,
+      paymentLines,
+    });
+    if (!clientResult.ok) {
+      alert(clientResult.error);
+      return;
+    }
+
+    const resolvedClientId = clientResult.id;
+    const resolvedClientName = resolvedClientId
+      ? clientName.trim() || undefined
+      : undefined;
+
     const ticketData = {
       sale_amount: parseFloat(saleAmount),
       commission_rate: commissionRate,
       commission_amount: commissionAmount,
       sale_date: new Date().toISOString().split("T")[0],
       payment_method:
-        _paymentLines.length > 1 ? "SPLIT" : _paymentLines[0]?.method || "CASH",
+        paymentLines.length > 1 ? "SPLIT" : paymentLines[0]?.method || "CASH",
       currency: "LBP",
       transaction_time: transactionTime,
+      clientId: resolvedClientId,
+      clientName: resolvedClientName,
     };
 
     // If session is active, add to cart instead of submitting
@@ -218,6 +250,11 @@ export function LotoPage() {
 
       setSaleAmount("");
       setPaymentLines([]);
+      setClientId(null);
+      setClientName("");
+      setClientPhone("");
+      setInitialPaymentMethod("CASH");
+      setPaymentInputKey((k) => k + 1);
       return;
     }
 
@@ -228,11 +265,14 @@ export function LotoPage() {
 
       if (result.success) {
         alert("Ticket sold successfully!");
-        // Reset form
         setSaleAmount("");
         setPaymentLines([]);
+        setClientId(null);
+        setClientName("");
+        setClientPhone("");
+        setInitialPaymentMethod("CASH");
+        setPaymentInputKey((k) => k + 1);
         setTransactionTime(undefined);
-        // Reload stats
         loadTodayStats();
       } else {
         alert("Failed to sell ticket: " + result.error);
@@ -379,17 +419,70 @@ export function LotoPage() {
                     Sale Amount (LBP) *
                   </label>
                   <input
-                    type="number"
-                    value={saleAmount}
-                    onChange={(e) => setSaleAmount(e.target.value)}
+                    type="text"
+                    inputMode="decimal"
+                    autoComplete="off"
+                    value={formatWithCommas(saleAmount)}
+                    onChange={(e) => {
+                      const cleaned = e.target.value.replace(/,/g, "");
+                      if (isPartialDecimal(cleaned)) setSaleAmount(cleaned);
+                    }}
                     className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500 transition-colors"
                     placeholder="Enter sale amount"
                   />
                 </div>
 
+                {/* Client Name + Phone */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                    Client
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <ClientAutocompleteInput
+                      type="text"
+                      value={clientName}
+                      onChange={(v) => {
+                        setClientName(v);
+                        if (!v) {
+                          setClientId(null);
+                          setClientPhone("");
+                        }
+                      }}
+                      onClientSelect={(c) => {
+                        setClientId(c.id);
+                        setClientName(c.full_name || "");
+                        setClientPhone(c.phone_number || "");
+                        setInitialPaymentMethod("CUSTOMER_ACCOUNT");
+                        setPaymentInputKey((k) => k + 1);
+                      }}
+                      placeholder="Client name (optional)"
+                      className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500"
+                    />
+                    <div className="relative">
+                      <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">
+                        <Phone size={14} />
+                      </div>
+                      <input
+                        type="tel"
+                        inputMode="numeric"
+                        value={clientPhone}
+                        onChange={(e) => setClientPhone(e.target.value)}
+                        placeholder="Phone"
+                        className="w-full bg-slate-800 border border-slate-600 rounded-lg pl-9 pr-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-orange-500"
+                      />
+                    </div>
+                  </div>
+                  {clientName.trim() && clientPhone.trim() && !clientId && (
+                    <p className="text-xs text-orange-300/80 px-1">
+                      New client will be created on confirm.
+                    </p>
+                  )}
+                </div>
+
                 {/* Payment Method */}
                 <div>
                   <MultiPaymentInput
+                    key={paymentInputKey}
                     totalAmount={saleAmount ? parseFloat(saleAmount) : 0}
                     totalAmountCurrency="LBP"
                     currency="LBP"
@@ -401,6 +494,11 @@ export function LotoPage() {
                       { code: "LBP", symbol: "LBP" },
                     ]}
                     exchangeRate={exchangeRate}
+                    initialMethod={initialPaymentMethod}
+                    hasClient={
+                      !!clientId ||
+                      (!!clientName.trim() && !!clientPhone.trim())
+                    }
                   />
                 </div>
 
@@ -433,9 +531,14 @@ export function LotoPage() {
                     Prize Amount (LBP) *
                   </label>
                   <input
-                    type="number"
-                    value={cashPrizeAmount}
-                    onChange={(e) => setCashPrizeAmount(e.target.value)}
+                    type="text"
+                    inputMode="decimal"
+                    autoComplete="off"
+                    value={formatWithCommas(cashPrizeAmount)}
+                    onChange={(e) => {
+                      const cleaned = e.target.value.replace(/,/g, "");
+                      if (isPartialDecimal(cleaned)) setCashPrizeAmount(cleaned);
+                    }}
                     className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-yellow-500 transition-colors"
                     placeholder="Enter prize amount"
                   />

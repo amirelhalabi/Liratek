@@ -16,6 +16,10 @@ import {
   Settings,
 } from "lucide-react";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
+import {
+  formatWithCommas,
+  isPartialDecimal,
+} from "@/shared/utils/formatWithCommas";
 import logger from "@/utils/logger";
 
 interface ServicePreset {
@@ -221,53 +225,65 @@ export function PresetManagerModal({
       <div className="w-24">
         <label className="text-xs text-slate-400 block mb-1">Cost $</label>
         <input
-          type="number"
-          value={form.cost_usd}
-          onChange={(e) => setForm((f) => ({ ...f, cost_usd: e.target.value }))}
+          type="text"
+          inputMode="decimal"
+          autoComplete="off"
+          value={formatWithCommas(form.cost_usd)}
+          onChange={(e) => {
+            const cleaned = e.target.value.replace(/,/g, "");
+            if (isPartialDecimal(cleaned))
+              setForm((f) => ({ ...f, cost_usd: cleaned }));
+          }}
           className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-teal-500"
           placeholder="0.00"
-          min="0"
-          step="0.01"
         />
       </div>
       <div className="w-24">
         <label className="text-xs text-slate-400 block mb-1">Price $</label>
         <input
-          type="number"
-          value={form.price_usd}
-          onChange={(e) =>
-            setForm((f) => ({ ...f, price_usd: e.target.value }))
-          }
+          type="text"
+          inputMode="decimal"
+          autoComplete="off"
+          value={formatWithCommas(form.price_usd)}
+          onChange={(e) => {
+            const cleaned = e.target.value.replace(/,/g, "");
+            if (isPartialDecimal(cleaned))
+              setForm((f) => ({ ...f, price_usd: cleaned }));
+          }}
           className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-teal-500"
           placeholder="0.00"
-          min="0"
-          step="0.01"
         />
       </div>
       <div className="w-28">
         <label className="text-xs text-slate-400 block mb-1">Cost LBP</label>
         <input
-          type="number"
-          value={form.cost_lbp}
-          onChange={(e) => setForm((f) => ({ ...f, cost_lbp: e.target.value }))}
+          type="text"
+          inputMode="decimal"
+          autoComplete="off"
+          value={formatWithCommas(form.cost_lbp)}
+          onChange={(e) => {
+            const cleaned = e.target.value.replace(/,/g, "");
+            if (isPartialDecimal(cleaned))
+              setForm((f) => ({ ...f, cost_lbp: cleaned }));
+          }}
           className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-teal-500"
           placeholder="0"
-          min="0"
-          step="1000"
         />
       </div>
       <div className="w-28">
         <label className="text-xs text-slate-400 block mb-1">Price LBP</label>
         <input
-          type="number"
-          value={form.price_lbp}
-          onChange={(e) =>
-            setForm((f) => ({ ...f, price_lbp: e.target.value }))
-          }
+          type="text"
+          inputMode="decimal"
+          autoComplete="off"
+          value={formatWithCommas(form.price_lbp)}
+          onChange={(e) => {
+            const cleaned = e.target.value.replace(/,/g, "");
+            if (isPartialDecimal(cleaned))
+              setForm((f) => ({ ...f, price_lbp: cleaned }));
+          }}
           className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-teal-500"
           placeholder="0"
-          min="0"
-          step="1000"
         />
       </div>
       <div className="flex gap-2">

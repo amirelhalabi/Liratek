@@ -92,6 +92,16 @@ export interface DataTableProps<T> {
   /** Enable drag-to-resize columns (default: false) */
   resizable?: boolean;
 
+  // ── Row count display ────────────────────────────────────────────────
+  /** Show "Showing X of Y entries" in the export bar */
+  showRowCount?: boolean;
+  /**
+   * Total row count for the "of Y" part. Useful when `data` is a filtered
+   * subset (e.g. date-filtered) and the full count differs.
+   * Defaults to `data.length` when omitted.
+   */
+  totalRowCount?: number;
+
   // ── Shift-select ─────────────────────────────────────────────────────
   /**
    * When provided, DataTable intercepts Shift+Click on rows and calls
@@ -162,6 +172,8 @@ function DataTableInner<T>({
   pageSize = 20,
   pageLabel = "rows",
   resizable = false,
+  showRowCount = false,
+  totalRowCount,
   className = "w-full text-left",
   theadClassName = "bg-slate-900 text-slate-400 text-xs uppercase",
   thClassName = "p-2",
@@ -390,6 +402,10 @@ function DataTableInner<T>({
     return { headers, rows };
   }, [colDefs, selectAll, table, renderRow, extractCells]);
 
+  const countLabel = showRowCount
+    ? `Showing ${data.length} of ${totalRowCount ?? data.length} entries`
+    : undefined;
+
   return (
     <>
       <ExportBar
@@ -400,6 +416,7 @@ function DataTableInner<T>({
         getExportData={getExportData}
         rowCount={data.length}
         headerActions={headerActions}
+        countLabel={countLabel}
       />
 
       <table

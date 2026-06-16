@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
 import { User, Hash, Phone, ChevronDown } from "lucide-react";
+import {
+  formatWithCommas,
+  isPartialDecimal,
+} from "@/shared/utils/formatWithCommas";
 import { ServiceTypeTabs, type PaymentLine } from "@liratek/ui";
 import { PaymentSheet } from "./PaymentSheet";
 import { useSession } from "@/features/sessions/context/SessionContext";
@@ -28,6 +32,8 @@ interface CryptoFormProps {
   setCryptoDescription: (val: string) => void;
   cryptoFee: string;
   setCryptoFee: (val: string) => void;
+  feeIncluded: boolean;
+  setFeeIncluded: (val: boolean) => void;
   handleCryptoSubmit: () => void;
   isSubmitting: boolean;
   binanceTransactions: BinanceTransaction[];
@@ -58,6 +64,8 @@ export function CryptoForm({
   setCryptoDescription,
   cryptoFee,
   setCryptoFee,
+  feeIncluded,
+  setFeeIncluded,
   handleCryptoSubmit,
   isSubmitting,
   binanceTransactions,
@@ -101,13 +109,23 @@ export function CryptoForm({
   const parsedAmount = parseFloat(cryptoAmount || "0");
   const fee = parseFloat(cryptoFee || "0");
 
+  // feeIncluded: the entered amount already contains the shop fee
+  // SEND:    feeIncluded → USDT out = amount-fee, customer pays amount
+  //         !feeIncluded → USDT out = amount,     customer pays amount+fee
+  // RECEIVE: feeIncluded → USDT in  = amount,     payout = amount-fee
+  //         !feeIncluded → USDT in  = amount+fee,  payout = amount
+  const sendUsdt = feeIncluded ? parsedAmount - fee : parsedAmount;
+  const sendTotal = feeIncluded ? parsedAmount : parsedAmount + fee;
+  const payout = feeIncluded ? parsedAmount - fee : parsedAmount;
+  const receiveUsdt = feeIncluded ? parsedAmount : parsedAmount + fee;
+
   return (
     <div className="flex flex-col gap-5 flex-1 min-h-0">
-      {/* Send / Receive Tabs */}
+      {/* Send / Cash Out Tabs */}
       <ServiceTypeTabs
         options={[
           { id: "SEND", label: "Send Crypto", iconKey: "Send" },
-          { id: "RECEIVE", label: "Receive Crypto", iconKey: "Package" },
+          { id: "RECEIVE", label: "Cash Out", iconKey: "Package" },
         ]}
         value={cryptoType}
         onChange={(val) => setCryptoType(val as "SEND" | "RECEIVE")}
@@ -130,19 +148,22 @@ export function CryptoForm({
           Amount (USDT)
         </label>
         <div className="relative">
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
-            $
-          </span>
           <input
             id="crypto-amount"
-            type="number"
-            value={cryptoAmount}
-            onChange={(e) => setCryptoAmount(e.target.value)}
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-8 pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500 transition-all"
+            type="text"
+            inputMode="decimal"
+            autoComplete="off"
+            value={formatWithCommas(cryptoAmount)}
+            onChange={(e) => {
+              const cleaned = e.target.value.replace(/,/g, "");
+              if (isPartialDecimal(cleaned)) setCryptoAmount(cleaned);
+            }}
+            className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-4 pr-16 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500 transition-all"
             placeholder="0.00"
-            min="0"
-            step="0.01"
           />
+          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-amber-400 font-bold text-xs">
+            USDT
+          </span>
         </div>
       </div>
 
@@ -157,7 +178,7 @@ export function CryptoForm({
             htmlFor="crypto-fee"
             className="block text-xs text-slate-400 mb-1"
           >
-            Fee Amount (USD) — Optional
+            Fee Amount — Optional
           </label>
           <div className="relative">
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
@@ -165,9 +186,14 @@ export function CryptoForm({
             </span>
             <input
               id="crypto-fee"
-              type="number"
-              value={cryptoFee}
-              onChange={(e) => setCryptoFee(e.target.value)}
+              type="text"
+              inputMode="decimal"
+              autoComplete="off"
+              value={formatWithCommas(cryptoFee)}
+              onChange={(e) => {
+                const cleaned = e.target.value.replace(/,/g, "");
+                if (isPartialDecimal(cleaned)) setCryptoFee(cleaned);
+              }}
               className="w-full bg-slate-800 border border-slate-600 rounded-lg pl-8 pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500 transition-all"
               placeholder="0.00"
               min="0"
@@ -176,22 +202,61 @@ export function CryptoForm({
           </div>
         </div>
 
-        {/* Totals */}
-        <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-700/50">
-          <span className="text-slate-300 font-medium">Crypto Amount:</span>
-          <span className="text-white font-mono font-bold">
-            ${parsedAmount.toFixed(2)} USDT
-          </span>
-        </div>
+        {/* Fee included checkbox */}
+        <label className="flex items-center gap-2 text-slate-300 cursor-pointer pt-1">
+          <input
+            type="checkbox"
+            checked={feeIncluded}
+            onChange={(e) => setFeeIncluded(e.target.checked)}
+            className="w-4 h-4 rounded border-slate-600 bg-slate-900 text-amber-500 focus:ring-amber-500"
+          />
+          <span className="text-sm font-medium">Fee included in amount</span>
+        </label>
 
-        <div className="flex items-center justify-between text-xs pt-1">
-          <span className="text-slate-400">Shop Profit (Fee):</span>
-          <span
-            className={`font-mono font-bold ${fee > 0 ? "text-emerald-400" : "text-slate-500"}`}
-          >
-            ${fee.toFixed(2)}
-          </span>
-        </div>
+        {/* Totals */}
+        {cryptoType === "RECEIVE" ? (
+          <>
+            <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-700/50">
+              <span className="text-slate-300 font-medium">USDT Received:</span>
+              <span className="text-white font-mono font-bold">
+                {receiveUsdt.toFixed(2)} USDT
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-xs pt-1">
+              <span className="text-slate-400">Shop Fee:</span>
+              <span className={`font-mono font-bold ${fee > 0 ? "text-emerald-400" : "text-slate-500"}`}>
+                ${fee.toFixed(2)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-xs pt-1">
+              <span className="text-slate-300 font-medium">Customer Payout:</span>
+              <span className="text-white font-mono font-bold">
+                ${payout.toFixed(2)}
+              </span>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-700/50">
+              <span className="text-slate-300 font-medium">USDT Sent:</span>
+              <span className="text-white font-mono font-bold">
+                {sendUsdt.toFixed(2)} USDT
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-xs pt-1">
+              <span className="text-slate-400">Shop Profit (Fee):</span>
+              <span className={`font-mono font-bold ${fee > 0 ? "text-emerald-400" : "text-slate-500"}`}>
+                ${fee.toFixed(2)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-xs pt-1">
+              <span className="text-slate-300 font-medium">Customer Pays:</span>
+              <span className="text-white font-mono font-bold">
+                ${sendTotal.toFixed(2)}
+              </span>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Client Name + Phone + Description */}
@@ -286,16 +351,13 @@ export function CryptoForm({
             <div className="text-xs text-slate-400">
               {cryptoType === "RECEIVE" ? "Payout" : "Total"}:{" "}
               <span className="text-emerald-400 font-mono font-semibold">
-                $
-                {cryptoType === "RECEIVE"
-                  ? (parsedAmount - fee).toFixed(2)
-                  : (parsedAmount + fee).toFixed(2)}
+                ${cryptoType === "RECEIVE" ? payout.toFixed(2) : sendTotal.toFixed(2)}
               </span>
             </div>
             {exchangeRate > 0 && parsedAmount > 0 && (
               <div className="text-xs text-slate-500 font-mono">
                 ≈ {(
-                  (cryptoType === "RECEIVE" ? parsedAmount - fee : parsedAmount + fee) * exchangeRate
+                  (cryptoType === "RECEIVE" ? payout : sendTotal) * exchangeRate
                 ).toLocaleString()} LBP
               </div>
             )}
@@ -327,7 +389,7 @@ export function CryptoForm({
                   : "bg-amber-600 hover:bg-amber-500 text-white shadow-lg shadow-amber-500/20"
               }`}
             >
-              {cryptoType === "RECEIVE" ? "Confirm Payout" : "Proceed to Pay"}
+              {cryptoType === "RECEIVE" ? "Confirm Cash Out" : "Proceed to Pay"}
             </button>
           </div>
         </div>
@@ -338,24 +400,24 @@ export function CryptoForm({
         onClose={() => setShowPaymentSheet(false)}
         onConfirm={handleCryptoSubmit}
         isSubmitting={isSubmitting}
-        title={cryptoType === "RECEIVE" ? "Confirm Payout" : "Confirm Payment"}
+        title={cryptoType === "RECEIVE" ? "Confirm Cash Out" : "Confirm Payment"}
         subtitle={
           cryptoType === "RECEIVE"
-            ? `Crypto Receive — Payout $${(parsedAmount - fee).toFixed(2)}`
-            : `Crypto — $${(parsedAmount + fee).toFixed(2)}`
+            ? `Cash Out — Payout $${payout.toFixed(2)}`
+            : `Crypto — $${sendTotal.toFixed(2)}`
         }
         accentColor="bg-amber-600 hover:bg-amber-500 text-white"
         confirmLabel={
           cryptoType === "RECEIVE"
-            ? `Confirm Payout $${(parsedAmount - fee).toFixed(2)}`
-            : `Pay $${(parsedAmount + fee).toFixed(2)}`
+            ? `Confirm Cash Out $${payout.toFixed(2)}`
+            : `Pay $${sendTotal.toFixed(2)}`
         }
         summary={
           cryptoType === "RECEIVE"
             ? [
                 {
-                  label: "Crypto Received",
-                  value: `$${parsedAmount.toFixed(2)}`,
+                  label: "USDT Received",
+                  value: `${receiveUsdt.toFixed(2)} USDT`,
                 },
                 ...(fee > 0
                   ? [
@@ -368,11 +430,11 @@ export function CryptoForm({
                   : []),
                 {
                   label: "Customer Payout",
-                  value: `$${(parsedAmount - fee).toFixed(2)}`,
+                  value: `$${payout.toFixed(2)}`,
                 },
               ]
             : [
-                { label: "Amount", value: `$${parsedAmount.toFixed(2)}` },
+                { label: "USDT Sent", value: `${sendUsdt.toFixed(2)} USDT` },
                 ...(fee > 0
                   ? [
                       {
@@ -383,14 +445,12 @@ export function CryptoForm({
                     ]
                   : []),
                 {
-                  label: "Total",
-                  value: `$${(parsedAmount + fee).toFixed(2)}`,
+                  label: "Customer Pays",
+                  value: `$${sendTotal.toFixed(2)}`,
                 },
               ]
         }
-        totalAmount={
-          cryptoType === "RECEIVE" ? parsedAmount - fee : parsedAmount + fee
-        }
+        totalAmount={cryptoType === "RECEIVE" ? payout : sendTotal}
         currency="USD"
         paymentMethods={paymentMethods}
         exchangeRate={exchangeRate}

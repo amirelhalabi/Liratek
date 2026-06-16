@@ -196,7 +196,6 @@ export const TELECOM_SERVICE_TYPES: {
 }[] = [
   { id: "CREDIT_TRANSFER", label: "Credit", iconKey: "DollarSign" },
   { id: "DAYS", label: "Days", iconKey: "Clock" },
-  { id: "VOUCHER", label: "Voucher", iconKey: "CreditCard" },
   { id: "ALFA_GIFT", label: "Alfa Gift", iconKey: "Zap" },
 ];
 

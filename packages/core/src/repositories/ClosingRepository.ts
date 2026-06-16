@@ -103,7 +103,8 @@ export interface CheckpointRecord {
 }
 
 export interface CheckpointFilters {
-  date?: string;
+  date_from?: string;
+  date_to?: string;
   type?: "OPENING" | "CLOSING" | "CHECKPOINT" | "ALL";
   drawer_name?: string;
   user_id?: number;
@@ -552,15 +553,17 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
    * Get checkpoint timeline for a date
    */
   getCheckpointTimeline(filters: CheckpointFilters = {}): CheckpointRecord[] {
+    const today = new Date().toISOString().split("T")[0];
     const {
-      date = new Date().toISOString().split("T")[0],
+      date_from = today,
+      date_to = today,
       type = "ALL",
       drawer_name,
       user_id,
     } = filters;
 
     let sql = `
-      SELECT 
+      SELECT
         dc.id,
         dc.closing_date,
         dc.drawer_name,
@@ -568,7 +571,7 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
         dc.created_at,
         dc.created_by,
         COALESCE(u.username, 'Unknown') as user_name,
-        CASE 
+        CASE
           WHEN t.type = 'OPENING' THEN 'OPENING'
           WHEN t.type = 'CLOSING' THEN 'CLOSING'
           WHEN t.type = 'CHECKPOINT' THEN 'CHECKPOINT'
@@ -577,10 +580,10 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
       FROM daily_closings dc
       LEFT JOIN users u ON u.id = dc.created_by
       LEFT JOIN transactions t ON t.source_table = 'daily_closings' AND t.source_id = dc.id
-      WHERE dc.closing_date = ?
+      WHERE dc.closing_date BETWEEN ? AND ?
     `;
 
-    const params: any[] = [date];
+    const params: (string | number)[] = [date_from, date_to];
 
     if (type !== "ALL") {
       sql += ` AND t.type = ?`;

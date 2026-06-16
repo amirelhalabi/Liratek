@@ -85,6 +85,10 @@ export interface TransactionFilters {
   source_table?: string;
   from?: string;
   to?: string;
+  provider?: string;
+  service_type?: string;
+  has_item_key?: boolean;
+  search?: string;
 }
 
 export interface DailySummary {
@@ -234,6 +238,26 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     if (filters?.to) {
       conditions.push("t.created_at <= ?");
       params.push(filters.to);
+    }
+    if (filters?.provider) {
+      conditions.push("json_extract(t.metadata_json, '$.provider') = ?");
+      params.push(filters.provider);
+    }
+    if (filters?.service_type) {
+      conditions.push("json_extract(t.metadata_json, '$.service_type') = ?");
+      params.push(filters.service_type);
+    }
+    if (filters?.has_item_key === true) {
+      conditions.push("json_extract(t.metadata_json, '$.item_key') IS NOT NULL");
+    } else if (filters?.has_item_key === false) {
+      conditions.push("json_extract(t.metadata_json, '$.item_key') IS NULL");
+    }
+    if (filters?.search) {
+      const term = `%${filters.search}%`;
+      conditions.push(
+        "(t.summary LIKE ? OR t.client_name LIKE ? OR u.username LIKE ?)",
+      );
+      params.push(term, term, term);
     }
 
     const where =
