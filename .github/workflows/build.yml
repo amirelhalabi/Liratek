@@ -145,6 +145,7 @@ jobs:
       - name: Create draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         run: |
           TAG="${{ needs.prepare.outputs.tag }}"
           if gh release view "$TAG" &>/dev/null; then
@@ -195,6 +196,7 @@ jobs:
       - name: Undraft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         run: |
           TAG="${{ needs.prepare.outputs.tag }}"
           echo "Publishing release $TAG"
