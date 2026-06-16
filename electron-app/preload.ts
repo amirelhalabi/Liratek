@@ -771,6 +771,9 @@ contextBridge.exposeInMainWorld("api", {
 
   // Transactions (unified)
   transactions: {
+    // LIRA-064: each returned row carries a structured `payments` array
+    // (in/out legs with currency + method) joined from the payments table.
+    // See RecentTransaction / TransactionPaymentLeg in electron.d.ts.
     getRecent: (limit?: number, filters?: Record<string, unknown>) =>
       ipcRenderer.invoke("transactions:get-recent", limit, filters),
     getById: (id: number) => ipcRenderer.invoke("transactions:get-by-id", id),

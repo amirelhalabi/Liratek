@@ -58,6 +58,29 @@ export interface PaymentRow {
   created_at: string;
 }
 
+/**
+ * A single structured payment leg for a transaction (LIRA-064).
+ *
+ * `direction` describes cash flow from the shop's perspective:
+ * - `"in"`  — money the customer paid the shop (positive payment amount)
+ * - `"out"` — money the shop returned/disbursed (negative payment amount,
+ *   e.g. change given, exchange payout, reversal leg)
+ *
+ * `amount` is always the absolute value; the sign lives in `direction` so the
+ * frontend can render `in: ... · out: ...` without re-deriving signs. The raw
+ * signed value is preserved in `signed_amount` for any future aggregation.
+ *
+ * This shape is intentionally self-describing so a future expandable detail
+ * row (LIRA-067) can consume the same field with no backend changes.
+ */
+export interface TransactionPaymentLeg {
+  direction: "in" | "out";
+  amount: number;
+  signed_amount: number;
+  currency_code: string;
+  method: string;
+}
+
 export interface CreateTransactionInput {
   type: TransactionType;
   source_table: string;
@@ -109,6 +132,11 @@ export interface DailySummary {
 export interface TransactionWithUser extends TransactionEntity {
   username: string;
   client_name: string | null;
+  /**
+   * Structured in/out payment legs joined from the `payments` table (LIRA-064).
+   * Computed read-only; never persisted into the stored `summary` text.
+   */
+  payments: TransactionPaymentLeg[];
 }
 
 export interface DebtAgingBuckets {
@@ -265,7 +293,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
 
     params.push(limit);
 
-    return this.query<TransactionWithUser>(
+    const rows = this.query<TransactionWithUser>(
       `SELECT t.id, t.type, t.status, t.source_table, t.source_id,
               t.user_id, t.amount_usd, t.amount_lbp, t.exchange_rate,
               t.client_id, t.client_phone,
@@ -281,6 +309,57 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
        LIMIT ?`,
       ...params,
     );
+
+    return this._attachPaymentLegs(rows);
+  }
+
+  /**
+   * Batch-load structured in/out payment legs for a set of transaction rows and
+   * attach them as `row.payments` (LIRA-064). One `IN (...)` query covers every
+   * row, so this stays O(1) round-trips regardless of page size.
+   *
+   * Legs are derived purely from the joined `payments` table; the stored
+   * `summary` text is never modified.
+   */
+  private _attachPaymentLegs(
+    rows: TransactionWithUser[],
+  ): TransactionWithUser[] {
+    if (rows.length === 0) return rows;
+
+    const ids = rows.map((r) => r.id);
+    const placeholders = ids.map(() => "?").join(", ");
+
+    const legRows = this.query<{
+      transaction_id: number;
+      method: string;
+      currency_code: string;
+      amount: number;
+    }>(
+      `SELECT transaction_id, method, currency_code, amount
+       FROM payments
+       WHERE transaction_id IN (${placeholders})
+       ORDER BY id ASC`,
+      ...ids,
+    );
+
+    const byTxn = new Map<number, TransactionPaymentLeg[]>();
+    for (const p of legRows) {
+      const legs = byTxn.get(p.transaction_id) ?? [];
+      legs.push({
+        direction: p.amount < 0 ? "out" : "in",
+        amount: Math.abs(p.amount),
+        signed_amount: p.amount,
+        currency_code: p.currency_code,
+        method: p.method,
+      });
+      byTxn.set(p.transaction_id, legs);
+    }
+
+    for (const row of rows) {
+      row.payments = byTxn.get(row.id) ?? [];
+    }
+
+    return rows;
   }
 
   /**

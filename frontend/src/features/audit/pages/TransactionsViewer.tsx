@@ -8,6 +8,17 @@ import {
 import { DataTable } from "@liratek/ui";
 import { FILTER_GROUPS } from "../auditConstants";
 
+// LIRA-064: structured in/out payment leg joined from the payments table.
+// Mirrors TransactionPaymentLeg in the backend / electron.d.ts. The data is
+// returned by the backend; we only format/join it client-side here.
+type TransactionPaymentLeg = {
+  direction: "in" | "out";
+  amount: number;
+  signed_amount: number;
+  currency_code: string;
+  method: string;
+};
+
 type TransactionRow = {
   id: number;
   type: string;
@@ -26,6 +37,8 @@ type TransactionRow = {
   created_at: string;
   username: string;
   client_name: string | null;
+  // LIRA-064: structured payment breakdown (may be absent on legacy rows).
+  payments?: TransactionPaymentLeg[];
 };
 
 const ALL_OPTIONS = FILTER_GROUPS.flatMap((g) => g.options);
@@ -193,6 +206,55 @@ function formatAmount(usd: number, lbp: number, metaJson?: string | null): strin
     } catch { /* ignore */ }
   }
   return parts.join(" + ") || "—";
+}
+
+// ---------------------------------------------------------------------------
+// Structured payment legs (LIRA-064)
+// ---------------------------------------------------------------------------
+
+/** Format a single payment amount with its currency, e.g. "$50" or "100,000 LBP". */
+function formatLegAmount(leg: TransactionPaymentLeg): string {
+  const value = leg.amount.toLocaleString();
+  return leg.currency_code === "USD" ? `$${value}` : `${value} ${leg.currency_code}`;
+}
+
+/**
+ * Build the "in: ... · out: ..." string from the structured payment legs,
+ * joined entirely client-side. Returns null when there are no legs so callers
+ * can skip rendering. Same-currency legs on the same side are summed so the
+ * label stays compact (e.g. two USD cash legs → one "$50").
+ */
+function formatPaymentLegs(legs: TransactionPaymentLeg[] | undefined): string | null {
+  if (!legs || legs.length === 0) return null;
+
+  const sumByCurrency = (side: "in" | "out"): string[] => {
+    const totals = new Map<string, number>();
+    for (const leg of legs) {
+      if (leg.direction !== side) continue;
+      totals.set(
+        leg.currency_code,
+        (totals.get(leg.currency_code) ?? 0) + leg.amount,
+      );
+    }
+    return [...totals.entries()].map(([currency_code, amount]) =>
+      formatLegAmount({
+        direction: side,
+        amount,
+        signed_amount: amount,
+        currency_code,
+        method: "",
+      }),
+    );
+  };
+
+  const inParts = sumByCurrency("in");
+  const outParts = sumByCurrency("out");
+
+  const segments: string[] = [];
+  if (inParts.length) segments.push(`in: ${inParts.join(" + ")}`);
+  if (outParts.length) segments.push(`out: ${outParts.join(" + ")}`);
+
+  return segments.length ? segments.join(" · ") : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -502,6 +564,19 @@ export default function TransactionsViewer({
                   {row.summary}
                 </span>
               )}
+              {(() => {
+                // LIRA-064: structured in/out payment legs, joined client-side.
+                const legs = formatPaymentLegs(row.payments);
+                if (!legs) return null;
+                return (
+                  <span
+                    data-testid="payment-legs"
+                    className="text-[11px] font-mono text-slate-500 truncate max-w-[480px]"
+                  >
+                    {legs}
+                  </span>
+                );
+              })()}
             </div>
           </td>
           <td className="p-2 truncate" style={{ width: 160 }}>
