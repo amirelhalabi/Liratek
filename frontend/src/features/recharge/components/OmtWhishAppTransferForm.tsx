@@ -664,27 +664,10 @@ function OmtWhishAppTransferFormInner({
           <button
             type="button"
             onClick={() => {
-              // Validate before opening sheet
+              // Validate before opening sheet — name/phone are optional
+              // for both OMT App and Whish App (persisted when provided)
               if (!amount || parseFloat(amount) <= 0) {
                 alert("Please enter a valid amount");
-                return;
-              }
-              if (
-                serviceType === "SEND" &&
-                (!senderName.trim() || !senderPhone.trim())
-              ) {
-                alert(
-                  "Please enter sender name and phone for SEND transactions",
-                );
-                return;
-              }
-              if (
-                serviceType === "RECEIVE" &&
-                (!receiverName.trim() || !receiverPhone.trim())
-              ) {
-                alert(
-                  "Please enter receiver name and phone for RECEIVE transactions",
-                );
                 return;
               }
               setShowPaymentSheet(true);
