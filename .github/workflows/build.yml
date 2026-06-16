@@ -6,8 +6,16 @@ on:
       - "v*"
   workflow_dispatch:
     inputs:
+      bump:
+        description: "Semver bump type (ignored if 'version' is set)"
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: patch
       version:
-        description: "Version to build (e.g., 1.0.0)"
+        description: "Exact version e.g. 1.24.0 (overrides bump type)"
         required: false
         default: ""
 
@@ -18,11 +26,104 @@ permissions:
   contents: write
 
 jobs:
+  # Resolve the version/tag/commit to build & publish.
+  #
+  #   • tag push (v*)       → version already lives in package.json (set by `yarn release`),
+  #                           build the tagged commit as-is.
+  #   • workflow_dispatch   → bump package.json HERE, commit it to main, and build that new
+  #                           commit. This is the step that was missing: a manual run used to
+  #                           build whatever stale version was in package.json, so it produced
+  #                           an installer for the OLD version (and an empty release for the new
+  #                           tag). Now the manual path performs the bump itself.
+  #
+  # Every downstream job checks out `prepare.outputs.ref` so all paths build the exact commit
+  # whose package.json carries the version being released. electron-builder derives the
+  # installer filename + target release tag from that package.json, so tag === version always.
+  prepare:
+    name: Prepare Release
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      version: ${{ steps.resolve.outputs.version }}
+      ref: ${{ steps.resolve.outputs.ref }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # For a manual run we always release from main and need full history to commit/push.
+          ref: ${{ github.event_name == 'workflow_dispatch' && 'main' || github.ref }}
+          fetch-depth: 0
+
+      - name: Resolve version, tag and ref
+        id: resolve
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+            # ── Tag push: trust the version baked into package.json ──────────────
+            VERSION=$(node -p "require('./package.json').version")
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+            echo "ref=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+            echo "Tag push → building v$VERSION (${{ github.ref_name }}) @ ${{ github.sha }}"
+            exit 0
+          fi
+
+          # ── Manual dispatch: compute the new version and bump package.json ─────
+          export CURRENT=$(node -p "require('./package.json').version")
+          OVERRIDE="${{ github.event.inputs.version }}"
+          export BUMP="${{ github.event.inputs.bump }}"
+
+          if [ -n "$OVERRIDE" ]; then
+            if ! echo "$OVERRIDE" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+              echo "::error::version '$OVERRIDE' is not valid semver (expected X.Y.Z)"
+              exit 1
+            fi
+            NEW="$OVERRIDE"
+          else
+            NEW=$(node -e "
+              const [maj,min,pat] = process.env.CURRENT.split('.').map(Number);
+              const b = process.env.BUMP;
+              if (b === 'major') console.log(\`\${maj+1}.0.0\`);
+              else if (b === 'minor') console.log(\`\${maj}.\${min+1}.0\`);
+              else console.log(\`\${maj}.\${min}.\${pat+1}\`);
+            ")
+          fi
+          export NEW
+          TAG="v${NEW}"
+
+          if git rev-parse "$TAG" >/dev/null 2>&1 || gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::error::$TAG already exists. Delete it first or choose a different version."
+            exit 1
+          fi
+
+          echo "Manual release: $CURRENT → $NEW"
+          node -e "
+            const fs = require('fs');
+            const p = JSON.parse(fs.readFileSync('package.json','utf8'));
+            p.version = process.env.NEW;
+            fs.writeFileSync('package.json', JSON.stringify(p, null, 2) + '\n');
+          "
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json
+          git commit -m "release: $TAG"
+          git push origin HEAD:main
+
+          echo "version=$NEW" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "ref=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
   test:
     name: Run Tests
+    needs: prepare
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.ref }}
       - uses: ./.github/actions/setup
         with:
           install: "true"
@@ -30,36 +131,22 @@ jobs:
       - name: Run tests
         run: yarn test
 
-  # Pre-create a draft release so all build jobs can upload to it
+  # Pre-create a draft release so the build job can upload to it
   # without race conditions (electron-builder finds the existing draft)
   create-draft:
     name: Create Draft Release
-    needs: test
+    needs: [prepare, test]
     runs-on: ubuntu-latest
-    outputs:
-      tag: ${{ steps.tag.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Determine tag
-        id: tag
-        run: |
-          if [ "${{ github.ref_type }}" = "tag" ]; then
-            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
-          else
-            VERSION="${{ github.event.inputs.version }}"
-            if [ -z "$VERSION" ]; then
-              VERSION=$(node -p "require('./package.json').version")
-            fi
-            echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
-          fi
+        with:
+          ref: ${{ needs.prepare.outputs.ref }}
 
       - name: Create draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="${{ steps.tag.outputs.tag }}"
-          # Check if release already exists
+          TAG="${{ needs.prepare.outputs.tag }}"
           if gh release view "$TAG" &>/dev/null; then
             echo "Release $TAG already exists, ensuring it is a draft"
             gh release edit "$TAG" --draft
@@ -69,15 +156,17 @@ jobs:
               --draft \
               --title "LiraTek $TAG" \
               --generate-notes \
-              --target "${{ github.sha }}"
+              --target "${{ needs.prepare.outputs.ref }}"
           fi
 
   build-windows:
     name: Build Windows
-    needs: create-draft
+    needs: [prepare, create-draft]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.ref }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -100,15 +189,13 @@ jobs:
 
   publish-release:
     name: Publish Release
-    needs: [create-draft, build-windows]
+    needs: [prepare, build-windows]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
       - name: Undraft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="${{ needs.create-draft.outputs.tag }}"
+          TAG="${{ needs.prepare.outputs.tag }}"
           echo "Publishing release $TAG"
           gh release edit "$TAG" --draft=false
