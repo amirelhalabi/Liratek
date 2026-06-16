@@ -873,7 +873,13 @@ export interface ElectronAPI {
       Array<{
         id: number;
         supplier_id: number;
-        entry_type: "TOP_UP" | "PAYMENT" | "ADJUSTMENT" | "SETTLEMENT";
+        entry_type:
+          | "TOP_UP"
+          | "PAYMENT"
+          | "ADJUSTMENT"
+          | "SETTLEMENT"
+          | "SALE_COST"
+          | "CASH_PRIZE";
         amount_usd: number;
         amount_lbp: number;
         note: string | null;

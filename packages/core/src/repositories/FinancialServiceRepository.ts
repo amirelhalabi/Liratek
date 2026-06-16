@@ -1582,12 +1582,23 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 omtFeeForLedger +
                 receiveCommissionForLedger;
 
-          // SEND = shop owes supplier (TOP_UP increases debt)
-          // RECEIVE = supplier settles with shop (reduces debt)
+          // Ledger entry_type:
+          //   RECEIVE                  → PAYMENT   (supplier settles with shop, reduces debt)
+          //   SEND, cost/price flow    → SALE_COST (sale cost consumed from the provider
+          //                               balance — a settleable sale-cost, NOT a manual top-up)
+          //   SEND, legacy flow        → TOP_UP    (manual supplier top-up semantics)
+          // SALE_COST and TOP_UP both increase what the shop owes the supplier (positive
+          // amount). The distinct label lets the Settle tab surface real sale costs while
+          // keeping balance math identical (every balance sum treats both the same).
           const isReceive = data.serviceType === "RECEIVE";
+          const entryType: "PAYMENT" | "SALE_COST" | "TOP_UP" = isReceive
+            ? "PAYMENT"
+            : useCostPriceFlow
+              ? "SALE_COST"
+              : "TOP_UP";
           supplierRepo.addLedgerEntry({
             supplier_id: supplier.id,
-            entry_type: isReceive ? "PAYMENT" : "TOP_UP",
+            entry_type: entryType,
             amount_usd: currency === "USD" ? ledgerAmount : 0,
             amount_lbp: currency === "LBP" ? ledgerAmount : 0,
             note: `Auto: ${data.serviceType} via ${data.provider}${data.itemKey ? ` [${data.itemKey}]` : ""}`,
@@ -1719,18 +1730,59 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
 
   /**
    * Get all unsettled financial_services rows for a given supplier (by provider name).
-   * Only RECEIVE rows with commission > 0 and is_settled = 0 are returned.
+   *
+   * Two kinds of rows are returned, both shaped as FinancialServiceEntity so the
+   * Settle tab's "total owed − commission = net pay" math nets correctly:
+   *
+   *  1. OMT/WHISH commission settlement — RECEIVE rows with commission > 0 and
+   *     is_settled = 0. Here owed = amount + commission and the shop keeps the
+   *     commission, so net pay = amount.
+   *
+   *  2. Cost/price-flow sale costs — SEND rows written through a cost/price provider
+   *     (iPick / Katsh / Whish App / OMT App) where cost > 0 and the supplier debt is
+   *     not yet settled (settlement_id IS NULL). The shop owes the supplier the sale
+   *     `cost` (booked as a SALE_COST ledger entry, never TOP_UP), with no supplier
+   *     commission. These rows are projected with amount = cost and commission = 0 so
+   *     net pay = cost. Settling one writes a negative SETTLEMENT ledger entry that nets
+   *     the matching positive SALE_COST entry to zero — keeping getSupplierBalances()
+   *     (which sums every ledger row) mathematically correct.
+   *
+   * NOTE on is_settled vs settlement_id: cost-flow SEND rows are created with
+   * is_settled = 1 (their price−cost profit is realized immediately, so analytics keep
+   * counting it as realized). Supplier reconciliation is therefore keyed off
+   * settlement_id (NULL = supplier debt still outstanding), independent of is_settled.
+   * Cost-flow sale costs can also be reconciled in bulk via a cumulative-balance
+   * pay-down (Manual Entry → PAYMENT), which nets the SALE_COST entries directly.
    */
   getUnsettledBySupplier(provider: string): FinancialServiceEntity[] {
     return this.db
       .prepare(
         `SELECT ${this.getColumns()} FROM financial_services
-         WHERE provider = ?
-           AND is_settled = 0
-           AND commission > 0
+           WHERE provider = ?
+             AND is_settled = 0
+             AND commission > 0
+         UNION ALL
+         SELECT ${this.getSaleCostSettleColumns()} FROM financial_services
+           WHERE provider = ?
+             AND service_type = 'SEND'
+             AND cost > 0
+             AND settlement_id IS NULL
          ORDER BY created_at ASC`,
       )
-      .all(provider) as FinancialServiceEntity[];
+      .all(provider, provider) as FinancialServiceEntity[];
+  }
+
+  /**
+   * Column projection for cost/price-flow SEND rows in the Settle tab.
+   * Identical to getColumns() except `amount` is replaced by the sale `cost`
+   * (the amount actually owed to the supplier) and `commission` is forced to 0
+   * (cost-flow sales carry no supplier commission — the price−cost margin is the
+   * shop's own profit, not deducted from the supplier payment). This makes the
+   * frontend's `owed = amount + commission`, `net = owed − commission` resolve to
+   * net = cost.
+   */
+  private getSaleCostSettleColumns(): string {
+    return "id, provider, service_type, cost AS amount, currency, 0 AS commission, cost, price, paid_by, paid_amount, paid_currency, client_id, client_name, reference_number, phone_number, sender_name, sender_phone, receiver_name, receiver_phone, sender_client_id, receiver_client_id, omt_service_type, omt_fee, whish_fee, profit_rate, pay_fee, item_key, note, is_settled, settled_at, settlement_id, payment_method_fee, payment_method_fee_rate, created_at, created_by, edited_by, edited_at, partner_id, partner_mode";
   }
 
   /**

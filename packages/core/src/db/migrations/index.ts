@@ -3910,6 +3910,80 @@ export const MIGRATIONS: Migration[] = [
       console.log("Migration v98 rolled back (no-op for SQLite)");
     },
   },
+  // ─────────────────────────────────────────────────────────────────────────────
+  // v99 — Add SALE_COST to supplier_ledger entry_type CHECK constraint (LIRA-061)
+  // ─────────────────────────────────────────────────────────────────────────────
+  {
+    version: 99,
+    name: "add_sale_cost_entry_type",
+    description:
+      "Add 'SALE_COST' to the supplier_ledger.entry_type CHECK so cost/price-flow SEND sales (Katsh / iPick / Whish App / OMT App) book a settleable sale-cost instead of a manual TOP_UP (LIRA-061). SQLite can't ALTER a CHECK, so the table is recreated preserving all rows + indexes — mirrors migration v56.",
+    type: "typescript",
+    up(db) {
+      db.exec(`
+        CREATE TABLE supplier_ledger_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          supplier_id INTEGER NOT NULL,
+          entry_type TEXT NOT NULL CHECK(entry_type IN ('TOP_UP', 'SALE_COST', 'PAYMENT', 'ADJUSTMENT', 'SETTLEMENT', 'CASH_PRIZE')),
+          amount_usd REAL NOT NULL DEFAULT 0,
+          amount_lbp REAL NOT NULL DEFAULT 0,
+          note TEXT,
+          created_by INTEGER,
+          transaction_id INTEGER,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE,
+          FOREIGN KEY (transaction_id) REFERENCES transactions(id),
+          FOREIGN KEY (created_by) REFERENCES users(id)
+        );
+
+        INSERT INTO supplier_ledger_new SELECT * FROM supplier_ledger;
+
+        DROP TABLE supplier_ledger;
+
+        ALTER TABLE supplier_ledger_new RENAME TO supplier_ledger;
+
+        CREATE INDEX IF NOT EXISTS idx_supplier_ledger_supplier_id_created_at ON supplier_ledger(supplier_id, created_at);
+      `);
+
+      console.log(
+        "Migration v99: Added SALE_COST to supplier_ledger entry_type",
+      );
+    },
+    down(db) {
+      // Relabel SALE_COST rows back to TOP_UP (their pre-LIRA-061 label, which keeps
+      // the same balance sign), then recreate the table with the prior constraint.
+      db.exec(`
+        UPDATE supplier_ledger SET entry_type = 'TOP_UP' WHERE entry_type = 'SALE_COST';
+
+        CREATE TABLE supplier_ledger_old (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          supplier_id INTEGER NOT NULL,
+          entry_type TEXT NOT NULL CHECK(entry_type IN ('TOP_UP', 'PAYMENT', 'ADJUSTMENT', 'SETTLEMENT', 'CASH_PRIZE')),
+          amount_usd REAL NOT NULL DEFAULT 0,
+          amount_lbp REAL NOT NULL DEFAULT 0,
+          note TEXT,
+          created_by INTEGER,
+          transaction_id INTEGER,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE,
+          FOREIGN KEY (transaction_id) REFERENCES transactions(id),
+          FOREIGN KEY (created_by) REFERENCES users(id)
+        );
+
+        INSERT INTO supplier_ledger_old SELECT * FROM supplier_ledger;
+
+        DROP TABLE supplier_ledger;
+
+        ALTER TABLE supplier_ledger_old RENAME TO supplier_ledger;
+
+        CREATE INDEX IF NOT EXISTS idx_supplier_ledger_supplier_id_created_at ON supplier_ledger(supplier_id, created_at);
+      `);
+
+      console.log(
+        "Migration v99 rolled back: SALE_COST removed from supplier_ledger",
+      );
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

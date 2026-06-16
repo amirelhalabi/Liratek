@@ -46,7 +46,13 @@ type SupplierBalance = {
 type LedgerEntry = {
   id: number;
   supplier_id: number;
-  entry_type: "TOP_UP" | "PAYMENT" | "ADJUSTMENT" | "SETTLEMENT";
+  entry_type:
+    | "TOP_UP"
+    | "SALE_COST"
+    | "PAYMENT"
+    | "ADJUSTMENT"
+    | "SETTLEMENT"
+    | "CASH_PRIZE";
   amount_usd: number;
   amount_lbp: number;
   note: string | null;
@@ -82,14 +88,17 @@ function EntryTypeBadge({ type }: { type: string }) {
   const color =
     type === "TOP_UP"
       ? "bg-red-900/50 text-red-300"
-      : type === "PAYMENT"
-        ? "bg-green-900/50 text-green-300"
-        : type === "SETTLEMENT"
-          ? "bg-blue-900/50 text-blue-300"
-          : "bg-amber-900/50 text-amber-300";
+      : type === "SALE_COST"
+        ? "bg-orange-900/50 text-orange-300"
+        : type === "PAYMENT"
+          ? "bg-green-900/50 text-green-300"
+          : type === "SETTLEMENT"
+            ? "bg-blue-900/50 text-blue-300"
+            : "bg-amber-900/50 text-amber-300";
+  const label = type === "SALE_COST" ? "SALE COST" : type;
   return (
     <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${color}`}>
-      {type}
+      {label}
     </span>
   );
 }

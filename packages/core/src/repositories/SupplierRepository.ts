@@ -25,9 +25,14 @@ export interface SupplierEntity {
 
 export type SupplierLedgerEntryType =
   | "TOP_UP"
+  /** Sale cost consumed from a provider balance (cost/price-flow SEND). Increases
+   *  what the shop owes the supplier, like TOP_UP, but labeled distinctly so it can
+   *  be reconciled as a real sale cost rather than a manual top-up. */
+  | "SALE_COST"
   | "PAYMENT"
   | "ADJUSTMENT"
-  | "SETTLEMENT";
+  | "SETTLEMENT"
+  | "CASH_PRIZE";
 
 export interface SupplierLedgerEntryEntity {
   id: number;
@@ -249,6 +254,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         if (data.entry_type !== "PAYMENT") {
           const typeMap: Record<string, string> = {
             TOP_UP: TRANSACTION_TYPES.SUPPLIER_PAYMENT,
+            SALE_COST: TRANSACTION_TYPES.SUPPLIER_PAYMENT,
             ADJUSTMENT: TRANSACTION_TYPES.SUPPLIER_PAYMENT,
             SETTLEMENT: TRANSACTION_TYPES.SUPPLIER_SETTLEMENT,
           };
@@ -362,6 +368,11 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         const ledgerEntryId = Number(ledgerRes.lastInsertRowid);
 
         // ── 2. Mark financial_services rows as settled ─────────────────────
+        // Guard on settlement_id IS NULL (not is_settled = 0): OMT/WHISH commission
+        // rows are is_settled = 0 while pending, but cost/price-flow SALE_COST rows are
+        // is_settled = 1 at creation (profit realized immediately) yet still carry an
+        // outstanding supplier debt until settlement_id is stamped here. Both share
+        // settlement_id IS NULL as the "supplier debt outstanding" marker.
         const placeholders = data.financial_service_ids
           .map(() => "?")
           .join(",");
@@ -372,7 +383,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
                  settled_at = ?,
                  settlement_id = ?
              WHERE id IN (${placeholders})
-               AND is_settled = 0`,
+               AND settlement_id IS NULL`,
           )
           .run(now, ledgerEntryId, ...data.financial_service_ids);
 
