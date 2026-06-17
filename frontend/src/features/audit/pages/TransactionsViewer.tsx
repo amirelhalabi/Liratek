@@ -565,15 +565,20 @@ export default function TransactionsViewer({
                 </span>
               )}
               {(() => {
-                // LIRA-064: structured in/out payment legs, joined client-side.
+                // LIRA-064: structured in/out payment legs, joined client-side,
+                // with the transaction's USD→LBP rate-of-record appended.
                 const legs = formatPaymentLegs(row.payments);
-                if (!legs) return null;
+                const rate = row.exchange_rate
+                  ? `@ ${Math.round(row.exchange_rate).toLocaleString()}`
+                  : null;
+                const text = [legs, rate].filter(Boolean).join(" · ");
+                if (!text) return null;
                 return (
                   <span
                     data-testid="payment-legs"
                     className="text-[11px] font-mono text-slate-500 truncate max-w-[480px]"
                   >
-                    {legs}
+                    {text}
                   </span>
                 );
               })()}

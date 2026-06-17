@@ -16,6 +16,7 @@ import { getSupplierRepository } from "./SupplierRepository.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { getVoucherRepository } from "./VoucherRepository.js";
 import { getDebtService } from "../services/DebtService.js";
+import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import {
   calculateCommission,
@@ -171,6 +172,12 @@ export interface CreateFinancialServiceData {
    * - 'CUSTOMER_ACCOUNT': don't debit drawer, create credit in debt_ledger
    */
   cashoutMethod?: "CASH" | "CUSTOMER_ACCOUNT" | "OMT" | "WHISH" | "BINANCE";
+  /**
+   * USD→LBP rate-of-record for this transaction. When omitted, the repository
+   * stamps the current configured sell rate (Money IN). Provide it to capture an
+   * operator-edited rate from the payment UI.
+   */
+  exchangeRate?: number;
   /** Partner ID: when set, this transaction involves a partner */
   partnerId?: number;
   /** Partner Mode: specifies if we use their system ('THROUGH') or they use our system ('FOR') */
@@ -608,6 +615,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           paid_currency: paidCurrency,
           item_key: data.itemKey,
         },
+        exchange_rate: data.exchangeRate ?? getUsdLbpSellRate(this.db),
         transaction_time: data.transaction_time,
       });
 

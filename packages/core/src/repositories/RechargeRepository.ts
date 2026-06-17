@@ -16,6 +16,7 @@ import {
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { getVoucherRepository } from "./VoucherRepository.js";
 import { getDebtService } from "../services/DebtService.js";
+import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
 import { getSupplierRepository } from "./SupplierRepository.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import {
@@ -643,6 +644,7 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
             paid_by: paidBy,
             phone: data.phoneNumber,
           },
+          exchange_rate: getUsdLbpSellRate(this.db),
           transaction_time: data.transaction_time,
         });
 
