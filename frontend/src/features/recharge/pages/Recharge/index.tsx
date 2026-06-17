@@ -334,7 +334,7 @@ export default function MobileRecharge() {
 
   const selectClient = useCallback((client: any) => {
     setTelecomClientId(client.id);
-    setTelecomClientName(client.full_name || client.name);
+    setTelecomClientName(client.full_name || client.name || "");
     setTelecomClientPhone(client.phone_number || "");
     setClientSearchResults([]);
     setShowClientSearch(false);

@@ -2,13 +2,14 @@ import { useEffect } from "react";
 import { useSession } from "@/features/sessions/context/SessionContext";
 
 interface SessionInfo {
-  customer_name?: string;
-  customer_phone?: string;
-  customer_notes?: string;
+  // These come from the DB/IPC and can be null (e.g. a session with no name).
+  customer_name?: string | null;
+  customer_phone?: string | null;
+  customer_notes?: string | null;
 }
 
 interface SessionFieldString {
-  select: (session: SessionInfo) => string | undefined;
+  select: (session: SessionInfo) => string | null | undefined;
   set: (value: string) => void;
   clearValue: string;
 }
@@ -42,7 +43,10 @@ export function useSessionAutoFill(fields: SessionField[]): void {
     if (activeSession) {
       for (const field of fields) {
         const value = field.select(activeSession);
-        if (value !== undefined) {
+        // `!= null` skips BOTH undefined and null — a session with a null
+        // customer_name/phone must not write null into string state (it would
+        // crash consumers that call .trim()).
+        if (value != null) {
           (field.set as (v: string) => void)(value);
         }
       }
