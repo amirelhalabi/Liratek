@@ -389,13 +389,15 @@ export function SessionCheckoutModal({
     [lbpPaymentLines, exchangeRate],
   );
 
+  // Payment is valid once the total is COVERED. Overpayment is allowed — the
+  // operator hands back the difference as change (the Return/Change row), so we
+  // must not require an exact match (that disabled Confirm whenever the customer
+  // paid more than the total, e.g. $100 paid on a $98 total with $2 change).
   const isUsdCovered =
-    totals.usd <= 0 ||
-    Math.abs(usdPaid - totals.usd) <= usdPaymentTolerance;
+    totals.usd <= 0 || usdPaid >= totals.usd - usdPaymentTolerance;
 
   const isLbpCovered =
-    totals.lbp <= 0 ||
-    Math.abs(lbpPaid - totals.lbp) <= lbpPaymentTolerance;
+    totals.lbp <= 0 || lbpPaid >= totals.lbp - lbpPaymentTolerance;
 
   const isPaymentValid = isUsdCovered && isLbpCovered;
 
