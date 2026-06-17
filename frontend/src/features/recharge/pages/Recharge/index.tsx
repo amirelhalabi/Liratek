@@ -784,6 +784,13 @@ export default function MobileRecharge() {
         ? cryptoPaymentLines[0].method
         : cryptoPaidBy;
 
+    // Send the structured legs whenever the payment is split OR the customer got
+    // change back (a return/OUT leg). Gating on isSplitPayment alone silently
+    // dropped the OUT leg for a single payment + change, so the returned cash
+    // never reached the ledger (e.g. Binance SEND: paid $100, got 180,000 LBP).
+    const useCryptoStructuredPayments =
+      isSplitPayment || cryptoReturnLegs.length > 0;
+
     // Derive cashout method from payment lines: if DEBT is used, it means Customer Account
     const derivedCashoutMethod =
       paidByMethod === "CUSTOMER_ACCOUNT" ? "CUSTOMER_ACCOUNT" : "CASH";
@@ -824,7 +831,7 @@ export default function MobileRecharge() {
           referenceNumber: cryptoDescription,
           commission: fee,
           paidByMethod: isSplitPayment ? "MULTI" : paidByMethod,
-          payments: isSplitPayment
+          payments: useCryptoStructuredPayments
             ? toCamelLegs(cryptoPaymentLines, cryptoReturnLegs)
             : undefined,
           ...(cryptoType === "RECEIVE" && derivedCashoutMethod !== "CASH"
@@ -858,7 +865,7 @@ export default function MobileRecharge() {
         referenceNumber: cryptoDescription,
         commission: fee,
         paidByMethod: isSplitPayment ? "MULTI" : paidByMethod,
-        payments: isSplitPayment
+        payments: useCryptoStructuredPayments
           ? toCamelLegs(cryptoPaymentLines, cryptoReturnLegs)
           : undefined,
         ...(cryptoType === "RECEIVE" && derivedCashoutMethod !== "CASH"
