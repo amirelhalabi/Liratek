@@ -8,11 +8,16 @@ import {
 } from "lucide-react";
 import logger from "@/utils/logger";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
-import { appEvents, MultiPaymentInput, type PaymentLine } from "@liratek/ui";
+import {
+  appEvents,
+  MultiPaymentInput,
+  useApi,
+  type PaymentLine,
+} from "@liratek/ui";
 import { useSession } from "../context/SessionContext";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
-import { useExchangeRate } from "@/hooks/useExchangeRate";
+import { getExchangeRates } from "@/utils/exchangeRates";
 import type { CartItem } from "../types/cart";
 
 interface SessionCheckoutModalProps {
@@ -227,7 +232,27 @@ export function SessionCheckoutModal({
   } = useSession();
   const { user } = useAuth();
   const { allMethods } = usePaymentMethods();
-  const { rate: exchangeRate } = useExchangeRate("USD", "LBP");
+  const api = useApi();
+
+  // Money IN (customer pays the shop) → use the SELL rate, consistent with the
+  // recharge pages (getExchangeRates(...).sellRate). The old useExchangeRate
+  // hook returned the market/mid rate, which is why this modal showed 89,000
+  // while recharge showed 90,000.
+  const [exchangeRate, setExchangeRate] = useState(89500);
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .getRates()
+      .then((rates: unknown[]) => {
+        if (!cancelled) setExchangeRate(getExchangeRates(rates).sellRate);
+      })
+      .catch(() => {
+        /* keep fallback */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [api]);
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
