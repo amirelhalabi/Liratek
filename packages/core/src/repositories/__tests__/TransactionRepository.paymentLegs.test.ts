@@ -249,6 +249,27 @@ describe("TransactionRepository.getRecent — structured payment legs (LIRA-064)
     expect(row.payments[0]).toMatchObject({ direction: "in", amount: 60, method: "CASH" });
   });
 
+  it("MTC CREDIT_TRANSFER: hides telecom stock + SMS legs, keeps cash in/out", () => {
+    insertTxn(db, { id: 1, type: "RECHARGE", summary: "Recharge: MTC CREDIT_TRANSFER 600,000 LBP" });
+    // Customer pays $10 cash, gets 300,000 LBP change. The credits ($6) and SMS
+    // cost ($0.32) leave the MTC provider-stock drawer (internal, not cash out).
+    insertLeg(db, 1, { method: "CASH", currency: "USD", amount: 10, note: "MTC credit" });
+    insertLeg(db, 1, { method: "MTC", currency: "USD", amount: -6, drawer: "MTC", note: "Telecom balance sent" });
+    insertLeg(db, 1, { method: "SMS_COST", currency: "USD", amount: -0.32, drawer: "MTC", note: "SMS cost: 2 × $0.16" });
+    insertLeg(db, 1, { method: "CASH", currency: "LBP", amount: -300_000, note: "Change returned" });
+
+    const row = repo.getRecent(10).find((r) => r.id === 1)!;
+
+    expect(row.payments).toHaveLength(2);
+    const inLeg = row.payments.find((p) => p.direction === "in")!;
+    const outLeg = row.payments.find((p) => p.direction === "out")!;
+    expect(inLeg).toMatchObject({ amount: 10, currency_code: "USD", method: "CASH" });
+    expect(outLeg).toMatchObject({ amount: 300_000, currency_code: "LBP", method: "CASH" });
+    // No MTC stock leg ($6) or SMS cost ($0.32) leaks into the customer summary.
+    expect(row.payments.some((p) => p.method === "MTC")).toBe(false);
+    expect(row.payments.some((p) => p.method === "SMS_COST")).toBe(false);
+  });
+
   it("keeps a legitimate customer wallet payment (WHISH → Whish_App)", () => {
     insertTxn(db, { id: 1, type: "FINANCIAL_SERVICE", summary: "paid by Whish" });
     // A customer paying via the WHISH method hits the Whish_App wallet drawer —

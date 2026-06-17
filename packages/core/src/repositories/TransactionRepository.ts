@@ -96,7 +96,14 @@ const INTERNAL_LEG_METHODS = new Set([
   "TRANSFER", // shop→system drawer transfer leg
   "CREDIT_RETURN", // returned telecom credits to a provider drawer
   "CREDIT_USED", // on-account charge (also lives in debt_ledger)
+  "SMS_COST", // telecom SMS cost consumed from the provider stock drawer
 ]);
+// Provider stock / reserve drawers — value the SHOP holds with a provider
+// (telecom credit stock, app balance), never customer cash. Customer WALLET
+// drawers (Whish_App / OMT_App) are intentionally NOT here: a customer paying
+// via that method is real customer cash and must stay in the summary.
+// `*_System` reserve drawers (OMT_System / Whish_System) are matched separately.
+const PROVIDER_STOCK_DRAWERS = new Set(["MTC", "Alfa", "Katsh", "iPick"]);
 // Customer cash is always denominated in one of these; USDT/crypto legs are internal.
 const CUSTOMER_CASH_CURRENCIES = new Set(["USD", "LBP"]);
 
@@ -371,7 +378,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       const note = p.note ?? "";
       const isInternalLeg =
         p.amount === 0 || // reporting-only row (e.g. COMMISSION, zero delta)
-        INTERNAL_LEG_METHODS.has(p.method) || // fee / transfer / credit markers
+        INTERNAL_LEG_METHODS.has(p.method) || // fee / transfer / credit / SMS markers
+        PROVIDER_STOCK_DRAWERS.has(p.drawer_name) || // MTC/Alfa/Katsh/iPick stock
         p.drawer_name.endsWith("_System") || // OMT_System / Whish_System reserve
         !CUSTOMER_CASH_CURRENCIES.has(p.currency_code) || // USDT / crypto leg
         note.startsWith("Cost:") || // cost/price-flow provider cost outflow
