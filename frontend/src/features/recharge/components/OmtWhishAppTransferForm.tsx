@@ -18,6 +18,7 @@ import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOver
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
 import { PartnerSelector } from "@/features/partners/components/PartnerSelector";
 import { ensureRechargeClient } from "../utils/ensureClient";
+import { toCamelLegs } from "@/utils/paymentUtils";
 
 type ServiceType = "SEND" | "RECEIVE";
 type ProviderKey = "OMT_APP" | "WISH_APP";
@@ -62,7 +63,12 @@ function OmtWhishAppTransferFormInner({
   const showHistory = showHistoryProp ?? false;
   const [exchangeRate, setExchangeRate] = useState(89500);
   const [paymentLines, setPaymentLines] = useState<any[]>([]);
+  const [returnLegs, setReturnLegs] = useState<any[]>([]);
   const isSplitPayment = paymentLines.length > 1;
+  // Forward structured legs whenever the payment is split OR the customer got
+  // change back (a return/OUT leg); otherwise single payment + change drops the
+  // returned cash so it's never recorded.
+  const useStructuredPayments = isSplitPayment || returnLegs.length > 0;
   const [paidByMethod, setPaidByMethod] = useState("CASH");
   const [includingFees, setIncludingFees] = useState(false);
   const [manualFee, setManualFee] = useState("");
@@ -214,7 +220,9 @@ function OmtWhishAppTransferFormInner({
             serviceType === "SEND" ? finalSenderPhone : finalReceiverPhone,
           note: `${serviceType} transfer via ${providerLabel}`,
           paidByMethod: isSplitPayment ? "MULTI" : paidByMethod,
-          payments: isSplitPayment ? paymentLines : undefined,
+          payments: useStructuredPayments
+            ? toCamelLegs(paymentLines, returnLegs)
+            : undefined,
           includingFees,
         },
       });
@@ -226,6 +234,7 @@ function OmtWhishAppTransferFormInner({
       setReceiverPhone("");
       setClientId(null);
       setPaymentLines([]);
+      setReturnLegs([]);
       setManualFee("");
       resetSaveAsClient();
       return;
@@ -252,7 +261,9 @@ function OmtWhishAppTransferFormInner({
           serviceType === "SEND" ? finalSenderPhone : finalReceiverPhone,
         note: `${serviceType} transfer via ${activeProvider === "OMT_APP" ? "OMT App" : "Whish App"}`,
         paidByMethod: paymentMethod,
-        payments: isSplitPayment ? paymentLines : undefined,
+        payments: useStructuredPayments
+          ? toCamelLegs(paymentLines, returnLegs)
+          : undefined,
         includingFees,
         partnerId: partnerId || undefined,
         transaction_time: transactionTime,
@@ -285,6 +296,7 @@ function OmtWhishAppTransferFormInner({
         setReceiverPhone("");
         setClientId(null);
         setPaymentLines([]);
+        setReturnLegs([]);
         setManualFee("");
         setTransactionTime(undefined);
         resetSaveAsClient();
@@ -744,6 +756,7 @@ function OmtWhishAppTransferFormInner({
             setPaidByMethod(lines[0].method);
           }
         }}
+        onReturnChange={setReturnLegs}
       >
         {(activeClientName.trim() || activeClientPhone.trim()) && (
           <div className="rounded-lg bg-slate-800/60 border border-slate-700/40 p-3 space-y-1">
