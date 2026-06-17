@@ -81,6 +81,25 @@ export interface TransactionPaymentLeg {
   method: string;
 }
 
+/**
+ * The `payments` table is an internal multi-leg ledger: alongside real customer
+ * payments and change/returns it also stores provider/system drawer movements
+ * (e.g. the Binance USDT crypto leg, OMT/WHISH system-reserve legs, cost-flow
+ * provider cost legs, and fee/transfer reporting rows). The LIRA-064 in/out
+ * summary must surface ONLY customer-facing cash — so these internal legs are
+ * filtered out. Identifiers below mark legs that are NOT customer cash:
+ */
+// Marker methods used for internal (non-customer) ledger rows.
+const INTERNAL_LEG_METHODS = new Set([
+  "COMMISSION", // reporting-only fee row (zero delta)
+  "PM_FEE", // payment-method fee audit row
+  "TRANSFER", // shop→system drawer transfer leg
+  "CREDIT_RETURN", // returned telecom credits to a provider drawer
+  "CREDIT_USED", // on-account charge (also lives in debt_ledger)
+]);
+// Customer cash is always denominated in one of these; USDT/crypto legs are internal.
+const CUSTOMER_CASH_CURRENCIES = new Set(["USD", "LBP"]);
+
 export interface CreateTransactionInput {
   type: TransactionType;
   source_table: string;
@@ -332,10 +351,12 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
     const legRows = this.query<{
       transaction_id: number;
       method: string;
+      drawer_name: string;
       currency_code: string;
       amount: number;
+      note: string | null;
     }>(
-      `SELECT transaction_id, method, currency_code, amount
+      `SELECT transaction_id, method, drawer_name, currency_code, amount, note
        FROM payments
        WHERE transaction_id IN (${placeholders})
        ORDER BY id ASC`,
@@ -344,6 +365,19 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
 
     const byTxn = new Map<number, TransactionPaymentLeg[]>();
     for (const p of legRows) {
+      // Surface only customer-facing cash. Internal ledger legs (provider/system
+      // drawer movements, crypto legs, cost outflows, fee/transfer rows) are not
+      // money the customer handed over or got back, so they're filtered out.
+      const note = p.note ?? "";
+      const isInternalLeg =
+        p.amount === 0 || // reporting-only row (e.g. COMMISSION, zero delta)
+        INTERNAL_LEG_METHODS.has(p.method) || // fee / transfer / credit markers
+        p.drawer_name.endsWith("_System") || // OMT_System / Whish_System reserve
+        !CUSTOMER_CASH_CURRENCIES.has(p.currency_code) || // USDT / crypto leg
+        note.startsWith("Cost:") || // cost/price-flow provider cost outflow
+        note.startsWith("Crypto "); // Binance crypto sent/received leg
+      if (isInternalLeg) continue;
+
       const legs = byTxn.get(p.transaction_id) ?? [];
       legs.push({
         direction: p.amount < 0 ? "out" : "in",
