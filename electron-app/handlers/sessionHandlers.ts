@@ -35,6 +35,8 @@ interface CheckoutPayment {
   method: string;
   currency_code: string;
   amount: number;
+  /** IN = customer paid the shop; OUT = change handed back. Defaults to IN. */
+  direction?: "IN" | "OUT";
 }
 
 interface CheckoutRequest {
@@ -60,17 +62,38 @@ interface CheckoutItemResult {
   error?: string;
 }
 
+/** Map checkout payment legs (snake_case) to the camelCase shape the
+ *  financial/recharge repositories expect (with IN/OUT direction). */
+function checkoutPaymentsToLegs(payments: CheckoutPayment[]) {
+  return payments.map((p) => ({
+    method: p.method,
+    currencyCode: p.currency_code,
+    amount: p.amount,
+    direction: p.direction ?? "IN",
+  }));
+}
+
 /**
  * Process a single cart item by calling the appropriate service method.
  * Returns the created entity/transaction ID.
+ *
+ * `injectCheckoutPayments` is set ONLY for a single-item checkout: there, the
+ * Session Checkout modal is the source of truth for payment, so its legs (incl.
+ * change/OUT) drive the financial/recharge item — otherwise a single item would
+ * record just its add-to-cart default and lose the customer's change. It is NOT
+ * set for multi-item checkouts, where one shared payment can't be attributed to
+ * a single item.
  */
 function processCartItem(
   item: CheckoutCartItem,
   paidByMethod: string,
   payments: CheckoutPayment[] | undefined,
   userId: number,
+  injectCheckoutPayments = false,
 ): { transactionId: number; transactionType: string } {
   const data = { ...item.formData };
+  const canInject =
+    injectCheckoutPayments && !!payments && payments.length > 0;
 
   // Inject payment info based on module type
   switch (item.ipcChannel) {
@@ -91,7 +114,12 @@ function processCartItem(
 
     case "recharge:process": {
       // RechargeService.processRecharge(data) — data includes paid_by_method
-      data.paid_by_method = data.paid_by_method || paidByMethod;
+      if (canInject) {
+        data.payments = checkoutPaymentsToLegs(payments!);
+        data.paid_by_method = "MULTI";
+      } else {
+        data.paid_by_method = data.paid_by_method || paidByMethod;
+      }
       data.userId = userId;
       const rechargeService = getRechargeService();
       const result = rechargeService.processRecharge(data as any);
@@ -107,12 +135,17 @@ function processCartItem(
 
     case "omt:add-transaction":
     case "financial:create": {
-      // FinancialService.addTransaction(data) — data includes paidByMethod, payments
-      // NOTE: Do NOT inject checkout-level payments into financial items.
-      // Each financial item already has its own paidByMethod (and optionally its own
-      // payments array for split-payment). Injecting the session-total payment lines
-      // would cause every item to record the FULL checkout total as drawer movements.
-      data.paidByMethod = data.paidByMethod || paidByMethod;
+      // FinancialService.addTransaction(data) — data includes paidByMethod, payments.
+      // Multi-item checkouts do NOT inject the checkout-level payments (one shared
+      // payment can't be attributed per item, and every item would record the full
+      // total). A single-item checkout DOES (canInject): the modal is the payment
+      // source of truth, so its legs — including the change/OUT leg — are recorded.
+      if (canInject) {
+        data.payments = checkoutPaymentsToLegs(payments!);
+        data.paidByMethod = "MULTI";
+      } else {
+        data.paidByMethod = data.paidByMethod || paidByMethod;
+      }
       const financialService = getFinancialService();
       const result = financialService.addTransaction(data as any);
       if (!result.success || !result.id) {
@@ -566,12 +599,16 @@ export function registerSessionHandlers() {
                   });
                 }
               } else {
-                // Single item — process directly
+                // Single item — process directly. When the whole cart is this one
+                // item, the Session Checkout modal's payment (incl. change) is the
+                // source of truth, so inject its legs into the recorded transaction.
+                const isSoleItem = cartItems.length === 1;
                 const result = processCartItem(
                   item,
                   paidByMethod,
                   payments,
                   userId,
+                  isSoleItem,
                 );
 
                 // Compute per-item profit from formData

@@ -276,6 +276,9 @@ export function SessionCheckoutModal({
   const [usdPaymentLines, setUsdPaymentLines] = useState<PaymentLine[]>([]);
   // Payment legs emitted by MultiPaymentInput for LBP totals
   const [lbpPaymentLines, setLbpPaymentLines] = useState<PaymentLine[]>([]);
+  // Return/change (OUT) legs emitted by each MultiPaymentInput
+  const [usdReturnLines, setUsdReturnLines] = useState<PaymentLine[]>([]);
+  const [lbpReturnLines, setLbpReturnLines] = useState<PaymentLine[]>([]);
 
   // Key used to force-remount MultiPaymentInput when client context changes
   const [paymentInputKey, setPaymentInputKey] = useState(0);
@@ -371,21 +374,29 @@ export function SessionCheckoutModal({
     label: m.label,
   }));
 
-  // Derive combined payment legs from both MultiPaymentInput instances
-  const allPaymentLegs: Array<{ method: string; currency_code: string; amount: number }> =
-    useMemo(() => {
-      const usdLegs = usdPaymentLines.map((l) => ({
-        method: l.method,
-        currency_code: l.currencyCode,
-        amount: l.amount,
-      }));
-      const lbpLegs = lbpPaymentLines.map((l) => ({
-        method: l.method,
-        currency_code: l.currencyCode,
-        amount: l.amount,
-      }));
-      return [...usdLegs, ...lbpLegs];
-    }, [usdPaymentLines, lbpPaymentLines]);
+  // Derive combined payment legs from both MultiPaymentInput instances. IN legs
+  // are what the customer paid; OUT legs are change handed back. `direction` is
+  // carried through so the checkout handler can record the change (e.g. paid
+  // $100, returned 180,000 LBP) rather than just the net.
+  const allPaymentLegs: Array<{
+    method: string;
+    currency_code: string;
+    amount: number;
+    direction: "IN" | "OUT";
+  }> = useMemo(() => {
+    const toLeg = (direction: "IN" | "OUT") => (l: PaymentLine) => ({
+      method: l.method,
+      currency_code: l.currencyCode,
+      amount: l.amount,
+      direction,
+    });
+    return [
+      ...usdPaymentLines.map(toLeg("IN")),
+      ...lbpPaymentLines.map(toLeg("IN")),
+      ...usdReturnLines.map(toLeg("OUT")),
+      ...lbpReturnLines.map(toLeg("OUT")),
+    ];
+  }, [usdPaymentLines, lbpPaymentLines, usdReturnLines, lbpReturnLines]);
 
   // Primary method is the first non-zero leg's method, or CASH as fallback
   const primaryMethod = allPaymentLegs.find((l) => l.amount > 0)?.method ?? "CASH";
@@ -671,6 +682,7 @@ export function SessionCheckoutModal({
                 currency="USD"
                 totalAmountCurrency="USD"
                 onChange={setUsdPaymentLines}
+                onReturnChange={setUsdReturnLines}
                 requiresClientForDebt={true}
                 hasClient={hasClient}
                 paymentMethods={paymentMethodOptions}
@@ -695,6 +707,7 @@ export function SessionCheckoutModal({
                 currency="LBP"
                 totalAmountCurrency="LBP"
                 onChange={setLbpPaymentLines}
+                onReturnChange={setLbpReturnLines}
                 requiresClientForDebt={true}
                 hasClient={hasClient}
                 paymentMethods={paymentMethodOptions}
