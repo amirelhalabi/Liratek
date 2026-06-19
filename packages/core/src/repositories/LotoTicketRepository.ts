@@ -63,6 +63,8 @@ export interface LotoTicketCreate {
    * callers leave this falsy → behavior is unchanged.
    */
   deferPayment?: boolean;
+  /** Operator-edited USD↔LBP rate of record (session checkout); else default. */
+  exchange_rate?: number;
 }
 
 export interface LotoTicketUpdate {
@@ -129,7 +131,7 @@ export class LotoTicketRepository {
         amount_usd: 0, // Loto is LBP only for now
         amount_lbp: data.sale_amount,
         profit_lbp: data.commission_amount,
-        exchange_rate: 100000, // Default rate
+        exchange_rate: data.exchange_rate ?? 100000, // operator rate (session) else default
         client_id: data.clientId ?? null,
         client_name: data.clientName ?? null,
         summary: txnSummary,

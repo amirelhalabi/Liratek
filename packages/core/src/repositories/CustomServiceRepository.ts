@@ -111,6 +111,7 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
           amount_lbp: data.price_lbp ?? 0,
           profit_usd: (data.price_usd ?? 0) - (data.cost_usd ?? 0),
           profit_lbp: (data.price_lbp ?? 0) - (data.cost_lbp ?? 0),
+          exchange_rate: data.exchange_rate,
           client_id: data.client_id ?? null,
           summary: `Custom Service: ${data.description}`,
           metadata_json: {

@@ -40,6 +40,8 @@ export interface LotoCashPrizeCreate {
    * to the customer. Non-session callers leave this falsy → behavior unchanged.
    */
   deferPayment?: boolean;
+  /** Operator-edited USD↔LBP rate of record (session checkout); else default. */
+  exchange_rate?: number;
 }
 
 export class LotoCashPrizeRepository {
@@ -76,7 +78,7 @@ export class LotoCashPrizeRepository {
         user_id: data.userId,
         amount_usd: 0,
         amount_lbp: -data.prize_amount,
-        exchange_rate: 100000,
+        exchange_rate: data.exchange_rate ?? 100000,
         summary: data.ticket_number
           ? `Loto cash prize payout: ${data.ticket_number}`
           : "Loto cash prize payout",
