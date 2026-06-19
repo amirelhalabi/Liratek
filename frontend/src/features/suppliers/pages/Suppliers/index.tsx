@@ -111,6 +111,35 @@ function AutoBadge() {
   );
 }
 
+/**
+ * Supplier balance is the signed sum of the ledger:
+ *   > 0  → WE owe the supplier   ("You owe …", red)
+ *   < 0  → the supplier owes US  ("They owe you …", green) — e.g. after overpayment
+ *   = 0  → settled
+ */
+const BALANCE_EPS = 0.005;
+function describeBalance(
+  amount: number,
+  currency: "USD" | "LBP",
+): { text: string; cls: string } {
+  const abs = Math.abs(amount);
+  const money =
+    currency === "USD"
+      ? `$${abs.toFixed(2)}`
+      : `${Math.round(abs).toLocaleString()} LBP`;
+  if (amount > BALANCE_EPS) return { text: `You owe ${money}`, cls: "text-red-400" };
+  if (amount < -BALANCE_EPS)
+    return { text: `They owe you ${money}`, cls: "text-green-400" };
+  return { text: "Settled", cls: "text-slate-400" };
+}
+
+/** Compact directional color for a single signed amount (list rows). */
+function balanceColor(amount: number): string {
+  if (amount > BALANCE_EPS) return "text-red-400";
+  if (amount < -BALANCE_EPS) return "text-green-400";
+  return "text-slate-500";
+}
+
 export default function SuppliersPage() {
   const api = useApi();
   const { methods } = usePaymentMethods();
@@ -375,9 +404,14 @@ export default function SuppliersPage() {
                       )}
                     </div>
                   </div>
-                  <div className="mt-1 text-xs text-slate-400 font-mono">
-                    ${Number(b?.total_usd || 0).toFixed(2)} |{" "}
-                    {Number(b?.total_lbp || 0).toLocaleString()} LBP
+                  <div className="mt-1 text-xs font-mono">
+                    <span className={balanceColor(Number(b?.total_usd || 0))}>
+                      ${Number(b?.total_usd || 0).toFixed(2)}
+                    </span>
+                    <span className="text-slate-600"> | </span>
+                    <span className={balanceColor(Number(b?.total_lbp || 0))}>
+                      {Number(b?.total_lbp || 0).toLocaleString()} LBP
+                    </span>
                   </div>
                 </button>
               );
@@ -405,16 +439,43 @@ export default function SuppliersPage() {
                     {selectedSupplier.name}
                   </div>
                   <div className="text-xs text-slate-400 font-mono mt-0.5">
-                    Balance:{" "}
-                    <span
-                      className={`font-semibold ${(balanceBySupplier.get(selectedSupplierId!)?.total_usd ?? 0) < 0 ? "text-green-400" : "text-red-400"}`}
-                    >
-                      $
-                      {(
-                        balanceBySupplier.get(selectedSupplierId!)?.total_usd ??
-                        0
-                      ).toFixed(2)}
-                    </span>
+                    {(() => {
+                      const bal = balanceBySupplier.get(selectedSupplierId!);
+                      const usd = Number(bal?.total_usd ?? 0);
+                      const lbp = Number(bal?.total_lbp ?? 0);
+                      const usdInfo = describeBalance(usd, "USD");
+                      const lbpInfo = describeBalance(lbp, "LBP");
+                      const settled =
+                        Math.abs(usd) <= BALANCE_EPS &&
+                        Math.abs(lbp) <= BALANCE_EPS;
+                      return (
+                        <>
+                          Balance:{" "}
+                          {settled ? (
+                            <span className="font-semibold text-slate-400">
+                              Settled
+                            </span>
+                          ) : (
+                            <>
+                              {Math.abs(usd) > BALANCE_EPS && (
+                                <span className={`font-semibold ${usdInfo.cls}`}>
+                                  {usdInfo.text}
+                                </span>
+                              )}
+                              {Math.abs(usd) > BALANCE_EPS &&
+                                Math.abs(lbp) > BALANCE_EPS && (
+                                  <span className="text-slate-600"> · </span>
+                                )}
+                              {Math.abs(lbp) > BALANCE_EPS && (
+                                <span className={`font-semibold ${lbpInfo.cls}`}>
+                                  {lbpInfo.text}
+                                </span>
+                              )}
+                            </>
+                          )}
+                        </>
+                      );
+                    })()}
                     {pendingCommissionTotal > 0 && (
                       <span className="ml-3 text-amber-400">
                         ⚠ ${pendingCommissionTotal.toFixed(4)} pending
