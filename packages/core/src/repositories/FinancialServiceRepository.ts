@@ -182,6 +182,21 @@ export interface CreateFinancialServiceData {
   partnerId?: number;
   /** Partner Mode: specifies if we use their system ('THROUGH') or they use our system ('FOR') */
   partnerMode?: "THROUGH" | "FOR";
+  /**
+   * Session-basket deferred payment mode (LIRA basket payment).
+   * When true, the customer-cash side of this transaction is owned by the
+   * customer-session basket recorder, NOT this transaction:
+   *  - Cost/price flow: KEEP the cost outflow (provider drawer −cost) + crypto
+   *    USDT leg; SKIP the price/cash inflow legs and any CUSTOMER_ACCOUNT debt.
+   *  - OMT/WHISH SEND: KEEP the reserve transfer (General −totalCollected /
+   *    *_System +totalCollected); SKIP the customer cash-in leg, pmFee handling,
+   *    change, and debt. (The basket supplies the customer cash separately.)
+   *  - OMT/WHISH/BINANCE RECEIVE (cashout): SKIP the customer cash-OUT payout
+   *    leg (the basket handles the net OUT); KEEP the provider/system/crypto side.
+   * Internal legs, the unified transaction, profit and exchange_rate are always
+   * created. Non-session callers leave this falsy → behavior is unchanged.
+   */
+  deferPayment?: boolean;
 }
 
 export interface ProviderStats {
@@ -337,6 +352,13 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       const isForPartner = !!(data.partnerId && data.partnerMode === "FOR");
       const skipGeneralDrawer = isForPartner;
       const skipSystemDrawer = isThroughPartner;
+
+      // Session-basket deferred payment: the customer-cash side is owned by the
+      // basket recorder (recordBasketPayment), so this transaction must skip its
+      // own customer cash-in/out legs, pmFee handling, change, and debt. Internal
+      // legs (cost outflow, crypto USDT, OMT/WHISH reserve transfer + system
+      // drawer) are still written so the ledger and settlement stay correct.
+      const deferPayment = data.deferPayment === true;
 
       // ═══════════════════════════════════════════════════════════════════════
       // AUTO-CALCULATE COMMISSION FOR OMT SERVICES
@@ -663,8 +685,12 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           upsertBalanceDelta.run(providerDrawer, currency, -Math.abs(cost));
         }
 
-        // Price inflow: customer pays the shop
-        if (data.payments && data.payments.length > 0) {
+        // Price inflow: customer pays the shop.
+        // Deferred (session basket): the basket recorder owns the customer-cash
+        // inflow + any on-account debt, so skip the whole inflow block here.
+        if (deferPayment) {
+          // no-op: customer cash + debt handled by recordBasketPayment
+        } else if (data.payments && data.payments.length > 0) {
           // Multi-payment: iterate each payment leg
           let hasDebt = false;
           for (const p of data.payments) {
@@ -855,7 +881,11 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             //    Multi-payment: credit each drawer-affecting leg in full; route
             //    CUSTOMER_ACCOUNT legs to debt. Single-payment: credit the whole
             //    total to the chosen drawer, or to debt for CUSTOMER_ACCOUNT.
-            if (data.payments && data.payments.length > 0) {
+            //    Deferred (session basket): the basket recorder owns the cash-in
+            //    side, so skip it here (crypto USDT leg above is still written).
+            if (deferPayment) {
+              // no-op: customer cash + debt handled by recordBasketPayment
+            } else if (data.payments && data.payments.length > 0) {
               for (const p of data.payments) {
                 if (p.method === "CUSTOMER_ACCOUNT") continue;
                 if (!isDrawerAffectingMethod(p.method)) continue;
@@ -955,10 +985,12 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             upsertBalanceDelta.run(systemDrawer, cryptoCurrency, cryptoAmount);
 
             // 2. Cash payout: shop pays customer (cryptoAmount - fee) in cash.
+            //    Deferred (session basket): the basket recorder owns the net
+            //    cash-OUT payout, so skip it here (crypto USDT leg is kept).
             const payoutAmount = cryptoAmount - fee;
             const cashoutMethod = data.cashoutMethod || "CASH";
 
-            if (payoutAmount > 0) {
+            if (!deferPayment && payoutAmount > 0) {
               if (cashoutMethod === "CUSTOMER_ACCOUNT") {
                 // Credit customer's account instead of paying cash
                 if (!resolvedPrimaryClientId) {
@@ -1055,7 +1087,12 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             return (Math.abs(leg.amount) / totalNonCashPaid) * pmFee;
           };
 
-          if (data.payments && data.payments.length > 0) {
+          if (deferPayment) {
+            // Deferred (session basket): skip ALL customer cash-in legs, pmFee
+            // rows, and debt creation. The reserve transfer + system drawer
+            // credit below still run so General −totalCollected / *_System
+            // +totalCollected stays intact (the reserve stays on the transaction).
+          } else if (data.payments && data.payments.length > 0) {
             // Validate: DEBT leg requires client name + phone (for debt_ledger client_id)
             const hasDebtLeg = data.payments.some((p) => p.method === "CUSTOMER_ACCOUNT");
             if (hasDebtLeg && !data.clientId) {
@@ -1255,8 +1292,13 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           }
 
           // Record PM_FEE payment row for immediate profit tracking (single non-cash only;
-          // for multi-payment the frontend already baked it into each leg's amount)
-          if (pmFee > 0 && !(data.payments && data.payments.length > 0)) {
+          // for multi-payment the frontend already baked it into each leg's amount).
+          // Deferred (session basket): pmFee is owned by the basket — skip it here.
+          if (
+            !deferPayment &&
+            pmFee > 0 &&
+            !(data.payments && data.payments.length > 0)
+          ) {
             const walletDrawer = paymentMethodToDrawerName(paidBy);
             insertPayment.run(
               txnId,
@@ -1290,10 +1332,16 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
 
             const isSystemProvider = isOMT || data.provider === "WHISH";
             if (isSystemProvider) {
-              const isPaidByNonCash = data.payments
-                ? // multi-payment: non-cash if ANY leg is non-cash
-                  data.payments.some((p) => isNonCashDrawerMethod(p.method))
-                : isNonCashDrawerMethod(paidBy);
+              // Deferred (session basket): the basket owns the customer cash-in,
+              // so treat this leg as a cash reserve regardless of the original
+              // payment method — General −totalCollected nets against the basket's
+              // separate cash-in, and the system drawer tracks the full outflow.
+              const isPaidByNonCash = deferPayment
+                ? false
+                : data.payments
+                  ? // multi-payment: non-cash if ANY leg is non-cash
+                    data.payments.some((p) => isNonCashDrawerMethod(p.method))
+                  : isNonCashDrawerMethod(paidBy);
 
               if (isPaidByNonCash) {
                 // Non-cash: transfer from each wallet drawer to system drawer
@@ -1343,10 +1391,12 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                   );
                   // Net in wallet drawer: +totalCustomerPays (customer in) - totalCollected (transfer out) = +pmFee ✓
                 }
-              } else if (paidBy !== "CUSTOMER_ACCOUNT") {
+              } else if (deferPayment || paidBy !== "CUSTOMER_ACCOUNT") {
                 // Cash payment: reserve from General (net 0 for General)
                 // Skip for DEBT single payment — no cash was received, nothing to reserve
                 // Skip for FOR partner transactions — no cash flows through the shop's General drawer
+                // Deferred (session basket): always reserve — the basket's separate
+                // cash-in funds the reserve, so General nets to 0 across both.
                 if (!skipGeneralDrawer) {
                   insertPayment.run(
                     txnId,
@@ -1369,7 +1419,11 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             //   (debt is owed by the customer, not yet funded — OMT_System only gets
             //    funded portions from wallet transfers + cash reserve)
             let systemDrawerCredit = totalCollected;
-            if (paidBy === "CUSTOMER_ACCOUNT") {
+            if (deferPayment) {
+              // Deferred (session basket): the basket funds the full outflow, so
+              // the system drawer always tracks the entire totalCollected.
+              systemDrawerCredit = totalCollected;
+            } else if (paidBy === "CUSTOMER_ACCOUNT") {
               // Single DEBT payment: no funds received yet — OMT_System not credited
               systemDrawerCredit = 0;
             } else if (data.payments && data.payments.length > 0) {
@@ -1489,8 +1543,12 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               upsertBalanceDelta.run(drawerName, currency, receiveAmount);
             }
 
-            // Debit the cashout drawer for the payout to customer
+            // Debit the cashout drawer for the payout to customer.
+            // Deferred (session basket): the basket owns the net cash-OUT to the
+            // customer, so skip the payout leg here (the system drawer side above
+            // is kept so provider settlement stays correct).
             if (
+              !deferPayment &&
               cashoutMethod !== "CASH" &&
               useSystemDrawerFlow &&
               !skipSystemDrawer
@@ -1507,6 +1565,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               );
               upsertBalanceDelta.run(cashoutDrawer, currency, -receiveAmount);
             } else if (
+              !deferPayment &&
               cashoutMethod === "CASH" &&
               useSystemDrawerFlow &&
               !skipSystemDrawer &&
@@ -1560,6 +1619,25 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         }
       }
 
+      // Only the shop's PRIMARY (base) system owes its provider directly. The
+      // secondary OMT/WHISH system runs via a partner, whose obligation is captured
+      // in partner_ledger below — recording it as a supplier debt too double-counts
+      // it and pollutes the suppliers/settlement page.
+      let baseSystem = "OMT";
+      try {
+        const baseSystemRow = this.db
+          .prepare(
+            "SELECT value FROM system_settings WHERE key_name = 'shop_base_system'",
+          )
+          .get() as { value?: string } | undefined;
+        if (baseSystemRow?.value === "WHISH") baseSystem = "WHISH";
+      } catch {
+        // system_settings may be absent in minimal/test schemas — default to OMT.
+      }
+      const skipSecondarySupplierLedger =
+        (data.provider === "OMT" || data.provider === "WHISH") &&
+        data.provider !== baseSystem;
+
       // Auto-record supplier debt (both flows)
       try {
         const supplierRepo = getSupplierRepository();
@@ -1604,14 +1682,16 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             : useCostPriceFlow
               ? "SALE_COST"
               : "TOP_UP";
-          supplierRepo.addLedgerEntry({
-            supplier_id: supplier.id,
-            entry_type: entryType,
-            amount_usd: currency === "USD" ? ledgerAmount : 0,
-            amount_lbp: currency === "LBP" ? ledgerAmount : 0,
-            note: `Auto: ${data.serviceType} via ${data.provider}${data.itemKey ? ` [${data.itemKey}]` : ""}`,
-            created_by: createdBy,
-          });
+          if (!skipSecondarySupplierLedger) {
+            supplierRepo.addLedgerEntry({
+              supplier_id: supplier.id,
+              entry_type: entryType,
+              amount_usd: currency === "USD" ? ledgerAmount : 0,
+              amount_lbp: currency === "LBP" ? ledgerAmount : 0,
+              note: `Auto: ${data.serviceType} via ${data.provider}${data.itemKey ? ` [${data.itemKey}]` : ""}`,
+              created_by: createdBy,
+            });
+          }
         }
       } catch {
         // Supplier auto-record is non-critical; don't fail the transaction
@@ -1675,7 +1755,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       // Return (OUT) legs: change handed back to the customer via a chosen method,
       // or kept as store credit. Debits the method's drawer (negative delta), or
       // deposits credit to the client's account for CUSTOMER_ACCOUNT.
-      for (const r of returnLegs) {
+      // Deferred (session basket): change is owned by the basket recorder.
+      for (const r of deferPayment ? [] : returnLegs) {
         const amt = Math.abs(r.amount);
         if (amt <= 0) continue;
         if (r.method === "CUSTOMER_ACCOUNT") {

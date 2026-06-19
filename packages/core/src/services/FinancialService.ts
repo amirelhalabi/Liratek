@@ -91,9 +91,14 @@ export class FinancialService {
         }
       }
 
-      const creditCheck = this.validateCustomerAccountPayment(data);
-      if (!creditCheck.success) {
-        return { success: false, error: creditCheck.error };
+      // In session-basket deferred mode the basket owns the customer-cash side
+      // (including any CUSTOMER_ACCOUNT debt), so per-transaction credit
+      // validation does not apply here — the basket recorder validates instead.
+      if (!data.deferPayment) {
+        const creditCheck = this.validateCustomerAccountPayment(data);
+        if (!creditCheck.success) {
+          return { success: false, error: creditCheck.error };
+        }
       }
 
       const result = this.fsRepo.createTransaction(data);

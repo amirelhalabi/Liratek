@@ -120,6 +120,20 @@ export class ClientRepository extends BaseRepository<ClientEntity> {
   }
 
   /**
+   * Find client by exact full name (first match).
+   */
+  findByName(fullName: string): ClientEntity | null {
+    try {
+      const query = `SELECT ${this.getColumns()} FROM ${this.tableName} WHERE full_name = ? LIMIT 1`;
+      return this.queryOne<ClientEntity>(query, fullName);
+    } catch (error) {
+      throw new DatabaseError("Failed to find client by name", {
+        cause: error,
+      });
+    }
+  }
+
+  /**
    * Check if phone number already exists
    */
   phoneExists(phoneNumber: string, excludeId?: number): boolean {

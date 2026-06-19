@@ -63,6 +63,8 @@ export interface SellTicketData {
   transaction_time?: string;
   clientId?: number | null;
   clientName?: string | null;
+  /** Session-basket deferred payment mode (basket owns the customer-cash post). */
+  deferPayment?: boolean;
 }
 
 export interface SettlementData {
@@ -146,6 +148,7 @@ export class LotoService {
         transaction_time: data.transaction_time,
         clientId: data.clientId,
         clientName: data.clientName,
+        deferPayment: data.deferPayment,
       };
 
       const ticket = this.ticketRepo.createTicket(ticketData);
@@ -939,6 +942,8 @@ export class LotoService {
     prize_amount: number;
     prize_date?: string;
     userId: number;
+    /** Session-basket deferred payment mode (basket owns the cash-OUT payout). */
+    deferPayment?: boolean;
   }): LotoCashPrize {
     try {
       if (!data.prize_amount || data.prize_amount <= 0) {
@@ -950,6 +955,7 @@ export class LotoService {
         prize_amount: data.prize_amount,
         prize_date: data.prize_date || new Date().toISOString().split("T")[0],
         userId: data.userId,
+        deferPayment: data.deferPayment,
       };
 
       const prize = this.cashPrizeRepo.createCashPrize(prizeData);

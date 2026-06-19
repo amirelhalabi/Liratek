@@ -3,6 +3,7 @@ import {
   type CreateSupplierData,
   type CreateSupplierLedgerEntryData,
   type SettleTransactionsData,
+  type SupplierCashflowData,
   type SupplierEntity,
   type SupplierLedgerEntryEntity,
   type SupplierBalance,
@@ -84,6 +85,23 @@ export class SupplierService {
           error: "Settlement amounts cannot be negative",
         };
       const res = this.repo.settleTransactions(data);
+      return { success: true, id: res.id };
+    } catch (e) {
+      return { success: false, error: toErrorString(e) };
+    }
+  }
+
+  /**
+   * Pay a supplier down / record a supplier paying us, via payment-method legs.
+   * Routes cash to the correct drawer and works with zero pending transactions.
+   */
+  recordSupplierCashflow(data: SupplierCashflowData): SupplierResult {
+    try {
+      if (!data.supplier_id)
+        return { success: false, error: "supplier_id is required" };
+      if (!data.payments?.length)
+        return { success: false, error: "At least one payment leg is required" };
+      const res = this.repo.recordSupplierCashflow(data);
       return { success: true, id: res.id };
     } catch (e) {
       return { success: false, error: toErrorString(e) };

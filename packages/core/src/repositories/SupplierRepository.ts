@@ -32,7 +32,11 @@ export type SupplierLedgerEntryType =
   | "PAYMENT"
   | "ADJUSTMENT"
   | "SETTLEMENT"
-  | "CASH_PRIZE";
+  | "CASH_PRIZE"
+  /** The supplier paid the shop (e.g. settling an overpayment they owed us).
+   *  Positive ledger amount (mirror of PAYMENT) with cash CREDITED to the
+   *  payment-method drawer. */
+  | "SUPPLIER_PAYS_US";
 
 export interface SupplierLedgerEntryEntity {
   id: number;
@@ -62,6 +66,23 @@ export interface SettleTransactionsData {
   created_by: number;
   /** Multi-payment legs (optional; when provided, replaces drawer_name-based logic) */
   payments?: Array<{ method: string; currency_code: string; amount: number }>;
+}
+
+/**
+ * Pay a supplier / record a supplier paying us, using real payment-method legs
+ * (MultiPaymentInput) so the CORRECT drawer is debited/credited — not the
+ * provider's own stock drawer. Works with zero pending transactions to settle
+ * (pure balance pay-down / receipt).
+ */
+export interface SupplierCashflowData {
+  supplier_id: number;
+  /** PAY = shop pays the supplier (cash out, ledger −). RECEIVE = supplier pays
+   *  the shop (cash in, ledger +). */
+  direction: "PAY" | "RECEIVE";
+  /** Payment-method legs; each routes to its method's drawer. */
+  payments: Array<{ method: string; currency_code: string; amount: number }>;
+  note?: string;
+  created_by: number;
 }
 
 export interface CreateSupplierData {
@@ -101,9 +122,16 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
 
   listSuppliers(search?: string, includeInactive?: boolean): SupplierEntity[] {
     try {
+      // Hide the SECONDARY OMT/WHISH system: it has no direct supplier relationship
+      // (its obligations live in partner_ledger), so it shouldn't appear on the
+      // suppliers page. The shop's base system is the only legacy system shown.
       let sql = includeInactive
         ? `SELECT ${this.getColumns()} FROM suppliers WHERE 1=1`
-        : `SELECT ${this.getColumns()} FROM suppliers WHERE is_active = 1`;
+        : `SELECT ${this.getColumns()} FROM suppliers WHERE is_active = 1
+             AND NOT (provider IN ('OMT', 'WHISH')
+                      AND provider <> COALESCE(
+                        (SELECT value FROM system_settings WHERE key_name = 'shop_base_system'),
+                        'OMT'))`;
       const params: string[] = [];
       if (search?.trim()) {
         sql += ` AND name LIKE ?`;
@@ -312,7 +340,14 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
 
   getSupplierBalances(includeInactive?: boolean): SupplierBalance[] {
     try {
-      const filter = includeInactive ? "1=1" : "s.is_active = 1";
+      // Hide the SECONDARY OMT/WHISH system (obligations live in partner_ledger).
+      const filter = includeInactive
+        ? "1=1"
+        : `s.is_active = 1
+           AND NOT (s.provider IN ('OMT', 'WHISH')
+                    AND s.provider <> COALESCE(
+                      (SELECT value FROM system_settings WHERE key_name = 'shop_base_system'),
+                      'OMT'))`;
       return this.query<SupplierBalance>(`
         SELECT
           s.id as supplier_id,
@@ -486,6 +521,125 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
       return settle();
     } catch (e) {
       throw new DatabaseError("Failed to settle transactions", { cause: e });
+    }
+  }
+
+  /**
+   * Record a direct supplier cash flow that is NOT tied to settling specific
+   * transactions — paying a supplier down, or a supplier paying us back.
+   *
+   * Uses real payment-method legs so the cash hits the CORRECT drawer (General
+   * for CASH, the wallet drawer for WHISH/OMT, etc.) — never the provider's own
+   * stock drawer. Works with zero pending transactions.
+   *
+   *   PAY     → ledger −amount (we owe less), drawer −amount (cash out)
+   *   RECEIVE → ledger +amount (their debt to us settled), drawer +amount (cash in)
+   */
+  recordSupplierCashflow(data: SupplierCashflowData): { id: number } {
+    if (!data.payments?.length) {
+      throw new DatabaseError("No payment legs provided");
+    }
+    try {
+      const run = this.db.transaction(() => {
+        const now = new Date().toISOString();
+        const isPay = data.direction === "PAY";
+        const entryType: SupplierLedgerEntryType = isPay
+          ? "PAYMENT"
+          : "SUPPLIER_PAYS_US";
+        // PAY: cash out + reduce what we owe (−). RECEIVE: cash in + settle their
+        // debt to us (+). Ledger and drawer share the same sign here.
+        const sign = isPay ? -1 : 1;
+
+        let usd = 0;
+        let lbp = 0;
+        for (const p of data.payments) {
+          const amt = Math.abs(p.amount);
+          if (p.currency_code === "USD") usd += amt;
+          else if (p.currency_code === "LBP") lbp += amt;
+        }
+
+        const ledgerRes = this.db
+          .prepare(
+            `INSERT INTO supplier_ledger
+               (supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            data.supplier_id,
+            entryType,
+            sign * usd,
+            sign * lbp,
+            data.note ?? null,
+            data.created_by,
+            now,
+          );
+        const ledgerEntryId = Number(ledgerRes.lastInsertRowid);
+
+        const money = `$${usd.toFixed(2)}${lbp ? ` + ${lbp.toLocaleString()} LBP` : ""}`;
+        const summary = isPay
+          ? `Supplier Payment: ${money}`
+          : `Supplier Payment Received: ${money}`;
+        const txnRes = this.db
+          .prepare(
+            `INSERT INTO transactions
+               (type, status, source_table, source_id, user_id,
+                amount_usd, amount_lbp, summary, metadata_json, created_at)
+             VALUES (?, 'ACTIVE', 'supplier_ledger', ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            TRANSACTION_TYPES.SUPPLIER_PAYMENT,
+            ledgerEntryId,
+            data.created_by,
+            usd,
+            lbp,
+            summary,
+            JSON.stringify({
+              supplier_id: data.supplier_id,
+              direction: data.direction,
+              entry_type: entryType,
+            }),
+            now,
+          );
+        const txnId = Number(txnRes.lastInsertRowid);
+        this.db
+          .prepare(`UPDATE supplier_ledger SET transaction_id = ? WHERE id = ?`)
+          .run(txnId, ledgerEntryId);
+
+        const upsertBalance = this.db.prepare(`
+          INSERT INTO drawer_balances (drawer_name, currency_code, balance)
+          VALUES (?, ?, ?)
+          ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+            balance = drawer_balances.balance + excluded.balance,
+            updated_at = CURRENT_TIMESTAMP
+        `);
+        const insertPayment = this.db.prepare(
+          `INSERT INTO payments (transaction_id, method, drawer_name, currency_code, amount, note, created_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        );
+        for (const p of data.payments) {
+          if (!isDrawerAffectingMethod(p.method)) continue;
+          const drawerName = paymentMethodToDrawerName(p.method);
+          const delta = sign * Math.abs(p.amount);
+          upsertBalance.run(drawerName, p.currency_code, delta);
+          insertPayment.run(
+            txnId,
+            p.method,
+            drawerName,
+            p.currency_code,
+            delta,
+            data.note ?? summary,
+            data.created_by,
+          );
+        }
+
+        return { id: ledgerEntryId };
+      });
+
+      return run();
+    } catch (e) {
+      throw new DatabaseError("Failed to record supplier cashflow", {
+        cause: e,
+      });
     }
   }
 }

@@ -50,6 +50,7 @@ function createTestDb(): Database.Database {
     CREATE TABLE payments (
       id             INTEGER PRIMARY KEY AUTOINCREMENT,
       transaction_id INTEGER,
+      session_id     INTEGER,
       method         TEXT NOT NULL,
       drawer_name    TEXT NOT NULL,
       currency_code  TEXT NOT NULL,
@@ -57,6 +58,15 @@ function createTestDb(): Database.Database {
       note           TEXT,
       created_by     INTEGER,
       created_at     TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE customer_session_transactions (
+      id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id             INTEGER,
+      transaction_type       TEXT,
+      transaction_id         INTEGER,
+      unified_transaction_id INTEGER,
+      created_at             TEXT DEFAULT CURRENT_TIMESTAMP
     );
   `);
 

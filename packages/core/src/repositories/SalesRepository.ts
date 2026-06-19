@@ -111,6 +111,14 @@ export interface SaleRequest {
   status?: "completed" | "draft" | "cancelled";
   note?: string;
   transaction_time?: string;
+  /**
+   * Session-basket deferred payment mode. When true, the sale record + items +
+   * stock are created but the customer-cash drawer post, change, gift-card
+   * redemption, and per-sale debt are skipped — the basket recorder owns the
+   * customer payment and back-fills paid_usd/paid_lbp/exchange_rate_snapshot.
+   * Non-session callers leave this falsy → behavior is unchanged.
+   */
+  deferPayment?: boolean;
 }
 
 export interface DashboardStats {
@@ -388,9 +396,14 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
 
         const createdBy = userId;
         const note = sale.note || null;
+        const deferPayment = sale.deferPayment === true;
 
         // Split customer-paid (IN) legs from shop-returned change (OUT) legs.
-        const { inLegs, outLegs } = partitionLegs(paymentLines);
+        // Deferred (session basket): the basket recorder owns the customer-cash
+        // legs, change, gift-card redemption, and debt — skip them all here.
+        const { inLegs, outLegs } = partitionLegs(
+          deferPayment ? [] : paymentLines,
+        );
 
         for (const p of inLegs) {
           // DEBT means no drawer movement and should not create a payments row.
@@ -454,8 +467,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           }
         }
 
-        const changeUsd = Math.abs(sale.change_given_usd || 0);
-        const changeLbp = Math.abs(sale.change_given_lbp || 0);
+        const changeUsd = deferPayment ? 0 : Math.abs(sale.change_given_usd || 0);
+        const changeLbp = deferPayment ? 0 : Math.abs(sale.change_given_lbp || 0);
         if (changeUsd) {
           insertPayment.run(
             txnId,
@@ -511,7 +524,10 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         }
 
         // Handle Debt (If Partial Payment AND Completed)
-        if (status === "completed") {
+        // Deferred (session basket): the basket recorder creates ONE debt entry
+        // for the whole basket and back-fills this sale's paid state, so skip the
+        // per-sale debt here (it would double-count and mis-attribute).
+        if (status === "completed" && !deferPayment) {
           // Use derived payment totals (accounts for new payment lines structure)
           const totalPaidUSD = paymentUsd + paymentLbp / sale.exchange_rate;
           if (sale.final_amount - totalPaidUSD > 0.05) {
@@ -547,6 +563,34 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         error: error instanceof Error ? error.message : String(error),
       };
     }
+  }
+
+  /**
+   * Back-fill the paid state of a sale that was created with deferPayment.
+   *
+   * The session-basket recorder calls this AFTER allocating the basket's
+   * non-debt payment across the session's goods, so the sale's
+   * paid_usd/paid_lbp/exchange_rate_snapshot reflect what the basket actually
+   * settled. A fully-covered sale then passes the Profits "paid gate" and
+   * realizes profit; an on-account sale stays pending (its debt lives on the
+   * single basket debt entry, not here).
+   *
+   * No drawer movement and no debt entry here — those are owned by the basket
+   * recorder. This only updates the sale row's paid columns.
+   */
+  markSalePaid(
+    saleId: number,
+    paidUsd: number,
+    paidLbp: number,
+    exchangeRate: number,
+  ): void {
+    this.db
+      .prepare(
+        `UPDATE ${this.tableName}
+         SET paid_usd = ?, paid_lbp = ?, exchange_rate_snapshot = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+      )
+      .run(paidUsd, paidLbp, exchangeRate, saleId);
   }
 
   // ---------------------------------------------------------------------------
@@ -820,6 +864,14 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
       // 4. Calculate refund amount (proportional)
       const refundAmount = item.sold_price_usd * params.refundQuantity;
 
+      // 4b. Calculate the refunded profit so the REFUND transaction can stamp its
+      //     NEGATIVE on transactions.profit_usd. SUM(profit) over a sale's
+      //     SALE + REFUND rows then equals the net (post-refund) profit, attributed
+      //     at the refund's date (accrual — intended).
+      const refundProfitUsd =
+        (item.sold_price_usd - item.cost_price_snapshot_usd) *
+        params.refundQuantity;
+
       // 5. Get the original SALE transaction
       const originalTxn = db
         .prepare(
@@ -853,6 +905,8 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
         user_id: params.userId,
         amount_usd: -refundAmount,
         amount_lbp: -(refundAmount * originalTxn.exchange_rate),
+        profit_usd: -refundProfitUsd,
+        profit_lbp: 0,
         exchange_rate: originalTxn.exchange_rate,
         client_id: originalTxn.client_id,
         summary: `ITEM REFUND: ${params.refundQuantity}x product ${item.product_id} from Sale #${params.saleId}`,

@@ -159,8 +159,16 @@ export interface TransactionWithUser extends TransactionEntity {
   username: string;
   client_name: string | null;
   /**
+   * The customer session this transaction belongs to (basket payment), or null.
+   * Resolved via customer_session_transactions.unified_transaction_id = t.id.
+   * Used by the viewer to group same-session rows and attach basket legs.
+   */
+  session_id: number | null;
+  /**
    * Structured in/out payment legs joined from the `payments` table (LIRA-064).
    * Computed read-only; never persisted into the stored `summary` text.
+   * For session rows with no own customer-cash legs, the session's basket legs
+   * are attached instead (same legs on every row in that session).
    */
   payments: TransactionPaymentLeg[];
 }
@@ -326,10 +334,13 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
               t.reverses_id, t.summary, t.metadata_json,
               t.device_id, t.created_at,
               u.username,
-              COALESCE(t.client_name, c.full_name) AS client_name
+              COALESCE(t.client_name, c.full_name) AS client_name,
+              cst.session_id AS session_id
        FROM transactions t
        LEFT JOIN users u ON u.id = t.user_id
        LEFT JOIN clients c ON c.id = t.client_id
+       LEFT JOIN customer_session_transactions cst
+              ON cst.unified_transaction_id = t.id
        ${where}
        ORDER BY t.created_at DESC
        LIMIT ?`,
@@ -370,8 +381,13 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       ...ids,
     );
 
-    const byTxn = new Map<number, TransactionPaymentLeg[]>();
-    for (const p of legRows) {
+    const toLeg = (p: {
+      method: string;
+      drawer_name: string;
+      currency_code: string;
+      amount: number;
+      note: string | null;
+    }): TransactionPaymentLeg | null => {
       // Surface only customer-facing cash. Internal ledger legs (provider/system
       // drawer movements, crypto legs, cost outflows, fee/transfer rows) are not
       // money the customer handed over or got back, so they're filtered out.
@@ -384,21 +400,71 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         !CUSTOMER_CASH_CURRENCIES.has(p.currency_code) || // USDT / crypto leg
         note.startsWith("Cost:") || // cost/price-flow provider cost outflow
         note.startsWith("Crypto "); // Binance crypto sent/received leg
-      if (isInternalLeg) continue;
-
-      const legs = byTxn.get(p.transaction_id) ?? [];
-      legs.push({
+      if (isInternalLeg) return null;
+      return {
         direction: p.amount < 0 ? "out" : "in",
         amount: Math.abs(p.amount),
         signed_amount: p.amount,
         currency_code: p.currency_code,
         method: p.method,
-      });
+      };
+    };
+
+    const byTxn = new Map<number, TransactionPaymentLeg[]>();
+    for (const p of legRows) {
+      const leg = toLeg(p);
+      if (!leg) continue;
+      const legs = byTxn.get(p.transaction_id) ?? [];
+      legs.push(leg);
       byTxn.set(p.transaction_id, legs);
     }
 
+    // Session-basket fallback: rows that belong to a session but carry no own
+    // customer-cash legs inherit the session's basket legs (the ONE basket
+    // payment posted with session_id set, transaction_id NULL). One IN(...)
+    // query batch-loads every distinct session, keeping this O(1) round-trips.
+    const sessionIds = Array.from(
+      new Set(
+        rows
+          .filter((r) => r.session_id != null && !byTxn.has(r.id))
+          .map((r) => r.session_id as number),
+      ),
+    );
+    const basketLegsBySession = new Map<number, TransactionPaymentLeg[]>();
+    if (sessionIds.length > 0) {
+      const sPlaceholders = sessionIds.map(() => "?").join(", ");
+      const basketRows = this.query<{
+        session_id: number;
+        method: string;
+        drawer_name: string;
+        currency_code: string;
+        amount: number;
+        note: string | null;
+      }>(
+        `SELECT session_id, method, drawer_name, currency_code, amount, note
+         FROM payments
+         WHERE session_id IN (${sPlaceholders})
+         ORDER BY id ASC`,
+        ...sessionIds,
+      );
+      for (const p of basketRows) {
+        const leg = toLeg(p);
+        if (!leg) continue;
+        const legs = basketLegsBySession.get(p.session_id) ?? [];
+        legs.push(leg);
+        basketLegsBySession.set(p.session_id, legs);
+      }
+    }
+
     for (const row of rows) {
-      row.payments = byTxn.get(row.id) ?? [];
+      const own = byTxn.get(row.id);
+      if (own && own.length > 0) {
+        row.payments = own;
+      } else if (row.session_id != null) {
+        row.payments = basketLegsBySession.get(row.session_id) ?? [];
+      } else {
+        row.payments = [];
+      }
     }
 
     return rows;

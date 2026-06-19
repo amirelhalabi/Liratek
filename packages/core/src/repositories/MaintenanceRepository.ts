@@ -195,9 +195,17 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
       changeUsd?: number;
       changeLbp?: number;
       note?: string | null;
+      /**
+       * Session-basket deferred payment mode. When true, the unified transaction
+       * row is still created (so it can be linked + paid-state back-filled by the
+       * basket recorder) but the customer-cash drawer posting, change, and debt
+       * are skipped — the basket recorder owns those.
+       */
+      defer?: boolean;
     },
   ): void {
     const createdBy = 1;
+    const defer = opts.defer === true;
     const isLbp = opts.currency === "LBP";
     const profit = opts.profit ?? 0;
     const summary = isLbp
@@ -247,20 +255,30 @@ export class MaintenanceRepository extends BaseRepository<MaintenanceRow> {
         updated_at = CURRENT_TIMESTAMP
     `);
 
-    // Insert each drawer-affecting payment line
-    for (const p of paymentLines) {
-      if (!isDrawerAffectingMethod(p.method)) continue;
-      const drawerName = paymentMethodToDrawerName(p.method);
-      insertPayment.run(
-        txnId,
-        p.method,
-        drawerName,
-        p.currency_code,
-        p.amount,
-        opts.note ?? null,
-        createdBy,
-      );
-      upsertBalanceDelta.run(drawerName, p.currency_code, p.amount);
+    // Insert each drawer-affecting payment line.
+    // Deferred (session basket): the basket recorder owns the customer-cash legs,
+    // change, and debt — skip them all here (the unified transaction row above is
+    // still created so it can be linked + paid-state back-filled).
+    if (!defer) {
+      for (const p of paymentLines) {
+        if (!isDrawerAffectingMethod(p.method)) continue;
+        const drawerName = paymentMethodToDrawerName(p.method);
+        insertPayment.run(
+          txnId,
+          p.method,
+          drawerName,
+          p.currency_code,
+          p.amount,
+          opts.note ?? null,
+          createdBy,
+        );
+        upsertBalanceDelta.run(drawerName, p.currency_code, p.amount);
+      }
+    }
+
+    if (defer) {
+      // Basket owns customer cash; nothing more to post on this transaction.
+      return;
     }
 
     // Handle change given (negative outflow from General drawer)

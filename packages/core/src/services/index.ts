@@ -185,6 +185,18 @@ export type { SupplierResult } from "./SupplierService.js";
 // Customer Session Service
 export { CustomerSessionService } from "./CustomerSessionService.js";
 
+// Session Payment Service (basket-payment recorder)
+export {
+  SessionPaymentService,
+  getSessionPaymentService,
+  resetSessionPaymentService,
+} from "./SessionPaymentService.js";
+export type {
+  BasketPaymentLeg,
+  RecordBasketPaymentInput,
+  RecordBasketPaymentResult,
+} from "./SessionPaymentService.js";
+
 // WhatsApp Service
 export {
   WhatsAppService,

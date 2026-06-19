@@ -199,6 +199,7 @@ export type {
   CreateSupplierData,
   CreateSupplierLedgerEntryData,
   SettleTransactionsData,
+  SupplierCashflowData,
   SupplierBalance,
 } from "./SupplierRepository.js";
 
@@ -435,6 +436,46 @@ export {
   resetServicePresetRepository,
 } from "./ServicePresetRepository.js";
 export type { ServicePresetEntity } from "./ServicePresetRepository.js";
+
+// Profit Repository (cross-entity reporting)
+export {
+  ProfitRepository,
+  getProfitRepository,
+  resetProfitRepository,
+} from "./ProfitRepository.js";
+export type {
+  SalesRevCostRow,
+  SalesProfitRow,
+  FinCurrencyRow,
+  MobileCurrencyRow,
+  RechargeCurrencyRow,
+  CustomTotalsRow,
+  MaintTotalsRow,
+  ExchangeTotalsRow,
+  ExpenseTotalsRow,
+  FinByProviderRow,
+  RechargeByCarrierRow,
+  ProfitByDateRow,
+  PaymentMethodRow,
+  CommissionTotalsRow,
+  PendingCommissionByProviderRow,
+  ProfitByUserRow,
+  ProfitByClientRow,
+  PendingSaleProfitRow,
+  UnsettledCommissionRow,
+} from "./ProfitRepository.js";
+
+// Session Payment Repository (basket-payment recorder data access)
+export {
+  SessionPaymentRepository,
+  getSessionPaymentRepository,
+  resetSessionPaymentRepository,
+} from "./SessionPaymentRepository.js";
+export type {
+  InsertSessionLegInput,
+  InsertBasketDebtInput,
+  SessionSaleRow,
+} from "./SessionPaymentRepository.js";
 
 // Partner Repository
 export {

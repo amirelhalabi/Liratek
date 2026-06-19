@@ -60,6 +60,13 @@ export interface RechargeData {
   clientName?: string;
   userId?: number;
   transaction_time?: string;
+  /**
+   * Session-basket deferred payment mode. When true, the customer-cash inflow,
+   * its debt, and any returned change are owned by the basket recorder; only the
+   * telecom stock leg (and SMS cost) is written here. Non-session callers leave
+   * this falsy → behavior is unchanged.
+   */
+  deferPayment?: boolean;
 }
 
 export interface RechargeEntity {
@@ -673,8 +680,12 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
         const { inLegs: inPayments, outLegs: returnLegs } = partitionLegs(
           data.payments,
         );
+        const deferPayment = data.deferPayment === true;
         let hasDebt = false;
-        if (inPayments.length > 0) {
+        if (deferPayment) {
+          // Session basket owns the customer-cash inflow + debt + change.
+          // Only the telecom stock leg (below) is recorded on this transaction.
+        } else if (inPayments.length > 0) {
           // Multi-payment mode
           for (const p of inPayments) {
             if (p.method === "GIFT_CARD") {
@@ -782,7 +793,8 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
 
         // Return (OUT) legs: change handed back via a chosen method or kept as
         // store credit. Debits the method's drawer, or deposits client credit.
-        for (const r of returnLegs) {
+        // Deferred (session basket): change is owned by the basket recorder.
+        for (const r of deferPayment ? [] : returnLegs) {
           const amt = Math.abs(r.amount);
           if (amt <= 0) continue;
           if (r.method === "CUSTOMER_ACCOUNT") {

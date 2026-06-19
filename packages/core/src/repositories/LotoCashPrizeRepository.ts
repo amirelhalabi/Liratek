@@ -33,6 +33,13 @@ export interface LotoCashPrizeCreate {
   prize_amount: number;
   prize_date: string;
   userId: number;
+  /**
+   * Session-basket deferred payment mode. When true, the prize record + unified
+   * transaction + supplier ledger are created but the customer cash-OUT payout
+   * (General −prize_amount) is skipped — the basket recorder owns the net cash
+   * to the customer. Non-session callers leave this falsy → behavior unchanged.
+   */
+  deferPayment?: boolean;
 }
 
 export class LotoCashPrizeRepository {
@@ -78,36 +85,40 @@ export class LotoCashPrizeRepository {
         },
       });
 
-      // 3. Record payment and update drawer balance (money OUT = negative)
-      const paymentMethod = "CASH";
-      const drawerName = "General";
+      // 3. Record payment and update drawer balance (money OUT = negative).
+      // Deferred (session basket): the basket recorder owns the net cash-OUT to
+      // the customer, so skip the General payout here (supplier ledger stays).
       const currency = "LBP";
+      if (!data.deferPayment) {
+        const paymentMethod = "CASH";
+        const drawerName = "General";
 
-      const insertPayment = this.db.prepare(`
-        INSERT INTO payments (
-          transaction_id, method, drawer_name, currency_code, amount, note, created_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-      `);
-      insertPayment.run(
-        txnId,
-        paymentMethod,
-        drawerName,
-        currency,
-        -data.prize_amount,
-        data.ticket_number
-          ? `Loto cash prize: ${data.ticket_number}`
-          : "Loto cash prize",
-        data.userId,
-      );
+        const insertPayment = this.db.prepare(`
+          INSERT INTO payments (
+            transaction_id, method, drawer_name, currency_code, amount, note, created_by
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        `);
+        insertPayment.run(
+          txnId,
+          paymentMethod,
+          drawerName,
+          currency,
+          -data.prize_amount,
+          data.ticket_number
+            ? `Loto cash prize: ${data.ticket_number}`
+            : "Loto cash prize",
+          data.userId,
+        );
 
-      const upsertBalance = this.db.prepare(`
-        INSERT INTO drawer_balances (drawer_name, currency_code, balance)
-        VALUES (?, ?, ?)
-        ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
-          balance = drawer_balances.balance + excluded.balance,
-          updated_at = CURRENT_TIMESTAMP
-      `);
-      upsertBalance.run(drawerName, currency, -data.prize_amount);
+        const upsertBalance = this.db.prepare(`
+          INSERT INTO drawer_balances (drawer_name, currency_code, balance)
+          VALUES (?, ?, ?)
+          ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+            balance = drawer_balances.balance + excluded.balance,
+            updated_at = CURRENT_TIMESTAMP
+        `);
+        upsertBalance.run(drawerName, currency, -data.prize_amount);
+      }
 
       // 4. Create supplier ledger entry (LOTO owes us this amount - reimbursable)
       const insertLedger = this.db.prepare(`

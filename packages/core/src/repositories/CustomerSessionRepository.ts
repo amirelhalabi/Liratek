@@ -202,7 +202,13 @@ export class CustomerSessionRepository {
   }
 
   /**
-   * Link a transaction to a session
+   * Link a transaction to a session.
+   *
+   * `unifiedTransactionId` is the row id in the unified `transactions` table.
+   * It MUST be populated for the basket-payment viewer to group same-session
+   * rows and attach the basket's payment legs (the join key is
+   * customer_session_transactions.unified_transaction_id = transactions.id).
+   * The legacy `transactionId` is the source-module id (sale id, ticket id, …).
    */
   linkTransaction(
     sessionId: number,
@@ -212,15 +218,17 @@ export class CustomerSessionRepository {
     amountLbp: number,
     profitUsd: number = 0,
     profitLbp: number = 0,
+    unifiedTransactionId: number | null = null,
   ): void {
     const insert = this.db.prepare(`
-      INSERT INTO ${this.transactionsTableName} (session_id, transaction_type, transaction_id, amount_usd, amount_lbp, profit_usd, profit_lbp, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      INSERT INTO ${this.transactionsTableName} (session_id, transaction_type, transaction_id, unified_transaction_id, amount_usd, amount_lbp, profit_usd, profit_lbp, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
     `);
     insert.run(
       sessionId,
       transactionType,
       transactionId,
+      unifiedTransactionId,
       amountUsd,
       amountLbp,
       profitUsd,

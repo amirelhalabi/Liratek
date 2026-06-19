@@ -33,6 +33,7 @@ describe("CustomerSessionRepository", () => {
         session_id INTEGER NOT NULL,
         transaction_type TEXT NOT NULL,
         transaction_id INTEGER NOT NULL,
+        unified_transaction_id INTEGER,
         amount_usd REAL NOT NULL DEFAULT 0,
         amount_lbp REAL NOT NULL DEFAULT 0,
         profit_usd REAL NOT NULL DEFAULT 0,

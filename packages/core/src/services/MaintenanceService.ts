@@ -34,6 +34,13 @@ export interface SaveJobParams {
   change_given_usd?: number;
   change_given_lbp?: number;
   transaction_time?: string;
+  /**
+   * Session-basket deferred payment mode. When true, the job + its unified
+   * transaction are created but the customer-cash drawer post, change, and debt
+   * are skipped — the basket recorder owns the customer payment and back-fills
+   * the job's paid state. Non-session callers leave this falsy → unchanged.
+   */
+  deferPayment?: boolean;
 }
 
 export class MaintenanceService {
@@ -121,6 +128,7 @@ export class MaintenanceService {
           }
         }
 
+        const defer = params.deferPayment === true;
         const isPaidStatus =
           params.status === "Delivered_Paid" || params.status === "Delivered";
 
@@ -128,20 +136,22 @@ export class MaintenanceService {
           // Update existing
           this.repo.updateJob(params.id, jobData);
 
-          // Process payments only on first transition to paid status
-          if (isPaidStatus && params.payments?.length) {
-            if (!this.repo.hasPayments(params.id)) {
-              this.repo.processPayments(params.id, params.payments, {
-                currency: params.currency ?? "USD",
-                finalAmount: jobFinalAmount,
-                profit: jobProfit,
-                exchangeRate: params.exchange_rate ?? 1,
-                clientId: clientId,
-                changeUsd: params.change_given_usd,
-                changeLbp: params.change_given_lbp,
-                note: params.note,
-              });
-            }
+          // Process payments only on first transition to paid status.
+          // Deferred (session basket): always create the unified transaction (so
+          // the basket can link + back-fill it) even with no payment lines.
+          if ((defer || (isPaidStatus && params.payments?.length)) &&
+              !this.repo.hasPayments(params.id)) {
+            this.repo.processPayments(params.id, params.payments ?? [], {
+              currency: params.currency ?? "USD",
+              finalAmount: jobFinalAmount,
+              profit: jobProfit,
+              exchangeRate: params.exchange_rate ?? 1,
+              clientId: clientId,
+              changeUsd: params.change_given_usd,
+              changeLbp: params.change_given_lbp,
+              note: params.note,
+              defer,
+            });
           }
 
           // Log status change for completion
@@ -161,9 +171,11 @@ export class MaintenanceService {
           // Create new
           const newId = this.repo.createJob(jobData);
 
-          // If creating with payment data (checkout from new job form)
-          if (isPaidStatus && params.payments?.length) {
-            this.repo.processPayments(newId, params.payments, {
+          // If creating with payment data (checkout from new job form).
+          // Deferred (session basket): always create the unified transaction (so
+          // the basket can link + back-fill it) even with no payment lines.
+          if (defer || (isPaidStatus && params.payments?.length)) {
+            this.repo.processPayments(newId, params.payments ?? [], {
               currency: params.currency ?? "USD",
               finalAmount: jobFinalAmount,
               profit: jobProfit,
@@ -172,6 +184,7 @@ export class MaintenanceService {
               changeUsd: params.change_given_usd,
               changeLbp: params.change_given_lbp,
               note: params.note,
+              defer,
             });
           }
 

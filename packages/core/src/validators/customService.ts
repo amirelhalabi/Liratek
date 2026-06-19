@@ -21,6 +21,9 @@ export const createCustomServiceSchema = z
     category: z.string().max(100).optional(),
     transaction_time: transactionTimeSchema,
     voucher_code: z.string().optional(),
+    // Session-basket deferred payment mode: basket owns the customer-cash price
+    // inflow + debt; the shop's own cost outflow (General drawer) is still booked.
+    deferPayment: z.boolean().optional(),
   })
   .refine(
     (data) =>
