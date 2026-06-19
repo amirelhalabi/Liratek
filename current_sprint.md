@@ -29,11 +29,12 @@ branch** — history is interleaved but all changes are intact. **Review before 
   `ProfitRepository` / `SessionPaymentRepository`.
 - (Full write-up: the **"Session Summary"** section near the bottom of this file.)
 
-**REMAINING — both OPTIONAL. Detailed step-by-step:** `docs/plans/session-basket-payment-remaining.md`
+**REMAINING — 1 OPTIONAL item left. Detailed step-by-step:** `docs/plans/session-basket-payment-remaining.md`
 
-1. **Thread `exchange_rate`** on custom-service / sales / loto session transactions (financial +
-   recharge already do it; maintenance likely does — verify). Small change in those repos'
-   `createTransaction({...})` calls + extend `lira-session-exchange-rate.spec.ts`.
+1. ✅ **DONE** — **Thread `exchange_rate`** on custom-service / loto-ticket / loto-prize session
+   transactions (sales + maintenance + financial + recharge already did it). Threaded handler →
+   service → repo `createTransaction`; extended `lira-session-exchange-rate.spec.ts` (+ custom-service
+   + loto-ticket cases). Core 379 / backend 384 green.
 2. **UI e2e spec** for the per-session border color (the sell-rate spec is skippable / low value).
 
 **⚠️ Running e2e:** jest leaves `better-sqlite3` on the **Node** ABI — run `yarn dev` once to

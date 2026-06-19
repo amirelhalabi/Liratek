@@ -19,7 +19,13 @@ refactor, and **5 e2e specs** are **DONE, green, and committed** on branch
 
 ---
 
-## #1 — Thread `exchange_rate` on non-financial session transactions (small)
+## #1 — Thread `exchange_rate` on non-financial session transactions ✅ DONE
+
+> **Done (2026-06-19):** threaded handler → service → repo `createTransaction` for
+> `CustomServiceRepository` (+ Zod schema), `LotoTicketRepository`, and `LotoCashPrizeRepository`
+> (loto repos now use `data.exchange_rate ?? 100000`). Sales + maintenance already forwarded it.
+> Extended `lira-session-exchange-rate.spec.ts` with custom-service + loto-ticket cases. Core 379 /
+> backend 384 green; e2e specs typecheck clean. Original plan below for reference.
 
 **Why:** `electron-app/handlers/sessionHandlers.ts` sets `data.exchange_rate = exchangeRate` (and
 `data.exchangeRate`) on **every** cart item, but only **financial + recharge** repos forward it to
