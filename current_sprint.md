@@ -522,7 +522,7 @@ Topping up OMT App from OMT System should:
 | **Epic**             | Supplier Management                                |
 | **Type**             | Feature + Bug Fix                                  |
 | **Priority**         | High                                               |
-| **Status**           | TODO                                               |
+| **Status**           | DONE                                               |
 | **Affected Modules** | Suppliers                                          |
 | **Assigned To**      | —                                                  |
 | **Depends On**       | —                                                  |
@@ -549,15 +549,15 @@ Six bundled improvements to the Suppliers page:
 
 - [x] Migration: UPDATE `suppliers SET name = 'Katsh' WHERE name = 'Katch'`; `create_db.sql` updated to seed "Katsh" — **done v1.24.0 (v96)**
 - [x] Loto Liban shows its drawer name ("Loto") on the right side of the supplier list — **done v1.24.0**
-- [ ] Settling with an amount greater than owed creates a negative balance (credit)
-- [ ] Negative balance displayed in green with clear label (e.g., "They owe you $20.00")
-- [ ] Positive balance displayed in red with label "You owe $50.00"
-- [ ] "Supplier Payment Received" button in supplier detail — operator enters amount + selects payment method
-- [ ] On confirm: correct drawer credited, supplier ledger entry created, balance updated
-- [ ] **Manual Entry tab uses `MultiPaymentInput`** (replaces raw USD/LBP fields + provider-drawer checkbox); PAYMENT debits the **payment-method drawer**, not the provider's own drawer
-- [ ] Paying down a positive supplier balance works with **zero pending transactions** to settle
-- [ ] **Companies / Products tabs** under the page title; Companies default = current financial suppliers; Products = Product Suppliers records (Settings → Categories & Suppliers)
-- [ ] Typecheck and lint pass
+- [x] Settling with an amount greater than owed creates a negative balance (credit)
+- [x] Negative balance displayed in green with clear label (e.g., "They owe you $20.00")
+- [x] Positive balance displayed in red with label "You owe $50.00"
+- [x] "Supplier Payment Received" button in supplier detail — operator enters amount + selects payment method
+- [x] On confirm: correct drawer credited, supplier ledger entry created, balance updated
+- [x] **Manual Entry tab replaced with Pay/Receive UI** — PAY SUPPLIER / SUPPLIER PAID US toggle + `MultiPaymentInput`; PAYMENT debits the **payment-method drawer**, not the provider's own drawer
+- [x] Paying down a positive supplier balance works with **zero pending transactions** to settle
+- [x] **Companies / Products tabs** under the page title; Companies default = is_system=1 suppliers; Products = is_system=0 product vendors
+- [x] Typecheck and lint pass
 
 ### Files to Modify
 
@@ -800,7 +800,7 @@ Beyond the directional arrow badges (LIRA-054), surface the actual **payment leg
 | LIRA-056 | KATSH/iPick — remove "From Drawer" + tests     | Medium   | DONE                |
 | LIRA-057 | Whish App — Via Partner / From Client top-up   | High     | DONE                |
 | LIRA-058 | OMT App — top-up flow design                   | Medium   | NEEDS INTERVIEW     |
-| LIRA-059 | Suppliers — balance, pay-back, Companies/Products tabs | High | TODO            |
+| LIRA-059 | Suppliers — balance, pay-back, Companies/Products tabs | High | DONE            |
 | LIRA-060 | Services — Hold Money                           | Medium   | TODO                |
 | LIRA-061 | BUG — sales mislabeled as TOP_UP, not settleable | High   | DONE                |
 | LIRA-062 | iPick/Katsh — Bills section                    | Medium   | TODO (unblocked)    |
@@ -1112,7 +1112,7 @@ Let the operator choose which columns are exported from the shared `DataTable` (
 | **Epic**             | Supplier Management                |
 | **Type**             | Cleanup / UX                       |
 | **Priority**         | Low                                |
-| **Status**           | TODO                               |
+| **Status**           | DONE                               |
 | **Affected Modules** | Suppliers                          |
 | **Depends On**       | **LIRA-059** (replacement actions) |
 
@@ -1122,10 +1122,10 @@ Remove the free-form **Manual Entry** tab (TOP_UP/PAYMENT/ADJUSTMENT raw entry) 
 
 ### Acceptance Criteria
 
-- [ ] Manual Entry tab removed from `Suppliers/index.tsx`
-- [ ] No loss of capability — pay/receive flows exist via LIRA-059's focused actions
-- [ ] Ledger history still renders
-- [ ] Typecheck and lint pass
+- [x] Manual Entry tab removed from `Suppliers/index.tsx` (replaced with Pay/Receive UI in LIRA-059 item 5)
+- [x] No loss of capability — pay/receive flows exist via LIRA-059's focused actions
+- [x] Ledger history still renders
+- [x] Typecheck and lint pass
 
 ### Files to Modify
 
