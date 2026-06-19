@@ -64,6 +64,8 @@ export interface RecentTransaction {
   created_at: string;
   username: string;
   client_name: string | null;
+  /** Set when this transaction belongs to a customer-session basket (WS8). */
+  session_id: number | null;
   payments: TransactionPaymentLeg[];
 }
 
@@ -942,6 +944,12 @@ export interface ElectronAPI {
         direction?: "IN" | "OUT";
       }>;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    recordCashflow: (data: {
+      supplier_id: number;
+      direction: "PAY" | "RECEIVE";
+      payments: Array<{ method: string; currency_code: string; amount: number }>;
+      note?: string;
+    }) => Promise<{ success: boolean; id?: number; error?: string }>;
   };
 
   // Loto
@@ -1471,7 +1479,10 @@ export interface ElectronAPI {
         currency_code: string;
         amount: number;
         direction?: "IN" | "OUT";
+        voucher_code?: string;
       }>;
+      /** Operator-edited Money-IN exchange rate (1 USD = X LBP). */
+      exchangeRate?: number;
       clientId?: number;
       clientName?: string;
       userId: number;

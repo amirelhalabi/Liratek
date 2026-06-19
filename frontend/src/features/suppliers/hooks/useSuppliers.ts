@@ -117,3 +117,37 @@ export function useSettleTransactionsMutation(
     },
   });
 }
+
+/**
+ * Pay a supplier down / record a supplier paying us, via payment-method legs.
+ * Routes cash to the correct drawer; works with zero pending transactions.
+ */
+export function useSupplierCashflowMutation(
+  supplierId: number | null,
+  provider: string | null,
+) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: {
+      supplier_id: number;
+      direction: "PAY" | "RECEIVE";
+      payments: Array<{ method: string; currency_code: string; amount: number }>;
+      note?: string;
+    }) => window.api.suppliers.recordCashflow(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.all });
+      queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.balances });
+      if (supplierId) {
+        queryClient.invalidateQueries({
+          queryKey: SUPPLIER_KEYS.ledger(supplierId),
+        });
+        if (provider) {
+          queryClient.invalidateQueries({
+            queryKey: SUPPLIER_KEYS.unsettled(provider),
+          });
+        }
+      }
+    },
+  });
+}

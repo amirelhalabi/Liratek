@@ -410,6 +410,12 @@ contextBridge.exposeInMainWorld("api", {
         amount: number;
       }>;
     }) => ipcRenderer.invoke("suppliers:settle-transactions", data),
+    recordCashflow: (data: {
+      supplier_id: number;
+      direction: "PAY" | "RECEIVE";
+      payments: Array<{ method: string; currency_code: string; amount: number }>;
+      note?: string;
+    }) => ipcRenderer.invoke("suppliers:record-cashflow", data),
   },
 
   // Loto
@@ -968,12 +974,15 @@ contextBridge.exposeInMainWorld("api", {
         formData: Record<string, unknown>;
         ipcChannel: string;
       }>;
-      paidByMethod: string;
+      paidByMethod?: string;
       payments?: Array<{
         method: string;
         currency_code: string;
         amount: number;
+        direction?: "IN" | "OUT";
+        voucher_code?: string;
       }>;
+      exchangeRate?: number;
       clientId?: number;
       clientName?: string;
       userId: number;

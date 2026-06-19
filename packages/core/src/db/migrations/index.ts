@@ -4096,6 +4096,80 @@ export const MIGRATIONS: Migration[] = [
       console.log("Migration v102 rolled back (no-op; removed rows not restored)");
     },
   },
+  // ─────────────────────────────────────────────────────────────────────────────
+  // v103 — Add SUPPLIER_PAYS_US to supplier_ledger.entry_type (supplier pays us)
+  // ─────────────────────────────────────────────────────────────────────────────
+  {
+    version: 103,
+    name: "add_supplier_pays_us_entry_type",
+    description:
+      "Add 'SUPPLIER_PAYS_US' to the supplier_ledger.entry_type CHECK so the shop can record a supplier paying us back (e.g. settling an overpayment): a positive ledger entry (mirrors PAYMENT) with cash credited to the payment-method drawer (LIRA-059). SQLite can't ALTER a CHECK, so the table is recreated preserving all rows + indexes — mirrors migration v99.",
+    type: "typescript",
+    up(db) {
+      db.exec(`
+        CREATE TABLE supplier_ledger_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          supplier_id INTEGER NOT NULL,
+          entry_type TEXT NOT NULL CHECK(entry_type IN ('TOP_UP', 'SALE_COST', 'PAYMENT', 'ADJUSTMENT', 'SETTLEMENT', 'CASH_PRIZE', 'SUPPLIER_PAYS_US')),
+          amount_usd REAL NOT NULL DEFAULT 0,
+          amount_lbp REAL NOT NULL DEFAULT 0,
+          note TEXT,
+          created_by INTEGER,
+          transaction_id INTEGER,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE,
+          FOREIGN KEY (transaction_id) REFERENCES transactions(id),
+          FOREIGN KEY (created_by) REFERENCES users(id)
+        );
+
+        INSERT INTO supplier_ledger_new SELECT * FROM supplier_ledger;
+
+        DROP TABLE supplier_ledger;
+
+        ALTER TABLE supplier_ledger_new RENAME TO supplier_ledger;
+
+        CREATE INDEX IF NOT EXISTS idx_supplier_ledger_supplier_id_created_at ON supplier_ledger(supplier_id, created_at);
+      `);
+
+      console.log(
+        "Migration v103: Added SUPPLIER_PAYS_US to supplier_ledger entry_type",
+      );
+    },
+    down(db) {
+      // Relabel SUPPLIER_PAYS_US rows to ADJUSTMENT (same amount/sign), then
+      // recreate the table with the prior constraint (the v99 CHECK set).
+      db.exec(`
+        UPDATE supplier_ledger SET entry_type = 'ADJUSTMENT' WHERE entry_type = 'SUPPLIER_PAYS_US';
+
+        CREATE TABLE supplier_ledger_old (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          supplier_id INTEGER NOT NULL,
+          entry_type TEXT NOT NULL CHECK(entry_type IN ('TOP_UP', 'SALE_COST', 'PAYMENT', 'ADJUSTMENT', 'SETTLEMENT', 'CASH_PRIZE')),
+          amount_usd REAL NOT NULL DEFAULT 0,
+          amount_lbp REAL NOT NULL DEFAULT 0,
+          note TEXT,
+          created_by INTEGER,
+          transaction_id INTEGER,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE,
+          FOREIGN KEY (transaction_id) REFERENCES transactions(id),
+          FOREIGN KEY (created_by) REFERENCES users(id)
+        );
+
+        INSERT INTO supplier_ledger_old SELECT * FROM supplier_ledger;
+
+        DROP TABLE supplier_ledger;
+
+        ALTER TABLE supplier_ledger_old RENAME TO supplier_ledger;
+
+        CREATE INDEX IF NOT EXISTS idx_supplier_ledger_supplier_id_created_at ON supplier_ledger(supplier_id, created_at);
+      `);
+
+      console.log(
+        "Migration v103 rolled back: SUPPLIER_PAYS_US removed from supplier_ledger",
+      );
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

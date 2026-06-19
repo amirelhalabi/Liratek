@@ -336,7 +336,7 @@ CREATE INDEX IF NOT EXISTS idx_session_cart_items_user ON session_cart_items(use
 CREATE TABLE IF NOT EXISTS supplier_ledger (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   supplier_id INTEGER NOT NULL,
-  entry_type TEXT NOT NULL CHECK(entry_type IN ('TOP_UP', 'SALE_COST', 'PAYMENT', 'ADJUSTMENT', 'SETTLEMENT', 'CASH_PRIZE')),
+  entry_type TEXT NOT NULL CHECK(entry_type IN ('TOP_UP', 'SALE_COST', 'PAYMENT', 'ADJUSTMENT', 'SETTLEMENT', 'CASH_PRIZE', 'SUPPLIER_PAYS_US')),
   amount_usd REAL NOT NULL DEFAULT 0,
   amount_lbp REAL NOT NULL DEFAULT 0,
   note TEXT,
@@ -1232,4 +1232,5 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (99, 'add_sale_cost_entry_type'),
     (100, 'add_session_id_to_payments'),
     (101, 'backfill_custom_maintenance_profit_into_transactions'),
-    (102, 'remove_secondary_system_supplier_ledger_pollution');
+    (102, 'remove_secondary_system_supplier_ledger_pollution'),
+    (103, 'add_supplier_pays_us_entry_type');
