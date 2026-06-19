@@ -125,6 +125,19 @@ test.describe("LIRA-061 — cost/price SEND books SALE_COST in supplier ledger",
   test("Katsh SEND writes SALE_COST (not TOP_UP) and is settleable", async ({
     appPage,
   }) => {
+    // Baseline: Katsh's existing TOP_UP count. Other specs over the shared worker
+    // DB (e.g. lira-056's supplier-credit top-up) legitimately add Katsh TOP_UP
+    // rows, so assert THIS SEND adds none (it must book SALE_COST) — a delta, not
+    // a global "zero TOP_UP" absolute.
+    const topUpBefore = await appPage.evaluate(async () => {
+      const w = window as unknown as SupplierApi;
+      const suppliers = await w.api.suppliers.list("", true);
+      const katsh = suppliers.find((s) => s.provider === "Katsh");
+      if (!katsh) return 0;
+      const ledger = await w.api.suppliers.getLedger(katsh.id, 100);
+      return ledger.filter((l) => l.entry_type === "TOP_UP").length;
+    });
+
     // ── 1. Create a Katsh cost/price SEND via IPC ────────────────────────────
     const created = await appPage.evaluate(
       async ({ cost, price }) => {
@@ -153,7 +166,7 @@ test.describe("LIRA-061 — cost/price SEND books SALE_COST in supplier ledger",
       const katsh = suppliers.find((s) => s.provider === "Katsh");
       if (!katsh) return { found: false } as const;
 
-      const ledger = await w.api.suppliers.getLedger(katsh.id, 50);
+      const ledger = await w.api.suppliers.getLedger(katsh.id, 100);
       const unsettled =
         await w.api.suppliers.getUnsettledTransactions("Katsh");
 
@@ -161,7 +174,7 @@ test.describe("LIRA-061 — cost/price SEND books SALE_COST in supplier ledger",
         found: true,
         entryTypes: ledger.map((l) => l.entry_type),
         newest: ledger[0] ?? null,
-        hasTopUp: ledger.some((l) => l.entry_type === "TOP_UP"),
+        topUpCount: ledger.filter((l) => l.entry_type === "TOP_UP").length,
         unsettledCount: unsettled.length,
         unsettledAmounts: unsettled.map((u) => ({
           amount: u.amount,
@@ -173,9 +186,10 @@ test.describe("LIRA-061 — cost/price SEND books SALE_COST in supplier ledger",
     expect(result.found).toBe(true);
     if (!result.found) return;
 
-    // The auto entry must be SALE_COST, never the old TOP_UP label.
+    // The auto entry must be SALE_COST, never the old TOP_UP label: this SEND
+    // booked a SALE_COST and added NO new TOP_UP (count unchanged vs baseline).
     expect(result.entryTypes).toContain("SALE_COST");
-    expect(result.hasTopUp).toBe(false);
+    expect(result.topUpCount).toBe(topUpBefore);
     expect(result.newest?.entry_type).toBe("SALE_COST");
     expect(result.newest?.amount_usd).toBeCloseTo(COST_USD, 2);
 
