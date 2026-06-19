@@ -248,6 +248,15 @@ test("Debts: add sale debt and settle", async ({ appPage }) => {
   ).toBeVisible({ timeout: 5000 });
   await appPage.locator('[data-testid^="client-option-"]').first().click();
 
+  // Wait for the CUSTOMER_ACCOUNT auto-switch effect to commit before completing
+  // the sale, so the Complete Sale click cannot race the async payment-method
+  // switch (CheckoutModal auto-selects CUSTOMER_ACCOUNT once a client is set).
+  await expect(
+    appPage
+      .locator('[data-testid="checkout-modal"] [data-testid^="payment-method-"]')
+      .first(),
+  ).toHaveValue("CUSTOMER_ACCOUNT", { timeout: 5000 });
+
   // Complete sale on Customer Account
   await appPage.getByRole("button", { name: /Complete Sale/i }).click();
   await expect(appPage.locator("text=Cart is empty")).toBeVisible({
