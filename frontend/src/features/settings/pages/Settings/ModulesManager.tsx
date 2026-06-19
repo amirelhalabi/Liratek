@@ -34,7 +34,7 @@ const RECHARGE_PROVIDERS = [
   { key: "iPick", label: "iPick", drawer: "iPick", module: "ipec_katch" },
   { key: "Katsh", label: "Katsh", drawer: "Katsh", module: "ipec_katch" },
   {
-    key: "WISH_APP",
+    key: "WHISH_APP",
     label: "Whish App",
     drawer: "Whish_App",
     module: "ipec_katch",

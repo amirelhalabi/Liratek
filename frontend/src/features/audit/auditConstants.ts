@@ -69,9 +69,9 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
     options: [
       { label: "OMT App Send",      type: "FINANCIAL_SERVICE", provider: "OMT_APP",  service_type: "SEND"    },
       { label: "OMT App Recv",      type: "FINANCIAL_SERVICE", provider: "OMT_APP",  service_type: "RECEIVE" },
-      { label: "Whish App Send",    type: "FINANCIAL_SERVICE", provider: "WISH_APP", service_type: "SEND",    has_item_key: false },
-      { label: "Whish App Recv",    type: "FINANCIAL_SERVICE", provider: "WISH_APP", service_type: "RECEIVE", has_item_key: false },
-      { label: "Whish App Bills",   type: "FINANCIAL_SERVICE", provider: "WISH_APP", has_item_key: true  },
+      { label: "Whish App Send",    type: "FINANCIAL_SERVICE", provider: "WHISH_APP", service_type: "SEND",    has_item_key: false },
+      { label: "Whish App Recv",    type: "FINANCIAL_SERVICE", provider: "WHISH_APP", service_type: "RECEIVE", has_item_key: false },
+      { label: "Whish App Bills",   type: "FINANCIAL_SERVICE", provider: "WHISH_APP", has_item_key: true  },
       { label: "iPick",             type: "FINANCIAL_SERVICE", provider: "iPick"   },
       { label: "Katsh",             type: "FINANCIAL_SERVICE", provider: "Katsh"   },
       { label: "Binance Send",      type: "FINANCIAL_SERVICE", provider: "BINANCE", service_type: "SEND"    },

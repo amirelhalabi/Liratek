@@ -24,7 +24,7 @@ import {
 } from "@/shared/utils/formatWithCommas";
 import { parseCatalogToSeedData } from "@/features/recharge/utils/parseCatalogToSeedData";
 
-const PROVIDERS = ["iPick", "Katsh", "WISH_APP", "OMT_APP", "VOUCHER"] as const;
+const PROVIDERS = ["iPick", "Katsh", "WHISH_APP", "OMT_APP", "VOUCHER"] as const;
 
 const PROVIDER_COLORS: Record<
   string,
@@ -40,7 +40,7 @@ const PROVIDER_COLORS: Record<
     text: "text-violet-400",
     border: "border-violet-600/30",
   },
-  WISH_APP: {
+  WHISH_APP: {
     bg: "bg-sky-600/10",
     text: "text-sky-400",
     border: "border-sky-600/30",

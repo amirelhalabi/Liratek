@@ -16,7 +16,7 @@ import { parseCatalogToSeedData } from "@/features/recharge/utils/parseCatalogTo
 export type ProviderKey =
   | "iPick"
   | "Katsh"
-  | "WISH_APP"
+  | "WHISH_APP"
   | "OMT_APP"
   | "VOUCHER";
 
@@ -200,7 +200,7 @@ export function MobileServiceItemsProvider({
     const map: Record<ProviderKey, ServiceItem[]> = {
       iPick: [],
       Katsh: [],
-      WISH_APP: [],
+      WHISH_APP: [],
       OMT_APP: [],
       VOUCHER: [],
     };

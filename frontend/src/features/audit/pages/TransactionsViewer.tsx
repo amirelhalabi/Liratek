@@ -54,7 +54,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   OMT: "OMT System",
   WHISH: "Whish System",
   OMT_APP: "OMT App",
-  WISH_APP: "Whish App",
+  WHISH_APP: "Whish App",
   OMT_SYSTEM: "OMT System",
   WHISH_SYSTEM: "Whish System",
   iPick: "iPick",
@@ -96,11 +96,11 @@ function getTypeLabel(row: TransactionRow): string {
 
     if (row.type === "FINANCIAL_SERVICE") {
       const base = (p && PROVIDER_LABELS[p]) ?? "Financial Service";
-      if (p === "OMT_APP" || p === "BINANCE" || (p === "WISH_APP" && !ik)) {
+      if (p === "OMT_APP" || p === "BINANCE" || (p === "WHISH_APP" && !ik)) {
         if (st === "SEND") return `${base} Send`;
         if (st === "RECEIVE") return `${base} Recv`;
       }
-      if (p === "WISH_APP" && ik) return "Whish App Bills";
+      if (p === "WHISH_APP" && ik) return "Whish App Bills";
       return base;
     }
 
@@ -169,7 +169,7 @@ function getTypeColor(row: TransactionRow): string {
         case "OMT_SYSTEM":
           return "text-blue-400";
         case "WHISH":
-        case "WISH_APP":
+        case "WHISH_APP":
         case "WHISH_SYSTEM":
           return "text-cyan-400";
         case "iPick":

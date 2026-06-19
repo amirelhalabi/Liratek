@@ -268,7 +268,7 @@ export const FinancialServiceSchema = z.object({
     "OTHER",
     "iPick",
     "Katsh",
-    "WISH_APP",
+    "WHISH_APP",
     "OMT_APP",
     "BINANCE",
   ]),

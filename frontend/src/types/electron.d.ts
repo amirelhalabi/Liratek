@@ -693,7 +693,7 @@ export interface ElectronAPI {
         | "OTHER"
         | "iPick"
         | "Katsh"
-        | "WISH_APP"
+        | "WHISH_APP"
         | "OMT_APP";
       serviceType: "SEND" | "RECEIVE";
       amountUSD: number;

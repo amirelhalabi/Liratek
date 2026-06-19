@@ -211,7 +211,7 @@ export class ProfitService {
         count: salesRevCost.count,
       };
 
-      // 2. Financial services (OMT, WHISH, OMT_APP, WISH_APP, BINANCE) — settled.
+      // 2. Financial services (OMT, WHISH, OMT_APP, WHISH_APP, BINANCE) — settled.
       const finRows = this.repo.getFinancialSettledByCurrency(fromDt, toDt);
 
       const finSvc = {

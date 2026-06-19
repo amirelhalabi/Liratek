@@ -3,7 +3,7 @@
 // =============================================================================
 
 export type TelecomProvider = "MTC" | "Alfa";
-export type FinancialProvider = "iPick" | "Katsh" | "WISH_APP" | "OMT_APP";
+export type FinancialProvider = "iPick" | "Katsh" | "WHISH_APP" | "OMT_APP";
 export type CryptoProvider = "BINANCE";
 export type AnyProvider = TelecomProvider | FinancialProvider | CryptoProvider;
 
@@ -142,7 +142,7 @@ export const PROVIDER_CONFIGS: ProviderConfig[] = [
     hasSupplier: true,
   },
   {
-    key: "WISH_APP",
+    key: "WHISH_APP",
     label: "Whish App",
     module: "ipec_katch",
     drawer: "Whish_App",

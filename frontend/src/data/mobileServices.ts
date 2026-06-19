@@ -510,7 +510,7 @@ const mobileServices: Record<string, ServiceCatalog | Record<string, never>> = {
       },
     },
   },
-  WISH_APP: {
+  WHISH_APP: {
     alfa: {
       Prepaid: {
         "3.6": { cost: "318978", sell: "355000" },

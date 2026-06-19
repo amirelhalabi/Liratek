@@ -21,7 +21,7 @@ import { ensureRechargeClient } from "../utils/ensureClient";
 import { toCamelLegs } from "@/utils/paymentUtils";
 
 type ServiceType = "SEND" | "RECEIVE";
-type ProviderKey = "OMT_APP" | "WISH_APP";
+type ProviderKey = "OMT_APP" | "WHISH_APP";
 
 interface OmtWhishAppTransferFormProps {
   activeProvider: ProviderKey;
@@ -120,7 +120,7 @@ function OmtWhishAppTransferFormInner({
   // Calculate fees — Whish App uses 1% fee on RECEIVE (USD only, no fees for LBP)
   const parsedAmount = parseFloat(amount || "0");
   const autoFee =
-    activeProvider === "WISH_APP" &&
+    activeProvider === "WHISH_APP" &&
     serviceType === "RECEIVE" &&
     currency === "USD" &&
     parsedAmount > 0
@@ -143,7 +143,7 @@ function OmtWhishAppTransferFormInner({
   // - Whish App SEND: $0 profit
   // - Whish App RECEIVE: 10% of fee (1% of amount)
   const shopProfit =
-    activeProvider === "WISH_APP" && serviceType === "RECEIVE"
+    activeProvider === "WHISH_APP" && serviceType === "RECEIVE"
       ? providerFee * 0.1
       : 0;
 
@@ -201,7 +201,7 @@ function OmtWhishAppTransferFormInner({
           currency,
           commission: shopProfit,
           ...(activeProvider === "OMT_APP" ? { omtFee: providerFee } : {}),
-          ...(activeProvider === "WISH_APP" ? { whishFee: providerFee } : {}),
+          ...(activeProvider === "WHISH_APP" ? { whishFee: providerFee } : {}),
           clientId: resolvedClientId || undefined,
           clientName: clientLabel,
           referenceNumber: "",
@@ -237,7 +237,7 @@ function OmtWhishAppTransferFormInner({
         currency,
         commission: Math.max(0, shopProfit - discount),
         ...(activeProvider === "OMT_APP" ? { omtFee: providerFee } : {}),
-        ...(activeProvider === "WISH_APP" ? { whishFee: providerFee } : {}),
+        ...(activeProvider === "WHISH_APP" ? { whishFee: providerFee } : {}),
         clientId: resolvedClientId || undefined,
         clientName:
           serviceType === "SEND" ? finalSenderName : finalReceiverName,
@@ -380,9 +380,9 @@ function OmtWhishAppTransferFormInner({
       </div>
 
       {/* Fee Breakdown — hidden for Whish App SEND (no fees, no profit) and Whish App LBP RECEIVE (no fees) */}
-      {!(activeProvider === "WISH_APP" && serviceType === "SEND") &&
+      {!(activeProvider === "WHISH_APP" && serviceType === "SEND") &&
         !(
-          activeProvider === "WISH_APP" &&
+          activeProvider === "WHISH_APP" &&
           serviceType === "RECEIVE" &&
           currency === "LBP"
         ) && (
@@ -440,7 +440,7 @@ function OmtWhishAppTransferFormInner({
             </div>
 
             {/* Fee included in amount checkbox (Whish App RECEIVE) */}
-            {activeProvider === "WISH_APP" && serviceType === "RECEIVE" && (
+            {activeProvider === "WHISH_APP" && serviceType === "RECEIVE" && (
               <div className="rounded-lg bg-slate-900/60 border border-slate-700 p-3 space-y-2">
                 <label className="flex items-center gap-2 text-slate-300 cursor-pointer">
                   <input

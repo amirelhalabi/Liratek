@@ -307,7 +307,7 @@ export function FinancialForm({
       });
 
       addToSessionCart({
-        module: activeProvider === "WISH_APP" ? "whish_app" : "omt_app",
+        module: activeProvider === "WHISH_APP" ? "whish_app" : "omt_app",
         label,
         amount: totalPrice,
         currency: "LBP",
@@ -451,7 +451,7 @@ export function FinancialForm({
     <>
       <div className="flex flex-col gap-3">
         {/* Header with SEND/RECEIVE Tabs - hidden for Whish App and MTC */}
-        {activeProvider !== "WISH_APP" && activeProvider !== "MTC" && (
+        {activeProvider !== "WHISH_APP" && activeProvider !== "MTC" && (
           <div className="flex items-center justify-between gap-3">
             <div className="flex-1">
               <ServiceTypeTabs
@@ -486,7 +486,7 @@ export function FinancialForm({
         <div className="sticky top-0 z-10 flex items-center gap-3 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 pb-1">
           {(activeProvider === "iPick" ||
             activeProvider === "Katsh" ||
-            activeProvider === "WISH_APP") && (
+            activeProvider === "WHISH_APP") && (
             <div className="relative flex-1">
               <input
                 type="text"
@@ -549,7 +549,7 @@ export function FinancialForm({
               className={`px-4 py-2.5 rounded-lg font-bold text-sm transition-all whitespace-nowrap ${
                 totalItems === 0
                   ? "bg-slate-600 text-slate-400 cursor-not-allowed"
-                  : activeProvider === "WISH_APP"
+                  : activeProvider === "WHISH_APP"
                     ? "bg-[#ff0a46] hover:bg-[#ff0a46]/80 text-white shadow-lg shadow-[#ff0a46]/20"
                     : activeProvider === "OMT_APP"
                       ? "bg-[#ffde00] hover:bg-[#ffde00]/80 text-black shadow-lg shadow-[#ffde00]/20"
@@ -820,7 +820,7 @@ export function FinancialForm({
           title={activeSession ? "Add to Cart" : "Confirm Payment"}
           subtitle={`${totalItems} items — ${totalPrice.toLocaleString()} LBP`}
           accentColor={
-            activeProvider === "WISH_APP"
+            activeProvider === "WHISH_APP"
               ? "bg-[#ff0a46] hover:bg-[#ff0a46]/90 text-white"
               : activeProvider === "OMT_APP"
                 ? "bg-[#ffde00] hover:bg-[#ffde00]/90 text-black"

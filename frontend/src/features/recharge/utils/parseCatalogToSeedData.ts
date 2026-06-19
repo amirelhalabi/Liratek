@@ -22,7 +22,7 @@ export interface SeedItem {
 const PROVIDER_MAP: Record<string, string> = {
   iPick: "iPick",
   Katsh: "Katsh",
-  WISH_APP: "WISH_APP",
+  WHISH_APP: "WHISH_APP",
   OMT_APP: "OMT_APP",
   "Validity vouchers": "VOUCHER",
 };

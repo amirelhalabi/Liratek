@@ -221,14 +221,14 @@ const EXCHANGE_LEG_PROFIT =
 
 /** Providers that represent OMT/WHISH-style commission financial services. */
 const COMMISSION_PROVIDERS =
-  "'OMT', 'WHISH', 'OMT_APP', 'WISH_APP', 'BINANCE'";
+  "'OMT', 'WHISH', 'OMT_APP', 'WHISH_APP', 'BINANCE'";
 
 /** Providers that represent cost/price mobile services. */
 const MOBILE_PROVIDERS = "'iPick', 'KATCH', 'BOB'";
 
 /** Internal/system payment flows excluded from the per-method profit view. */
 const INTERNAL_PAYMENT_METHODS =
-  "'OMT', 'WHISH', 'BOB', 'iPick', 'Katsh', 'WISH_APP', 'OMT_APP', 'BINANCE', 'RESERVE', 'COMMISSION'";
+  "'OMT', 'WHISH', 'BOB', 'iPick', 'Katsh', 'WHISH_APP', 'OMT_APP', 'BINANCE', 'RESERVE', 'COMMISSION'";
 
 /** Transaction types that count toward per-user / per-client profit. */
 const PROFIT_TXN_TYPES =

@@ -206,7 +206,7 @@ export default function MobileRecharge() {
 
   // Reset form state when provider changes
   useEffect(() => {
-    // Always reset to "transfer" so returning to WISH_APP renders the correct
+    // Always reset to "transfer" so returning to WHISH_APP renders the correct
     // form on the first paint (prevents FinancialForm mount→unmount flash).
     setWhishAppMode("transfer");
     setRechargeType("CREDIT_TRANSFER");
@@ -548,7 +548,7 @@ export default function MobileRecharge() {
         defaultSource: "OMT_System",
         type: "OMT_APP",
       },
-      WISH_APP: {
+      WHISH_APP: {
         drawer: "Whish_App",
         defaultSource: "General",
         type: "WHISH_APP",
@@ -1046,7 +1046,7 @@ export default function MobileRecharge() {
               {(activeConfig.key === "MTC" ||
                 activeConfig.key === "Alfa" ||
                 activeConfig.key === "OMT_APP" ||
-                activeConfig.key === "WISH_APP" ||
+                activeConfig.key === "WHISH_APP" ||
                 activeConfig.key === "iPick" ||
                 activeConfig.key === "Katsh") && (
                 <button
@@ -1137,7 +1137,7 @@ export default function MobileRecharge() {
               showHistory={showHistory}
               onCloseHistory={() => setShowHistory(false)}
             />
-          ) : activeProvider === "WISH_APP" ? (
+          ) : activeProvider === "WHISH_APP" ? (
             // Whish App - Bills (cards) or Transfer (send/receive)
             <>
               {/* Mode Tabs - Transfer / Bills */}
@@ -1179,7 +1179,7 @@ export default function MobileRecharge() {
                 />
               ) : (
                 <OmtWhishAppTransferForm
-                  activeProvider="WISH_APP"
+                  activeProvider="WHISH_APP"
                   transactions={finTransactions}
                   loadFinancialData={loadFinancialData}
                   formatAmount={formatAmount}

@@ -4225,6 +4225,88 @@ export const MIGRATIONS: Migration[] = [
       console.log("Migration v104 rolled back (updated_at column remains)");
     },
   },
+  // ─────────────────────────────────────────────────────────────────────────────
+  // v105 — Rename the 'WISH_APP' provider typo to 'WHISH_APP' (the brand is "Whish").
+  //        financial_services.provider had a CHECK allowing only 'WISH_APP', while
+  //        the seeded supplier, recharges.carrier and the 'Whish_App' drawer all use
+  //        the 'WHISH' spelling. The mismatch silently dropped the SALE_COST
+  //        supplier-ledger write for Whish App SEND (getByProvider('WISH_APP') never
+  //        matched the 'WHISH_APP' supplier). This aligns the value everywhere.
+  // ─────────────────────────────────────────────────────────────────────────────
+  {
+    version: 105,
+    name: "rename_wish_app_to_whish_app",
+    description:
+      "Normalize the Whish App provider value from the 'WISH_APP' typo to 'WHISH_APP'. Recreates financial_services so its provider CHECK accepts 'WHISH_APP' (schema-faithful: copies the table's OWN live CREATE statement, only widening the CHECK), then migrates financial_services.provider + mobile_service_items.provider + transactions.metadata_json. Fixes Whish App SEND no longer booking a settleable SALE_COST supplier entry.",
+    type: "typescript",
+    up(db) {
+      const tbl = db
+        .prepare(
+          "SELECT sql FROM sqlite_master WHERE type='table' AND name='financial_services'",
+        )
+        .get() as { sql?: string } | undefined;
+
+      if (tbl?.sql && !tbl.sql.includes("'WHISH_APP'")) {
+        // Live CHECK still only allows 'WISH_APP'. SQLite can't ALTER a CHECK, so
+        // recreate the table from its OWN current CREATE statement (preserving
+        // every column/constraint/order exactly), widening ONLY the provider CHECK
+        // to also permit 'WHISH_APP'. Capture index DDL first (dropped with table).
+        const idx = db
+          .prepare(
+            "SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name='financial_services' AND sql IS NOT NULL",
+          )
+          .all() as { sql: string }[];
+
+        const newTableSql = tbl.sql
+          .replace("financial_services", "financial_services_new") // first occ = the table name
+          .replace("'WISH_APP'", "'WISH_APP', 'WHISH_APP'");
+
+        db.exec(newTableSql);
+        db.exec(
+          "INSERT INTO financial_services_new SELECT * FROM financial_services;",
+        );
+        db.exec(
+          "UPDATE financial_services_new SET provider = 'WHISH_APP' WHERE provider = 'WISH_APP';",
+        );
+        db.exec("DROP TABLE financial_services;");
+        db.exec(
+          "ALTER TABLE financial_services_new RENAME TO financial_services;",
+        );
+        for (const r of idx) db.exec(r.sql);
+      } else {
+        // Fresh install (create_db.sql already uses 'WHISH_APP') or already migrated
+        // — just normalize any residual data.
+        db.exec(
+          "UPDATE financial_services SET provider = 'WHISH_APP' WHERE provider = 'WISH_APP';",
+        );
+      }
+
+      // Non-CHECK-constrained tables that may hold the old value. The LIKE/REPLACE
+      // can't touch 'WHISH_APP' rows since 'WISH_APP' is not a substring of it.
+      db.exec(
+        "UPDATE mobile_service_items SET provider = 'WHISH_APP' WHERE provider = 'WISH_APP';",
+      );
+      db.exec(
+        "UPDATE transactions SET metadata_json = REPLACE(metadata_json, 'WISH_APP', 'WHISH_APP') WHERE metadata_json LIKE '%WISH_APP%';",
+      );
+
+      console.log("Migration v105: Renamed WISH_APP provider to WHISH_APP");
+    },
+    down(db) {
+      // Reverse the data relabel. The widened CHECK still permits 'WISH_APP', so no
+      // table recreate is needed on rollback.
+      db.exec(
+        "UPDATE financial_services SET provider = 'WISH_APP' WHERE provider = 'WHISH_APP';",
+      );
+      db.exec(
+        "UPDATE mobile_service_items SET provider = 'WISH_APP' WHERE provider = 'WHISH_APP';",
+      );
+      db.exec(
+        "UPDATE transactions SET metadata_json = REPLACE(metadata_json, 'WHISH_APP', 'WISH_APP') WHERE metadata_json LIKE '%WHISH_APP%';",
+      );
+      console.log("Migration v105 rolled back: WHISH_APP relabeled to WISH_APP");
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner
