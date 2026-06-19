@@ -399,6 +399,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
         p.drawer_name.endsWith("_System") || // OMT_System / Whish_System reserve
         !CUSTOMER_CASH_CURRENCIES.has(p.currency_code) || // USDT / crypto leg
         note.startsWith("Cost:") || // cost/price-flow provider cost outflow
+        note.endsWith("(cost outflow)") || // custom-service hidden cost outflow
         note.startsWith("Crypto "); // Binance crypto sent/received leg
       if (isInternalLeg) return null;
       return {

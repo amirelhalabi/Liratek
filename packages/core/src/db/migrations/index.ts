@@ -3998,6 +3998,12 @@ export const MIGRATIONS: Migration[] = [
         name: string;
       }[];
       if (!cols.some((c) => c.name === "session_id")) {
+        // NOTE: SQLite does NOT enforce an inline REFERENCES clause added via
+        // ALTER TABLE ADD COLUMN — on upgraded DBs this column has no active FK,
+        // so the ON DELETE SET NULL is a no-op here (fresh installs DO enforce it
+        // via create_db.sql). To keep both paths identical, session deletion
+        // nulls payments.session_id explicitly (CustomerSessionRepository
+        // .deleteSession). The clause is kept for documentation / fresh-install parity.
         db.exec(
           "ALTER TABLE payments ADD COLUMN session_id INTEGER REFERENCES customer_sessions(id) ON DELETE SET NULL;",
         );
@@ -4025,7 +4031,12 @@ export const MIGRATIONS: Migration[] = [
       "Complete migration v71's per-transaction profit backfill for the two source types it skipped — custom_services and maintenance — so the Profits page can read profit uniformly from transactions.profit_usd/profit_lbp without losing historical profit.",
     type: "typescript",
     up(db) {
-      // custom_services.profit_usd/profit_lbp are generated (price - cost) on the source row
+      // Backfill ONLY rows that are still unstamped (profit 0/NULL) AND whose
+      // source row still exists. This avoids two failure modes of an
+      // unconditional UPDATE: (a) clobbering a value correctly stamped at
+      // create-time back to 0, and (b) fabricating 0 for a row whose source was
+      // deleted. It is also safe to re-run.
+      // custom_services.profit_usd/profit_lbp are generated (price - cost).
       db.exec(`
         UPDATE transactions
         SET profit_usd = COALESCE((
@@ -4034,10 +4045,14 @@ export const MIGRATIONS: Migration[] = [
             profit_lbp = COALESCE((
               SELECT cs.profit_lbp FROM custom_services cs WHERE cs.id = transactions.source_id
             ), 0)
-        WHERE source_table = 'custom_services';
+        WHERE source_table = 'custom_services'
+          AND COALESCE(profit_usd, 0) = 0
+          AND COALESCE(profit_lbp, 0) = 0
+          AND EXISTS (SELECT 1 FROM custom_services cs WHERE cs.id = transactions.source_id);
       `);
 
-      // maintenance profit lives in the job's currency (USD or LBP)
+      // maintenance profit lives in the job's currency (USD or LBP). Refunded
+      // jobs earned nothing, so they are excluded (EXISTS guard) and left at 0.
       db.exec(`
         UPDATE transactions
         SET profit_usd = COALESCE((
@@ -4050,7 +4065,13 @@ export const MIGRATIONS: Migration[] = [
                           THEN (m.final_amount_lbp - m.cost_lbp) ELSE 0 END
               FROM maintenance m WHERE m.id = transactions.source_id
             ), 0)
-        WHERE source_table = 'maintenance';
+        WHERE source_table = 'maintenance'
+          AND COALESCE(profit_usd, 0) = 0
+          AND COALESCE(profit_lbp, 0) = 0
+          AND EXISTS (
+            SELECT 1 FROM maintenance m
+            WHERE m.id = transactions.source_id AND m.is_refunded = 0
+          );
       `);
 
       console.log(
@@ -4070,7 +4091,7 @@ export const MIGRATIONS: Migration[] = [
     version: 102,
     name: "remove_secondary_system_supplier_ledger_pollution",
     description:
-      "Only the shop's primary (base) system owes its provider directly; the secondary OMT/WHISH system runs via a partner (tracked in partner_ledger). Auto-recorded supplier_ledger entries for the non-base legacy provider wrongly inflated the suppliers/settlement page — remove them.",
+      "Only the shop's primary (base) system owes its provider directly; the secondary OMT/WHISH system runs via a partner (tracked in partner_ledger). Auto-recorded SALE_COST/TOP_UP supplier_ledger entries for the non-base legacy provider wrongly inflated the suppliers/settlement page — remove ONLY those auto cost/top-up rows. Manual PAYMENT/SETTLEMENT/ADJUSTMENT entries represent real cash movements and are preserved.",
     type: "typescript",
     up(db) {
       const baseRow = db
@@ -4080,15 +4101,21 @@ export const MIGRATIONS: Migration[] = [
         .get() as { value?: string } | undefined;
       const base = baseRow?.value === "WHISH" ? "WHISH" : "OMT";
       const secondary = base === "WHISH" ? "OMT" : "WHISH";
+      // Scope the purge to the auto-generated pollution types only. SALE_COST
+      // (post-v99) and TOP_UP are the entry types the now-guarded secondary-system
+      // auto-recorder used to write. Restricting by entry_type guarantees we never
+      // delete a real cash entry (PAYMENT/SETTLEMENT/ADJUSTMENT/CASH_PRIZE/
+      // SUPPLIER_PAYS_US) — important because this migration is irreversible.
       const res = db
         .prepare(
           `DELETE FROM supplier_ledger
            WHERE note LIKE 'Auto:%'
+             AND entry_type IN ('TOP_UP', 'SALE_COST')
              AND supplier_id IN (SELECT id FROM suppliers WHERE provider = ?)`,
         )
         .run(secondary);
       console.log(
-        `Migration v102: Removed ${res.changes} secondary-system (${secondary}) auto supplier_ledger entries`,
+        `Migration v102: Removed ${res.changes} secondary-system (${secondary}) auto SALE_COST/TOP_UP supplier_ledger entries`,
       );
     },
     down(_db) {

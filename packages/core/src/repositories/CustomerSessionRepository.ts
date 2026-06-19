@@ -183,6 +183,16 @@ export class CustomerSessionRepository {
           `DELETE FROM ${this.transactionsTableName} WHERE session_id = ?`,
         )
         .run(sessionId);
+      // Detach any basket payments from this session. payments.session_id has an
+      // ON DELETE SET NULL FK on fresh installs, but migration v100 added the
+      // column via ALTER TABLE ADD COLUMN, which SQLite does NOT enforce as a FK
+      // on upgraded DBs. Null it explicitly so both paths behave identically and
+      // no payment row is left pointing at a deleted session.
+      this.db
+        .prepare(
+          `UPDATE payments SET session_id = NULL WHERE session_id = ?`,
+        )
+        .run(sessionId);
       this.db
         .prepare(`DELETE FROM ${this.tableName} WHERE id = ?`)
         .run(sessionId);

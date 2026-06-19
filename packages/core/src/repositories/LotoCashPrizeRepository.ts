@@ -86,8 +86,10 @@ export class LotoCashPrizeRepository {
       });
 
       // 3. Record payment and update drawer balance (money OUT = negative).
-      // Deferred (session basket): the basket recorder owns the net cash-OUT to
-      // the customer, so skip the General payout here (supplier ledger stays).
+      // Deferred (session basket): the prize is a NEGATIVE-LBP cart item, so the
+      // checkout modal already nets it into the basket total and emits the net
+      // cash-OUT leg the basket recorder posts. Skip the General payout here to
+      // avoid double-counting it. Non-session callers post it normally.
       const currency = "LBP";
       if (!data.deferPayment) {
         const paymentMethod = "CASH";

@@ -985,12 +985,13 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             upsertBalanceDelta.run(systemDrawer, cryptoCurrency, cryptoAmount);
 
             // 2. Cash payout: shop pays customer (cryptoAmount - fee) in cash.
-            //    Deferred (session basket): the basket recorder owns the net
-            //    cash-OUT payout, so skip it here (crypto USDT leg is kept).
+            //    Always posted, including in session-basket (deferred) mode: the
+            //    customer pays nothing for a RECEIVE, so the basket recorder has
+            //    no leg for this — the payout must be self-posted or it is lost.
             const payoutAmount = cryptoAmount - fee;
             const cashoutMethod = data.cashoutMethod || "CASH";
 
-            if (!deferPayment && payoutAmount > 0) {
+            if (payoutAmount > 0) {
               if (cashoutMethod === "CUSTOMER_ACCOUNT") {
                 // Credit customer's account instead of paying cash
                 if (!resolvedPrimaryClientId) {
@@ -1544,9 +1545,12 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             }
 
             // Debit the cashout drawer for the payout to customer.
-            // Deferred (session basket): the basket owns the net cash-OUT to the
-            // customer, so skip the payout leg here (the system drawer side above
-            // is kept so provider settlement stays correct).
+            // Deferred (session basket): an OMT/WHISH RECEIVE is a NEGATIVE cart
+            // item in the same cash currency, so the checkout modal already nets
+            // it into the basket total and emits the net cash-OUT leg the basket
+            // recorder posts. Skip the payout here to avoid double-counting it.
+            // (The system-drawer side above is kept so provider settlement stays
+            // correct.) Non-session callers post it normally.
             if (
               !deferPayment &&
               cashoutMethod !== "CASH" &&

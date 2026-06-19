@@ -83,6 +83,13 @@ export interface RecordBasketPaymentResult {
   /** CUSTOMER_ACCOUNT (incl. GIFT_CARD) debt created, by currency. */
   debtUsd: number;
   debtLbp: number;
+  /**
+   * GIFT_CARD IN portion (a subset of debt*). Tracked separately because a gift
+   * card is PREPAID value that was actually collected — unlike a CUSTOMER_ACCOUNT
+   * charge it must NOT keep a sale pending. Used by the sale back-fill.
+   */
+  giftCardUsd: number;
+  giftCardLbp: number;
 }
 
 // =============================================================================
@@ -122,10 +129,14 @@ export class SessionPaymentService {
       drawerOutLbp: 0,
       debtUsd: 0,
       debtLbp: 0,
+      giftCardUsd: 0,
+      giftCardLbp: 0,
     };
 
     let debtUsd = 0;
     let debtLbp = 0;
+    let giftCardUsd = 0;
+    let giftCardLbp = 0;
 
     for (const leg of legs) {
       const amt = Math.abs(leg.amount);
@@ -145,9 +156,16 @@ export class SessionPaymentService {
           userId,
         });
         // An IN gift-card leg consumes the deposited credit as basket debt.
+        // It is ALSO tracked as gift-card (collected/prepaid) so the sale
+        // back-fill realizes a gift-card-paid sale instead of leaving it pending.
         if (!isOut) {
-          if (leg.currencyCode === "USD") debtUsd += amt;
-          else if (leg.currencyCode === "LBP") debtLbp += amt;
+          if (leg.currencyCode === "USD") {
+            debtUsd += amt;
+            giftCardUsd += amt;
+          } else if (leg.currencyCode === "LBP") {
+            debtLbp += amt;
+            giftCardLbp += amt;
+          }
         }
         continue;
       }
@@ -214,10 +232,12 @@ export class SessionPaymentService {
     }
     result.debtUsd = debtUsd;
     result.debtLbp = debtLbp;
+    result.giftCardUsd = giftCardUsd;
+    result.giftCardLbp = giftCardLbp;
 
     // Back-fill the paid state of the session's SALE rows so the Profits page
     // classifies them correctly (covered → realized; on-account → pending).
-    this.backfillSaleSettlement(sessionId, result, rate, debtUsd, debtLbp);
+    this.backfillSaleSettlement(sessionId, result, rate);
 
     closingLogger.info(
       { sessionId, ...result, exchangeRate: rate },
@@ -247,38 +267,63 @@ export class SessionPaymentService {
   }
 
   /**
-   * Back-fill each session SALE's paid_usd/paid_lbp/exchange_rate_snapshot.
+   * Back-fill each session SALE's paid_usd/paid_lbp/exchange_rate_snapshot so the
+   * Profits page classifies it correctly (covered → realized; on-account → pending).
    *
-   * Allocation rule (default): non-debt payment covers goods first. The total
-   * non-debt cash collected (drawer IN minus drawer OUT, in USD-equivalent) is
-   * allocated across the session's sales in creation order; whatever a sale gets
-   * is recorded as its paid amount. Anything not covered by non-debt cash is
-   * implicitly carried by the single basket debt entry, so the sale stays pending.
+   * Allocation rule — "account debt to sales first" (conservative):
+   *
+   * A session basket is paid with ONE pooled payment, so we cannot know which
+   * specific item a given cash leg or account charge was "for". The only basket
+   * items that can stay PENDING are SALES (recharges/financial/etc. realize on
+   * creation regardless). We therefore attribute the CUSTOMER_ACCOUNT debt to
+   * sales first, and let sales realize from whatever value is left.
+   *
+   * Concretely: a sale is paid only for the portion of the sales total that the
+   * on-account debt does NOT cover. This is the conservative choice — when the
+   * pooled payment is ambiguous we err toward leaving profit PENDING rather than
+   * realizing money that wasn't collected. It fixes two bugs the previous
+   * "cash-in first" rule had:
+   *   - cash that actually paid for a NON-sale item no longer realizes a sale
+   *     (cross-item cash bleed), and
+   *   - a GIFT_CARD-paid sale realizes instead of being stuck pending, because
+   *     gift-card value is prepaid/collected and is excluded from the debt here.
    */
   private backfillSaleSettlement(
     sessionId: number,
     drawer: RecordBasketPaymentResult,
     rate: number,
-    _debtUsd: number,
-    _debtLbp: number,
   ): void {
     // Resolve this session's SALE rows (unified txn → source sale id + amount).
     const saleRows = this.paymentRepo.getSessionSaleRows(sessionId);
 
     if (saleRows.length === 0) return;
 
-    // Non-debt cash available to cover goods, in USD-equivalent.
-    let remainingUsdEquiv =
-      drawer.drawerInUsd +
-      drawer.drawerInLbp / rate -
-      (drawer.drawerOutUsd + drawer.drawerOutLbp / rate);
-    if (remainingUsdEquiv < 0) remainingUsdEquiv = 0;
+    // Total goods value of the session's sales (USD-equivalent).
+    const salesTotalUsdEquiv = saleRows.reduce(
+      (sum, s) => sum + (s.final_usd ?? 0),
+      0,
+    );
+
+    // On-ACCOUNT (CUSTOMER_ACCOUNT) debt only, in USD-equivalent. Gift-card is a
+    // subset of debt* but is PREPAID/collected value, so it must NOT keep a sale
+    // pending — exclude it here.
+    const accountDebtUsdEquiv = Math.max(
+      0,
+      drawer.debtUsd -
+        drawer.giftCardUsd +
+        (drawer.debtLbp - drawer.giftCardLbp) / rate,
+    );
+
+    // Value available to realize sales = sales total minus the account debt
+    // attributed to them. Allocated across sales in creation order.
+    let salesPaidPool = salesTotalUsdEquiv - accountDebtUsdEquiv;
+    if (salesPaidPool < 0) salesPaidPool = 0;
 
     const salesRepo = getSalesRepository();
     for (const sale of saleRows) {
       const due = sale.final_usd ?? 0;
-      const coveredUsd = Math.min(due, remainingUsdEquiv);
-      remainingUsdEquiv -= coveredUsd;
+      const coveredUsd = Math.min(due, salesPaidPool);
+      salesPaidPool -= coveredUsd;
       // Record the covered portion as USD paid (basket rate snapshot).
       salesRepo.markSalePaid(sale.sale_id, coveredUsd, 0, rate);
     }

@@ -270,7 +270,14 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
       .get(fromDt, toDt) as SalesRevCostRow;
   }
 
-  /** Sales profit from the unified ledger (SALE + REFUND), gated by fully-paid. */
+  /**
+   * Sales profit from the unified ledger (SALE + REFUND), gated by fully-paid.
+   * Dated by the SALE's created_at (not the transaction's) so a REFUND nets
+   * against the sale's period — matching getSalesRevCost, which sources
+   * revenue/cost from sale_items attributed to the same sale. Using the refund
+   * transaction's own date would split a refund into a different period than the
+   * revenue it reverses, so profit and (revenue − cost) would not reconcile.
+   */
   getSalesProfit(fromDt: string, toDt: string): SalesProfitRow {
     return this.db
       .prepare(
@@ -282,7 +289,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
           AND t.type IN ('SALE', 'REFUND')
           AND s.status IN ('completed', 'refunded')
           AND ${saleFullyPaid("s")}
-          AND ${dateRange("t.created_at")}`,
+          AND ${dateRange("s.created_at")}`,
       )
       .get(fromDt, toDt) as SalesProfitRow;
   }
@@ -771,10 +778,13 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
                 ELSE 0 END
               FROM financial_services fs WHERE fs.id = t.source_id
             )
-            WHEN t.type = 'SALE' THEN (
+            WHEN t.type IN ('SALE', 'REFUND') AND t.source_table = 'sales' THEN (
               SELECT CASE
                 WHEN ${saleFullyPaid("s2")}
-                THEN s2.final_amount_usd ELSE 0 END
+                THEN (CASE WHEN t.type = 'SALE'
+                           THEN s2.final_amount_usd
+                           ELSE t.amount_usd END)
+                ELSE 0 END
               FROM sales s2 WHERE s2.id = t.source_id
             )
             ELSE t.amount_usd
@@ -838,10 +848,13 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
                 ELSE 0 END
               FROM financial_services fs WHERE fs.id = t.source_id
             )
-            WHEN t.type = 'SALE' THEN (
+            WHEN t.type IN ('SALE', 'REFUND') AND t.source_table = 'sales' THEN (
               SELECT CASE
                 WHEN ${saleFullyPaid("s2")}
-                THEN s2.final_amount_usd ELSE 0 END
+                THEN (CASE WHEN t.type = 'SALE'
+                           THEN s2.final_amount_usd
+                           ELSE t.amount_usd END)
+                ELSE 0 END
               FROM sales s2 WHERE s2.id = t.source_id
             )
             ELSE t.amount_usd
