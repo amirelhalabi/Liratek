@@ -3984,6 +3984,118 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  // ─────────────────────────────────────────────────────────────────────────────
+  // v100 — Add session_id to payments so a customer-session basket owns ONE payment
+  // ─────────────────────────────────────────────────────────────────────────────
+  {
+    version: 100,
+    name: "add_session_id_to_payments",
+    description:
+      "Add a nullable session_id to payments so a customer-session 'basket' can own ONE customer-facing payment for its many transactions (basket payment). A payment row belongs to EITHER a transaction (transaction_id) OR a session basket (session_id), never both.",
+    type: "typescript",
+    up(db) {
+      const cols = db.prepare("PRAGMA table_info(payments)").all() as {
+        name: string;
+      }[];
+      if (!cols.some((c) => c.name === "session_id")) {
+        db.exec(
+          "ALTER TABLE payments ADD COLUMN session_id INTEGER REFERENCES customer_sessions(id) ON DELETE SET NULL;",
+        );
+      }
+      db.exec(
+        "CREATE INDEX IF NOT EXISTS idx_payments_session_id ON payments(session_id);",
+      );
+      console.log("Migration v100: Added session_id to payments + index");
+    },
+    down(db) {
+      // SQLite ADD COLUMN is treated one-way in this codebase (see v71/v72/v73);
+      // just drop the index, leave the column.
+      db.exec("DROP INDEX IF EXISTS idx_payments_session_id;");
+      console.log("Migration v100 rolled back (session_id column remains)");
+    },
+  },
+  // ─────────────────────────────────────────────────────────────────────────────
+  // v101 — Backfill historical custom_services + maintenance profit into the
+  //        unified transactions ledger (completes what v71 did for the other types)
+  // ─────────────────────────────────────────────────────────────────────────────
+  {
+    version: 101,
+    name: "backfill_custom_maintenance_profit_into_transactions",
+    description:
+      "Complete migration v71's per-transaction profit backfill for the two source types it skipped — custom_services and maintenance — so the Profits page can read profit uniformly from transactions.profit_usd/profit_lbp without losing historical profit.",
+    type: "typescript",
+    up(db) {
+      // custom_services.profit_usd/profit_lbp are generated (price - cost) on the source row
+      db.exec(`
+        UPDATE transactions
+        SET profit_usd = COALESCE((
+              SELECT cs.profit_usd FROM custom_services cs WHERE cs.id = transactions.source_id
+            ), 0),
+            profit_lbp = COALESCE((
+              SELECT cs.profit_lbp FROM custom_services cs WHERE cs.id = transactions.source_id
+            ), 0)
+        WHERE source_table = 'custom_services';
+      `);
+
+      // maintenance profit lives in the job's currency (USD or LBP)
+      db.exec(`
+        UPDATE transactions
+        SET profit_usd = COALESCE((
+              SELECT CASE WHEN m.currency = 'LBP' THEN 0
+                          ELSE (m.final_amount_usd - m.cost_usd) END
+              FROM maintenance m WHERE m.id = transactions.source_id
+            ), 0),
+            profit_lbp = COALESCE((
+              SELECT CASE WHEN m.currency = 'LBP'
+                          THEN (m.final_amount_lbp - m.cost_lbp) ELSE 0 END
+              FROM maintenance m WHERE m.id = transactions.source_id
+            ), 0)
+        WHERE source_table = 'maintenance';
+      `);
+
+      console.log(
+        "Migration v101: Backfilled custom_services + maintenance profit into transactions",
+      );
+    },
+    down(_db) {
+      // No-op: zeroing could clobber rows correctly stamped at create-time
+      // (matches v71's non-destructive rollback convention).
+      console.log("Migration v101 rolled back (no-op; profit values retained)");
+    },
+  },
+  // ─────────────────────────────────────────────────────────────────────────────
+  // v102 — Remove supplier-ledger pollution from the SECONDARY OMT/WHISH system
+  // ─────────────────────────────────────────────────────────────────────────────
+  {
+    version: 102,
+    name: "remove_secondary_system_supplier_ledger_pollution",
+    description:
+      "Only the shop's primary (base) system owes its provider directly; the secondary OMT/WHISH system runs via a partner (tracked in partner_ledger). Auto-recorded supplier_ledger entries for the non-base legacy provider wrongly inflated the suppliers/settlement page — remove them.",
+    type: "typescript",
+    up(db) {
+      const baseRow = db
+        .prepare(
+          "SELECT value FROM system_settings WHERE key_name = 'shop_base_system'",
+        )
+        .get() as { value?: string } | undefined;
+      const base = baseRow?.value === "WHISH" ? "WHISH" : "OMT";
+      const secondary = base === "WHISH" ? "OMT" : "WHISH";
+      const res = db
+        .prepare(
+          `DELETE FROM supplier_ledger
+           WHERE note LIKE 'Auto:%'
+             AND supplier_id IN (SELECT id FROM suppliers WHERE provider = ?)`,
+        )
+        .run(secondary);
+      console.log(
+        `Migration v102: Removed ${res.changes} secondary-system (${secondary}) auto supplier_ledger entries`,
+      );
+    },
+    down(_db) {
+      // Irreversible cleanup — the removed rows were erroneous auto-entries.
+      console.log("Migration v102 rolled back (no-op; removed rows not restored)");
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner
