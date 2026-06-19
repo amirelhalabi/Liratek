@@ -4197,6 +4197,34 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+  // ─────────────────────────────────────────────────────────────────────────────
+  // v104 — Add updated_at to sales (was missing; SalesRepository.markSalePaid and
+  //        the session-basket back-fill write it, so a session sale checkout failed
+  //        with "no such column: updated_at" on DBs created before this).
+  // ─────────────────────────────────────────────────────────────────────────────
+  {
+    version: 104,
+    name: "add_updated_at_to_sales",
+    description:
+      "Add the missing updated_at column to sales (schema standard requires created_at + updated_at). SalesRepository.markSalePaid — used by the session-basket settlement back-fill — writes updated_at; without the column a session basket containing a POS sale fails at checkout.",
+    type: "typescript",
+    up(db) {
+      const cols = db.prepare("PRAGMA table_info(sales)").all() as {
+        name: string;
+      }[];
+      if (!cols.some((c) => c.name === "updated_at")) {
+        db.exec(
+          "ALTER TABLE sales ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP;",
+        );
+      }
+      console.log("Migration v104: Added updated_at to sales");
+    },
+    down(_db) {
+      // SQLite ADD COLUMN is treated one-way in this codebase (see v71/v100);
+      // leave the column in place on rollback.
+      console.log("Migration v104 rolled back (updated_at column remains)");
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

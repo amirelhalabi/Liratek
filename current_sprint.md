@@ -76,6 +76,12 @@ settle" raced the async CUSTOMER_ACCOUNT auto-switch — now waits for the payme
 - `frontend/tests/e2e-electron/lira-session-payout.spec.ts` (#1 — Binance RECEIVE + loto payout).
 - `frontend/tests/e2e-electron/lira-session-allocation.spec.ts` (#2/#3 — bleed + gift-card).
 
+**Bug caught by the new e2e (fixed):** the `sales` table was missing `updated_at` (create_db.sql
+never had it; no migration added it), yet `markSalePaid` — the session back-fill path — writes it, so
+**a session basket containing a POS sale failed at checkout** (`no such column: updated_at`) on every
+DB. Fixed: column added to create_db.sql + **migration v104**; `lira-session-allocation.spec.ts`
+surfaced it. (Fix #1 / payout — `lira-session-payout.spec.ts` — was confirmed passing live.)
+
 > **Note:** e2e specs are typechecked by `tsconfig.playwright.json`, NOT the standard
 > `yarn workspace @liratek/frontend typecheck` (which only covers `src`). CI should run both.
 

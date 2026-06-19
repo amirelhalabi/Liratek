@@ -233,6 +233,7 @@ CREATE TABLE IF NOT EXISTS sales (
     status TEXT DEFAULT 'completed',
     note TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     edited_by TEXT DEFAULT NULL,
     edited_at TEXT DEFAULT NULL,
     FOREIGN KEY (client_id) REFERENCES clients(id)
@@ -1233,4 +1234,5 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (100, 'add_session_id_to_payments'),
     (101, 'backfill_custom_maintenance_profit_into_transactions'),
     (102, 'remove_secondary_system_supplier_ledger_pollution'),
-    (103, 'add_supplier_pays_us_entry_type');
+    (103, 'add_supplier_pays_us_entry_type'),
+    (104, 'add_updated_at_to_sales');
