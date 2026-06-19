@@ -290,13 +290,41 @@ export function SessionCheckoutModal({
         ? { voucher_code: l.voucherCode }
         : {}),
     });
-    return [
+    const legs = [
       ...usdPaymentLines.map(toLeg("IN")),
       ...lbpPaymentLines.map(toLeg("IN")),
       ...usdReturnLines.map(toLeg("OUT")),
       ...lbpReturnLines.map(toLeg("OUT")),
     ];
-  }, [usdPaymentLines, lbpPaymentLines, usdReturnLines, lbpReturnLines]);
+    // Net-negative basket (e.g. a loto cash prize or an OMT/Whish RECEIVE): the
+    // shop owes the customer the net amount. No MultiPaymentInput renders for a
+    // non-positive total, so emit the net cash-OUT leg here (default CASH →
+    // General). Those items defer their payout to the basket recorder, so without
+    // this leg the payout would never be posted to any drawer.
+    if (totals.usd < 0) {
+      legs.push({
+        method: "CASH",
+        currency_code: "USD",
+        amount: -totals.usd,
+        direction: "OUT",
+      });
+    }
+    if (totals.lbp < 0) {
+      legs.push({
+        method: "CASH",
+        currency_code: "LBP",
+        amount: -totals.lbp,
+        direction: "OUT",
+      });
+    }
+    return legs;
+  }, [
+    usdPaymentLines,
+    lbpPaymentLines,
+    usdReturnLines,
+    lbpReturnLines,
+    totals,
+  ]);
 
   // Primary method is the first non-zero leg's method, or CASH as fallback
   const primaryMethod = allPaymentLegs.find((l) => l.amount > 0)?.method ?? "CASH";
@@ -611,6 +639,33 @@ export function SessionCheckoutModal({
                   {totals.usdt.toFixed(2)} USDT
                 </span>
               </div>
+            </div>
+          )}
+
+          {/* Net cash-OUT to the customer (e.g. loto prize / RECEIVE). Shown when
+              the basket nets negative in a cash currency — the shop pays this out
+              of the General drawer (cash) on confirm. */}
+          {(totals.usd < 0 || totals.lbp < 0) && (
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 space-y-1">
+              <div className="text-xs font-medium text-amber-300">
+                Payout to customer (cash)
+              </div>
+              {totals.usd < 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-400">USD</span>
+                  <span className="font-mono text-amber-400">
+                    {formatAmount(totals.usd, "USD")}
+                  </span>
+                </div>
+              )}
+              {totals.lbp < 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-400">LBP</span>
+                  <span className="font-mono text-amber-400">
+                    {formatAmount(totals.lbp, "LBP")}
+                  </span>
+                </div>
+              )}
             </div>
           )}
 

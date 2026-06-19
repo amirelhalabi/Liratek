@@ -279,6 +279,7 @@ export default function SuppliersPage() {
       alert("Enter at least one payment amount");
       return;
     }
+    const trimmedNote = cashflowNote.trim();
     const res = await supplierCashflow.mutateAsync({
       supplier_id: selectedSupplierId,
       direction: cashflowDirection,
@@ -287,7 +288,9 @@ export default function SuppliersPage() {
         currency_code: p.currencyCode,
         amount: p.amount,
       })),
-      note: cashflowNote.trim() || undefined,
+      // Omit `note` entirely when empty (exactOptionalPropertyTypes: the field is
+      // `note?: string`, so it must be absent rather than explicitly undefined).
+      ...(trimmedNote ? { note: trimmedNote } : {}),
     });
     if (!(res as { success: boolean }).success) {
       alert((res as { error?: string }).error || "Failed");
