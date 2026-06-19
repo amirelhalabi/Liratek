@@ -14,7 +14,7 @@ import type {
 } from "../types";
 import { TELECOM_SERVICE_TYPES, ALFA_GIFT_TIERS } from "../types";
 import { HistoryModal } from "./HistoryModal";
-import { getExchangeRates } from "@/utils/exchangeRates";
+import { useSellRate } from "@/hooks/useSellRate";
 import { PaymentSheet } from "./PaymentSheet";
 import { CardGridPayView, type CardGridPayItem } from "./CardGridPayView";
 import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
@@ -140,24 +140,20 @@ export function TelecomForm({
   const [initialPaymentMethod, setInitialPaymentMethod] = useState("CASH");
   const [daysPriceCurrency, setDaysPriceCurrency] = useState<"USD" | "LBP">("USD");
   const [daysPriceUsdInput, setDaysPriceUsdInput] = useState("");
-  const [rates, setRates] = useState({ buyRate: 89000, sellRate: 89500 });
+  // Alfa Gift is always money IN (customer pays us) → shared SELL rate.
+  const { sellRate: exchangeRate } = useSellRate();
   const [costRate, setCostRate] = useState(85000);
   const [discount, setDiscount] = useState(0);
   void discount; // surfaced to parent via onDiscountChange; kept locally for future use
   const [sheetOpen, setSheetOpen] = useState(false);
   const [transactionTime, setTransactionTime] = useState<string | undefined>();
 
-  // Fetch exchange rates and cost rate on mount
+  // Fetch the Alfa credit cost rate on mount (the USD→LBP rate now comes from
+  // the shared useSellRate hook above).
   useEffect(() => {
-    const loadRates = async () => {
+    const loadCostRate = async () => {
       try {
-        const [list, settings] = await Promise.all([
-          api.getRates(),
-          api.getAllSettings(),
-        ]);
-        const { buyRate, sellRate } = getExchangeRates(list);
-        setRates({ buyRate, sellRate });
-
+        const settings = await api.getAllSettings();
         const settingsMap = new Map(
           settings.map((s: { key_name: string; value: string }) => [
             s.key_name,
@@ -167,15 +163,11 @@ export function TelecomForm({
         const costVal = Number(settingsMap.get("alfa_credit_cost_lbp"));
         if (costVal > 0) setCostRate(costVal);
       } catch (error) {
-        logger.error("Failed to load exchange rates:", error);
+        logger.error("Failed to load Alfa credit cost rate:", error);
       }
     };
-    loadRates();
+    loadCostRate();
   }, [api]);
-
-  // Alfa Gift is always money IN (customer pays us)
-  // So we always use SELL rate
-  const exchangeRate = rates.sellRate;
 
   // Reset Days price currency toggle when switching tabs
   useEffect(() => {
@@ -804,7 +796,15 @@ export function TelecomForm({
               </div>
             )}
             <button
-              onClick={() => setSheetOpen(true)}
+              onClick={() => {
+                // Session mode: add to cart directly (basket owns the payment),
+                // skipping the PaymentSheet. Non-session: open the PaymentSheet.
+                if (activeSession) {
+                  handleTelecomSubmit();
+                } else {
+                  setSheetOpen(true);
+                }
+              }}
               disabled={
                 isSubmitting ||
                 !telecomAmount ||

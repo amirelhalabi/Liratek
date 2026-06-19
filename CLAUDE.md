@@ -44,6 +44,16 @@ liratek/
 
 - Always use the **Bash tool** with `cmd /c "..."` for yarn, npm, and any CLI commands — never the PowerShell tool. PowerShell output is unreliable for yarn on this Windows setup.
 
+## Running E2E tests (`yarn test:e2e`)
+
+**Required procedure — always run E2E this way:**
+
+1. Run `yarn dev` first and wait for it to finish starting (it rebuilds `better-sqlite3` to the Electron ABI and builds `electron-app/dist`).
+2. **Stop `yarn dev`** (frees port 5173 and the Electron instance).
+3. Then run `yarn test:e2e`.
+
+Do NOT try to launch the app directly (`npx electron .`) to validate — it fails with an ESM `cjsPreparseModuleExports` error outside this flow. The Playwright harness only launches correctly after the `yarn dev` → stop → `test:e2e` sequence. E2E specs live in `frontend/tests/e2e-electron/lira-*.spec.ts`.
+
 ## Non-Negotiable Rules
 
 1. **TypeScript strict mode** — no `any` types
@@ -58,6 +68,8 @@ liratek/
 10. **Migrations** — always update BOTH `packages/core/src/db/migrations/index.ts` AND `electron-app/create_db.sql`
 11. **Client propagation** — any transaction submission form that has a client name/phone UI field MUST propagate `client_id` all the way through: UI state → IPC call payload → handler → service/repository → `createTransaction({ client_id })`. A missing link silently drops the association and the client column shows "—" in the transactions table.
 12. **Preload type completeness** — the `data` parameter type in every `preload.ts` IPC binding MUST include all fields the frontend sends. TypeScript types don't strip properties at runtime, but missing fields cause type errors when the renderer isn't using `as any`, and they make it easy to silently drop fields in future refactors.
+13. **Services never touch the database** — no `getDatabase()`, no `db.prepare(...)`, no raw SQL in any `*Service.ts`. All data access goes through a repository injected via the constructor — _including_ multi-table analytics/reporting queries. A cross-entity report gets a dedicated reporting repository (e.g. `ProfitRepository`); the service keeps only assembly, aggregation, currency-splitting, and business decisions. This keeps SQL in one layer and lets services be unit-tested with a mocked repo. (`ProfitService`, `SessionPaymentService`, and `ActivityService` currently violate this — they are the bug to fix, not the pattern to copy.)
+14. **Never copy-paste a business-rule SQL predicate** — any `WHERE`/`CASE` fragment that encodes a domain rule ("fully paid", settled-vs-pending, date-range bounds, USD/LBP bucketing) must be defined **once** as a named constant or SQL fragment and reused. If you're about to paste the same predicate into a second query, extract it first.
 
 ---
 
@@ -821,6 +833,8 @@ When adding a new feature module, complete every step:
 - Skipping `down()` in migrations → always implement rollback
 - `any` TypeScript type → define a proper interface
 - Write-path IPC handler missing Zod validation → add `validatePayload()` call
+- `getDatabase()` / raw SQL inside a `*Service.ts` → move it to a repository; services orchestrate, repositories query
+- Copy-pasting the same business-rule predicate (e.g. the "fully paid" check) into a second query → extract it to one named fragment first
 
 ### Electron-Specific
 

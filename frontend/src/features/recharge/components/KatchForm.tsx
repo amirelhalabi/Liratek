@@ -458,7 +458,11 @@ function KatchFormInner({
       setClientId(resolvedClientId);
     }
 
-    // If session is active, add all cart items as one session cart entry
+    // If session is active, add all cart items as one session cart entry.
+    // The basket owns the payment, so the cart sub-items carry NO payment fields
+    // (paidByMethod / payments) and no per-item discount — the Session Checkout
+    // modal collects payment once for the whole basket and applies any discount
+    // there (capped at each item's profit).
     if (activeSession) {
       const cartItems = Array.from(cart.values());
       const providerLabel = activeProvider === "Katsh" ? "Katsh" : "iPick";
@@ -470,39 +474,18 @@ function KatchFormInner({
           ? `${providerLabel} (${cartItems.length} items) - ${totalPrice.toLocaleString()} LBP`
           : `${providerLabel}: ${itemLabels}`;
 
-      const finalPaymentMethod = isSplitPayment ? "MULTI" : paymentMethod;
-      // Always send the payment breakdown when the user has interacted with
-      // MultiPaymentInput — this preserves per-line currency choices (e.g. a
-      // single CUSTOMER_ACCOUNT line in USD against an LBP transaction).
-      const paymentsPayload =
-        paymentLines.length > 0
-          ? toCamelLegs(paymentLines, returnLegs)
-          : undefined;
-
       // Store each line item for replay at checkout
-      // Distribute discount proportionally across items based on sell price
-      const sessionTotalSellPrice = cartItems.reduce((sum, line) => {
-        return sum + calcPrice(line.item, line.onlyDays, line.returnedCreditsUsd, alfaCreditSellRate) * line.quantity;
-      }, 0);
-
       const formDataItems = cartItems.flatMap((line) => {
         const sellPrice = calcPrice(line.item, line.onlyDays, line.returnedCreditsUsd, alfaCreditSellRate);
         const cost = calcCost(line.item, line.onlyDays, line.returnedCreditsUsd, alfaCreditCostRate);
-        const unitDiscountShare =
-          sessionTotalSellPrice > 0
-            ? Math.round((discount * sellPrice) / sessionTotalSellPrice)
-            : 0;
-        const discountedSellPrice = sellPrice - unitDiscountShare;
-        const commission = discountedSellPrice - cost;
+        const commission = sellPrice - cost;
         return Array.from({ length: line.quantity }, () => ({
           provider: activeProvider,
           serviceType: "SEND",
-          amount: discountedSellPrice,
+          amount: sellPrice,
           cost,
           currency: "LBP",
           commission: Math.max(0, commission),
-          paidByMethod: finalPaymentMethod,
-          payments: paymentsPayload,
           clientId: resolvedClientId || undefined,
           clientName: clientName || undefined,
           itemKey: line.item.key,
@@ -517,7 +500,7 @@ function KatchFormInner({
       addToSessionCart({
         module: activeProvider === "Katsh" ? "katsh" : "ipick",
         label,
-        amount: totalPrice - discount,
+        amount: totalPrice,
         currency: "LBP",
         ipcChannel: "financial:create",
         formData: {
@@ -701,7 +684,15 @@ function KatchFormInner({
           </div>
           <button
             type="button"
-            onClick={() => setShowPaymentSheet(true)}
+            onClick={() => {
+              // Session mode: add to cart directly (basket owns the payment),
+              // skipping the PaymentSheet. Non-session: open the PaymentSheet.
+              if (activeSession) {
+                handleSubmit();
+              } else {
+                setShowPaymentSheet(true);
+              }
+            }}
             disabled={totalItems === 0}
             className={`px-4 py-2.5 rounded-lg font-bold text-sm transition-all whitespace-nowrap ${
               totalItems === 0

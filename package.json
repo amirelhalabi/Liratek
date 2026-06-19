@@ -17,7 +17,7 @@
     "dev": "concurrently -k \"cd frontend && npm run dev\" \"wait-on tcp:5173 && npm run electron:start\"",
     "electron:start": "npm run rebuild:native && cd electron-app && npm run build && cross-env ELECTRON_RENDERER_URL=http://localhost:5173 npm start",
     "build": "yarn workspaces foreach -ptA --exclude liratek run build && node scripts/build-stage.cjs",
-    "test": "npm run rebuild:node && yarn workspaces foreach -pA --exclude liratek run test",
+    "test": "npm run rebuild:node && yarn workspaces foreach -A --exclude liratek run test",
     "test:e2e": "cd frontend && npx playwright test --config playwright.electron.config.ts",
     "lint": "yarn workspaces foreach -ptA --exclude liratek run lint",
     "typecheck": "yarn workspaces foreach -ptA --exclude liratek run typecheck",

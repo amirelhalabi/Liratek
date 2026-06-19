@@ -37,6 +37,9 @@ type TransactionRow = {
   created_at: string;
   username: string;
   client_name: string | null;
+  // WS8: set when the row belongs to a customer-session basket. Drives the
+  // per-session colored left-border accent below. Null for non-session rows.
+  session_id: number | null;
   // LIRA-064: structured payment breakdown (may be absent on legacy rows).
   payments?: TransactionPaymentLeg[];
 };
@@ -365,6 +368,30 @@ const ACTIONABLE_TYPES = new Set([
 ]);
 
 // ---------------------------------------------------------------------------
+// Per-session left-border accent (WS8)
+// ---------------------------------------------------------------------------
+
+// Full literal class strings so Tailwind's JIT picks them up. A colored
+// border-l-* is preserved in both light and dark modes by design (see
+// index.css `html:not(.dark)` overrides), so no `dark:` variant is needed.
+const SESSION_BORDER_CLASSES = [
+  "border-l-4 border-violet-500",
+  "border-l-4 border-amber-500",
+  "border-l-4 border-emerald-500",
+  "border-l-4 border-sky-500",
+  "border-l-4 border-rose-500",
+  "border-l-4 border-fuchsia-500",
+  "border-l-4 border-lime-500",
+  "border-l-4 border-cyan-500",
+] as const;
+
+/** Stable hash of a session id → a class from the palette (cycles). */
+function sessionBorderClass(sessionId: number): string {
+  const idx = Math.abs(Math.trunc(sessionId)) % SESSION_BORDER_CLASSES.length;
+  return SESSION_BORDER_CLASSES[idx];
+}
+
+// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
@@ -530,7 +557,9 @@ export default function TransactionsViewer({
       renderRow={(row) => (
         <tr
           key={row.id}
-          className={`border-t border-slate-800 text-xs ${row.status === "VOIDED" ? "bg-red-950/20" : ""}`}
+          className={`border-t border-slate-800 text-xs ${row.status === "VOIDED" ? "bg-red-950/20" : ""} ${
+            row.session_id != null ? sessionBorderClass(row.session_id) : ""
+          }`}
         >
           <td className="p-2 truncate" style={{ width: 160 }}>
             {row.created_at

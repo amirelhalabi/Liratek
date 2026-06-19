@@ -8,11 +8,14 @@ import {
   getCustomServiceService,
   getMaintenanceService,
   getCustomerSessionRepository,
+  getTransactionRepository,
+  getSessionPaymentService,
   getClientRepository,
   getDatabase,
   getUserRepository,
 } from "@liratek/core";
 import { requireRole } from "../session.js";
+import { validatePayload, SessionCheckoutSchema } from "../schemas/index.js";
 import { audit } from "./auditHelper.js";
 
 const sessionService = new CustomerSessionService();
@@ -42,10 +45,12 @@ interface CheckoutPayment {
 interface CheckoutRequest {
   sessionId: number;
   cartItems: CheckoutCartItem[];
-  /** Primary payment method (e.g. "CASH", "CUSTOMER_ACCOUNT") */
-  paidByMethod: string;
-  /** Multi-payment lines (optional) */
+  /** Primary payment method (e.g. "CASH", "CUSTOMER_ACCOUNT") — legacy, optional */
+  paidByMethod?: string;
+  /** Basket customer-cash legs (the ONE payment for the whole basket) */
   payments?: CheckoutPayment[];
+  /** Operator-edited USD→LBP rate of record for the basket. */
+  exchangeRate?: number;
   /** Client ID (required if any payment involves CUSTOMER_ACCOUNT) */
   clientId?: number;
   /** Client name (for debt entries) */
@@ -62,64 +67,56 @@ interface CheckoutItemResult {
   error?: string;
 }
 
-/** Map checkout payment legs (snake_case) to the camelCase shape the
- *  financial/recharge repositories expect (with IN/OUT direction). */
-function checkoutPaymentsToLegs(payments: CheckoutPayment[]) {
-  return payments.map((p) => ({
-    method: p.method,
-    currencyCode: p.currency_code,
-    amount: p.amount,
-    direction: p.direction ?? "IN",
-  }));
+/** Result of processing one cart item: the source-module id + its source_table
+ *  so the caller can resolve the UNIFIED transactions.id for linking. */
+interface ProcessedItem {
+  /** Source-module row id (sale id, financial_services id, ticket id, …). */
+  sourceId: number;
+  /** Unified transactions.source_table value used to resolve the unified id. */
+  sourceTable: string;
+  /** Legacy session transaction_type label. */
+  transactionType: string;
 }
 
 /**
- * Process a single cart item by calling the appropriate service method.
- * Returns the created entity/transaction ID.
+ * Process a single cart item by calling the appropriate service method in
+ * SESSION-BASKET deferred mode: each service creates its record + side effects +
+ * internal legs but SKIPS the customer-cash legs / drawer post / debt — the
+ * basket recorder (recordBasketPayment) owns the single customer payment.
  *
- * `injectCheckoutPayments` is set ONLY for a single-item checkout: there, the
- * Session Checkout modal is the source of truth for payment, so its legs (incl.
- * change/OUT) drive the financial/recharge item — otherwise a single item would
- * record just its add-to-cart default and lose the customer's change. It is NOT
- * set for multi-item checkouts, where one shared payment can't be attributed to
- * a single item.
+ * The operator-edited `exchangeRate` is threaded onto each transaction so the
+ * recorded rate matches what the operator used.
  */
 function processCartItem(
   item: CheckoutCartItem,
-  paidByMethod: string,
-  payments: CheckoutPayment[] | undefined,
+  exchangeRate: number | undefined,
   userId: number,
-  injectCheckoutPayments = false,
-): { transactionId: number; transactionType: string } {
-  const data = { ...item.formData };
-  const canInject =
-    injectCheckoutPayments && !!payments && payments.length > 0;
+): ProcessedItem {
+  const data = { ...item.formData, deferPayment: true } as Record<
+    string,
+    unknown
+  >;
+  if (exchangeRate && exchangeRate > 0) {
+    // Thread the operator rate under every key the various services read.
+    if (data.exchange_rate === undefined) data.exchange_rate = exchangeRate;
+    if (data.exchangeRate === undefined) data.exchangeRate = exchangeRate;
+  }
 
-  // Inject payment info based on module type
   switch (item.ipcChannel) {
     case "sales:process": {
-      // SalesService.processSale(saleData, userId)
-      // Payment info is already in formData (payment_method, paid_usd, paid_lbp, etc.)
-      // Override payment_method with checkout's paidByMethod
-      if (!data.payment_method) {
-        data.payment_method = paidByMethod;
-      }
       const salesService = getSalesService();
       const result = salesService.processSale(data as any, userId);
       if (!result.success || !result.id) {
         throw new Error(result.error || "Failed to process sale");
       }
-      return { transactionId: result.id, transactionType: "sale" };
+      return {
+        sourceId: result.id,
+        sourceTable: "sales",
+        transactionType: "sale",
+      };
     }
 
     case "recharge:process": {
-      // RechargeService.processRecharge(data) — data includes paid_by_method
-      if (canInject) {
-        data.payments = checkoutPaymentsToLegs(payments!);
-        data.paid_by_method = "MULTI";
-      } else {
-        data.paid_by_method = data.paid_by_method || paidByMethod;
-      }
       data.userId = userId;
       const rechargeService = getRechargeService();
       const result = rechargeService.processRecharge(data as any);
@@ -127,7 +124,8 @@ function processCartItem(
         throw new Error(result.error || "Failed to process recharge");
       }
       return {
-        transactionId: result.id,
+        sourceId: result.id,
+        sourceTable: "recharges",
         transactionType:
           item.module === "recharge_mtc" ? "recharge_mtc" : "recharge_alfa",
       };
@@ -135,23 +133,11 @@ function processCartItem(
 
     case "omt:add-transaction":
     case "financial:create": {
-      // FinancialService.addTransaction(data) — data includes paidByMethod, payments.
-      // Multi-item checkouts do NOT inject the checkout-level payments (one shared
-      // payment can't be attributed per item, and every item would record the full
-      // total). A single-item checkout DOES (canInject): the modal is the payment
-      // source of truth, so its legs — including the change/OUT leg — are recorded.
-      if (canInject) {
-        data.payments = checkoutPaymentsToLegs(payments!);
-        data.paidByMethod = "MULTI";
-      } else {
-        data.paidByMethod = data.paidByMethod || paidByMethod;
-      }
       const financialService = getFinancialService();
       const result = financialService.addTransaction(data as any);
       if (!result.success || !result.id) {
         throw new Error(result.error || "Failed to add financial transaction");
       }
-      // Map module to transaction type
       const moduleToType: Record<string, string> = {
         omt_app: "omt_app",
         whish_app: "whish_app",
@@ -163,48 +149,58 @@ function processCartItem(
         binance_receive: "binance",
       };
       return {
-        transactionId: result.id,
+        sourceId: result.id,
+        sourceTable: "financial_services",
         transactionType: moduleToType[item.module] || "financial_service",
       };
     }
 
     case "loto:sell": {
-      // LotoService.sellTicket(data) — data includes payment_method, userId
-      data.payment_method = data.payment_method || paidByMethod;
       data.userId = userId;
       const lotoService = getLotoService();
       const ticket = lotoService.sellTicket(data as any);
-      return { transactionId: ticket.id, transactionType: "loto_ticket" };
+      return {
+        sourceId: ticket.id,
+        sourceTable: "loto_tickets",
+        transactionType: "loto_ticket",
+      };
     }
 
     case "loto:cash-prize:create": {
-      // LotoService.recordCashPrize(data) — data includes userId
       data.userId = userId;
       const lotoService = getLotoService();
       const prize = lotoService.recordCashPrize(data as any);
-      return { transactionId: prize.id, transactionType: "loto_prize" };
+      return {
+        sourceId: prize.id,
+        sourceTable: "loto_cash_prizes",
+        transactionType: "loto_prize",
+      };
     }
 
     case "custom-services:add": {
-      // CustomServiceService.addService(data) — data includes paid_by
-      data.paid_by = data.paid_by || paidByMethod;
       const customService = getCustomServiceService();
       const result = customService.addService(data as any);
       if (!result.success || !result.id) {
         throw new Error(result.error || "Failed to add custom service");
       }
-      return { transactionId: result.id, transactionType: "custom_service" };
+      return {
+        sourceId: result.id,
+        sourceTable: "custom_services",
+        transactionType: "custom_service",
+      };
     }
 
     case "maintenance:save": {
-      // MaintenanceService.saveJob(data) — data includes paid_by, payments
-      data.paid_by = data.paid_by || paidByMethod;
       const maintenanceService = getMaintenanceService();
       const result = maintenanceService.saveJob(data as any);
       if (!result.success || !result.id) {
         throw new Error(result.error || "Failed to save maintenance job");
       }
-      return { transactionId: result.id, transactionType: "maintenance" };
+      return {
+        sourceId: result.id,
+        sourceTable: "maintenance",
+        transactionType: "maintenance",
+      };
     }
 
     default:
@@ -220,11 +216,10 @@ function processCartItem(
  */
 function processBatchCartItem(
   item: CheckoutCartItem,
-  paidByMethod: string,
-  payments: CheckoutPayment[] | undefined,
+  exchangeRate: number | undefined,
   userId: number,
-): Array<{ transactionId: number; transactionType: string }> {
-  const results: Array<{ transactionId: number; transactionType: string }> = [];
+): ProcessedItem[] {
+  const results: ProcessedItem[] = [];
   const items = item.formData.items as Array<Record<string, unknown>>;
 
   if (!items || !Array.isArray(items)) {
@@ -238,11 +233,31 @@ function processBatchCartItem(
       ...item,
       formData: subItem,
     };
-    const result = processCartItem(subCartItem, paidByMethod, payments, userId);
-    results.push(result);
+    results.push(processCartItem(subCartItem, exchangeRate, userId));
   }
 
   return results;
+}
+
+/** Map checkout payment legs (snake_case) to the camelCase shape the
+ *  basket recorder expects (with IN/OUT direction). */
+function checkoutPaymentsToBasketLegs(payments: CheckoutPayment[]) {
+  return payments.map((p) => ({
+    method: p.method,
+    currencyCode: p.currency_code,
+    amount: p.amount,
+    direction: p.direction ?? ("IN" as const),
+    voucherCode: (p as { voucher_code?: string }).voucher_code,
+  }));
+}
+
+/** Resolve the unified transactions.id for a just-created source record. */
+function resolveUnifiedTransactionId(
+  sourceTable: string,
+  sourceId: number,
+): number | null {
+  const txn = getTransactionRepository().getBySourceId(sourceTable, sourceId);
+  return txn ? txn.id : null;
 }
 
 export function registerSessionHandlers() {
@@ -467,7 +482,15 @@ export function registerSessionHandlers() {
       if (!auth.ok) return { success: false, error: auth.error };
 
       try {
-        const { sessionId, cartItems, paidByMethod, payments, userId } =
+        // Validate the basket payment envelope (payments + exchangeRate) before
+        // touching the database. cartItems.formData is opaque (validated by each
+        // module's own service), so only the basket-payment fields are checked.
+        const validation = validatePayload(SessionCheckoutSchema, request);
+        if (!validation.ok) {
+          return { success: false, error: validation.error };
+        }
+
+        const { sessionId, cartItems, payments, exchangeRate, userId } =
           request;
 
         if (!cartItems || cartItems.length === 0) {
@@ -554,8 +577,7 @@ export function registerSessionHandlers() {
                 // Batch items (FinancialForm/KatchForm) — process each sub-item
                 const batchResults = processBatchCartItem(
                   item,
-                  paidByMethod,
-                  payments,
+                  exchangeRate,
                   userId,
                 );
                 // Compute per-sub-item profit from formData
@@ -577,11 +599,16 @@ export function registerSessionHandlers() {
                       subProfitUsd = comm;
                     }
                   }
-                  // Link each sub-transaction to the session
+                  // Resolve the UNIFIED transactions.id for viewer grouping +
+                  // basket-leg attachment, then link the sub-transaction.
+                  const unifiedId = resolveUnifiedTransactionId(
+                    result.sourceTable,
+                    result.sourceId,
+                  );
                   repo.linkTransaction(
                     sessionId,
                     result.transactionType,
-                    result.transactionId,
+                    result.sourceId,
                     item.currency === "USD"
                       ? item.amount / batchResults.length
                       : 0,
@@ -590,26 +617,19 @@ export function registerSessionHandlers() {
                       : 0,
                     subProfitUsd,
                     subProfitLbp,
+                    unifiedId,
                   );
                   itemResults.push({
                     cartItemId: item.id,
                     module: item.module,
-                    transactionId: result.transactionId,
+                    transactionId: result.sourceId,
                     success: true,
                   });
                 }
               } else {
-                // Single item — process directly. When the whole cart is this one
-                // item, the Session Checkout modal's payment (incl. change) is the
-                // source of truth, so inject its legs into the recorded transaction.
-                const isSoleItem = cartItems.length === 1;
-                const result = processCartItem(
-                  item,
-                  paidByMethod,
-                  payments,
-                  userId,
-                  isSoleItem,
-                );
+                // Single item — process in deferred-payment mode (the basket
+                // recorder owns the customer payment for the whole cart).
+                const result = processCartItem(item, exchangeRate, userId);
 
                 // Compute per-item profit from formData
                 let itemProfitUsd = 0;
@@ -630,21 +650,27 @@ export function registerSessionHandlers() {
                   itemProfitLbp = commLbp;
                 }
 
-                // Link transaction to session
+                // Resolve the UNIFIED transactions.id for viewer grouping +
+                // basket-leg attachment, then link the transaction.
+                const unifiedId = resolveUnifiedTransactionId(
+                  result.sourceTable,
+                  result.sourceId,
+                );
                 repo.linkTransaction(
                   sessionId,
                   result.transactionType,
-                  result.transactionId,
+                  result.sourceId,
                   item.currency === "USD" ? item.amount : 0,
                   item.currency === "LBP" ? item.amount : 0,
                   itemProfitUsd,
                   itemProfitLbp,
+                  unifiedId,
                 );
 
                 itemResults.push({
                   cartItemId: item.id,
                   module: item.module,
-                  transactionId: result.transactionId,
+                  transactionId: result.sourceId,
                   success: true,
                 });
               }
@@ -694,6 +720,19 @@ export function registerSessionHandlers() {
                 `Failed to process cart item "${item.label}" (${item.module}): ${err?.message || "Unknown error"}`,
               );
             }
+          }
+
+          // AFTER all items are created (in deferred mode): record the ONE
+          // customer-facing payment for the whole basket — posts each leg to its
+          // drawer once, creates one debt entry for the CUSTOMER_ACCOUNT portion,
+          // redeems gift cards, and back-fills each session SALE's paid state.
+          if (payments && payments.length > 0) {
+            getSessionPaymentService().recordBasketPayment(sessionId, {
+              legs: checkoutPaymentsToBasketLegs(payments),
+              exchangeRate: exchangeRate && exchangeRate > 0 ? exchangeRate : 1,
+              userId,
+              clientId: sessionClientId ?? null,
+            });
           }
 
           db.prepare(

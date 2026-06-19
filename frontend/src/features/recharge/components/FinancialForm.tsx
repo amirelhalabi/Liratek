@@ -269,7 +269,11 @@ export function FinancialForm({
       setClientId(resolvedClientId);
     }
 
-    // If session is active, add all cart items as one session cart entry
+    // If session is active, add all cart items as one session cart entry.
+    // The basket owns the payment, so the cart sub-items carry NO payment fields
+    // (paidByMethod / payments) and no per-item discount — the Session Checkout
+    // modal collects payment once for the whole basket and applies any discount
+    // there (capped at each item's profit).
     if (activeSession) {
       const cartItems = Array.from(cart.values());
       const itemLabels = cartItems
@@ -282,46 +286,18 @@ export function FinancialForm({
           ? `${providerLabel} (${cartItems.length} items) - ${totalPrice.toLocaleString()} LBP`
           : `${providerLabel}: ${itemLabels}`;
 
-      const finalPaymentMethod = isSplitPayment ? "MULTI" : paymentMethod;
-      const hasVoucherLeg = paymentLines.some(
-        (l: PaymentLine) => l.method === "GIFT_CARD",
-      );
-      const paymentsPayload =
-        isSplitPayment || hasVoucherLeg
-          ? paymentLines.map((l: PaymentLine) => ({
-              method: l.method,
-              currencyCode: l.currencyCode,
-              amount: l.amount,
-              ...(l.method === "GIFT_CARD" && l.voucherCode
-                ? { voucherCode: l.voucherCode }
-                : {}),
-            }))
-          : undefined;
-
       // Store each line item for replay at checkout
-      // Distribute discount proportionally across items based on sell price
-      const sessionTotalSellPrice = cartItems.reduce((sum, line) => {
-        return sum + (line.item.catalogSellPrice ?? 0) * line.quantity;
-      }, 0);
-
       const formDataItems = cartItems.flatMap((line) => {
         const sellPrice = line.item.catalogSellPrice ?? 0;
         const cost = line.item.catalogCost ?? 0;
-        const unitDiscountShare =
-          sessionTotalSellPrice > 0
-            ? Math.round((discount * sellPrice) / sessionTotalSellPrice)
-            : 0;
-        const discountedSellPrice = sellPrice - unitDiscountShare;
-        const commission = discountedSellPrice - cost;
+        const commission = sellPrice - cost;
         return Array.from({ length: line.quantity }, () => ({
           provider: activeProvider,
           serviceType: serviceType || "SEND",
-          amount: discountedSellPrice,
+          amount: sellPrice,
           cost,
           currency: "LBP",
           commission: Math.max(0, commission),
-          paidByMethod: finalPaymentMethod,
-          payments: paymentsPayload,
           clientId: resolvedClientId || undefined,
           clientName: clientName || undefined,
           itemKey: line.item.key,
@@ -333,7 +309,7 @@ export function FinancialForm({
       addToSessionCart({
         module: activeProvider === "WISH_APP" ? "whish_app" : "omt_app",
         label,
-        amount: totalPrice - discount,
+        amount: totalPrice,
         currency: "LBP",
         ipcChannel: "financial:create",
         formData: {
@@ -560,7 +536,15 @@ export function FinancialForm({
             </div>
             <button
               type="button"
-              onClick={() => setShowPaymentSheet(true)}
+              onClick={() => {
+                // Session mode: add to cart directly (basket owns the payment),
+                // skipping the PaymentSheet. Non-session: open the PaymentSheet.
+                if (activeSession) {
+                  handleSubmit();
+                } else {
+                  setShowPaymentSheet(true);
+                }
+              }}
               disabled={totalItems === 0}
               className={`px-4 py-2.5 rounded-lg font-bold text-sm transition-all whitespace-nowrap ${
                 totalItems === 0

@@ -381,7 +381,15 @@ export function CryptoForm({
             </div>
             <button
               type="button"
-              onClick={() => setShowPaymentSheet(true)}
+              onClick={() => {
+                // Session mode: add to cart directly (basket owns the payment),
+                // skipping the PaymentSheet. Non-session: open the PaymentSheet.
+                if (activeSession) {
+                  handleCryptoSubmit();
+                } else {
+                  setShowPaymentSheet(true);
+                }
+              }}
               disabled={!cryptoAmount || parsedAmount <= 0}
               className={`px-5 py-2.5 rounded-lg font-bold text-sm transition-all ${
                 !cryptoAmount || parsedAmount <= 0

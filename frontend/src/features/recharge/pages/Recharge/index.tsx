@@ -6,7 +6,7 @@ import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { useSessionAutoFill } from "@/features/sessions/hooks/useSessionAutoFill";
-import { getExchangeRates } from "@/utils/exchangeRates";
+import { useSellRate } from "@/hooks/useSellRate";
 import type { PaymentLine } from "@liratek/ui";
 import { toCamelLegs } from "@/utils/paymentUtils";
 import {
@@ -148,7 +148,8 @@ export default function MobileRecharge() {
   const [alfaCreditSellRate, setAlfaCreditSellRate] = useState(100000);
   const [alfaCreditCostRate, setAlfaCreditCostRate] = useState(85000);
   const [marginAlertThreshold, setMarginAlertThreshold] = useState(100000);
-  const [exchangeRate, setExchangeRate] = useState(89500);
+  // Money-IN sell rate (shared source) for MultiPaymentInput / cart conversions.
+  const { sellRate: exchangeRate } = useSellRate();
 
   // Whish App mode: 'bills' (card grid) or 'transfer' (send/receive money)
   const [whishAppMode, setWhishAppMode] = useState<"bills" | "transfer">(
@@ -196,11 +197,6 @@ export default function MobileRecharge() {
         const threshold =
           Number(settingsMap.get("recharge_margin_alert_threshold")) || 100000;
         setMarginAlertThreshold(threshold);
-
-        // Load exchange rate for MultiPaymentInput
-        const rates = await api.getRates();
-        const { sellRate } = getExchangeRates(rates);
-        setExchangeRate(sellRate);
       } catch (error) {
         logger.error("Failed to load alfa credit sell rate:", error);
       }
@@ -381,6 +377,9 @@ export default function MobileRecharge() {
         ? `${providerLabel} ${typeLabel} - ${phoneNumber} - ${price.toLocaleString()} LBP`
         : `${providerLabel} ${typeLabel} - ${price.toLocaleString()} LBP`;
 
+      // Session mode: the basket owns the payment, so the cart item carries NO
+      // payment fields (paid_by_method / payments). The Session Checkout modal
+      // collects payment once for the whole basket.
       addToSessionCart({
         module: activeProvider === "MTC" ? "recharge_mtc" : "recharge_alfa",
         label,
@@ -397,11 +396,6 @@ export default function MobileRecharge() {
           price,
           default_price_to_client: defaultPriceToClient,
           currency: "LBP",
-          paid_by_method: paidBy,
-          payments:
-            paymentLines.length > 0
-              ? toCamelLegs(paymentLines, returnLegs)
-              : undefined,
           clientId: resolvedClientId || undefined,
           clientName: telecomClientName || undefined,
         },
@@ -815,6 +809,10 @@ export default function MobileRecharge() {
       const isSend = cryptoType === "SEND";
       const label = `Binance ${isSend ? "Send" : "Cash Out"} - ${amount} USDT${cryptoClientName ? ` - ${cryptoClientName}` : ""}`;
 
+      // Session mode: the basket owns the payment, so the cart item carries NO
+      // payment fields (paidByMethod / payments / cashoutMethod). The Session
+      // Checkout modal collects payment once for the whole basket and derives
+      // the cashout method from the chosen basket payment method.
       addToSessionCart({
         module: isSend ? "binance_send" : "binance_receive",
         label,
@@ -830,13 +828,6 @@ export default function MobileRecharge() {
           clientName: cryptoClientName,
           referenceNumber: cryptoDescription,
           commission: fee,
-          paidByMethod: isSplitPayment ? "MULTI" : paidByMethod,
-          payments: useCryptoStructuredPayments
-            ? toCamelLegs(cryptoPaymentLines, cryptoReturnLegs)
-            : undefined,
-          ...(cryptoType === "RECEIVE" && derivedCashoutMethod !== "CASH"
-            ? { cashoutMethod: derivedCashoutMethod }
-            : {}),
         },
       });
 

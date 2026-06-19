@@ -9,7 +9,7 @@ import { PaymentSheet } from "./PaymentSheet";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import type { FinancialTransaction } from "../types";
 import { HistoryModal } from "./HistoryModal";
-import { getExchangeRates } from "@/utils/exchangeRates";
+import { useSellRate } from "@/hooks/useSellRate";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import logger from "@/utils/logger";
 import { useSaveAsClient } from "@/shared/hooks/useSaveAsClient";
@@ -61,7 +61,7 @@ function OmtWhishAppTransferFormInner({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPaymentSheet, setShowPaymentSheet] = useState(false);
   const showHistory = showHistoryProp ?? false;
-  const [exchangeRate, setExchangeRate] = useState(89500);
+  const { sellRate: exchangeRate } = useSellRate();
   const [paymentLines, setPaymentLines] = useState<any[]>([]);
   const [returnLegs, setReturnLegs] = useState<any[]>([]);
   const isSplitPayment = paymentLines.length > 1;
@@ -105,20 +105,6 @@ function OmtWhishAppTransferFormInner({
     trySaveAsClient,
     resetSaveAsClient,
   } = useSaveAsClient(saveClientName, saveClientPhone);
-
-  // Load exchange rate
-  useEffect(() => {
-    const loadRate = async () => {
-      try {
-        const rates = await api.getRates();
-        const { sellRate } = getExchangeRates(rates);
-        setExchangeRate(sellRate);
-      } catch (error) {
-        logger.error("Failed to load exchange rate:", error);
-      }
-    };
-    loadRate();
-  }, [api]);
 
   // Autofill sender/receiver from customer session based on service type
   useEffect(() => {
@@ -199,6 +185,9 @@ function OmtWhishAppTransferFormInner({
           : `$${parseFloat(amount).toFixed(2)}`;
       const label = `${providerLabel} ${serviceType} - ${clientLabel} - ${amtLabel}`;
 
+      // Session mode: the basket owns the payment, so the cart item carries NO
+      // payment fields (paidByMethod / payments / discount). The Session Checkout
+      // modal collects payment once for the whole basket.
       addToSessionCart({
         module: activeProvider === "OMT_APP" ? "omt_app" : "whish_app",
         label,
@@ -210,7 +199,7 @@ function OmtWhishAppTransferFormInner({
           serviceType,
           amount: includingFees ? sentAmount : parseFloat(amount),
           currency,
-          commission: Math.max(0, shopProfit - discount),
+          commission: shopProfit,
           ...(activeProvider === "OMT_APP" ? { omtFee: providerFee } : {}),
           ...(activeProvider === "WISH_APP" ? { whishFee: providerFee } : {}),
           clientId: resolvedClientId || undefined,
@@ -219,10 +208,6 @@ function OmtWhishAppTransferFormInner({
           phoneNumber:
             serviceType === "SEND" ? finalSenderPhone : finalReceiverPhone,
           note: `${serviceType} transfer via ${providerLabel}`,
-          paidByMethod: isSplitPayment ? "MULTI" : paidByMethod,
-          payments: useStructuredPayments
-            ? toCamelLegs(paymentLines, returnLegs)
-            : undefined,
           includingFees,
         },
       });
@@ -676,13 +661,19 @@ function OmtWhishAppTransferFormInner({
           <button
             type="button"
             onClick={() => {
-              // Validate before opening sheet — name/phone are optional
-              // for both OMT App and Whish App (persisted when provided)
+              // Validate amount — name/phone are optional for both OMT App and
+              // Whish App (persisted when provided).
               if (!amount || parseFloat(amount) <= 0) {
                 alert("Please enter a valid amount");
                 return;
               }
-              setShowPaymentSheet(true);
+              // Session mode: add to cart directly (basket owns the payment),
+              // skipping the PaymentSheet. Non-session: open the PaymentSheet.
+              if (activeSession) {
+                handleSubmit();
+              } else {
+                setShowPaymentSheet(true);
+              }
             }}
             disabled={!amount || parseFloat(amount) <= 0}
             className={`px-5 py-2.5 rounded-lg font-bold text-sm transition-all ${
