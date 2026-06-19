@@ -1252,8 +1252,8 @@ Add favorite/pinned **quick links** to a page (starting with Whish App) in the h
 | Priority  | Total   | Done  | Remaining |
 | --------- | ------- | ----- | --------- |
 | Medium    | 3       | 0     | 3         |
-| Low       | 8       | 2     | 6         |
-| **Total** | **11**  | **2** | **9**     |
+| Low       | 8       | 3     | 5         |
+| **Total** | **11**  | **3** | **8**     |
 
 ### Sprint 3 board
 
@@ -1268,7 +1268,7 @@ Add favorite/pinned **quick links** to a page (starting with Whish App) in the h
 | LIRA-071 | Hide profits page + data for non-admin               | Low      | DONE   |
 | LIRA-072 | Telecom vouchers named by card number                | Low      | TODO   |
 | LIRA-073 | DataTable export — customizable columns              | Low      | DONE   |
-| LIRA-074 | Remove Manual Entry tab in Suppliers                 | Low      | TODO   |
+| LIRA-074 | Remove Manual Entry tab in Suppliers                 | Low      | DONE   |
 | LIRA-075 | Favorite/pin Whish App quick link in home grid       | Low      | TODO   |
 
 ---
