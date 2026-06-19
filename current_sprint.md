@@ -1188,3 +1188,95 @@ Add favorite/pinned **quick links** to a page (starting with Whish App) in the h
 | LIRA-073 | DataTable export — customizable columns              | Low      | DONE   |
 | LIRA-074 | Remove Manual Entry tab in Suppliers                 | Low      | TODO   |
 | LIRA-075 | Favorite/pin Whish App quick link in home grid       | Low      | TODO   |
+
+---
+
+## Session Summary — Session Basket Payment, Transaction-Based Profits & Supplier-Ledger Fix
+
+> Builds on **LIRA-055** (session checkout modal) + **LIRA-064** (structured payment legs).
+> Implemented on branch **`feat/session-basket-payment`**. Migrations **v100–v102** here
+> (the parallel LIRA-059 supplier work added **v103**, sequential — no conflict).
+
+### What was done
+
+**Session basket payment — single source of truth (the core change)**
+
+- A customer session is now ONE basket the customer pays for **once**. Each cart item is
+  created in `deferPayment` mode: it books only its **internal** legs (provider cost, telecom
+  stock, OMT/WHISH `_System` reserve transfer, Binance USDT) and **skips** its own
+  customer-cash side. OMT/WHISH SEND keeps its `General → *_System` reserve on the transaction.
+- New **`SessionPaymentService`** + **`SessionPaymentRepository`** record the single basket
+  payment: customer-cash legs → `payments` (new **`session_id`** column), posted to drawers
+  **once**, **one** debt-ledger entry for the CUSTOMER_ACCOUNT portion, gift-card redemption,
+  and back-fill of each session SALE's paid state.
+- Forms (OMT/Whish App, Crypto, Telecom, Katch, Financial, recharge page) no longer open a
+  PaymentSheet in session mode — the Session Checkout modal is the **only** payment surface.
+  Per-item method dropdowns removed; per-item **discount** added; gift card moved to a
+  basket-level `GIFT_CARD` leg.
+- Transactions viewer: same-session rows share the one basket payment + rate, with a
+  **per-session colored left border** (light/dark safe). Migration **v100** (`payments.session_id`).
+
+**Supplier-ledger secondary-system fix** (coordinates with LIRA-059)
+
+- Only the shop's PRIMARY (base) OMT/WHISH system books a supplier-ledger debt. The SECONDARY
+  system runs via a partner (obligation lives in `partner_ledger`) and is now **hidden from the
+  Suppliers page**. Migration **v102** purges existing secondary-system pollution.
+
+**Transaction-based profits + refund fix**
+
+- Profit amount is now sourced uniformly from `transactions.profit_usd` (realized/pending gates
+  kept). **REFUND** transactions stamp negative profit so refunds net correctly. Migration
+  **v101** backfills historical custom-service/maintenance profit. Operator-edited exchange rate
+  is recorded; new **`useSellRate`** unifies the Money-IN rate.
+
+**Architecture (CLAUDE.md rules 13/14)**
+
+- `ProfitService` + `SessionPaymentService` are now **SQL-free** (logic only); all SQL moved to
+  **`ProfitRepository`** / **`SessionPaymentRepository`** with de-duplicated business predicates.
+
+**Quality** — jest **374/374**, frontend **209**, **5 dedicated e2e specs**
+(`lira-supplier-secondary-system`, `-session-basket-payment`, `-session-exchange-rate`,
+`-session-profits`, `-session-basket-debt`), lint 0 errors, typecheck clean. `yarn test` made
+sequential (`-A`) so the local full-suite run no longer OOMs (CI runs per-workspace, unaffected).
+
+### What to manually test
+
+**Session basket payment**
+
+1. Start a customer session (name + phone).
+2. Add several items from different modules — e.g. a **Whish App SEND**, an **MTC recharge**, a
+   **POS sale** — and confirm you are **not** asked to pay at add-to-cart time.
+3. Open **Session Checkout** → enter the payment once; try **overpaying** and handing back change.
+   Confirm.
+4. Expect: the **cash drawer rises by exactly (tendered − change)** — no double-count; the
+   Transactions table shows each session row sharing the **same** payment legs + rate, with a
+   matching per-session **left-border color** (toggle light/dark — the border stays).
+5. Pay (partly) by **Customer Account** → expect exactly **one** debt entry for the basket on the
+   session's client (not one per item).
+6. Edit the exchange rate in the modal → the session's transactions show that rate (`@ <rate>`).
+
+**Supplier-ledger fix**
+
+1. Suppliers page → the **secondary** OMT/WHISH system (the non-base one) should **not** appear.
+2. Do a secondary-system transfer via a partner → it books only a **partner-ledger** entry (no
+   supplier-ledger entry); the base system still books normally.
+
+**Profits**
+
+1. Profits page totals for a past date range should be **unchanged** (parity).
+2. A session **POS sale's** profit should be **realized** after a paid checkout (not stuck in
+   Pending). Refund part of a sale → its profit drops by exactly the refunded amount.
+
+### After testing — what's next
+
+- **Finish committing** branch `feat/session-basket-payment`: db + core are committed (core
+  bundles the parallel LIRA-059 supplier-cashflow edits, by request); **electron + frontend +
+  e2e + chore** chunks remain.
+- **Native ABI:** the suite last ran jest (Node ABI) — run `yarn dev` once to restore the
+  Electron ABI before the next `test:e2e` (see CLAUDE.md "Running E2E tests").
+- **Optional follow-up:** thread `exchange_rate` through custom/sales/loto/maintenance session
+  transactions (financial/recharge already do it).
+- **Sprint board next:** **LIRA-067** (expandable txn payment detail — builds directly on
+  LIRA-064), **LIRA-065** (initial drawer amounts), **LIRA-066** (settlement txns in table).
+  **LIRA-070** (profits correctness audit) is now largely covered by the transaction-based
+  refactor — worth re-scoping or closing.
