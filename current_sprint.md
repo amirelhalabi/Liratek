@@ -42,6 +42,48 @@ tests"). Agents do not run `test:e2e`; the user runs it and pastes failures.
 
 ---
 
+## 🔍 PRE-MERGE REVIEW & FIXES (2026-06-19) — 10 findings fixed, all green
+
+A pre-merge code review of `feat/session-basket-payment` vs `main` (multi-angle finder + adversarial
+verify) surfaced 10 real findings, all now fixed. Gates: **core 379/379** (374 + 5 new), **backend
+384/384**, **frontend 209**, typecheck clean, lint 0 errors, **full e2e green**.
+
+**Blocking money-correctness (fixed):**
+
+1. **Cashout/payout in a session was never recorded.** Hybrid fix: **Binance RECEIVE** payout
+   un-deferred (`FinancialServiceRepository` — posted even in session mode); **loto prize / OMT-Whish
+   RECEIVE** stay deferred and the **Session Checkout modal** now emits the net cash-OUT leg when a
+   currency total is negative (`SessionCheckoutModal.tsx`), so the recorder posts the payout once.
+2. **Cross-item cash bleed** + 3. **gift-card under-realization** — `backfillSaleSettlement` rewritten
+   to **account-debt-to-sales-first**: `salesPaidPool = max(0, salesTotal − (debtUsd−giftCardUsd +
+   (debtLbp−giftCardLbp)/rate))`. Conservative (never realizes uncollected profit); gift-card counts
+   as collected; CUSTOMER_ACCOUNT correctly stays pending.
+4. **v102 purge** scoped to `entry_type IN ('TOP_UP','SALE_COST')` — never deletes a real cash entry.
+
+**Should-fix (fixed):** 5. v101 backfill only fills unstamped rows whose source exists (no clobber).
+6. v101 excludes refunded maintenance. 7. custom-service cost-outflow leg excluded from the viewer
+in/out summary. 8. REFUND revenue gated by `saleFullyPaid` in `getByUser`/`getByClient`. 9. sales
+profit dated by `s.created_at` to reconcile with revenue. 10. `payments.session_id` nulled on session
+delete (v100 ADD COLUMN FK is not enforced on upgraded DBs — documented).
+
+**Also:** fixed a pre-existing `exactOptionalPropertyTypes` error in `Suppliers/index.tsx`
+(`recordCashflow` note), and **stabilized a flaky e2e** (`app.spec.ts` "Debts: add sale debt and
+settle" raced the async CUSTOMER_ACCOUNT auto-switch — now waits for the payment method to commit).
+
+**New regression tests:**
+- `packages/core/src/repositories/__tests__/SessionPaymentService.basket.test.ts` (backend, 5 cases:
+  cross-item bleed, gift-card realizes, account-stays-pending control, loto OUT-leg payout, posted-once).
+- `frontend/tests/e2e-electron/lira-session-payout.spec.ts` (#1 — Binance RECEIVE + loto payout).
+- `frontend/tests/e2e-electron/lira-session-allocation.spec.ts` (#2/#3 — bleed + gift-card).
+
+> **Note:** e2e specs are typechecked by `tsconfig.playwright.json`, NOT the standard
+> `yarn workspace @liratek/frontend typecheck` (which only covers `src`). CI should run both.
+
+**Migration re-test caveat:** the v100–v102 *migration* fixes only re-run on a DB that hasn't applied
+those versions yet. Reset/recreate a dev DB that already ran the old v101/v102 to exercise them.
+
+---
+
 ## LIRA-048: Exchange Page — Show Dual USD/LBP Output Fields
 
 | Field                | Value                                    |
