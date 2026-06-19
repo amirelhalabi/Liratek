@@ -9,6 +9,39 @@
 
 ---
 
+## ⏭️ NEXT AGENT — START HERE (updated 2026-06-19 — Session Basket Payment)
+
+**Branch:** `feat/session-basket-payment` (7 commits ahead of `main`), working tree clean. A
+parallel **LIRA-059** (supplier cashflow / `SUPPLIER_PAYS_US` v103) session committed to the **same
+branch** — history is interleaved but all changes are intact. **Review before merging to `main`.**
+
+**DONE this session** — green: jest **374/374**, frontend 209, **5 e2e specs**, lint 0, typecheck:
+
+- **Session basket payment (single source of truth):** each cart item created in `deferPayment`
+  mode; `SessionPaymentService`/`SessionPaymentRepository` record ONE basket payment (posted to
+  drawers once, one debt entry, gift-card, sale paid back-fill); OMT/WHISH SEND keeps its reserve
+  on the txn. Forms skip the PaymentSheet in session mode; per-session viewer border. Migration **v100**.
+- **Supplier-ledger secondary-system fix:** only the base OMT/WHISH system books a supplier debt;
+  secondary is hidden from the Suppliers page. Migration **v102** purges old pollution.
+- **Transaction-based profits + refund fix:** profit from `transactions.profit_usd` (gates kept),
+  REFUND stamps negative profit. Migration **v101** backfills custom/maintenance. `useSellRate` added.
+- **Rules 13/14:** `ProfitService` + `SessionPaymentService` are now SQL-free →
+  `ProfitRepository` / `SessionPaymentRepository`.
+- (Full write-up: the **"Session Summary"** section near the bottom of this file.)
+
+**REMAINING — both OPTIONAL. Detailed step-by-step:** `docs/plans/session-basket-payment-remaining.md`
+
+1. **Thread `exchange_rate`** on custom-service / sales / loto session transactions (financial +
+   recharge already do it; maintenance likely does — verify). Small change in those repos'
+   `createTransaction({...})` calls + extend `lira-session-exchange-rate.spec.ts`.
+2. **UI e2e spec** for the per-session border color (the sell-rate spec is skippable / low value).
+
+**⚠️ Running e2e:** jest leaves `better-sqlite3` on the **Node** ABI — run `yarn dev` once to
+restore the **Electron** ABI, then **stop it**, then `yarn test:e2e` (see CLAUDE.md "Running E2E
+tests"). Agents do not run `test:e2e`; the user runs it and pastes failures.
+
+---
+
 ## LIRA-048: Exchange Page — Show Dual USD/LBP Output Fields
 
 | Field                | Value                                    |
