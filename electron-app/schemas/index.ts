@@ -272,7 +272,7 @@ export const FinancialServiceSchema = z.object({
     "OMT_APP",
     "BINANCE",
   ]),
-  serviceType: z.enum(["SEND", "RECEIVE"]),
+  serviceType: z.enum(["SEND", "RECEIVE", "BILL"]),
   amount: z.number().nonnegative(),
   currency: z.string().optional(),
   commission: z.number().nonnegative().optional().default(0),
