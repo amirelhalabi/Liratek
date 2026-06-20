@@ -695,7 +695,7 @@ export interface ElectronAPI {
         | "Katsh"
         | "WHISH_APP"
         | "OMT_APP";
-      serviceType: "SEND" | "RECEIVE";
+      serviceType: "SEND" | "RECEIVE" | "BILL";
       amountUSD: number;
       amountLBP: number;
       commissionUSD: number;

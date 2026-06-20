@@ -106,7 +106,7 @@ export interface CreateFinancialServiceData {
     | "WHISH_APP"
     | "OMT_APP"
     | "BINANCE";
-  serviceType: "SEND" | "RECEIVE";
+  serviceType: "SEND" | "RECEIVE" | "BILL";
   amount: number;
   currency?: string;
   commission: number;
@@ -1680,21 +1680,36 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           // SALE_COST and TOP_UP both increase what the shop owes the supplier (positive
           // amount). The distinct label lets the Settle tab surface real sale costs while
           // keeping balance math identical (every balance sum treats both the same).
-          const isReceive = data.serviceType === "RECEIVE";
-          const entryType: "PAYMENT" | "SALE_COST" | "TOP_UP" = isReceive
-            ? "PAYMENT"
-            : useCostPriceFlow
-              ? "SALE_COST"
-              : "TOP_UP";
-          if (!skipSecondarySupplierLedger) {
-            supplierRepo.addLedgerEntry({
-              supplier_id: supplier.id,
-              entry_type: entryType,
-              amount_usd: currency === "USD" ? ledgerAmount : 0,
-              amount_lbp: currency === "LBP" ? ledgerAmount : 0,
-              note: `Auto: ${data.serviceType} via ${data.provider}${data.itemKey ? ` [${data.itemKey}]` : ""}`,
-              created_by: createdBy,
-            });
+          if (data.serviceType === "BILL") {
+            // Bill commission: 20,000 LBP fixed, supplier owes shop (negative = credit to us).
+            // No SALE_COST — the provider drawer debit already accounts for the bill amount.
+            if (!skipSecondarySupplierLedger) {
+              supplierRepo.addLedgerEntry({
+                supplier_id: supplier.id,
+                entry_type: "SUPPLIER_PAYS_US",
+                amount_usd: 0,
+                amount_lbp: -20000,
+                note: `Auto: BILL commission from ${data.provider}`,
+                created_by: createdBy,
+              });
+            }
+          } else {
+            const isReceive = data.serviceType === "RECEIVE";
+            const entryType: "PAYMENT" | "SALE_COST" | "TOP_UP" = isReceive
+              ? "PAYMENT"
+              : useCostPriceFlow
+                ? "SALE_COST"
+                : "TOP_UP";
+            if (!skipSecondarySupplierLedger) {
+              supplierRepo.addLedgerEntry({
+                supplier_id: supplier.id,
+                entry_type: entryType,
+                amount_usd: currency === "USD" ? ledgerAmount : 0,
+                amount_lbp: currency === "LBP" ? ledgerAmount : 0,
+                note: `Auto: ${data.serviceType} via ${data.provider}${data.itemKey ? ` [${data.itemKey}]` : ""}`,
+                created_by: createdBy,
+              });
+            }
           }
         }
       } catch {

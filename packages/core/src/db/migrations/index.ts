@@ -4307,6 +4307,98 @@ export const MIGRATIONS: Migration[] = [
       console.log("Migration v105 rolled back: WHISH_APP relabeled to WISH_APP");
     },
   },
+  {
+    version: 106,
+    name: "add_bill_to_financial_service_type",
+    description:
+      "Add BILL to financial_services.service_type CHECK constraint for iPick/Katsh bill processing. Recreates financial_services (post-v105: provider data is already 'WHISH_APP', so the rebuilt CHECK uses the corrected spelling).",
+    type: "typescript",
+    up(db) {
+      db.exec(`
+        CREATE TABLE financial_services_v106 (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          provider TEXT CHECK(provider IN ('OMT', 'WHISH', 'BOB', 'OTHER', 'iPick', 'Katsh', 'WHISH_APP', 'OMT_APP', 'BINANCE')) NOT NULL,
+          service_type TEXT CHECK(service_type IN ('SEND', 'RECEIVE', 'BILL')) NOT NULL,
+          amount DECIMAL(10, 2) NOT NULL,
+          currency TEXT DEFAULT 'USD' NOT NULL,
+          commission DECIMAL(10, 2) DEFAULT 0,
+          cost DECIMAL(10, 2) DEFAULT 0,
+          price DECIMAL(10, 2) DEFAULT 0,
+          paid_by TEXT DEFAULT 'CASH',
+          paid_amount REAL DEFAULT NULL,
+          paid_currency TEXT DEFAULT NULL,
+          client_id INTEGER REFERENCES clients(id),
+          client_name TEXT,
+          reference_number TEXT,
+          phone_number TEXT,
+          omt_service_type TEXT CHECK(omt_service_type IN ('INTRA', 'WESTERN_UNION', 'CASH_TO_BUSINESS', 'CASH_TO_GOV', 'OMT_WALLET', 'OMT_CARD', 'OGERO_MECANIQUE', 'ONLINE_BROKERAGE')),
+          omt_fee DECIMAL(10, 2) DEFAULT 0,
+          whish_fee DECIMAL(10, 2) DEFAULT 0,
+          profit_rate DECIMAL(6, 5) DEFAULT NULL,
+          pay_fee INTEGER DEFAULT 0,
+          payment_method_fee DECIMAL(10, 2) DEFAULT 0,
+          payment_method_fee_rate DECIMAL(6, 5) DEFAULT NULL,
+          item_key TEXT,
+          note TEXT,
+          sender_name TEXT,
+          sender_phone TEXT,
+          receiver_name TEXT,
+          receiver_phone TEXT,
+          sender_client_id INTEGER REFERENCES clients(id),
+          receiver_client_id INTEGER REFERENCES clients(id),
+          is_settled INTEGER NOT NULL DEFAULT 1,
+          settled_at TEXT,
+          settlement_id INTEGER,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          created_by INTEGER,
+          edited_by TEXT DEFAULT NULL,
+          edited_at TEXT DEFAULT NULL,
+          is_refunded INTEGER DEFAULT 0,
+          refunded_at TEXT DEFAULT NULL,
+          partner_id INTEGER REFERENCES partners(id),
+          partner_mode TEXT CHECK(partner_mode IN ('THROUGH', 'FOR'))
+        );
+      `);
+
+      db.exec(`
+        INSERT INTO financial_services_v106
+        SELECT
+          id, provider, service_type, amount, currency, commission, cost, price,
+          paid_by, paid_amount, paid_currency, client_id, client_name, reference_number,
+          phone_number, omt_service_type, omt_fee, whish_fee, profit_rate, pay_fee,
+          payment_method_fee, payment_method_fee_rate, item_key, note,
+          sender_name, sender_phone, receiver_name, receiver_phone,
+          sender_client_id, receiver_client_id, is_settled, settled_at, settlement_id,
+          created_at, created_by, edited_by, edited_at, is_refunded, refunded_at,
+          partner_id, partner_mode
+        FROM financial_services;
+      `);
+
+      db.exec(`
+        DROP TABLE financial_services;
+        ALTER TABLE financial_services_v106 RENAME TO financial_services;
+      `);
+
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_financial_services_is_settled ON financial_services(is_settled);
+        CREATE INDEX IF NOT EXISTS idx_financial_services_provider_settled ON financial_services(provider, is_settled);
+        CREATE INDEX IF NOT EXISTS idx_financial_services_provider_type_created_at ON financial_services(provider, service_type, created_at);
+        CREATE INDEX IF NOT EXISTS idx_financial_services_created_at ON financial_services(created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_financial_services_paid_by ON financial_services(paid_by);
+        CREATE INDEX IF NOT EXISTS idx_financial_services_client_id ON financial_services(client_id);
+      `);
+
+      console.log(
+        "Migration v106: Added BILL to financial_services.service_type CHECK",
+      );
+    },
+    down(db) {
+      db.exec(`DELETE FROM financial_services WHERE service_type = 'BILL';`);
+      console.log(
+        "Migration v106 rolled back (BILL rows removed; CHECK not downgraded — SQLite limitation)",
+      );
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

@@ -457,7 +457,7 @@ CREATE TABLE IF NOT EXISTS exchange_transactions (
 CREATE TABLE IF NOT EXISTS financial_services (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     provider TEXT CHECK(provider IN ('OMT', 'WHISH', 'BOB', 'OTHER', 'iPick', 'Katsh', 'WHISH_APP', 'OMT_APP', 'BINANCE')) NOT NULL,
-    service_type TEXT CHECK(service_type IN ('SEND', 'RECEIVE')) NOT NULL,
+    service_type TEXT CHECK(service_type IN ('SEND', 'RECEIVE', 'BILL')) NOT NULL,
     amount DECIMAL(10, 2) NOT NULL,
     currency TEXT DEFAULT 'USD' NOT NULL,
     commission DECIMAL(10, 2) DEFAULT 0,
@@ -1236,4 +1236,5 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (102, 'remove_secondary_system_supplier_ledger_pollution'),
     (103, 'add_supplier_pays_us_entry_type'),
     (104, 'add_updated_at_to_sales'),
-    (105, 'rename_wish_app_to_whish_app');
+    (105, 'rename_wish_app_to_whish_app'),
+    (106, 'add_bill_to_financial_service_type');

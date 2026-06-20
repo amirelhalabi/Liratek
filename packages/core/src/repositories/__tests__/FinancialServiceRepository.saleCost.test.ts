@@ -168,11 +168,11 @@ function createTestDb(): Database.Database {
       created_at   DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
-    -- supplier_ledger WITH the post-v99 CHECK that includes SALE_COST
+    -- supplier_ledger WITH the post-v103 CHECK (SALE_COST + SUPPLIER_PAYS_US)
     CREATE TABLE supplier_ledger (
       id            INTEGER PRIMARY KEY AUTOINCREMENT,
       supplier_id   INTEGER NOT NULL,
-      entry_type    TEXT NOT NULL CHECK(entry_type IN ('TOP_UP','SALE_COST','PAYMENT','ADJUSTMENT','SETTLEMENT','CASH_PRIZE')),
+      entry_type    TEXT NOT NULL CHECK(entry_type IN ('TOP_UP','SALE_COST','PAYMENT','ADJUSTMENT','SETTLEMENT','CASH_PRIZE','SUPPLIER_PAYS_US')),
       amount_usd    REAL NOT NULL DEFAULT 0,
       amount_lbp    REAL NOT NULL DEFAULT 0,
       note          TEXT,
@@ -544,5 +544,83 @@ describe("Sale-cost reconciliation paths (LIRA-061)", () => {
 
     expect(balanceUsd(db, supplierId)).toBeCloseTo(0, 4);
     expect(repo.getUnsettledBySupplier("Katsh")).toHaveLength(0);
+  });
+});
+
+// ─── BILL commission path (LIRA-062) ─────────────────────────────────────────
+//
+// A Katsh / iPick BILL books a FIXED 20,000-LBP commission the supplier owes the
+// shop, as a SUPPLIER_PAYS_US ledger entry (negative amount = credit to us). It
+// must NOT book the usual SALE_COST/TOP_UP even though cost/price are supplied
+// (the provider-drawer movement already accounts for the bill amount).
+describe("FinancialServiceRepository — BILL books SUPPLIER_PAYS_US commission (LIRA-062)", () => {
+  let db: Database.Database;
+  let repo: FinancialServiceRepository;
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { setDb } = require("../../db/connection");
+
+  beforeEach(() => {
+    db = createTestDb();
+    setDb(db);
+    repo = new FinancialServiceRepository();
+    mockAddCredit.mockClear();
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  it("Katsh BILL writes exactly one SUPPLIER_PAYS_US entry of -20,000 LBP (no SALE_COST)", () => {
+    const supplierId = seedSupplier(db, "Katsh");
+
+    repo.createTransaction({
+      provider: "Katsh",
+      serviceType: "BILL",
+      amount: 50_000,
+      currency: "LBP",
+      commission: 0,
+      cost: 50_000,
+      price: 50_000,
+      paidByMethod: "CASH",
+    });
+
+    // financial_services row is stamped BILL
+    const fs = db
+      .prepare(
+        "SELECT service_type FROM financial_services WHERE provider = 'Katsh' ORDER BY id DESC LIMIT 1",
+      )
+      .get() as { service_type: string };
+    expect(fs.service_type).toBe("BILL");
+
+    // The BILL books ONE supplier-ledger entry, and it's the fixed commission.
+    const rows = ledgerRows(db, supplierId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].entry_type).toBe("SUPPLIER_PAYS_US");
+    expect(rows[0].amount_lbp).toBe(-20_000);
+    expect(rows[0].amount_usd).toBe(0);
+    // Never the cost/price SALE_COST or a manual TOP_UP.
+    expect(rows.map((r) => r.entry_type)).not.toContain("SALE_COST");
+    expect(rows.map((r) => r.entry_type)).not.toContain("TOP_UP");
+  });
+
+  it("iPick BILL books the same -20,000 LBP SUPPLIER_PAYS_US commission", () => {
+    const supplierId = seedSupplier(db, "iPick");
+
+    repo.createTransaction({
+      provider: "iPick",
+      serviceType: "BILL",
+      amount: 50_000,
+      currency: "LBP",
+      commission: 0,
+      cost: 50_000,
+      price: 50_000,
+      paidByMethod: "CASH",
+    });
+
+    const rows = ledgerRows(db, supplierId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].entry_type).toBe("SUPPLIER_PAYS_US");
+    expect(rows[0].amount_lbp).toBe(-20_000);
+    expect(rows[0].amount_usd).toBe(0);
   });
 });
