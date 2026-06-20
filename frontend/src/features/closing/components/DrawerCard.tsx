@@ -19,6 +19,7 @@ import {
   TrendingDown,
   RotateCcw,
 } from "lucide-react";
+import { DecimalInput } from "@liratek/ui";
 import type { DrawerType, Currency } from "../types";
 import { DRAWER_CONFIGS } from "../config/drawers";
 import {
@@ -26,15 +27,6 @@ import {
   formatCurrencyAmount,
   type VarianceStatus,
 } from "../utils/variance";
-
-/** Format a numeric string with thousand-separator commas, preserving decimals */
-function formatWithCommas(value: string | number): string {
-  const str = typeof value === "number" ? String(value) : value;
-  if (!str || str === "-") return str || "0";
-  const parts = str.split(".");
-  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  return parts.join(".");
-}
 
 /** Static class maps so Tailwind keeps the status colours during purge. */
 const STATUS_STYLES: Record<
@@ -92,42 +84,6 @@ export function DrawerCard({
   const [showTooltip, setShowTooltip] = useState(false);
   const tooltipTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // While a field is being edited we keep the raw typed string so in-progress
-  // decimals (e.g. "4." or "4.50") survive the numeric round-trip in the parent.
-  // On blur the entry is cleared and the input falls back to the canonical value.
-  const [editing, setEditing] = useState<Record<string, string>>({});
-
-  const inputValue = (fieldKey: string, rawValue: string): string => {
-    if (editing[fieldKey] !== undefined)
-      return formatWithCommas(editing[fieldKey]);
-    // Render zero/blank as an empty field so the "0" placeholder shows instead
-    // of a deletable typed "0". Typing still works via the editing state above.
-    if (!rawValue || rawValue === "0") return "";
-    return formatWithCommas(rawValue);
-  };
-
-  const handleInputChange = (
-    fieldKey: string,
-    code: string,
-    nextValue: string,
-  ) => {
-    // Strip commas so the underlying value stays numeric
-    const cleaned = nextValue.replace(/,/g, "");
-    // Allow empty, negative sign, digits, and one decimal point
-    if (/^-?[0-9]*\.?[0-9]*$/.test(cleaned)) {
-      setEditing((prev) => ({ ...prev, [fieldKey]: cleaned }));
-      onAmountChange(drawer, code, cleaned);
-    }
-  };
-
-  const handleInputBlur = (fieldKey: string) => {
-    setEditing((prev) => {
-      const next = { ...prev };
-      delete next[fieldKey];
-      return next;
-    });
-  };
-
   const getIcon = () => {
     switch (config.icon) {
       case "wallet":
@@ -170,18 +126,15 @@ export function DrawerCard({
           >
             {currency.code}
           </label>
-          <input
+          <DecimalInput
             id={fieldKey}
-            type="text"
-            inputMode="decimal"
-            value={inputValue(fieldKey, rawValue)}
-            onChange={(e) =>
-              handleInputChange(fieldKey, currency.code, e.target.value)
+            value={parseFloat(rawValue) || 0}
+            onChange={(n) =>
+              onAmountChange(drawer, currency.code, n ? String(n) : "")
             }
-            onBlur={() => handleInputBlur(fieldKey)}
-            placeholder="0"
-            autoComplete="off"
+            allowNegative
             disabled={disabled}
+            placeholder="0"
             className={`flex-1 min-w-0 bg-slate-900 border-2 ${borderClass} rounded-lg px-4 ${
               size === "lg" ? "py-2.5 text-lg" : "py-2"
             } text-white font-mono placeholder-slate-500 focus:outline-none focus:ring-2 ${ringClass} transition cursor-text disabled:opacity-50 disabled:cursor-not-allowed`}

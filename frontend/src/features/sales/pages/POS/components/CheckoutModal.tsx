@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import logger from "@/utils/logger";
 import { X, User, Printer, Inbox, Pencil, Minus } from "lucide-react";
-import { NumInput, roundLBPUp, useApi, appEvents } from "@liratek/ui";
+import { DecimalInput, roundLBPUp, useApi, appEvents } from "@liratek/ui";
 import { useDynamicExchangeRate } from "@/hooks/useDynamicExchangeRate";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useShopInfo } from "@/hooks/useShopName";
@@ -117,7 +117,7 @@ const printReceiptContent = async (content: string, targetPrinter?: string) => {
   }
 };
 
-/** Extracted component to avoid IIFE remount issues with NumInput state */
+/** Extracted component to avoid IIFE remount issues with DecimalInput state */
 type PaymentCurrencyCode = "USD" | "LBP";
 type PaymentLine = {
   id: string;
@@ -167,7 +167,7 @@ function SimplePaymentFields({
         <div>
           <div className="flex items-center bg-slate-900 border border-slate-700 rounded-xl p-1 focus-within:ring-2 focus-within:ring-violet-600 transition-all h-[52px]">
             <span className="pl-3 text-slate-400 text-sm shrink-0">$</span>
-            <NumInput
+            <DecimalInput
               value={usdLine?.amount || 0}
               onChange={(v) => updateSimpleLine("USD", v)}
               className="bg-transparent border-none text-white w-full px-3 focus:outline-none font-mono"
@@ -177,7 +177,7 @@ function SimplePaymentFields({
         </div>
         <div>
           <div className="flex items-center bg-slate-900 border border-slate-700 rounded-xl p-1 focus-within:ring-2 focus-within:ring-violet-600 transition-all h-[52px]">
-            <NumInput
+            <DecimalInput
               value={lbpLine?.amount || 0}
               onChange={(v) => updateSimpleLine("LBP", v)}
               className="bg-transparent border-none text-white w-full px-4 focus:outline-none font-mono"
@@ -1050,7 +1050,7 @@ export default function CheckoutModal({
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs">
                       {isLbpTotal ? "LBP" : "$"}
                     </span>
-                    <NumInput
+                    <DecimalInput
                       value={discount}
                       onChange={(v) => setDiscount(v)}
                       className={`w-full bg-slate-800 border border-slate-700 rounded-xl ${isLbpTotal ? "pl-10" : "pl-7"} pr-3 py-2 text-white font-mono focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500/30 text-right`}
@@ -1084,7 +1084,7 @@ export default function CheckoutModal({
               <div className="flex items-center gap-4">
                 <div className="flex items-center gap-2">
                   <label className="text-xs text-slate-500">1 USD =</label>
-                  <NumInput
+                  <DecimalInput
                     value={parseFloat(customExchangeRate) || 0}
                     onChange={(v) =>
                       setCustomExchangeRate(v ? v.toString() : "")
@@ -1222,7 +1222,7 @@ export default function CheckoutModal({
                             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs">
                               {line.currency_code === "USD" ? "$" : "LBP"}
                             </span>
-                            <NumInput
+                            <DecimalInput
                               key={`line-${line.id}`}
                               value={line.amount}
                               onChange={(v) =>
@@ -1355,7 +1355,7 @@ export default function CheckoutModal({
                             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">
                               $
                             </span>
-                            <NumInput
+                            <DecimalInput
                               value={changeGivenUSD}
                               onChange={(v) => {
                                 setChangeGivenUSD(v);
@@ -1382,7 +1382,7 @@ export default function CheckoutModal({
                             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs">
                               LBP
                             </span>
-                            <NumInput
+                            <DecimalInput
                               value={changeGivenLBP}
                               onChange={(v) => setChangeGivenLBP(v)}
                               className="w-full bg-slate-900 border border-slate-600 rounded-lg pl-3 pr-10 py-2 text-white focus:outline-none focus:border-violet-500"

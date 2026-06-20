@@ -18,10 +18,7 @@ import {
   FolderPlus,
 } from "lucide-react";
 import type { MobileServiceItem } from "@/types/electron";
-import {
-  formatWithCommas,
-  isPartialDecimal,
-} from "@/shared/utils/formatWithCommas";
+import { DecimalInput } from "@liratek/ui";
 import { parseCatalogToSeedData } from "@/features/recharge/utils/parseCatalogToSeedData";
 
 const PROVIDERS = ["iPick", "Katsh", "WHISH_APP", "OMT_APP", "VOUCHER"] as const;
@@ -496,16 +493,14 @@ export default function MobileServicesManager() {
               <label className="text-slate-400 text-xs block mb-1">
                 Cost (LBP)
               </label>
-              <input
-                type="text"
-                inputMode="decimal"
-                autoComplete="off"
-                value={formatWithCommas(newItemForm.cost_lbp)}
-                onChange={(e) => {
-                  const cleaned = e.target.value.replace(/,/g, "");
-                  if (isPartialDecimal(cleaned))
-                    setNewItemForm({ ...newItemForm, cost_lbp: cleaned });
-                }}
+              <DecimalInput
+                value={parseFloat(newItemForm.cost_lbp) || 0}
+                onChange={(n) =>
+                  setNewItemForm({
+                    ...newItemForm,
+                    cost_lbp: n ? String(n) : "",
+                  })
+                }
                 className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm focus:outline-none focus:border-violet-500"
               />
             </div>
@@ -513,16 +508,14 @@ export default function MobileServicesManager() {
               <label className="text-slate-400 text-xs block mb-1">
                 Sell (LBP)
               </label>
-              <input
-                type="text"
-                inputMode="decimal"
-                autoComplete="off"
-                value={formatWithCommas(newItemForm.sell_lbp)}
-                onChange={(e) => {
-                  const cleaned = e.target.value.replace(/,/g, "");
-                  if (isPartialDecimal(cleaned))
-                    setNewItemForm({ ...newItemForm, sell_lbp: cleaned });
-                }}
+              <DecimalInput
+                value={parseFloat(newItemForm.sell_lbp) || 0}
+                onChange={(n) =>
+                  setNewItemForm({
+                    ...newItemForm,
+                    sell_lbp: n ? String(n) : "",
+                  })
+                }
                 className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm focus:outline-none focus:border-violet-500"
               />
             </div>
@@ -866,16 +859,14 @@ export default function MobileServicesManager() {
                                                 <span className="text-xs text-slate-500">
                                                   C:
                                                 </span>
-                                                <input
-                                                  type="text"
-                                                  inputMode="decimal"
-                                                  autoComplete="off"
-                                                  value={formatWithCommas(editing.cost_lbp)}
-                                                  onChange={(e) => {
-                                                    const cleaned = e.target.value.replace(/,/g, "");
-                                                    if (isPartialDecimal(cleaned))
-                                                      setEditing({ ...editing, cost_lbp: cleaned });
-                                                  }}
+                                                <DecimalInput
+                                                  value={parseFloat(editing.cost_lbp) || 0}
+                                                  onChange={(n) =>
+                                                    setEditing({
+                                                      ...editing,
+                                                      cost_lbp: n ? String(n) : "",
+                                                    })
+                                                  }
                                                   onKeyDown={(e) => {
                                                     if (e.key === "Enter")
                                                       handleSaveEdit();
@@ -889,16 +880,14 @@ export default function MobileServicesManager() {
                                                 <span className="text-xs text-slate-500">
                                                   S:
                                                 </span>
-                                                <input
-                                                  type="text"
-                                                  inputMode="decimal"
-                                                  autoComplete="off"
-                                                  value={formatWithCommas(editing.sell_lbp)}
-                                                  onChange={(e) => {
-                                                    const cleaned = e.target.value.replace(/,/g, "");
-                                                    if (isPartialDecimal(cleaned))
-                                                      setEditing({ ...editing, sell_lbp: cleaned });
-                                                  }}
+                                                <DecimalInput
+                                                  value={parseFloat(editing.sell_lbp) || 0}
+                                                  onChange={(n) =>
+                                                    setEditing({
+                                                      ...editing,
+                                                      sell_lbp: n ? String(n) : "",
+                                                    })
+                                                  }
                                                   onKeyDown={(e) => {
                                                     if (e.key === "Enter")
                                                       handleSaveEdit();

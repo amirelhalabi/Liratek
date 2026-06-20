@@ -1,10 +1,6 @@
 import { useEffect, useState } from "react";
 import { User, Hash, Phone, ChevronDown } from "lucide-react";
-import {
-  formatWithCommas,
-  isPartialDecimal,
-} from "@/shared/utils/formatWithCommas";
-import { ServiceTypeTabs, type PaymentLine } from "@liratek/ui";
+import { ServiceTypeTabs, DecimalInput, type PaymentLine } from "@liratek/ui";
 import { PaymentSheet } from "./PaymentSheet";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import type {
@@ -148,16 +144,10 @@ export function CryptoForm({
           Amount (USDT)
         </label>
         <div className="relative">
-          <input
+          <DecimalInput
             id="crypto-amount"
-            type="text"
-            inputMode="decimal"
-            autoComplete="off"
-            value={formatWithCommas(cryptoAmount)}
-            onChange={(e) => {
-              const cleaned = e.target.value.replace(/,/g, "");
-              if (isPartialDecimal(cleaned)) setCryptoAmount(cleaned);
-            }}
+            value={parseFloat(cryptoAmount) || 0}
+            onChange={(n) => setCryptoAmount(n ? String(n) : "")}
             className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-4 pr-16 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500 transition-all"
             placeholder="0.00"
           />
@@ -184,20 +174,12 @@ export function CryptoForm({
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
               $
             </span>
-            <input
+            <DecimalInput
               id="crypto-fee"
-              type="text"
-              inputMode="decimal"
-              autoComplete="off"
-              value={formatWithCommas(cryptoFee)}
-              onChange={(e) => {
-                const cleaned = e.target.value.replace(/,/g, "");
-                if (isPartialDecimal(cleaned)) setCryptoFee(cleaned);
-              }}
+              value={parseFloat(cryptoFee) || 0}
+              onChange={(n) => setCryptoFee(n ? String(n) : "")}
               className="w-full bg-slate-800 border border-slate-600 rounded-lg pl-8 pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500 transition-all"
               placeholder="0.00"
-              min="0"
-              step="0.01"
             />
           </div>
         </div>

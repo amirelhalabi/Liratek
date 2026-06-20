@@ -1,10 +1,6 @@
 import { useState, useEffect, memo } from "react";
 import { User, Phone } from "lucide-react";
-import {
-  formatWithCommas,
-  isPartialDecimal,
-} from "@/shared/utils/formatWithCommas";
-import { useApi, ServiceTypeTabs } from "@liratek/ui";
+import { useApi, ServiceTypeTabs, DecimalInput } from "@liratek/ui";
 import { PaymentSheet } from "./PaymentSheet";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import type { FinancialTransaction } from "../types";
@@ -360,16 +356,10 @@ function OmtWhishAppTransferFormInner({
               $
             </span>
           )}
-          <input
+          <DecimalInput
             id="transfer-amount"
-            type="text"
-            inputMode="decimal"
-            autoComplete="off"
-            value={formatWithCommas(amount)}
-            onChange={(e) => {
-              const cleaned = e.target.value.replace(/,/g, "");
-              if (isPartialDecimal(cleaned)) setAmount(cleaned);
-            }}
+            value={parseFloat(amount) || 0}
+            onChange={(n) => setAmount(n ? String(n) : "")}
             className={`w-full bg-slate-900 border border-slate-700 rounded-lg ${currency === "USD" ? "pl-8" : "pl-4"} pr-14 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all`}
             placeholder={currency === "LBP" ? "0" : "0.00"}
           />
@@ -403,16 +393,10 @@ function OmtWhishAppTransferFormInner({
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
                   $
                 </span>
-                <input
+                <DecimalInput
                   id="transfer-fee"
-                  type="text"
-                  inputMode="decimal"
-                  autoComplete="off"
-                  value={formatWithCommas(manualFee)}
-                  onChange={(e) => {
-                    const cleaned = e.target.value.replace(/,/g, "");
-                    if (isPartialDecimal(cleaned)) setManualFee(cleaned);
-                  }}
+                  value={parseFloat(manualFee) || 0}
+                  onChange={(n) => setManualFee(n ? String(n) : "")}
                   className="w-full bg-slate-800 border border-slate-600 rounded-lg pl-8 pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
                   placeholder={
                     autoFee > 0 ? autoFee.toFixed(2) + " (auto)" : "0.00"
