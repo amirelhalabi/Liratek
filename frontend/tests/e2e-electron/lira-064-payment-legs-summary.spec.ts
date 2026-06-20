@@ -135,11 +135,16 @@ test.describe("LIRA-064 — structured in/out payment legs in summary", () => {
     // ── Frontend assertion: legs rendered, appended, with currency ───────────
     await navigateTo(appPage, "/audit");
 
-    const firstRow = appPage.locator("tbody tr").first();
-    await expect(firstRow).toBeVisible({ timeout: 10_000 });
-
-    // The dedicated structured-legs element is present and shows an "in:" leg.
-    const legsCell = firstRow.locator('[data-testid="payment-legs"]');
+    // Find a row whose structured-legs cell shows an "in:" leg (the recharge
+    // produces one). NOT tbody tr.first(): over the shared worker DB a newer row
+    // — e.g. a supplier-payment "out:" leg from an earlier spec — can sit on top,
+    // so the first row is not necessarily the one carrying the in-leg under test.
+    // This validates the LIRA-064 rendering (an "in:" leg with a currency marker)
+    // independent of which transaction happens to be newest.
+    const legsCell = appPage
+      .locator('tbody tr [data-testid="payment-legs"]')
+      .filter({ hasText: "in:" })
+      .first();
     await expect(legsCell).toBeVisible({ timeout: 10_000 });
     await expect(legsCell).toContainText(/in:/);
     // A currency marker must appear ($ for USD, or an "LBP" suffix).
