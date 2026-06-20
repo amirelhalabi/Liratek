@@ -755,7 +755,7 @@ Creating a **sale** through a cost/price provider (Katsh observed; same path for
 | **Epic**             | Bills / Recharge                                   |
 | **Type**             | Feature                                            |
 | **Priority**         | Medium                                             |
-| **Status**           | TODO (unblocked — LIRA-061 done)                   |
+| **Status**           | DONE                                               |
 | **Affected Modules** | Recharge > iPick, Katsh; Suppliers                 |
 | **Assigned To**      | —                                                  |
 | **Depends On**       | LIRA-061                                            |
@@ -885,7 +885,7 @@ Beyond the directional arrow badges (LIRA-054), surface the actual **payment leg
 | LIRA-059 | Suppliers — balance, pay-back, Companies/Products tabs | High | DONE            |
 | LIRA-060 | Services — Hold Money                           | Medium   | TODO                |
 | LIRA-061 | BUG — sales mislabeled as TOP_UP, not settleable | High   | DONE                |
-| LIRA-062 | iPick/Katsh — Bills section                    | Medium   | TODO (unblocked)    |
+| LIRA-062 | iPick/Katsh — Bills section                    | Medium   | DONE                |
 | LIRA-063 | Whish/OMT App — optional name/phone            | Low      | DONE                |
 | LIRA-064 | Transactions — structured in/out breakdown     | Medium   | DONE                |
 
