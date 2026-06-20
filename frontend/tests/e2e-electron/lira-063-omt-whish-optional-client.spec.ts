@@ -423,7 +423,7 @@ async function readNewestOmtAppSend(appPage: Page): Promise<string> {
           };
         };
       }
-    ).api.transactions.getRecent(5, {});
+    ).api.transactions.getRecent(20, {});
     const list = (
       Array.isArray(res)
         ? res
@@ -433,22 +433,47 @@ async function readNewestOmtAppSend(appPage: Page): Promise<string> {
       metadata_json?: string | null;
       client_id?: number | null;
     }>;
-    const newest = list[0];
-    if (!newest) return "none";
-    let provider = "";
-    let serviceType = "";
-    try {
-      const meta = JSON.parse(newest.metadata_json ?? "{}") as {
-        provider?: string;
-        service_type?: string;
-      };
-      provider = meta.provider ?? "";
-      serviceType = meta.service_type ?? "";
-    } catch {
-      /* ignore malformed metadata */
-    }
-    return `${newest.type ?? ""}|${provider}|${serviceType}|${
-      newest.client_id ?? "null"
-    }`;
+    const fingerprint = (row: {
+      type?: string;
+      metadata_json?: string | null;
+      client_id?: number | null;
+    }) => {
+      let provider = "";
+      let serviceType = "";
+      try {
+        const meta = JSON.parse(row.metadata_json ?? "{}") as {
+          provider?: string;
+          service_type?: string;
+        };
+        provider = meta.provider ?? "";
+        serviceType = meta.service_type ?? "";
+      } catch {
+        /* ignore malformed metadata */
+      }
+      return `${row.type ?? ""}|${provider}|${serviceType}|${
+        row.client_id ?? "null"
+      }`;
+    };
+    // A SUCCESSFUL OMT App SEND writes TWO rows in one DB transaction: the
+    // FINANCIAL_SERVICE row AND a sibling SUPPLIER_PAYMENT (auto TOP_UP against the
+    // seeded OMT_APP supplier). Their created_at can tie or differ by a wall-clock
+    // second, so the unfiltered global-newest [0] is ambiguous (the SUPPLIER_PAYMENT
+    // can win). Target the SEND's own FINANCIAL_SERVICE/OMT_APP/SEND row; fall back
+    // to the newest so a genuine non-commit still fails with a diagnostic value.
+    const target =
+      list.find((r) => {
+        if (r.type !== "FINANCIAL_SERVICE") return false;
+        try {
+          const m = JSON.parse(r.metadata_json ?? "{}") as {
+            provider?: string;
+            service_type?: string;
+          };
+          return m.provider === "OMT_APP" && m.service_type === "SEND";
+        } catch {
+          return false;
+        }
+      }) ?? list[0];
+    if (!target) return "none";
+    return fingerprint(target);
   });
 }
