@@ -119,7 +119,7 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
       { label: "Debt Repayment",      type: "DEBT_REPAYMENT"      },
       { label: "Supplier Payment",    type: "SUPPLIER_PAYMENT"    },
       { label: "Supplier Settlement", type: "SUPPLIER_SETTLEMENT" },
-      { label: "Closing",             type: "CHECKPOINT"          },
+      { label: "Checkpoint",           type: "CHECKPOINT"          },
       { label: "Refund",              type: "REFUND"              },
       { label: "Client Created",      type: "CLIENT_CREATED"      },
       { label: "Client Updated",      type: "CLIENT_UPDATED"      },

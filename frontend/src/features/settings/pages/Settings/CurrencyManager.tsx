@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import {
   Check,
   ChevronDown,
@@ -216,6 +217,7 @@ function ExchangeRatesSection() {
   const [loading, setLoading] = useState(false);
   const [editingRow, setEditingRow] = useState<RateRow | null>(null);
   const [isAdding, setIsAdding] = useState(false);
+  useModalFocusFix(!!(editingRow || isAdding));
   const [editForm, setEditForm] = useState<RateFormData>(defaultRateForm);
 
   const load = useCallback(async () => {

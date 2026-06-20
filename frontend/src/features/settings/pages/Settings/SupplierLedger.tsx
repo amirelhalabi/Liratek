@@ -6,6 +6,7 @@ import {
   DecimalInput,
   type PaymentLine,
 } from "@liratek/ui";
+import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { getExchangeRates } from "@/utils/exchangeRates";
 import { useShopBase } from "@/hooks/useShopBase";
@@ -117,6 +118,7 @@ export default function SupplierLedger() {
   const [settleNote, setSettleNote] = useState("");
   const [settleDrawer] = useState("General");
   const [showSettleConfirm, setShowSettleConfirm] = useState(false);
+  useModalFocusFix(showSettleConfirm);
   const [settling, setSettling] = useState(false);
   const [settlePaymentLines, setSettlePaymentLines] = useState<PaymentLine[]>(
     [],

@@ -128,19 +128,24 @@ test.describe.serial("CheckoutModal", () => {
     await expect(checkoutPO.completeBtn).toBeVisible({ timeout: 5000 });
     await checkoutPO.complete();
 
-    // Verify debt was created for this client
-    const debtorExists = await appPage
-      .evaluate(
-        (cId) =>
-          window.api.debt
-            .getDebtors()
-            .then((debtors) => debtors.some((d) => d.id === cId))
-            .catch(() => false),
-        clientId,
+    // Verify debt was created for this client. Completing the sale is an async
+    // IPC round-trip (process sale → write debt_ledger), so poll until the
+    // debtor row is queryable instead of reading once — a single immediate read
+    // can race the commit and flake.
+    await expect
+      .poll(
+        () =>
+          appPage.evaluate(
+            (cId) =>
+              window.api.debt
+                .getDebtors()
+                .then((debtors) => debtors.some((d) => d.id === cId))
+                .catch(() => false),
+            clientId,
+          ),
+        { timeout: 5000 },
       )
-      .catch(() => false);
-
-    expect(debtorExists).toBe(true);
+      .toBe(true);
   });
 
   // -------------------------------------------------------------------------

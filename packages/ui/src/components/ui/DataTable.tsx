@@ -1,4 +1,5 @@
 import React, { useRef, useMemo, useCallback, useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import {
   useReactTable,
   getCoreRowModel,
@@ -52,6 +53,12 @@ export interface DataTableProps<T> {
   data: T[];
   /** Render function for each visible row — must return a `<tr>` */
   renderRow: (item: T, index: number) => React.ReactNode;
+  /**
+   * Optional override used exclusively during Excel/PDF export.
+   * Return `null` to skip a row from the export entirely.
+   * When omitted, `renderRow` is used for both display and export.
+   */
+  exportRow?: (item: T, index: number) => React.ReactNode | null;
 
   // ── Select-all checkbox ──────────────────────────────────────────────
   /**
@@ -177,6 +184,7 @@ function DataTableInner<T>({
   columns: colDefs,
   data,
   renderRow,
+  exportRow,
   selectAll,
   exportExcel = false,
   exportPdf = false,
@@ -398,7 +406,8 @@ function DataTableInner<T>({
         typeof headerLabel === "string" ? headerLabel.trim().toLowerCase() : "";
       const isCheckboxCol = i === 0 && !!selectAll;
       const isActionCol = headerStr === "actions" || headerStr === "action";
-      if (isCheckboxCol || isActionCol) return;
+      const isBlankCol = headerStr === "";
+      if (isCheckboxCol || isActionCol || isBlankCol) return;
       const label = typeof headerLabel === "string" ? headerLabel.trim() : "";
       // Stable key: prefer the trimmed header text, fall back to the index for
       // columns with empty/non-string headers so they remain selectable.
@@ -453,12 +462,18 @@ function DataTableInner<T>({
   // ── Column-picker popover open/close ─────────────────────────────────
   const [pickerOpen, setPickerOpen] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const [pickerPos, setPickerPos] = useState<{ top: number; left: number } | null>(null);
 
   // Close the picker on outside-click / Escape while it is open.
   useEffect(() => {
     if (!pickerOpen) return;
     const onPointerDown = (e: MouseEvent) => {
-      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (
+        !pickerRef.current?.contains(target) &&
+        !dropdownRef.current?.contains(target)
+      ) {
         setPickerOpen(false);
       }
     };
@@ -470,6 +485,18 @@ function DataTableInner<T>({
     return () => {
       document.removeEventListener("mousedown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [pickerOpen]);
+
+  // Close picker if the page scrolls or resizes — the fixed position would be stale.
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const close = () => setPickerOpen(false);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
     };
   }, [pickerOpen]);
 
@@ -500,9 +527,10 @@ function DataTableInner<T>({
     const allRows = table.getSortedRowModel().rows;
     const rows: string[][] = [];
 
+    const rowRenderer = exportRow ?? renderRow;
     for (const row of allRows) {
       const item = row.original.__original as T;
-      const rendered = renderRow(item, row.index);
+      const rendered = rowRenderer(item, row.index);
       if (!rendered || !React.isValidElement(rendered)) continue;
 
       const cells = extractCells(rendered as React.ReactElement);
@@ -510,7 +538,7 @@ function DataTableInner<T>({
     }
 
     return { headers, rows };
-  }, [exportableColumns, selectedColumnKeys, table, renderRow, extractCells]);
+  }, [exportableColumns, selectedColumnKeys, table, renderRow, exportRow, extractCells]);
 
   const countLabel = showRowCount
     ? `Showing ${data.length} of ${totalRowCount ?? data.length} entries`
@@ -531,7 +559,17 @@ function DataTableInner<T>({
     <div className="relative" ref={pickerRef} data-testid="export-column-picker">
       <button
         type="button"
-        onClick={() => setPickerOpen((o) => !o)}
+        onClick={() => {
+          if (pickerOpen) {
+            setPickerOpen(false);
+          } else {
+            if (pickerRef.current) {
+              const rect = pickerRef.current.getBoundingClientRect();
+              setPickerPos({ top: rect.bottom + 4, left: rect.left });
+            }
+            setPickerOpen(true);
+          }
+        }}
         title="Choose export columns"
         aria-haspopup="true"
         aria-expanded={pickerOpen}
@@ -545,11 +583,13 @@ function DataTableInner<T>({
         </span>
       </button>
 
-      {pickerOpen && (
+      {pickerOpen && pickerPos && createPortal(
         <div
+          ref={dropdownRef}
           role="menu"
           data-testid="export-column-picker-menu"
-          className="absolute left-0 top-full z-30 mt-1 w-56 rounded-lg border border-slate-700 bg-slate-800 p-2 shadow-xl"
+          style={{ position: "fixed", top: pickerPos.top, left: pickerPos.left, zIndex: 9999 }}
+          className="w-56 rounded-lg border border-slate-700 bg-slate-800 p-2 shadow-xl"
         >
           <div className="px-1 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
             Export columns
@@ -590,7 +630,8 @@ function DataTableInner<T>({
               Select all
             </button>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   ) : null;

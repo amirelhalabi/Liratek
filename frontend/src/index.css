@@ -263,6 +263,7 @@ html:not(.dark) .border-l-orange-500  { border-left-color: rgb(249 115 22)   !im
 html:not(.dark) .border-l-amber-500   { border-left-color: rgb(245 158 11)   !important; }
 html:not(.dark) .border-l-yellow-500  { border-left-color: rgb(234 179 8)    !important; }
 html:not(.dark) .border-l-fuchsia-500 { border-left-color: rgb(217 70 239)   !important; }
+html:not(.dark) .border-l-cyan-500    { border-left-color: rgb(6 182 212)    !important; }
 html:not(.dark) .border-l-slate-500   { border-left-color: rgb(100 116 139)  !important; }
 
 /* Hover border color accents */
@@ -295,6 +296,32 @@ html:not(.dark) .hover\:shadow-amber-500\/20:hover   { box-shadow: 0 8px 24px -4
 html:not(.dark) .hover\:shadow-yellow-500\/20:hover  { box-shadow: 0 8px 24px -4px rgba(234, 179, 8, 0.3)    !important; }
 html:not(.dark) .hover\:shadow-fuchsia-500\/20:hover { box-shadow: 0 8px 24px -4px rgba(217, 70, 239, 0.3)   !important; }
 html:not(.dark) .hover\:shadow-slate-500\/20:hover   { box-shadow: 0 8px 24px -4px rgba(100, 116, 139, 0.15) !important; }
+
+/* === DYNAMIC SESSION ROW ACCENT (TransactionsViewer) ===
+   --session-hue is set inline on the <tr> (golden-angle hash of session_id).
+   In dark mode: bright border (62% L) + vivid tint.
+   In light mode: deeper border (42% L) + softer tint.
+   html:not(.dark) tr[data-session] has specificity (0,2,2) which beats the
+   (0,2,1) of html:not(.dark) .border-slate-800 that would otherwise reset all
+   border colours to light gray. */
+.dark tr[data-session] {
+  border-left: 4px solid hsla(var(--session-hue), 78%, 62%, 1) !important;
+  background-image: linear-gradient(
+    to right,
+    hsla(var(--session-hue), 78%, 62%, 0.20),
+    hsla(var(--session-hue), 78%, 62%, 0.06) 42%,
+    transparent 72%
+  );
+}
+html:not(.dark) tr[data-session] {
+  border-left: 4px solid hsla(var(--session-hue), 72%, 42%, 1) !important;
+  background-image: linear-gradient(
+    to right,
+    hsla(var(--session-hue), 72%, 42%, 0.15),
+    hsla(var(--session-hue), 72%, 42%, 0.05) 42%,
+    transparent 72%
+  );
+}
 
 /* === SCROLLBAR === */
 ::-webkit-scrollbar {

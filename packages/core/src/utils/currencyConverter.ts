@@ -130,27 +130,42 @@ export function convertFromUSD(
  * Calculate profit in USD for a single exchange leg.
  *
  * For is_stronger = +1 (LBP-like):
- *   profit = amount_usd_transacted × delta / market_rate
+ *   USD→LBP (fromCurrencyIsUsd=true):  profit = amountIn × halfSpread / market_rate
+ *   LBP→USD (fromCurrencyIsUsd=false): profit = amountIn × halfSpread / market_rate²
  *
  * For is_stronger = -1 (EUR-like):
- *   profit = amount_in_currency × delta
+ *   EUR→USD (fromCurrencyIsUsd=false): profit = amountIn × halfSpread
+ *   USD→EUR (fromCurrencyIsUsd=true):  profit = (amountIn / market_rate) × halfSpread
  *
- * @param amountIn  Amount in the FROM currency of this leg
- * @param currencyRate  The non-USD currency rate entry
+ * @param amountIn          Amount in the FROM currency of this leg
+ * @param currencyRate      The non-USD currency rate entry
+ * @param fromCurrencyIsUsd true when FROM currency is USD (USD→X legs), false when FROM is non-USD (X→USD legs)
  */
 export function computeLegProfitUsd(
   amountIn: number,
   currencyRate: CurrencyRate,
+  fromCurrencyIsUsd = true,
 ): number {
   const { market_rate, buy_rate, sell_rate, is_stronger } = currencyRate;
   const spread = sell_rate - buy_rate;
   if (is_stronger === 1) {
-    // LBP-like: spread is in LBP terms, convert to USD
-    const amountUsd = amountIn / market_rate;
-    return amountUsd * (spread / 2);
+    // LBP-like: spread is in LBP/USD — must convert profit to USD
+    if (fromCurrencyIsUsd) {
+      // USD → LBP: amountIn is in USD; profit in LBP = amountIn × spread/2; ÷market_rate → USD
+      return amountIn * (spread / 2) / market_rate;
+    } else {
+      // LBP → USD: amountIn is in LBP; convert to USD first, then apply spread ratio
+      return amountIn * (spread / 2) / (market_rate * market_rate);
+    }
   } else {
-    // EUR-like: spread is already in USD terms
-    return amountIn * (spread / 2);
+    // EUR-like: spread is in USD/EUR
+    if (fromCurrencyIsUsd) {
+      // USD → EUR: amountIn is in USD; convert to EUR equivalent first
+      return (amountIn / market_rate) * (spread / 2);
+    } else {
+      // EUR → USD: amountIn is in EUR; spread × EUR amount = USD profit
+      return amountIn * (spread / 2);
+    }
   }
 }
 
@@ -227,7 +242,7 @@ export function calculateExchange(
   if (toCurrency === BASE_CURRENCY) {
     const currRate = findCurrencyRate(fromCurrency, rates);
     const { amountUSD, rate } = convertToUSD(amountIn, currRate, GIVE_USD);
-    const profitUsd = computeLegProfitUsd(amountIn, currRate);
+    const profitUsd = computeLegProfitUsd(amountIn, currRate, false);
     const leg: ExchangeLeg = {
       fromCurrency,
       toCurrency,
@@ -251,7 +266,7 @@ export function calculateExchange(
 
   // Leg 1: FROM → USD (we give USD internally)
   const leg1Result = convertToUSD(amountIn, fromRate, GIVE_USD);
-  const leg1ProfitUsd = computeLegProfitUsd(amountIn, fromRate);
+  const leg1ProfitUsd = computeLegProfitUsd(amountIn, fromRate, false);
   const leg1: ExchangeLeg = {
     fromCurrency,
     toCurrency: BASE_CURRENCY,

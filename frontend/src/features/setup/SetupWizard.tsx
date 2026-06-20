@@ -6,6 +6,7 @@ import StepBaseSystem from "./steps/StepBaseSystem";
 import Step2Modules from "./steps/Step2Modules";
 import Step3Currencies from "./steps/Step3Currencies";
 import Step4Users from "./steps/Step4Users";
+import StepDrawerAmounts from "./steps/StepDrawerAmounts";
 import StepComplete from "./steps/StepComplete";
 
 const STEPS = [
@@ -14,6 +15,7 @@ const STEPS = [
   { label: "Modules" },
   { label: "Currencies" },
   { label: "Users" },
+  { label: "Drawers" },
   { label: "Done" },
 ];
 
@@ -33,10 +35,10 @@ function WizardContent() {
           </h1>
         </div>
 
-        {/* Progress indicator — only for full setup (steps 1-6) */}
-        {!isDetectFlow && step < 6 && (
+        {/* Progress indicator — only for full setup (steps 1-7) */}
+        {!isDetectFlow && step < 7 && (
           <div className="flex items-center justify-center gap-2 mb-8">
-            {STEPS.slice(0, 5).map((s, i) => {
+            {STEPS.slice(0, 6).map((s, i) => {
               const stepNum = i + 1;
               const isDone = step > stepNum;
               const isCurrent = step === stepNum;
@@ -60,7 +62,7 @@ function WizardContent() {
                   >
                     {s.label}
                   </span>
-                  {i < 4 && (
+                  {i < 5 && (
                     <div
                       className={`mx-3 h-px w-8 ${
                         step > stepNum ? "bg-emerald-600" : "bg-slate-700"
@@ -82,12 +84,13 @@ function WizardContent() {
           {step === 3 && <Step2Modules />}
           {step === 4 && <Step3Currencies />}
           {step === 5 && <Step4Users />}
-          {step === 6 && <StepComplete />}
+          {step === 6 && <StepDrawerAmounts />}
+          {step === 7 && <StepComplete />}
         </div>
 
         {!isDetectFlow && (
           <p className="text-center text-xs text-slate-600 mt-4">
-            Step {Math.min(step, 5)} of 5
+            Step {Math.min(step, 6)} of 6
           </p>
         )}
       </div>

@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import { User, Hash, Phone, ChevronDown } from "lucide-react";
-import { ServiceTypeTabs, DecimalInput, type PaymentLine } from "@liratek/ui";
+import {
+  ServiceTypeTabs,
+  DecimalInput,
+  hasNewClientInfo,
+  type PaymentLine,
+} from "@liratek/ui";
 import { PaymentSheet } from "./PaymentSheet";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import type {
@@ -83,11 +88,12 @@ export function CryptoForm({
 
   // Auto-promote CUSTOMER_ACCOUNT once name+phone are filled for a new client
   useEffect(() => {
-    const hasNewClientInfo =
-      !cryptoClientId &&
-      cryptoClientName.trim().length > 0 &&
-      cryptoClientPhone.trim().length > 0;
-    if (hasNewClientInfo && initialPaymentMethod !== "CUSTOMER_ACCOUNT") {
+    const newClientReady = hasNewClientInfo({
+      clientId: cryptoClientId,
+      name: cryptoClientName,
+      phone: cryptoClientPhone,
+    });
+    if (newClientReady && initialPaymentMethod !== "CUSTOMER_ACCOUNT") {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setInitialPaymentMethod("CUSTOMER_ACCOUNT");
        

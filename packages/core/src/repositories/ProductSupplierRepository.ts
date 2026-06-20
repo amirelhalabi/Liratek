@@ -7,6 +7,7 @@ export interface ProductSupplier {
   name: string;
   sort_order: number;
   is_active: number;
+  supplier_id: number | null;
   created_at: string;
 }
 
@@ -14,7 +15,15 @@ export interface ProductSupplierWithCount extends ProductSupplier {
   product_count: number;
 }
 
-const COLUMNS = "id, name, sort_order, is_active, created_at";
+export interface ProductSupplierItem {
+  product_id: number;
+  name: string;
+  quantity: number;
+  cost: number;
+  total: number;
+}
+
+const COLUMNS = "id, name, sort_order, is_active, supplier_id, created_at";
 
 export class ProductSupplierRepository {
   private db: Database.Database;
@@ -35,7 +44,7 @@ export class ProductSupplierRepository {
   getAllWithProductCount(): ProductSupplierWithCount[] {
     return this.db
       .prepare(
-        `SELECT ps.id, ps.name, ps.sort_order, ps.is_active, ps.created_at,
+        `SELECT ps.id, ps.name, ps.sort_order, ps.is_active, ps.supplier_id, ps.created_at,
                 COUNT(p.id) AS product_count
          FROM product_suppliers ps
          LEFT JOIN products p ON LOWER(p.supplier) = LOWER(ps.name) AND p.is_active = 1
@@ -46,34 +55,76 @@ export class ProductSupplierRepository {
       .all() as ProductSupplierWithCount[];
   }
 
-  create(name: string): { id: number } {
+  /**
+   * Returns inventory items from this supplier for the detail panel.
+   * Joined via product_suppliers name (case-insensitive) to products.
+   */
+  getProductItems(supplierId: number): ProductSupplierItem[] {
+    return this.db
+      .prepare(
+        `SELECT p.id as product_id, p.name, p.stock_quantity as quantity,
+                p.cost_price_usd as cost,
+                ROUND(p.stock_quantity * p.cost_price_usd, 2) as total
+         FROM product_suppliers ps
+         JOIN products p ON LOWER(p.supplier) = LOWER(ps.name) AND p.is_active = 1
+         WHERE ps.supplier_id = ?
+         ORDER BY p.name ASC`,
+      )
+      .all(supplierId) as ProductSupplierItem[];
+  }
+
+  /** Find a product_suppliers row by linked supplier_id. */
+  findByLinkedSupplierId(supplierId: number): ProductSupplier | undefined {
+    return this.db
+      .prepare(`SELECT ${COLUMNS} FROM product_suppliers WHERE supplier_id = ? LIMIT 1`)
+      .get(supplierId) as ProductSupplier | undefined;
+  }
+
+  create(name: string): { id: number; supplier_id: number } {
     const trimmed = name.trim();
     if (!trimmed) throw new DatabaseError("Supplier name is required");
-    const result = this.db
-      .prepare(
-        `INSERT INTO product_suppliers (name, sort_order) VALUES (?, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM product_suppliers))`,
-      )
-      .run(trimmed);
-    return { id: Number(result.lastInsertRowid) };
+
+    return this.db.transaction(() => {
+      const supplierId = this._findOrCreateLinkedSupplier(trimmed);
+      const result = this.db
+        .prepare(
+          `INSERT INTO product_suppliers (name, sort_order, supplier_id)
+           VALUES (?, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM product_suppliers), ?)`,
+        )
+        .run(trimmed, supplierId);
+      return { id: Number(result.lastInsertRowid), supplier_id: supplierId };
+    })();
   }
 
   update(id: number, name: string): boolean {
     const trimmed = name.trim();
     if (!trimmed) throw new DatabaseError("Supplier name is required");
-    const result = this.db
-      .prepare(`UPDATE product_suppliers SET name = ? WHERE id = ?`)
-      .run(trimmed, id);
-    return result.changes > 0;
+
+    return this.db.transaction(() => {
+      const existing = this.db
+        .prepare(`SELECT supplier_id FROM product_suppliers WHERE id = ?`)
+        .get(id) as { supplier_id: number | null } | undefined;
+
+      // Keep or create linked supplier row with updated name
+      if (existing?.supplier_id) {
+        this.db
+          .prepare(`UPDATE suppliers SET name = ? WHERE id = ?`)
+          .run(trimmed, existing.supplier_id);
+      }
+
+      const result = this.db
+        .prepare(`UPDATE product_suppliers SET name = ? WHERE id = ?`)
+        .run(trimmed, id);
+      return result.changes > 0;
+    })();
   }
 
   delete(id: number): boolean {
-    // Look up the supplier name so we can clear matching products
     const row = this.db
       .prepare(`SELECT name FROM product_suppliers WHERE id = ?`)
       .get(id) as { name: string } | undefined;
 
     if (row) {
-      // Clear supplier text on products that reference this supplier (case-insensitive)
       this.db
         .prepare(
           `UPDATE products SET supplier = NULL WHERE LOWER(supplier) = LOWER(?)`,
@@ -91,17 +142,22 @@ export class ProductSupplierRepository {
   getOrCreate(name: string): number {
     const trimmed = name.trim();
     if (!trimmed) throw new DatabaseError("Supplier name is required");
-    const existing = this.db
-      .prepare(`SELECT id FROM product_suppliers WHERE name = ? COLLATE NOCASE`)
-      .get(trimmed) as { id: number } | undefined;
-    if (existing) return existing.id;
-    const result = this.db
-      .prepare(
-        `INSERT INTO product_suppliers (name, sort_order)
-         VALUES (?, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM product_suppliers))`,
-      )
-      .run(trimmed);
-    return Number(result.lastInsertRowid);
+
+    return this.db.transaction(() => {
+      const existing = this.db
+        .prepare(`SELECT id FROM product_suppliers WHERE name = ? COLLATE NOCASE`)
+        .get(trimmed) as { id: number } | undefined;
+      if (existing) return existing.id;
+
+      const supplierId = this._findOrCreateLinkedSupplier(trimmed);
+      const result = this.db
+        .prepare(
+          `INSERT INTO product_suppliers (name, sort_order, supplier_id)
+           VALUES (?, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM product_suppliers), ?)`,
+        )
+        .run(trimmed, supplierId);
+      return Number(result.lastInsertRowid);
+    })();
   }
 
   getNames(): string[] {
@@ -112,10 +168,30 @@ export class ProductSupplierRepository {
       .all() as { name: string }[];
     return rows.map((r) => r.name);
   }
+
+  /** Find or create a suppliers row (is_system=0) for the given product supplier name. */
+  private _findOrCreateLinkedSupplier(name: string): number {
+    const existing = this.db
+      .prepare(`SELECT id FROM suppliers WHERE name = ? COLLATE NOCASE AND is_system = 0 LIMIT 1`)
+      .get(name) as { id: number } | undefined;
+    if (existing) return existing.id;
+
+    const result = this.db
+      .prepare(
+        `INSERT INTO suppliers (name, is_active, is_system, created_at)
+         VALUES (?, 1, 0, CURRENT_TIMESTAMP)`,
+      )
+      .run(name);
+    return Number(result.lastInsertRowid);
+  }
 }
 
 let instance: ProductSupplierRepository | null = null;
 export function getProductSupplierRepository(): ProductSupplierRepository {
   if (!instance) instance = new ProductSupplierRepository();
   return instance;
+}
+
+export function resetProductSupplierRepository(): void {
+  instance = null;
 }

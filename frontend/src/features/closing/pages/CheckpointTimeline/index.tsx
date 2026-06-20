@@ -233,6 +233,7 @@ export default function CheckpointTimeline() {
             exportExcel
             exportPdf
             exportFilename="checkpoints"
+            exportDefaultColumns={["Time", "Drawer", "Amount", "User", "Notes"]}
             showRowCount
             totalRowCount={filteredCheckpoints.length}
             defaultSortKey="created_at"

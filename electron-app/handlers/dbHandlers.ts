@@ -369,6 +369,16 @@ export function registerDatabaseHandlers(): void {
     }
   });
 
+  // Check if initial drawer amounts have ever been set (no auth required)
+  ipcMain.handle("closing:has-initial-balances-set", async () => {
+    try {
+      return getClosingService().hasInitialBalancesSet();
+    } catch (err) {
+      closingLogger.error({ err }, "closing:has-initial-balances-set failed");
+      return false;
+    }
+  });
+
   // Update an existing daily closing record
   ipcMain.handle(
     "closing:update-daily-closing",

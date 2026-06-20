@@ -324,10 +324,12 @@ export type { ProductCategory } from "./CategoryRepository.js";
 export {
   ProductSupplierRepository,
   getProductSupplierRepository,
+  resetProductSupplierRepository,
 } from "./ProductSupplierRepository.js";
 export type {
   ProductSupplier,
   ProductSupplierWithCount,
+  ProductSupplierItem,
 } from "./ProductSupplierRepository.js";
 
 // Loto Repository (facade - backward compat)

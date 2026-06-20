@@ -503,7 +503,14 @@ export async function completeSetup(page: Page) {
     .first()
     .click();
 
-  // Step 6: Completion — Launch
+  // Step 6: Starting Drawer Amounts — skip (start at zero)
+  await page.waitForSelector("text=Starting Drawer Amounts", { timeout: 5000 });
+  await page
+    .locator("button")
+    .filter({ hasText: /^Skip$/ })
+    .click();
+
+  // Step 7: Completion — Launch
   await page.waitForSelector("text=all set", { timeout: 5000 });
   await page.getByRole("button", { name: /Launch App/i }).click();
 

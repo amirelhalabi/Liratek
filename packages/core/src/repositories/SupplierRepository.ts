@@ -278,7 +278,8 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         }
       } else {
         // No drawer_name: still create a transaction record for non-PAYMENT entries
-        // (TOP_UP, ADJUSTMENT) so they appear in the unified journal
+        // (TOP_UP, SALE_COST, ADJUSTMENT, SUPPLIER_PAYS_US) so they appear in the
+        // unified journal.
         if (data.entry_type !== "PAYMENT") {
           const typeMap: Record<string, string> = {
             TOP_UP: TRANSACTION_TYPES.SUPPLIER_PAYMENT,
@@ -289,17 +290,39 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
           const txnType =
             typeMap[data.entry_type] || TRANSACTION_TYPES.SUPPLIER_PAYMENT;
 
+          // SUPPLIER_PAYS_US through this path is a *cashless credit* — the
+          // supplier owes us (e.g. the fixed commission on an iPick/Katsh bill);
+          // no drawer moves. The supplier_ledger keeps the signed amount
+          // (negative = credit to us, so SUM stays a valid balance), but the
+          // unified journal is an event log: store a positive magnitude and flag
+          // it as a credit so the UI shows money owed to us, not a negative
+          // "payment". (recordSupplierCashflow handles the real cash RECEIVE.)
+          const isSupplierCredit = data.entry_type === "SUPPLIER_PAYS_US";
+          const journalUsd = isSupplierCredit ? Math.abs(amountUsd) : amountUsd;
+          const journalLbp = isSupplierCredit ? Math.abs(amountLbp) : amountLbp;
+
+          let summary: string;
+          if (isSupplierCredit) {
+            const parts: string[] = [];
+            if (journalUsd) parts.push(`$${journalUsd.toLocaleString()}`);
+            if (journalLbp) parts.push(`${journalLbp.toLocaleString()} LBP`);
+            summary = `Supplier credit: ${parts.join(" + ") || "$0"}`;
+          } else {
+            summary = `Supplier ${data.entry_type}: $${amountUsd} + ${amountLbp} LBP`;
+          }
+
           const txnId = getTransactionRepository().createTransaction({
             type: txnType as TransactionType,
             source_table: "supplier_ledger",
             source_id: entryId,
             user_id: data.created_by,
-            amount_usd: amountUsd,
-            amount_lbp: amountLbp,
-            summary: `Supplier ${data.entry_type}: $${amountUsd} + ${amountLbp} LBP`,
+            amount_usd: journalUsd,
+            amount_lbp: journalLbp,
+            summary,
             metadata_json: {
               supplier_id: data.supplier_id,
               entry_type: data.entry_type,
+              ...(isSupplierCredit ? { is_credit: true } : {}),
             },
           });
 
@@ -335,6 +358,42 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         cause: e,
         entityId: supplierId,
       });
+    }
+  }
+
+  /**
+   * Balance for product suppliers: inventory cost minus payments.
+   * inventory cost = Σ(p.quantity * p.cost) for products from this supplier.
+   * payments = existing supplier_ledger entries (PAYMENT stored as negative).
+   * Returns only is_system = 0 suppliers that have a linked product_suppliers row.
+   */
+  getProductSupplierBalances(): SupplierBalance[] {
+    try {
+      return this.query<SupplierBalance>(`
+        SELECT
+          s.id as supplier_id,
+          ROUND(
+            COALESCE(inv.inv_usd, 0) + COALESCE(SUM(l.amount_usd), 0),
+            2
+          ) as total_usd,
+          0 as total_lbp
+        FROM suppliers s
+        JOIN product_suppliers ps ON ps.supplier_id = s.id
+        LEFT JOIN (
+          SELECT ps2.supplier_id,
+                 SUM(p.stock_quantity * p.cost_price_usd) as inv_usd
+          FROM product_suppliers ps2
+          JOIN products p ON LOWER(p.supplier) = LOWER(ps2.name) AND p.is_active = 1
+          WHERE ps2.supplier_id IS NOT NULL
+          GROUP BY ps2.supplier_id
+        ) inv ON inv.supplier_id = s.id
+        LEFT JOIN supplier_ledger l ON l.supplier_id = s.id
+        WHERE s.is_system = 0 AND s.is_active = 1
+        GROUP BY s.id
+        ORDER BY s.name ASC
+      `);
+    } catch (e) {
+      throw new DatabaseError("Failed to get product supplier balances", { cause: e });
     }
   }
 

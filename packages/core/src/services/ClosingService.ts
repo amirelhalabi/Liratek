@@ -119,6 +119,22 @@ export class ClosingService {
   }
 
   /**
+   * Check whether any drawer has a non-zero balance — i.e. the operator has
+   * run the initial drawer amounts setup at least once.
+   */
+  hasInitialBalancesSet(): boolean {
+    try {
+      return this.repo.hasInitialBalancesSet();
+    } catch (error) {
+      closingLogger.error(
+        { error },
+        "ClosingService.hasInitialBalancesSet error",
+      );
+      return false;
+    }
+  }
+
+  /**
    * Check if there is at least one checkpoint record for today's date.
    */
   hasOpeningBalanceToday(): boolean {

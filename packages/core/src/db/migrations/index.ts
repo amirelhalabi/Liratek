@@ -1868,8 +1868,8 @@ export const MIGRATIONS: Migration[] = [
 
       // Add Loto supplier
       db.exec(`
-        INSERT OR IGNORE INTO suppliers (name, provider, is_active)
-        VALUES ('Loto Liban', 'LOTO', 1)
+        INSERT OR IGNORE INTO suppliers (name, provider, is_active, is_system)
+        VALUES ('Loto Liban', 'LOTO', 1, 1)
       `);
 
       // Add Loto module
@@ -4397,6 +4397,59 @@ export const MIGRATIONS: Migration[] = [
       console.log(
         "Migration v106 rolled back (BILL rows removed; CHECK not downgraded — SQLite limitation)",
       );
+    },
+  },
+  {
+    version: 107,
+    name: "fix_loto_liban_is_system",
+    description: "Set is_system = 1 for Loto Liban supplier so it appears under Companies, not Products.",
+    type: "typescript",
+    up(db) {
+      db.exec(`UPDATE suppliers SET is_system = 1 WHERE provider = 'LOTO'`);
+    },
+    down(db) {
+      db.exec(`UPDATE suppliers SET is_system = 0 WHERE provider = 'LOTO'`);
+    },
+  },
+  {
+    version: 108,
+    name: "link_product_suppliers_to_suppliers",
+    description: "Add supplier_id FK to product_suppliers so each inventory supplier has a ledger entry in suppliers (is_system=0). Backfills existing rows.",
+    type: "typescript",
+    up(db) {
+      // Add the column
+      db.exec(`ALTER TABLE product_suppliers ADD COLUMN supplier_id INTEGER REFERENCES suppliers(id)`);
+
+      // Backfill: for every existing product_supplier, find-or-create a suppliers row
+      const rows = db.prepare(`SELECT id, name FROM product_suppliers`).all() as { id: number; name: string }[];
+      const findSupplier = db.prepare(`SELECT id FROM suppliers WHERE name = ? COLLATE NOCASE AND is_system = 0 LIMIT 1`);
+      const insertSupplier = db.prepare(
+        `INSERT INTO suppliers (name, is_active, is_system, created_at) VALUES (?, 1, 0, CURRENT_TIMESTAMP)`
+      );
+      const linkRow = db.prepare(`UPDATE product_suppliers SET supplier_id = ? WHERE id = ?`);
+
+      for (const row of rows) {
+        const existing = findSupplier.get(row.name) as { id: number } | undefined;
+        const supplierId = existing ? existing.id : Number(insertSupplier.run(row.name).lastInsertRowid);
+        linkRow.run(supplierId, row.id);
+      }
+
+      console.log(`Migration v108: linked ${rows.length} product_suppliers to suppliers`);
+    },
+    down(db) {
+      // Remove supplier_id column by rebuilding the table (SQLite limitation)
+      db.exec(`
+        CREATE TABLE product_suppliers_v108_bak (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          is_active INTEGER NOT NULL DEFAULT 1,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        INSERT INTO product_suppliers_v108_bak SELECT id, name, sort_order, is_active, created_at FROM product_suppliers;
+        DROP TABLE product_suppliers;
+        ALTER TABLE product_suppliers_v108_bak RENAME TO product_suppliers;
+      `);
     },
   },
 ];

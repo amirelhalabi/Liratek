@@ -5,7 +5,12 @@ import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteI
 import { ensureRechargeClient } from "../utils/ensureClient";
 import AlfaLogo from "@/assets/logos/alfa.svg?react";
 import MtcLogo from "@/assets/logos/mtc.svg?react";
-import { type PaymentLine, useApi, DecimalInput } from "@liratek/ui";
+import {
+  type PaymentLine,
+  useApi,
+  DecimalInput,
+  hasNewClientInfo,
+} from "@liratek/ui";
 import { toCamelLegs } from "@/utils/paymentUtils";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { useSessionAutoFill } from "@/features/sessions/hooks/useSessionAutoFill";
@@ -239,9 +244,12 @@ function KatchFormInner({
 
   // Auto-promote CUSTOMER_ACCOUNT once both name+phone are filled for a brand-new client
   useEffect(() => {
-    const hasNewClientInfo =
-      !clientId && clientName.trim().length > 0 && clientPhone.trim().length > 0;
-    if (hasNewClientInfo && initialPaymentMethod !== "CUSTOMER_ACCOUNT") {
+    const newClientReady = hasNewClientInfo({
+      clientId,
+      name: clientName,
+      phone: clientPhone,
+    });
+    if (newClientReady && initialPaymentMethod !== "CUSTOMER_ACCOUNT") {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setInitialPaymentMethod("CUSTOMER_ACCOUNT");
        

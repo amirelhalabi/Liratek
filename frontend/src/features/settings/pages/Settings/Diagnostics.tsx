@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { FolderOpen, Pencil } from "lucide-react";
 import UpdatesPanel from "./UpdatesPanel";
 import { appEvents, useApi } from "@liratek/ui";
+import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 
 export default function Diagnostics() {
   const api = useApi();
@@ -51,6 +52,7 @@ export default function Diagnostics() {
   const [isJoinInstallation, setIsJoinInstallation] = useState(false);
   const [showDbPathEdit, setShowDbPathEdit] = useState(false);
   const [newDbPath, setNewDbPath] = useState("");
+  useModalFocusFix(showDbPathEdit);
   const [dbPathChanging, setDbPathChanging] = useState(false);
 
   const load = async () => {

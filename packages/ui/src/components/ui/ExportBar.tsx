@@ -43,6 +43,14 @@ export interface ExportBarProps {
  * Renders Excel / PDF export buttons above a table.
  * Hidden when both `exportExcel` and `exportPdf` are `false`.
  */
+function dateSuffix(): string {
+  const d = new Date();
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  return `${dd}-${mm}-${yyyy}`;
+}
+
 export function ExportBar({
   exportExcel,
   exportPdf,
@@ -54,18 +62,20 @@ export function ExportBar({
   countLabel,
 }: ExportBarProps) {
   const handleExcel = useCallback(() => {
+    const filename = `${exportFilename}-${dateSuffix()}`;
     if (getExportData) {
-      exportToExcel(getExportData(), exportFilename);
+      exportToExcel(getExportData(), filename);
     } else if (tableRef.current) {
-      exportToExcel(tableRef.current, exportFilename);
+      exportToExcel(tableRef.current, filename);
     }
   }, [tableRef, exportFilename, getExportData]);
 
   const handlePdf = useCallback(() => {
+    const filename = `${exportFilename}-${dateSuffix()}`;
     if (getExportData) {
-      exportToPdf(getExportData(), exportFilename);
+      exportToPdf(getExportData(), filename);
     } else if (tableRef.current) {
-      exportToPdf(tableRef.current, exportFilename);
+      exportToPdf(tableRef.current, filename);
     }
   }, [tableRef, exportFilename, getExportData]);
 

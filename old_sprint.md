@@ -545,6 +545,6 @@ Currently the app assumes the shop owns both OMT and Whish systems. In reality, 
 
 ## Known Tech Debt
 
-- [ ] **Re-enable negative amount validation** in `useDrawerAmounts.ts` — currently disabled to allow negative drawer balances during checkpoint. Restore the `value < 0` check and unskip the test in `useDrawerAmounts.test.ts` once the opening-balance workflow guarantees non-negative starting values. As part of this, create an e2e test that runs immediately after setup and tops up the general drawer — this way any transaction that debits any drawer won't result in negative amounts. _(from LIRA-006)_
+- [ ] **Re-enable negative amount validation** in `useDrawerAmounts.ts` — currently disabled to allow negative drawer balances during checkpoint. Restore the `value < 0` check and unskip the test in `useDrawerAmounts.test.ts`. As part of this, create an e2e test that runs immediately after setup and tops up the general drawer — this way any transaction that debits any drawer won't result in negative amounts. _(from LIRA-006)_ **⚑ Unblocked by LIRA-065** — the opening-balance workflow (setup wizard step 6 + Dashboard modal) now exists; the prerequisite condition is met.
 - [x] **~~Fix `getLastCheckpointActuals()` dropping negative balances~~** — Fixed: `WHERE physical_amount > 0` → `WHERE physical_amount IS NOT NULL`. _(from LIRA-008)_
 - [x] **~~Fix checkpoint timestamp ordering~~** — Fixed: `ORDER BY created_at DESC` → `ORDER BY id DESC`. _(from LIRA-008)_
