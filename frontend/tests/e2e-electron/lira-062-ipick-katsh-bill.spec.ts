@@ -74,6 +74,10 @@ test.describe("LIRA-062 — Katsh/iPick Bill card", () => {
     expect(created.success).toBe(true);
 
     // ── 2. Verify the Katsh supplier ledger has the commission entry ─────────
+    // Match the BILL entry by IDENTITY (entry_type + note), NEVER by row
+    // position: the shared per-run DB has prior SETTLEMENT entries against Katsh
+    // (lira-056/061) and getSupplierLedger orders by second-granular created_at
+    // with no id tiebreaker, so ledger[0] can tie to a SETTLEMENT (CLAUDE.md rule 15).
     const ledgerResult = await appPage.evaluate(async () => {
       const w = window as unknown as WindowApi;
       const suppliers = await w.api.suppliers.list("", true);
@@ -85,7 +89,11 @@ test.describe("LIRA-062 — Katsh/iPick Bill card", () => {
         found: true,
         supplierId: katsh.id,
         entryTypes: ledger.map((l) => l.entry_type),
-        newest: ledger[0] ?? null,
+        billEntries: ledger.filter(
+          (l) =>
+            l.entry_type === "SUPPLIER_PAYS_US" &&
+            (l.note ?? "").includes("BILL commission from Katsh"),
+        ),
       } as const;
     });
 
@@ -94,10 +102,11 @@ test.describe("LIRA-062 — Katsh/iPick Bill card", () => {
 
     // The BILL path must log a SUPPLIER_PAYS_US entry (not SALE_COST/TOP_UP).
     expect(ledgerResult.entryTypes).toContain("SUPPLIER_PAYS_US");
-    expect(ledgerResult.newest?.entry_type).toBe("SUPPLIER_PAYS_US");
+    // Exactly one BILL-commission entry from this action.
+    expect(ledgerResult.billEntries).toHaveLength(1);
     // Negative amount_lbp = supplier owes us (shown green on Suppliers page).
-    expect(ledgerResult.newest?.amount_lbp).toBe(BILL_COMMISSION_LBP);
-    expect(ledgerResult.newest?.amount_usd).toBe(0);
+    expect(ledgerResult.billEntries[0]?.amount_lbp).toBe(BILL_COMMISSION_LBP);
+    expect(ledgerResult.billEntries[0]?.amount_usd).toBe(0);
 
     // ── 3. Verify the Bill card renders on the Recharge / Katsh tab ─────────
     await navigateTo(appPage, "/recharge");
@@ -148,17 +157,23 @@ test.describe("LIRA-062 — Katsh/iPick Bill card", () => {
       if (!ipick) return { found: false } as const;
 
       const ledger = await w.api.suppliers.getLedger(ipick.id, 50);
+      // Match by identity (type + note), not row position — see test above.
       return {
         found: true,
-        newest: ledger[0] ?? null,
+        billEntries: ledger.filter(
+          (l) =>
+            l.entry_type === "SUPPLIER_PAYS_US" &&
+            (l.note ?? "").includes("BILL commission from iPick"),
+        ),
       } as const;
     });
 
     expect(ledgerResult.found).toBe(true);
     if (!ledgerResult.found) return;
 
-    expect(ledgerResult.newest?.entry_type).toBe("SUPPLIER_PAYS_US");
-    expect(ledgerResult.newest?.amount_lbp).toBe(BILL_COMMISSION_LBP);
+    expect(ledgerResult.billEntries).toHaveLength(1);
+    expect(ledgerResult.billEntries[0]?.amount_lbp).toBe(BILL_COMMISSION_LBP);
+    expect(ledgerResult.billEntries[0]?.amount_usd).toBe(0);
   });
 });
 

@@ -39,7 +39,7 @@ export interface FinancialServiceEntity {
     | "OTHER"
     | "iPick"
     | "KATCH"
-    | "WISH_APP"
+    | "WHISH_APP"
     | "OMT_APP"
     | "BINANCE";
   service_type: "SEND" | "RECEIVE";
@@ -103,7 +103,7 @@ export interface CreateFinancialServiceData {
     | "OTHER"
     | "iPick"
     | "Katsh"
-    | "WISH_APP"
+    | "WHISH_APP"
     | "OMT_APP"
     | "BINANCE";
   serviceType: "SEND" | "RECEIVE" | "BILL";
@@ -261,7 +261,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         return "iPick";
       case "Katsh":
         return "Katsh";
-      case "WISH_APP":
+      case "WHISH_APP":
         return "Whish_App";
       case "OMT_APP":
         return "OMT_App";
@@ -668,7 +668,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       }
 
       if (useCostPriceFlow) {
-        // ─── COST/PRICE FLOW (iPick, Katsh, WISH_APP, OMT_APP, BINANCE) ───
+        // ─── COST/PRICE FLOW (iPick, Katsh, WHISH_APP, OMT_APP, BINANCE) ───
         const providerDrawer = this.mapDrawerName(data.provider);
 
         // Cost outflow: shop pays the provider

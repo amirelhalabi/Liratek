@@ -22,11 +22,7 @@ import {
   Tag,
   Settings,
 } from "lucide-react";
-import { PageHeader, useApi } from "@liratek/ui";
-import {
-  formatWithCommas,
-  isPartialDecimal,
-} from "@/shared/utils/formatWithCommas";
+import { PageHeader, useApi, DecimalInput } from "@liratek/ui";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { useSessionAutoFill } from "@/features/sessions/hooks/useSessionAutoFill";
@@ -671,18 +667,13 @@ export default function CustomServices() {
                         $
                       </span>
                     )}
-                    <input
+                    <DecimalInput
                       id="svc-cost"
-                      type="text"
-                      inputMode="decimal"
-                      autoComplete="off"
-                      value={formatWithCommas(currency === "USD" ? costUsd : costLbp)}
-                      onChange={(e) => {
-                        const cleaned = e.target.value.replace(/,/g, "");
-                        if (isPartialDecimal(cleaned)) {
-                          if (currency === "USD") setCostUsd(cleaned);
-                          else setCostLbp(cleaned);
-                        }
+                      value={parseFloat(currency === "USD" ? costUsd : costLbp) || 0}
+                      onChange={(n) => {
+                        const v = n ? String(n) : "";
+                        if (currency === "USD") setCostUsd(v);
+                        else setCostLbp(v);
                       }}
                       className={`w-full bg-slate-900/80 border border-slate-700 rounded-lg ${currency === "USD" ? "pl-8" : "pl-3"} pr-3 py-2.5 text-white font-mono text-sm focus:ring-2 focus:ring-teal-500 outline-none transition-all`}
                       placeholder={currency === "USD" ? "0.00" : "0"}
@@ -702,18 +693,13 @@ export default function CustomServices() {
                         $
                       </span>
                     )}
-                    <input
+                    <DecimalInput
                       id="svc-price"
-                      type="text"
-                      inputMode="decimal"
-                      autoComplete="off"
-                      value={formatWithCommas(currency === "USD" ? priceUsd : priceLbp)}
-                      onChange={(e) => {
-                        const cleaned = e.target.value.replace(/,/g, "");
-                        if (isPartialDecimal(cleaned)) {
-                          if (currency === "USD") setPriceUsd(cleaned);
-                          else setPriceLbp(cleaned);
-                        }
+                      value={parseFloat(currency === "USD" ? priceUsd : priceLbp) || 0}
+                      onChange={(n) => {
+                        const v = n ? String(n) : "";
+                        if (currency === "USD") setPriceUsd(v);
+                        else setPriceLbp(v);
                       }}
                       className={`w-full bg-slate-900/80 border border-slate-700 rounded-lg ${currency === "USD" ? "pl-8" : "pl-3"} pr-3 py-2.5 text-white font-mono text-sm focus:ring-2 focus:ring-teal-500 outline-none transition-all`}
                       placeholder={currency === "USD" ? "0.00" : "0"}

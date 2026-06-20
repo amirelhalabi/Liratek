@@ -24,10 +24,6 @@ import {
   AlertCircle,
   ToggleLeft,
 } from "lucide-react";
-import {
-  formatWithCommas,
-  isPartialDecimal,
-} from "@/shared/utils/formatWithCommas";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { useShopBase } from "@/hooks/useShopBase";
 import type {
@@ -38,7 +34,7 @@ import type {
   LedgerFilters,
   PartnerWithBalance,
 } from "@/types/electron";
-import { appEvents, PageHeader } from "@liratek/ui";
+import { appEvents, PageHeader, DecimalInput } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -390,15 +386,9 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
         <div className="flex gap-3">
           <div className="flex-1">
             <label className="text-xs text-slate-400 block mb-1">Amount</label>
-            <input
-              type="text"
-              inputMode="decimal"
-              autoComplete="off"
-              value={formatWithCommas(amount)}
-              onChange={(e) => {
-                const cleaned = e.target.value.replace(/,/g, "");
-                if (isPartialDecimal(cleaned)) setAmount(cleaned);
-              }}
+            <DecimalInput
+              value={parseFloat(amount) || 0}
+              onChange={(n) => setAmount(n ? String(n) : "")}
               className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
               placeholder="0.00"
               autoFocus
@@ -550,15 +540,9 @@ function RecordTxModal({ partner, onClose, onRecorded }: RecordTxModalProps) {
         <div className="flex gap-3">
           <div className="flex-1">
             <label className="text-xs text-slate-400 block mb-1">Amount</label>
-            <input
-              type="text"
-              inputMode="decimal"
-              autoComplete="off"
-              value={formatWithCommas(amount)}
-              onChange={(e) => {
-                const cleaned = e.target.value.replace(/,/g, "");
-                if (isPartialDecimal(cleaned)) setAmount(cleaned);
-              }}
+            <DecimalInput
+              value={parseFloat(amount) || 0}
+              onChange={(n) => setAmount(n ? String(n) : "")}
               className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
               placeholder="0.00"
               autoFocus

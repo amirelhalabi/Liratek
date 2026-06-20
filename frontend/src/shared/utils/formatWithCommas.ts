@@ -1,20 +1,16 @@
 /**
  * Thousand-separator helpers for amount text inputs.
  *
- * Pattern (same as the checkpoint DrawerCard): keep the raw numeric string in
- * state, render it through `formatWithCommas`, and strip commas on change
- * before validating with `isPartialDecimal`.
+ * The canonical implementation now lives in `@liratek/ui` (utils/number.ts) and
+ * backs the shared `DecimalInput` component. This module re-exports it so the
+ * historical `@/shared/utils/formatWithCommas` import path keeps working for any
+ * non-component caller and there is a single source of truth (CLAUDE.md rule #14).
+ *
+ * Prefer importing `DecimalInput` from `@liratek/ui` for new amount fields.
  */
-
-/** Format a numeric string with thousand-separator commas, preserving decimals */
-export function formatWithCommas(value: string): string {
-  if (!value) return value;
-  const parts = value.split(".");
-  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  return parts.join(".");
-}
-
-/** True when the string is a valid in-progress non-negative decimal entry (e.g. "", "4", "4.", "4.50") */
-export function isPartialDecimal(value: string): boolean {
-  return /^[0-9]*\.?[0-9]*$/.test(value);
-}
+export {
+  formatWithCommas,
+  isPartialDecimal,
+  parseDecimal,
+  sanitizeDecimal,
+} from "@liratek/ui";

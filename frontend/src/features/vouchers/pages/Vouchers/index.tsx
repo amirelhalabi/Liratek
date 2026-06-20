@@ -9,11 +9,7 @@ import {
   Calendar,
   Loader2,
 } from "lucide-react";
-import { PageHeader } from "@liratek/ui";
-import {
-  formatWithCommas,
-  isPartialDecimal,
-} from "@/shared/utils/formatWithCommas";
+import { PageHeader, DecimalInput } from "@liratek/ui";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import type { Voucher } from "@/types/electron";
 
@@ -382,15 +378,9 @@ export function VouchersPage() {
                     $
                   </span>
                 )}
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  autoComplete="off"
-                  value={formatWithCommas(amount)}
-                  onChange={(e) => {
-                    const cleaned = e.target.value.replace(/,/g, "");
-                    if (isPartialDecimal(cleaned)) setAmount(cleaned);
-                  }}
+                <DecimalInput
+                  value={parseFloat(amount) || 0}
+                  onChange={(n) => setAmount(n ? String(n) : "")}
                   className={`w-full bg-slate-900 border border-slate-600 rounded-lg ${currency === "USD" ? "pl-7" : "pl-3"} pr-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500`}
                   placeholder={currency === "USD" ? "0.00" : "0"}
                 />

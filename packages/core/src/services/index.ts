@@ -76,7 +76,7 @@ export {
 } from "./ExchangeService.js";
 export type { ExchangeResult } from "./ExchangeService.js";
 
-// Financial Service (OMT/WHISH/BOB/OTHER/IPEC/KATCH/WISH_APP/OMT_APP/BINANCE)
+// Financial Service (OMT/WHISH/BOB/OTHER/IPEC/KATCH/WHISH_APP/OMT_APP/BINANCE)
 export {
   FinancialService,
   getFinancialService,

@@ -4,42 +4,8 @@
 
 > **Sprint Focus:** UI Consistency, Binance Fixes, Whish App UX, Transaction Enrichment & Session Checkout
 > **Created:** 2026-06-07
-> **Last Updated:** 2026-06-08 (post-sprint follow-up)
+> **Last Updated:** 2026-06-20 (Sprint-2 e2e coverage + WHISH_APP rename v105)
 > **Status Legend:** `TODO` | `IN PROGRESS` | `DONE` | `BLOCKED`
-
----
-
-## ⏭️ NEXT AGENT — START HERE (updated 2026-06-19 — Session Basket Payment)
-
-**Branch:** `feat/session-basket-payment` (7 commits ahead of `main`), working tree clean. A
-parallel **LIRA-059** (supplier cashflow / `SUPPLIER_PAYS_US` v103) session committed to the **same
-branch** — history is interleaved but all changes are intact. **Review before merging to `main`.**
-
-**DONE this session** — green: jest **374/374**, frontend 209, **5 e2e specs**, lint 0, typecheck:
-
-- **Session basket payment (single source of truth):** each cart item created in `deferPayment`
-  mode; `SessionPaymentService`/`SessionPaymentRepository` record ONE basket payment (posted to
-  drawers once, one debt entry, gift-card, sale paid back-fill); OMT/WHISH SEND keeps its reserve
-  on the txn. Forms skip the PaymentSheet in session mode; per-session viewer border. Migration **v100**.
-- **Supplier-ledger secondary-system fix:** only the base OMT/WHISH system books a supplier debt;
-  secondary is hidden from the Suppliers page. Migration **v102** purges old pollution.
-- **Transaction-based profits + refund fix:** profit from `transactions.profit_usd` (gates kept),
-  REFUND stamps negative profit. Migration **v101** backfills custom/maintenance. `useSellRate` added.
-- **Rules 13/14:** `ProfitService` + `SessionPaymentService` are now SQL-free →
-  `ProfitRepository` / `SessionPaymentRepository`.
-- (Full write-up: the **"Session Summary"** section near the bottom of this file.)
-
-**REMAINING — 1 OPTIONAL item left. Detailed step-by-step:** `docs/plans/session-basket-payment-remaining.md`
-
-1. ✅ **DONE** — **Thread `exchange_rate`** on custom-service / loto-ticket / loto-prize session
-   transactions (sales + maintenance + financial + recharge already did it). Threaded handler →
-   service → repo `createTransaction`; extended `lira-session-exchange-rate.spec.ts` (+ custom-service
-   + loto-ticket cases). Core 379 / backend 384 green.
-2. **UI e2e spec** for the per-session border color (the sell-rate spec is skippable / low value).
-
-**⚠️ Running e2e:** jest leaves `better-sqlite3` on the **Node** ABI — run `yarn dev` once to
-restore the **Electron** ABI, then **stop it**, then `yarn test:e2e` (see CLAUDE.md "Running E2E
-tests"). Agents do not run `test:e2e`; the user runs it and pastes failures.
 
 ---
 
@@ -88,6 +54,43 @@ surfaced it. (Fix #1 / payout — `lira-session-payout.spec.ts` — was confirme
 
 **Migration re-test caveat:** the v100–v102 *migration* fixes only re-run on a DB that hasn't applied
 those versions yet. Reset/recreate a dev DB that already ran the old v101/v102 to exercise them.
+
+---
+
+## 🧪 POST-REVIEW FOLLOW-UPS (2026-06-20) — WHISH_APP rename + Sprint-2 e2e coverage
+
+**1. `WISH_APP` → `WHISH_APP` provider rename (typo fix) — migration v105.** The Whish App provider
+value was stored as the misspelled `WISH_APP`. Renamed everywhere:
+
+- **Migration v105** (`rename_wish_app_to_whish_app`): recreates `financial_services` from its OWN
+  live `CREATE` statement, widening ONLY the provider `CHECK` to also accept `'WHISH_APP'`
+  (schema-faithful — every column/constraint/index preserved), then relabels
+  `financial_services.provider`, `mobile_service_items.provider`, and `transactions.metadata_json`.
+  `down()` reverses the data relabel (the widened CHECK still permits the old value → no recreate).
+- Mirrored in `electron-app/create_db.sql` (CHECK uses `WHISH_APP`; `schema_migrations` seeded
+  through v105) and renamed in `electron-app/schemas/index.ts` + `electron-app/preload.ts`.
+- **Why it mattered:** with the typo, Whish App SEND failed to book a settleable `SALE_COST` supplier
+  entry. Now covered by `lira-061` ("Whish App SEND books SALE_COST (WISH_APP→WHISH_APP fix)").
+
+**2. Sprint-2 e2e coverage enforced — 6 specs, all green** (per the banner note "add a test … for
+each ticket implemented"). Plan: `docs/plans/sprint2-e2e-coverage.md`. Each is IPC-driven
+(`appPage.evaluate(() => window.api.*)`) over the shared per-worker DB and asserts **deltas matched by
+identity** (never "newest row"):
+
+| Ticket   | Spec                                       | Validates                                                                 |
+| -------- | ------------------------------------------ | ------------------------------------------------------------------------- |
+| LIRA-056 | `lira-056-supplier-credit-topup-settle`    | Katsh/iPick credit top-up funds the provider drawer, General untouched; settle nets ledger to baseline |
+| LIRA-057 | `lira-057-whish-topup-partner-client`      | Whish App Via Partner (`WHISH_TOPUP`/CREDIT, no cash drawer) + From Client (credits-in / cash-out, profit = fee) + guards |
+| LIRA-059 | `lira-059-supplier-cashflow-bidirectional` | PAY / `SUPPLIER_PAYS_US` / overpay-goes-negative; Companies vs Products (`is_system`) split |
+| LIRA-061 | `lira-061-sale-cost-supplier-ledger`       | cost/price SEND books `SALE_COST` (not `TOP_UP`) for Katsh/iPick/Whish App; per-txn settle + cumulative pay-down |
+| LIRA-063 | `lira-063-omt-whish-optional-client`       | OMT/Whish App SEND & RECEIVE proceed with empty name/phone; provided values still persisted |
+| LIRA-064 | `lira-064-payment-legs-summary`            | structured in/out payment legs per row (mixed IN+OUT, two same-currency INs, cash-only SEND) |
+
+**3. CLAUDE.md hardened** with the lessons learned: **rule 15** (E2E assertions over the shared DB —
+match a row by identity + assert deltas, never "newest row"; one action can write multiple
+`transactions` rows; `created_at` is second-granular) and a **stale-build note** in "Running E2E
+tests" (rebuild `electron-app/dist` after editing electron-app source — a stale `schemas/dist` once
+surfaced as a confusing `WHISH_APP` Zod-validation failure).
 
 ---
 
@@ -888,6 +891,10 @@ Beyond the directional arrow badges (LIRA-054), surface the actual **payment leg
 | LIRA-062 | iPick/Katsh — Bills section                    | Medium   | DONE                |
 | LIRA-063 | Whish/OMT App — optional name/phone            | Low      | DONE                |
 | LIRA-064 | Transactions — structured in/out breakdown     | Medium   | DONE                |
+
+> **E2E coverage (2026-06-20):** every DONE Sprint-2 ticket now has a dedicated money-invariant e2e —
+> `lira-056/057/059/061/063/064` (plan: `docs/plans/sprint2-e2e-coverage.md`). Details in the
+> **POST-REVIEW FOLLOW-UPS (2026-06-20)** section near the top.
 
 ---
 ---

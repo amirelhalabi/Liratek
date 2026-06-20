@@ -112,7 +112,7 @@ export type {
   CreateExchangeData,
 } from "./ExchangeRepository.js";
 
-// Financial Service Repository (OMT, WHISH, BOB, OTHER, iPick, Katsh, WISH_APP, OMT_APP, BINANCE)
+// Financial Service Repository (OMT, WHISH, BOB, OTHER, iPick, Katsh, WHISH_APP, OMT_APP, BINANCE)
 export {
   FinancialServiceRepository,
   getFinancialServiceRepository,

@@ -1,10 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import logger from "@/utils/logger";
 import {
-  formatWithCommas,
-  isPartialDecimal,
-} from "@/shared/utils/formatWithCommas";
-import {
   Wrench,
   Plus,
   DollarSign,
@@ -13,7 +9,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import CheckoutModal from "@/features/sales/pages/POS/components/CheckoutModal";
-import { PageHeader, useApi } from "@liratek/ui";
+import { PageHeader, useApi, DecimalInput } from "@liratek/ui";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { HistoryModal } from "./components/HistoryModal";
 import { useSaveAsClient } from "@/shared/hooks/useSaveAsClient";
@@ -598,16 +594,10 @@ export default function Maintenance() {
                         $
                       </span>
                     )}
-                    <input
+                    <DecimalInput
                       id="maintenance-cost"
-                      type="text"
-                      inputMode="decimal"
-                      autoComplete="off"
-                      value={formatWithCommas(cost)}
-                      onChange={(e) => {
-                        const cleaned = e.target.value.replace(/,/g, "");
-                        if (isPartialDecimal(cleaned)) setCost(cleaned);
-                      }}
+                      value={parseFloat(cost) || 0}
+                      onChange={(n) => setCost(n ? String(n) : "")}
                       className={`w-full bg-slate-900 border border-slate-600 rounded-lg ${currency === "USD" ? "pl-7" : "pl-3"} pr-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-orange-500`}
                       placeholder={currency === "USD" ? "0.00" : "0"}
                     />
@@ -626,16 +616,10 @@ export default function Maintenance() {
                         $
                       </span>
                     )}
-                    <input
+                    <DecimalInput
                       id="maintenance-price"
-                      type="text"
-                      inputMode="decimal"
-                      autoComplete="off"
-                      value={formatWithCommas(price)}
-                      onChange={(e) => {
-                        const cleaned = e.target.value.replace(/,/g, "");
-                        if (isPartialDecimal(cleaned)) setPrice(cleaned);
-                      }}
+                      value={parseFloat(price) || 0}
+                      onChange={(n) => setPrice(n ? String(n) : "")}
                       className={`w-full bg-slate-900 border border-emerald-500/50 rounded-lg ${currency === "USD" ? "pl-7" : "pl-3"} pr-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-emerald-500`}
                       placeholder={currency === "USD" ? "0.00" : "0"}
                     />

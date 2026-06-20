@@ -244,7 +244,7 @@ contextBridge.exposeInMainWorld("api", {
         | "OTHER"
         | "iPick"
         | "Katsh"
-        | "WISH_APP"
+        | "WHISH_APP"
         | "OMT_APP"
         | "BINANCE";
       serviceType: "SEND" | "RECEIVE" | "BILL";
