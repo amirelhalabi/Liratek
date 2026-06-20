@@ -86,15 +86,22 @@ test.describe("LIRA-063 — OMT App / Whish App optional client name/phone", () 
     // ── Verify propagation in the Transactions table (first row) ─────────────
     await navigateTo(appPage, "/audit");
 
-    const firstRow = appPage.locator("tbody tr").first();
+    // Target the OMT App Send row by its Type cell — NOT tbody tr.first(): a
+    // successful send also writes a sibling SUPPLIER PAYMENT row (auto TOP_UP)
+    // whose created_at can be a wall-clock second newer, so it may sort above the
+    // send row. Filter by the Type label to select the send row deterministically.
+    const sendRow = appPage
+      .locator("tbody tr")
+      .filter({ hasText: "OMT App Send" })
+      .first();
     // Type column (3rd cell): "OMT App Send"
-    await expect(firstRow.locator("td").nth(2)).toContainText("OMT App Send", {
+    await expect(sendRow.locator("td").nth(2)).toContainText("OMT App Send", {
       timeout: 10_000,
     });
     // Client column (4th cell): no client → em dash
-    await expect(firstRow.locator("td").nth(3)).toHaveText("—");
+    await expect(sendRow.locator("td").nth(3)).toHaveText("—");
     // Amount column (5th cell): the $25 transfer
-    await expect(firstRow.locator("td").nth(4)).toContainText("$25");
+    await expect(sendRow.locator("td").nth(4)).toContainText("$25");
   });
 
   // ───────────────────────────────────────────────────────────────────────────
