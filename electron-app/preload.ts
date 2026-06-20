@@ -247,7 +247,7 @@ contextBridge.exposeInMainWorld("api", {
         | "WISH_APP"
         | "OMT_APP"
         | "BINANCE";
-      serviceType: "SEND" | "RECEIVE";
+      serviceType: "SEND" | "RECEIVE" | "BILL";
       amount: number;
       currency?: string;
       commission?: number;
