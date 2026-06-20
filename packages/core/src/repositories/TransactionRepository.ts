@@ -342,7 +342,7 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
        LEFT JOIN customer_session_transactions cst
               ON cst.unified_transaction_id = t.id
        ${where}
-       ORDER BY t.created_at DESC
+       ORDER BY t.created_at DESC, t.id DESC
        LIMIT ?`,
       ...params,
     );
