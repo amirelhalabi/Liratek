@@ -235,11 +235,14 @@ export default function MultiPaymentInput({
           converted = effectiveTotalAmount / effectiveRate;
         }
       }
+      const updated = [{ ...line, amount: converted }];
       if (line.amount !== converted) {
-        const updated = [{ ...line, amount: converted }];
         setPaymentLines(updated);
-        onChange(updated);
       }
+      // Always notify the parent — even on first render when the amount
+      // matches the initial state, so the parent's cashflowLines gets
+      // populated with the pre-filled amount instead of staying empty.
+      onChange(updated);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [

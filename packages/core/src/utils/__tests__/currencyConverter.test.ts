@@ -95,15 +95,22 @@ describe("convertFromUSD", () => {
 // ─── computeLegProfitUsd ──────────────────────────────────────────────────────
 
 describe("computeLegProfitUsd", () => {
-  it("LBP leg: profit = amountIn/market × halfSpread", () => {
-    // 10 USD worth of LBP at market rate 89500, halfSpread = (90000-89000)/2 = 500
-    const profit = computeLegProfitUsd(10, lbp);
+  it("LBP leg (USD→LBP): profit = amountIn × halfSpread / market_rate", () => {
+    // 10 USD → LBP: shop keeps spread on the LBP side, converted back to USD
+    const profit = computeLegProfitUsd(10, lbp, true);
     expect(profit).toBeCloseTo((10 * 500) / 89500, 8);
   });
 
-  it("EUR leg: profit = amountIn × halfSpread", () => {
+  it("LBP leg (LBP→USD): profit = amountIn × halfSpread / market_rate²", () => {
+    // 89500 LBP ≈ 1 USD at market; profit must be positive and much smaller than 89500
+    const profit = computeLegProfitUsd(89500, lbp, false);
+    expect(profit).toBeCloseTo((89500 * 500) / (89500 * 89500), 8);
+    expect(profit).toBeGreaterThan(0);
+  });
+
+  it("EUR leg (EUR→USD): profit = amountIn × halfSpread", () => {
     // 10 EUR, halfSpread = (1.20-1.16)/2 = 0.02
-    const profit = computeLegProfitUsd(10, eur);
+    const profit = computeLegProfitUsd(10, eur, false);
     expect(profit).toBeCloseTo(10 * 0.02, 8);
   });
 

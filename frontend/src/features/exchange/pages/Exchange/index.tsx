@@ -8,7 +8,7 @@ import {
   History,
   ChevronDown,
 } from "lucide-react";
-import { PageHeader, useApi } from "@liratek/ui";
+import { PageHeader, useApi, DecimalInput } from "@liratek/ui";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { useSessionAutoFill } from "@/features/sessions/hooks/useSessionAutoFill";
 import { useCurrencyContext } from "@/contexts/CurrencyContext";
@@ -283,7 +283,7 @@ export default function Exchange() {
   const [fromCurrency, setFromCurrency] = useState<string>("");
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [toCurrency, setToCurrency] = useState<string>("");
-  const [amountIn, setAmountIn] = useState<string>("");
+  const [amountIn, setAmountIn] = useState<number>(0);
   const [amountOut, setAmountOut] = useState<string>("");
   const [rates, setRates] = useState<CurrencyRate[]>([]);
   const [liveCurrencyRates, setLiveCurrencyRates] = useState<CurrencyRate[]>(
@@ -417,12 +417,15 @@ export default function Exchange() {
               ? leg.amountIn / cr.market_rate
               : leg.amountIn * cr.market_rate;
 
-        // Profit = difference between market and actual, in USD
-        const diff =
-          cr.is_stronger === 1
-            ? Math.abs(marketOut - amountOut) / cr.market_rate
-            : Math.abs(marketOut - amountOut);
-        const profitUsd = diff;
+        // Profit = difference between market and actual output, in USD.
+        // marketOut/amountOut are in leg.toCurrency — convert to USD accordingly.
+        const diffRaw = Math.abs(marketOut - amountOut);
+        const profitUsd =
+          leg.toCurrency === "USD"
+            ? diffRaw // already in USD
+            : cr.is_stronger === 1
+              ? diffRaw / cr.market_rate // LBP output → ÷ rate
+              : diffRaw * cr.market_rate; // EUR output → × rate
 
         return { ...leg, rate: customRate, amountOut, profitUsd };
       });
@@ -450,10 +453,11 @@ export default function Exchange() {
             cr.is_stronger === 1
               ? leg1Out * cr.market_rate
               : leg1Out / cr.market_rate;
+          const diffRaw2 = Math.abs(marketOut2 - amountOut2);
           const diff2 =
             cr.is_stronger === 1
-              ? Math.abs(marketOut2 - amountOut2) / cr.market_rate
-              : Math.abs(marketOut2 - amountOut2);
+              ? diffRaw2 / cr.market_rate // LBP output → ÷ rate
+              : diffRaw2 * cr.market_rate; // EUR output → × rate
           legs[1] = {
             ...leg2,
             amountIn: leg1Out,
@@ -524,7 +528,7 @@ export default function Exchange() {
 
   // Recalculate whenever inputs change (base calculation from DB rates)
   const recalculate = useCallback(() => {
-    const val = parseFloat(amountIn);
+    const val = amountIn;
     if (!fromCurrency || !toCurrency || fromCurrency === toCurrency) {
       setCalcResult(null);
       setCalcError(null);
@@ -607,11 +611,11 @@ export default function Exchange() {
     const prev = fromCurrency;
     setFromCurrency(toCurrency);
     setToCurrency(prev);
-    setAmountIn(amountOut);
+    setAmountIn(parseFloat(amountOut) || 0);
   };
 
   const handleProcess = async () => {
-    const inp = parseFloat(amountIn);
+    const inp = amountIn;
     const out = parseFloat(amountOut);
 
     if (!inp || !out || !effectiveResult) {
@@ -660,7 +664,7 @@ export default function Exchange() {
             logger.error("Failed to link exchange to session:", err);
           }
         }
-        setAmountIn("");
+        setAmountIn(0);
         setAmountOut("");
         setClientName("");
         setCalcResult(null);
@@ -890,13 +894,13 @@ export default function Exchange() {
                 You Receive ({fromCurrency})
               </label>
               <div className="relative">
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-emerald-500 font-bold">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-emerald-500 font-bold z-10 pointer-events-none">
                   {getCurrencySymbol(fromCurrency)}
                 </span>
-                <input
-                  type="number"
+                <DecimalInput
                   value={amountIn}
-                  onChange={(e) => setAmountIn(e.target.value)}
+                  onChange={setAmountIn}
+                  decimals={getDecimals(fromCurrency)}
                   className="w-full bg-slate-800/50 border border-slate-700 rounded-lg pl-14 pr-4 py-4 text-xl font-bold text-white focus:outline-none focus:border-emerald-500 transition-colors"
                   placeholder="0.00"
                 />

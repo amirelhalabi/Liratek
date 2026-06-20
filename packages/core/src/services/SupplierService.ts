@@ -1,5 +1,6 @@
 import {
   getSupplierRepository,
+  getProductSupplierRepository,
   type CreateSupplierData,
   type CreateSupplierLedgerEntryData,
   type SettleTransactionsData,
@@ -7,6 +8,7 @@ import {
   type SupplierEntity,
   type SupplierLedgerEntryEntity,
   type SupplierBalance,
+  type ProductSupplierItem,
 } from "../repositories/index.js";
 import { toErrorString } from "../utils/errors.js";
 
@@ -25,6 +27,14 @@ export class SupplierService {
 
   getSupplierBalances(includeInactive?: boolean): SupplierBalance[] {
     return this.repo.getSupplierBalances(includeInactive);
+  }
+
+  getProductSupplierBalances(): SupplierBalance[] {
+    return this.repo.getProductSupplierBalances();
+  }
+
+  getProductItems(supplierId: number): ProductSupplierItem[] {
+    return getProductSupplierRepository().getProductItems(supplierId);
   }
 
   getSupplierLedger(

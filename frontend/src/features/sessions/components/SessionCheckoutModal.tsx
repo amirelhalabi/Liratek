@@ -10,6 +10,7 @@ import logger from "@/utils/logger";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import {
   appEvents,
+  canChargeToCustomerAccount,
   MultiPaymentInput,
   type PaymentLine,
 } from "@liratek/ui";
@@ -161,8 +162,9 @@ export function SessionCheckoutModal({
   const { allMethods } = usePaymentMethods();
 
   // Money IN (customer pays the shop) → shared SELL rate. Seeded from the hook
-  // but kept editable: the operator can override it and the chosen rate is sent
-  // in the checkout payload (and used for the USD↔LBP coverage math below).
+  // but kept editable: the operator overrides it via the rate field inside
+  // MultiPaymentInput (see onRateChange below), and the chosen rate is sent in
+  // the checkout payload (and used for the USD↔LBP coverage math below).
   const { sellRate } = useSellRate();
   const [exchangeRate, setExchangeRate] = useState(sellRate);
   // Track whether the operator has manually edited the rate so the seeded value
@@ -171,6 +173,13 @@ export function SessionCheckoutModal({
   useEffect(() => {
     if (!rateEdited) setExchangeRate(sellRate);
   }, [sellRate, rateEdited]);
+
+  // Mirror the rate edited inside either MultiPaymentInput up to the parent so
+  // both instances stay in sync and the coverage math + payload use it.
+  const handleRateChange = (rate: number) => {
+    setRateEdited(true);
+    setExchangeRate(rate);
+  };
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -226,8 +235,16 @@ export function SessionCheckoutModal({
   // Key used to force-remount MultiPaymentInput when client context changes
   const [paymentInputKey, setPaymentInputKey] = useState(0);
 
-  // Whether the session has a named client (drives CUSTOMER_ACCOUNT auto-select)
-  const hasClient = !!(activeSession?.customer_name);
+  // Whether the session can charge to the customer's account. CUSTOMER_ACCOUNT
+  // needs BOTH a name and a phone — for a first-time walk-in the backend creates
+  // the client on the fly from name+phone, so a name-only session has no account
+  // to charge. Gating here stops the basket from auto-selecting CUSTOMER_ACCOUNT,
+  // which otherwise fails server-side with
+  // "Client is required for CUSTOMER_ACCOUNT cashout".
+  const hasClient = canChargeToCustomerAccount({
+    name: activeSession?.customer_name,
+    phone: activeSession?.customer_phone,
+  });
 
   // Initial method for MultiPaymentInput — recomputed when methods load or client changes
   const initialMethod = useMemo(
@@ -329,6 +346,15 @@ export function SessionCheckoutModal({
   // Primary method is the first non-zero leg's method, or CASH as fallback
   const primaryMethod = allPaymentLegs.find((l) => l.amount > 0)?.method ?? "CASH";
 
+  // A CUSTOMER_ACCOUNT (charge-to-account) leg — whether auto-selected or chosen
+  // manually — requires a chargeable client (name + phone). Block checkout
+  // otherwise so it fails fast in the UI instead of server-side mid-transaction
+  // with "Client is required for CUSTOMER_ACCOUNT cashout".
+  const usesCustomerAccount = allPaymentLegs.some(
+    (l) => l.method === "CUSTOMER_ACCOUNT",
+  );
+  const customerAccountBlocked = usesCustomerAccount && !hasClient;
+
   // Validate payment totals are covered
   const usdPaymentTolerance = 0.01;
   const lbpPaymentTolerance = 100;
@@ -380,6 +406,13 @@ export function SessionCheckoutModal({
 
     if (!isPaymentValid) {
       setError("Payment total does not match cart total");
+      return;
+    }
+
+    if (customerAccountBlocked) {
+      setError(
+        "Customer Account requires both a customer name and phone number. Add a phone to this session or pick another payment method.",
+      );
       return;
     }
 
@@ -551,31 +584,6 @@ export function SessionCheckoutModal({
             ))}
           </div>
 
-          {/* Editable exchange rate — seeded from the shared SELL rate, sent in
-              the checkout payload and used for the USD↔LBP coverage math. */}
-          {(totals.usd > 0 || totals.lbp > 0) && (
-            <div className="flex items-center justify-between gap-3 bg-slate-800/50 border border-slate-700/40 rounded-lg px-3 py-2">
-              <label
-                htmlFor="checkout-exchange-rate"
-                className="text-xs text-slate-400"
-              >
-                Exchange Rate (1 USD = ? LBP)
-              </label>
-              <input
-                id="checkout-exchange-rate"
-                type="number"
-                min={0}
-                step={100}
-                value={exchangeRate || ""}
-                onChange={(e) => {
-                  setRateEdited(true);
-                  setExchangeRate(parseFloat(e.target.value) || 0);
-                }}
-                className="w-32 bg-slate-900 border border-slate-600 rounded-md px-2 py-1 text-sm text-white font-mono text-right focus:outline-none focus:border-orange-500"
-              />
-            </div>
-          )}
-
           {/* MultiPaymentInput — USD */}
           {totals.usd > 0 && (
             <div className="space-y-1">
@@ -594,6 +602,7 @@ export function SessionCheckoutModal({
                 paymentMethods={paymentMethodOptions}
                 currencies={currencies}
                 exchangeRate={exchangeRate}
+                onRateChange={handleRateChange}
                 showDiscount={false}
                 label="USD Payment"
                 initialMethod={initialMethod}
@@ -621,6 +630,7 @@ export function SessionCheckoutModal({
                 paymentMethods={paymentMethodOptions}
                 currencies={currencies}
                 exchangeRate={exchangeRate}
+                onRateChange={handleRateChange}
                 showDiscount={false}
                 label="LBP Payment"
                 initialMethod={initialMethod}
@@ -689,7 +699,12 @@ export function SessionCheckoutModal({
           </button>
           <button
             onClick={handleCheckout}
-            disabled={isProcessing || cartItems.length === 0 || !isPaymentValid}
+            disabled={
+              isProcessing ||
+              cartItems.length === 0 ||
+              !isPaymentValid ||
+              customerAccountBlocked
+            }
             className="flex-1 py-2.5 rounded-lg font-semibold text-sm text-white bg-emerald-600 hover:bg-emerald-500 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {isProcessing ? (

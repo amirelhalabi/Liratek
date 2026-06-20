@@ -5,7 +5,7 @@ import { CheckCircle, Loader2 } from "lucide-react";
 import { appEvents } from "@liratek/ui";
 
 export default function StepComplete() {
-  const { payload, resetWizard } = useSetup();
+  const { payload, resetWizard, setStep } = useSetup();
   const { login, clearSetupRequired } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -22,6 +22,21 @@ export default function StepComplete() {
       if (!result.success) {
         setError(result.error ?? "Setup failed");
         return;
+      }
+
+      // Apply initial drawer amounts if the operator set any in step 6
+      if (payload.drawer_amounts && payload.drawer_amounts.length > 0 && window.api) {
+        await window.api.closing.createCheckpoint({
+          user_id: 1, // admin user created in step 1 (always id=1 on fresh install)
+          drawer_name: "AGGREGATED",
+          notes: "Initial drawer amounts from setup",
+          amounts: payload.drawer_amounts.map((d) => ({
+            drawer_name: d.drawer_name,
+            currency_code: d.currency_code,
+            expected_amount: d.amount,
+            physical_amount: d.amount,
+          })),
+        });
       }
 
       // Auto-login with new admin credentials
@@ -119,6 +134,20 @@ export default function StepComplete() {
             </span>
           </div>
         )}
+        <div className="flex justify-between text-sm">
+          <span className="text-slate-400">Starting Drawer Amounts</span>
+          <span
+            className={
+              payload.drawer_amounts && payload.drawer_amounts.length > 0
+                ? "text-emerald-400"
+                : "text-slate-500"
+            }
+          >
+            {payload.drawer_amounts && payload.drawer_amounts.length > 0
+              ? `${payload.drawer_amounts.length} set`
+              : "Skipped"}
+          </span>
+        </div>
       </div>
 
       {error && (
@@ -127,11 +156,19 @@ export default function StepComplete() {
         </p>
       )}
 
-      <button
-        onClick={handleLaunch}
-        disabled={loading}
-        className="w-full px-6 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold rounded-xl transition-colors text-sm flex items-center justify-center gap-2"
-      >
+      <div className="flex gap-3">
+        <button
+          onClick={() => setStep(6)}
+          disabled={loading}
+          className="px-4 py-3 text-sm text-slate-400 hover:text-white hover:bg-slate-700 rounded-xl transition-colors disabled:opacity-50"
+        >
+          ← Back
+        </button>
+        <button
+          onClick={handleLaunch}
+          disabled={loading}
+          className="flex-1 px-6 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold rounded-xl transition-colors text-sm flex items-center justify-center gap-2"
+        >
         {loading ? (
           <>
             <Loader2 size={16} className="animate-spin" />
@@ -140,7 +177,8 @@ export default function StepComplete() {
         ) : (
           "Launch App →"
         )}
-      </button>
+        </button>
+      </div>
     </div>
   );
 }

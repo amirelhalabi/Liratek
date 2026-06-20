@@ -1,4 +1,5 @@
 import { useState, useEffect, type ReactNode } from "react";
+import { useLocation } from "react-router-dom";
 import LeftPanelLayout from "./LeftPanelLayout";
 import HomeViewLayout from "./HomeViewLayout";
 import { NotificationCenter, appEvents } from "@liratek/ui";
@@ -13,6 +14,16 @@ interface MainLayoutProps {
 }
 
 export default function MainLayout({ children }: MainLayoutProps) {
+  const location = useLocation();
+
+  // Cycle BrowserWindow focus on every route change — fixes the Chromium/Windows
+  // compositor bug where navigating to a page leaves keyboard input unresponsive.
+  useEffect(() => {
+    if (navigator.userAgent.includes("Windows")) {
+      window.api?.display?.fixFocus?.();
+    }
+  }, [location.pathname]);
+
   const [layoutMode, setLayoutMode] = useState(
     () => localStorage.getItem("layout_mode") || "left-panel",
   );

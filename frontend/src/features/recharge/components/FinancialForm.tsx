@@ -4,6 +4,7 @@ import {
   useApi,
   ServiceTypeTabs,
   DecimalInput,
+  hasNewClientInfo,
   type PaymentLine,
 } from "@liratek/ui";
 import { PaymentSheet } from "./PaymentSheet";
@@ -107,9 +108,12 @@ export function FinancialForm({
 
   // Auto-promote CUSTOMER_ACCOUNT once both name+phone are filled for a brand-new client
   useEffect(() => {
-    const hasNewClientInfo =
-      !clientId && clientName.trim().length > 0 && clientPhone.trim().length > 0;
-    if (hasNewClientInfo && initialPaymentMethod !== "CUSTOMER_ACCOUNT") {
+    const newClientReady = hasNewClientInfo({
+      clientId,
+      name: clientName,
+      phone: clientPhone,
+    });
+    if (newClientReady && initialPaymentMethod !== "CUSTOMER_ACCOUNT") {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setInitialPaymentMethod("CUSTOMER_ACCOUNT");
        

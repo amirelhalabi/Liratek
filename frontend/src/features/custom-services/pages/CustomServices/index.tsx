@@ -22,7 +22,12 @@ import {
   Tag,
   Settings,
 } from "lucide-react";
-import { PageHeader, useApi, DecimalInput } from "@liratek/ui";
+import {
+  canChargeToCustomerAccount,
+  PageHeader,
+  useApi,
+  DecimalInput,
+} from "@liratek/ui";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { useSessionAutoFill } from "@/features/sessions/hooks/useSessionAutoFill";
@@ -191,7 +196,11 @@ export default function CustomServices() {
     if (client.phone_number) setPhoneNumber(client.phone_number);
     resetSaveAsClient();
     const hasCustomerAccount = methods.some((m) => m.code === "CUSTOMER_ACCOUNT");
-    if (hasCustomerAccount) {
+    const chargeable = canChargeToCustomerAccount({
+      name: client.full_name,
+      phone: client.phone_number,
+    });
+    if (hasCustomerAccount && chargeable) {
       setPaymentInitialMethod("CUSTOMER_ACCOUNT");
       setPaymentInputKey((k) => k + 1);
     }

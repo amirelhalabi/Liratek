@@ -950,6 +950,18 @@ export interface ElectronAPI {
       payments: Array<{ method: string; currency_code: string; amount: number }>;
       note?: string;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    getProductBalances: () => Promise<
+      Array<{ supplier_id: number; total_usd: number; total_lbp: number }>
+    >;
+    getProductItems: (supplierId: number) => Promise<
+      Array<{
+        product_id: number;
+        name: string;
+        quantity: number;
+        cost: number;
+        total: number;
+      }>
+    >;
   };
 
   // Loto
@@ -1374,6 +1386,20 @@ export interface ElectronAPI {
       >;
       error?: string;
     }>;
+    hasOpeningBalanceToday: () => Promise<boolean>;
+    hasInitialBalancesSet: () => Promise<boolean>;
+    updateDailyClosing: (data: {
+      id: number;
+      physical_usd?: number;
+      physical_lbp?: number;
+      physical_eur?: number;
+      system_expected_usd?: number;
+      system_expected_lbp?: number;
+      variance_usd?: number;
+      notes?: string;
+      report_path?: string;
+      user_id?: number;
+    }) => Promise<{ success: boolean; error?: string }>;
   };
 
   // Drawer Top-Up

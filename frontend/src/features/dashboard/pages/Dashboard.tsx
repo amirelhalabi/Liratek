@@ -12,6 +12,7 @@ import {
   Banknote,
 } from "lucide-react";
 import { DrawerTopUpModal } from "../components/DrawerTopUpModal";
+import { InitialDrawerAmountsModal } from "../../closing/components/InitialDrawerAmountsModal";
 import { useCurrencyContext } from "@/contexts/CurrencyContext";
 import { useModules } from "@/contexts/ModuleContext";
 import { useAuth } from "@/features/auth/context/AuthContext";
@@ -167,6 +168,8 @@ export default function Dashboard() {
     [],
   );
   const [showTopUpModal, setShowTopUpModal] = useState(false);
+  const [initialBalancesSet, setInitialBalancesSet] = useState(true);
+  const [showInitialDrawerModal, setShowInitialDrawerModal] = useState(false);
 
   // State for dynamic Y-axis domains
   const [maxUsdSales, setMaxUsdSales] = useState(0);
@@ -275,6 +278,13 @@ export default function Dashboard() {
       // logger.error('Failed to load dashboard data:', error);
     }
   }, [api, chartType, checkpointsEnabled]);
+
+  // Check once on mount whether initial drawer amounts have been set
+  useEffect(() => {
+    window.api.closing.hasInitialBalancesSet().then((isSet) => {
+      setInitialBalancesSet(isSet);
+    });
+  }, []);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -412,6 +422,27 @@ export default function Dashboard() {
     <>
       <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col gap-6 overflow-hidden animate-in fade-in duration-500">
         <PageHeader icon={LayoutDashboard} title="Dashboard" />
+
+        {/* Initial drawer amounts banner — shown until operator sets starting balances */}
+        {!initialBalancesSet && (
+          <button
+            onClick={() => setShowInitialDrawerModal(true)}
+            className="flex items-center gap-3 w-full px-4 py-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-left hover:bg-amber-500/15 transition-colors group"
+          >
+            <Wallet className="w-5 h-5 text-amber-400 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-amber-300">
+                Starting drawer amounts not set
+              </p>
+              <p className="text-xs text-amber-400/70">
+                Set the opening cash for each active drawer so balances are accurate from day one.
+              </p>
+            </div>
+            <span className="text-xs text-amber-400 group-hover:text-amber-300 font-medium shrink-0">
+              Set now →
+            </span>
+          </button>
+        )}
 
         {/* Scrollable content area */}
         <div className="flex-1 min-h-0 overflow-auto space-y-6">
@@ -798,6 +829,16 @@ export default function Dashboard() {
           loadData();
         }}
       />
+
+      {showInitialDrawerModal && (
+        <InitialDrawerAmountsModal
+          onClose={() => setShowInitialDrawerModal(false)}
+          onSaved={() => {
+            setInitialBalancesSet(true);
+            loadData();
+          }}
+        />
+      )}
     </>
   );
 }

@@ -9,6 +9,8 @@ import { useApi } from "@liratek/ui";
 export const SUPPLIER_KEYS = {
   all: ["suppliers"] as const,
   balances: ["supplier-balances"] as const,
+  productBalances: ["supplier-product-balances"] as const,
+  productItems: (id: number) => ["supplier-product-items", id] as const,
   ledger: (id: number) => ["supplier-ledger", id] as const,
   unsettled: (provider: string) => ["supplier-unsettled", provider] as const,
 };
@@ -36,6 +38,21 @@ export function useSupplierLedgerQuery(supplierId: number | null) {
   return useQuery({
     queryKey: SUPPLIER_KEYS.ledger(supplierId ?? 0),
     queryFn: () => api.getSupplierLedger(supplierId!, 200),
+    enabled: !!supplierId,
+  });
+}
+
+export function useProductSupplierBalancesQuery() {
+  return useQuery({
+    queryKey: SUPPLIER_KEYS.productBalances,
+    queryFn: () => window.api.suppliers.getProductBalances(),
+  });
+}
+
+export function useProductItemsQuery(supplierId: number | null) {
+  return useQuery({
+    queryKey: SUPPLIER_KEYS.productItems(supplierId ?? 0),
+    queryFn: () => window.api.suppliers.getProductItems(supplierId!),
     enabled: !!supplierId,
   });
 }
@@ -138,6 +155,7 @@ export function useSupplierCashflowMutation(
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.all });
       queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.balances });
+      queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.productBalances });
       if (supplierId) {
         queryClient.invalidateQueries({
           queryKey: SUPPLIER_KEYS.ledger(supplierId),

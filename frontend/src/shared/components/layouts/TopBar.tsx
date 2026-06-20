@@ -298,7 +298,9 @@ export default function TopBar({
           >
             <Bell size={20} />
             {notificationCount > 0 && (
-              <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full"></span>
+              <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-0.5 bg-red-500 rounded-full text-[10px] font-bold text-white flex items-center justify-center leading-none">
+                {notificationCount > 99 ? "99+" : notificationCount}
+              </span>
             )}
           </button>
 

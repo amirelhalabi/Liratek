@@ -1,7 +1,13 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import logger from "@/utils/logger";
 import { X, User, Printer, Inbox, Pencil, Minus } from "lucide-react";
-import { DecimalInput, roundLBPUp, useApi, appEvents } from "@liratek/ui";
+import {
+  canChargeToCustomerAccount,
+  DecimalInput,
+  roundLBPUp,
+  useApi,
+  appEvents,
+} from "@liratek/ui";
 import { useDynamicExchangeRate } from "@/hooks/useDynamicExchangeRate";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useShopInfo } from "@/hooks/useShopName";
@@ -530,8 +536,10 @@ export default function CheckoutModal({
   const [changeGivenLBP, setChangeGivenLBP] = useState(0);
 
   // Validation for Debt: both primary (clientSearch) and secondary (secondaryInput) must be filled for new clients
-  const isNewClientInfoComplete =
-    clientSearch.trim().length > 0 && secondaryInput.trim().length > 0;
+  const isNewClientInfoComplete = canChargeToCustomerAccount({
+    name: clientSearch,
+    phone: secondaryInput,
+  });
 
   const debtPaymentEnabled = paymentMethodOptions.some(
     (pm) => pm.code === "CUSTOMER_ACCOUNT",
@@ -539,10 +547,10 @@ export default function CheckoutModal({
 
   // Determine whether creating a debt is allowed: existing client must have phone, new client must have both fields
   const canCreateDebt = selectedClient
-    ? !!(
-        selectedClient.phone_number &&
-        selectedClient.phone_number.trim().length > 0
-      )
+    ? canChargeToCustomerAccount({
+        name: selectedClient.full_name,
+        phone: selectedClient.phone_number,
+      })
     : isNewClientInfoComplete;
 
   const finalAmount = Math.max(0, totalAmount - (discount ?? 0));
@@ -565,9 +573,11 @@ export default function CheckoutModal({
     return () => document.removeEventListener("keydown", handler);
   }, [onClose, onCancel]);
 
-  // Auto-switch to CUSTOMER_ACCOUNT when a client is selected
+  // Auto-switch to CUSTOMER_ACCOUNT when a chargeable client is selected. Gated
+  // on canCreateDebt so a phone-less client never auto-selects CUSTOMER_ACCOUNT
+  // (which would fail server-side — CUSTOMER_ACCOUNT needs name + phone).
   useEffect(() => {
-    if (!selectedClient) return;
+    if (!selectedClient || !canCreateDebt) return;
     const hasCA = paymentMethodOptions.some((pm) => pm.code === "CUSTOMER_ACCOUNT");
     if (!hasCA) return;
     setPaymentLines((prev) => {
@@ -576,7 +586,7 @@ export default function CheckoutModal({
       }
       return prev;
     });
-  }, [selectedClient, paymentMethodOptions]);
+  }, [selectedClient, canCreateDebt, paymentMethodOptions]);
 
   // LIRA-017: Auto-fill payment amount when modal opens (if no draft and amount is 0)
   useEffect(() => {

@@ -1,6 +1,11 @@
 import { useState, useEffect, memo } from "react";
 import { User, Phone } from "lucide-react";
-import { useApi, ServiceTypeTabs, DecimalInput } from "@liratek/ui";
+import {
+  useApi,
+  ServiceTypeTabs,
+  DecimalInput,
+  hasNewClientInfo,
+} from "@liratek/ui";
 import { PaymentSheet } from "./PaymentSheet";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import type { FinancialTransaction } from "../types";
@@ -81,11 +86,12 @@ function OmtWhishAppTransferFormInner({
   const activeClientPhone =
     serviceType === "SEND" ? senderPhone : receiverPhone;
   useEffect(() => {
-    const hasNewClientInfo =
-      !clientId &&
-      activeClientName.trim().length > 0 &&
-      activeClientPhone.trim().length > 0;
-    if (hasNewClientInfo && initialPaymentMethod !== "CUSTOMER_ACCOUNT") {
+    const newClientReady = hasNewClientInfo({
+      clientId,
+      name: activeClientName,
+      phone: activeClientPhone,
+    });
+    if (newClientReady && initialPaymentMethod !== "CUSTOMER_ACCOUNT") {
       setInitialPaymentMethod("CUSTOMER_ACCOUNT");
       setPaymentInputKey((k) => k + 1);
     }

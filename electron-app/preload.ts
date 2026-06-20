@@ -416,6 +416,10 @@ contextBridge.exposeInMainWorld("api", {
       payments: Array<{ method: string; currency_code: string; amount: number }>;
       note?: string;
     }) => ipcRenderer.invoke("suppliers:record-cashflow", data),
+    getProductBalances: () =>
+      ipcRenderer.invoke("suppliers:product-balances"),
+    getProductItems: (supplierId: number) =>
+      ipcRenderer.invoke("suppliers:product-items", supplierId),
   },
 
   // Loto
@@ -594,6 +598,8 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.invoke("closing:get-last-checkpoint-per-drawer"),
     hasOpeningBalanceToday: () =>
       ipcRenderer.invoke("closing:has-opening-balance-today"),
+    hasInitialBalancesSet: () =>
+      ipcRenderer.invoke("closing:has-initial-balances-set"),
     updateDailyClosing: (data: any) =>
       ipcRenderer.invoke("closing:update-daily-closing", data),
   },

@@ -5,6 +5,7 @@ import {
   ServiceTypeTabs,
   type ServiceTypeOption,
   useApi,
+  hasNewClientInfo,
   type PaymentLine,
 } from "@liratek/ui";
 import type {
@@ -185,11 +186,12 @@ export function TelecomForm({
   // so they can tap "Pay" immediately — the parent will create the client on
   // submit. Mirrors the existing select-from-search auto-switch.
   useEffect(() => {
-    const hasNewClientInfo =
-      !telecomClientId &&
-      telecomClientName.trim().length > 0 &&
-      telecomClientPhone.trim().length > 0;
-    if (hasNewClientInfo && initialPaymentMethod !== "CUSTOMER_ACCOUNT") {
+    const newClientReady = hasNewClientInfo({
+      clientId: telecomClientId,
+      name: telecomClientName,
+      phone: telecomClientPhone,
+    });
+    if (newClientReady && initialPaymentMethod !== "CUSTOMER_ACCOUNT") {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setInitialPaymentMethod("CUSTOMER_ACCOUNT");
        

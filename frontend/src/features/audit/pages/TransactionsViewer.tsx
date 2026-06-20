@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, Fragment, type CSSProperties } from "react";
 import {
   getRecentTransactions,
   voidTransaction,
@@ -80,7 +80,7 @@ const STATIC_TYPE_LABELS: Record<string, string> = {
   MTC_TOPUP: "MTC Top-up",
   ALFA_TOPUP: "Alfa Top-up",
   DRAWER_TOPUP: "General Top-up",
-  CHECKPOINT: "Closing",
+  CHECKPOINT: "Checkpoint",
   SUPPLIER_SETTLEMENT: "Supplier Settlement",
 };
 
@@ -114,6 +114,19 @@ function getTypeLabel(row: TransactionRow): string {
     if (row.type === "RECHARGE_TOPUP") {
       const provLabel = (p && PROVIDER_LABELS[p]) ?? p ?? "Recharge";
       return `${provLabel} Top-up`;
+    }
+
+    // A cashless supplier credit (e.g. bill commission) — distinct from a real
+    // "Supplier Payment" (cash we pay them / they pay us).
+    if (row.type === "SUPPLIER_PAYMENT" && meta.is_credit === true) {
+      return "Supplier Credit";
+    }
+
+    if (row.type === "CHECKPOINT") {
+      const notes = meta.notes as string | undefined;
+      if (notes && (notes.toLowerCase().includes("initial") || notes.toLowerCase().includes("setup"))) {
+        return "Initial Setup";
+      }
     }
   } catch {
     // fall through
@@ -186,6 +199,14 @@ function getTypeColor(row: TransactionRow): string {
     } catch {
       // fall through
     }
+  }
+  if (row.type === "CHECKPOINT") {
+    try {
+      const meta = JSON.parse(row.metadata_json ?? "{}") as { notes?: string };
+      if (meta.notes && (meta.notes.toLowerCase().includes("initial") || meta.notes.toLowerCase().includes("setup"))) {
+        return "text-orange-400";
+      }
+    } catch { /* fall through */ }
   }
   return TYPE_COLORS[row.type] ?? "text-slate-300";
 }
@@ -261,6 +282,64 @@ function formatPaymentLegs(legs: TransactionPaymentLeg[] | undefined): string | 
 }
 
 // ---------------------------------------------------------------------------
+// Checkpoint drawer-amount breakdown (shown in the summary column)
+// ---------------------------------------------------------------------------
+
+type CheckpointAmountEntry = {
+  drawer_name: string;
+  currency_code: string;
+  physical_amount: number;
+};
+
+function formatCheckpointAmounts(metaJson: string | null): string | null {
+  if (!metaJson) return null;
+  try {
+    const meta = JSON.parse(metaJson) as { amounts?: CheckpointAmountEntry[] };
+    if (!meta.amounts || meta.amounts.length === 0) return null;
+
+    // Group non-zero amounts by drawer
+    const byDrawer = new Map<string, CheckpointAmountEntry[]>();
+    for (const entry of meta.amounts) {
+      if (entry.physical_amount === 0) continue;
+      if (!byDrawer.has(entry.drawer_name)) byDrawer.set(entry.drawer_name, []);
+      byDrawer.get(entry.drawer_name)!.push(entry);
+    }
+    if (byDrawer.size === 0) return null;
+
+    return [...byDrawer.entries()]
+      .map(([drawer, entries]) => {
+        const amtStr = entries
+          .map((e) => {
+            if (e.currency_code === "USD") return `$${e.physical_amount.toLocaleString()}`;
+            if (e.currency_code === "LBP") return `${e.physical_amount.toLocaleString()} L`;
+            return `${e.physical_amount.toLocaleString()} ${e.currency_code}`;
+          })
+          .join(" + ");
+        return `${drawer}: ${amtStr}`;
+      })
+      .join(" · ");
+  } catch {
+    return null;
+  }
+}
+
+function checkpointPhysicalTotals(metaJson: string | null): { usd: number; lbp: number } | null {
+  if (!metaJson) return null;
+  try {
+    const meta = JSON.parse(metaJson) as { amounts?: CheckpointAmountEntry[] };
+    if (!meta.amounts) return null;
+    let usd = 0, lbp = 0;
+    for (const e of meta.amounts) {
+      if (e.currency_code === "USD") usd += e.physical_amount;
+      else if (e.currency_code === "LBP") lbp += e.physical_amount;
+    }
+    return { usd, lbp };
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Cash flow direction
 // ---------------------------------------------------------------------------
 
@@ -309,6 +388,24 @@ function getCashFlowDirection(
   }
 }
 
+/**
+ * A supplier credit booked in our favour with NO cash movement — e.g. the fixed
+ * commission earned when selling an iPick/Katsh bill. The supplier_ledger stores
+ * it as a negative (credit) entry so its running balance stays valid; the journal
+ * mirrors it as a positive magnitude flagged `is_credit`. This is a receivable,
+ * not drawer cash, so it must not render with the green "cash in" arrow used for
+ * real receipts (recordSupplierCashflow's RECEIVE — which has no `is_credit`).
+ */
+function isSupplierCredit(type: string, metaJson?: string | null): boolean {
+  if (type !== "SUPPLIER_PAYMENT" || !metaJson) return false;
+  try {
+    const m = JSON.parse(metaJson) as { is_credit?: boolean };
+    return m.is_credit === true;
+  } catch {
+    return false;
+  }
+}
+
 interface CashFlowBadgeProps {
   type: string;
   amountUsd: number;
@@ -317,6 +414,19 @@ interface CashFlowBadgeProps {
 }
 
 function CashFlowBadge({ type, amountUsd, amountLbp, metaJson }: CashFlowBadgeProps) {
+  // Supplier credit (e.g. a bill commission owed to us): a receivable, not drawer
+  // cash. Show a distinct amber "credit" marker instead of the green cash-in
+  // arrow, and a positive magnitude (defensive abs for any legacy signed rows).
+  if (isSupplierCredit(type, metaJson)) {
+    const amountStr = formatAmount(Math.abs(amountUsd), Math.abs(amountLbp), metaJson);
+    return (
+      <span className="inline-flex items-center gap-1 text-[11px] font-mono">
+        <span className="text-amber-400">+</span>
+        <span className="text-amber-400">{amountStr}</span>
+      </span>
+    );
+  }
+
   const direction = getCashFlowDirection(type, metaJson);
   if (!direction) return null;
 
@@ -371,24 +481,16 @@ const ACTIONABLE_TYPES = new Set([
 // Per-session left-border accent (WS8)
 // ---------------------------------------------------------------------------
 
-// Full literal class strings so Tailwind's JIT picks them up. A colored
-// border-l-* is preserved in both light and dark modes by design (see
-// index.css `html:not(.dark)` overrides), so no `dark:` variant is needed.
-const SESSION_BORDER_CLASSES = [
-  "border-l-4 border-violet-500",
-  "border-l-4 border-amber-500",
-  "border-l-4 border-emerald-500",
-  "border-l-4 border-sky-500",
-  "border-l-4 border-rose-500",
-  "border-l-4 border-fuchsia-500",
-  "border-l-4 border-lime-500",
-  "border-l-4 border-cyan-500",
-] as const;
+/** Maps session ID → hue (0–359) via the golden angle (~137.5°) so any two
+ *  sessions stay maximally separated in colour space — no palette cap. */
+function sessionHue(sessionId: number): number {
+  return Math.round(Math.abs(sessionId * 137.508)) % 360;
+}
 
-/** Stable hash of a session id → a class from the palette (cycles). */
-function sessionBorderClass(sessionId: number): string {
-  const idx = Math.abs(Math.trunc(sessionId)) % SESSION_BORDER_CLASSES.length;
-  return SESSION_BORDER_CLASSES[idx];
+/** Inline style carrying the CSS custom property consumed by
+ *  `tr[data-session]` rules in index.css. */
+function sessionVars(sessionId: number): CSSProperties {
+  return { "--session-hue": sessionHue(sessionId) } as CSSProperties;
 }
 
 // ---------------------------------------------------------------------------
@@ -422,6 +524,57 @@ export default function TransactionsViewer({
       return true;
     });
   }, [rows, from, to]);
+
+  // Detect rows that are "sandwiched" between the first and last row of the
+  // same session. These are auto-generated system transactions (e.g.
+  // SUPPLIER_PAYMENT) that have no session_id of their own but logically belong
+  // to the session. Detection is order-independent: a non-session row is
+  // sandwiched when its id falls strictly between the min and max id of any
+  // session's rows.
+  const sandwichedMap = useMemo(() => {
+    const ranges = new Map<number, { min: number; max: number }>();
+    for (const row of rows) {
+      if (row.session_id != null) {
+        const r = ranges.get(row.session_id);
+        if (!r) {
+          ranges.set(row.session_id, { min: row.id, max: row.id });
+        } else {
+          if (row.id < r.min) r.min = row.id;
+          if (row.id > r.max) r.max = row.id;
+        }
+      }
+    }
+    const result = new Map<number, number>(); // rowId → sessionId
+    for (const row of rows) {
+      if (row.session_id == null) {
+        for (const [sessionId, { min, max }] of ranges) {
+          if (row.id > min && row.id < max) {
+            result.set(row.id, sessionId);
+            break;
+          }
+        }
+      }
+    }
+    return result;
+  }, [rows]);
+
+  // For each session's sandwiched group: how many rows, and which has the
+  // highest id (= the one shown first in the default created_at DESC sort,
+  // where we render the fold toggle).
+  const sandwichMeta = useMemo(() => {
+    const firstId = new Map<number, number>(); // sessionId → max rowId
+    const count = new Map<number, number>();   // sessionId → count
+    for (const [rowId, sessionId] of sandwichedMap) {
+      count.set(sessionId, (count.get(sessionId) ?? 0) + 1);
+      const cur = firstId.get(sessionId);
+      if (cur === undefined || rowId > cur) firstId.set(sessionId, rowId);
+    }
+    return { firstId, count };
+  }, [sandwichedMap]);
+
+  const [expandedSessions, setExpandedSessions] = useState<Set<number>>(
+    new Set(),
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -477,6 +630,157 @@ export default function TransactionsViewer({
   useEffect(() => {
     load();
   }, [load]);
+
+  function toggleSandwich(sessionId: number) {
+    setExpandedSessions((prev) => {
+      const next = new Set(prev);
+      if (next.has(sessionId)) next.delete(sessionId);
+      else next.add(sessionId);
+      return next;
+    });
+  }
+
+  // Renders a full data <tr> for a transaction row. Pass sessionId to apply
+  // the session accent (data-session + --session-hue); pass null for plain rows.
+  // isSystem=true applies muted styling for collapsed system sub-rows.
+  function buildTr(
+    row: TransactionRow,
+    sessionId: number | null,
+    trKey?: string | number,
+    isSystem?: boolean,
+  ) {
+    const credit = isSupplierCredit(row.type, row.metadata_json);
+    return (
+      <tr
+        key={trKey ?? row.id}
+        data-session={sessionId != null ? "" : undefined}
+        style={sessionId != null ? sessionVars(sessionId) : undefined}
+        className={`border-t border-slate-800 text-xs ${row.status === "VOIDED" ? "bg-red-950/20" : isSystem ? "bg-slate-900/40 opacity-75" : ""}`}
+      >
+        <td className="p-2 truncate" style={{ width: 160 }}>
+          {row.created_at
+            ? (() => {
+                try {
+                  return new Date(row.created_at).toLocaleString("en-GB", {
+                    day: "2-digit",
+                    month: "short",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  });
+                } catch {
+                  return row.created_at;
+                }
+              })()
+            : ""}
+        </td>
+        <td className="p-2">
+          <div className="flex flex-col gap-0.5">
+            <CashFlowBadge
+              type={row.type}
+              amountUsd={row.amount_usd}
+              amountLbp={row.amount_lbp}
+              metaJson={row.metadata_json}
+            />
+            {row.summary && (
+              <span className="text-slate-400 truncate max-w-[480px]">
+                {row.summary}
+              </span>
+            )}
+            {row.type === "CHECKPOINT" && (() => {
+              const amountDetail = formatCheckpointAmounts(row.metadata_json);
+              if (!amountDetail) return null;
+              return (
+                <span className="text-[10px] font-mono text-slate-500 truncate max-w-[480px]">
+                  {amountDetail}
+                </span>
+              );
+            })()}
+            {row.type !== "CHECKPOINT" && (() => {
+              const legs = formatPaymentLegs(row.payments);
+              const rate = row.exchange_rate
+                ? `@ ${Math.round(row.exchange_rate).toLocaleString()}`
+                : null;
+              const text = [legs, rate].filter(Boolean).join(" · ");
+              if (!text) return null;
+              return (
+                <span
+                  data-testid="payment-legs"
+                  className="text-[11px] font-mono text-slate-500 truncate max-w-[480px]"
+                >
+                  {text}
+                </span>
+              );
+            })()}
+          </div>
+        </td>
+        <td className="p-2 truncate" style={{ width: 160 }}>
+          <span
+            className={`${getTypeColor(row)} ${row.status === "VOIDED" ? "line-through opacity-60" : ""}`}
+          >
+            {getTypeLabel(row)}
+          </span>
+        </td>
+        <td className="p-2 truncate" style={{ width: 140 }}>
+          {row.client_name || "—"}
+        </td>
+        <td className="p-2 truncate" style={{ width: 160 }}>
+          <span
+            className={row.status === "VOIDED" ? "line-through opacity-60" : ""}
+          >
+            {row.type === "CHECKPOINT"
+              ? (() => {
+                  const totals = checkpointPhysicalTotals(row.metadata_json);
+                  return formatAmount(totals?.usd ?? row.amount_usd, totals?.lbp ?? row.amount_lbp, null);
+                })()
+              : formatAmount(
+                  credit ? Math.abs(row.amount_usd) : row.amount_usd,
+                  credit ? Math.abs(row.amount_lbp) : row.amount_lbp,
+                  row.metadata_json,
+                )}
+          </span>
+        </td>
+        <td className="p-2 truncate" style={{ width: 90 }}>
+          {row.username || `#${row.user_id}`}
+        </td>
+        <td className="p-2" style={{ width: 80 }}>
+          {row.status === "VOIDED" ? (
+            <span className="bg-red-900/50 text-red-300 text-[10px] px-1.5 py-0.5 rounded font-medium">
+              VOIDED
+            </span>
+          ) : (
+            <span className="text-green-500/80 text-[10px] font-medium">
+              ACTIVE
+            </span>
+          )}
+        </td>
+        <td className="p-2" style={{ width: 60 }}>
+          {row.reverses_id ? `#${row.reverses_id}` : "—"}
+        </td>
+        <td className="p-2" style={{ width: 80 }}>
+          {ACTIONABLE_TYPES.has(row.type) &&
+          row.status !== "VOIDED" &&
+          row.type !== "REFUND" ? (
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => handleVoid(row.id)}
+                className="px-1.5 py-0.5 text-[10px] rounded bg-red-900/40 text-red-300 hover:bg-red-900/80 transition-colors"
+              >
+                Void
+              </button>
+              <button
+                onClick={() => handleRefund(row.id)}
+                className="px-1.5 py-0.5 text-[10px] rounded bg-rose-900/40 text-rose-300 hover:bg-rose-900/80 transition-colors"
+              >
+                Refund
+              </button>
+            </div>
+          ) : (
+            "—"
+          )}
+        </td>
+      </tr>
+    );
+  }
 
   return (
     <DataTable<TransactionRow>
@@ -554,125 +858,137 @@ export default function TransactionsViewer({
         if (key === "reverses_id") return row.reverses_id ?? 0;
         return String((row as Record<string, unknown>)[key] ?? "");
       }}
-      renderRow={(row) => (
-        <tr
-          key={row.id}
-          className={`border-t border-slate-800 text-xs ${row.status === "VOIDED" ? "bg-red-950/20" : ""} ${
-            row.session_id != null ? sessionBorderClass(row.session_id) : ""
-          }`}
-        >
-          <td className="p-2 truncate" style={{ width: 160 }}>
-            {row.created_at
-              ? (() => {
-                  try {
-                    return new Date(row.created_at).toLocaleString(
-                      "en-GB",
-                      {
-                        day: "2-digit",
-                        month: "short",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      },
-                    );
-                  } catch {
-                    return row.created_at;
-                  }
-                })()
-              : ""}
-          </td>
-          <td className="p-2">
-            <div className="flex flex-col gap-0.5">
-              <CashFlowBadge
-                type={row.type}
-                amountUsd={row.amount_usd}
-                amountLbp={row.amount_lbp}
-                metaJson={row.metadata_json}
-              />
-              {row.summary && (
-                <span className="text-slate-400 truncate max-w-[480px]">
-                  {row.summary}
-                </span>
-              )}
-              {(() => {
-                // LIRA-064: structured in/out payment legs, joined client-side,
-                // with the transaction's USD→LBP rate-of-record appended.
-                const legs = formatPaymentLegs(row.payments);
-                const rate = row.exchange_rate
-                  ? `@ ${Math.round(row.exchange_rate).toLocaleString()}`
-                  : null;
-                const text = [legs, rate].filter(Boolean).join(" · ");
-                if (!text) return null;
-                return (
-                  <span
-                    data-testid="payment-legs"
-                    className="text-[11px] font-mono text-slate-500 truncate max-w-[480px]"
+      exportRow={(row) => {
+        if (sandwichedMap.has(row.id)) return null;
+        return buildTr(row, row.session_id);
+      }}
+      renderRow={(row) => {
+        const sandwichedSession = sandwichedMap.get(row.id);
+
+        if (sandwichedSession != null) {
+          const isExpanded = expandedSessions.has(sandwichedSession);
+          const isFirst =
+            row.id === sandwichMeta.firstId.get(sandwichedSession);
+          const cnt = sandwichMeta.count.get(sandwichedSession) ?? 0;
+
+          if (!isExpanded) {
+            // First sandwiched row in collapsed group →
+            // 1px spacer row; badge floats absolutely at the left border.
+            if (isFirst) {
+              return (
+                <tr
+                  key={row.id}
+                  data-session=""
+                  style={sessionVars(sandwichedSession)}
+                >
+                  <td
+                    colSpan={9}
+                    style={{
+                      padding: 0,
+                      height: "1px",
+                      lineHeight: "1px",
+                      overflow: "visible",
+                      position: "relative",
+                      borderTop: "1px solid rgba(30,41,59,0.35)",
+                    }}
                   >
-                    {text}
-                  </span>
-                );
-              })()}
-            </div>
-          </td>
-          <td className="p-2 truncate" style={{ width: 160 }}>
-            <span
-              className={`${getTypeColor(row)} ${row.status === "VOIDED" ? "line-through opacity-60" : ""}`}
-            >
-              {getTypeLabel(row)}
-            </span>
-          </td>
-          <td className="p-2 truncate" style={{ width: 140 }}>
-            {row.client_name || "—"}
-          </td>
-          <td className="p-2 truncate" style={{ width: 160 }}>
-            <span
-              className={
-                row.status === "VOIDED" ? "line-through opacity-60" : ""
-              }
-            >
-              {formatAmount(row.amount_usd, row.amount_lbp, row.metadata_json)}
-            </span>
-          </td>
-          <td className="p-2 truncate" style={{ width: 90 }}>
-            {row.username || `#${row.user_id}`}
-          </td>
-          <td className="p-2" style={{ width: 80 }}>
-            {row.status === "VOIDED" ? (
-              <span className="bg-red-900/50 text-red-300 text-[10px] px-1.5 py-0.5 rounded font-medium">
-                VOIDED
-              </span>
-            ) : (
-              <span className="text-green-500/80 text-[10px] font-medium">
-                ACTIVE
-              </span>
-            )}
-          </td>
-          <td className="p-2" style={{ width: 60 }}>
-            {row.reverses_id ? `#${row.reverses_id}` : "—"}
-          </td>
-          <td className="p-2" style={{ width: 80 }}>
-            {ACTIONABLE_TYPES.has(row.type) &&
-            row.status !== "VOIDED" &&
-            row.type !== "REFUND" ? (
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => handleVoid(row.id)}
-                  className="px-1.5 py-0.5 text-[10px] rounded bg-red-900/40 text-red-300 hover:bg-red-900/80 transition-colors"
+                    <button
+                      onClick={() => toggleSandwich(sandwichedSession)}
+                      style={{
+                        position: "absolute",
+                        left: "6px",
+                        top: 0,
+                        transform: "translateY(-50%)",
+                        zIndex: 10,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "3px",
+                        padding: "1px 6px",
+                        borderRadius: "9999px",
+                        background: "hsla(var(--session-hue), 78%, 62%, 0.15)",
+                        border: "1px solid hsla(var(--session-hue), 78%, 62%, 0.45)",
+                        color: "hsla(var(--session-hue), 78%, 62%, 0.9)",
+                        fontSize: "9px",
+                        fontFamily: "monospace",
+                        cursor: "pointer",
+                        lineHeight: "1.4",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      <span>⚙</span>
+                      <span>+{cnt}</span>
+                    </button>
+                  </td>
+                </tr>
+              );
+            }
+            // Other sandwiched rows in collapsed group → invisible placeholder
+            return (
+              <tr key={row.id} style={{ display: "none" }}>
+                <td />
+              </tr>
+            );
+          }
+
+          // Expanded — same 1px spacer with a "collapse" badge, then the data rows
+          if (isFirst) {
+            return (
+              <Fragment key={row.id}>
+                <tr
+                  key={`stoggle-${sandwichedSession}`}
+                  data-session=""
+                  style={sessionVars(sandwichedSession)}
                 >
-                  Void
-                </button>
-                <button
-                  onClick={() => handleRefund(row.id)}
-                  className="px-1.5 py-0.5 text-[10px] rounded bg-rose-900/40 text-rose-300 hover:bg-rose-900/80 transition-colors"
-                >
-                  Refund
-                </button>
-              </div>
-            ) : (
-              "—"
-            )}
-          </td>
-        </tr>
-      )}
+                  <td
+                    colSpan={9}
+                    style={{
+                      padding: 0,
+                      height: "1px",
+                      lineHeight: "1px",
+                      overflow: "visible",
+                      position: "relative",
+                      borderTop: "1px solid rgba(30,41,59,0.35)",
+                    }}
+                  >
+                    <button
+                      onClick={() => toggleSandwich(sandwichedSession)}
+                      style={{
+                        position: "absolute",
+                        left: "6px",
+                        top: 0,
+                        transform: "translateY(-50%)",
+                        zIndex: 10,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "3px",
+                        padding: "1px 6px",
+                        borderRadius: "9999px",
+                        background: "hsla(var(--session-hue), 78%, 62%, 0.15)",
+                        border: "1px solid hsla(var(--session-hue), 78%, 62%, 0.45)",
+                        color: "hsla(var(--session-hue), 78%, 62%, 0.9)",
+                        fontSize: "9px",
+                        fontFamily: "monospace",
+                        cursor: "pointer",
+                        lineHeight: "1.4",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      <span>⚙</span>
+                      <span>-{cnt}</span>
+                    </button>
+                  </td>
+                </tr>
+                {buildTr(row, sandwichedSession, `data-${row.id}`, true)}
+              </Fragment>
+            );
+          }
+          // Other expanded sandwiched rows → full data row with system mute styling
+          return buildTr(row, sandwichedSession, undefined, true);
+        }
+
+        // Regular row — session accent applied if it belongs to a session
+        return buildTr(row, row.session_id);
+      }}
     />
   );
 }

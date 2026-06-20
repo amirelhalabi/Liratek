@@ -164,7 +164,7 @@ export default function Step4Users() {
           onClick={() => setStep(6)}
           className="px-6 py-2.5 bg-violet-600 hover:bg-violet-500 text-white font-medium rounded-lg transition-colors text-sm"
         >
-          Finish Setup →
+          Next →
         </button>
       </div>
     </div>

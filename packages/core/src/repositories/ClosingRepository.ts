@@ -175,6 +175,19 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
   }
 
   /**
+   * Check whether any drawer has a non-zero balance (i.e. initial amounts have
+   * been seeded at least once). Returns false on a fresh DB with all-zero balances.
+   */
+  hasInitialBalancesSet(): boolean {
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) as cnt FROM drawer_balances WHERE balance != 0`,
+      )
+      .get() as { cnt: number };
+    return row.cnt > 0;
+  }
+
+  /**
    * Get the actual amounts from the most recent checkpoint.
    * Returns Record<drawerName, Record<currencyCode, physicalAmount>>
    * Used as baseline for the next checkpoint.
@@ -305,7 +318,7 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
           amount_usd: netUsd,
           amount_lbp: netLbp,
           summary: `Checkpoint: ${data.drawer_name} for ${closingDate}`,
-          metadata_json: { amounts: data.amounts, adjustments },
+          metadata_json: { amounts: data.amounts, adjustments, notes: data.notes },
         });
 
         // 4. Post the reconciliation entries to the journal + live balances.

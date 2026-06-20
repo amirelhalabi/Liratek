@@ -111,6 +111,16 @@ export function registerSupplierHandlers(): void {
     return result;
   });
 
+  /** Product supplier balances: inventory cost minus payments */
+  ipcMain.handle("suppliers:product-balances", () => {
+    return service.getProductSupplierBalances();
+  });
+
+  /** Inventory items for a product supplier (name, qty, cost, total) */
+  ipcMain.handle("suppliers:product-items", (_e, supplierId: number) => {
+    return service.getProductItems(supplierId);
+  });
+
   /** Pay a supplier / record a supplier paying us, via payment-method legs (admin only) */
   ipcMain.handle("suppliers:record-cashflow", (e, data: unknown) => {
     const auth = requireRole(e.sender.id, ["admin"]);

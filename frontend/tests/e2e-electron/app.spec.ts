@@ -153,10 +153,8 @@ test("Exchange: complete USD to LBP exchange", async ({ appPage }) => {
   const lbpBtn = appPage.locator("button").filter({ hasText: /^LBP$/ }).nth(1);
   await lbpBtn.click();
 
-  // Enter amount
-  const amountInputs = appPage.locator(
-    'input[type="number"][placeholder="0.00"]',
-  );
+  // Enter amount — DecimalInput renders type="text", not type="number"
+  const amountInputs = appPage.locator('input[placeholder="0.00"]');
   const youReceive = amountInputs.first();
   await youReceive.fill("100");
 

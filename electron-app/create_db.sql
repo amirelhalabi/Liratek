@@ -210,6 +210,7 @@ CREATE TABLE IF NOT EXISTS product_suppliers (
     name TEXT NOT NULL UNIQUE COLLATE NOCASE,
     sort_order INTEGER NOT NULL DEFAULT 0,
     is_active INTEGER NOT NULL DEFAULT 1,
+    supplier_id INTEGER REFERENCES suppliers(id),
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -1031,7 +1032,7 @@ CREATE TABLE IF NOT EXISTS loto_monthly_fees (
 );
 
 -- Seed Loto supplier
-INSERT OR IGNORE INTO suppliers (name, provider, is_active) VALUES ('Loto Liban', 'LOTO', 1);
+INSERT OR IGNORE INTO suppliers (name, provider, is_active, is_system) VALUES ('Loto Liban', 'LOTO', 1, 1);
 
 -- Seed Loto module
 INSERT OR IGNORE INTO modules (key, label, icon, route, sort_order, admin_only)
@@ -1237,4 +1238,6 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (103, 'add_supplier_pays_us_entry_type'),
     (104, 'add_updated_at_to_sales'),
     (105, 'rename_wish_app_to_whish_app'),
-    (106, 'add_bill_to_financial_service_type');
+    (106, 'add_bill_to_financial_service_type'),
+    (107, 'fix_loto_liban_is_system'),
+    (108, 'link_product_suppliers_to_suppliers');

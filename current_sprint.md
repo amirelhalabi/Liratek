@@ -658,6 +658,16 @@ Six bundled improvements to the Suppliers page:
 
 > **Depends on / pairs with:** LIRA-061 (SEND-provider debt recording) — the Manual Entry pay-down and bidirectional balance assume the ledger correctly separates manual top-ups from sale costs.
 
+### Post-implementation fixes (implemented with LIRA-065)
+
+Several follow-up improvements shipped alongside LIRA-065:
+
+- **Negative-balance color fix** — Total Owed cards now show green for negative (supplier owes you) instead of always red.
+- **Tab bar moved** inside the top of the left panel (was at the page-level title).
+- **Loto Liban `is_system` fix** — seeded without `is_system = 1` so it appeared under Products instead of Companies. Fixed original migration INSERT; **migration v107** (`UPDATE suppliers SET is_system = 1 WHERE provider = 'LOTO'`) for existing DBs; `create_db.sql` updated.
+- **Products tab connected to inventory (migration v108)** — `product_suppliers` gained a `supplier_id` FK to `suppliers`; v108 backfills all existing rows. `ProductSupplierRepository.create()`/`getOrCreate()` now atomically create the linked `suppliers` row. New `getProductItems(supplierId)` + `getProductSupplierBalances()`. Two new IPC channels: `suppliers:product-balances` + `suppliers:product-items`. Products tab detail panel: **Items** tab (product table with per-row totals) + **Pay / Receive** tab (same cashflow form as Companies, pre-fills owed amount).
+- **Settle Transactions currency fixes** — amount/commission columns format dynamically (LBP vs USD) based on the transaction's `currency` field; OMT Fee column hidden when no row has a non-zero fee (gone for Katsh/iPick); `settleTotalOwedLbp`/`settleNetPayLbp` added to inline summary and confirmation modal; `handleSettle` previously hardcoded `amount_lbp: 0` — now passes the correct LBP net; settlement modal `MultiPaymentInput` pre-fills LBP amount and switches currency automatically for LBP-only transactions.
+
 ---
 
 ## LIRA-060: SERVICES — Hold Money
@@ -914,8 +924,8 @@ Beyond the directional arrow badges (LIRA-054), surface the actual **payment leg
 | **Epic**             | Setup / Onboarding                 |
 | **Type**             | Feature                            |
 | **Priority**         | Medium                             |
-| **Status**           | TODO                               |
-| **Affected Modules** | Settings / Setup, Drawers          |
+| **Status**           | DONE                               |
+| **Affected Modules** | Settings / Setup, Drawers, Dashboard, TransactionsViewer |
 | **Depends On**       | —                                  |
 
 ### Summary
@@ -924,19 +934,25 @@ Add a setup page where the operator sets **initial (opening) amounts** for each 
 
 ### Acceptance Criteria
 
-- [ ] A "Initial Drawer Amounts" page (in Setup, or a Settings panel) lists each drawer × currency with an amount input
-- [ ] Saving seeds the opening balances (creates the appropriate drawer/adjustment entries)
-- [ ] Idempotent / clearly communicates if balances are already set (no silent double-seed)
-- [ ] Values reflected in Closing/Opening and dashboards
-- [ ] Typecheck and lint pass
+- [x] A "Initial Drawer Amounts" page (in Setup, or a Settings panel) lists each drawer × currency with an amount input
+- [x] Saving seeds the opening balances (creates the appropriate drawer/adjustment entries)
+- [x] Idempotent / clearly communicates if balances are already set (no silent double-seed)
+- [x] Values reflected in Closing/Opening and dashboards
+- [x] Typecheck and lint pass
 
-### Files to Modify
+### Files Modified
 
-| Layer    | File                                                            | Change                                  |
-| -------- | --------------------------------------------------------------- | --------------------------------------- |
-| Backend  | `packages/core/src/repositories/DrawerRepository.ts` + service  | Set/seed opening balances per drawer    |
-| Electron | handler + `preload.ts` + `electron.d.ts`                        | IPC for set-initial-amounts             |
-| Frontend | `frontend/src/features/settings/...` (new setup panel/page)     | Drawer × currency amount grid           |
+| Layer    | File                                                                                      | Change                                                                                       |
+| -------- | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Backend  | `packages/core/src/repositories/ClosingRepository.ts`                                    | `hasInitialBalancesSet()` — checks if any drawer has a non-zero balance                     |
+| Backend  | `packages/core/src/services/ClosingService.ts`                                            | Delegates `hasInitialBalancesSet()`                                                          |
+| Backend  | `packages/core/src/repositories/ClosingRepository.ts`                                    | `notes` field added to `metadata_json` in `createCheckpoint`                               |
+| Electron | `electron-app/handlers/closingHandlers.ts`                                                | `closing:has-initial-balances-set` IPC handler                                              |
+| Electron | `electron-app/preload.ts`                                                                 | `hasInitialBalancesSet` binding                                                              |
+| Frontend | Setup wizard `StepDrawerAmounts`                                                          | Step 6 — module-filtered drawer grid; stores amounts in `payload.drawer_amounts`           |
+| Frontend | Setup wizard `SetupWizard`                                                                | Now 7 steps; `StepComplete` applies drawer amounts via `createCheckpoint` after setup      |
+| Frontend | `frontend/src/features/dashboard/pages/Dashboard.tsx`                                    | Amber banner when initial balances not set; `InitialDrawerAmountsModal` (2-column grid, pre-fills current balances) |
+| Frontend | `frontend/src/features/audit/pages/TransactionsViewer.tsx`                               | `CHECKPOINT` label → "Checkpoint" / "Initial Setup" (orange when notes contain "initial"/"setup"); per-drawer amounts breakdown in summary; payment legs suppressed for CHECKPOINT rows; amount column uses `metadata_json.amounts` physical totals |
 
 ---
 
@@ -980,7 +996,7 @@ Ensure **settlement transactions** are visible in the unified Transactions table
 | **Epic**             | Transaction Visibility             |
 | **Type**             | Feature                            |
 | **Priority**         | Medium                             |
-| **Status**           | TODO                               |
+| **Status**           | DISREGARDED                        |
 | **Affected Modules** | Audit > TransactionsViewer, Exports |
 | **Depends On**       | **LIRA-064** (structured payment data) |
 
@@ -1258,17 +1274,17 @@ Add favorite/pinned **quick links** to a page (starting with Whish App) in the h
 
 | Priority  | Total   | Done  | Remaining |
 | --------- | ------- | ----- | --------- |
-| Medium    | 3       | 0     | 3         |
+| Medium    | 3       | 1     | 1         |
 | Low       | 8       | 3     | 5         |
-| **Total** | **11**  | **3** | **8**     |
+| **Total** | **11**  | **4** | **6**     |
 
 ### Sprint 3 board
 
 | ID       | Title                                                | Priority | Status |
 | -------- | ---------------------------------------------------- | -------- | ------ |
-| LIRA-065 | Setup — initial drawer amounts page                  | Medium   | TODO   |
+| LIRA-065 | Setup — initial drawer amounts page                  | Medium   | DONE   |
 | LIRA-066 | Settlement txns (client/supplier/partner) in table   | Medium   | TODO   |
-| LIRA-067 | Txn payment detail — expandable row + report print   | Medium   | TODO   |
+| LIRA-067 | Txn payment detail — expandable row + report print   | Medium   | DISREGARDED |
 | LIRA-068 | Mark txn "amount changed" on edit                    | Low      | TODO   |
 | LIRA-069 | Invoice/receipt print on payment                     | Low      | TODO   |
 | LIRA-070 | Profits page correctness audit                       | Low      | TODO   |
