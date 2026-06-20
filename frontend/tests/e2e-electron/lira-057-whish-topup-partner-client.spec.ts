@@ -244,10 +244,18 @@ test.describe("LIRA-057 — Whish App top-up Via Partner / From Client", () => {
         const usd = (ds: DrawerBalance[], name: string) =>
           ds.find((d) => d.name === name)?.usdBalance ?? 0;
 
-        // Fund the General drawer so the client cash-out is covered regardless
-        // of where prior specs left it (replaces the missing fundGeneralDrawer).
+        // Fund the General drawer so the client cash-out (CASH_PAID) is covered
+        // REGARDLESS of where prior specs left General — over the shared worker DB
+        // it can be low or negative (e.g. lira-056 settle / lira-059 PAY debit it),
+        // so a fixed top-up is not enough. Read first, then top up the deficit so
+        // post-funding General comfortably exceeds CASH_PAID.
+        const CASH_PAID = 30;
+        const preFundGeneral = usd(
+          await w.api.recharge.getDrawerBalances(),
+          generalDrawer,
+        );
         const funded = await w.api.drawerTopUp.create({
-          amount_usd: 100,
+          amount_usd: Math.max(100, CASH_PAID + 100 - preFundGeneral),
           amount_lbp: 0,
           notes: "E2E-057 fund General for From-Client top-up",
         });
@@ -272,7 +280,7 @@ test.describe("LIRA-057 — Whish App top-up Via Partner / From Client", () => {
         // Action: client transfers 40 credits, paid 30 USD cash.
         const topUp = await w.api.recharge.topUpFromClient({
           amount: 40,
-          cashPaid: 30,
+          cashPaid: CASH_PAID,
           currency: "USD",
           clientName: `E2E-057 Client ${Date.now()}`,
         });
