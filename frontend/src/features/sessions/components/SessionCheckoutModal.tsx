@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   ShoppingCart,
   X,
@@ -8,11 +8,16 @@ import {
 } from "lucide-react";
 import logger from "@/utils/logger";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
-import { appEvents, MultiPaymentInput, type PaymentLine } from "@liratek/ui";
+import {
+  appEvents,
+  MultiPaymentInput,
+  type PaymentLine,
+} from "@liratek/ui";
 import { useSession } from "../context/SessionContext";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
-import { useExchangeRate } from "@/hooks/useExchangeRate";
+import { useSellRate } from "@/hooks/useSellRate";
+import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
 import type { CartItem } from "../types/cart";
 
 interface SessionCheckoutModalProps {
@@ -40,135 +45,62 @@ const MODULE_LABELS: Record<string, string> = {
 };
 
 /**
- * Map of module → formData field name for payment method.
- * Used to read and write the correct field when displaying/editing per-item payment methods.
+ * Read a cart item's profit cap (in the item's own currency). The per-item
+ * discount cannot exceed this. Returns 0 for items with no profit concept
+ * (POS / loto / maintenance / custom_service), which hides the discount input.
+ *
+ *  - Batch items (FinancialForm / KatchForm): sum of each sub-item's commission.
+ *  - Non-batch items (app transfer / recharge / crypto): top-level commission.
  */
-const PAYMENT_METHOD_FIELD: Record<string, string> = {
-  pos: "payment_method",
-  recharge_mtc: "paid_by_method",
-  recharge_alfa: "paid_by_method",
-  omt_app: "paidByMethod",
-  whish_app: "paidByMethod",
-  ipick: "paidByMethod",
-  katsh: "paidByMethod",
-  binance_send: "paidByMethod",
-  binance_receive: "paidByMethod",
-  omt_system: "paidByMethod",
-  whish_system: "paidByMethod",
-  loto_ticket: "payment_method",
-  loto_prize: "payment_method",
-  custom_service: "paid_by",
-  maintenance: "paid_by",
-};
-
-/**
- * Extract the payment method from a cart item's formData.
- * Handles batch items (_batch: true) by reading from the first sub-item.
- */
-function getItemPaymentMethod(item: CartItem): string {
-  const field = PAYMENT_METHOD_FIELD[item.module] || "paidByMethod";
+function getItemProfitCap(item: CartItem): number {
   const fd = item.formData;
 
-  // Batch items (FinancialForm/KatchForm) — read from first sub-item
-  if (
-    fd._batch &&
-    Array.isArray(fd.items) &&
-    (fd.items as Array<Record<string, unknown>>).length > 0
-  ) {
-    const firstSub = (fd.items as Array<Record<string, unknown>>)[0];
-    return (firstSub[field] as string) || "CASH";
+  if (fd._batch && Array.isArray(fd.items)) {
+    return (fd.items as Array<Record<string, unknown>>).reduce((sum, sub) => {
+      const c = sub.commission;
+      return sum + (typeof c === "number" && c > 0 ? c : 0);
+    }, 0);
   }
 
-  return (fd[field] as string) || "CASH";
+  const c = fd.commission;
+  return typeof c === "number" && c > 0 ? c : 0;
 }
 
 /**
- * Set the payment method on a cart item's formData (returns a new formData copy).
- * Handles batch items by updating all sub-items.
+ * Apply a per-item discount to a cart item's formData (returns a new copy).
+ * The discount reduces the recorded profit so the net commission is stamped on
+ * the transaction. For batch items the discount is distributed proportionally
+ * across sub-items by their commission.
  */
-function setItemPaymentMethod(
+function applyItemDiscount(
   item: CartItem,
-  method: string,
+  discount: number,
 ): Record<string, unknown> {
-  const field = PAYMENT_METHOD_FIELD[item.module] || "paidByMethod";
   const fd = { ...item.formData };
+  if (discount <= 0) return fd;
 
   if (fd._batch && Array.isArray(fd.items)) {
-    fd.items = (fd.items as Array<Record<string, unknown>>).map((sub) => ({
-      ...sub,
-      [field]: method,
-    }));
-  } else {
-    fd[field] = method;
+    const subs = fd.items as Array<Record<string, unknown>>;
+    const totalCommission = subs.reduce((sum, sub) => {
+      const c = sub.commission;
+      return sum + (typeof c === "number" && c > 0 ? c : 0);
+    }, 0);
+    if (totalCommission <= 0) return fd;
+    fd.items = subs.map((sub) => {
+      const c = typeof sub.commission === "number" ? sub.commission : 0;
+      const share = Math.round((discount * Math.max(0, c)) / totalCommission);
+      return { ...sub, commission: Math.max(0, c - share) };
+    });
+    return fd;
   }
 
+  const c = typeof fd.commission === "number" ? fd.commission : 0;
+  fd.commission = Math.max(0, c - discount);
   return fd;
-}
-
-/** Cart modules where paying by GIFT_CARD (voucher) is supported. */
-const VOUCHER_SUPPORTED_MODULES = new Set([
-  "pos",
-  "custom_service",
-  "recharge_mtc",
-  "recharge_alfa",
-]);
-
-/**
- * Inject a voucher code into a cart item's formData so the replayed service
- * redeems it. Each module reads the code from a different place:
- *  - pos            → a GIFT_CARD payments leg (amount counts as paid)
- *  - custom_service → top-level voucher_code
- *  - recharge       → a GIFT_CARD payments leg
- */
-function injectVoucherCode(
-  item: CartItem,
-  fd: Record<string, unknown>,
-  code: string,
-): void {
-  const amount = Math.abs(item.amount);
-  switch (item.module) {
-    case "pos":
-      fd.payments = [
-        {
-          method: "GIFT_CARD",
-          currency_code: "USD",
-          amount,
-          voucher_code: code,
-        },
-      ];
-      fd.payment_usd = amount;
-      fd.payment_lbp = 0;
-      break;
-    case "custom_service":
-      fd.voucher_code = code;
-      break;
-    case "recharge_mtc":
-    case "recharge_alfa":
-      fd.payments = [
-        {
-          method: "GIFT_CARD",
-          currencyCode: String(item.currency || "USD"),
-          amount,
-          voucherCode: code,
-        },
-      ];
-      break;
-    default:
-      break;
-  }
 }
 
 /** Modules where only cashout methods are valid (CASH, CUSTOMER_ACCOUNT, OMT, WHISH, BINANCE) */
 const CASHOUT_ONLY_MODULES = new Set(["binance_receive"]);
-
-/** Valid cashout method codes */
-const CASHOUT_METHOD_CODES = new Set([
-  "CASH",
-  "CUSTOMER_ACCOUNT",
-  "OMT",
-  "WHISH",
-  "BINANCE",
-]);
 
 /** Check if a cart item is a RECEIVE/cashout transaction */
 function isCashoutItem(item: CartItem): boolean {
@@ -227,30 +159,69 @@ export function SessionCheckoutModal({
   } = useSession();
   const { user } = useAuth();
   const { allMethods } = usePaymentMethods();
-  const { rate: exchangeRate } = useExchangeRate("USD", "LBP");
+
+  // Money IN (customer pays the shop) → shared SELL rate. Seeded from the hook
+  // but kept editable: the operator can override it and the chosen rate is sent
+  // in the checkout payload (and used for the USD↔LBP coverage math below).
+  const { sellRate } = useSellRate();
+  const [exchangeRate, setExchangeRate] = useState(sellRate);
+  // Track whether the operator has manually edited the rate so the seeded value
+  // doesn't clobber their override once the async rate resolves.
+  const [rateEdited, setRateEdited] = useState(false);
+  useEffect(() => {
+    if (!rateEdited) setExchangeRate(sellRate);
+  }, [sellRate, rateEdited]);
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Per-item payment method overrides: cartItemId → method
-  const [itemPaymentMethods, setItemPaymentMethods] = useState<
-    Record<string, string>
-  >({});
+  // Per-item discount (in the item's own currency), capped at each item's
+  // profit. Keyed by cart item id. Items with no profit have no input.
+  const [itemDiscounts, setItemDiscounts] = useState<Record<string, number>>(
+    {},
+  );
 
-  // Per-item voucher codes (when method === GIFT_CARD): cartItemId → code
-  const [itemVoucherCodes, setItemVoucherCodes] = useState<
-    Record<string, string>
-  >({});
-  // Per-item voucher validation feedback
-  const [voucherFeedback, setVoucherFeedback] = useState<
-    Record<string, { status: "loading" | "ok" | "error"; message: string }>
-  >({});
+  // Reset per-item discounts whenever the modal (re)opens with a fresh cart.
+  useEffect(() => {
+    if (isOpen) setItemDiscounts({});
+  }, [isOpen]);
+
+  // Resolve the session's client id from its phone so the basket GIFT_CARD leg
+  // can offer that client's vouchers. The session object only carries the
+  // customer name/phone, not a numeric client id.
+  const [sessionClientId, setSessionClientId] = useState<number | null>(null);
+  const sessionPhone = activeSession?.customer_phone?.trim() ?? "";
+  useEffect(() => {
+    if (!isOpen || !sessionPhone) {
+      setSessionClientId(null);
+      return;
+    }
+    let cancelled = false;
+    window.api.clients
+      .getAll(sessionPhone)
+      .then((clients) => {
+        if (cancelled) return;
+        const match = clients.find(
+          (c) => (c.phone_number ?? "").trim() === sessionPhone,
+        );
+        setSessionClientId(match?.id ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setSessionClientId(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, sessionPhone]);
 
   // ── MultiPaymentInput state ──────────────────────────────────────────────
   // Payment legs emitted by MultiPaymentInput for USD totals
   const [usdPaymentLines, setUsdPaymentLines] = useState<PaymentLine[]>([]);
   // Payment legs emitted by MultiPaymentInput for LBP totals
   const [lbpPaymentLines, setLbpPaymentLines] = useState<PaymentLine[]>([]);
+  // Return/change (OUT) legs emitted by each MultiPaymentInput
+  const [usdReturnLines, setUsdReturnLines] = useState<PaymentLine[]>([]);
+  const [lbpReturnLines, setLbpReturnLines] = useState<PaymentLine[]>([]);
 
   // Key used to force-remount MultiPaymentInput when client context changes
   const [paymentInputKey, setPaymentInputKey] = useState(0);
@@ -271,49 +242,6 @@ export function SessionCheckoutModal({
     setPaymentInputKey((k) => k + 1);
   }, [initialMethod]);
 
-  const validateItemVoucher = useCallback(async (itemId: string, code: string) => {
-    const normalized = code.trim().toUpperCase();
-    if (!normalized) {
-      setVoucherFeedback((prev) => {
-        const next = { ...prev };
-        delete next[itemId];
-        return next;
-      });
-      return;
-    }
-    setVoucherFeedback((prev) => ({
-      ...prev,
-      [itemId]: { status: "loading", message: "Checking..." },
-    }));
-    const result = await window.api.vouchers.validate(normalized);
-    if (result.success && result.voucher) {
-      const v = result.voucher;
-      setVoucherFeedback((prev) => ({
-        ...prev,
-        [itemId]: {
-          status: "ok",
-          message: `${v.client_name} · $${v.amount.toFixed(2)}`,
-        },
-      }));
-    } else {
-      setVoucherFeedback((prev) => ({
-        ...prev,
-        [itemId]: { status: "error", message: result.error ?? "Invalid voucher" },
-      }));
-    }
-  }, []);
-
-  // Initialize per-item payment methods from formData when modal opens
-  useEffect(() => {
-    if (isOpen && cartItems.length > 0) {
-      const initial: Record<string, string> = {};
-      for (const item of cartItems) {
-        initial[item.id] = getItemPaymentMethod(item);
-      }
-      setItemPaymentMethods(initial);
-    }
-  }, [isOpen, cartItems]);
-
   const totals = useMemo(() => getCartTotals(), [getCartTotals]);
 
   // Group items by module for display
@@ -327,40 +255,76 @@ export function SessionCheckoutModal({
     return groups;
   }, [cartItems]);
 
-  const handleItemMethodChange = useCallback(
-    (itemId: string, method: string) => {
-      setItemPaymentMethods((prev) => ({ ...prev, [itemId]: method }));
-    },
-    [],
-  );
-
   // Currency configs for MultiPaymentInput
   const currencies = [
     { code: "USD", symbol: "$" },
     { code: "LBP", symbol: "LBP" },
   ];
 
-  // Payment methods typed as required by MultiPaymentInput
+  // Payment methods typed as required by MultiPaymentInput. GIFT_CARD is offered
+  // at the basket level — the customer can redeem a voucher against the whole
+  // basket (its code + value flow through the GIFT_CARD payment leg).
   const paymentMethodOptions = allMethods.map((m) => ({
     code: m.code,
     label: m.label,
   }));
 
-  // Derive combined payment legs from both MultiPaymentInput instances
-  const allPaymentLegs: Array<{ method: string; currency_code: string; amount: number }> =
-    useMemo(() => {
-      const usdLegs = usdPaymentLines.map((l) => ({
-        method: l.method,
-        currency_code: l.currencyCode,
-        amount: l.amount,
-      }));
-      const lbpLegs = lbpPaymentLines.map((l) => ({
-        method: l.method,
-        currency_code: l.currencyCode,
-        amount: l.amount,
-      }));
-      return [...usdLegs, ...lbpLegs];
-    }, [usdPaymentLines, lbpPaymentLines]);
+  // Derive combined payment legs from both MultiPaymentInput instances. IN legs
+  // are what the customer paid; OUT legs are change handed back. `direction` is
+  // carried through so the checkout handler can record the change (e.g. paid
+  // $100, returned 180,000 LBP) rather than just the net. GIFT_CARD legs carry
+  // their voucher_code so the basket recorder can redeem the voucher.
+  const allPaymentLegs: Array<{
+    method: string;
+    currency_code: string;
+    amount: number;
+    direction: "IN" | "OUT";
+    voucher_code?: string;
+  }> = useMemo(() => {
+    const toLeg = (direction: "IN" | "OUT") => (l: PaymentLine) => ({
+      method: l.method,
+      currency_code: l.currencyCode,
+      amount: l.amount,
+      direction,
+      ...(l.method === "GIFT_CARD" && l.voucherCode
+        ? { voucher_code: l.voucherCode }
+        : {}),
+    });
+    const legs = [
+      ...usdPaymentLines.map(toLeg("IN")),
+      ...lbpPaymentLines.map(toLeg("IN")),
+      ...usdReturnLines.map(toLeg("OUT")),
+      ...lbpReturnLines.map(toLeg("OUT")),
+    ];
+    // Net-negative basket (e.g. a loto cash prize or an OMT/Whish RECEIVE): the
+    // shop owes the customer the net amount. No MultiPaymentInput renders for a
+    // non-positive total, so emit the net cash-OUT leg here (default CASH →
+    // General). Those items defer their payout to the basket recorder, so without
+    // this leg the payout would never be posted to any drawer.
+    if (totals.usd < 0) {
+      legs.push({
+        method: "CASH",
+        currency_code: "USD",
+        amount: -totals.usd,
+        direction: "OUT",
+      });
+    }
+    if (totals.lbp < 0) {
+      legs.push({
+        method: "CASH",
+        currency_code: "LBP",
+        amount: -totals.lbp,
+        direction: "OUT",
+      });
+    }
+    return legs;
+  }, [
+    usdPaymentLines,
+    lbpPaymentLines,
+    usdReturnLines,
+    lbpReturnLines,
+    totals,
+  ]);
 
   // Primary method is the first non-zero leg's method, or CASH as fallback
   const primaryMethod = allPaymentLegs.find((l) => l.amount > 0)?.method ?? "CASH";
@@ -389,13 +353,15 @@ export function SessionCheckoutModal({
     [lbpPaymentLines, exchangeRate],
   );
 
+  // Payment is valid once the total is COVERED. Overpayment is allowed — the
+  // operator hands back the difference as change (the Return/Change row), so we
+  // must not require an exact match (that disabled Confirm whenever the customer
+  // paid more than the total, e.g. $100 paid on a $98 total with $2 change).
   const isUsdCovered =
-    totals.usd <= 0 ||
-    Math.abs(usdPaid - totals.usd) <= usdPaymentTolerance;
+    totals.usd <= 0 || usdPaid >= totals.usd - usdPaymentTolerance;
 
   const isLbpCovered =
-    totals.lbp <= 0 ||
-    Math.abs(lbpPaid - totals.lbp) <= lbpPaymentTolerance;
+    totals.lbp <= 0 || lbpPaid >= totals.lbp - lbpPaymentTolerance;
 
   const isPaymentValid = isUsdCovered && isLbpCovered;
 
@@ -417,38 +383,23 @@ export function SessionCheckoutModal({
       return;
     }
 
-    // Validate gift-card items: require a code on a supported module
-    for (const item of cartItems) {
-      const method = itemPaymentMethods[item.id] || getItemPaymentMethod(item);
-      if (method !== "GIFT_CARD") continue;
-      if (!VOUCHER_SUPPORTED_MODULES.has(item.module)) {
-        setError(`Gift card payment is not supported for "${item.label}"`);
-        return;
-      }
-      if (!(itemVoucherCodes[item.id] ?? "").trim()) {
-        setError(`Enter a voucher code for "${item.label}"`);
-        return;
-      }
-    }
-
     setIsProcessing(true);
     setError(null);
 
     try {
-      // Build cart items with updated payment methods in formData
+      // Build cart items: apply the per-item discount (reduces recorded profit)
+      // and, for cashout items, derive the cashout method from the basket's
+      // primary payment method. Payment is collected once at the basket level —
+      // the item formData carries no payment method.
       const updatedCartItems = cartItems.map((item) => {
-        const method =
-          itemPaymentMethods[item.id] || getItemPaymentMethod(item);
-        const updatedFormData = setItemPaymentMethod(item, method);
+        const discount = itemDiscounts[item.id] ?? 0;
+        const updatedFormData = applyItemDiscount(item, discount);
 
-        // For RECEIVE/cashout items, map the selected method to cashoutMethod
+        // For RECEIVE/cashout items, map the basket's primary method to
+        // cashoutMethod (binance_receive only accepts CASH / CUSTOMER_ACCOUNT).
         if (isCashoutItem(item)) {
-          updatedFormData.cashoutMethod = method;
-        }
-
-        // Gift card / voucher: inject the code so the replayed service redeems it
-        if (method === "GIFT_CARD") {
-          injectVoucherCode(item, updatedFormData, itemVoucherCodes[item.id] ?? "");
+          updatedFormData.cashoutMethod =
+            primaryMethod === "CUSTOMER_ACCOUNT" ? "CUSTOMER_ACCOUNT" : "CASH";
         }
 
         return {
@@ -467,6 +418,7 @@ export function SessionCheckoutModal({
         cartItems: updatedCartItems,
         paidByMethod: primaryMethod,
         payments: allPaymentLegs,
+        exchangeRate,
         userId: user.id,
       });
 
@@ -540,88 +492,55 @@ export function SessionCheckoutModal({
                 </div>
                 <div className="space-y-2">
                   {items.map((item) => {
-                    const selectedMethod =
-                      itemPaymentMethods[item.id] || getItemPaymentMethod(item);
-                    const methodOptions = (
-                      isCashoutItem(item)
-                        ? allMethods.filter((m) =>
-                            CASHOUT_METHOD_CODES.has(m.code),
-                          )
-                        : allMethods
-                    ).filter(
-                      (m) =>
-                        m.code !== "GIFT_CARD" ||
-                        VOUCHER_SUPPORTED_MODULES.has(item.module),
-                    );
+                    const profitCap = getItemProfitCap(item);
+                    const discount = itemDiscounts[item.id] ?? 0;
                     return (
                       <div key={item.id} className="space-y-1">
                         <div className="flex items-center justify-between gap-2">
                           <span className="text-sm text-slate-200 truncate flex-1 min-w-0">
                             {item.label}
                           </span>
-                          <div className="flex items-center gap-2 shrink-0">
-                            {/* Per-item payment method dropdown */}
-                            <select
-                              value={selectedMethod}
-                              onChange={(e) =>
-                                handleItemMethodChange(
-                                  item.id,
-                                  e.target.value,
-                                )
-                              }
-                              className="appearance-none bg-slate-700 border border-slate-600 text-xs font-medium rounded-md px-2 py-1 cursor-pointer hover:bg-slate-600 transition-colors focus:outline-none focus:ring-1 focus:ring-violet-500 text-slate-200"
-                            >
-                              {methodOptions.map((m) => (
-                                <option key={m.code} value={m.code}>
-                                  {m.label}
-                                </option>
-                              ))}
-                            </select>
-                            {/* Amount */}
-                            <span
-                              className={`text-sm font-mono whitespace-nowrap min-w-[5rem] text-right ${
-                                item.amount < 0
-                                  ? "text-red-400"
-                                  : "text-emerald-400"
-                              }`}
-                            >
-                              {item.amount < 0 ? "-" : "+"}
-                              {formatAmount(item.amount, item.currency)}
-                            </span>
-                          </div>
+                          {/* Amount */}
+                          <span
+                            className={`text-sm font-mono whitespace-nowrap min-w-[5rem] text-right shrink-0 ${
+                              item.amount < 0
+                                ? "text-red-400"
+                                : "text-emerald-400"
+                            }`}
+                          >
+                            {item.amount < 0 ? "-" : "+"}
+                            {formatAmount(item.amount, item.currency)}
+                          </span>
                         </div>
 
-                        {/* Voucher code field (GIFT_CARD) */}
-                        {selectedMethod === "GIFT_CARD" && (
-                          <div className="pl-1">
+                        {/* Per-item discount — capped at the item's profit.
+                            Hidden for items with no profit concept. */}
+                        {profitCap > 0 && (
+                          <div className="flex items-center justify-end gap-2 pl-1">
+                            <label className="text-[11px] text-slate-400 whitespace-nowrap">
+                              Discount (max{" "}
+                              {formatAmount(profitCap, item.currency)})
+                            </label>
                             <input
-                              type="text"
-                              value={itemVoucherCodes[item.id] ?? ""}
-                              onChange={(e) =>
-                                setItemVoucherCodes((prev) => ({
+                              type="number"
+                              min={0}
+                              max={profitCap}
+                              step={item.currency === "LBP" ? 1000 : 0.01}
+                              value={discount || ""}
+                              onChange={(e) => {
+                                const raw = parseFloat(e.target.value) || 0;
+                                const clamped = Math.min(
+                                  Math.max(0, raw),
+                                  profitCap,
+                                );
+                                setItemDiscounts((prev) => ({
                                   ...prev,
-                                  [item.id]: e.target.value.toUpperCase(),
-                                }))
-                              }
-                              onBlur={(e) =>
-                                validateItemVoucher(item.id, e.target.value)
-                              }
-                              className="w-full bg-slate-900 border border-slate-600 rounded-md px-2 py-1 text-xs text-white font-mono tracking-wider focus:outline-none focus:border-orange-500"
-                              placeholder="GIFT-XXXX-XXXX"
+                                  [item.id]: clamped,
+                                }));
+                              }}
+                              className="w-28 bg-slate-900 border border-slate-600 rounded-md px-2 py-1 text-xs text-white font-mono text-right focus:outline-none focus:border-orange-500"
+                              placeholder="0"
                             />
-                            {voucherFeedback[item.id] && (
-                              <p
-                                className={`mt-0.5 text-[11px] ${
-                                  voucherFeedback[item.id].status === "ok"
-                                    ? "text-emerald-400"
-                                    : voucherFeedback[item.id].status === "error"
-                                      ? "text-red-400"
-                                      : "text-slate-400"
-                                }`}
-                              >
-                                {voucherFeedback[item.id].message}
-                              </p>
-                            )}
                           </div>
                         )}
                       </div>
@@ -631,6 +550,31 @@ export function SessionCheckoutModal({
               </div>
             ))}
           </div>
+
+          {/* Editable exchange rate — seeded from the shared SELL rate, sent in
+              the checkout payload and used for the USD↔LBP coverage math. */}
+          {(totals.usd > 0 || totals.lbp > 0) && (
+            <div className="flex items-center justify-between gap-3 bg-slate-800/50 border border-slate-700/40 rounded-lg px-3 py-2">
+              <label
+                htmlFor="checkout-exchange-rate"
+                className="text-xs text-slate-400"
+              >
+                Exchange Rate (1 USD = ? LBP)
+              </label>
+              <input
+                id="checkout-exchange-rate"
+                type="number"
+                min={0}
+                step={100}
+                value={exchangeRate || ""}
+                onChange={(e) => {
+                  setRateEdited(true);
+                  setExchangeRate(parseFloat(e.target.value) || 0);
+                }}
+                className="w-32 bg-slate-900 border border-slate-600 rounded-md px-2 py-1 text-sm text-white font-mono text-right focus:outline-none focus:border-orange-500"
+              />
+            </div>
+          )}
 
           {/* MultiPaymentInput — USD */}
           {totals.usd > 0 && (
@@ -644,6 +588,7 @@ export function SessionCheckoutModal({
                 currency="USD"
                 totalAmountCurrency="USD"
                 onChange={setUsdPaymentLines}
+                onReturnChange={setUsdReturnLines}
                 requiresClientForDebt={true}
                 hasClient={hasClient}
                 paymentMethods={paymentMethodOptions}
@@ -652,6 +597,8 @@ export function SessionCheckoutModal({
                 showDiscount={false}
                 label="USD Payment"
                 initialMethod={initialMethod}
+                clientId={sessionClientId}
+                fetchClientVouchers={fetchClientVouchers}
               />
             </div>
           )}
@@ -668,6 +615,7 @@ export function SessionCheckoutModal({
                 currency="LBP"
                 totalAmountCurrency="LBP"
                 onChange={setLbpPaymentLines}
+                onReturnChange={setLbpReturnLines}
                 requiresClientForDebt={true}
                 hasClient={hasClient}
                 paymentMethods={paymentMethodOptions}
@@ -676,6 +624,8 @@ export function SessionCheckoutModal({
                 showDiscount={false}
                 label="LBP Payment"
                 initialMethod={initialMethod}
+                clientId={sessionClientId}
+                fetchClientVouchers={fetchClientVouchers}
               />
             </div>
           )}
@@ -689,6 +639,33 @@ export function SessionCheckoutModal({
                   {totals.usdt.toFixed(2)} USDT
                 </span>
               </div>
+            </div>
+          )}
+
+          {/* Net cash-OUT to the customer (e.g. loto prize / RECEIVE). Shown when
+              the basket nets negative in a cash currency — the shop pays this out
+              of the General drawer (cash) on confirm. */}
+          {(totals.usd < 0 || totals.lbp < 0) && (
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 space-y-1">
+              <div className="text-xs font-medium text-amber-300">
+                Payout to customer (cash)
+              </div>
+              {totals.usd < 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-400">USD</span>
+                  <span className="font-mono text-amber-400">
+                    {formatAmount(totals.usd, "USD")}
+                  </span>
+                </div>
+              )}
+              {totals.lbp < 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-400">LBP</span>
+                  <span className="font-mono text-amber-400">
+                    {formatAmount(totals.lbp, "LBP")}
+                  </span>
+                </div>
+              )}
             </div>
           )}
 

@@ -8,6 +8,17 @@ import {
 import { DataTable } from "@liratek/ui";
 import { FILTER_GROUPS } from "../auditConstants";
 
+// LIRA-064: structured in/out payment leg joined from the payments table.
+// Mirrors TransactionPaymentLeg in the backend / electron.d.ts. The data is
+// returned by the backend; we only format/join it client-side here.
+type TransactionPaymentLeg = {
+  direction: "in" | "out";
+  amount: number;
+  signed_amount: number;
+  currency_code: string;
+  method: string;
+};
+
 type TransactionRow = {
   id: number;
   type: string;
@@ -26,6 +37,11 @@ type TransactionRow = {
   created_at: string;
   username: string;
   client_name: string | null;
+  // WS8: set when the row belongs to a customer-session basket. Drives the
+  // per-session colored left-border accent below. Null for non-session rows.
+  session_id: number | null;
+  // LIRA-064: structured payment breakdown (may be absent on legacy rows).
+  payments?: TransactionPaymentLeg[];
 };
 
 const ALL_OPTIONS = FILTER_GROUPS.flatMap((g) => g.options);
@@ -38,7 +54,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   OMT: "OMT System",
   WHISH: "Whish System",
   OMT_APP: "OMT App",
-  WISH_APP: "Whish App",
+  WHISH_APP: "Whish App",
   OMT_SYSTEM: "OMT System",
   WHISH_SYSTEM: "Whish System",
   iPick: "iPick",
@@ -80,11 +96,11 @@ function getTypeLabel(row: TransactionRow): string {
 
     if (row.type === "FINANCIAL_SERVICE") {
       const base = (p && PROVIDER_LABELS[p]) ?? "Financial Service";
-      if (p === "OMT_APP" || p === "BINANCE" || (p === "WISH_APP" && !ik)) {
+      if (p === "OMT_APP" || p === "BINANCE" || (p === "WHISH_APP" && !ik)) {
         if (st === "SEND") return `${base} Send`;
         if (st === "RECEIVE") return `${base} Recv`;
       }
-      if (p === "WISH_APP" && ik) return "Whish App Bills";
+      if (p === "WHISH_APP" && ik) return "Whish App Bills";
       return base;
     }
 
@@ -153,7 +169,7 @@ function getTypeColor(row: TransactionRow): string {
         case "OMT_SYSTEM":
           return "text-blue-400";
         case "WHISH":
-        case "WISH_APP":
+        case "WHISH_APP":
         case "WHISH_SYSTEM":
           return "text-cyan-400";
         case "iPick":
@@ -193,6 +209,55 @@ function formatAmount(usd: number, lbp: number, metaJson?: string | null): strin
     } catch { /* ignore */ }
   }
   return parts.join(" + ") || "—";
+}
+
+// ---------------------------------------------------------------------------
+// Structured payment legs (LIRA-064)
+// ---------------------------------------------------------------------------
+
+/** Format a single payment amount with its currency, e.g. "$50" or "100,000 LBP". */
+function formatLegAmount(leg: TransactionPaymentLeg): string {
+  const value = leg.amount.toLocaleString();
+  return leg.currency_code === "USD" ? `$${value}` : `${value} ${leg.currency_code}`;
+}
+
+/**
+ * Build the "in: ... · out: ..." string from the structured payment legs,
+ * joined entirely client-side. Returns null when there are no legs so callers
+ * can skip rendering. Same-currency legs on the same side are summed so the
+ * label stays compact (e.g. two USD cash legs → one "$50").
+ */
+function formatPaymentLegs(legs: TransactionPaymentLeg[] | undefined): string | null {
+  if (!legs || legs.length === 0) return null;
+
+  const sumByCurrency = (side: "in" | "out"): string[] => {
+    const totals = new Map<string, number>();
+    for (const leg of legs) {
+      if (leg.direction !== side) continue;
+      totals.set(
+        leg.currency_code,
+        (totals.get(leg.currency_code) ?? 0) + leg.amount,
+      );
+    }
+    return [...totals.entries()].map(([currency_code, amount]) =>
+      formatLegAmount({
+        direction: side,
+        amount,
+        signed_amount: amount,
+        currency_code,
+        method: "",
+      }),
+    );
+  };
+
+  const inParts = sumByCurrency("in");
+  const outParts = sumByCurrency("out");
+
+  const segments: string[] = [];
+  if (inParts.length) segments.push(`in: ${inParts.join(" + ")}`);
+  if (outParts.length) segments.push(`out: ${outParts.join(" + ")}`);
+
+  return segments.length ? segments.join(" · ") : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -301,6 +366,30 @@ const ACTIONABLE_TYPES = new Set([
   "DEBT_REPAYMENT",
   "SUPPLIER_PAYMENT",
 ]);
+
+// ---------------------------------------------------------------------------
+// Per-session left-border accent (WS8)
+// ---------------------------------------------------------------------------
+
+// Full literal class strings so Tailwind's JIT picks them up. A colored
+// border-l-* is preserved in both light and dark modes by design (see
+// index.css `html:not(.dark)` overrides), so no `dark:` variant is needed.
+const SESSION_BORDER_CLASSES = [
+  "border-l-4 border-violet-500",
+  "border-l-4 border-amber-500",
+  "border-l-4 border-emerald-500",
+  "border-l-4 border-sky-500",
+  "border-l-4 border-rose-500",
+  "border-l-4 border-fuchsia-500",
+  "border-l-4 border-lime-500",
+  "border-l-4 border-cyan-500",
+] as const;
+
+/** Stable hash of a session id → a class from the palette (cycles). */
+function sessionBorderClass(sessionId: number): string {
+  const idx = Math.abs(Math.trunc(sessionId)) % SESSION_BORDER_CLASSES.length;
+  return SESSION_BORDER_CLASSES[idx];
+}
 
 // ---------------------------------------------------------------------------
 // Component
@@ -468,7 +557,9 @@ export default function TransactionsViewer({
       renderRow={(row) => (
         <tr
           key={row.id}
-          className={`border-t border-slate-800 text-xs ${row.status === "VOIDED" ? "bg-red-950/20" : ""}`}
+          className={`border-t border-slate-800 text-xs ${row.status === "VOIDED" ? "bg-red-950/20" : ""} ${
+            row.session_id != null ? sessionBorderClass(row.session_id) : ""
+          }`}
         >
           <td className="p-2 truncate" style={{ width: 160 }}>
             {row.created_at
@@ -502,6 +593,24 @@ export default function TransactionsViewer({
                   {row.summary}
                 </span>
               )}
+              {(() => {
+                // LIRA-064: structured in/out payment legs, joined client-side,
+                // with the transaction's USD→LBP rate-of-record appended.
+                const legs = formatPaymentLegs(row.payments);
+                const rate = row.exchange_rate
+                  ? `@ ${Math.round(row.exchange_rate).toLocaleString()}`
+                  : null;
+                const text = [legs, rate].filter(Boolean).join(" · ");
+                if (!text) return null;
+                return (
+                  <span
+                    data-testid="payment-legs"
+                    className="text-[11px] font-mono text-slate-500 truncate max-w-[480px]"
+                  >
+                    {text}
+                  </span>
+                );
+              })()}
             </div>
           </td>
           <td className="p-2 truncate" style={{ width: 160 }}>

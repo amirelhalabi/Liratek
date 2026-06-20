@@ -1,9 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import logger from "@/utils/logger";
-import {
-  formatWithCommas,
-  isPartialDecimal,
-} from "@/shared/utils/formatWithCommas";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { useSaveAsClient } from "@/shared/hooks/useSaveAsClient";
 import { SaveAsClientCheckbox } from "@/shared/components/SaveAsClientCheckbox";
@@ -23,7 +19,14 @@ import {
 } from "lucide-react";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
-import { PageHeader, Select, useApi, appEvents, TopUpModal } from "@liratek/ui";
+import {
+  PageHeader,
+  Select,
+  useApi,
+  appEvents,
+  TopUpModal,
+  DecimalInput,
+} from "@liratek/ui";
 import { DataTable } from "@liratek/ui";
 import { MultiPaymentInput, type PaymentLine } from "@liratek/ui";
 import { toCamelLegs } from "@/utils/paymentUtils";
@@ -1346,16 +1349,10 @@ export default function Services() {
                       $
                     </span>
                   )}
-                  <input
+                  <DecimalInput
                     id="service-amount"
-                    type="text"
-                    inputMode="decimal"
-                    autoComplete="off"
-                    value={formatWithCommas(amount)}
-                    onChange={(e) => {
-                      const cleaned = e.target.value.replace(/,/g, "");
-                      if (isPartialDecimal(cleaned)) setAmount(cleaned);
-                    }}
+                    value={parseFloat(amount) || 0}
+                    onChange={(n) => setAmount(n ? String(n) : "")}
                     className={
                       INPUT_CLASS +
                       (currency === "USD" ? " pl-8 pr-16" : " pl-4 pr-16")
@@ -1583,16 +1580,10 @@ export default function Services() {
                             $
                           </span>
                         )}
-                        <input
+                        <DecimalInput
                           id="service-omt-fee"
-                          type="text"
-                          inputMode="decimal"
-                          autoComplete="off"
-                          value={formatWithCommas(omtFee)}
-                          onChange={(e) => {
-                            const cleaned = e.target.value.replace(/,/g, "");
-                            if (isPartialDecimal(cleaned)) setOmtFee(cleaned);
-                          }}
+                          value={parseFloat(omtFee) || 0}
+                          onChange={(n) => setOmtFee(n ? String(n) : "")}
                           className={INPUT_CLASS + (isLbp ? "" : " pl-8")}
                           placeholder={
                             autoFee != null
@@ -1875,16 +1866,10 @@ export default function Services() {
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-violet-400 font-bold">
                       $
                     </span>
-                    <input
+                    <DecimalInput
                       id="service-pm-fee"
-                      type="text"
-                      inputMode="decimal"
-                      autoComplete="off"
-                      value={formatWithCommas(pmFeeAmount)}
-                      onChange={(e) => {
-                        const cleaned = e.target.value.replace(/,/g, "");
-                        if (isPartialDecimal(cleaned)) setPmFeeAmount(cleaned);
-                      }}
+                      value={parseFloat(pmFeeAmount) || 0}
+                      onChange={(n) => setPmFeeAmount(n ? String(n) : "")}
                       className={
                         INPUT_CLASS +
                         " pl-8 border-violet-500/40 focus:border-violet-400"
@@ -1945,16 +1930,10 @@ export default function Services() {
                           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-purple-300 font-bold">
                             $
                           </span>
-                          <input
+                          <DecimalInput
                             id="binance-fee"
-                            type="text"
-                            inputMode="decimal"
-                            autoComplete="off"
-                            value={formatWithCommas(omtFee)}
-                            onChange={(e) => {
-                              const cleaned = e.target.value.replace(/,/g, "");
-                              if (isPartialDecimal(cleaned)) setOmtFee(cleaned);
-                            }}
+                            value={parseFloat(omtFee) || 0}
+                            onChange={(n) => setOmtFee(n ? String(n) : "")}
                             className="w-full bg-slate-900 border border-purple-500/30 rounded-lg pl-8 pr-4 py-2 text-purple-300 font-mono focus:outline-none focus:border-purple-500"
                             placeholder="0.00"
                           />

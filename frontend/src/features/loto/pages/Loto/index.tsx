@@ -4,7 +4,7 @@
 
 import { useState, useEffect } from "react";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
-import { useApi, PageHeader } from "@liratek/ui";
+import { useApi, PageHeader, DecimalInput } from "@liratek/ui";
 import { MultiPaymentInput, type PaymentLine } from "@liratek/ui";
 import { getExchangeRates } from "@/utils/exchangeRates";
 import { useSession } from "@/features/sessions/context/SessionContext";
@@ -16,10 +16,6 @@ import { SettlementVerification } from "../../components/SettlementVerification"
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
 import { ensureRechargeClient } from "@/features/recharge/utils/ensureClient";
-import {
-  formatWithCommas,
-  isPartialDecimal,
-} from "@/shared/utils/formatWithCommas";
 
 interface LotoSettings {
   commission_rate: string;
@@ -418,15 +414,9 @@ export function LotoPage() {
                   <label className="text-xs text-slate-400 block mb-1">
                     Sale Amount (LBP) *
                   </label>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    autoComplete="off"
-                    value={formatWithCommas(saleAmount)}
-                    onChange={(e) => {
-                      const cleaned = e.target.value.replace(/,/g, "");
-                      if (isPartialDecimal(cleaned)) setSaleAmount(cleaned);
-                    }}
+                  <DecimalInput
+                    value={parseFloat(saleAmount) || 0}
+                    onChange={(n) => setSaleAmount(n ? String(n) : "")}
                     className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-orange-500 transition-colors"
                     placeholder="Enter sale amount"
                   />
@@ -530,15 +520,9 @@ export function LotoPage() {
                   <label className="text-xs text-slate-400 block mb-1">
                     Prize Amount (LBP) *
                   </label>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    autoComplete="off"
-                    value={formatWithCommas(cashPrizeAmount)}
-                    onChange={(e) => {
-                      const cleaned = e.target.value.replace(/,/g, "");
-                      if (isPartialDecimal(cleaned)) setCashPrizeAmount(cleaned);
-                    }}
+                  <DecimalInput
+                    value={parseFloat(cashPrizeAmount) || 0}
+                    onChange={(n) => setCashPrizeAmount(n ? String(n) : "")}
                     className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-yellow-500 transition-colors"
                     placeholder="Enter prize amount"
                   />

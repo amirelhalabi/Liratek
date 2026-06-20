@@ -1,15 +1,10 @@
 import { useMemo, useState } from "react";
 import {
-  Select,
   useApi,
   MultiPaymentInput,
   PageHeader,
   type PaymentLine,
 } from "@liratek/ui";
-import {
-  formatWithCommas,
-  isPartialDecimal,
-} from "@/shared/utils/formatWithCommas";
 import { Truck } from "lucide-react";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { getExchangeRates } from "@/utils/exchangeRates";
@@ -20,8 +15,8 @@ import {
   useSupplierBalancesQuery,
   useSupplierLedgerQuery,
   useUnsettledTransactionsQuery,
-  useAddLedgerEntryMutation,
   useSettleTransactionsMutation,
+  useSupplierCashflowMutation,
 } from "../../hooks/useSuppliers";
 
 type Supplier = {
@@ -46,7 +41,14 @@ type SupplierBalance = {
 type LedgerEntry = {
   id: number;
   supplier_id: number;
-  entry_type: "TOP_UP" | "PAYMENT" | "ADJUSTMENT" | "SETTLEMENT";
+  entry_type:
+    | "TOP_UP"
+    | "SALE_COST"
+    | "PAYMENT"
+    | "ADJUSTMENT"
+    | "SETTLEMENT"
+    | "CASH_PRIZE"
+    | "SUPPLIER_PAYS_US";
   amount_usd: number;
   amount_lbp: number;
   note: string | null;
@@ -82,14 +84,24 @@ function EntryTypeBadge({ type }: { type: string }) {
   const color =
     type === "TOP_UP"
       ? "bg-red-900/50 text-red-300"
-      : type === "PAYMENT"
-        ? "bg-green-900/50 text-green-300"
-        : type === "SETTLEMENT"
-          ? "bg-blue-900/50 text-blue-300"
-          : "bg-amber-900/50 text-amber-300";
+      : type === "SALE_COST"
+        ? "bg-orange-900/50 text-orange-300"
+        : type === "PAYMENT"
+          ? "bg-green-900/50 text-green-300"
+          : type === "SUPPLIER_PAYS_US"
+            ? "bg-emerald-900/50 text-emerald-300"
+            : type === "SETTLEMENT"
+              ? "bg-blue-900/50 text-blue-300"
+              : "bg-amber-900/50 text-amber-300";
+  const label =
+    type === "SALE_COST"
+      ? "SALE COST"
+      : type === "SUPPLIER_PAYS_US"
+        ? "PAID US"
+        : type;
   return (
     <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${color}`}>
-      {type}
+      {label}
     </span>
   );
 }
@@ -102,22 +114,47 @@ function AutoBadge() {
   );
 }
 
+/**
+ * Supplier balance is the signed sum of the ledger:
+ *   > 0  → WE owe the supplier   ("You owe …", red)
+ *   < 0  → the supplier owes US  ("They owe you …", green) — e.g. after overpayment
+ *   = 0  → settled
+ */
+const BALANCE_EPS = 0.005;
+function describeBalance(
+  amount: number,
+  currency: "USD" | "LBP",
+): { text: string; cls: string } {
+  const abs = Math.abs(amount);
+  const money =
+    currency === "USD"
+      ? `$${abs.toFixed(2)}`
+      : `${Math.round(abs).toLocaleString()} LBP`;
+  if (amount > BALANCE_EPS) return { text: `You owe ${money}`, cls: "text-red-400" };
+  if (amount < -BALANCE_EPS)
+    return { text: `They owe you ${money}`, cls: "text-green-400" };
+  return { text: "Settled", cls: "text-slate-400" };
+}
+
+/** Compact directional color for a single signed amount (list rows). */
+function balanceColor(amount: number): string {
+  if (amount > BALANCE_EPS) return "text-red-400";
+  if (amount < -BALANCE_EPS) return "text-green-400";
+  return "text-slate-500";
+}
+
 export default function SuppliersPage() {
   const api = useApi();
   const { methods } = usePaymentMethods();
   const { partnerSystem } = useShopBase();
 
   // ── UI / form state (kept local — not server state) ──────────────────────
+  const [viewCategory, setViewCategory] = useState<"companies" | "products">(
+    "companies",
+  );
   const [selectedSupplierId, setSelectedSupplierId] = useState<number | null>(
     null,
   );
-  const [entryType, setEntryType] = useState<
-    "TOP_UP" | "PAYMENT" | "ADJUSTMENT"
-  >("PAYMENT");
-  const [amountUSD, setAmountUSD] = useState<number>(0);
-  const [amountLBP, setAmountLBP] = useState<number>(0);
-  const [note, setNote] = useState<string>("");
-  const [withdrawFromDrawer, setWithdrawFromDrawer] = useState(true);
   const [selectedTxnIds, setSelectedTxnIds] = useState<Set<number>>(new Set());
   const [settleNote, setSettleNote] = useState("");
   const [settleDrawer] = useState("General");
@@ -126,6 +163,13 @@ export default function SuppliersPage() {
     [],
   );
   const [activeTab, setActiveTab] = useState<"settle" | "manual">("settle");
+  // Pay / Receive (LIRA-059): cashflow against the supplier via payment legs
+  const [cashflowDirection, setCashflowDirection] = useState<"PAY" | "RECEIVE">(
+    "PAY",
+  );
+  const [cashflowLines, setCashflowLines] = useState<PaymentLine[]>([]);
+  const [cashflowNote, setCashflowNote] = useState("");
+  const [cashflowKey, setCashflowKey] = useState(0);
 
   // ── Exchange rate ─────────────────────────────────────────────────────────
   const { data: exchangeRate = 90000 } = useQuery({
@@ -157,7 +201,6 @@ export default function SuppliersPage() {
   );
 
   // ── Mutations ─────────────────────────────────────────────────────────────
-  const addLedgerEntry = useAddLedgerEntryMutation(selectedSupplierId);
   const settleTransactions = useSettleTransactionsMutation(
     selectedSupplierId,
     selectedSupplier?.provider ?? null,
@@ -173,10 +216,11 @@ export default function SuppliersPage() {
     () =>
       [...suppliers]
         .filter((s) => s.provider !== partnerSystem)
-        .sort(
-          (a, b) => b.is_system - a.is_system || a.name.localeCompare(b.name),
-        ),
-    [suppliers, partnerSystem],
+        .filter((s) =>
+          viewCategory === "companies" ? s.is_system === 1 : s.is_system === 0,
+        )
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [suppliers, partnerSystem, viewCategory],
   );
 
   const balanceBySupplier = useMemo(() => {
@@ -198,11 +242,6 @@ export default function SuppliersPage() {
     }
     return { usd, lbp };
   }, [sortedSuppliers, balanceBySupplier]);
-
-  const supplierDrawer = useMemo(() => {
-    if (!selectedSupplier?.provider) return "General";
-    return PROVIDER_DRAWER[selectedSupplier.provider] || "General";
-  }, [selectedSupplier]);
 
   const selectedUnsettled = useMemo(
     () => unsettledTxns.filter((t) => selectedTxnIds.has(t.id)),
@@ -233,41 +272,33 @@ export default function SuppliersPage() {
   );
 
   // ── Handlers ──────────────────────────────────────────────────────────────
-  const handleAddEntry = async () => {
-    if (!selectedSupplierId) {
-      alert("Select a supplier first");
+  const handleCashflow = async () => {
+    if (!selectedSupplierId) return;
+    const activeLines = cashflowLines.filter((l) => l.amount > 0);
+    if (activeLines.length === 0) {
+      alert("Enter at least one payment amount");
       return;
     }
-    if (amountUSD === 0 && amountLBP === 0) {
-      alert("Enter an amount");
-      return;
-    }
-    const payload: {
-      supplier_id: number;
-      entry_type: string;
-      amount_usd: number;
-      amount_lbp: number;
-      note?: string;
-      drawer_name?: string;
-    } = {
+    const trimmedNote = cashflowNote.trim();
+    const res = await supplierCashflow.mutateAsync({
       supplier_id: selectedSupplierId,
-      entry_type: entryType,
-      amount_usd: amountUSD || 0,
-      amount_lbp: amountLBP || 0,
-    };
-    if (note.trim()) payload.note = note.trim();
-    if (withdrawFromDrawer && entryType === "PAYMENT") {
-      payload.drawer_name = supplierDrawer;
-    }
-
-    const res = await addLedgerEntry.mutateAsync(payload);
+      direction: cashflowDirection,
+      payments: activeLines.map((p) => ({
+        method: p.method,
+        currency_code: p.currencyCode,
+        amount: p.amount,
+      })),
+      // Omit `note` entirely when empty (exactOptionalPropertyTypes: the field is
+      // `note?: string`, so it must be absent rather than explicitly undefined).
+      ...(trimmedNote ? { note: trimmedNote } : {}),
+    });
     if (!(res as { success: boolean }).success) {
-      alert((res as { error?: string }).error || "Failed to add entry");
+      alert((res as { error?: string }).error || "Failed");
       return;
     }
-    setAmountUSD(0);
-    setAmountLBP(0);
-    setNote("");
+    setCashflowLines([]);
+    setCashflowNote("");
+    setCashflowKey((k) => k + 1);
   };
 
   const handleSettle = async () => {
@@ -302,6 +333,11 @@ export default function SuppliersPage() {
     }
   };
 
+  const supplierCashflow = useSupplierCashflowMutation(
+    selectedSupplierId,
+    selectedSupplier?.provider ?? null,
+  );
+
   const settling = settleTransactions.isPending;
 
   return (
@@ -311,6 +347,31 @@ export default function SuppliersPage() {
         title="Suppliers"
         subtitle="Track amounts owed to suppliers. System debts are auto-recorded from transactions."
       />
+
+      {/* Category toggle */}
+      <div className="flex gap-1 border-b border-slate-700/50 pb-1">
+        {(
+          [
+            { id: "companies" as const, label: "Companies" },
+            { id: "products" as const, label: "Products" },
+          ] as const
+        ).map((cat) => (
+          <button
+            key={cat.id}
+            onClick={() => {
+              setViewCategory(cat.id);
+              setSelectedSupplierId(null);
+            }}
+            className={`px-5 py-2 text-sm font-semibold rounded-t-lg transition-colors ${
+              viewCategory === cat.id
+                ? "bg-slate-700 text-white border-b-2 border-orange-500"
+                : "text-slate-400 hover:text-white"
+            }`}
+          >
+            {cat.label}
+          </button>
+        ))}
+      </div>
 
       {/* Balance overview */}
       <div className="grid grid-cols-2 gap-4">
@@ -332,7 +393,7 @@ export default function SuppliersPage() {
         {/* Left: Supplier list */}
         <div className="col-span-4 bg-slate-800 rounded-xl border border-slate-700/50 p-4 overflow-auto">
           <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
-            Suppliers
+            {viewCategory === "companies" ? "Companies" : "Product Suppliers"}
           </div>
           <div className="space-y-1">
             {sortedSuppliers.map((s) => {
@@ -366,9 +427,14 @@ export default function SuppliersPage() {
                       )}
                     </div>
                   </div>
-                  <div className="mt-1 text-xs text-slate-400 font-mono">
-                    ${Number(b?.total_usd || 0).toFixed(2)} |{" "}
-                    {Number(b?.total_lbp || 0).toLocaleString()} LBP
+                  <div className="mt-1 text-xs font-mono">
+                    <span className={balanceColor(Number(b?.total_usd || 0))}>
+                      ${Number(b?.total_usd || 0).toFixed(2)}
+                    </span>
+                    <span className="text-slate-600"> | </span>
+                    <span className={balanceColor(Number(b?.total_lbp || 0))}>
+                      {Number(b?.total_lbp || 0).toLocaleString()} LBP
+                    </span>
                   </div>
                 </button>
               );
@@ -396,16 +462,43 @@ export default function SuppliersPage() {
                     {selectedSupplier.name}
                   </div>
                   <div className="text-xs text-slate-400 font-mono mt-0.5">
-                    Balance:{" "}
-                    <span
-                      className={`font-semibold ${(balanceBySupplier.get(selectedSupplierId!)?.total_usd ?? 0) < 0 ? "text-green-400" : "text-red-400"}`}
-                    >
-                      $
-                      {(
-                        balanceBySupplier.get(selectedSupplierId!)?.total_usd ??
-                        0
-                      ).toFixed(2)}
-                    </span>
+                    {(() => {
+                      const bal = balanceBySupplier.get(selectedSupplierId!);
+                      const usd = Number(bal?.total_usd ?? 0);
+                      const lbp = Number(bal?.total_lbp ?? 0);
+                      const usdInfo = describeBalance(usd, "USD");
+                      const lbpInfo = describeBalance(lbp, "LBP");
+                      const settled =
+                        Math.abs(usd) <= BALANCE_EPS &&
+                        Math.abs(lbp) <= BALANCE_EPS;
+                      return (
+                        <>
+                          Balance:{" "}
+                          {settled ? (
+                            <span className="font-semibold text-slate-400">
+                              Settled
+                            </span>
+                          ) : (
+                            <>
+                              {Math.abs(usd) > BALANCE_EPS && (
+                                <span className={`font-semibold ${usdInfo.cls}`}>
+                                  {usdInfo.text}
+                                </span>
+                              )}
+                              {Math.abs(usd) > BALANCE_EPS &&
+                                Math.abs(lbp) > BALANCE_EPS && (
+                                  <span className="text-slate-600"> · </span>
+                                )}
+                              {Math.abs(lbp) > BALANCE_EPS && (
+                                <span className={`font-semibold ${lbpInfo.cls}`}>
+                                  {lbpInfo.text}
+                                </span>
+                              )}
+                            </>
+                          )}
+                        </>
+                      );
+                    })()}
                     {pendingCommissionTotal > 0 && (
                       <span className="ml-3 text-amber-400">
                         ⚠ ${pendingCommissionTotal.toFixed(4)} pending
@@ -435,7 +528,7 @@ export default function SuppliersPage() {
                       id: "settle" as const,
                       label: `Settle Transactions${unsettledTxns.length > 0 ? ` (${unsettledTxns.length})` : ""}`,
                     },
-                    { id: "manual" as const, label: "Manual Entry" },
+                    { id: "manual" as const, label: "Pay / Receive" },
                   ].map((tab) => (
                     <button
                       key={tab.id}
@@ -574,106 +667,75 @@ export default function SuppliersPage() {
                 </div>
               )}
 
-              {/* Tab: Manual Entry */}
+              {/* Tab: Pay / Receive */}
               {selectedSupplier.is_active !== 0 && activeTab === "manual" && (
-                <div className="space-y-3">
-                  <div className="grid grid-cols-12 gap-3">
-                    <div className="col-span-3">
-                      <label className="block text-xs text-slate-400 mb-1">
-                        Entry Type
-                      </label>
-                      <Select
-                        value={entryType}
-                        onChange={(value) =>
-                          setEntryType(
-                            value as "TOP_UP" | "PAYMENT" | "ADJUSTMENT",
-                          )
-                        }
-                        options={[
-                          { value: "PAYMENT", label: "PAYMENT" },
-                          { value: "TOP_UP", label: "TOP_UP" },
-                          { value: "ADJUSTMENT", label: "ADJUSTMENT" },
-                        ]}
-                        ringColor="ring-violet-500"
-                        buttonClassName="bg-slate-950"
-                      />
-                    </div>
-                    <div className="col-span-3">
-                      <label className="block text-xs text-slate-400 mb-1">
-                        Amount USD
-                      </label>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        autoComplete="off"
-                        value={amountUSD ? formatWithCommas(String(amountUSD)) : ""}
-                        onChange={(e) => {
-                          const cleaned = e.target.value.replace(/,/g, "");
-                          if (isPartialDecimal(cleaned))
-                            setAmountUSD(parseFloat(cleaned) || 0);
-                        }}
-                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white font-mono"
-                        placeholder="0"
-                      />
-                    </div>
-                    <div className="col-span-3">
-                      <label className="block text-xs text-slate-400 mb-1">
-                        Amount LBP
-                      </label>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        autoComplete="off"
-                        value={amountLBP ? formatWithCommas(String(amountLBP)) : ""}
-                        onChange={(e) => {
-                          const cleaned = e.target.value.replace(/,/g, "");
-                          if (isPartialDecimal(cleaned))
-                            setAmountLBP(parseFloat(cleaned) || 0);
-                        }}
-                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white font-mono"
-                        placeholder="0"
-                      />
-                    </div>
-                    <div className="col-span-3">
-                      <label className="block text-xs text-slate-400 mb-1">
-                        Note
-                      </label>
-                      <input
-                        value={note}
-                        onChange={(e) => setNote(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white"
-                      />
-                    </div>
-                    {entryType === "PAYMENT" && (
-                      <div className="col-span-12">
-                        <label className="flex items-center gap-2 text-slate-300 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={withdrawFromDrawer}
-                            onChange={(e) =>
-                              setWithdrawFromDrawer(e.target.checked)
-                            }
-                            className="w-4 h-4 rounded border-slate-700 bg-slate-950 text-orange-600"
-                          />
-                          <span className="text-sm">
-                            Withdraw from{" "}
-                            <span className="font-mono text-white">
-                              {supplierDrawer}
-                            </span>{" "}
-                            drawer
-                          </span>
-                        </label>
-                      </div>
-                    )}
-                    <div className="col-span-12 flex justify-end">
+                <div className="space-y-4">
+                  {/* Direction toggle */}
+                  <div className="flex gap-2">
+                    {(["PAY", "RECEIVE"] as const).map((dir) => (
                       <button
-                        onClick={handleAddEntry}
-                        disabled={addLedgerEntry.isPending}
-                        className="px-4 py-2 rounded-lg bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white font-medium"
+                        key={dir}
+                        onClick={() => setCashflowDirection(dir)}
+                        className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                          cashflowDirection === dir
+                            ? dir === "PAY"
+                              ? "bg-red-600 text-white"
+                              : "bg-green-600 text-white"
+                            : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                        }`}
                       >
-                        {addLedgerEntry.isPending ? "Adding..." : "Add Entry"}
+                        {dir === "PAY" ? "Pay Supplier" : "Supplier Paid Us"}
                       </button>
-                    </div>
+                    ))}
+                  </div>
+
+                  <MultiPaymentInput
+                    key={cashflowKey}
+                    totalAmount={0}
+                    currency="USD"
+                    onChange={setCashflowLines}
+                    showPmFee={false}
+                    showDiscount={false}
+                    paymentMethods={methods}
+                    currencies={[
+                      { code: "USD", symbol: "$" },
+                      { code: "LBP", symbol: "LBP" },
+                    ]}
+                    exchangeRate={exchangeRate}
+                  />
+
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">
+                      Note (optional)
+                    </label>
+                    <input
+                      value={cashflowNote}
+                      onChange={(e) => setCashflowNote(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"
+                      placeholder={
+                        cashflowDirection === "PAY"
+                          ? "Payment to supplier…"
+                          : "Amount received from supplier…"
+                      }
+                    />
+                  </div>
+
+                  <div className="flex justify-end">
+                    <button
+                      onClick={handleCashflow}
+                      disabled={supplierCashflow.isPending}
+                      className={`px-6 py-2 rounded-lg text-white font-semibold transition-colors disabled:opacity-50 ${
+                        cashflowDirection === "PAY"
+                          ? "bg-red-600 hover:bg-red-500"
+                          : "bg-green-600 hover:bg-green-500"
+                      }`}
+                    >
+                      {supplierCashflow.isPending
+                        ? "Processing…"
+                        : cashflowDirection === "PAY"
+                          ? "Record Payment"
+                          : "Record Receipt"}
+                    </button>
                   </div>
                 </div>
               )}

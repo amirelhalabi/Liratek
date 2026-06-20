@@ -233,6 +233,7 @@ CREATE TABLE IF NOT EXISTS sales (
     status TEXT DEFAULT 'completed',
     note TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     edited_by TEXT DEFAULT NULL,
     edited_at TEXT DEFAULT NULL,
     FOREIGN KEY (client_id) REFERENCES clients(id)
@@ -336,7 +337,7 @@ CREATE INDEX IF NOT EXISTS idx_session_cart_items_user ON session_cart_items(use
 CREATE TABLE IF NOT EXISTS supplier_ledger (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   supplier_id INTEGER NOT NULL,
-  entry_type TEXT NOT NULL CHECK(entry_type IN ('TOP_UP', 'PAYMENT', 'ADJUSTMENT', 'SETTLEMENT', 'CASH_PRIZE')),
+  entry_type TEXT NOT NULL CHECK(entry_type IN ('TOP_UP', 'SALE_COST', 'PAYMENT', 'ADJUSTMENT', 'SETTLEMENT', 'CASH_PRIZE', 'SUPPLIER_PAYS_US')),
   amount_usd REAL NOT NULL DEFAULT 0,
   amount_lbp REAL NOT NULL DEFAULT 0,
   note TEXT,
@@ -455,7 +456,7 @@ CREATE TABLE IF NOT EXISTS exchange_transactions (
 -- Financial Services (OMT, Whish, iPick, Katsh, Wish App, Binance, etc.)
 CREATE TABLE IF NOT EXISTS financial_services (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    provider TEXT CHECK(provider IN ('OMT', 'WHISH', 'BOB', 'OTHER', 'iPick', 'Katsh', 'WISH_APP', 'OMT_APP', 'BINANCE')) NOT NULL,
+    provider TEXT CHECK(provider IN ('OMT', 'WHISH', 'BOB', 'OTHER', 'iPick', 'Katsh', 'WHISH_APP', 'OMT_APP', 'BINANCE')) NOT NULL,
     service_type TEXT CHECK(service_type IN ('SEND', 'RECEIVE')) NOT NULL,
     amount DECIMAL(10, 2) NOT NULL,
     currency TEXT DEFAULT 'USD' NOT NULL,
@@ -635,6 +636,7 @@ CREATE INDEX IF NOT EXISTS idx_msi_active ON mobile_service_items(is_active);
 CREATE TABLE IF NOT EXISTS payments (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   transaction_id INTEGER,
+  session_id INTEGER,
   method TEXT NOT NULL,
   drawer_name TEXT NOT NULL,
   currency_code TEXT NOT NULL,
@@ -643,7 +645,8 @@ CREATE TABLE IF NOT EXISTS payments (
   created_by INTEGER,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (created_by) REFERENCES users(id),
-  FOREIGN KEY (transaction_id) REFERENCES transactions(id)
+  FOREIGN KEY (transaction_id) REFERENCES transactions(id),
+  FOREIGN KEY (session_id) REFERENCES customer_sessions(id) ON DELETE SET NULL
 );
 
 -- Drawer Balances (Running totals)
@@ -771,6 +774,7 @@ CREATE INDEX IF NOT EXISTS idx_daily_closings_drawer_id ON daily_closings(drawer
 CREATE INDEX IF NOT EXISTS idx_recharges_carrier_date ON recharges(carrier, created_at);
 CREATE INDEX IF NOT EXISTS idx_recharges_date ON recharges(created_at);
 CREATE INDEX IF NOT EXISTS idx_payments_drawer_currency ON payments(drawer_name, currency_code, created_at);
+CREATE INDEX IF NOT EXISTS idx_payments_session_id ON payments(session_id);
 CREATE INDEX IF NOT EXISTS idx_drawer_balances_drawer ON drawer_balances(drawer_name);
 CREATE INDEX IF NOT EXISTS idx_supplier_ledger_supplier_id_created_at ON supplier_ledger(supplier_id, created_at);
 
@@ -1225,4 +1229,11 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (95, 'usdt_currency_activate'),
     (96, 'rename_supplier_katch_to_katsh'),
     (97, 'widen_recharges_carrier_constraint'),
-    (98, 'add_whish_topup_partner_ledger_type');
+    (98, 'add_whish_topup_partner_ledger_type'),
+    (99, 'add_sale_cost_entry_type'),
+    (100, 'add_session_id_to_payments'),
+    (101, 'backfill_custom_maintenance_profit_into_transactions'),
+    (102, 'remove_secondary_system_supplier_ledger_pollution'),
+    (103, 'add_supplier_pays_us_entry_type'),
+    (104, 'add_updated_at_to_sales'),
+    (105, 'rename_wish_app_to_whish_app');

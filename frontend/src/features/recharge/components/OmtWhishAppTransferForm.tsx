@@ -1,15 +1,11 @@
 import { useState, useEffect, memo } from "react";
 import { User, Phone } from "lucide-react";
-import {
-  formatWithCommas,
-  isPartialDecimal,
-} from "@/shared/utils/formatWithCommas";
-import { useApi, ServiceTypeTabs } from "@liratek/ui";
+import { useApi, ServiceTypeTabs, DecimalInput } from "@liratek/ui";
 import { PaymentSheet } from "./PaymentSheet";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import type { FinancialTransaction } from "../types";
 import { HistoryModal } from "./HistoryModal";
-import { getExchangeRates } from "@/utils/exchangeRates";
+import { useSellRate } from "@/hooks/useSellRate";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import logger from "@/utils/logger";
 import { useSaveAsClient } from "@/shared/hooks/useSaveAsClient";
@@ -18,9 +14,10 @@ import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOver
 import { ClientAutocompleteInput } from "@/shared/components/ClientAutocompleteInput";
 import { PartnerSelector } from "@/features/partners/components/PartnerSelector";
 import { ensureRechargeClient } from "../utils/ensureClient";
+import { toCamelLegs } from "@/utils/paymentUtils";
 
 type ServiceType = "SEND" | "RECEIVE";
-type ProviderKey = "OMT_APP" | "WISH_APP";
+type ProviderKey = "OMT_APP" | "WHISH_APP";
 
 interface OmtWhishAppTransferFormProps {
   activeProvider: ProviderKey;
@@ -60,9 +57,14 @@ function OmtWhishAppTransferFormInner({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPaymentSheet, setShowPaymentSheet] = useState(false);
   const showHistory = showHistoryProp ?? false;
-  const [exchangeRate, setExchangeRate] = useState(89500);
+  const { sellRate: exchangeRate } = useSellRate();
   const [paymentLines, setPaymentLines] = useState<any[]>([]);
+  const [returnLegs, setReturnLegs] = useState<any[]>([]);
   const isSplitPayment = paymentLines.length > 1;
+  // Forward structured legs whenever the payment is split OR the customer got
+  // change back (a return/OUT leg); otherwise single payment + change drops the
+  // returned cash so it's never recorded.
+  const useStructuredPayments = isSplitPayment || returnLegs.length > 0;
   const [paidByMethod, setPaidByMethod] = useState("CASH");
   const [includingFees, setIncludingFees] = useState(false);
   const [manualFee, setManualFee] = useState("");
@@ -100,20 +102,6 @@ function OmtWhishAppTransferFormInner({
     resetSaveAsClient,
   } = useSaveAsClient(saveClientName, saveClientPhone);
 
-  // Load exchange rate
-  useEffect(() => {
-    const loadRate = async () => {
-      try {
-        const rates = await api.getRates();
-        const { sellRate } = getExchangeRates(rates);
-        setExchangeRate(sellRate);
-      } catch (error) {
-        logger.error("Failed to load exchange rate:", error);
-      }
-    };
-    loadRate();
-  }, [api]);
-
   // Autofill sender/receiver from customer session based on service type
   useEffect(() => {
     if (serviceType === "SEND") {
@@ -128,7 +116,7 @@ function OmtWhishAppTransferFormInner({
   // Calculate fees — Whish App uses 1% fee on RECEIVE (USD only, no fees for LBP)
   const parsedAmount = parseFloat(amount || "0");
   const autoFee =
-    activeProvider === "WISH_APP" &&
+    activeProvider === "WHISH_APP" &&
     serviceType === "RECEIVE" &&
     currency === "USD" &&
     parsedAmount > 0
@@ -151,7 +139,7 @@ function OmtWhishAppTransferFormInner({
   // - Whish App SEND: $0 profit
   // - Whish App RECEIVE: 10% of fee (1% of amount)
   const shopProfit =
-    activeProvider === "WISH_APP" && serviceType === "RECEIVE"
+    activeProvider === "WHISH_APP" && serviceType === "RECEIVE"
       ? providerFee * 0.1
       : 0;
 
@@ -193,6 +181,9 @@ function OmtWhishAppTransferFormInner({
           : `$${parseFloat(amount).toFixed(2)}`;
       const label = `${providerLabel} ${serviceType} - ${clientLabel} - ${amtLabel}`;
 
+      // Session mode: the basket owns the payment, so the cart item carries NO
+      // payment fields (paidByMethod / payments / discount). The Session Checkout
+      // modal collects payment once for the whole basket.
       addToSessionCart({
         module: activeProvider === "OMT_APP" ? "omt_app" : "whish_app",
         label,
@@ -204,17 +195,15 @@ function OmtWhishAppTransferFormInner({
           serviceType,
           amount: includingFees ? sentAmount : parseFloat(amount),
           currency,
-          commission: Math.max(0, shopProfit - discount),
+          commission: shopProfit,
           ...(activeProvider === "OMT_APP" ? { omtFee: providerFee } : {}),
-          ...(activeProvider === "WISH_APP" ? { whishFee: providerFee } : {}),
+          ...(activeProvider === "WHISH_APP" ? { whishFee: providerFee } : {}),
           clientId: resolvedClientId || undefined,
           clientName: clientLabel,
           referenceNumber: "",
           phoneNumber:
             serviceType === "SEND" ? finalSenderPhone : finalReceiverPhone,
           note: `${serviceType} transfer via ${providerLabel}`,
-          paidByMethod: isSplitPayment ? "MULTI" : paidByMethod,
-          payments: isSplitPayment ? paymentLines : undefined,
           includingFees,
         },
       });
@@ -226,6 +215,7 @@ function OmtWhishAppTransferFormInner({
       setReceiverPhone("");
       setClientId(null);
       setPaymentLines([]);
+      setReturnLegs([]);
       setManualFee("");
       resetSaveAsClient();
       return;
@@ -243,7 +233,7 @@ function OmtWhishAppTransferFormInner({
         currency,
         commission: Math.max(0, shopProfit - discount),
         ...(activeProvider === "OMT_APP" ? { omtFee: providerFee } : {}),
-        ...(activeProvider === "WISH_APP" ? { whishFee: providerFee } : {}),
+        ...(activeProvider === "WHISH_APP" ? { whishFee: providerFee } : {}),
         clientId: resolvedClientId || undefined,
         clientName:
           serviceType === "SEND" ? finalSenderName : finalReceiverName,
@@ -252,7 +242,9 @@ function OmtWhishAppTransferFormInner({
           serviceType === "SEND" ? finalSenderPhone : finalReceiverPhone,
         note: `${serviceType} transfer via ${activeProvider === "OMT_APP" ? "OMT App" : "Whish App"}`,
         paidByMethod: paymentMethod,
-        payments: isSplitPayment ? paymentLines : undefined,
+        payments: useStructuredPayments
+          ? toCamelLegs(paymentLines, returnLegs)
+          : undefined,
         includingFees,
         partnerId: partnerId || undefined,
         transaction_time: transactionTime,
@@ -285,6 +277,7 @@ function OmtWhishAppTransferFormInner({
         setReceiverPhone("");
         setClientId(null);
         setPaymentLines([]);
+        setReturnLegs([]);
         setManualFee("");
         setTransactionTime(undefined);
         resetSaveAsClient();
@@ -363,16 +356,10 @@ function OmtWhishAppTransferFormInner({
               $
             </span>
           )}
-          <input
+          <DecimalInput
             id="transfer-amount"
-            type="text"
-            inputMode="decimal"
-            autoComplete="off"
-            value={formatWithCommas(amount)}
-            onChange={(e) => {
-              const cleaned = e.target.value.replace(/,/g, "");
-              if (isPartialDecimal(cleaned)) setAmount(cleaned);
-            }}
+            value={parseFloat(amount) || 0}
+            onChange={(n) => setAmount(n ? String(n) : "")}
             className={`w-full bg-slate-900 border border-slate-700 rounded-lg ${currency === "USD" ? "pl-8" : "pl-4"} pr-14 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all`}
             placeholder={currency === "LBP" ? "0" : "0.00"}
           />
@@ -383,9 +370,9 @@ function OmtWhishAppTransferFormInner({
       </div>
 
       {/* Fee Breakdown — hidden for Whish App SEND (no fees, no profit) and Whish App LBP RECEIVE (no fees) */}
-      {!(activeProvider === "WISH_APP" && serviceType === "SEND") &&
+      {!(activeProvider === "WHISH_APP" && serviceType === "SEND") &&
         !(
-          activeProvider === "WISH_APP" &&
+          activeProvider === "WHISH_APP" &&
           serviceType === "RECEIVE" &&
           currency === "LBP"
         ) && (
@@ -406,16 +393,10 @@ function OmtWhishAppTransferFormInner({
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
                   $
                 </span>
-                <input
+                <DecimalInput
                   id="transfer-fee"
-                  type="text"
-                  inputMode="decimal"
-                  autoComplete="off"
-                  value={formatWithCommas(manualFee)}
-                  onChange={(e) => {
-                    const cleaned = e.target.value.replace(/,/g, "");
-                    if (isPartialDecimal(cleaned)) setManualFee(cleaned);
-                  }}
+                  value={parseFloat(manualFee) || 0}
+                  onChange={(n) => setManualFee(n ? String(n) : "")}
                   className="w-full bg-slate-800 border border-slate-600 rounded-lg pl-8 pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-all"
                   placeholder={
                     autoFee > 0 ? autoFee.toFixed(2) + " (auto)" : "0.00"
@@ -443,7 +424,7 @@ function OmtWhishAppTransferFormInner({
             </div>
 
             {/* Fee included in amount checkbox (Whish App RECEIVE) */}
-            {activeProvider === "WISH_APP" && serviceType === "RECEIVE" && (
+            {activeProvider === "WHISH_APP" && serviceType === "RECEIVE" && (
               <div className="rounded-lg bg-slate-900/60 border border-slate-700 p-3 space-y-2">
                 <label className="flex items-center gap-2 text-slate-300 cursor-pointer">
                   <input
@@ -664,30 +645,19 @@ function OmtWhishAppTransferFormInner({
           <button
             type="button"
             onClick={() => {
-              // Validate before opening sheet
+              // Validate amount — name/phone are optional for both OMT App and
+              // Whish App (persisted when provided).
               if (!amount || parseFloat(amount) <= 0) {
                 alert("Please enter a valid amount");
                 return;
               }
-              if (
-                serviceType === "SEND" &&
-                (!senderName.trim() || !senderPhone.trim())
-              ) {
-                alert(
-                  "Please enter sender name and phone for SEND transactions",
-                );
-                return;
+              // Session mode: add to cart directly (basket owns the payment),
+              // skipping the PaymentSheet. Non-session: open the PaymentSheet.
+              if (activeSession) {
+                handleSubmit();
+              } else {
+                setShowPaymentSheet(true);
               }
-              if (
-                serviceType === "RECEIVE" &&
-                (!receiverName.trim() || !receiverPhone.trim())
-              ) {
-                alert(
-                  "Please enter receiver name and phone for RECEIVE transactions",
-                );
-                return;
-              }
-              setShowPaymentSheet(true);
             }}
             disabled={!amount || parseFloat(amount) <= 0}
             className={`px-5 py-2.5 rounded-lg font-bold text-sm transition-all ${
@@ -761,6 +731,7 @@ function OmtWhishAppTransferFormInner({
             setPaidByMethod(lines[0].method);
           }
         }}
+        onReturnChange={setReturnLegs}
       >
         {(activeClientName.trim() || activeClientPhone.trim()) && (
           <div className="rounded-lg bg-slate-800/60 border border-slate-700/40 p-3 space-y-1">

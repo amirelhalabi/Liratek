@@ -21,6 +21,12 @@ export const createCustomServiceSchema = z
     category: z.string().max(100).optional(),
     transaction_time: transactionTimeSchema,
     voucher_code: z.string().optional(),
+    // Session-basket deferred payment mode: basket owns the customer-cash price
+    // inflow + debt; the shop's own cost outflow (General drawer) is still booked.
+    deferPayment: z.boolean().optional(),
+    // Operator-edited USD↔LBP rate of record, threaded by the session checkout so
+    // the unified transaction stores it (the viewer's "@ <rate>" + USD/LBP display).
+    exchange_rate: z.coerce.number().positive().optional(),
   })
   .refine(
     (data) =>

@@ -7,11 +7,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import logger from "@/utils/logger";
-import {
-  formatWithCommas,
-  isPartialDecimal,
-} from "@/shared/utils/formatWithCommas";
-import { appEvents, useApi } from "@liratek/ui";
+import { appEvents, useApi, DecimalInput } from "@liratek/ui";
 import PaymentMethodsManager from "./PaymentMethodsManager";
 import { ExportBar } from "@liratek/ui";
 
@@ -34,7 +30,7 @@ const RECHARGE_PROVIDERS = [
   { key: "iPick", label: "iPick", drawer: "iPick", module: "ipec_katch" },
   { key: "Katsh", label: "Katsh", drawer: "Katsh", module: "ipec_katch" },
   {
-    key: "WISH_APP",
+    key: "WHISH_APP",
     label: "Whish App",
     drawer: "Whish_App",
     module: "ipec_katch",
@@ -789,16 +785,10 @@ function DrawerLimitsSection() {
           >
             General Drawer Limit (USD)
           </label>
-          <input
+          <DecimalInput
             id="drawerLimitGeneral"
-            type="text"
-            inputMode="decimal"
-            autoComplete="off"
-            value={formatWithCommas(drawerLimitGeneral)}
-            onChange={(e) => {
-              const cleaned = e.target.value.replace(/,/g, "");
-              if (isPartialDecimal(cleaned)) setDrawerLimitGeneral(cleaned);
-            }}
+            value={parseFloat(drawerLimitGeneral) || 0}
+            onChange={(n) => setDrawerLimitGeneral(n ? String(n) : "")}
             className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white text-sm"
           />
         </div>
@@ -809,16 +799,10 @@ function DrawerLimitsSection() {
           >
             OMT Drawer Limit (USD)
           </label>
-          <input
+          <DecimalInput
             id="drawerLimitOMT"
-            type="text"
-            inputMode="decimal"
-            autoComplete="off"
-            value={formatWithCommas(drawerLimitOMT)}
-            onChange={(e) => {
-              const cleaned = e.target.value.replace(/,/g, "");
-              if (isPartialDecimal(cleaned)) setDrawerLimitOMT(cleaned);
-            }}
+            value={parseFloat(drawerLimitOMT) || 0}
+            onChange={(n) => setDrawerLimitOMT(n ? String(n) : "")}
             className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white text-sm"
           />
         </div>

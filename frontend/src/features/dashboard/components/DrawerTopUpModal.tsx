@@ -1,10 +1,7 @@
 import { useState, useEffect } from "react";
 import { X, PlusCircle, ArrowRightLeft } from "lucide-react";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
-import {
-  formatWithCommas,
-  isPartialDecimal,
-} from "@/shared/utils/formatWithCommas";
+import { DecimalInput } from "@liratek/ui";
 
 interface SourceDrawer {
   drawer_name: string;
@@ -199,15 +196,9 @@ export function DrawerTopUpModal({
               <span className="px-3 text-sm text-slate-400 border-r border-slate-700">
                 $
               </span>
-              <input
-                type="text"
-                inputMode="decimal"
-                autoComplete="off"
-                value={formatWithCommas(amountUsd)}
-                onChange={(e) => {
-                  const cleaned = e.target.value.replace(/,/g, "");
-                  if (isPartialDecimal(cleaned)) setAmountUsd(cleaned);
-                }}
+              <DecimalInput
+                value={parseFloat(amountUsd) || 0}
+                onChange={(n) => setAmountUsd(n ? String(n) : "")}
                 placeholder="0.00"
                 className="flex-1 bg-transparent px-3 py-2.5 text-sm text-white focus:outline-none placeholder:text-slate-600"
               />
@@ -223,15 +214,9 @@ export function DrawerTopUpModal({
               <span className="px-3 text-sm text-slate-400 border-r border-slate-700">
                 LBP
               </span>
-              <input
-                type="text"
-                inputMode="decimal"
-                autoComplete="off"
-                value={formatWithCommas(amountLbp)}
-                onChange={(e) => {
-                  const cleaned = e.target.value.replace(/,/g, "");
-                  if (isPartialDecimal(cleaned)) setAmountLbp(cleaned);
-                }}
+              <DecimalInput
+                value={parseFloat(amountLbp) || 0}
+                onChange={(n) => setAmountLbp(n ? String(n) : "")}
                 placeholder="0"
                 className="flex-1 bg-transparent px-3 py-2.5 text-sm text-white focus:outline-none placeholder:text-slate-600"
               />

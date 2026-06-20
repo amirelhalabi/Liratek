@@ -63,6 +63,10 @@ export interface SellTicketData {
   transaction_time?: string;
   clientId?: number | null;
   clientName?: string | null;
+  /** Session-basket deferred payment mode (basket owns the customer-cash post). */
+  deferPayment?: boolean;
+  /** Operator-edited USD↔LBP rate of record, threaded by the session checkout. */
+  exchange_rate?: number;
 }
 
 export interface SettlementData {
@@ -146,6 +150,8 @@ export class LotoService {
         transaction_time: data.transaction_time,
         clientId: data.clientId,
         clientName: data.clientName,
+        deferPayment: data.deferPayment,
+        exchange_rate: data.exchange_rate,
       };
 
       const ticket = this.ticketRepo.createTicket(ticketData);
@@ -939,6 +945,10 @@ export class LotoService {
     prize_amount: number;
     prize_date?: string;
     userId: number;
+    /** Session-basket deferred payment mode (basket owns the cash-OUT payout). */
+    deferPayment?: boolean;
+    /** Operator-edited USD↔LBP rate of record (session checkout); else default. */
+    exchange_rate?: number;
   }): LotoCashPrize {
     try {
       if (!data.prize_amount || data.prize_amount <= 0) {
@@ -950,6 +960,8 @@ export class LotoService {
         prize_amount: data.prize_amount,
         prize_date: data.prize_date || new Date().toISOString().split("T")[0],
         userId: data.userId,
+        deferPayment: data.deferPayment,
+        exchange_rate: data.exchange_rate,
       };
 
       const prize = this.cashPrizeRepo.createCashPrize(prizeData);

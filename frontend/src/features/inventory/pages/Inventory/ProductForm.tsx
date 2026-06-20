@@ -1,11 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import logger from "@/utils/logger";
-import {
-  formatWithCommas,
-  isPartialDecimal,
-} from "@/shared/utils/formatWithCommas";
 import { X, Save, Printer, Minus, Sparkles } from "lucide-react";
-import { useApi, appEvents } from "@liratek/ui";
+import { useApi, appEvents, DecimalInput } from "@liratek/ui";
 import type { Product } from "@liratek/ui";
 import JsBarcode from "jsbarcode";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
@@ -588,21 +584,13 @@ ${labels}
               >
                 Cost Price ($)
               </label>
-              <input
+              <DecimalInput
                 id="product-cost-price"
                 name="cost_price"
-                type="text"
-                inputMode="decimal"
-                autoComplete="off"
-                value={formData.cost_price ? formatWithCommas(String(formData.cost_price)) : ""}
-                onChange={(e) => {
-                  const cleaned = e.target.value.replace(/,/g, "");
-                  if (isPartialDecimal(cleaned))
-                    setFormData((prev) => ({
-                      ...prev,
-                      cost_price: parseFloat(cleaned) || 0,
-                    }));
-                }}
+                value={formData.cost_price}
+                onChange={(cost_price) =>
+                  setFormData((prev) => ({ ...prev, cost_price }))
+                }
                 className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
                 required
               />
@@ -614,21 +602,13 @@ ${labels}
               >
                 Retail Price ($)
               </label>
-              <input
+              <DecimalInput
                 id="product-retail-price"
                 name="retail_price"
-                type="text"
-                inputMode="decimal"
-                autoComplete="off"
-                value={formData.retail_price ? formatWithCommas(String(formData.retail_price)) : ""}
-                onChange={(e) => {
-                  const cleaned = e.target.value.replace(/,/g, "");
-                  if (isPartialDecimal(cleaned))
-                    setFormData((prev) => ({
-                      ...prev,
-                      retail_price: parseFloat(cleaned) || 0,
-                    }));
-                }}
+                value={formData.retail_price}
+                onChange={(retail_price) =>
+                  setFormData((prev) => ({ ...prev, retail_price }))
+                }
                 className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
                 required
               />

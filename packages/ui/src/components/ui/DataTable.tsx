@@ -1,4 +1,4 @@
-import React, { useRef, useMemo, useCallback } from "react";
+import React, { useRef, useMemo, useCallback, useState, useEffect } from "react";
 import {
   useReactTable,
   getCoreRowModel,
@@ -8,9 +8,22 @@ import {
   type ColumnDef,
   type ColumnResizeMode,
 } from "@tanstack/react-table";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, SlidersHorizontal } from "lucide-react";
 import { ExportBar } from "./ExportBar";
 import type { TableData } from "../../utils/tableExport";
+
+/* ------------------------------------------------------------------ */
+/*  Export column-picker defaults                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Headers preselected in the export column picker when the caller does not
+ * supply `exportDefaultColumns`. Matched case-insensitively against the
+ * exportable column headers; any that are not present on the table are
+ * ignored. When none of these are present the picker falls back to
+ * selecting every exportable column.
+ */
+const DEFAULT_EXPORT_HEADERS = ["time", "summary", "user"] as const;
 
 /* ------------------------------------------------------------------ */
 /*  Public types                                                       */
@@ -57,6 +70,14 @@ export interface DataTableProps<T> {
   exportExcel?: boolean;
   exportPdf?: boolean;
   exportFilename?: string;
+  /**
+   * Headers preselected in the export column picker, matched
+   * case-insensitively against the table's exportable columns. When omitted
+   * the picker defaults to Time / Summary / User (when present), otherwise to
+   * every exportable column. Headers listed here that don't exist on the
+   * table are ignored.
+   */
+  exportDefaultColumns?: string[];
 
   // ── Header actions ─────────────────────────────────────────────────
   /** Content rendered on the left side of the header bar (e.g. batch action buttons). */
@@ -160,6 +181,7 @@ function DataTableInner<T>({
   exportExcel = false,
   exportPdf = false,
   exportFilename = "export",
+  exportDefaultColumns,
   headerActions,
   loading = false,
   emptyMessage = "No data",
@@ -360,27 +382,121 @@ function DataTableInner<T>({
     [extractText],
   );
 
-  const getExportData = useCallback((): TableData => {
-    // 1. Build headers, tracking which column indices to exclude
-    const excludedIndices = new Set<number>();
-    const headers: string[] = [];
-
+  /**
+   * The columns that are eligible for export — every column except the
+   * select-all checkbox column and any "Actions" column. Each entry keeps the
+   * column's raw index in `colDefs` (used to pull the matching `<td>` text)
+   * plus a stable `key` used by the picker's selection state.
+   */
+  const exportableColumns = useMemo<
+    { index: number; key: string; label: string }[]
+  >(() => {
+    const out: { index: number; key: string; label: string }[] = [];
     colDefs.forEach((col, i) => {
       const headerLabel = typeof col === "string" ? col : (col.header ?? "");
       const headerStr =
         typeof headerLabel === "string" ? headerLabel.trim().toLowerCase() : "";
       const isCheckboxCol = i === 0 && !!selectAll;
       const isActionCol = headerStr === "actions" || headerStr === "action";
-
-      if (isCheckboxCol || isActionCol) {
-        excludedIndices.add(i);
-      } else {
-        const text = typeof headerLabel === "string" ? headerLabel.trim() : "";
-        headers.push(text);
-      }
+      if (isCheckboxCol || isActionCol) return;
+      const label = typeof headerLabel === "string" ? headerLabel.trim() : "";
+      // Stable key: prefer the trimmed header text, fall back to the index for
+      // columns with empty/non-string headers so they remain selectable.
+      const key = label !== "" ? label : `col_${i}`;
+      out.push({ index: i, key, label });
     });
+    return out;
+  }, [colDefs, selectAll]);
 
-    // 2. Get ALL rows (sorted, ignoring pagination) and extract cell text
+  /**
+   * Compute the default-selected column keys: the caller-supplied
+   * `exportDefaultColumns` (or the Time/Summary/User fallback) matched
+   * case-insensitively against the exportable headers. If none match, select
+   * every exportable column so export is never empty.
+   */
+  const computeDefaultSelection = useCallback((): Set<string> => {
+    const wanted = (exportDefaultColumns ?? DEFAULT_EXPORT_HEADERS).map((h) =>
+      h.trim().toLowerCase(),
+    );
+    const matched = exportableColumns
+      .filter((c) => wanted.includes(c.label.toLowerCase()))
+      .map((c) => c.key);
+    if (matched.length > 0) return new Set(matched);
+    return new Set(exportableColumns.map((c) => c.key));
+  }, [exportDefaultColumns, exportableColumns]);
+
+  const [selectedColumnKeys, setSelectedColumnKeys] = useState<Set<string>>(
+    () => computeDefaultSelection(),
+  );
+
+  // Re-seed the default selection whenever the available export columns change
+  // (e.g. columns added/removed by the consumer). Keeps the picker in sync
+  // without clobbering a user's manual choice within the same column set.
+  const lastColumnSignatureRef = useRef<string>("");
+  useEffect(() => {
+    const signature = exportableColumns.map((c) => c.key).join("|");
+    if (signature !== lastColumnSignatureRef.current) {
+      lastColumnSignatureRef.current = signature;
+      setSelectedColumnKeys(computeDefaultSelection());
+    }
+  }, [exportableColumns, computeDefaultSelection]);
+
+  const toggleColumn = useCallback((key: string) => {
+    setSelectedColumnKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
+  // ── Column-picker popover open/close ─────────────────────────────────
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const pickerRef = useRef<HTMLDivElement>(null);
+
+  // Close the picker on outside-click / Escape while it is open.
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const onPointerDown = (e: MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+        setPickerOpen(false);
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setPickerOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [pickerOpen]);
+
+  const selectAllColumns = useCallback(() => {
+    setSelectedColumnKeys(new Set(exportableColumns.map((c) => c.key)));
+  }, [exportableColumns]);
+
+  const resetColumnsToDefault = useCallback(() => {
+    setSelectedColumnKeys(computeDefaultSelection());
+  }, [computeDefaultSelection]);
+
+  const getExportData = useCallback((): TableData => {
+    // Only the exportable columns the user has selected (preserving the
+    // table's left-to-right column order). When nothing is selected we fall
+    // back to all exportable columns so an export is never empty.
+    const anySelected = exportableColumns.some((c) =>
+      selectedColumnKeys.has(c.key),
+    );
+    const chosen = anySelected
+      ? exportableColumns.filter((c) => selectedColumnKeys.has(c.key))
+      : exportableColumns;
+
+    const headers = chosen.map((c) => c.label);
+    const chosenIndices = chosen.map((c) => c.index);
+
+    // Get ALL rows (sorted, ignoring pagination) and extract cell text by the
+    // chosen columns' original indices.
     const allRows = table.getSortedRowModel().rows;
     const rows: string[][] = [];
 
@@ -390,21 +506,104 @@ function DataTableInner<T>({
       if (!rendered || !React.isValidElement(rendered)) continue;
 
       const cells = extractCells(rendered as React.ReactElement);
-      const rowData: string[] = [];
-      cells.forEach((text, i) => {
-        if (!excludedIndices.has(i)) {
-          rowData.push(text);
-        }
-      });
-      rows.push(rowData);
+      rows.push(chosenIndices.map((idx) => cells[idx] ?? ""));
     }
 
     return { headers, rows };
-  }, [colDefs, selectAll, table, renderRow, extractCells]);
+  }, [exportableColumns, selectedColumnKeys, table, renderRow, extractCells]);
 
   const countLabel = showRowCount
     ? `Showing ${data.length} of ${totalRowCount ?? data.length} entries`
     : undefined;
+
+  // ── Column-picker visibility ─────────────────────────────────────────
+  // Only meaningful when an export action exists, there are rows to export,
+  // and there is at least one exportable column to pick from.
+  const exportEnabled = exportExcel || exportPdf;
+  const showColumnPicker =
+    exportEnabled && data.length > 0 && exportableColumns.length > 0;
+
+  const selectedCount = exportableColumns.filter((c) =>
+    selectedColumnKeys.has(c.key),
+  ).length;
+
+  const columnPicker = showColumnPicker ? (
+    <div className="relative" ref={pickerRef} data-testid="export-column-picker">
+      <button
+        type="button"
+        onClick={() => setPickerOpen((o) => !o)}
+        title="Choose export columns"
+        aria-haspopup="true"
+        aria-expanded={pickerOpen}
+        data-testid="export-column-picker-button"
+        className="inline-flex items-center gap-1.5 rounded-lg bg-slate-700/40 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-700/70 transition-colors cursor-pointer"
+      >
+        <SlidersHorizontal size={14} />
+        Columns
+        <span className="text-slate-400">
+          ({selectedCount}/{exportableColumns.length})
+        </span>
+      </button>
+
+      {pickerOpen && (
+        <div
+          role="menu"
+          data-testid="export-column-picker-menu"
+          className="absolute left-0 top-full z-30 mt-1 w-56 rounded-lg border border-slate-700 bg-slate-800 p-2 shadow-xl"
+        >
+          <div className="px-1 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+            Export columns
+          </div>
+          <div className="max-h-64 overflow-y-auto pr-0.5">
+            {exportableColumns.map((col) => {
+              const checked = selectedColumnKeys.has(col.key);
+              return (
+                <label
+                  key={col.key}
+                  data-testid={`export-column-option-${col.key}`}
+                  className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-sm text-slate-200 hover:bg-slate-700/60"
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleColumn(col.key)}
+                    className="h-4 w-4 rounded border-slate-600 bg-slate-700 accent-orange-500 cursor-pointer"
+                  />
+                  <span className="truncate">{col.label || col.key}</span>
+                </label>
+              );
+            })}
+          </div>
+          <div className="mt-1.5 flex items-center justify-between border-t border-slate-700 pt-1.5">
+            <button
+              type="button"
+              onClick={resetColumnsToDefault}
+              className="rounded px-2 py-1 text-[11px] font-medium text-slate-400 hover:bg-slate-700/60 hover:text-slate-200 transition-colors cursor-pointer"
+            >
+              Reset
+            </button>
+            <button
+              type="button"
+              onClick={selectAllColumns}
+              className="rounded px-2 py-1 text-[11px] font-medium text-orange-400 hover:bg-slate-700/60 transition-colors cursor-pointer"
+            >
+              Select all
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  ) : null;
+
+  // Merge the column picker with any consumer-provided header actions so both
+  // render in the export bar without ExportBar needing to know about either.
+  const mergedHeaderActions =
+    columnPicker || headerActions ? (
+      <>
+        {columnPicker}
+        {headerActions}
+      </>
+    ) : undefined;
 
   return (
     <>
@@ -415,7 +614,7 @@ function DataTableInner<T>({
         tableRef={tableRef}
         getExportData={getExportData}
         rowCount={data.length}
-        headerActions={headerActions}
+        headerActions={mergedHeaderActions}
         countLabel={countLabel}
       />
 

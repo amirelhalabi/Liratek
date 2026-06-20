@@ -21,6 +21,54 @@ export interface Voucher {
   updated_at: string;
 }
 
+/**
+ * LIRA-064: a single structured in/out payment leg for a transaction.
+ *
+ * `direction` is from the shop's perspective: `"in"` is money the customer
+ * paid, `"out"` is money the shop returned/disbursed. `amount` is the absolute
+ * value; `signed_amount` preserves the original signed payment amount.
+ *
+ * This shape is shared with the backend (TransactionPaymentLeg) and is designed
+ * to also power a future expandable detail row (LIRA-067) with no data changes.
+ */
+export interface TransactionPaymentLeg {
+  direction: "in" | "out";
+  amount: number;
+  signed_amount: number;
+  currency_code: string;
+  method: string;
+}
+
+/**
+ * LIRA-064: a row from the unified transactions journal as returned by
+ * `window.api.transactions.getRecent`, including the structured `payments`
+ * array. Only the fields the renderer relies on are typed explicitly; the
+ * remaining journal columns are passed through.
+ */
+export interface RecentTransaction {
+  id: number;
+  type: string;
+  status: string;
+  source_table: string;
+  source_id: number;
+  user_id: number;
+  amount_usd: number;
+  amount_lbp: number;
+  exchange_rate: number | null;
+  client_id: number | null;
+  client_phone: string | null;
+  reverses_id: number | null;
+  summary: string | null;
+  metadata_json: string | null;
+  device_id: string | null;
+  created_at: string;
+  username: string;
+  client_name: string | null;
+  /** Set when this transaction belongs to a customer-session basket (WS8). */
+  session_id: number | null;
+  payments: TransactionPaymentLeg[];
+}
+
 /** A mobile service catalog item stored in the database */
 export interface MobileServiceItem {
   id: number;
@@ -645,7 +693,7 @@ export interface ElectronAPI {
         | "OTHER"
         | "iPick"
         | "Katsh"
-        | "WISH_APP"
+        | "WHISH_APP"
         | "OMT_APP";
       serviceType: "SEND" | "RECEIVE";
       amountUSD: number;
@@ -827,7 +875,13 @@ export interface ElectronAPI {
       Array<{
         id: number;
         supplier_id: number;
-        entry_type: "TOP_UP" | "PAYMENT" | "ADJUSTMENT" | "SETTLEMENT";
+        entry_type:
+          | "TOP_UP"
+          | "PAYMENT"
+          | "ADJUSTMENT"
+          | "SETTLEMENT"
+          | "SALE_COST"
+          | "CASH_PRIZE";
         amount_usd: number;
         amount_lbp: number;
         note: string | null;
@@ -889,6 +943,12 @@ export interface ElectronAPI {
         amount: number;
         direction?: "IN" | "OUT";
       }>;
+    }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    recordCashflow: (data: {
+      supplier_id: number;
+      direction: "PAY" | "RECEIVE";
+      payments: Array<{ method: string; currency_code: string; amount: number }>;
+      note?: string;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
   };
 
@@ -1419,7 +1479,10 @@ export interface ElectronAPI {
         currency_code: string;
         amount: number;
         direction?: "IN" | "OUT";
+        voucher_code?: string;
       }>;
+      /** Operator-edited Money-IN exchange rate (1 USD = X LBP). */
+      exchangeRate?: number;
       clientId?: number;
       clientName?: string;
       userId: number;
@@ -1568,6 +1631,13 @@ export interface ElectronAPI {
     list: (filter?: { date?: string; type?: string }) => Promise<any[]>;
     get: (id: number) => Promise<any | null>;
     getById: (id: number) => Promise<any | null>;
+    // LIRA-064: returns the unified journal rows, each with a structured
+    // `payments` array (in/out legs joined from the payments table). The
+    // handler returns the raw array (no { success } envelope).
+    getRecent: (
+      limit?: number,
+      filters?: Record<string, unknown>,
+    ) => Promise<RecentTransaction[]>;
   };
 
   // Profits

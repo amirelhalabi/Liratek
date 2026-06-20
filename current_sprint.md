@@ -1,9 +1,96 @@
 # LiraTek POS — Current Sprint
 
+> **IMPORTANT NOTE — add a test into the e2e file for each ticket implemented to validate the feature.**
+
 > **Sprint Focus:** UI Consistency, Binance Fixes, Whish App UX, Transaction Enrichment & Session Checkout
 > **Created:** 2026-06-07
-> **Last Updated:** 2026-06-08 (post-sprint follow-up)
+> **Last Updated:** 2026-06-20 (Sprint-2 e2e coverage + WHISH_APP rename v105)
 > **Status Legend:** `TODO` | `IN PROGRESS` | `DONE` | `BLOCKED`
+
+---
+
+## 🔍 PRE-MERGE REVIEW & FIXES (2026-06-19) — 10 findings fixed, all green
+
+A pre-merge code review of `feat/session-basket-payment` vs `main` (multi-angle finder + adversarial
+verify) surfaced 10 real findings, all now fixed. Gates: **core 379/379** (374 + 5 new), **backend
+384/384**, **frontend 209**, typecheck clean, lint 0 errors, **full e2e green**.
+
+**Blocking money-correctness (fixed):**
+
+1. **Cashout/payout in a session was never recorded.** Hybrid fix: **Binance RECEIVE** payout
+   un-deferred (`FinancialServiceRepository` — posted even in session mode); **loto prize / OMT-Whish
+   RECEIVE** stay deferred and the **Session Checkout modal** now emits the net cash-OUT leg when a
+   currency total is negative (`SessionCheckoutModal.tsx`), so the recorder posts the payout once.
+2. **Cross-item cash bleed** + 3. **gift-card under-realization** — `backfillSaleSettlement` rewritten
+   to **account-debt-to-sales-first**: `salesPaidPool = max(0, salesTotal − (debtUsd−giftCardUsd +
+   (debtLbp−giftCardLbp)/rate))`. Conservative (never realizes uncollected profit); gift-card counts
+   as collected; CUSTOMER_ACCOUNT correctly stays pending.
+4. **v102 purge** scoped to `entry_type IN ('TOP_UP','SALE_COST')` — never deletes a real cash entry.
+
+**Should-fix (fixed):** 5. v101 backfill only fills unstamped rows whose source exists (no clobber).
+6. v101 excludes refunded maintenance. 7. custom-service cost-outflow leg excluded from the viewer
+in/out summary. 8. REFUND revenue gated by `saleFullyPaid` in `getByUser`/`getByClient`. 9. sales
+profit dated by `s.created_at` to reconcile with revenue. 10. `payments.session_id` nulled on session
+delete (v100 ADD COLUMN FK is not enforced on upgraded DBs — documented).
+
+**Also:** fixed a pre-existing `exactOptionalPropertyTypes` error in `Suppliers/index.tsx`
+(`recordCashflow` note), and **stabilized a flaky e2e** (`app.spec.ts` "Debts: add sale debt and
+settle" raced the async CUSTOMER_ACCOUNT auto-switch — now waits for the payment method to commit).
+
+**New regression tests:**
+- `packages/core/src/repositories/__tests__/SessionPaymentService.basket.test.ts` (backend, 5 cases:
+  cross-item bleed, gift-card realizes, account-stays-pending control, loto OUT-leg payout, posted-once).
+- `frontend/tests/e2e-electron/lira-session-payout.spec.ts` (#1 — Binance RECEIVE + loto payout).
+- `frontend/tests/e2e-electron/lira-session-allocation.spec.ts` (#2/#3 — bleed + gift-card).
+
+**Bug caught by the new e2e (fixed):** the `sales` table was missing `updated_at` (create_db.sql
+never had it; no migration added it), yet `markSalePaid` — the session back-fill path — writes it, so
+**a session basket containing a POS sale failed at checkout** (`no such column: updated_at`) on every
+DB. Fixed: column added to create_db.sql + **migration v104**; `lira-session-allocation.spec.ts`
+surfaced it. (Fix #1 / payout — `lira-session-payout.spec.ts` — was confirmed passing live.)
+
+> **Note:** e2e specs are typechecked by `tsconfig.playwright.json`, NOT the standard
+> `yarn workspace @liratek/frontend typecheck` (which only covers `src`). CI should run both.
+
+**Migration re-test caveat:** the v100–v102 *migration* fixes only re-run on a DB that hasn't applied
+those versions yet. Reset/recreate a dev DB that already ran the old v101/v102 to exercise them.
+
+---
+
+## 🧪 POST-REVIEW FOLLOW-UPS (2026-06-20) — WHISH_APP rename + Sprint-2 e2e coverage
+
+**1. `WISH_APP` → `WHISH_APP` provider rename (typo fix) — migration v105.** The Whish App provider
+value was stored as the misspelled `WISH_APP`. Renamed everywhere:
+
+- **Migration v105** (`rename_wish_app_to_whish_app`): recreates `financial_services` from its OWN
+  live `CREATE` statement, widening ONLY the provider `CHECK` to also accept `'WHISH_APP'`
+  (schema-faithful — every column/constraint/index preserved), then relabels
+  `financial_services.provider`, `mobile_service_items.provider`, and `transactions.metadata_json`.
+  `down()` reverses the data relabel (the widened CHECK still permits the old value → no recreate).
+- Mirrored in `electron-app/create_db.sql` (CHECK uses `WHISH_APP`; `schema_migrations` seeded
+  through v105) and renamed in `electron-app/schemas/index.ts` + `electron-app/preload.ts`.
+- **Why it mattered:** with the typo, Whish App SEND failed to book a settleable `SALE_COST` supplier
+  entry. Now covered by `lira-061` ("Whish App SEND books SALE_COST (WISH_APP→WHISH_APP fix)").
+
+**2. Sprint-2 e2e coverage enforced — 6 specs, all green** (per the banner note "add a test … for
+each ticket implemented"). Plan: `docs/plans/sprint2-e2e-coverage.md`. Each is IPC-driven
+(`appPage.evaluate(() => window.api.*)`) over the shared per-worker DB and asserts **deltas matched by
+identity** (never "newest row"):
+
+| Ticket   | Spec                                       | Validates                                                                 |
+| -------- | ------------------------------------------ | ------------------------------------------------------------------------- |
+| LIRA-056 | `lira-056-supplier-credit-topup-settle`    | Katsh/iPick credit top-up funds the provider drawer, General untouched; settle nets ledger to baseline |
+| LIRA-057 | `lira-057-whish-topup-partner-client`      | Whish App Via Partner (`WHISH_TOPUP`/CREDIT, no cash drawer) + From Client (credits-in / cash-out, profit = fee) + guards |
+| LIRA-059 | `lira-059-supplier-cashflow-bidirectional` | PAY / `SUPPLIER_PAYS_US` / overpay-goes-negative; Companies vs Products (`is_system`) split |
+| LIRA-061 | `lira-061-sale-cost-supplier-ledger`       | cost/price SEND books `SALE_COST` (not `TOP_UP`) for Katsh/iPick/Whish App; per-txn settle + cumulative pay-down |
+| LIRA-063 | `lira-063-omt-whish-optional-client`       | OMT/Whish App SEND & RECEIVE proceed with empty name/phone; provided values still persisted |
+| LIRA-064 | `lira-064-payment-legs-summary`            | structured in/out payment legs per row (mixed IN+OUT, two same-currency INs, cash-only SEND) |
+
+**3. CLAUDE.md hardened** with the lessons learned: **rule 15** (E2E assertions over the shared DB —
+match a row by identity + assert deltas, never "newest row"; one action can write multiple
+`transactions` rows; `created_at` is second-granular) and a **stale-build note** in "Running E2E
+tests" (rebuild `electron-app/dist` after editing electron-app source — a stale `schemas/dist` once
+surfaced as a confusing `WHISH_APP` Zod-validation failure).
 
 ---
 
@@ -520,19 +607,21 @@ Topping up OMT App from OMT System should:
 | **Epic**             | Supplier Management                                |
 | **Type**             | Feature + Bug Fix                                  |
 | **Priority**         | High                                               |
-| **Status**           | TODO                                               |
+| **Status**           | DONE                                               |
 | **Affected Modules** | Suppliers                                          |
 | **Assigned To**      | —                                                  |
 | **Depends On**       | —                                                  |
 
 ### Summary
 
-Four bundled improvements to the Suppliers page:
+Six bundled improvements to the Suppliers page:
 
-1. **Rename "Katch" → "Katsh"**: the supplier `name` field in the DB is "Katch" but should be "Katsh" to match the drawer name. Requires a migration and `create_db.sql` fix.
-2. **Wire Loto Liban drawer name**: Loto Liban shows no drawer name on the right side of the supplier list. The `PROVIDER_DRAWER` map in the frontend is missing `LOTO: "Loto"`.
+1. ✅ **DONE (v1.24.0)** — **Rename "Katch" → "Katsh"** (migration v96 + `create_db.sql`).
+2. ✅ **DONE (v1.24.0)** — **Wire Loto Liban drawer name** (`PROVIDER_DRAWER` += `LOTO: "Loto"`).
 3. **Bidirectional balance**: allow overpayment on settlement — the balance goes negative (supplier owes us). Show negative balance in green ("they owe you"), positive in red ("you owe them"). This already works mathematically; the display and UX need to correctly communicate the direction.
 4. **Supplier pays us**: add a "Supplier Payment Received" action in the supplier detail. Operator selects payment method → related drawer is credited → supplier balance is reduced (or goes further negative). Mirrors a settlement but in the opposite direction.
+5. **Focused pay/receive actions via MultiPaymentInput + pay-back-anytime**: today the Manual Entry tab uses raw USD/LBP fields and a "Withdraw from `<provider>` drawer" checkbox — which wrongly withdraws from the **provider's own drawer** (e.g. "Katsh"), not the cash you actually pay with. The generic Manual Entry tab is being **removed** (see **LIRA-074**); replace it with focused **Pay Supplier** / **Supplier Paid Us** actions that use **`MultiPaymentInput`** (as the settlement modal already does) so the operator pays/receives with any payment method and the **correct drawer** is debited/credited. This also solves "I did a top-up, 0 pending transactions, how do I pay the supplier back?" — paying down a positive balance no longer requires pending transactions to settle. (Pairs with **LIRA-061**, which fixes how SEND-provider debt is recorded/settled.)
+6. **Companies / Products tabs**: add a tab bar under the "Suppliers" page title with two tabs — **Companies** (selected by default) and **Products**. **Companies** = the current system/financial suppliers (iPick, Katsh, OMT, OMT App, Whish App, Loto Liban). **Products** = the records from the **Product Suppliers** table (Settings → Categories & Suppliers), surfaced read-side here.
 
 ### Context
 
@@ -543,25 +632,31 @@ Four bundled improvements to the Suppliers page:
 
 ### Acceptance Criteria
 
-- [ ] Migration: UPDATE `suppliers SET name = 'Katsh' WHERE name = 'Katch'`; `create_db.sql` updated to seed "Katsh"
-- [ ] Loto Liban shows its drawer name ("Loto") on the right side of the supplier list
-- [ ] Settling with an amount greater than owed creates a negative balance (credit)
-- [ ] Negative balance displayed in green with clear label (e.g., "They owe you $20.00")
-- [ ] Positive balance displayed in red with label "You owe $50.00"
-- [ ] "Supplier Payment Received" button in supplier detail — operator enters amount + selects payment method
-- [ ] On confirm: correct drawer credited, supplier ledger entry created, balance updated
-- [ ] Typecheck and lint pass
+- [x] Migration: UPDATE `suppliers SET name = 'Katsh' WHERE name = 'Katch'`; `create_db.sql` updated to seed "Katsh" — **done v1.24.0 (v96)**
+- [x] Loto Liban shows its drawer name ("Loto") on the right side of the supplier list — **done v1.24.0**
+- [x] Settling with an amount greater than owed creates a negative balance (credit)
+- [x] Negative balance displayed in green with clear label (e.g., "They owe you $20.00")
+- [x] Positive balance displayed in red with label "You owe $50.00"
+- [x] "Supplier Payment Received" button in supplier detail — operator enters amount + selects payment method
+- [x] On confirm: correct drawer credited, supplier ledger entry created, balance updated
+- [x] **Manual Entry tab replaced with Pay/Receive UI** — PAY SUPPLIER / SUPPLIER PAID US toggle + `MultiPaymentInput`; PAYMENT debits the **payment-method drawer**, not the provider's own drawer
+- [x] Paying down a positive supplier balance works with **zero pending transactions** to settle
+- [x] **Companies / Products tabs** under the page title; Companies default = is_system=1 suppliers; Products = is_system=0 product vendors
+- [x] Typecheck and lint pass
 
 ### Files to Modify
 
 | Layer    | File                                                                          | Change                                                                 |
 | -------- | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| Database | `packages/core/src/db/migrations/index.ts`                                    | Migration v95: rename Katch→Katsh in suppliers table                   |
-| Database | `electron-app/create_db.sql`                                                  | Fix seed name "Katch"→"Katsh"                                          |
-| Frontend | `frontend/src/features/suppliers/pages/Suppliers/index.tsx`                   | Add `LOTO: "Loto"` to `PROVIDER_DRAWER`; bidirectional balance display |
-| Backend  | `packages/core/src/repositories/SupplierRepository.ts`                        | Add "supplier pays us" entry type + drawer credit logic                |
-| Electron | `electron-app/handlers/supplierHandlers.ts`                                   | New IPC handler for supplier-pays-us action                            |
-| Frontend | `frontend/src/features/suppliers/pages/Suppliers/index.tsx`                   | "Supplier Payment Received" UI in supplier detail                      |
+| Database | `packages/core/src/db/migrations/index.ts`                                    | ~~Migration: rename Katch→Katsh~~ done (v96)                           |
+| Database | `electron-app/create_db.sql`                                                  | ~~Fix seed name "Katch"→"Katsh"~~ done                                |
+| Frontend | `frontend/src/features/suppliers/pages/Suppliers/index.tsx`                   | Bidirectional balance display; Companies/Products tabs; Manual Entry → `MultiPaymentInput` |
+| Backend  | `packages/core/src/repositories/SupplierRepository.ts`                        | "Supplier pays us" entry type + drawer credit; pay-down without pending txns |
+| Electron | `electron-app/handlers/supplierHandlers.ts`                                   | New IPC handler for supplier-pays-us / pay-down action                 |
+| Frontend | `frontend/src/features/suppliers/pages/Suppliers/index.tsx`                   | "Supplier Payment Received" UI; MultiPaymentInput in Manual Entry      |
+| Backend  | `packages/core/src/repositories/ProductSupplierRepository.ts`                 | Read API for Products tab (reuse existing if present)                  |
+
+> **Depends on / pairs with:** LIRA-061 (SEND-provider debt recording) — the Manual Entry pay-down and bidirectional balance assume the ledger correctly separates manual top-ups from sale costs.
 
 ---
 
@@ -614,10 +709,664 @@ Add a "Hold Money" category to the Services page. The operator can hold cash (US
 
 ---
 
-## Summary (Sprint 2 — LIRA-056..060)
+## LIRA-061: BUG — iPick/Katsh/Whish App/OMT App Sales Recorded as TOP_UP, Not Settleable
+
+| Field                | Value                                              |
+| -------------------- | -------------------------------------------------- |
+| **Epic**             | Supplier System                                    |
+| **Type**             | Bug                                                |
+| **Priority**         | High                                               |
+| **Status**           | DONE                                               |
+| **Affected Modules** | Suppliers, Financial Services, Recharge            |
+| **Assigned To**      | —                                                  |
+| **Depends On**       | —                                                  |
+| **Blocks**           | LIRA-062                                            |
+
+### Summary
+
+Creating a **sale** through a cost/price provider (Katsh observed; same path for iPick, and the SEND side of Whish App / OMT App) auto-writes a `TOP_UP` entry into the supplier ledger instead of surfacing as a settleable transaction. Result: the ledger shows `TOP_UP +924,150 — Auto: SEND via Katsh`, the owed balance inflates, and the Settle Transactions tab shows "No pending transactions to settle for Katsh" — so a sale can't be reconciled per-transaction and is indistinguishable from a manual top-up.
+
+### Root Cause (grounded)
+
+- `FinancialServiceRepository.ts` ~L1585-1595: in the cost/price flow, **any non-RECEIVE** service type books `entry_type: "TOP_UP"` with `ledgerAmount = cost`. A sale (SEND) is therefore written identically to a manual supplier top-up.
+- `getUnsettledBySupplier()` ~L1722-1729: **only RECEIVE rows** with `commission > 0` and `is_settled = 0` are returned. SEND/cost-flow sales never qualify → never appear in the Settle tab.
+
+### Acceptance Criteria
+
+- [x] Katsh/iPick (and Whish App / OMT App SEND) sales appear in **transaction history** and are reconcilable — not as generic "TOP_UP" ledger rows
+- [x] Ledger clearly **distinguishes** a manual supplier top-up from a sale-cost consumed from balance — new `SALE_COST` entry type/label (migration v99)
+- [x] A decision is implemented for **how SEND-provider debt is settled** — per-transaction settle list (getUnsettledBySupplier UNION branch) + cumulative-balance pay-down; guard is `settlement_id IS NULL`
+- [x] Owed balance stays mathematically correct after the relabel (no double counting) — SALE_COST same positive sign as TOP_UP; SETTLEMENT nets it to zero
+- [x] Tests: Katsh SEND sale ledger effect, iPick SEND, the settle/pay-down path (FinancialServiceRepository.saleCost.test.ts + e2e)
+- [x] Typecheck and lint pass
+
+### Files to Modify
+
+| Layer    | File                                                           | Change                                                            |
+| -------- | -------------------------------------------------------------- | ----------------------------------------------------------------- |
+| Backend  | `packages/core/src/repositories/FinancialServiceRepository.ts` | Fix ledger entry-type for cost-flow SEND sales; revisit `getUnsettledBySupplier` |
+| Backend  | `packages/core/src/repositories/SupplierRepository.ts`         | Entry-type / settlement model for SEND-provider debt              |
+| Frontend | `frontend/src/features/suppliers/pages/Suppliers/index.tsx`    | Surface sales correctly (settle list vs balance pay-down)         |
+| Backend  | `packages/core/src/repositories/__tests__/`                    | New tests for sale → ledger effect + settlement                  |
+
+---
+
+## LIRA-062: iPick / Katsh — Bills Section
+
+| Field                | Value                                              |
+| -------------------- | -------------------------------------------------- |
+| **Epic**             | Bills / Recharge                                   |
+| **Type**             | Feature                                            |
+| **Priority**         | Medium                                             |
+| **Status**           | TODO (unblocked — LIRA-061 done)                   |
+| **Affected Modules** | Recharge > iPick, Katsh; Suppliers                 |
+| **Assigned To**      | —                                                  |
+| **Depends On**       | LIRA-061                                            |
+
+### Summary
+
+Add a simple **Bills** section inside the existing iPick & Katsh recharge screens. The operator enters a single **bill amount** and uses the same bottom **"Proceed to Pay"** button — no item catalog.
+
+### Drawer / Ledger Mechanics (confirmed)
+
+The bill amount is entered in **one currency**, chosen via a **USD/LBP toggle** (same single-currency pattern as the Maintenance page — `useState<"USD" | "LBP">`, the unselected currency stays zeroed). For a bill of `X` in the selected currency:
+- Customer pays the bill amount in **cash** → **General drawer (selected currency) + X**
+- The bill amount is treated as **cost** → **provider drawer (Katsh/iPick app balance) − X** (same currency)
+- The shop earns a **hardcoded 20,000 LBP commission per bill**, regardless of bill amount or currency, paid by the supplier → **supplier owes shop + 20,000 LBP** (supplier-ledger credit, shown green on the Suppliers page)
+
+### Acceptance Criteria
+
+- [ ] New "Bills" section/tab in the iPick **and** Katsh recharge screens; single amount input + **USD/LBP toggle**; uses existing Proceed to Pay
+- [ ] Bill amount is single-currency (toggle picks USD **or** LBP, mirroring the Maintenance page)
+- [ ] On confirm: General **+X** (cash in, selected currency), provider drawer **−X** (cost out, selected currency), supplier-owes-shop **+20,000 LBP**
+- [ ] Commission is **hardcoded at 20,000 LBP per bill** — always LBP, independent of bill currency/amount
+- [ ] Bill shows in transaction history with correct in/out
+- [ ] Suppliers page shows the 20,000 LBP commission as supplier→shop (green / credit)
+- [ ] Typecheck and lint pass
+
+### Files to Modify
+
+| Layer    | File                                                              | Change                                            |
+| -------- | ----------------------------------------------------------------- | ------------------------------------------------- |
+| Backend  | `packages/core/src/repositories/RechargeRepository.ts` (or FSR)   | `processBill()` — drawer (selected currency) + supplier-ledger (20,000 LBP commission) effects |
+| Electron | `electron-app/schemas/index.ts` / `handlers/rechargeHandlers.ts`  | Zod schema (amount + currency) + IPC handler      |
+| Electron | `electron-app/preload.ts`, `frontend/src/types/electron.d.ts`     | Binding + type                                    |
+| Frontend | `frontend/src/features/recharge/components/KatchForm.tsx` (+ iPick) | Bills sub-section with USD/LBP toggle (mirror `Maintenance/index.tsx` L110-111) |
+| Frontend | `frontend/src/features/recharge/pages/Recharge/index.tsx`         | Wire bill confirm into Proceed to Pay             |
+
+> **Note:** commission is hardcoded (no setting/migration needed). If a bill needs to be a persisted record (vs. a plain transaction), add it during implementation.
+
+---
+
+## LIRA-063: Whish App + OMT App — Make Client Name / Phone Optional
+
+| Field                | Value                                              |
+| -------------------- | -------------------------------------------------- |
+| **Epic**             | Whish / OMT App UX                                 |
+| **Type**             | UX                                                 |
+| **Priority**         | Low                                                |
+| **Status**           | DONE                                               |
+| **Affected Modules** | Recharge > OMT App, Whish App                      |
+| **Assigned To**      | —                                                  |
+| **Depends On**       | —                                                  |
+
+### Summary
+
+In the shared OMT App / Whish App transfer form, the SEND/RECEIVE buttons are disabled until **both** name and phone are filled (`OmtWhishAppTransferForm.tsx` L674-683). Make name & phone **optional** for both providers; still persist them when provided.
+
+### Acceptance Criteria
+
+- [x] SEND/RECEIVE can proceed with empty name/phone (amount-only validation remains)
+- [x] Applies to **both** OMT App and Whish App (gating keyed on `serviceType`, not provider — both covered)
+- [x] When provided, name/phone are still saved (`handleSubmit` trims + passes `clientName`/`phoneNumber` unchanged; client propagation untouched)
+- [x] Typecheck and lint pass (frontend typecheck clean; lint 0 errors)
+
+### Files Modified
+
+| Layer    | File                                                                   | Change                                                                  |
+| -------- | ---------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| Frontend | `frontend/src/features/recharge/components/OmtWhishAppTransferForm.tsx` | Removed the SEND and RECEIVE name/phone alert-gating blocks in the Proceed-to-Pay handler; only the amount check remains (button `disabled` was already amount-only) |
+
+---
+
+## LIRA-064: Transactions Table — Structured In/Out Payment Breakdown in Summary
+
+| Field                | Value                                              |
+| -------------------- | -------------------------------------------------- |
+| **Epic**             | Transaction Visibility                             |
+| **Type**             | Feature                                            |
+| **Priority**         | Medium                                             |
+| **Status**           | DONE                                               |
+| **Affected Modules** | Audit > TransactionsViewer                         |
+| **Assigned To**      | —                                                  |
+| **Depends On**       | — (builds on LIRA-054)                             |
+
+### Summary
+
+Beyond the directional arrow badges (LIRA-054), surface the actual **payment legs** per transaction — what the customer paid (**in**) and what the shop returned (**out**), with currencies. e.g. `in: $50 + 100,000 LBP · out: 20,000 LBP`.
+
+### Design Constraints (per user)
+
+- The backend returns a **structured** payment-info field on each transaction row (join the payments table) — a clear `payments` / in+out legs array with currency. **Do NOT** bake payment text into the stored `summary` string.
+- The frontend reads the structured field and renders it **appended in the summary column** (joined client-side, not persisted).
+- Structure it so we can later switch to an **expandable detail row** with no data changes.
+
+### Acceptance Criteria
+
+- [x] Unified transaction query returns structured in/out payment legs per row (stored `summary` text unchanged)
+- [x] TransactionsViewer summary column renders in/out legs with currencies, joined client-side
+- [x] Data shape supports a future expandable-row view without backend changes (`TransactionPaymentLeg[]` with direction/amount/signed_amount/currency_code/method)
+- [x] Scope: **TransactionsViewer only** for now
+- [x] Typecheck and lint pass
+
+### Files to Modify
+
+| Layer    | File                                                          | Change                                                   |
+| -------- | ------------------------------------------------------------- | -------------------------------------------------------- |
+| Backend  | `packages/core/src/repositories/TransactionRepository.ts`    | Join payments → structured in/out legs on each row        |
+| Electron | `electron-app/preload.ts`, `frontend/src/types/electron.d.ts` | Surface the structured field                             |
+| Frontend | `frontend/src/features/audit/pages/TransactionsViewer.tsx`   | Render in/out legs in the summary column                  |
+
+---
+
+## Summary (Sprint 2 — LIRA-056..064)
 
 | Priority  | Total  | Done  | Remaining |
 | --------- | ------ | ----- | --------- |
-| High      | 2      | 1     | 1         |
-| Medium    | 3      | 1     | 2         |
-| **Total** | **5**  | **2** | **3**     |
+| High      | 3      | 2     | 1         |
+| Medium    | 5      | 2     | 3         |
+| Low       | 1      | 1     | 0         |
+| **Total** | **9**  | **5** | **4**     |
+
+### Sprint 2 board
+
+| ID       | Title                                          | Priority | Status              |
+| -------- | ---------------------------------------------- | -------- | ------------------- |
+| LIRA-056 | KATSH/iPick — remove "From Drawer" + tests     | Medium   | DONE                |
+| LIRA-057 | Whish App — Via Partner / From Client top-up   | High     | DONE                |
+| LIRA-058 | OMT App — top-up flow design                   | Medium   | NEEDS INTERVIEW     |
+| LIRA-059 | Suppliers — balance, pay-back, Companies/Products tabs | High | DONE            |
+| LIRA-060 | Services — Hold Money                           | Medium   | TODO                |
+| LIRA-061 | BUG — sales mislabeled as TOP_UP, not settleable | High   | DONE                |
+| LIRA-062 | iPick/Katsh — Bills section                    | Medium   | TODO (unblocked)    |
+| LIRA-063 | Whish/OMT App — optional name/phone            | Low      | DONE                |
+| LIRA-064 | Transactions — structured in/out breakdown     | Medium   | DONE                |
+
+> **E2E coverage (2026-06-20):** every DONE Sprint-2 ticket now has a dedicated money-invariant e2e —
+> `lira-056/057/059/061/063/064` (plan: `docs/plans/sprint2-e2e-coverage.md`). Details in the
+> **POST-REVIEW FOLLOW-UPS (2026-06-20)** section near the top.
+
+
+---
+---
+
+# Sprint 3 — Enhancements & Polish
+
+> **Sprint Focus:** setup/onboarding, transaction visibility & receipts, profits hardening, supplier/recharge polish
+> **Created:** 2026-06-17
+> **Status Legend:** `TODO` | `IN PROGRESS` | `DONE` | `BLOCKED` | `NEEDS INTERVIEW`
+
+---
+
+## LIRA-065: Setup — Initial Drawer Amounts Page
+
+| Field                | Value                              |
+| -------------------- | ---------------------------------- |
+| **Epic**             | Setup / Onboarding                 |
+| **Type**             | Feature                            |
+| **Priority**         | Medium                             |
+| **Status**           | TODO                               |
+| **Affected Modules** | Settings / Setup, Drawers          |
+| **Depends On**       | —                                  |
+
+### Summary
+
+Add a setup page where the operator sets **initial (opening) amounts** for each currency drawer (General/per-provider, USD + LBP). Today there is no first-run page to seed starting drawer balances (Settings only references Opening/Closing in passing).
+
+### Acceptance Criteria
+
+- [ ] A "Initial Drawer Amounts" page (in Setup, or a Settings panel) lists each drawer × currency with an amount input
+- [ ] Saving seeds the opening balances (creates the appropriate drawer/adjustment entries)
+- [ ] Idempotent / clearly communicates if balances are already set (no silent double-seed)
+- [ ] Values reflected in Closing/Opening and dashboards
+- [ ] Typecheck and lint pass
+
+### Files to Modify
+
+| Layer    | File                                                            | Change                                  |
+| -------- | --------------------------------------------------------------- | --------------------------------------- |
+| Backend  | `packages/core/src/repositories/DrawerRepository.ts` + service  | Set/seed opening balances per drawer    |
+| Electron | handler + `preload.ts` + `electron.d.ts`                        | IPC for set-initial-amounts             |
+| Frontend | `frontend/src/features/settings/...` (new setup panel/page)     | Drawer × currency amount grid           |
+
+---
+
+## LIRA-066: Settlement Transactions Appear in Transactions Table
+
+| Field                | Value                                              |
+| -------------------- | -------------------------------------------------- |
+| **Epic**             | Transaction Visibility                             |
+| **Type**             | Bug / Feature                                      |
+| **Priority**         | Medium                                             |
+| **Status**           | TODO                                               |
+| **Affected Modules** | Audit > TransactionsViewer, Debts, Suppliers, Partners |
+| **Depends On**       | — (related: LIRA-061)                              |
+
+### Summary
+
+Ensure **settlement transactions** are visible in the unified Transactions table: **client** (debt repayment), **supplier** (both *company* and *product* suppliers), and **partner** settlements. The filter groups already list "Debt Repayment", "Supplier Payment/Settlement" — verify each path actually writes a `transactions` row and that none are missing.
+
+### Acceptance Criteria
+
+- [ ] Client debt settlement → appears in Transactions table
+- [ ] Supplier settlement/payment (company **and** product suppliers) → appears
+- [ ] Partner settlement → appears
+- [ ] Correct in/out direction + amounts per settlement
+- [ ] Existing filter-group labels resolve to real rows (no dead filters)
+- [ ] Typecheck and lint pass
+
+### Files to Modify
+
+| Layer    | File                                                        | Change                                            |
+| -------- | ---------------------------------------------------------- | ------------------------------------------------- |
+| Backend  | Debt/Supplier/Partner repositories + `TransactionRepository` | Ensure settlement paths create transaction rows   |
+| Frontend | `frontend/src/features/audit/pages/TransactionsViewer.tsx`  | Verify rendering/filters                          |
+
+---
+
+## LIRA-067: Transaction Payment Detail — Expandable Row + Indented Report Print
+
+| Field                | Value                              |
+| -------------------- | ---------------------------------- |
+| **Epic**             | Transaction Visibility             |
+| **Type**             | Feature                            |
+| **Priority**         | Medium                             |
+| **Status**           | TODO                               |
+| **Affected Modules** | Audit > TransactionsViewer, Exports |
+| **Depends On**       | **LIRA-064** (structured payment data) |
+
+### Summary
+
+Consume the structured in/out payment data from **LIRA-064** in two more surfaces:
+1. **Expandable row** in the Transactions table — clicking a row reveals the per-leg payment detail.
+2. **Printed/exported report** — print the payment details **under** the transaction row, **indented (start at column + 1)**.
+
+### Acceptance Criteria
+
+- [ ] Clicking a transaction row expands to show structured in/out payment legs
+- [ ] Report/export prints payment detail lines beneath each transaction, indented one column in
+- [ ] Reuses the LIRA-064 structured field (no duplicate data wiring; nothing baked into `summary` text)
+- [ ] Typecheck and lint pass
+
+### Files to Modify
+
+| Layer    | File                                                        | Change                                       |
+| -------- | ---------------------------------------------------------- | -------------------------------------------- |
+| Frontend | `frontend/src/features/audit/pages/TransactionsViewer.tsx` | Expandable row UI                            |
+| Frontend | `packages/ui/src/components/ui/DataTable.tsx` (export path) | Indented sub-rows in printed/exported report |
+
+---
+
+## LIRA-068: Mark Transaction "Amount Changed" When Edited
+
+| Field                | Value                              |
+| -------------------- | ---------------------------------- |
+| **Epic**             | Transaction Visibility / Audit     |
+| **Type**             | Feature                            |
+| **Priority**         | Low                                |
+| **Status**           | TODO                               |
+| **Affected Modules** | All transaction types              |
+| **Depends On**       | —                                  |
+
+### Summary
+
+If a transaction's **amount** was modified after creation, flag it as **"amount changed"** (badge/indicator). Edits are already tracked via `edited_by` / `edited_at` across modules. **Check overlap with the existing recharge "margin alert"** (theft-detection on margin override, `HistoryModal` `marginAlertThreshold`, default 100k LBP) — reuse/align rather than duplicate. **Expand the indicator to all transaction types.**
+
+### Acceptance Criteria
+
+- [ ] A transaction whose amount changed shows an "amount changed" indicator
+- [ ] Approach reconciled with the existing margin-alert mechanism (no duplicate/contradictory signals)
+- [ ] Applies across all transaction types (not just recharge)
+- [ ] Distinguishes "amount changed" from generic edited metadata where relevant
+- [ ] Typecheck and lint pass
+
+### Files to Modify
+
+| Layer    | File                                                        | Change                                        |
+| -------- | ---------------------------------------------------------- | --------------------------------------------- |
+| Backend  | transaction/edit paths                                     | Persist/expose amount-changed signal          |
+| Frontend | `TransactionsViewer.tsx` + module `HistoryModal`s          | Render indicator; align with margin alert     |
+
+---
+
+## LIRA-069: Invoice / Receipt Print on Successful Payment
+
+| Field                | Value                              |
+| -------------------- | ---------------------------------- |
+| **Epic**             | Receipts / Printing                |
+| **Type**             | Feature                            |
+| **Priority**         | Low                                |
+| **Status**           | TODO                               |
+| **Affected Modules** | POS, Recharge, Services, Maintenance, Customer Sessions, Audit |
+| **Depends On**       | —                                  |
+
+### Summary
+
+Print a receipt/invoice when a payment succeeds, with session-aware behavior and reprint entry points.
+
+### Acceptance Criteria
+
+- [ ] On successful payment → open a print dialog (receipt/invoice)
+- [ ] If a **customer session is ongoing** → skip the auto-dialog; show a **Print** button in the customer-session payment modal instead
+- [ ] In **all cases**, show a Print button for a selected transaction in the **Transactions table**
+- [ ] Show a Print button in **each module's History modal**
+- [ ] **Include** transaction types: mobile recharge, services, maintenance, etc.
+- [ ] **Exclude**: OMT/Whish **System**, OMT/Whish **App**, Binance
+- [ ] **Include Whish App Bills** (exception to the App exclusion)
+- [ ] Typecheck and lint pass
+
+### Files to Modify
+
+| Layer    | File                                                        | Change                                            |
+| -------- | ---------------------------------------------------------- | ------------------------------------------------- |
+| Frontend | Receipt/invoice component (new, or reuse POS receipt)       | Render + print dialog                            |
+| Frontend | Checkout/payment success handlers; CustomerSession modal    | Trigger dialog / session-aware Print button      |
+| Frontend | `TransactionsViewer.tsx` + module `HistoryModal`s           | Per-row Print button (type-gated)                |
+
+---
+
+## LIRA-070: Profits Page — Correctness Audit
+
+| Field                | Value                              |
+| -------------------- | ---------------------------------- |
+| **Epic**             | Profits                            |
+| **Type**             | Bug / Audit                        |
+| **Priority**         | Low                                |
+| **Status**           | TODO                               |
+| **Affected Modules** | Profits                            |
+| **Depends On**       | —                                  |
+
+### Summary
+
+Verify the Profits page (`frontend/src/features/profits/pages/Profits.tsx`) computes profit correctly across all sources (sales, recharge, services, maintenance, financial, etc.) and that totals/margins reconcile.
+
+### Acceptance Criteria
+
+- [ ] Profit per source matches underlying transaction profit fields
+- [ ] Totals/margins reconcile; no double-counting or missing sources
+- [ ] Edge cases (refunds, voids, dual-currency, LBP-native) handled
+- [ ] Discrepancies fixed at the source (repository/service), with tests
+- [ ] Typecheck and lint pass
+
+---
+
+## LIRA-071: Hide Profits Page + Profit Data for Non-Admin
+
+| Field                | Value                              |
+| -------------------- | ---------------------------------- |
+| **Epic**             | Profits / Security                 |
+| **Type**             | Feature / Security                 |
+| **Priority**         | Low                                |
+| **Status**           | DONE                               |
+| **Affected Modules** | Profits, routing, margin displays  |
+| **Depends On**       | —                                  |
+
+### Summary
+
+`/profits` is currently behind `ProtectedRoute` (auth only), not role-gated. Hide the **Profits page** and **profit/margin data** from non-admin roles (route guard + nav item + any inline margin displays).
+
+### Acceptance Criteria
+
+- [x] Non-admins cannot navigate to `/profits` (new `AdminRoute` guard; nav item already hidden via `admin_only` module flag)
+- [x] Profit/margin figures hidden for non-admins wherever surfaced (reuses `useAuth().user?.role === "admin"`, same as recharge `CardGridPayView`)
+- [x] Admins unaffected
+- [x] Backend profit IPC also role-checked (defense in depth) — `profitHandlers.ts` already `requireRole(["admin"])` on every channel
+- [x] Typecheck and lint pass
+
+### Files to Modify
+
+| Layer    | File                                                        | Change                                  |
+| -------- | ---------------------------------------------------------- | --------------------------------------- |
+| Frontend | `frontend/src/app/App.tsx`                                 | Role-gate `/profits` route              |
+| Frontend | nav/sidebar + any margin displays                          | Hide for non-admin                      |
+| Electron | profits handler(s)                                         | `requireRole(["admin"])`                |
+
+---
+
+## LIRA-072: Telecom (Alfa/MTC) Voucher Items Named by Card Number, Not Sell Amount
+
+| Field                | Value                              |
+| -------------------- | ---------------------------------- |
+| **Epic**             | Recharge Catalog                   |
+| **Type**             | Feature / Data                     |
+| **Priority**         | Low                                |
+| **Status**           | TODO                               |
+| **Affected Modules** | Recharge > iPick, Katsh, Whish App |
+| **Depends On**       | —                                  |
+
+### Summary
+
+For Alfa/MTC voucher items in iPick/Katsh/Whish App, the cart/item is currently named by its **sell amount**. Instead, name it by the **number printed on the card itself** (the card denomination/code). Requires checking the providers' actual cards to map correct labels.
+
+### Acceptance Criteria
+
+- [ ] Alfa/MTC voucher items display/save the name as the **card's printed number**, not the sell amount
+- [ ] Mapping verified against the provider cards (Alfa + MTC denominations)
+- [ ] Existing carts/history still render sensibly (no broken labels)
+- [ ] Typecheck and lint pass
+
+### Files to Modify
+
+| Layer    | File                                                        | Change                                    |
+| -------- | ---------------------------------------------------------- | ----------------------------------------- |
+| Backend/Data | mobile service items seed/catalog                       | Item name = card number                   |
+| Frontend | `KatchForm.tsx` + telecom voucher rendering                | Use card-number label                     |
+
+---
+
+## LIRA-073: DataTable Export — Customizable Columns
+
+| Field                | Value                              |
+| -------------------- | ---------------------------------- |
+| **Epic**             | Exports / Table Component          |
+| **Type**             | Feature                            |
+| **Priority**         | Low                                |
+| **Status**           | DONE                               |
+| **Affected Modules** | Shared `DataTable` (all tables)    |
+| **Depends On**       | —                                  |
+
+### Summary
+
+Let the operator choose which columns are exported from the shared `DataTable` (`packages/ui/src/components/ui/DataTable.tsx`). Default the export to **Time, Summary, User**; allow adding any extra columns before exporting (Excel/PDF).
+
+### Acceptance Criteria
+
+- [x] Export defaults to **Time / Summary / User** columns (or all, when those headers are absent; overridable via `exportDefaultColumns` prop)
+- [x] A pre-export column picker lets the user add/remove extra columns
+- [x] Applies to both Excel and PDF export paths
+- [x] No regression for tables that already export
+- [x] Typecheck and lint pass
+
+### Files to Modify
+
+| Layer    | File                                                        | Change                                    |
+| -------- | ---------------------------------------------------------- | ----------------------------------------- |
+| Frontend | `packages/ui/src/components/ui/DataTable.tsx`              | Column-selection before export            |
+
+---
+
+## LIRA-074: Remove Manual Entry Tab in Suppliers
+
+| Field                | Value                              |
+| -------------------- | ---------------------------------- |
+| **Epic**             | Supplier Management                |
+| **Type**             | Cleanup / UX                       |
+| **Priority**         | Low                                |
+| **Status**           | DONE                               |
+| **Affected Modules** | Suppliers                          |
+| **Depends On**       | **LIRA-059** (replacement actions) |
+
+### Summary
+
+Remove the free-form **Manual Entry** tab (TOP_UP/PAYMENT/ADJUSTMENT raw entry) from the Suppliers page. Its legitimate use (paying a supplier / recording a supplier payment) is replaced by the focused **Pay Supplier** / **Supplier Paid Us** actions using `MultiPaymentInput` (LIRA-059 item 5).
+
+### Acceptance Criteria
+
+- [x] Manual Entry tab removed from `Suppliers/index.tsx` (replaced with Pay/Receive UI in LIRA-059 item 5)
+- [x] No loss of capability — pay/receive flows exist via LIRA-059's focused actions
+- [x] Ledger history still renders
+- [x] Typecheck and lint pass
+
+### Files to Modify
+
+| Layer    | File                                                        | Change                          |
+| -------- | ---------------------------------------------------------- | ------------------------------- |
+| Frontend | `frontend/src/features/suppliers/pages/Suppliers/index.tsx` | Remove Manual Entry tab + state |
+
+---
+
+## LIRA-075: Favorite/Pin Whish App Quick Link in Home Grid
+
+| Field                | Value                              |
+| -------------------- | ---------------------------------- |
+| **Epic**             | Navigation / Home                  |
+| **Type**             | Feature                            |
+| **Priority**         | Low                                |
+| **Status**           | TODO                               |
+| **Affected Modules** | Dashboard / Home grid              |
+| **Depends On**       | —                                  |
+
+### Summary
+
+Add favorite/pinned **quick links** to a page (starting with Whish App) in the home grid view (`Dashboard.tsx`). Noted as **partially implemented** — finish the favorite-link affordance so Whish App (and others) can be pinned for quick access.
+
+### Acceptance Criteria
+
+- [ ] User can favorite/pin a page (Whish App) as a quick link in the home grid
+- [ ] Pinned links persist and navigate correctly
+- [ ] Builds on the partial home-grid implementation (no parallel mechanism)
+- [ ] Typecheck and lint pass
+
+### Files to Modify
+
+| Layer    | File                                                        | Change                          |
+| -------- | ---------------------------------------------------------- | ------------------------------- |
+| Frontend | `frontend/src/features/dashboard/pages/Dashboard.tsx`      | Favorite/pin quick-link UI      |
+
+---
+
+## Summary (Sprint 3 — LIRA-065..075)
+
+| Priority  | Total   | Done  | Remaining |
+| --------- | ------- | ----- | --------- |
+| Medium    | 3       | 0     | 3         |
+| Low       | 8       | 3     | 5         |
+| **Total** | **11**  | **3** | **8**     |
+
+### Sprint 3 board
+
+| ID       | Title                                                | Priority | Status |
+| -------- | ---------------------------------------------------- | -------- | ------ |
+| LIRA-065 | Setup — initial drawer amounts page                  | Medium   | TODO   |
+| LIRA-066 | Settlement txns (client/supplier/partner) in table   | Medium   | TODO   |
+| LIRA-067 | Txn payment detail — expandable row + report print   | Medium   | TODO   |
+| LIRA-068 | Mark txn "amount changed" on edit                    | Low      | TODO   |
+| LIRA-069 | Invoice/receipt print on payment                     | Low      | TODO   |
+| LIRA-070 | Profits page correctness audit                       | Low      | TODO   |
+| LIRA-071 | Hide profits page + data for non-admin               | Low      | DONE   |
+| LIRA-072 | Telecom vouchers named by card number                | Low      | TODO   |
+| LIRA-073 | DataTable export — customizable columns              | Low      | DONE   |
+| LIRA-074 | Remove Manual Entry tab in Suppliers                 | Low      | DONE   |
+| LIRA-075 | Favorite/pin Whish App quick link in home grid       | Low      | TODO   |
+
+---
+
+## Session Summary — Session Basket Payment, Transaction-Based Profits & Supplier-Ledger Fix
+
+> Builds on **LIRA-055** (session checkout modal) + **LIRA-064** (structured payment legs).
+> Implemented on branch **`feat/session-basket-payment`**. Migrations **v100–v102** here
+> (the parallel LIRA-059 supplier work added **v103**, sequential — no conflict).
+
+### What was done
+
+**Session basket payment — single source of truth (the core change)**
+
+- A customer session is now ONE basket the customer pays for **once**. Each cart item is
+  created in `deferPayment` mode: it books only its **internal** legs (provider cost, telecom
+  stock, OMT/WHISH `_System` reserve transfer, Binance USDT) and **skips** its own
+  customer-cash side. OMT/WHISH SEND keeps its `General → *_System` reserve on the transaction.
+- New **`SessionPaymentService`** + **`SessionPaymentRepository`** record the single basket
+  payment: customer-cash legs → `payments` (new **`session_id`** column), posted to drawers
+  **once**, **one** debt-ledger entry for the CUSTOMER_ACCOUNT portion, gift-card redemption,
+  and back-fill of each session SALE's paid state.
+- Forms (OMT/Whish App, Crypto, Telecom, Katch, Financial, recharge page) no longer open a
+  PaymentSheet in session mode — the Session Checkout modal is the **only** payment surface.
+  Per-item method dropdowns removed; per-item **discount** added; gift card moved to a
+  basket-level `GIFT_CARD` leg.
+- Transactions viewer: same-session rows share the one basket payment + rate, with a
+  **per-session colored left border** (light/dark safe). Migration **v100** (`payments.session_id`).
+
+**Supplier-ledger secondary-system fix** (coordinates with LIRA-059)
+
+- Only the shop's PRIMARY (base) OMT/WHISH system books a supplier-ledger debt. The SECONDARY
+  system runs via a partner (obligation lives in `partner_ledger`) and is now **hidden from the
+  Suppliers page**. Migration **v102** purges existing secondary-system pollution.
+
+**Transaction-based profits + refund fix**
+
+- Profit amount is now sourced uniformly from `transactions.profit_usd` (realized/pending gates
+  kept). **REFUND** transactions stamp negative profit so refunds net correctly. Migration
+  **v101** backfills historical custom-service/maintenance profit. Operator-edited exchange rate
+  is recorded; new **`useSellRate`** unifies the Money-IN rate.
+
+**Architecture (CLAUDE.md rules 13/14)**
+
+- `ProfitService` + `SessionPaymentService` are now **SQL-free** (logic only); all SQL moved to
+  **`ProfitRepository`** / **`SessionPaymentRepository`** with de-duplicated business predicates.
+
+**Quality** — jest **374/374**, frontend **209**, **5 dedicated e2e specs**
+(`lira-supplier-secondary-system`, `-session-basket-payment`, `-session-exchange-rate`,
+`-session-profits`, `-session-basket-debt`), lint 0 errors, typecheck clean. `yarn test` made
+sequential (`-A`) so the local full-suite run no longer OOMs (CI runs per-workspace, unaffected).
+
+### What to manually test
+
+**Session basket payment**
+
+1. Start a customer session (name + phone).
+2. Add several items from different modules — e.g. a **Whish App SEND**, an **MTC recharge**, a
+   **POS sale** — and confirm you are **not** asked to pay at add-to-cart time.
+3. Open **Session Checkout** → enter the payment once; try **overpaying** and handing back change.
+   Confirm.
+4. Expect: the **cash drawer rises by exactly (tendered − change)** — no double-count; the
+   Transactions table shows each session row sharing the **same** payment legs + rate, with a
+   matching per-session **left-border color** (toggle light/dark — the border stays).
+5. Pay (partly) by **Customer Account** → expect exactly **one** debt entry for the basket on the
+   session's client (not one per item).
+6. Edit the exchange rate in the modal → the session's transactions show that rate (`@ <rate>`).
+
+**Supplier-ledger fix**
+
+1. Suppliers page → the **secondary** OMT/WHISH system (the non-base one) should **not** appear.
+2. Do a secondary-system transfer via a partner → it books only a **partner-ledger** entry (no
+   supplier-ledger entry); the base system still books normally.
+
+**Profits**
+
+1. Profits page totals for a past date range should be **unchanged** (parity).
+2. A session **POS sale's** profit should be **realized** after a paid checkout (not stuck in
+   Pending). Refund part of a sale → its profit drops by exactly the refunded amount.
+
+### After testing — what's next
+
+- **Finish committing** branch `feat/session-basket-payment`: db + core are committed (core
+  bundles the parallel LIRA-059 supplier-cashflow edits, by request); **electron + frontend +
+  e2e + chore** chunks remain.
+- **Native ABI:** the suite last ran jest (Node ABI) — run `yarn dev` once to restore the
+  Electron ABI before the next `test:e2e` (see CLAUDE.md "Running E2E tests").
+- **Optional follow-up:** thread `exchange_rate` through custom/sales/loto/maintenance session
+  transactions (financial/recharge already do it).
+- **Sprint board next:** **LIRA-067** (expandable txn payment detail — builds directly on
+  LIRA-064), **LIRA-065** (initial drawer amounts), **LIRA-066** (settlement txns in table).
+  **LIRA-070** (profits correctness audit) is now largely covered by the transaction-based
+  refactor — worth re-scoping or closing.

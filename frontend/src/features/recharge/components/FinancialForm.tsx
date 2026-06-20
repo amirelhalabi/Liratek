@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
 import { ChevronDown, Phone, Search, X, Plus } from "lucide-react";
 import {
-  formatWithCommas,
-  isPartialDecimal,
-} from "@/shared/utils/formatWithCommas";
-import { useApi, ServiceTypeTabs, type PaymentLine } from "@liratek/ui";
+  useApi,
+  ServiceTypeTabs,
+  DecimalInput,
+  type PaymentLine,
+} from "@liratek/ui";
 import { PaymentSheet } from "./PaymentSheet";
 import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
 import { useSession } from "@/features/sessions/context/SessionContext";
@@ -269,7 +270,11 @@ export function FinancialForm({
       setClientId(resolvedClientId);
     }
 
-    // If session is active, add all cart items as one session cart entry
+    // If session is active, add all cart items as one session cart entry.
+    // The basket owns the payment, so the cart sub-items carry NO payment fields
+    // (paidByMethod / payments) and no per-item discount — the Session Checkout
+    // modal collects payment once for the whole basket and applies any discount
+    // there (capped at each item's profit).
     if (activeSession) {
       const cartItems = Array.from(cart.values());
       const itemLabels = cartItems
@@ -282,46 +287,18 @@ export function FinancialForm({
           ? `${providerLabel} (${cartItems.length} items) - ${totalPrice.toLocaleString()} LBP`
           : `${providerLabel}: ${itemLabels}`;
 
-      const finalPaymentMethod = isSplitPayment ? "MULTI" : paymentMethod;
-      const hasVoucherLeg = paymentLines.some(
-        (l: PaymentLine) => l.method === "GIFT_CARD",
-      );
-      const paymentsPayload =
-        isSplitPayment || hasVoucherLeg
-          ? paymentLines.map((l: PaymentLine) => ({
-              method: l.method,
-              currencyCode: l.currencyCode,
-              amount: l.amount,
-              ...(l.method === "GIFT_CARD" && l.voucherCode
-                ? { voucherCode: l.voucherCode }
-                : {}),
-            }))
-          : undefined;
-
       // Store each line item for replay at checkout
-      // Distribute discount proportionally across items based on sell price
-      const sessionTotalSellPrice = cartItems.reduce((sum, line) => {
-        return sum + (line.item.catalogSellPrice ?? 0) * line.quantity;
-      }, 0);
-
       const formDataItems = cartItems.flatMap((line) => {
         const sellPrice = line.item.catalogSellPrice ?? 0;
         const cost = line.item.catalogCost ?? 0;
-        const unitDiscountShare =
-          sessionTotalSellPrice > 0
-            ? Math.round((discount * sellPrice) / sessionTotalSellPrice)
-            : 0;
-        const discountedSellPrice = sellPrice - unitDiscountShare;
-        const commission = discountedSellPrice - cost;
+        const commission = sellPrice - cost;
         return Array.from({ length: line.quantity }, () => ({
           provider: activeProvider,
           serviceType: serviceType || "SEND",
-          amount: discountedSellPrice,
+          amount: sellPrice,
           cost,
           currency: "LBP",
           commission: Math.max(0, commission),
-          paidByMethod: finalPaymentMethod,
-          payments: paymentsPayload,
           clientId: resolvedClientId || undefined,
           clientName: clientName || undefined,
           itemKey: line.item.key,
@@ -331,9 +308,9 @@ export function FinancialForm({
       });
 
       addToSessionCart({
-        module: activeProvider === "WISH_APP" ? "whish_app" : "omt_app",
+        module: activeProvider === "WHISH_APP" ? "whish_app" : "omt_app",
         label,
-        amount: totalPrice - discount,
+        amount: totalPrice,
         currency: "LBP",
         ipcChannel: "financial:create",
         formData: {
@@ -475,7 +452,7 @@ export function FinancialForm({
     <>
       <div className="flex flex-col gap-3">
         {/* Header with SEND/RECEIVE Tabs - hidden for Whish App and MTC */}
-        {activeProvider !== "WISH_APP" && activeProvider !== "MTC" && (
+        {activeProvider !== "WHISH_APP" && activeProvider !== "MTC" && (
           <div className="flex items-center justify-between gap-3">
             <div className="flex-1">
               <ServiceTypeTabs
@@ -510,7 +487,7 @@ export function FinancialForm({
         <div className="sticky top-0 z-10 flex items-center gap-3 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 pb-1">
           {(activeProvider === "iPick" ||
             activeProvider === "Katsh" ||
-            activeProvider === "WISH_APP") && (
+            activeProvider === "WHISH_APP") && (
             <div className="relative flex-1">
               <input
                 type="text"
@@ -560,12 +537,20 @@ export function FinancialForm({
             </div>
             <button
               type="button"
-              onClick={() => setShowPaymentSheet(true)}
+              onClick={() => {
+                // Session mode: add to cart directly (basket owns the payment),
+                // skipping the PaymentSheet. Non-session: open the PaymentSheet.
+                if (activeSession) {
+                  handleSubmit();
+                } else {
+                  setShowPaymentSheet(true);
+                }
+              }}
               disabled={totalItems === 0}
               className={`px-4 py-2.5 rounded-lg font-bold text-sm transition-all whitespace-nowrap ${
                 totalItems === 0
                   ? "bg-slate-600 text-slate-400 cursor-not-allowed"
-                  : activeProvider === "WISH_APP"
+                  : activeProvider === "WHISH_APP"
                     ? "bg-[#ff0a46] hover:bg-[#ff0a46]/80 text-white shadow-lg shadow-[#ff0a46]/20"
                     : activeProvider === "OMT_APP"
                       ? "bg-[#ffde00] hover:bg-[#ffde00]/80 text-black shadow-lg shadow-[#ffde00]/20"
@@ -672,32 +657,28 @@ export function FinancialForm({
                         </div>
                         <div className="w-28">
                           <label className="text-slate-400 text-xs block mb-1">Cost</label>
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            autoComplete="off"
-                            value={formatWithCommas(newItemForm.cost_lbp)}
-                            onChange={(e) => {
-                              const cleaned = e.target.value.replace(/,/g, "");
-                              if (isPartialDecimal(cleaned))
-                                setNewItemForm({ ...newItemForm, cost_lbp: cleaned });
-                            }}
+                          <DecimalInput
+                            value={parseFloat(newItemForm.cost_lbp) || 0}
+                            onChange={(n) =>
+                              setNewItemForm({
+                                ...newItemForm,
+                                cost_lbp: n ? String(n) : "",
+                              })
+                            }
                             placeholder="LBP"
                             className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500"
                           />
                         </div>
                         <div className="w-28">
                           <label className="text-slate-400 text-xs block mb-1">Sell</label>
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            autoComplete="off"
-                            value={formatWithCommas(newItemForm.sell_lbp)}
-                            onChange={(e) => {
-                              const cleaned = e.target.value.replace(/,/g, "");
-                              if (isPartialDecimal(cleaned))
-                                setNewItemForm({ ...newItemForm, sell_lbp: cleaned });
-                            }}
+                          <DecimalInput
+                            value={parseFloat(newItemForm.sell_lbp) || 0}
+                            onChange={(n) =>
+                              setNewItemForm({
+                                ...newItemForm,
+                                sell_lbp: n ? String(n) : "",
+                              })
+                            }
                             placeholder="LBP"
                             className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500"
                           />
@@ -836,7 +817,7 @@ export function FinancialForm({
           title={activeSession ? "Add to Cart" : "Confirm Payment"}
           subtitle={`${totalItems} items — ${totalPrice.toLocaleString()} LBP`}
           accentColor={
-            activeProvider === "WISH_APP"
+            activeProvider === "WHISH_APP"
               ? "bg-[#ff0a46] hover:bg-[#ff0a46]/90 text-white"
               : activeProvider === "OMT_APP"
                 ? "bg-[#ffde00] hover:bg-[#ffde00]/90 text-black"

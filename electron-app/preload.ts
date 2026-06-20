@@ -244,7 +244,7 @@ contextBridge.exposeInMainWorld("api", {
         | "OTHER"
         | "iPick"
         | "Katsh"
-        | "WISH_APP"
+        | "WHISH_APP"
         | "OMT_APP"
         | "BINANCE";
       serviceType: "SEND" | "RECEIVE";
@@ -410,6 +410,12 @@ contextBridge.exposeInMainWorld("api", {
         amount: number;
       }>;
     }) => ipcRenderer.invoke("suppliers:settle-transactions", data),
+    recordCashflow: (data: {
+      supplier_id: number;
+      direction: "PAY" | "RECEIVE";
+      payments: Array<{ method: string; currency_code: string; amount: number }>;
+      note?: string;
+    }) => ipcRenderer.invoke("suppliers:record-cashflow", data),
   },
 
   // Loto
@@ -771,6 +777,9 @@ contextBridge.exposeInMainWorld("api", {
 
   // Transactions (unified)
   transactions: {
+    // LIRA-064: each returned row carries a structured `payments` array
+    // (in/out legs with currency + method) joined from the payments table.
+    // See RecentTransaction / TransactionPaymentLeg in electron.d.ts.
     getRecent: (limit?: number, filters?: Record<string, unknown>) =>
       ipcRenderer.invoke("transactions:get-recent", limit, filters),
     getById: (id: number) => ipcRenderer.invoke("transactions:get-by-id", id),
@@ -965,12 +974,15 @@ contextBridge.exposeInMainWorld("api", {
         formData: Record<string, unknown>;
         ipcChannel: string;
       }>;
-      paidByMethod: string;
+      paidByMethod?: string;
       payments?: Array<{
         method: string;
         currency_code: string;
         amount: number;
+        direction?: "IN" | "OUT";
+        voucher_code?: string;
       }>;
+      exchangeRate?: number;
       clientId?: number;
       clientName?: string;
       userId: number;

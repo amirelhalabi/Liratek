@@ -385,14 +385,18 @@ describe("SupplierRepository.settleTransactions()", () => {
   // Guard: double-settle prevention
   // ─────────────────────────────────────────────────────────────────────────
 
-  it("does NOT re-settle already-settled rows (is_settled = 0 guard)", () => {
+  it("does NOT re-settle already-settled rows (settlement_id guard)", () => {
     const supplierId = seedSupplier(db);
     const alreadySettled = seedSettledTransaction(db, "OMT", 100, 0.1);
 
-    // Pre-mark as settled
-    db.prepare("UPDATE financial_services SET is_settled = 1 WHERE id = ?").run(
-      alreadySettled,
-    );
+    // Pre-mark as settled. The supplier-debt-settled marker is settlement_id
+    // (NULL = outstanding); is_settled means "commission/profit realized", which
+    // is set to 1 for SEND rows that still carry an outstanding supplier debt, so
+    // it cannot be the re-settle guard. settleTransactions stamps settlement_id
+    // and guards on `settlement_id IS NULL`.
+    db.prepare(
+      "UPDATE financial_services SET is_settled = 1, settlement_id = 999 WHERE id = ?",
+    ).run(alreadySettled);
 
     repo.settleTransactions({
       supplier_id: supplierId,
@@ -405,12 +409,12 @@ describe("SupplierRepository.settleTransactions()", () => {
       created_by: 1,
     });
 
-    // settled_at should still be null (was never set for SEND rows in test)
+    // UPDATE ... WHERE settlement_id IS NULL won't match — settlement_id is left
+    // untouched at its existing value, i.e. the row is not re-settled.
     const row = db
       .prepare("SELECT settlement_id FROM financial_services WHERE id = ?")
       .get(alreadySettled) as any;
-    // UPDATE WHERE is_settled = 0 won't match — settlement_id stays null
-    expect(row.settlement_id).toBeNull();
+    expect(row.settlement_id).toBe(999);
   });
 
   // ─────────────────────────────────────────────────────────────────────────

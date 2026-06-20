@@ -6,6 +6,7 @@ import {
   SupplierCreateSchema,
   SupplierLedgerEntrySchema,
   SupplierSettleSchema,
+  SupplierCashflowSchema,
   validatePayload,
 } from "../schemas/index.js";
 
@@ -105,6 +106,30 @@ export function registerSupplierHandlers(): void {
       metadata: {
         supplier_id: v.data.supplier_id,
         count: v.data.financial_service_ids.length,
+      },
+    });
+    return result;
+  });
+
+  /** Pay a supplier / record a supplier paying us, via payment-method legs (admin only) */
+  ipcMain.handle("suppliers:record-cashflow", (e, data: unknown) => {
+    const auth = requireRole(e.sender.id, ["admin"]);
+    if (!auth.ok) return { success: false, error: auth.error };
+
+    const v = validatePayload(SupplierCashflowSchema, data);
+    if (!v.ok) return { success: false, error: v.error };
+
+    const result = service.recordSupplierCashflow({
+      ...v.data,
+      created_by: auth.userId,
+    });
+    audit(e.sender.id, {
+      action: v.data.direction === "PAY" ? "pay" : "receive",
+      entity_type: "supplier_cashflow",
+      summary: `Supplier #${v.data.supplier_id} ${v.data.direction === "PAY" ? "paid" : "paid us"} (${v.data.payments.length} leg${v.data.payments.length === 1 ? "" : "s"})`,
+      metadata: {
+        supplier_id: v.data.supplier_id,
+        direction: v.data.direction,
       },
     });
     return result;

@@ -16,6 +16,7 @@ import { getSupplierRepository } from "./SupplierRepository.js";
 import { getTransactionRepository } from "./TransactionRepository.js";
 import { getVoucherRepository } from "./VoucherRepository.js";
 import { getDebtService } from "../services/DebtService.js";
+import { getUsdLbpSellRate } from "../utils/exchangeRate.js";
 import { TRANSACTION_TYPES } from "../constants/transactionTypes.js";
 import {
   calculateCommission,
@@ -38,7 +39,7 @@ export interface FinancialServiceEntity {
     | "OTHER"
     | "iPick"
     | "KATCH"
-    | "WISH_APP"
+    | "WHISH_APP"
     | "OMT_APP"
     | "BINANCE";
   service_type: "SEND" | "RECEIVE";
@@ -102,7 +103,7 @@ export interface CreateFinancialServiceData {
     | "OTHER"
     | "iPick"
     | "Katsh"
-    | "WISH_APP"
+    | "WHISH_APP"
     | "OMT_APP"
     | "BINANCE";
   serviceType: "SEND" | "RECEIVE";
@@ -171,10 +172,31 @@ export interface CreateFinancialServiceData {
    * - 'CUSTOMER_ACCOUNT': don't debit drawer, create credit in debt_ledger
    */
   cashoutMethod?: "CASH" | "CUSTOMER_ACCOUNT" | "OMT" | "WHISH" | "BINANCE";
+  /**
+   * USD→LBP rate-of-record for this transaction. When omitted, the repository
+   * stamps the current configured sell rate (Money IN). Provide it to capture an
+   * operator-edited rate from the payment UI.
+   */
+  exchangeRate?: number;
   /** Partner ID: when set, this transaction involves a partner */
   partnerId?: number;
   /** Partner Mode: specifies if we use their system ('THROUGH') or they use our system ('FOR') */
   partnerMode?: "THROUGH" | "FOR";
+  /**
+   * Session-basket deferred payment mode (LIRA basket payment).
+   * When true, the customer-cash side of this transaction is owned by the
+   * customer-session basket recorder, NOT this transaction:
+   *  - Cost/price flow: KEEP the cost outflow (provider drawer −cost) + crypto
+   *    USDT leg; SKIP the price/cash inflow legs and any CUSTOMER_ACCOUNT debt.
+   *  - OMT/WHISH SEND: KEEP the reserve transfer (General −totalCollected /
+   *    *_System +totalCollected); SKIP the customer cash-in leg, pmFee handling,
+   *    change, and debt. (The basket supplies the customer cash separately.)
+   *  - OMT/WHISH/BINANCE RECEIVE (cashout): SKIP the customer cash-OUT payout
+   *    leg (the basket handles the net OUT); KEEP the provider/system/crypto side.
+   * Internal legs, the unified transaction, profit and exchange_rate are always
+   * created. Non-session callers leave this falsy → behavior is unchanged.
+   */
+  deferPayment?: boolean;
 }
 
 export interface ProviderStats {
@@ -239,7 +261,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         return "iPick";
       case "Katsh":
         return "Katsh";
-      case "WISH_APP":
+      case "WHISH_APP":
         return "Whish_App";
       case "OMT_APP":
         return "OMT_App";
@@ -330,6 +352,13 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       const isForPartner = !!(data.partnerId && data.partnerMode === "FOR");
       const skipGeneralDrawer = isForPartner;
       const skipSystemDrawer = isThroughPartner;
+
+      // Session-basket deferred payment: the customer-cash side is owned by the
+      // basket recorder (recordBasketPayment), so this transaction must skip its
+      // own customer cash-in/out legs, pmFee handling, change, and debt. Internal
+      // legs (cost outflow, crypto USDT, OMT/WHISH reserve transfer + system
+      // drawer) are still written so the ledger and settlement stay correct.
+      const deferPayment = data.deferPayment === true;
 
       // ═══════════════════════════════════════════════════════════════════════
       // AUTO-CALCULATE COMMISSION FOR OMT SERVICES
@@ -608,6 +637,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           paid_currency: paidCurrency,
           item_key: data.itemKey,
         },
+        exchange_rate: data.exchangeRate ?? getUsdLbpSellRate(this.db),
         transaction_time: data.transaction_time,
       });
 
@@ -638,7 +668,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       }
 
       if (useCostPriceFlow) {
-        // ─── COST/PRICE FLOW (iPick, Katsh, WISH_APP, OMT_APP, BINANCE) ───
+        // ─── COST/PRICE FLOW (iPick, Katsh, WHISH_APP, OMT_APP, BINANCE) ───
         const providerDrawer = this.mapDrawerName(data.provider);
 
         // Cost outflow: shop pays the provider
@@ -655,8 +685,12 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           upsertBalanceDelta.run(providerDrawer, currency, -Math.abs(cost));
         }
 
-        // Price inflow: customer pays the shop
-        if (data.payments && data.payments.length > 0) {
+        // Price inflow: customer pays the shop.
+        // Deferred (session basket): the basket recorder owns the customer-cash
+        // inflow + any on-account debt, so skip the whole inflow block here.
+        if (deferPayment) {
+          // no-op: customer cash + debt handled by recordBasketPayment
+        } else if (data.payments && data.payments.length > 0) {
           // Multi-payment: iterate each payment leg
           let hasDebt = false;
           for (const p of data.payments) {
@@ -847,7 +881,11 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             //    Multi-payment: credit each drawer-affecting leg in full; route
             //    CUSTOMER_ACCOUNT legs to debt. Single-payment: credit the whole
             //    total to the chosen drawer, or to debt for CUSTOMER_ACCOUNT.
-            if (data.payments && data.payments.length > 0) {
+            //    Deferred (session basket): the basket recorder owns the cash-in
+            //    side, so skip it here (crypto USDT leg above is still written).
+            if (deferPayment) {
+              // no-op: customer cash + debt handled by recordBasketPayment
+            } else if (data.payments && data.payments.length > 0) {
               for (const p of data.payments) {
                 if (p.method === "CUSTOMER_ACCOUNT") continue;
                 if (!isDrawerAffectingMethod(p.method)) continue;
@@ -947,6 +985,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             upsertBalanceDelta.run(systemDrawer, cryptoCurrency, cryptoAmount);
 
             // 2. Cash payout: shop pays customer (cryptoAmount - fee) in cash.
+            //    Always posted, including in session-basket (deferred) mode: the
+            //    customer pays nothing for a RECEIVE, so the basket recorder has
+            //    no leg for this — the payout must be self-posted or it is lost.
             const payoutAmount = cryptoAmount - fee;
             const cashoutMethod = data.cashoutMethod || "CASH";
 
@@ -1047,7 +1088,12 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             return (Math.abs(leg.amount) / totalNonCashPaid) * pmFee;
           };
 
-          if (data.payments && data.payments.length > 0) {
+          if (deferPayment) {
+            // Deferred (session basket): skip ALL customer cash-in legs, pmFee
+            // rows, and debt creation. The reserve transfer + system drawer
+            // credit below still run so General −totalCollected / *_System
+            // +totalCollected stays intact (the reserve stays on the transaction).
+          } else if (data.payments && data.payments.length > 0) {
             // Validate: DEBT leg requires client name + phone (for debt_ledger client_id)
             const hasDebtLeg = data.payments.some((p) => p.method === "CUSTOMER_ACCOUNT");
             if (hasDebtLeg && !data.clientId) {
@@ -1247,8 +1293,13 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           }
 
           // Record PM_FEE payment row for immediate profit tracking (single non-cash only;
-          // for multi-payment the frontend already baked it into each leg's amount)
-          if (pmFee > 0 && !(data.payments && data.payments.length > 0)) {
+          // for multi-payment the frontend already baked it into each leg's amount).
+          // Deferred (session basket): pmFee is owned by the basket — skip it here.
+          if (
+            !deferPayment &&
+            pmFee > 0 &&
+            !(data.payments && data.payments.length > 0)
+          ) {
             const walletDrawer = paymentMethodToDrawerName(paidBy);
             insertPayment.run(
               txnId,
@@ -1282,10 +1333,16 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
 
             const isSystemProvider = isOMT || data.provider === "WHISH";
             if (isSystemProvider) {
-              const isPaidByNonCash = data.payments
-                ? // multi-payment: non-cash if ANY leg is non-cash
-                  data.payments.some((p) => isNonCashDrawerMethod(p.method))
-                : isNonCashDrawerMethod(paidBy);
+              // Deferred (session basket): the basket owns the customer cash-in,
+              // so treat this leg as a cash reserve regardless of the original
+              // payment method — General −totalCollected nets against the basket's
+              // separate cash-in, and the system drawer tracks the full outflow.
+              const isPaidByNonCash = deferPayment
+                ? false
+                : data.payments
+                  ? // multi-payment: non-cash if ANY leg is non-cash
+                    data.payments.some((p) => isNonCashDrawerMethod(p.method))
+                  : isNonCashDrawerMethod(paidBy);
 
               if (isPaidByNonCash) {
                 // Non-cash: transfer from each wallet drawer to system drawer
@@ -1335,10 +1392,12 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                   );
                   // Net in wallet drawer: +totalCustomerPays (customer in) - totalCollected (transfer out) = +pmFee ✓
                 }
-              } else if (paidBy !== "CUSTOMER_ACCOUNT") {
+              } else if (deferPayment || paidBy !== "CUSTOMER_ACCOUNT") {
                 // Cash payment: reserve from General (net 0 for General)
                 // Skip for DEBT single payment — no cash was received, nothing to reserve
                 // Skip for FOR partner transactions — no cash flows through the shop's General drawer
+                // Deferred (session basket): always reserve — the basket's separate
+                // cash-in funds the reserve, so General nets to 0 across both.
                 if (!skipGeneralDrawer) {
                   insertPayment.run(
                     txnId,
@@ -1361,7 +1420,11 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             //   (debt is owed by the customer, not yet funded — OMT_System only gets
             //    funded portions from wallet transfers + cash reserve)
             let systemDrawerCredit = totalCollected;
-            if (paidBy === "CUSTOMER_ACCOUNT") {
+            if (deferPayment) {
+              // Deferred (session basket): the basket funds the full outflow, so
+              // the system drawer always tracks the entire totalCollected.
+              systemDrawerCredit = totalCollected;
+            } else if (paidBy === "CUSTOMER_ACCOUNT") {
               // Single DEBT payment: no funds received yet — OMT_System not credited
               systemDrawerCredit = 0;
             } else if (data.payments && data.payments.length > 0) {
@@ -1481,8 +1544,15 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               upsertBalanceDelta.run(drawerName, currency, receiveAmount);
             }
 
-            // Debit the cashout drawer for the payout to customer
+            // Debit the cashout drawer for the payout to customer.
+            // Deferred (session basket): an OMT/WHISH RECEIVE is a NEGATIVE cart
+            // item in the same cash currency, so the checkout modal already nets
+            // it into the basket total and emits the net cash-OUT leg the basket
+            // recorder posts. Skip the payout here to avoid double-counting it.
+            // (The system-drawer side above is kept so provider settlement stays
+            // correct.) Non-session callers post it normally.
             if (
+              !deferPayment &&
               cashoutMethod !== "CASH" &&
               useSystemDrawerFlow &&
               !skipSystemDrawer
@@ -1499,6 +1569,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
               );
               upsertBalanceDelta.run(cashoutDrawer, currency, -receiveAmount);
             } else if (
+              !deferPayment &&
               cashoutMethod === "CASH" &&
               useSystemDrawerFlow &&
               !skipSystemDrawer &&
@@ -1552,6 +1623,25 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
         }
       }
 
+      // Only the shop's PRIMARY (base) system owes its provider directly. The
+      // secondary OMT/WHISH system runs via a partner, whose obligation is captured
+      // in partner_ledger below — recording it as a supplier debt too double-counts
+      // it and pollutes the suppliers/settlement page.
+      let baseSystem = "OMT";
+      try {
+        const baseSystemRow = this.db
+          .prepare(
+            "SELECT value FROM system_settings WHERE key_name = 'shop_base_system'",
+          )
+          .get() as { value?: string } | undefined;
+        if (baseSystemRow?.value === "WHISH") baseSystem = "WHISH";
+      } catch {
+        // system_settings may be absent in minimal/test schemas — default to OMT.
+      }
+      const skipSecondarySupplierLedger =
+        (data.provider === "OMT" || data.provider === "WHISH") &&
+        data.provider !== baseSystem;
+
       // Auto-record supplier debt (both flows)
       try {
         const supplierRepo = getSupplierRepository();
@@ -1582,17 +1672,30 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 omtFeeForLedger +
                 receiveCommissionForLedger;
 
-          // SEND = shop owes supplier (TOP_UP increases debt)
-          // RECEIVE = supplier settles with shop (reduces debt)
+          // Ledger entry_type:
+          //   RECEIVE                  → PAYMENT   (supplier settles with shop, reduces debt)
+          //   SEND, cost/price flow    → SALE_COST (sale cost consumed from the provider
+          //                               balance — a settleable sale-cost, NOT a manual top-up)
+          //   SEND, legacy flow        → TOP_UP    (manual supplier top-up semantics)
+          // SALE_COST and TOP_UP both increase what the shop owes the supplier (positive
+          // amount). The distinct label lets the Settle tab surface real sale costs while
+          // keeping balance math identical (every balance sum treats both the same).
           const isReceive = data.serviceType === "RECEIVE";
-          supplierRepo.addLedgerEntry({
-            supplier_id: supplier.id,
-            entry_type: isReceive ? "PAYMENT" : "TOP_UP",
-            amount_usd: currency === "USD" ? ledgerAmount : 0,
-            amount_lbp: currency === "LBP" ? ledgerAmount : 0,
-            note: `Auto: ${data.serviceType} via ${data.provider}${data.itemKey ? ` [${data.itemKey}]` : ""}`,
-            created_by: createdBy,
-          });
+          const entryType: "PAYMENT" | "SALE_COST" | "TOP_UP" = isReceive
+            ? "PAYMENT"
+            : useCostPriceFlow
+              ? "SALE_COST"
+              : "TOP_UP";
+          if (!skipSecondarySupplierLedger) {
+            supplierRepo.addLedgerEntry({
+              supplier_id: supplier.id,
+              entry_type: entryType,
+              amount_usd: currency === "USD" ? ledgerAmount : 0,
+              amount_lbp: currency === "LBP" ? ledgerAmount : 0,
+              note: `Auto: ${data.serviceType} via ${data.provider}${data.itemKey ? ` [${data.itemKey}]` : ""}`,
+              created_by: createdBy,
+            });
+          }
         }
       } catch {
         // Supplier auto-record is non-critical; don't fail the transaction
@@ -1656,7 +1759,8 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
       // Return (OUT) legs: change handed back to the customer via a chosen method,
       // or kept as store credit. Debits the method's drawer (negative delta), or
       // deposits credit to the client's account for CUSTOMER_ACCOUNT.
-      for (const r of returnLegs) {
+      // Deferred (session basket): change is owned by the basket recorder.
+      for (const r of deferPayment ? [] : returnLegs) {
         const amt = Math.abs(r.amount);
         if (amt <= 0) continue;
         if (r.method === "CUSTOMER_ACCOUNT") {
@@ -1719,18 +1823,59 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
 
   /**
    * Get all unsettled financial_services rows for a given supplier (by provider name).
-   * Only RECEIVE rows with commission > 0 and is_settled = 0 are returned.
+   *
+   * Two kinds of rows are returned, both shaped as FinancialServiceEntity so the
+   * Settle tab's "total owed − commission = net pay" math nets correctly:
+   *
+   *  1. OMT/WHISH commission settlement — RECEIVE rows with commission > 0 and
+   *     is_settled = 0. Here owed = amount + commission and the shop keeps the
+   *     commission, so net pay = amount.
+   *
+   *  2. Cost/price-flow sale costs — SEND rows written through a cost/price provider
+   *     (iPick / Katsh / Whish App / OMT App) where cost > 0 and the supplier debt is
+   *     not yet settled (settlement_id IS NULL). The shop owes the supplier the sale
+   *     `cost` (booked as a SALE_COST ledger entry, never TOP_UP), with no supplier
+   *     commission. These rows are projected with amount = cost and commission = 0 so
+   *     net pay = cost. Settling one writes a negative SETTLEMENT ledger entry that nets
+   *     the matching positive SALE_COST entry to zero — keeping getSupplierBalances()
+   *     (which sums every ledger row) mathematically correct.
+   *
+   * NOTE on is_settled vs settlement_id: cost-flow SEND rows are created with
+   * is_settled = 1 (their price−cost profit is realized immediately, so analytics keep
+   * counting it as realized). Supplier reconciliation is therefore keyed off
+   * settlement_id (NULL = supplier debt still outstanding), independent of is_settled.
+   * Cost-flow sale costs can also be reconciled in bulk via a cumulative-balance
+   * pay-down (Manual Entry → PAYMENT), which nets the SALE_COST entries directly.
    */
   getUnsettledBySupplier(provider: string): FinancialServiceEntity[] {
     return this.db
       .prepare(
         `SELECT ${this.getColumns()} FROM financial_services
-         WHERE provider = ?
-           AND is_settled = 0
-           AND commission > 0
+           WHERE provider = ?
+             AND is_settled = 0
+             AND commission > 0
+         UNION ALL
+         SELECT ${this.getSaleCostSettleColumns()} FROM financial_services
+           WHERE provider = ?
+             AND service_type = 'SEND'
+             AND cost > 0
+             AND settlement_id IS NULL
          ORDER BY created_at ASC`,
       )
-      .all(provider) as FinancialServiceEntity[];
+      .all(provider, provider) as FinancialServiceEntity[];
+  }
+
+  /**
+   * Column projection for cost/price-flow SEND rows in the Settle tab.
+   * Identical to getColumns() except `amount` is replaced by the sale `cost`
+   * (the amount actually owed to the supplier) and `commission` is forced to 0
+   * (cost-flow sales carry no supplier commission — the price−cost margin is the
+   * shop's own profit, not deducted from the supplier payment). This makes the
+   * frontend's `owed = amount + commission`, `net = owed − commission` resolve to
+   * net = cost.
+   */
+  private getSaleCostSettleColumns(): string {
+    return "id, provider, service_type, cost AS amount, currency, 0 AS commission, cost, price, paid_by, paid_amount, paid_currency, client_id, client_name, reference_number, phone_number, sender_name, sender_phone, receiver_name, receiver_phone, sender_client_id, receiver_client_id, omt_service_type, omt_fee, whish_fee, profit_rate, pay_fee, item_key, note, is_settled, settled_at, settlement_id, payment_method_fee, payment_method_fee_rate, created_at, created_by, edited_by, edited_at, partner_id, partner_mode";
   }
 
   /**

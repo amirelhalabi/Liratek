@@ -3,12 +3,9 @@ import {
   Select,
   useApi,
   MultiPaymentInput,
+  DecimalInput,
   type PaymentLine,
 } from "@liratek/ui";
-import {
-  formatWithCommas,
-  isPartialDecimal,
-} from "@/shared/utils/formatWithCommas";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { getExchangeRates } from "@/utils/exchangeRates";
 import { useShopBase } from "@/hooks/useShopBase";
@@ -629,16 +626,9 @@ export default function SupplierLedger() {
                       <label className="block text-xs text-slate-400 mb-1">
                         Amount USD
                       </label>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        autoComplete="off"
-                        value={amountUSD ? formatWithCommas(String(amountUSD)) : ""}
-                        onChange={(e) => {
-                          const cleaned = e.target.value.replace(/,/g, "");
-                          if (isPartialDecimal(cleaned))
-                            setAmountUSD(parseFloat(cleaned) || 0);
-                        }}
+                      <DecimalInput
+                        value={amountUSD}
+                        onChange={setAmountUSD}
                         className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white font-mono"
                         placeholder="0"
                       />
@@ -647,16 +637,9 @@ export default function SupplierLedger() {
                       <label className="block text-xs text-slate-400 mb-1">
                         Amount LBP
                       </label>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        autoComplete="off"
-                        value={amountLBP ? formatWithCommas(String(amountLBP)) : ""}
-                        onChange={(e) => {
-                          const cleaned = e.target.value.replace(/,/g, "");
-                          if (isPartialDecimal(cleaned))
-                            setAmountLBP(parseFloat(cleaned) || 0);
-                        }}
+                      <DecimalInput
+                        value={amountLBP}
+                        onChange={setAmountLBP}
                         className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white font-mono"
                         placeholder="0"
                       />

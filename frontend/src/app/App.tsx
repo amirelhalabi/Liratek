@@ -87,6 +87,26 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <MainLayout>{children}</MainLayout>;
 }
 
+// Wrapper for admin-only routes (defense-in-depth on top of ProtectedRoute).
+// Reuses the same admin check as the rest of the app: useAuth().user?.role.
+// Non-admins are redirected home instead of seeing profit/margin data.
+function AdminRoute({ children }: { children: React.ReactNode }) {
+  const { user, isAuthenticated, isLoading } = useAuth();
+
+  // While auth is resolving (or before login), defer to ProtectedRoute, which
+  // handles the loading spinner and login/setup redirects. This avoids a
+  // premature "home" redirect for an admin whose session is still restoring.
+  if (isLoading || !isAuthenticated) {
+    return <ProtectedRoute>{children}</ProtectedRoute>;
+  }
+
+  if (user?.role !== "admin") {
+    return <Navigate to="/" replace />;
+  }
+
+  return <ProtectedRoute>{children}</ProtectedRoute>;
+}
+
 /** Renders HomeGrid or Dashboard based on layout mode */
 function HomeRoute() {
   const mode = localStorage.getItem("layout_mode") || "left-panel";
@@ -228,9 +248,9 @@ function AppRoutes() {
         <Route
           path="/profits"
           element={
-            <ProtectedRoute>
+            <AdminRoute>
               <Profits />
-            </ProtectedRoute>
+            </AdminRoute>
           }
         />
         <Route

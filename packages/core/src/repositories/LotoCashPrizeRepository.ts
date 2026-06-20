@@ -33,6 +33,15 @@ export interface LotoCashPrizeCreate {
   prize_amount: number;
   prize_date: string;
   userId: number;
+  /**
+   * Session-basket deferred payment mode. When true, the prize record + unified
+   * transaction + supplier ledger are created but the customer cash-OUT payout
+   * (General −prize_amount) is skipped — the basket recorder owns the net cash
+   * to the customer. Non-session callers leave this falsy → behavior unchanged.
+   */
+  deferPayment?: boolean;
+  /** Operator-edited USD↔LBP rate of record (session checkout); else default. */
+  exchange_rate?: number;
 }
 
 export class LotoCashPrizeRepository {
@@ -69,7 +78,7 @@ export class LotoCashPrizeRepository {
         user_id: data.userId,
         amount_usd: 0,
         amount_lbp: -data.prize_amount,
-        exchange_rate: 100000,
+        exchange_rate: data.exchange_rate ?? 100000,
         summary: data.ticket_number
           ? `Loto cash prize payout: ${data.ticket_number}`
           : "Loto cash prize payout",
@@ -78,36 +87,42 @@ export class LotoCashPrizeRepository {
         },
       });
 
-      // 3. Record payment and update drawer balance (money OUT = negative)
-      const paymentMethod = "CASH";
-      const drawerName = "General";
+      // 3. Record payment and update drawer balance (money OUT = negative).
+      // Deferred (session basket): the prize is a NEGATIVE-LBP cart item, so the
+      // checkout modal already nets it into the basket total and emits the net
+      // cash-OUT leg the basket recorder posts. Skip the General payout here to
+      // avoid double-counting it. Non-session callers post it normally.
       const currency = "LBP";
+      if (!data.deferPayment) {
+        const paymentMethod = "CASH";
+        const drawerName = "General";
 
-      const insertPayment = this.db.prepare(`
-        INSERT INTO payments (
-          transaction_id, method, drawer_name, currency_code, amount, note, created_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-      `);
-      insertPayment.run(
-        txnId,
-        paymentMethod,
-        drawerName,
-        currency,
-        -data.prize_amount,
-        data.ticket_number
-          ? `Loto cash prize: ${data.ticket_number}`
-          : "Loto cash prize",
-        data.userId,
-      );
+        const insertPayment = this.db.prepare(`
+          INSERT INTO payments (
+            transaction_id, method, drawer_name, currency_code, amount, note, created_by
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        `);
+        insertPayment.run(
+          txnId,
+          paymentMethod,
+          drawerName,
+          currency,
+          -data.prize_amount,
+          data.ticket_number
+            ? `Loto cash prize: ${data.ticket_number}`
+            : "Loto cash prize",
+          data.userId,
+        );
 
-      const upsertBalance = this.db.prepare(`
-        INSERT INTO drawer_balances (drawer_name, currency_code, balance)
-        VALUES (?, ?, ?)
-        ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
-          balance = drawer_balances.balance + excluded.balance,
-          updated_at = CURRENT_TIMESTAMP
-      `);
-      upsertBalance.run(drawerName, currency, -data.prize_amount);
+        const upsertBalance = this.db.prepare(`
+          INSERT INTO drawer_balances (drawer_name, currency_code, balance)
+          VALUES (?, ?, ?)
+          ON CONFLICT(drawer_name, currency_code) DO UPDATE SET
+            balance = drawer_balances.balance + excluded.balance,
+            updated_at = CURRENT_TIMESTAMP
+        `);
+        upsertBalance.run(drawerName, currency, -data.prize_amount);
+      }
 
       // 4. Create supplier ledger entry (LOTO owes us this amount - reimbursable)
       const insertLedger = this.db.prepare(`

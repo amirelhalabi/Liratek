@@ -21,6 +21,31 @@ jest.mock("@liratek/ui", () => ({
     getClients: mockGetClients,
     getRates: jest.fn().mockResolvedValue([]),
   }),
+  DecimalInput: ({
+    id,
+    value,
+    onChange,
+    placeholder,
+    className,
+  }: {
+    id?: string;
+    value: number;
+    onChange: (n: number) => void;
+    placeholder?: string;
+    className?: string;
+  }) => (
+    <input
+      id={id}
+      type="text"
+      inputMode="decimal"
+      value={value === 0 ? "" : String(value)}
+      placeholder={placeholder}
+      className={className}
+      onChange={(e) =>
+        onChange(parseFloat(e.target.value.replace(/,/g, "")) || 0)
+      }
+    />
+  ),
   PageHeader: ({
     title,
     subtitle,

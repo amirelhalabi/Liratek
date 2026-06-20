@@ -58,6 +58,55 @@ export interface PaymentRow {
   created_at: string;
 }
 
+/**
+ * A single structured payment leg for a transaction (LIRA-064).
+ *
+ * `direction` describes cash flow from the shop's perspective:
+ * - `"in"`  — money the customer paid the shop (positive payment amount)
+ * - `"out"` — money the shop returned/disbursed (negative payment amount,
+ *   e.g. change given, exchange payout, reversal leg)
+ *
+ * `amount` is always the absolute value; the sign lives in `direction` so the
+ * frontend can render `in: ... · out: ...` without re-deriving signs. The raw
+ * signed value is preserved in `signed_amount` for any future aggregation.
+ *
+ * This shape is intentionally self-describing so a future expandable detail
+ * row (LIRA-067) can consume the same field with no backend changes.
+ */
+export interface TransactionPaymentLeg {
+  direction: "in" | "out";
+  amount: number;
+  signed_amount: number;
+  currency_code: string;
+  method: string;
+}
+
+/**
+ * The `payments` table is an internal multi-leg ledger: alongside real customer
+ * payments and change/returns it also stores provider/system drawer movements
+ * (e.g. the Binance USDT crypto leg, OMT/WHISH system-reserve legs, cost-flow
+ * provider cost legs, and fee/transfer reporting rows). The LIRA-064 in/out
+ * summary must surface ONLY customer-facing cash — so these internal legs are
+ * filtered out. Identifiers below mark legs that are NOT customer cash:
+ */
+// Marker methods used for internal (non-customer) ledger rows.
+const INTERNAL_LEG_METHODS = new Set([
+  "COMMISSION", // reporting-only fee row (zero delta)
+  "PM_FEE", // payment-method fee audit row
+  "TRANSFER", // shop→system drawer transfer leg
+  "CREDIT_RETURN", // returned telecom credits to a provider drawer
+  "CREDIT_USED", // on-account charge (also lives in debt_ledger)
+  "SMS_COST", // telecom SMS cost consumed from the provider stock drawer
+]);
+// Provider stock / reserve drawers — value the SHOP holds with a provider
+// (telecom credit stock, app balance), never customer cash. Customer WALLET
+// drawers (Whish_App / OMT_App) are intentionally NOT here: a customer paying
+// via that method is real customer cash and must stay in the summary.
+// `*_System` reserve drawers (OMT_System / Whish_System) are matched separately.
+const PROVIDER_STOCK_DRAWERS = new Set(["MTC", "Alfa", "Katsh", "iPick"]);
+// Customer cash is always denominated in one of these; USDT/crypto legs are internal.
+const CUSTOMER_CASH_CURRENCIES = new Set(["USD", "LBP"]);
+
 export interface CreateTransactionInput {
   type: TransactionType;
   source_table: string;
@@ -109,6 +158,19 @@ export interface DailySummary {
 export interface TransactionWithUser extends TransactionEntity {
   username: string;
   client_name: string | null;
+  /**
+   * The customer session this transaction belongs to (basket payment), or null.
+   * Resolved via customer_session_transactions.unified_transaction_id = t.id.
+   * Used by the viewer to group same-session rows and attach basket legs.
+   */
+  session_id: number | null;
+  /**
+   * Structured in/out payment legs joined from the `payments` table (LIRA-064).
+   * Computed read-only; never persisted into the stored `summary` text.
+   * For session rows with no own customer-cash legs, the session's basket legs
+   * are attached instead (same legs on every row in that session).
+   */
+  payments: TransactionPaymentLeg[];
 }
 
 export interface DebtAgingBuckets {
@@ -265,22 +327,148 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
 
     params.push(limit);
 
-    return this.query<TransactionWithUser>(
+    const rows = this.query<TransactionWithUser>(
       `SELECT t.id, t.type, t.status, t.source_table, t.source_id,
               t.user_id, t.amount_usd, t.amount_lbp, t.exchange_rate,
               t.client_id, t.client_phone,
               t.reverses_id, t.summary, t.metadata_json,
               t.device_id, t.created_at,
               u.username,
-              COALESCE(t.client_name, c.full_name) AS client_name
+              COALESCE(t.client_name, c.full_name) AS client_name,
+              cst.session_id AS session_id
        FROM transactions t
        LEFT JOIN users u ON u.id = t.user_id
        LEFT JOIN clients c ON c.id = t.client_id
+       LEFT JOIN customer_session_transactions cst
+              ON cst.unified_transaction_id = t.id
        ${where}
-       ORDER BY t.created_at DESC
+       ORDER BY t.created_at DESC, t.id DESC
        LIMIT ?`,
       ...params,
     );
+
+    return this._attachPaymentLegs(rows);
+  }
+
+  /**
+   * Batch-load structured in/out payment legs for a set of transaction rows and
+   * attach them as `row.payments` (LIRA-064). One `IN (...)` query covers every
+   * row, so this stays O(1) round-trips regardless of page size.
+   *
+   * Legs are derived purely from the joined `payments` table; the stored
+   * `summary` text is never modified.
+   */
+  private _attachPaymentLegs(
+    rows: TransactionWithUser[],
+  ): TransactionWithUser[] {
+    if (rows.length === 0) return rows;
+
+    const ids = rows.map((r) => r.id);
+    const placeholders = ids.map(() => "?").join(", ");
+
+    const legRows = this.query<{
+      transaction_id: number;
+      method: string;
+      drawer_name: string;
+      currency_code: string;
+      amount: number;
+      note: string | null;
+    }>(
+      `SELECT transaction_id, method, drawer_name, currency_code, amount, note
+       FROM payments
+       WHERE transaction_id IN (${placeholders})
+       ORDER BY id ASC`,
+      ...ids,
+    );
+
+    const toLeg = (p: {
+      method: string;
+      drawer_name: string;
+      currency_code: string;
+      amount: number;
+      note: string | null;
+    }): TransactionPaymentLeg | null => {
+      // Surface only customer-facing cash. Internal ledger legs (provider/system
+      // drawer movements, crypto legs, cost outflows, fee/transfer rows) are not
+      // money the customer handed over or got back, so they're filtered out.
+      const note = p.note ?? "";
+      const isInternalLeg =
+        p.amount === 0 || // reporting-only row (e.g. COMMISSION, zero delta)
+        INTERNAL_LEG_METHODS.has(p.method) || // fee / transfer / credit / SMS markers
+        PROVIDER_STOCK_DRAWERS.has(p.drawer_name) || // MTC/Alfa/Katsh/iPick stock
+        p.drawer_name.endsWith("_System") || // OMT_System / Whish_System reserve
+        !CUSTOMER_CASH_CURRENCIES.has(p.currency_code) || // USDT / crypto leg
+        note.startsWith("Cost:") || // cost/price-flow provider cost outflow
+        note.endsWith("(cost outflow)") || // custom-service hidden cost outflow
+        note.startsWith("Crypto "); // Binance crypto sent/received leg
+      if (isInternalLeg) return null;
+      return {
+        direction: p.amount < 0 ? "out" : "in",
+        amount: Math.abs(p.amount),
+        signed_amount: p.amount,
+        currency_code: p.currency_code,
+        method: p.method,
+      };
+    };
+
+    const byTxn = new Map<number, TransactionPaymentLeg[]>();
+    for (const p of legRows) {
+      const leg = toLeg(p);
+      if (!leg) continue;
+      const legs = byTxn.get(p.transaction_id) ?? [];
+      legs.push(leg);
+      byTxn.set(p.transaction_id, legs);
+    }
+
+    // Session-basket fallback: rows that belong to a session but carry no own
+    // customer-cash legs inherit the session's basket legs (the ONE basket
+    // payment posted with session_id set, transaction_id NULL). One IN(...)
+    // query batch-loads every distinct session, keeping this O(1) round-trips.
+    const sessionIds = Array.from(
+      new Set(
+        rows
+          .filter((r) => r.session_id != null && !byTxn.has(r.id))
+          .map((r) => r.session_id as number),
+      ),
+    );
+    const basketLegsBySession = new Map<number, TransactionPaymentLeg[]>();
+    if (sessionIds.length > 0) {
+      const sPlaceholders = sessionIds.map(() => "?").join(", ");
+      const basketRows = this.query<{
+        session_id: number;
+        method: string;
+        drawer_name: string;
+        currency_code: string;
+        amount: number;
+        note: string | null;
+      }>(
+        `SELECT session_id, method, drawer_name, currency_code, amount, note
+         FROM payments
+         WHERE session_id IN (${sPlaceholders})
+         ORDER BY id ASC`,
+        ...sessionIds,
+      );
+      for (const p of basketRows) {
+        const leg = toLeg(p);
+        if (!leg) continue;
+        const legs = basketLegsBySession.get(p.session_id) ?? [];
+        legs.push(leg);
+        basketLegsBySession.set(p.session_id, legs);
+      }
+    }
+
+    for (const row of rows) {
+      const own = byTxn.get(row.id);
+      if (own && own.length > 0) {
+        row.payments = own;
+      } else if (row.session_id != null) {
+        row.payments = basketLegsBySession.get(row.session_id) ?? [];
+      } else {
+        row.payments = [];
+      }
+    }
+
+    return rows;
   }
 
   /**

@@ -39,7 +39,7 @@ export type {
 } from "./DataTable";
 export { ExportBar } from "./ExportBar";
 export type { ExportBarProps, ExportableTableProps } from "./ExportBar";
-export { NumInput } from "./NumInput";
-export type { NumInputProps } from "./NumInput";
+export { DecimalInput } from "./DecimalInput";
+export type { DecimalInputProps } from "./DecimalInput";
 export { SearchBar } from "./SearchBar";
 export type { SearchBarProps } from "./SearchBar";

@@ -44,6 +44,18 @@ liratek/
 
 - Always use the **Bash tool** with `cmd /c "..."` for yarn, npm, and any CLI commands — never the PowerShell tool. PowerShell output is unreliable for yarn on this Windows setup.
 
+## Running E2E tests (`yarn test:e2e`)
+
+**Required procedure — always run E2E this way:**
+
+1. Run `yarn dev` first and wait for it to finish starting (it rebuilds `better-sqlite3` to the Electron ABI and builds `electron-app/dist`).
+2. **Stop `yarn dev`** (frees port 5173 and the Electron instance).
+3. Then run `yarn test:e2e`.
+
+Do NOT try to launch the app directly (`npx electron .`) to validate — it fails with an ESM `cjsPreparseModuleExports` error outside this flow. The Playwright harness only launches correctly after the `yarn dev` → stop → `test:e2e` sequence. E2E specs live in `frontend/tests/e2e-electron/lira-*.spec.ts`.
+
+**Stale build = old code at runtime.** The harness loads compiled output, not source. After editing `electron-app/` source (handlers, `preload.ts`, `schemas/index.ts`) you MUST re-run step 1 (`yarn dev` rebuilds `electron-app/dist`) before `test:e2e` — otherwise the old `dist` runs and your change is silently ignored (a stale `schemas/dist` rejecting a renamed enum once surfaced as a confusing Zod-validation failure on a value the new source clearly allows). After editing `packages/core/` source, rebuild + sync core (see **Core Build & Sync**) — `node_modules/@liratek/core/dist` is a real copy, not a symlink.
+
 ## Non-Negotiable Rules
 
 1. **TypeScript strict mode** — no `any` types
@@ -58,6 +70,9 @@ liratek/
 10. **Migrations** — always update BOTH `packages/core/src/db/migrations/index.ts` AND `electron-app/create_db.sql`
 11. **Client propagation** — any transaction submission form that has a client name/phone UI field MUST propagate `client_id` all the way through: UI state → IPC call payload → handler → service/repository → `createTransaction({ client_id })`. A missing link silently drops the association and the client column shows "—" in the transactions table.
 12. **Preload type completeness** — the `data` parameter type in every `preload.ts` IPC binding MUST include all fields the frontend sends. TypeScript types don't strip properties at runtime, but missing fields cause type errors when the renderer isn't using `as any`, and they make it easy to silently drop fields in future refactors.
+13. **Services never touch the database** — no `getDatabase()`, no `db.prepare(...)`, no raw SQL in any `*Service.ts`. All data access goes through a repository injected via the constructor — _including_ multi-table analytics/reporting queries. A cross-entity report gets a dedicated reporting repository (e.g. `ProfitRepository`); the service keeps only assembly, aggregation, currency-splitting, and business decisions. This keeps SQL in one layer and lets services be unit-tested with a mocked repo. (`ProfitService`, `SessionPaymentService`, and `ActivityService` currently violate this — they are the bug to fix, not the pattern to copy.)
+14. **Never copy-paste a business-rule SQL predicate** — any `WHERE`/`CASE` fragment that encodes a domain rule ("fully paid", settled-vs-pending, date-range bounds, USD/LBP bucketing) must be defined **once** as a named constant or SQL fragment and reused. If you're about to paste the same predicate into a second query, extract it first.
+15. **E2E assertions over the shared DB** — the `test:e2e` suite shares ONE accumulating SQLite DB across all specs, run in order. NEVER assert "my transaction is the newest row" via `transactions.getRecent(...)[0]` or `tbody tr.first()`. Three traps make that wrong: (a) a single action can write **multiple** unified-transaction rows (e.g. a cost/price SEND or supplier-credit op writes a `FINANCIAL_SERVICE`/`RECHARGE` row **and** an auto `SUPPLIER_PAYMENT` supplier-ledger sibling); (b) `transactions.created_at` is **second-granular**, so same-second rows tie (`getRecent` orders `created_at DESC, id DESC`); (c) earlier specs leave rows that are "newer" than yours if yours didn't commit. Instead: match the row by **identity** (type + provider/`service_type`, `source_id`, `item_key`, or a unique amount/label), and assert **deltas** — snapshot the drawer/ledger/balance immediately before the action and compare — never absolute totals or row position.
 
 ---
 
@@ -821,6 +836,8 @@ When adding a new feature module, complete every step:
 - Skipping `down()` in migrations → always implement rollback
 - `any` TypeScript type → define a proper interface
 - Write-path IPC handler missing Zod validation → add `validatePayload()` call
+- `getDatabase()` / raw SQL inside a `*Service.ts` → move it to a repository; services orchestrate, repositories query
+- Copy-pasting the same business-rule predicate (e.g. the "fully paid" check) into a second query → extract it to one named fragment first
 
 ### Electron-Specific
 

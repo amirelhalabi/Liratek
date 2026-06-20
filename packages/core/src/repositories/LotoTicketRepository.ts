@@ -56,6 +56,15 @@ export interface LotoTicketCreate {
   transaction_time?: string;
   clientId?: number | null;
   clientName?: string | null;
+  /**
+   * Session-basket deferred payment mode. When true, the ticket + unified
+   * transaction + supplier ledger are created but the customer-cash drawer post
+   * is skipped — the basket recorder owns the customer payment. Non-session
+   * callers leave this falsy → behavior is unchanged.
+   */
+  deferPayment?: boolean;
+  /** Operator-edited USD↔LBP rate of record (session checkout); else default. */
+  exchange_rate?: number;
 }
 
 export interface LotoTicketUpdate {
@@ -122,7 +131,7 @@ export class LotoTicketRepository {
         amount_usd: 0, // Loto is LBP only for now
         amount_lbp: data.sale_amount,
         profit_lbp: data.commission_amount,
-        exchange_rate: 100000, // Default rate
+        exchange_rate: data.exchange_rate ?? 100000, // operator rate (session) else default
         client_id: data.clientId ?? null,
         client_name: data.clientName ?? null,
         summary: txnSummary,
@@ -134,8 +143,10 @@ export class LotoTicketRepository {
         transaction_time: data.transaction_time,
       });
 
-      // 3. Record payment and update drawer balance
-      if (isDrawerAffectingMethod(paymentMethod)) {
+      // 3. Record payment and update drawer balance.
+      // Deferred (session basket): the basket recorder owns the customer-cash
+      // post, so skip the drawer movement here (the supplier ledger below stays).
+      if (!data.deferPayment && isDrawerAffectingMethod(paymentMethod)) {
         const drawerName = paymentMethodToDrawerName(paymentMethod);
         const currency = data.currency || "LBP";
 

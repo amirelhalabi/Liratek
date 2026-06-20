@@ -3910,6 +3910,403 @@ export const MIGRATIONS: Migration[] = [
       console.log("Migration v98 rolled back (no-op for SQLite)");
     },
   },
+  // ─────────────────────────────────────────────────────────────────────────────
+  // v99 — Add SALE_COST to supplier_ledger entry_type CHECK constraint (LIRA-061)
+  // ─────────────────────────────────────────────────────────────────────────────
+  {
+    version: 99,
+    name: "add_sale_cost_entry_type",
+    description:
+      "Add 'SALE_COST' to the supplier_ledger.entry_type CHECK so cost/price-flow SEND sales (Katsh / iPick / Whish App / OMT App) book a settleable sale-cost instead of a manual TOP_UP (LIRA-061). SQLite can't ALTER a CHECK, so the table is recreated preserving all rows + indexes — mirrors migration v56.",
+    type: "typescript",
+    up(db) {
+      db.exec(`
+        CREATE TABLE supplier_ledger_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          supplier_id INTEGER NOT NULL,
+          entry_type TEXT NOT NULL CHECK(entry_type IN ('TOP_UP', 'SALE_COST', 'PAYMENT', 'ADJUSTMENT', 'SETTLEMENT', 'CASH_PRIZE')),
+          amount_usd REAL NOT NULL DEFAULT 0,
+          amount_lbp REAL NOT NULL DEFAULT 0,
+          note TEXT,
+          created_by INTEGER,
+          transaction_id INTEGER,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE,
+          FOREIGN KEY (transaction_id) REFERENCES transactions(id),
+          FOREIGN KEY (created_by) REFERENCES users(id)
+        );
+
+        INSERT INTO supplier_ledger_new SELECT * FROM supplier_ledger;
+
+        DROP TABLE supplier_ledger;
+
+        ALTER TABLE supplier_ledger_new RENAME TO supplier_ledger;
+
+        CREATE INDEX IF NOT EXISTS idx_supplier_ledger_supplier_id_created_at ON supplier_ledger(supplier_id, created_at);
+      `);
+
+      console.log(
+        "Migration v99: Added SALE_COST to supplier_ledger entry_type",
+      );
+    },
+    down(db) {
+      // Relabel SALE_COST rows back to TOP_UP (their pre-LIRA-061 label, which keeps
+      // the same balance sign), then recreate the table with the prior constraint.
+      db.exec(`
+        UPDATE supplier_ledger SET entry_type = 'TOP_UP' WHERE entry_type = 'SALE_COST';
+
+        CREATE TABLE supplier_ledger_old (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          supplier_id INTEGER NOT NULL,
+          entry_type TEXT NOT NULL CHECK(entry_type IN ('TOP_UP', 'PAYMENT', 'ADJUSTMENT', 'SETTLEMENT', 'CASH_PRIZE')),
+          amount_usd REAL NOT NULL DEFAULT 0,
+          amount_lbp REAL NOT NULL DEFAULT 0,
+          note TEXT,
+          created_by INTEGER,
+          transaction_id INTEGER,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE,
+          FOREIGN KEY (transaction_id) REFERENCES transactions(id),
+          FOREIGN KEY (created_by) REFERENCES users(id)
+        );
+
+        INSERT INTO supplier_ledger_old SELECT * FROM supplier_ledger;
+
+        DROP TABLE supplier_ledger;
+
+        ALTER TABLE supplier_ledger_old RENAME TO supplier_ledger;
+
+        CREATE INDEX IF NOT EXISTS idx_supplier_ledger_supplier_id_created_at ON supplier_ledger(supplier_id, created_at);
+      `);
+
+      console.log(
+        "Migration v99 rolled back: SALE_COST removed from supplier_ledger",
+      );
+    },
+  },
+  // ─────────────────────────────────────────────────────────────────────────────
+  // v100 — Add session_id to payments so a customer-session basket owns ONE payment
+  // ─────────────────────────────────────────────────────────────────────────────
+  {
+    version: 100,
+    name: "add_session_id_to_payments",
+    description:
+      "Add a nullable session_id to payments so a customer-session 'basket' can own ONE customer-facing payment for its many transactions (basket payment). A payment row belongs to EITHER a transaction (transaction_id) OR a session basket (session_id), never both.",
+    type: "typescript",
+    up(db) {
+      const cols = db.prepare("PRAGMA table_info(payments)").all() as {
+        name: string;
+      }[];
+      if (!cols.some((c) => c.name === "session_id")) {
+        // NOTE: SQLite does NOT enforce an inline REFERENCES clause added via
+        // ALTER TABLE ADD COLUMN — on upgraded DBs this column has no active FK,
+        // so the ON DELETE SET NULL is a no-op here (fresh installs DO enforce it
+        // via create_db.sql). To keep both paths identical, session deletion
+        // nulls payments.session_id explicitly (CustomerSessionRepository
+        // .deleteSession). The clause is kept for documentation / fresh-install parity.
+        db.exec(
+          "ALTER TABLE payments ADD COLUMN session_id INTEGER REFERENCES customer_sessions(id) ON DELETE SET NULL;",
+        );
+      }
+      db.exec(
+        "CREATE INDEX IF NOT EXISTS idx_payments_session_id ON payments(session_id);",
+      );
+      console.log("Migration v100: Added session_id to payments + index");
+    },
+    down(db) {
+      // SQLite ADD COLUMN is treated one-way in this codebase (see v71/v72/v73);
+      // just drop the index, leave the column.
+      db.exec("DROP INDEX IF EXISTS idx_payments_session_id;");
+      console.log("Migration v100 rolled back (session_id column remains)");
+    },
+  },
+  // ─────────────────────────────────────────────────────────────────────────────
+  // v101 — Backfill historical custom_services + maintenance profit into the
+  //        unified transactions ledger (completes what v71 did for the other types)
+  // ─────────────────────────────────────────────────────────────────────────────
+  {
+    version: 101,
+    name: "backfill_custom_maintenance_profit_into_transactions",
+    description:
+      "Complete migration v71's per-transaction profit backfill for the two source types it skipped — custom_services and maintenance — so the Profits page can read profit uniformly from transactions.profit_usd/profit_lbp without losing historical profit.",
+    type: "typescript",
+    up(db) {
+      // Backfill ONLY rows that are still unstamped (profit 0/NULL) AND whose
+      // source row still exists. This avoids two failure modes of an
+      // unconditional UPDATE: (a) clobbering a value correctly stamped at
+      // create-time back to 0, and (b) fabricating 0 for a row whose source was
+      // deleted. It is also safe to re-run.
+      // custom_services.profit_usd/profit_lbp are generated (price - cost).
+      db.exec(`
+        UPDATE transactions
+        SET profit_usd = COALESCE((
+              SELECT cs.profit_usd FROM custom_services cs WHERE cs.id = transactions.source_id
+            ), 0),
+            profit_lbp = COALESCE((
+              SELECT cs.profit_lbp FROM custom_services cs WHERE cs.id = transactions.source_id
+            ), 0)
+        WHERE source_table = 'custom_services'
+          AND COALESCE(profit_usd, 0) = 0
+          AND COALESCE(profit_lbp, 0) = 0
+          AND EXISTS (SELECT 1 FROM custom_services cs WHERE cs.id = transactions.source_id);
+      `);
+
+      // maintenance profit lives in the job's currency (USD or LBP). Refunded
+      // jobs earned nothing, so they are excluded (EXISTS guard) and left at 0.
+      db.exec(`
+        UPDATE transactions
+        SET profit_usd = COALESCE((
+              SELECT CASE WHEN m.currency = 'LBP' THEN 0
+                          ELSE (m.final_amount_usd - m.cost_usd) END
+              FROM maintenance m WHERE m.id = transactions.source_id
+            ), 0),
+            profit_lbp = COALESCE((
+              SELECT CASE WHEN m.currency = 'LBP'
+                          THEN (m.final_amount_lbp - m.cost_lbp) ELSE 0 END
+              FROM maintenance m WHERE m.id = transactions.source_id
+            ), 0)
+        WHERE source_table = 'maintenance'
+          AND COALESCE(profit_usd, 0) = 0
+          AND COALESCE(profit_lbp, 0) = 0
+          AND EXISTS (
+            SELECT 1 FROM maintenance m
+            WHERE m.id = transactions.source_id AND m.is_refunded = 0
+          );
+      `);
+
+      console.log(
+        "Migration v101: Backfilled custom_services + maintenance profit into transactions",
+      );
+    },
+    down(_db) {
+      // No-op: zeroing could clobber rows correctly stamped at create-time
+      // (matches v71's non-destructive rollback convention).
+      console.log("Migration v101 rolled back (no-op; profit values retained)");
+    },
+  },
+  // ─────────────────────────────────────────────────────────────────────────────
+  // v102 — Remove supplier-ledger pollution from the SECONDARY OMT/WHISH system
+  // ─────────────────────────────────────────────────────────────────────────────
+  {
+    version: 102,
+    name: "remove_secondary_system_supplier_ledger_pollution",
+    description:
+      "Only the shop's primary (base) system owes its provider directly; the secondary OMT/WHISH system runs via a partner (tracked in partner_ledger). Auto-recorded SALE_COST/TOP_UP supplier_ledger entries for the non-base legacy provider wrongly inflated the suppliers/settlement page — remove ONLY those auto cost/top-up rows. Manual PAYMENT/SETTLEMENT/ADJUSTMENT entries represent real cash movements and are preserved.",
+    type: "typescript",
+    up(db) {
+      const baseRow = db
+        .prepare(
+          "SELECT value FROM system_settings WHERE key_name = 'shop_base_system'",
+        )
+        .get() as { value?: string } | undefined;
+      const base = baseRow?.value === "WHISH" ? "WHISH" : "OMT";
+      const secondary = base === "WHISH" ? "OMT" : "WHISH";
+      // Scope the purge to the auto-generated pollution types only. SALE_COST
+      // (post-v99) and TOP_UP are the entry types the now-guarded secondary-system
+      // auto-recorder used to write. Restricting by entry_type guarantees we never
+      // delete a real cash entry (PAYMENT/SETTLEMENT/ADJUSTMENT/CASH_PRIZE/
+      // SUPPLIER_PAYS_US) — important because this migration is irreversible.
+      const res = db
+        .prepare(
+          `DELETE FROM supplier_ledger
+           WHERE note LIKE 'Auto:%'
+             AND entry_type IN ('TOP_UP', 'SALE_COST')
+             AND supplier_id IN (SELECT id FROM suppliers WHERE provider = ?)`,
+        )
+        .run(secondary);
+      console.log(
+        `Migration v102: Removed ${res.changes} secondary-system (${secondary}) auto SALE_COST/TOP_UP supplier_ledger entries`,
+      );
+    },
+    down(_db) {
+      // Irreversible cleanup — the removed rows were erroneous auto-entries.
+      console.log("Migration v102 rolled back (no-op; removed rows not restored)");
+    },
+  },
+  // ─────────────────────────────────────────────────────────────────────────────
+  // v103 — Add SUPPLIER_PAYS_US to supplier_ledger.entry_type (supplier pays us)
+  // ─────────────────────────────────────────────────────────────────────────────
+  {
+    version: 103,
+    name: "add_supplier_pays_us_entry_type",
+    description:
+      "Add 'SUPPLIER_PAYS_US' to the supplier_ledger.entry_type CHECK so the shop can record a supplier paying us back (e.g. settling an overpayment): a positive ledger entry (mirrors PAYMENT) with cash credited to the payment-method drawer (LIRA-059). SQLite can't ALTER a CHECK, so the table is recreated preserving all rows + indexes — mirrors migration v99.",
+    type: "typescript",
+    up(db) {
+      db.exec(`
+        CREATE TABLE supplier_ledger_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          supplier_id INTEGER NOT NULL,
+          entry_type TEXT NOT NULL CHECK(entry_type IN ('TOP_UP', 'SALE_COST', 'PAYMENT', 'ADJUSTMENT', 'SETTLEMENT', 'CASH_PRIZE', 'SUPPLIER_PAYS_US')),
+          amount_usd REAL NOT NULL DEFAULT 0,
+          amount_lbp REAL NOT NULL DEFAULT 0,
+          note TEXT,
+          created_by INTEGER,
+          transaction_id INTEGER,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE,
+          FOREIGN KEY (transaction_id) REFERENCES transactions(id),
+          FOREIGN KEY (created_by) REFERENCES users(id)
+        );
+
+        INSERT INTO supplier_ledger_new SELECT * FROM supplier_ledger;
+
+        DROP TABLE supplier_ledger;
+
+        ALTER TABLE supplier_ledger_new RENAME TO supplier_ledger;
+
+        CREATE INDEX IF NOT EXISTS idx_supplier_ledger_supplier_id_created_at ON supplier_ledger(supplier_id, created_at);
+      `);
+
+      console.log(
+        "Migration v103: Added SUPPLIER_PAYS_US to supplier_ledger entry_type",
+      );
+    },
+    down(db) {
+      // Relabel SUPPLIER_PAYS_US rows to ADJUSTMENT (same amount/sign), then
+      // recreate the table with the prior constraint (the v99 CHECK set).
+      db.exec(`
+        UPDATE supplier_ledger SET entry_type = 'ADJUSTMENT' WHERE entry_type = 'SUPPLIER_PAYS_US';
+
+        CREATE TABLE supplier_ledger_old (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          supplier_id INTEGER NOT NULL,
+          entry_type TEXT NOT NULL CHECK(entry_type IN ('TOP_UP', 'SALE_COST', 'PAYMENT', 'ADJUSTMENT', 'SETTLEMENT', 'CASH_PRIZE')),
+          amount_usd REAL NOT NULL DEFAULT 0,
+          amount_lbp REAL NOT NULL DEFAULT 0,
+          note TEXT,
+          created_by INTEGER,
+          transaction_id INTEGER,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE,
+          FOREIGN KEY (transaction_id) REFERENCES transactions(id),
+          FOREIGN KEY (created_by) REFERENCES users(id)
+        );
+
+        INSERT INTO supplier_ledger_old SELECT * FROM supplier_ledger;
+
+        DROP TABLE supplier_ledger;
+
+        ALTER TABLE supplier_ledger_old RENAME TO supplier_ledger;
+
+        CREATE INDEX IF NOT EXISTS idx_supplier_ledger_supplier_id_created_at ON supplier_ledger(supplier_id, created_at);
+      `);
+
+      console.log(
+        "Migration v103 rolled back: SUPPLIER_PAYS_US removed from supplier_ledger",
+      );
+    },
+  },
+  // ─────────────────────────────────────────────────────────────────────────────
+  // v104 — Add updated_at to sales (was missing; SalesRepository.markSalePaid and
+  //        the session-basket back-fill write it, so a session sale checkout failed
+  //        with "no such column: updated_at" on DBs created before this).
+  // ─────────────────────────────────────────────────────────────────────────────
+  {
+    version: 104,
+    name: "add_updated_at_to_sales",
+    description:
+      "Add the missing updated_at column to sales (schema standard requires created_at + updated_at). SalesRepository.markSalePaid — used by the session-basket settlement back-fill — writes updated_at; without the column a session basket containing a POS sale fails at checkout.",
+    type: "typescript",
+    up(db) {
+      const cols = db.prepare("PRAGMA table_info(sales)").all() as {
+        name: string;
+      }[];
+      if (!cols.some((c) => c.name === "updated_at")) {
+        db.exec(
+          "ALTER TABLE sales ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP;",
+        );
+      }
+      console.log("Migration v104: Added updated_at to sales");
+    },
+    down(_db) {
+      // SQLite ADD COLUMN is treated one-way in this codebase (see v71/v100);
+      // leave the column in place on rollback.
+      console.log("Migration v104 rolled back (updated_at column remains)");
+    },
+  },
+  // ─────────────────────────────────────────────────────────────────────────────
+  // v105 — Rename the 'WISH_APP' provider typo to 'WHISH_APP' (the brand is "Whish").
+  //        financial_services.provider had a CHECK allowing only 'WISH_APP', while
+  //        the seeded supplier, recharges.carrier and the 'Whish_App' drawer all use
+  //        the 'WHISH' spelling. The mismatch silently dropped the SALE_COST
+  //        supplier-ledger write for Whish App SEND (getByProvider('WISH_APP') never
+  //        matched the 'WHISH_APP' supplier). This aligns the value everywhere.
+  // ─────────────────────────────────────────────────────────────────────────────
+  {
+    version: 105,
+    name: "rename_wish_app_to_whish_app",
+    description:
+      "Normalize the Whish App provider value from the 'WISH_APP' typo to 'WHISH_APP'. Recreates financial_services so its provider CHECK accepts 'WHISH_APP' (schema-faithful: copies the table's OWN live CREATE statement, only widening the CHECK), then migrates financial_services.provider + mobile_service_items.provider + transactions.metadata_json. Fixes Whish App SEND no longer booking a settleable SALE_COST supplier entry.",
+    type: "typescript",
+    up(db) {
+      const tbl = db
+        .prepare(
+          "SELECT sql FROM sqlite_master WHERE type='table' AND name='financial_services'",
+        )
+        .get() as { sql?: string } | undefined;
+
+      if (tbl?.sql && !tbl.sql.includes("'WHISH_APP'")) {
+        // Live CHECK still only allows 'WISH_APP'. SQLite can't ALTER a CHECK, so
+        // recreate the table from its OWN current CREATE statement (preserving
+        // every column/constraint/order exactly), widening ONLY the provider CHECK
+        // to also permit 'WHISH_APP'. Capture index DDL first (dropped with table).
+        const idx = db
+          .prepare(
+            "SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name='financial_services' AND sql IS NOT NULL",
+          )
+          .all() as { sql: string }[];
+
+        const newTableSql = tbl.sql
+          .replace("financial_services", "financial_services_new") // first occ = the table name
+          .replace("'WISH_APP'", "'WISH_APP', 'WHISH_APP'");
+
+        db.exec(newTableSql);
+        db.exec(
+          "INSERT INTO financial_services_new SELECT * FROM financial_services;",
+        );
+        db.exec(
+          "UPDATE financial_services_new SET provider = 'WHISH_APP' WHERE provider = 'WISH_APP';",
+        );
+        db.exec("DROP TABLE financial_services;");
+        db.exec(
+          "ALTER TABLE financial_services_new RENAME TO financial_services;",
+        );
+        for (const r of idx) db.exec(r.sql);
+      } else {
+        // Fresh install (create_db.sql already uses 'WHISH_APP') or already migrated
+        // — just normalize any residual data.
+        db.exec(
+          "UPDATE financial_services SET provider = 'WHISH_APP' WHERE provider = 'WISH_APP';",
+        );
+      }
+
+      // Non-CHECK-constrained tables that may hold the old value. The LIKE/REPLACE
+      // can't touch 'WHISH_APP' rows since 'WISH_APP' is not a substring of it.
+      db.exec(
+        "UPDATE mobile_service_items SET provider = 'WHISH_APP' WHERE provider = 'WISH_APP';",
+      );
+      db.exec(
+        "UPDATE transactions SET metadata_json = REPLACE(metadata_json, 'WISH_APP', 'WHISH_APP') WHERE metadata_json LIKE '%WISH_APP%';",
+      );
+
+      console.log("Migration v105: Renamed WISH_APP provider to WHISH_APP");
+    },
+    down(db) {
+      // Reverse the data relabel. The widened CHECK still permits 'WISH_APP', so no
+      // table recreate is needed on rollback.
+      db.exec(
+        "UPDATE financial_services SET provider = 'WISH_APP' WHERE provider = 'WHISH_APP';",
+      );
+      db.exec(
+        "UPDATE mobile_service_items SET provider = 'WISH_APP' WHERE provider = 'WHISH_APP';",
+      );
+      db.exec(
+        "UPDATE transactions SET metadata_json = REPLACE(metadata_json, 'WHISH_APP', 'WISH_APP') WHERE metadata_json LIKE '%WHISH_APP%';",
+      );
+      console.log("Migration v105 rolled back: WHISH_APP relabeled to WISH_APP");
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

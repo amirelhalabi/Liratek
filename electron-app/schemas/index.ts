@@ -268,7 +268,7 @@ export const FinancialServiceSchema = z.object({
     "OTHER",
     "iPick",
     "Katsh",
-    "WISH_APP",
+    "WHISH_APP",
     "OMT_APP",
     "BINANCE",
   ]),
@@ -536,6 +536,14 @@ export const SupplierSettleSchema = z.object({
   payments: z.array(SettlementPaymentSchema).optional(),
 });
 
+/** Pay a supplier / record a supplier paying us, via payment-method legs. */
+export const SupplierCashflowSchema = z.object({
+  supplier_id: z.number().int().positive(),
+  direction: z.enum(["PAY", "RECEIVE"]),
+  payments: z.array(SettlementPaymentSchema).min(1),
+  note: z.string().optional(),
+});
+
 // =============================================================================
 // Vouchers (Gift Cards)
 // =============================================================================
@@ -547,6 +555,39 @@ export const VoucherCreateSchema = z.object({
   expiryDate: z.string().min(1).optional().nullable(),
   note: z.string().optional().nullable(),
 });
+
+// =============================================================================
+// Customer Sessions — basket checkout
+// =============================================================================
+
+/** One customer-facing basket payment leg (the ONE payment for the whole cart). */
+const SessionCheckoutPaymentSchema = z.object({
+  method: z.string().min(1),
+  currency_code: z.string().min(1),
+  amount: z.number(),
+  direction: z.enum(["IN", "OUT"]).optional(),
+  // Present only for GIFT_CARD legs.
+  voucher_code: z.string().optional(),
+});
+
+/**
+ * Session checkout envelope. Only the basket-payment fields are validated here;
+ * each cart item's opaque `formData` is validated by the module's own service
+ * when it is processed. `passthrough()` keeps unknown fields (e.g. cartItems)
+ * intact since the handler reads them directly off the original request.
+ */
+export const SessionCheckoutSchema = z
+  .object({
+    sessionId: z.number().int().positive(),
+    cartItems: z.array(z.unknown()).min(1, "Cart is empty"),
+    paidByMethod: z.string().optional(),
+    payments: z.array(SessionCheckoutPaymentSchema).optional(),
+    exchangeRate: z.number().positive().optional(),
+    clientId: z.number().int().positive().optional(),
+    clientName: z.string().optional(),
+    userId: z.number().int(),
+  })
+  .passthrough();
 
 // =============================================================================
 // Helpers

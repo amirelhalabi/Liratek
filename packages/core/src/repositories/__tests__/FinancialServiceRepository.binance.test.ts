@@ -397,4 +397,72 @@ describe("FinancialServiceRepository — Binance crypto drawer effects", () => {
       );
     });
   });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Change / return-leg recording (LIRA-064 caveat tracking)
+  //
+  // Tracks WHAT payment info is persisted for a financial SEND when the customer
+  // overpays and gets change. The return (OUT) leg is written as a separate
+  // "Change returned" payment row by the shared returnLegs writer — the same
+  // path OMT App / Whish App and the recharge flows go through. The KEY finding:
+  // the change is itemized ONLY when a return leg is present in data.payments;
+  // a single payment (no legs) records just the net, so the $X in / $Y change
+  // breakdown is lost.
+  // ═══════════════════════════════════════════════════════════════════════════
+  describe("SEND overpayment + change — what gets saved", () => {
+    function generalLegs() {
+      return db
+        .prepare(
+          "SELECT method, currency_code, amount, note FROM payments WHERE drawer_name = 'General' ORDER BY id ASC",
+        )
+        .all() as Array<{
+        method: string;
+        currency_code: string;
+        amount: number;
+        note: string | null;
+      }>;
+    }
+
+    it("WITH a return leg: itemizes $110 in + $8 'Change returned', nets General to amount+fee", () => {
+      // Owes amount + fee = $102; customer hands $110 cash and gets $8 change.
+      repo.createTransaction({
+        provider: "BINANCE",
+        serviceType: "SEND",
+        amount: 100,
+        currency: "USDT",
+        commission: 2,
+        paidByMethod: "CASH",
+        payments: [
+          { method: "CASH", currencyCode: "USD", amount: 110, direction: "IN" },
+          { method: "CASH", currencyCode: "USD", amount: 8, direction: "OUT" },
+        ],
+      });
+
+      // Net cash kept = 110 − 8 = 102 (= amount + fee)
+      expect(drawerBalance(db, "General", "USD")).toBeCloseTo(1000 + 102, 2);
+
+      const legs = generalLegs();
+      const inLeg = legs.find((l) => l.amount > 0);
+      const outLeg = legs.find((l) => l.amount < 0);
+      expect(inLeg).toMatchObject({ amount: 110, currency_code: "USD" });
+      expect(outLeg).toMatchObject({ amount: -8, note: "Change returned" });
+    });
+
+    it("WITHOUT a return leg: a single payment records only the net (no change itemization)", () => {
+      repo.createTransaction({
+        provider: "BINANCE",
+        serviceType: "SEND",
+        amount: 100,
+        currency: "USDT",
+        commission: 2,
+        paidByMethod: "CASH",
+      });
+
+      const legs = generalLegs();
+      // Single $102 inflow; no "Change returned" row exists.
+      expect(legs).toHaveLength(1);
+      expect(legs[0]).toMatchObject({ amount: 102, currency_code: "USD" });
+      expect(legs.some((l) => l.note === "Change returned")).toBe(false);
+    });
+  });
 });

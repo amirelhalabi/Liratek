@@ -111,6 +111,7 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
           amount_lbp: data.price_lbp ?? 0,
           profit_usd: (data.price_usd ?? 0) - (data.cost_usd ?? 0),
           profit_lbp: (data.price_lbp ?? 0) - (data.cost_lbp ?? 0),
+          exchange_rate: data.exchange_rate,
           client_id: data.client_id ?? null,
           summary: `Custom Service: ${data.description}`,
           metadata_json: {
@@ -142,7 +143,35 @@ export class CustomServiceRepository extends BaseRepository<CustomServiceEntity>
             updated_at = CURRENT_TIMESTAMP
         `);
 
-        if (paidBy === "CUSTOMER_ACCOUNT") {
+        if (data.deferPayment) {
+          // Session-basket deferred mode: the basket owns the customer-cash price
+          // inflow + any on-account debt. The shop's own cost is still spent
+          // out-of-pocket from the General drawer, so book ONLY the cost outflow.
+          if ((data.cost_usd ?? 0) > 0) {
+            insertPayment.run(
+              txnId,
+              "CASH",
+              "General",
+              "USD",
+              -Math.abs(data.cost_usd!),
+              `${noteText} (cost outflow)`,
+              createdBy,
+            );
+            upsertBalance.run("General", "USD", -Math.abs(data.cost_usd!));
+          }
+          if ((data.cost_lbp ?? 0) > 0) {
+            insertPayment.run(
+              txnId,
+              "CASH",
+              "General",
+              "LBP",
+              -Math.abs(data.cost_lbp!),
+              `${noteText} (cost outflow)`,
+              createdBy,
+            );
+            upsertBalance.run("General", "LBP", -Math.abs(data.cost_lbp!));
+          }
+        } else if (paidBy === "CUSTOMER_ACCOUNT") {
           // CUSTOMER_ACCOUNT: customer pays from their credit balance
           // But the shop still spent the cost out-of-pocket (from CASH/General drawer)
           if (!data.client_id) {

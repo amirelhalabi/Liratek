@@ -6,7 +6,7 @@ import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import { useAuth } from "@/features/auth/context/AuthContext";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { useSessionAutoFill } from "@/features/sessions/hooks/useSessionAutoFill";
-import { getExchangeRates } from "@/utils/exchangeRates";
+import { useSellRate } from "@/hooks/useSellRate";
 import type { PaymentLine } from "@liratek/ui";
 import { toCamelLegs } from "@/utils/paymentUtils";
 import {
@@ -148,7 +148,8 @@ export default function MobileRecharge() {
   const [alfaCreditSellRate, setAlfaCreditSellRate] = useState(100000);
   const [alfaCreditCostRate, setAlfaCreditCostRate] = useState(85000);
   const [marginAlertThreshold, setMarginAlertThreshold] = useState(100000);
-  const [exchangeRate, setExchangeRate] = useState(89500);
+  // Money-IN sell rate (shared source) for MultiPaymentInput / cart conversions.
+  const { sellRate: exchangeRate } = useSellRate();
 
   // Whish App mode: 'bills' (card grid) or 'transfer' (send/receive money)
   const [whishAppMode, setWhishAppMode] = useState<"bills" | "transfer">(
@@ -196,11 +197,6 @@ export default function MobileRecharge() {
         const threshold =
           Number(settingsMap.get("recharge_margin_alert_threshold")) || 100000;
         setMarginAlertThreshold(threshold);
-
-        // Load exchange rate for MultiPaymentInput
-        const rates = await api.getRates();
-        const { sellRate } = getExchangeRates(rates);
-        setExchangeRate(sellRate);
       } catch (error) {
         logger.error("Failed to load alfa credit sell rate:", error);
       }
@@ -210,7 +206,7 @@ export default function MobileRecharge() {
 
   // Reset form state when provider changes
   useEffect(() => {
-    // Always reset to "transfer" so returning to WISH_APP renders the correct
+    // Always reset to "transfer" so returning to WHISH_APP renders the correct
     // form on the first paint (prevents FinancialForm mount→unmount flash).
     setWhishAppMode("transfer");
     setRechargeType("CREDIT_TRANSFER");
@@ -334,7 +330,7 @@ export default function MobileRecharge() {
 
   const selectClient = useCallback((client: any) => {
     setTelecomClientId(client.id);
-    setTelecomClientName(client.full_name || client.name);
+    setTelecomClientName(client.full_name || client.name || "");
     setTelecomClientPhone(client.phone_number || "");
     setClientSearchResults([]);
     setShowClientSearch(false);
@@ -381,6 +377,9 @@ export default function MobileRecharge() {
         ? `${providerLabel} ${typeLabel} - ${phoneNumber} - ${price.toLocaleString()} LBP`
         : `${providerLabel} ${typeLabel} - ${price.toLocaleString()} LBP`;
 
+      // Session mode: the basket owns the payment, so the cart item carries NO
+      // payment fields (paid_by_method / payments). The Session Checkout modal
+      // collects payment once for the whole basket.
       addToSessionCart({
         module: activeProvider === "MTC" ? "recharge_mtc" : "recharge_alfa",
         label,
@@ -397,11 +396,6 @@ export default function MobileRecharge() {
           price,
           default_price_to_client: defaultPriceToClient,
           currency: "LBP",
-          paid_by_method: paidBy,
-          payments:
-            paymentLines.length > 0
-              ? toCamelLegs(paymentLines, returnLegs)
-              : undefined,
           clientId: resolvedClientId || undefined,
           clientName: telecomClientName || undefined,
         },
@@ -554,7 +548,7 @@ export default function MobileRecharge() {
         defaultSource: "OMT_System",
         type: "OMT_APP",
       },
-      WISH_APP: {
+      WHISH_APP: {
         drawer: "Whish_App",
         defaultSource: "General",
         type: "WHISH_APP",
@@ -784,6 +778,13 @@ export default function MobileRecharge() {
         ? cryptoPaymentLines[0].method
         : cryptoPaidBy;
 
+    // Send the structured legs whenever the payment is split OR the customer got
+    // change back (a return/OUT leg). Gating on isSplitPayment alone silently
+    // dropped the OUT leg for a single payment + change, so the returned cash
+    // never reached the ledger (e.g. Binance SEND: paid $100, got 180,000 LBP).
+    const useCryptoStructuredPayments =
+      isSplitPayment || cryptoReturnLegs.length > 0;
+
     // Derive cashout method from payment lines: if DEBT is used, it means Customer Account
     const derivedCashoutMethod =
       paidByMethod === "CUSTOMER_ACCOUNT" ? "CUSTOMER_ACCOUNT" : "CASH";
@@ -808,6 +809,10 @@ export default function MobileRecharge() {
       const isSend = cryptoType === "SEND";
       const label = `Binance ${isSend ? "Send" : "Cash Out"} - ${amount} USDT${cryptoClientName ? ` - ${cryptoClientName}` : ""}`;
 
+      // Session mode: the basket owns the payment, so the cart item carries NO
+      // payment fields (paidByMethod / payments / cashoutMethod). The Session
+      // Checkout modal collects payment once for the whole basket and derives
+      // the cashout method from the chosen basket payment method.
       addToSessionCart({
         module: isSend ? "binance_send" : "binance_receive",
         label,
@@ -823,13 +828,6 @@ export default function MobileRecharge() {
           clientName: cryptoClientName,
           referenceNumber: cryptoDescription,
           commission: fee,
-          paidByMethod: isSplitPayment ? "MULTI" : paidByMethod,
-          payments: isSplitPayment
-            ? toCamelLegs(cryptoPaymentLines, cryptoReturnLegs)
-            : undefined,
-          ...(cryptoType === "RECEIVE" && derivedCashoutMethod !== "CASH"
-            ? { cashoutMethod: derivedCashoutMethod }
-            : {}),
         },
       });
 
@@ -858,7 +856,7 @@ export default function MobileRecharge() {
         referenceNumber: cryptoDescription,
         commission: fee,
         paidByMethod: isSplitPayment ? "MULTI" : paidByMethod,
-        payments: isSplitPayment
+        payments: useCryptoStructuredPayments
           ? toCamelLegs(cryptoPaymentLines, cryptoReturnLegs)
           : undefined,
         ...(cryptoType === "RECEIVE" && derivedCashoutMethod !== "CASH"
@@ -1048,7 +1046,7 @@ export default function MobileRecharge() {
               {(activeConfig.key === "MTC" ||
                 activeConfig.key === "Alfa" ||
                 activeConfig.key === "OMT_APP" ||
-                activeConfig.key === "WISH_APP" ||
+                activeConfig.key === "WHISH_APP" ||
                 activeConfig.key === "iPick" ||
                 activeConfig.key === "Katsh") && (
                 <button
@@ -1139,7 +1137,7 @@ export default function MobileRecharge() {
               showHistory={showHistory}
               onCloseHistory={() => setShowHistory(false)}
             />
-          ) : activeProvider === "WISH_APP" ? (
+          ) : activeProvider === "WHISH_APP" ? (
             // Whish App - Bills (cards) or Transfer (send/receive)
             <>
               {/* Mode Tabs - Transfer / Bills */}
@@ -1181,7 +1179,7 @@ export default function MobileRecharge() {
                 />
               ) : (
                 <OmtWhishAppTransferForm
-                  activeProvider="WISH_APP"
+                  activeProvider="WHISH_APP"
                   transactions={finTransactions}
                   loadFinancialData={loadFinancialData}
                   formatAmount={formatAmount}

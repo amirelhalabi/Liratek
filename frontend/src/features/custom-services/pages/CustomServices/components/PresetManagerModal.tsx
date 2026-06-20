@@ -16,10 +16,7 @@ import {
   Settings,
 } from "lucide-react";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
-import {
-  formatWithCommas,
-  isPartialDecimal,
-} from "@/shared/utils/formatWithCommas";
+import { DecimalInput } from "@liratek/ui";
 import logger from "@/utils/logger";
 
 interface ServicePreset {
@@ -224,64 +221,44 @@ export function PresetManagerModal({
       </div>
       <div className="w-24">
         <label className="text-xs text-slate-400 block mb-1">Cost $</label>
-        <input
-          type="text"
-          inputMode="decimal"
-          autoComplete="off"
-          value={formatWithCommas(form.cost_usd)}
-          onChange={(e) => {
-            const cleaned = e.target.value.replace(/,/g, "");
-            if (isPartialDecimal(cleaned))
-              setForm((f) => ({ ...f, cost_usd: cleaned }));
-          }}
+        <DecimalInput
+          value={parseFloat(form.cost_usd) || 0}
+          onChange={(n) =>
+            setForm((f) => ({ ...f, cost_usd: n ? String(n) : "" }))
+          }
           className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-teal-500"
           placeholder="0.00"
         />
       </div>
       <div className="w-24">
         <label className="text-xs text-slate-400 block mb-1">Price $</label>
-        <input
-          type="text"
-          inputMode="decimal"
-          autoComplete="off"
-          value={formatWithCommas(form.price_usd)}
-          onChange={(e) => {
-            const cleaned = e.target.value.replace(/,/g, "");
-            if (isPartialDecimal(cleaned))
-              setForm((f) => ({ ...f, price_usd: cleaned }));
-          }}
+        <DecimalInput
+          value={parseFloat(form.price_usd) || 0}
+          onChange={(n) =>
+            setForm((f) => ({ ...f, price_usd: n ? String(n) : "" }))
+          }
           className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-teal-500"
           placeholder="0.00"
         />
       </div>
       <div className="w-28">
         <label className="text-xs text-slate-400 block mb-1">Cost LBP</label>
-        <input
-          type="text"
-          inputMode="decimal"
-          autoComplete="off"
-          value={formatWithCommas(form.cost_lbp)}
-          onChange={(e) => {
-            const cleaned = e.target.value.replace(/,/g, "");
-            if (isPartialDecimal(cleaned))
-              setForm((f) => ({ ...f, cost_lbp: cleaned }));
-          }}
+        <DecimalInput
+          value={parseFloat(form.cost_lbp) || 0}
+          onChange={(n) =>
+            setForm((f) => ({ ...f, cost_lbp: n ? String(n) : "" }))
+          }
           className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-teal-500"
           placeholder="0"
         />
       </div>
       <div className="w-28">
         <label className="text-xs text-slate-400 block mb-1">Price LBP</label>
-        <input
-          type="text"
-          inputMode="decimal"
-          autoComplete="off"
-          value={formatWithCommas(form.price_lbp)}
-          onChange={(e) => {
-            const cleaned = e.target.value.replace(/,/g, "");
-            if (isPartialDecimal(cleaned))
-              setForm((f) => ({ ...f, price_lbp: cleaned }));
-          }}
+        <DecimalInput
+          value={parseFloat(form.price_lbp) || 0}
+          onChange={(n) =>
+            setForm((f) => ({ ...f, price_lbp: n ? String(n) : "" }))
+          }
           className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-teal-500"
           placeholder="0"
         />
