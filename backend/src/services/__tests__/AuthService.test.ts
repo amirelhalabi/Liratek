@@ -99,14 +99,14 @@ describe("AuthService", () => {
       id: 1,
       username: "testuser",
       password_hash: "existing_hash",
-      role: "cashier" as const,
+      role: "staff" as const,
       is_active: 1,
     };
 
     const mockSafeUser = {
       id: 1,
       username: "testuser",
-      role: "cashier" as const,
+      role: "staff" as const,
       is_active: 1,
     };
 
@@ -171,12 +171,12 @@ describe("AuthService", () => {
       mockRepo.findByIdSafe.mockReturnValue({
         id: 2,
         username: "newuser",
-        role: "cashier",
+        role: "staff",
         is_active: 1,
       } as any);
 
       const result = await service.createUser(
-        { username: "newuser", password: "Password123!", role: "cashier" },
+        { username: "newuser", password: "Password123!", role: "staff" },
         "admin",
       );
 
@@ -187,8 +187,8 @@ describe("AuthService", () => {
     it("throws AuthorizationError for non-admin actor", async () => {
       await expect(
         service.createUser(
-          { username: "newuser", password: "Password123!", role: "cashier" },
-          "cashier",
+          { username: "newuser", password: "Password123!", role: "staff" },
+          "staff",
         ),
       ).rejects.toThrow(AuthorizationError);
     });
@@ -196,7 +196,7 @@ describe("AuthService", () => {
     it("throws ValidationError for empty username", async () => {
       await expect(
         service.createUser(
-          { username: "", password: "Password123!", role: "cashier" },
+          { username: "", password: "Password123!", role: "staff" },
           "admin",
         ),
       ).rejects.toThrow(ValidationError);
@@ -205,7 +205,7 @@ describe("AuthService", () => {
     it("throws ValidationError for short username", async () => {
       await expect(
         service.createUser(
-          { username: "ab", password: "Password123!", role: "cashier" },
+          { username: "ab", password: "Password123!", role: "staff" },
           "admin",
         ),
       ).rejects.toThrow(ValidationError);
@@ -219,7 +219,7 @@ describe("AuthService", () => {
 
       await expect(
         service.createUser(
-          { username: "newuser", password: "weak", role: "cashier" },
+          { username: "newuser", password: "weak", role: "staff" },
           "admin",
         ),
       ).rejects.toThrow(ValidationError);
@@ -237,7 +237,7 @@ describe("AuthService", () => {
           {
             username: "existinguser",
             password: "Password123!",
-            role: "cashier",
+            role: "staff",
           },
           "admin",
         ),
@@ -250,7 +250,7 @@ describe("AuthService", () => {
       id: 1,
       username: "testuser",
       password_hash: "existing_hash",
-      role: "cashier",
+      role: "staff",
     };
 
     beforeEach(() => {
@@ -311,7 +311,7 @@ describe("AuthService", () => {
       id: 1,
       username: "testuser",
       password_hash: "existing_hash",
-      role: "cashier",
+      role: "staff",
     };
 
     beforeEach(() => {
@@ -332,7 +332,7 @@ describe("AuthService", () => {
 
     it("throws AuthorizationError for non-admin actor", async () => {
       await expect(
-        service.resetPassword(1, "NewPassword123!", "cashier"),
+        service.resetPassword(1, "NewPassword123!", "staff"),
       ).rejects.toThrow(AuthorizationError);
     });
 
@@ -349,7 +349,7 @@ describe("AuthService", () => {
     const mockUser = {
       id: 2,
       username: "otheruser",
-      role: "cashier",
+      role: "staff",
       is_active: 1,
     };
 
@@ -364,7 +364,7 @@ describe("AuthService", () => {
     });
 
     it("throws AuthorizationError for non-admin actor", () => {
-      expect(() => service.deactivateUser(2, 1, "cashier")).toThrow(
+      expect(() => service.deactivateUser(2, 1, "staff")).toThrow(
         AuthorizationError,
       );
     });
@@ -402,7 +402,7 @@ describe("AuthService", () => {
     });
 
     it("throws AuthorizationError for non-admin actor", () => {
-      expect(() => service.reactivateUser(2, "cashier")).toThrow(
+      expect(() => service.reactivateUser(2, "staff")).toThrow(
         AuthorizationError,
       );
     });
@@ -416,7 +416,7 @@ describe("AuthService", () => {
     it("returns all active users", () => {
       const mockUsers = [
         { id: 1, username: "user1", role: "admin", is_active: 1 },
-        { id: 2, username: "user2", role: "cashier", is_active: 1 },
+        { id: 2, username: "user2", role: "staff", is_active: 1 },
       ];
       mockRepo.findAllSafe.mockReturnValue(mockUsers as any);
 
@@ -430,7 +430,7 @@ describe("AuthService", () => {
     it("returns all users including inactive as admin", () => {
       const mockUsers = [
         { id: 1, username: "user1", role: "admin", is_active: 1 },
-        { id: 2, username: "user2", role: "cashier", is_active: 0 },
+        { id: 2, username: "user2", role: "staff", is_active: 0 },
       ];
       mockRepo.findAllIncludingInactive.mockReturnValue(mockUsers as any);
 
@@ -440,7 +440,7 @@ describe("AuthService", () => {
     });
 
     it("throws AuthorizationError for non-admin actor", () => {
-      expect(() => service.getAllUsersIncludingInactive("cashier")).toThrow(
+      expect(() => service.getAllUsersIncludingInactive("staff")).toThrow(
         AuthorizationError,
       );
     });
@@ -451,7 +451,7 @@ describe("AuthService", () => {
       const mockUser = {
         id: 1,
         username: "testuser",
-        role: "cashier",
+        role: "staff",
         is_active: 1,
       };
       mockRepo.findByIdSafe.mockReturnValue(mockUser as any);
@@ -475,16 +475,16 @@ describe("AuthService", () => {
       expect(service.canPerformAction("admin", "admin")).toBe(true);
     });
 
-    it("denies cashier from admin actions", () => {
-      expect(service.canPerformAction("cashier", "admin")).toBe(false);
+    it("denies staff from admin actions", () => {
+      expect(service.canPerformAction("staff", "admin")).toBe(false);
     });
 
-    it("allows admin to perform cashier actions", () => {
-      expect(service.canPerformAction("admin", "cashier")).toBe(true);
+    it("allows admin to perform staff actions", () => {
+      expect(service.canPerformAction("admin", "staff")).toBe(true);
     });
 
-    it("allows cashier to perform cashier actions", () => {
-      expect(service.canPerformAction("cashier", "cashier")).toBe(true);
+    it("allows staff to perform staff actions", () => {
+      expect(service.canPerformAction("staff", "staff")).toBe(true);
     });
   });
 });
