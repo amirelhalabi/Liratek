@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { X, PlusCircle, ArrowRightLeft } from "lucide-react";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
-import { DecimalInput } from "@liratek/ui";
+import { DecimalInput, Select } from "@liratek/ui";
 
 interface SourceDrawer {
   drawer_name: string;
@@ -163,20 +163,19 @@ export function DrawerTopUpModal({
               <label className="text-xs text-slate-400 block mb-1">
                 Source Drawer
               </label>
-              <select
+              <Select
                 value={selectedDrawer}
-                onChange={(e) => setSelectedDrawer(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors"
-              >
-                {sourceDrawers.length === 0 && (
-                  <option value="">No drawers available</option>
-                )}
-                {sourceDrawers.map((d) => (
-                  <option key={d.drawer_name} value={d.drawer_name}>
-                    {d.drawer_name.replace("_", " ")}
-                  </option>
-                ))}
-              </select>
+                onChange={(v) => setSelectedDrawer(v)}
+                options={
+                  sourceDrawers.length === 0
+                    ? [{ value: "", label: "No drawers available" }]
+                    : sourceDrawers.map((d) => ({
+                        value: d.drawer_name,
+                        label: d.drawer_name.replace("_", " "),
+                      }))
+                }
+                buttonClassName="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors"
+              />
               {currentDrawer && (
                 <p className="mt-1.5 text-xs text-slate-500">
                   Balance: ${currentDrawer.balance_usd.toLocaleString()} USD

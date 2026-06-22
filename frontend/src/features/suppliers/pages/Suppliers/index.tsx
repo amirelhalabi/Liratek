@@ -16,8 +16,7 @@ import {
   useProductSupplierBalancesQuery,
   useProductItemsQuery,
   useSupplierLedgerQuery,
-  useUnsettledTransactionsQuery,
-  useSettleTransactionsMutation,
+  useAllTransactionsQuery,
   useSupplierCashflowMutation,
 } from "../../hooks/useSuppliers";
 
@@ -56,19 +55,22 @@ type LedgerEntry = {
   note: string | null;
   created_by: number | null;
   transaction_id: number | null;
-  transaction_type: string | null;
   created_at: string;
 };
 
-type UnsettledTransaction = {
+type SupplierTxn = {
   id: number;
   service_type: "SEND" | "RECEIVE";
   amount: number;
   currency: string;
   commission: number;
+  cost: number;
   omt_fee: number | null;
   omt_service_type: string | null;
-  client_name: string | null;
+  settlement_id: number | null;
+  is_settled: number;
+  fifo_status: "paid" | "partial" | "unpaid";
+  fifo_paid_usd: number;
   created_at: string;
 };
 
@@ -104,14 +106,6 @@ function EntryTypeBadge({ type }: { type: string }) {
   return (
     <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${color}`}>
       {label}
-    </span>
-  );
-}
-
-function AutoBadge() {
-  return (
-    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-900/50 text-sky-300">
-      Auto
     </span>
   );
 }
@@ -157,13 +151,6 @@ export default function SuppliersPage() {
   const [selectedSupplierId, setSelectedSupplierId] = useState<number | null>(
     null,
   );
-  const [selectedTxnIds, setSelectedTxnIds] = useState<Set<number>>(new Set());
-  const [settleNote, setSettleNote] = useState("");
-  const [settleDrawer] = useState("General");
-  const [showSettleConfirm, setShowSettleConfirm] = useState(false);
-  const [settlePaymentLines, setSettlePaymentLines] = useState<PaymentLine[]>(
-    [],
-  );
   const [activeTab, setActiveTab] = useState<"settle" | "manual" | "items">("settle");
   // Pay / Receive (LIRA-059): cashflow against the supplier via payment legs
   const [cashflowDirection, setCashflowDirection] = useState<"PAY" | "RECEIVE">(
@@ -201,17 +188,11 @@ export default function SuppliersPage() {
   const isProductSupplier = selectedSupplier?.is_system === 0;
 
   const ledgerQuery = useSupplierLedgerQuery(selectedSupplierId);
-  const unsettledQuery = useUnsettledTransactionsQuery(
+  const allTxnsQuery = useAllTransactionsQuery(
     isProductSupplier ? null : (selectedSupplier?.provider ?? null),
   );
   const productItemsQuery = useProductItemsQuery(
     isProductSupplier ? selectedSupplierId : null,
-  );
-
-  // ── Mutations ─────────────────────────────────────────────────────────────
-  const settleTransactions = useSettleTransactionsMutation(
-    selectedSupplierId,
-    selectedSupplier?.provider ?? null,
   );
 
   // ── Derived data (pure computations, no state) ────────────────────────────
@@ -219,9 +200,9 @@ export default function SuppliersPage() {
   const balances = (balancesQuery.data ?? []) as SupplierBalance[];
   const productBalances = (productBalancesQuery.data ?? []) as SupplierBalance[];
   const ledger = (ledgerQuery.data ?? []) as LedgerEntry[];
-  const unsettledTxns = (unsettledQuery.data ?? []) as UnsettledTransaction[];
+  const allTxns = (allTxnsQuery.data ?? []) as SupplierTxn[];
   const productItems = (productItemsQuery.data ?? []) as Array<{
-    product_id: number; name: string; quantity: number; cost: number; total: number;
+    product_id: number; name: string; quantity: number; cost: number; total: number; created_at: string;
   }>;
 
   const sortedSuppliers = useMemo(
@@ -264,45 +245,9 @@ export default function SuppliersPage() {
     return { usd, lbp };
   }, [sortedSuppliers, activeBalanceMap]);
 
-  const selectedUnsettled = useMemo(
-    () => unsettledTxns.filter((t) => selectedTxnIds.has(t.id)),
-    [unsettledTxns, selectedTxnIds],
-  );
-  const settleTotalOwedUsd = useMemo(
-    () =>
-      selectedUnsettled
-        .filter((t) => t.currency !== "LBP")
-        .reduce((s, t) => s + Math.abs(t.amount) + t.commission, 0),
-    [selectedUnsettled],
-  );
-  const settleCommissionUsd = useMemo(
-    () =>
-      selectedUnsettled
-        .filter((t) => t.currency !== "LBP")
-        .reduce((s, t) => s + t.commission, 0),
-    [selectedUnsettled],
-  );
-  const settleNetPayUsd = Math.max(0, settleTotalOwedUsd - settleCommissionUsd);
-
-  const settleTotalOwedLbp = useMemo(
-    () =>
-      selectedUnsettled
-        .filter((t) => t.currency === "LBP")
-        .reduce((s, t) => s + Math.abs(t.amount) + t.commission, 0),
-    [selectedUnsettled],
-  );
-  const settleCommissionLbp = useMemo(
-    () =>
-      selectedUnsettled
-        .filter((t) => t.currency === "LBP")
-        .reduce((s, t) => s + t.commission, 0),
-    [selectedUnsettled],
-  );
-  const settleNetPayLbp = Math.max(0, settleTotalOwedLbp - settleCommissionLbp);
-
   const hasOmtFee = useMemo(
-    () => unsettledTxns.some((t) => t.omt_fee != null && t.omt_fee > 0),
-    [unsettledTxns],
+    () => allTxns.some((t) => t.omt_fee != null && t.omt_fee > 0),
+    [allTxns],
   );
 
   /**
@@ -326,8 +271,9 @@ export default function SuppliersPage() {
     defaultDirection: "PAY" | "RECEIVE";
   }>(() => {
     if (isProductSupplier) {
-      const total = productItems.reduce((s, i) => s + i.total, 0);
-      return { payAmount: total, payCurrency: "USD", defaultDirection: "PAY" };
+      const bal = activeBalanceMap.get(selectedSupplierId ?? 0);
+      const owed = Math.max(0, Number(bal?.total_usd ?? 0));
+      return { payAmount: owed, payCurrency: "USD", defaultDirection: "PAY" };
     }
     const bal = activeBalanceMap.get(selectedSupplierId ?? 0);
     const usd = Number(bal?.total_usd ?? 0);
@@ -358,6 +304,30 @@ export default function SuppliersPage() {
     };
   }, [isProductSupplier, productItems, activeBalanceMap, selectedSupplierId, exchangeRate]);
 
+  // FIFO payment coverage per product item.
+  // totalPaid = totalProductCosts − currentBalance (balance = costs − payments).
+  const itemsWithCoverage = useMemo(() => {
+    if (!isProductSupplier || productItems.length === 0) return [];
+    const bal = activeBalanceMap.get(selectedSupplierId ?? 0);
+    const currentBalanceUsd = Math.max(0, Number(bal?.total_usd ?? 0));
+    const totalProductCosts = productItems.reduce((s, i) => s + i.total, 0);
+    const totalPaid = Math.max(0, totalProductCosts - currentBalanceUsd);
+
+    let remaining = totalPaid;
+    return productItems.map((item) => {
+      if (remaining >= item.total - 0.005) {
+        remaining = Math.max(0, remaining - item.total);
+        return { ...item, paid: item.total, status: "PAID" as const };
+      } else if (remaining > 0.005) {
+        const paid = remaining;
+        remaining = 0;
+        return { ...item, paid, status: "PARTIAL" as const };
+      } else {
+        return { ...item, paid: 0, status: "UNPAID" as const };
+      }
+    });
+  }, [isProductSupplier, productItems, activeBalanceMap, selectedSupplierId]);
+
   // Auto-set PAY/RECEIVE direction whenever the Pay/Receive tab becomes active
   // or the selected supplier changes. The user can still override it manually.
   useEffect(() => {
@@ -365,14 +335,6 @@ export default function SuppliersPage() {
       setCashflowDirection(defaultDirection);
     }
   }, [activeTab, selectedSupplierId, defaultDirection]);
-
-  const pendingCommissionTotal = useMemo(
-    () =>
-      unsettledTxns
-        .filter((t) => t.currency !== "LBP")
-        .reduce((s, t) => s + t.commission, 0),
-    [unsettledTxns],
-  );
 
   // ── Handlers ──────────────────────────────────────────────────────────────
   const handleCashflow = async () => {
@@ -391,6 +353,7 @@ export default function SuppliersPage() {
         currency_code: p.currencyCode,
         amount: p.amount,
       })),
+      exchange_rate: exchangeRate,
       // Omit `note` entirely when empty (exactOptionalPropertyTypes: the field is
       // `note?: string`, so it must be absent rather than explicitly undefined).
       ...(trimmedNote ? { note: trimmedNote } : {}),
@@ -404,44 +367,10 @@ export default function SuppliersPage() {
     setCashflowKey((k) => k + 1);
   };
 
-  const handleSettle = async () => {
-    if (!selectedSupplier || !selectedSupplierId) return;
-    if (selectedTxnIds.size === 0) return;
-
-    try {
-      const res = await settleTransactions.mutateAsync({
-        supplier_id: selectedSupplierId,
-        financial_service_ids: [...selectedTxnIds],
-        amount_usd: settleNetPayUsd,
-        amount_lbp: settleNetPayLbp,
-        commission_usd: settleCommissionUsd,
-        commission_lbp: settleCommissionLbp,
-        drawer_name: settleDrawer,
-        note: settleNote || `Settlement: ${selectedTxnIds.size} txns`,
-        payments: settlePaymentLines.map((p) => ({
-          method: p.method,
-          currency_code: p.currencyCode,
-          amount: p.amount,
-        })),
-      });
-      if (!(res as { success: boolean })?.success) {
-        alert((res as { error?: string })?.error || "Settlement failed");
-        return;
-      }
-      setShowSettleConfirm(false);
-      setSettleNote("");
-      setSelectedTxnIds(new Set());
-    } catch {
-      alert("Settlement failed");
-    }
-  };
-
   const supplierCashflow = useSupplierCashflowMutation(
     selectedSupplierId,
     selectedSupplier?.provider ?? null,
   );
-
-  const settling = settleTransactions.isPending;
 
   return (
     <div className="h-full bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col gap-6 overflow-auto animate-in fade-in duration-500">
@@ -601,12 +530,6 @@ export default function SuppliersPage() {
                         </>
                       );
                     })()}
-                    {!isProductSupplier && pendingCommissionTotal > 0 && (
-                      <span className="ml-3 text-amber-400">
-                        ⚠ ${pendingCommissionTotal.toFixed(4)} pending
-                        commission
-                      </span>
-                    )}
                   </div>
                 </div>
                 <button
@@ -615,7 +538,7 @@ export default function SuppliersPage() {
                     balancesQuery.refetch();
                     productBalancesQuery.refetch();
                     ledgerQuery.refetch();
-                    if (!isProductSupplier) unsettledQuery.refetch();
+                    if (!isProductSupplier) allTxnsQuery.refetch();
                     if (isProductSupplier) productItemsQuery.refetch();
                   }}
                   className="px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm"
@@ -629,13 +552,13 @@ export default function SuppliersPage() {
                 <div className="flex gap-1 mb-4 border-b border-slate-700">
                   {(isProductSupplier
                     ? [
-                        { id: "items" as const, label: "Items" },
+                        { id: "items" as const, label: "Purchases" },
                         { id: "manual" as const, label: "Pay / Receive" },
                       ]
                     : [
                         {
                           id: "settle" as const,
-                          label: `Settle Transactions${unsettledTxns.length > 0 ? ` (${unsettledTxns.length})` : ""}`,
+                          label: `Transactions${allTxns.length > 0 ? ` (${allTxns.length})` : ""}`,
                         },
                         { id: "manual" as const, label: "Pay / Receive" },
                       ]
@@ -655,40 +578,70 @@ export default function SuppliersPage() {
                 </div>
               )}
 
-              {/* Tab: Items (product suppliers only) */}
+              {/* Tab: Purchases — product items with FIFO payment coverage */}
               {selectedSupplier.is_active !== 0 && activeTab === "items" && (
                 <div>
                   {productItemsQuery.isLoading ? (
                     <div className="text-slate-400 text-sm py-6 text-center">Loading items…</div>
-                  ) : productItems.length === 0 ? (
+                  ) : itemsWithCoverage.length === 0 ? (
                     <div className="text-slate-500 text-sm py-6 text-center">
                       No inventory items found for {selectedSupplier.name}.
                     </div>
                   ) : (
                     <div className="border border-slate-700 rounded-xl overflow-hidden">
                       <div className="grid grid-cols-12 bg-slate-900/60 text-slate-300 text-xs font-semibold px-4 py-2">
-                        <div className="col-span-5">Product</div>
-                        <div className="col-span-2 text-right">Qty</div>
+                        <div className="col-span-3">Product</div>
+                        <div className="col-span-1 text-right">Qty</div>
                         <div className="col-span-2 text-right">Cost</div>
-                        <div className="col-span-3 text-right">Total</div>
+                        <div className="col-span-1 text-right">Total</div>
+                        <div className="col-span-1 text-right">Paid</div>
+                        <div className="col-span-2 text-right">Status</div>
+                        <div className="col-span-2 text-right">Date</div>
                       </div>
                       <div className="max-h-[45vh] overflow-y-auto divide-y divide-slate-700">
-                        {productItems.map((item) => (
+                        {itemsWithCoverage.map((item) => (
                           <div
                             key={item.product_id}
                             className="grid grid-cols-12 px-4 py-2.5 text-sm items-center hover:bg-slate-700/30"
                           >
-                            <div className="col-span-5 text-white font-medium truncate">{item.name}</div>
-                            <div className="col-span-2 text-right font-mono text-slate-300">{item.quantity}</div>
+                            <div className="col-span-3 text-white font-medium truncate">{item.name}</div>
+                            <div className="col-span-1 text-right font-mono text-slate-300">{item.quantity}</div>
                             <div className="col-span-2 text-right font-mono text-slate-300">${item.cost.toFixed(2)}</div>
-                            <div className="col-span-3 text-right font-mono text-orange-300 font-semibold">${item.total.toFixed(2)}</div>
+                            <div className="col-span-1 text-right font-mono text-orange-300 font-semibold">${item.total.toFixed(2)}</div>
+                            <div className="col-span-1 text-right font-mono text-slate-300 text-xs">${item.paid.toFixed(2)}</div>
+                            <div className="col-span-2 text-right">
+                              {item.status === "PAID" && (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">
+                                  Paid
+                                </span>
+                              )}
+                              {item.status === "PARTIAL" && (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-500/15 text-amber-400 border border-amber-500/20">
+                                  Partial
+                                </span>
+                              )}
+                              {item.status === "UNPAID" && (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-700 text-slate-400 border border-slate-600">
+                                  Unpaid
+                                </span>
+                              )}
+                            </div>
+                            <div className="col-span-2 text-right text-xs text-slate-400">
+                              {item.created_at
+                                ? new Date(item.created_at).toLocaleString()
+                                : "—"}
+                            </div>
                           </div>
                         ))}
                       </div>
-                      <div className="flex justify-end px-4 py-2.5 bg-slate-900/40 border-t border-slate-700">
-                        <span className="text-sm text-slate-400 mr-3">Total owed</span>
+                      <div className="flex justify-between px-4 py-2.5 bg-slate-900/40 border-t border-slate-700 text-xs text-slate-400">
+                        <span>
+                          {itemsWithCoverage.filter((i) => i.status === "PAID").length} paid ·{" "}
+                          {itemsWithCoverage.filter((i) => i.status === "PARTIAL").length} partial ·{" "}
+                          {itemsWithCoverage.filter((i) => i.status === "UNPAID").length} unpaid
+                        </span>
                         <span className="font-mono font-bold text-white">
-                          ${productItems.reduce((s, i) => s + i.total, 0).toFixed(2)}
+                          Outstanding: ${itemsWithCoverage.reduce((s, i) => s + (i.total - i.paid), 0).toFixed(2)}
                         </span>
                       </div>
                     </div>
@@ -696,77 +649,31 @@ export default function SuppliersPage() {
                 </div>
               )}
 
-              {/* Tab: Settle Transactions */}
+              {/* Tab: Transactions (full history, read-only) */}
               {selectedSupplier.is_active !== 0 && activeTab === "settle" && (
                 <div className="space-y-3">
-                  {unsettledTxns.length === 0 ? (
+                  {allTxnsQuery.isLoading ? (
+                    <div className="text-slate-400 text-sm py-6 text-center">Loading transactions…</div>
+                  ) : allTxns.length === 0 ? (
                     <div className="text-slate-500 text-sm py-6 text-center">
-                      No pending transactions to settle for{" "}
-                      {selectedSupplier.name}
+                      No transactions found for {selectedSupplier.name}
                     </div>
                   ) : (
-                    <>
-                      <div className="flex items-center justify-between">
-                        <label className="flex items-center gap-2 text-slate-300 cursor-pointer text-sm">
-                          <input
-                            type="checkbox"
-                            checked={
-                              selectedTxnIds.size === unsettledTxns.length &&
-                              unsettledTxns.length > 0
-                            }
-                            onChange={(e) =>
-                              setSelectedTxnIds(
-                                e.target.checked
-                                  ? new Set(unsettledTxns.map((t) => t.id))
-                                  : new Set(),
-                              )
-                            }
-                            className="w-4 h-4 rounded border-slate-600 bg-slate-900"
-                          />
-                          Select All ({unsettledTxns.length})
-                        </label>
-                        <button
-                          onClick={() => setShowSettleConfirm(true)}
-                          disabled={selectedTxnIds.size === 0}
-                          className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium"
-                        >
-                          Settle{" "}
-                          {selectedTxnIds.size > 0
-                            ? `(${selectedTxnIds.size})`
-                            : ""}
-                        </button>
+                    <div className="border border-slate-700 rounded-xl overflow-hidden">
+                      <div className="grid grid-cols-12 gap-2 bg-slate-900/60 text-slate-300 text-xs font-semibold px-3 py-2">
+                        <div className={hasOmtFee ? "col-span-2" : "col-span-3"}>Type</div>
+                        <div className={`${hasOmtFee ? "col-span-2" : "col-span-3"} text-right`}>Amount</div>
+                        {hasOmtFee && <div className="col-span-2 text-right">OMT Fee</div>}
+                        <div className="col-span-2 text-right">Commission</div>
+                        <div className="col-span-2 text-right">Status</div>
+                        <div className="col-span-2">Date</div>
                       </div>
-
-                      <div className="border border-slate-700 rounded-xl overflow-hidden max-h-[40vh] overflow-y-auto">
-                        <div className="grid grid-cols-12 gap-2 bg-slate-900/60 text-slate-300 text-xs font-semibold px-3 py-2">
-                          <div className="col-span-1" />
-                          <div className={hasOmtFee ? "col-span-2" : "col-span-3"}>Type</div>
-                          <div className={`${hasOmtFee ? "col-span-2" : "col-span-3"} text-right`}>Amount</div>
-                          {hasOmtFee && <div className="col-span-2 text-right">OMT Fee</div>}
-                          <div className="col-span-2 text-right">Commission</div>
-                          <div className="col-span-2">Date</div>
-                        </div>
-                        {unsettledTxns.map((t) => (
+                      <div className="max-h-[40vh] overflow-y-auto">
+                        {allTxns.map((t) => (
                           <div
                             key={t.id}
                             className="grid grid-cols-12 gap-2 px-3 py-2.5 text-sm border-t border-slate-700 items-center hover:bg-slate-700/30"
                           >
-                            <div className="col-span-1">
-                              <input
-                                type="checkbox"
-                                checked={selectedTxnIds.has(t.id)}
-                                onChange={(e) => {
-                                  const next = new Set(selectedTxnIds);
-                                  if (e.target.checked) {
-                                    next.add(t.id);
-                                  } else {
-                                    next.delete(t.id);
-                                  }
-                                  setSelectedTxnIds(next);
-                                }}
-                                className="w-4 h-4 rounded border-slate-600 bg-slate-900"
-                              />
-                            </div>
                             <div className={`${hasOmtFee ? "col-span-2" : "col-span-3"} text-xs text-slate-300`}>
                               {t.omt_service_type || t.service_type}
                             </div>
@@ -781,9 +688,30 @@ export default function SuppliersPage() {
                               </div>
                             )}
                             <div className="col-span-2 text-right font-mono text-emerald-400">
-                              {t.currency === "LBP"
-                                ? `${Math.round(t.commission).toLocaleString()} LBP`
-                                : `$${t.commission.toFixed(4)}`}
+                              {t.commission > 0
+                                ? t.currency === "LBP"
+                                  ? `${Math.round(t.commission).toLocaleString()} LBP`
+                                  : `$${t.commission.toFixed(4)}`
+                                : <span className="text-slate-600">—</span>}
+                            </div>
+                            <div className="col-span-2 text-right">
+                              {t.settlement_id != null ? (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-900/50 text-blue-300">
+                                  Settled
+                                </span>
+                              ) : t.fifo_status === "paid" ? (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-green-900/50 text-green-300">
+                                  Paid
+                                </span>
+                              ) : t.fifo_status === "partial" ? (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-900/50 text-amber-300">
+                                  Partial
+                                </span>
+                              ) : (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-900/50 text-red-400">
+                                  Unpaid
+                                </span>
+                              )}
                             </div>
                             <div className="col-span-2 text-xs text-slate-400">
                               {new Date(t.created_at).toLocaleString()}
@@ -791,45 +719,27 @@ export default function SuppliersPage() {
                           </div>
                         ))}
                       </div>
-
-                      {selectedTxnIds.size > 0 && (
-                        <div className="bg-slate-900/60 border border-slate-700 rounded-xl p-4 text-sm space-y-1">
-                          {settleTotalOwedUsd > 0 && (
-                            <>
-                              <div className="flex justify-between text-slate-300">
-                                <span>Total owed to {selectedSupplier.name} (USD):</span>
-                                <span className="font-mono font-bold text-white">${settleTotalOwedUsd.toFixed(2)}</span>
-                              </div>
-                              <div className="flex justify-between text-slate-300">
-                                <span>Your commission (USD):</span>
-                                <span className="font-mono text-emerald-400">−${settleCommissionUsd.toFixed(4)}</span>
-                              </div>
-                            </>
-                          )}
-                          {settleTotalOwedLbp > 0 && (
-                            <>
-                              <div className="flex justify-between text-slate-300">
-                                <span>Total owed to {selectedSupplier.name} (LBP):</span>
-                                <span className="font-mono font-bold text-white">{Math.round(settleTotalOwedLbp).toLocaleString()} LBP</span>
-                              </div>
-                              <div className="flex justify-between text-slate-300">
-                                <span>Your commission (LBP):</span>
-                                <span className="font-mono text-emerald-400">−{Math.round(settleCommissionLbp).toLocaleString()} LBP</span>
-                              </div>
-                            </>
-                          )}
-                          <div className="h-px bg-slate-600 my-1" />
-                          <div className="flex justify-between font-bold">
-                            <span className="text-white">Net you pay {selectedSupplier.name}:</span>
-                            <span className="font-mono text-blue-400 text-base">
-                              {settleNetPayUsd > 0 && `$${settleNetPayUsd.toFixed(2)}`}
-                              {settleNetPayUsd > 0 && settleNetPayLbp > 0 && " + "}
-                              {settleNetPayLbp > 0 && `${Math.round(settleNetPayLbp).toLocaleString()} LBP`}
-                            </span>
-                          </div>
-                        </div>
-                      )}
-                    </>
+                      <div className="flex justify-between px-4 py-2.5 bg-slate-900/40 border-t border-slate-700 text-xs text-slate-400">
+                        <span>
+                          {allTxns.filter(t => t.fifo_status === "paid").length} paid ·{" "}
+                          {allTxns.filter(t => t.fifo_status === "partial").length} partial ·{" "}
+                          {allTxns.filter(t => t.fifo_status === "unpaid").length} unpaid
+                        </span>
+                        <span className="font-mono font-bold text-white">
+                          {(() => {
+                            const outstandingUsd = allTxns
+                              .filter(t => t.currency !== "LBP")
+                              .reduce((s, t) => {
+                                const owed = t.service_type === "RECEIVE"
+                                  ? Math.abs(t.amount) + t.commission
+                                  : t.cost > 0 ? t.cost : Math.abs(t.amount);
+                                return s + Math.max(0, owed - t.fifo_paid_usd);
+                              }, 0);
+                            return outstandingUsd > 0 ? `Outstanding: $${outstandingUsd.toFixed(2)}` : "Fully covered";
+                          })()}
+                        </span>
+                      </div>
+                    </div>
                   )}
                 </div>
               )}
@@ -909,7 +819,9 @@ export default function SuppliersPage() {
               )}
 
               {/* Ledger history */}
-              <div className="mt-4 border border-slate-700 rounded-xl overflow-hidden">
+              <div className="mt-6">
+                <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 px-1">Payments</h3>
+              <div className="border border-slate-700 rounded-xl overflow-hidden">
                 <div className="grid grid-cols-12 gap-2 bg-slate-900/60 text-slate-400 text-xs font-semibold px-3 py-2">
                   <div className="col-span-2">Type</div>
                   <div className="col-span-2 text-right">USD</div>
@@ -925,7 +837,6 @@ export default function SuppliersPage() {
                     >
                       <div className="col-span-2 flex items-center gap-1">
                         <EntryTypeBadge type={row.entry_type} />
-                        {row.transaction_type && <AutoBadge />}
                       </div>
                       <div
                         className={`col-span-2 text-right font-mono ${row.amount_usd < 0 ? "text-green-400" : row.amount_usd > 0 ? "text-red-400" : "text-slate-500"}`}
@@ -951,113 +862,17 @@ export default function SuppliersPage() {
                   ))}
                   {ledger.length === 0 && (
                     <div className="text-slate-500 text-sm p-3">
-                      No ledger entries yet.
+                      No payment entries yet.
                     </div>
                   )}
                 </div>
+              </div>
               </div>
             </>
           )}
         </div>
       </div>
 
-      {/* Settlement Confirmation Modal */}
-      {showSettleConfirm && selectedSupplier && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-md space-y-4">
-            <h3 className="text-lg font-bold text-white">
-              Settle {selectedTxnIds.size} transaction
-              {selectedTxnIds.size !== 1 ? "s" : ""} with{" "}
-              {selectedSupplier.name}
-            </h3>
-
-            <div className="bg-slate-800 rounded-xl p-4 space-y-2 text-sm">
-              {settleTotalOwedUsd > 0 && (
-                <>
-                  <div className="flex justify-between text-slate-300">
-                    <span>Total owed (USD):</span>
-                    <span className="font-mono font-bold text-white">${settleTotalOwedUsd.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-slate-300">
-                    <span>Commission (USD):</span>
-                    <span className="font-mono text-emerald-400">−${settleCommissionUsd.toFixed(4)}</span>
-                  </div>
-                </>
-              )}
-              {settleTotalOwedLbp > 0 && (
-                <>
-                  <div className="flex justify-between text-slate-300">
-                    <span>Total owed (LBP):</span>
-                    <span className="font-mono font-bold text-white">{Math.round(settleTotalOwedLbp).toLocaleString()} LBP</span>
-                  </div>
-                  <div className="flex justify-between text-slate-300">
-                    <span>Commission (LBP):</span>
-                    <span className="font-mono text-emerald-400">−{Math.round(settleCommissionLbp).toLocaleString()} LBP</span>
-                  </div>
-                </>
-              )}
-              <div className="h-px bg-slate-600" />
-              <div className="flex justify-between font-bold">
-                <span className="text-white">Net payment to {selectedSupplier.name}:</span>
-                <span className="font-mono text-blue-400 text-base">
-                  {settleNetPayUsd > 0 && `$${settleNetPayUsd.toFixed(2)}`}
-                  {settleNetPayUsd > 0 && settleNetPayLbp > 0 && " + "}
-                  {settleNetPayLbp > 0 && `${Math.round(settleNetPayLbp).toLocaleString()} LBP`}
-                </span>
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs text-slate-400 mb-2">
-                Payment Method
-              </label>
-              <MultiPaymentInput
-                totalAmount={settleNetPayUsd > 0 ? settleNetPayUsd : settleNetPayLbp}
-                totalAmountCurrency={settleNetPayUsd === 0 && settleNetPayLbp > 0 ? "LBP" : "USD"}
-                currency={settleNetPayUsd === 0 && settleNetPayLbp > 0 ? "LBP" : "USD"}
-                onChange={setSettlePaymentLines}
-                showPmFee={false}
-                showDiscount={false}
-                paymentMethods={methods}
-                currencies={[
-                  { code: "USD", symbol: "$" },
-                  { code: "LBP", symbol: "LBP" },
-                ]}
-                exchangeRate={exchangeRate}
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs text-slate-400 mb-1">
-                Note (optional)
-              </label>
-              <input
-                value={settleNote}
-                onChange={(e) => setSettleNote(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"
-                placeholder={`Settlement with ${selectedSupplier.name}`}
-              />
-            </div>
-
-            <div className="flex gap-3 pt-2">
-              <button
-                onClick={() => setShowSettleConfirm(false)}
-                disabled={settling}
-                className="flex-1 px-4 py-2 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-800"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSettle}
-                disabled={settling}
-                className="flex-1 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold"
-              >
-                {settling ? "Settling..." : "Confirm Settlement"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

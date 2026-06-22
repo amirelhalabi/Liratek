@@ -4452,6 +4452,114 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 109,
+    name: "add_supplier_purchases",
+    description: "Track delivery batches from product suppliers for FIFO payment coverage.",
+    type: "typescript",
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS supplier_purchases (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          supplier_id INTEGER NOT NULL REFERENCES suppliers(id) ON DELETE CASCADE,
+          total_usd REAL NOT NULL CHECK(total_usd > 0),
+          paid_usd  REAL NOT NULL DEFAULT 0,
+          note      TEXT,
+          created_by INTEGER REFERENCES users(id),
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX idx_supplier_purchases_supplier_id ON supplier_purchases(supplier_id);
+        CREATE INDEX idx_supplier_purchases_created_at  ON supplier_purchases(created_at);
+      `);
+      console.log("Migration v109: supplier_purchases table created");
+    },
+    down(db) {
+      db.exec(`DROP TABLE IF EXISTS supplier_purchases;`);
+    },
+  },
+  {
+    version: 110,
+    name: "supplier_ledger_is_auto",
+    description: "Add is_auto flag to supplier_ledger to distinguish auto-entries from manual Pay/Receive entries",
+    type: "typescript",
+    up(db) {
+      db.exec(`ALTER TABLE supplier_ledger ADD COLUMN is_auto INTEGER NOT NULL DEFAULT 0`);
+      db.exec(`UPDATE supplier_ledger SET is_auto = 1 WHERE note LIKE 'Auto:%'`);
+      console.log("Migration v110: added is_auto to supplier_ledger");
+    },
+    down(db) {
+      // SQLite doesn't support DROP COLUMN natively before 3.35 — data loss acceptable on rollback
+      db.exec(`CREATE TABLE supplier_ledger_backup AS SELECT id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, created_at FROM supplier_ledger`);
+      db.exec(`DROP TABLE supplier_ledger`);
+      db.exec(`ALTER TABLE supplier_ledger_backup RENAME TO supplier_ledger`);
+      console.log("Migration v110 rolled back: removed is_auto from supplier_ledger");
+    },
+  },
+  {
+    version: 111,
+    name: "add_hold_money",
+    description: "Add hold_money table for holding cash on behalf of clients until collection",
+    type: "typescript",
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS hold_money (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          client_name TEXT NOT NULL,
+          usd_amount REAL NOT NULL DEFAULT 0,
+          lbp_amount REAL NOT NULL DEFAULT 0,
+          status TEXT NOT NULL DEFAULT 'held' CHECK (status IN ('held', 'collected')),
+          notes TEXT,
+          created_by INTEGER REFERENCES users(id),
+          collected_by INTEGER REFERENCES users(id),
+          collected_at DATETIME,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      db.exec(`CREATE INDEX idx_hold_money_status ON hold_money(status)`);
+      db.exec(`CREATE INDEX idx_hold_money_created_at ON hold_money(created_at)`);
+      console.log("Migration v111: hold_money table created");
+    },
+    down(db) {
+      db.exec(`DROP TABLE IF EXISTS hold_money`);
+    },
+  },
+  {
+    version: 112,
+    name: "add_phone_to_hold_money",
+    description: "Add optional phone_number to hold_money (customer contact for collection)",
+    type: "typescript",
+    up(db) {
+      db.exec(`ALTER TABLE hold_money ADD COLUMN phone_number TEXT`);
+      console.log("Migration v112: added phone_number to hold_money");
+    },
+    down(db) {
+      // SQLite < 3.35 has no DROP COLUMN — rebuild without phone_number.
+      db.exec(`
+        CREATE TABLE hold_money_v112_bak (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          client_name TEXT NOT NULL,
+          usd_amount REAL NOT NULL DEFAULT 0,
+          lbp_amount REAL NOT NULL DEFAULT 0,
+          status TEXT NOT NULL DEFAULT 'held' CHECK (status IN ('held', 'collected')),
+          notes TEXT,
+          created_by INTEGER REFERENCES users(id),
+          collected_by INTEGER REFERENCES users(id),
+          collected_at DATETIME,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        INSERT INTO hold_money_v112_bak
+          (id, client_name, usd_amount, lbp_amount, status, notes, created_by, collected_by, collected_at, created_at, updated_at)
+          SELECT id, client_name, usd_amount, lbp_amount, status, notes, created_by, collected_by, collected_at, created_at, updated_at FROM hold_money;
+        DROP TABLE hold_money;
+        ALTER TABLE hold_money_v112_bak RENAME TO hold_money;
+        CREATE INDEX idx_hold_money_status ON hold_money(status);
+        CREATE INDEX idx_hold_money_created_at ON hold_money(created_at);
+      `);
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

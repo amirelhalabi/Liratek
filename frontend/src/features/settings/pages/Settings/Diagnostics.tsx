@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { FolderOpen, Pencil } from "lucide-react";
 import UpdatesPanel from "./UpdatesPanel";
-import { appEvents, useApi } from "@liratek/ui";
+import { appEvents, useApi, Select } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 
 export default function Diagnostics() {
@@ -546,17 +546,15 @@ export default function Diagnostics() {
                 : "No backup selected"}
             </span>
             {backups.length > 1 && (
-              <select
+              <Select
                 value={selectedBackupPath}
-                onChange={(e) => setSelectedBackupPath(e.target.value)}
-                className="bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-300 focus:outline-none focus:border-violet-500 shrink-0"
-              >
-                {backups.map((b) => (
-                  <option key={b.path} value={b.path}>
-                    {b.filename}
-                  </option>
-                ))}
-              </select>
+                onChange={(v) => setSelectedBackupPath(v)}
+                options={backups.map((b) => ({
+                  value: b.path,
+                  label: b.filename,
+                }))}
+                buttonClassName="bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-slate-300 focus:outline-none focus:border-violet-500 shrink-0"
+              />
             )}
           </div>
           <div className="flex gap-2">

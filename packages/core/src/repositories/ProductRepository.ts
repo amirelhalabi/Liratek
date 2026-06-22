@@ -248,7 +248,9 @@ export class ProductRepository extends BaseRepository<ProductEntity> {
                 cost_price_usd = ?, selling_price_usd = ?,
                 stock_quantity = ?, min_stock_level = ?,
                 image_url = COALESCE(?, image_url), item_type = COALESCE(?, item_type),
-                supplier = COALESCE(?, supplier), is_active = 1, is_deleted = 0, updated_at = datetime('now')
+                supplier = COALESCE(?, supplier), is_active = 1, is_deleted = 0,
+                created_at = COALESCE(created_at, datetime('now')),
+                updated_at = datetime('now')
               WHERE id = ?`,
             )
             .run(

@@ -438,6 +438,26 @@ export const CustomServiceCreateSchema = z.object({
 });
 
 // =============================================================================
+// Hold Money
+// =============================================================================
+
+export const HoldMoneyCreateSchema = z
+  .object({
+    client_name: z.string().trim().min(1, "Customer name is required"),
+    phone_number: z.string().optional(),
+    // .finite() rejects Infinity (e.g. "1e999" coerces to Infinity) so a
+    // non-finite amount can never reach the drawer balance and corrupt it.
+    usd_amount: z.coerce.number().finite().nonnegative().default(0),
+    lbp_amount: z.coerce.number().finite().nonnegative().default(0),
+    notes: z.string().optional(),
+    transaction_time: z.string().optional(),
+  })
+  .refine((d) => (d.usd_amount ?? 0) > 0 || (d.lbp_amount ?? 0) > 0, {
+    message: "At least one of USD or LBP amount is required",
+    path: ["usd_amount"],
+  });
+
+// =============================================================================
 // Debt Repayment
 // =============================================================================
 
@@ -541,6 +561,14 @@ export const SupplierCashflowSchema = z.object({
   supplier_id: z.number().int().positive(),
   direction: z.enum(["PAY", "RECEIVE"]),
   payments: z.array(SettlementPaymentSchema).min(1),
+  note: z.string().optional(),
+  exchange_rate: z.number().positive().optional(),
+});
+
+/** Log a delivery batch for a product supplier (FIFO payment coverage). */
+export const SupplierPurchaseCreateSchema = z.object({
+  supplier_id: z.number().int().positive(),
+  total_usd: z.number().positive("Amount must be greater than 0"),
   note: z.string().optional(),
 });
 

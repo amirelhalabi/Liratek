@@ -297,6 +297,19 @@ export type {
   CustomServiceSummary,
 } from "./CustomServiceRepository.js";
 
+// Hold Money Repository
+export {
+  HoldMoneyRepository,
+  getHoldMoneyRepository,
+  resetHoldMoneyRepository,
+} from "./HoldMoneyRepository.js";
+export type {
+  HoldMoneyEntity,
+  HoldMoneyStatus,
+  CreateHoldMoneyInput,
+  HoldMoneyResult,
+} from "./HoldMoneyRepository.js";
+
 // Transaction Repository
 export {
   TransactionRepository,
@@ -331,6 +344,17 @@ export type {
   ProductSupplierWithCount,
   ProductSupplierItem,
 } from "./ProductSupplierRepository.js";
+
+// Supplier Purchase Repository
+export {
+  SupplierPurchaseRepository,
+  getSupplierPurchaseRepository,
+  resetSupplierPurchaseRepository,
+} from "./SupplierPurchaseRepository.js";
+export type {
+  SupplierPurchase,
+  CreateSupplierPurchaseData,
+} from "./SupplierPurchaseRepository.js";
 
 // Loto Repository (facade - backward compat)
 export {

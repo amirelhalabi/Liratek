@@ -82,6 +82,8 @@ const STATIC_TYPE_LABELS: Record<string, string> = {
   DRAWER_TOPUP: "General Top-up",
   CHECKPOINT: "Checkpoint",
   SUPPLIER_SETTLEMENT: "Supplier Settlement",
+  HOLD_MONEY: "Money Held",
+  HOLD_MONEY_COLLECT: "Hold Returned",
 };
 
 function getTypeLabel(row: TransactionRow): string {
@@ -159,6 +161,8 @@ const TYPE_COLORS: Record<string, string> = {
   LOTO_MONTHLY_FEE: "text-lime-400",
   LOTO_SETTLEMENT: "text-lime-300",
   DRAWER_TOPUP: "text-slate-300",
+  HOLD_MONEY: "text-orange-400",
+  HOLD_MONEY_COLLECT: "text-orange-300",
   REFUND: "text-rose-400",
   CLIENT_CREATED: "text-teal-400",
   CLIENT_UPDATED: "text-teal-300",
@@ -763,13 +767,13 @@ export default function TransactionsViewer({
             <div className="flex items-center gap-1">
               <button
                 onClick={() => handleVoid(row.id)}
-                className="px-1.5 py-0.5 text-[10px] rounded bg-red-900/40 text-red-300 hover:bg-red-900/80 transition-colors"
+                className="px-1.5 py-0.5 text-[10px] rounded bg-red-900/70 text-red-200 hover:bg-red-900/40 hover:text-red-300 transition-colors"
               >
                 Void
               </button>
               <button
                 onClick={() => handleRefund(row.id)}
-                className="px-1.5 py-0.5 text-[10px] rounded bg-rose-900/40 text-rose-300 hover:bg-rose-900/80 transition-colors"
+                className="px-1.5 py-0.5 text-[10px] rounded bg-rose-900/70 text-rose-200 hover:bg-rose-900/40 hover:text-rose-300 transition-colors"
               >
                 Refund
               </button>

@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Users } from "lucide-react";
 import type { Partner } from "@/types/electron";
 import logger from "@/utils/logger";
+import { Select } from "@liratek/ui";
 
 interface PartnerSelectorProps {
   selectedPartnerId: number | null;
@@ -81,22 +82,15 @@ export function PartnerSelector({
     <div className={`flex items-center gap-2 ${className}`}>
       <Users size={16} className="text-slate-400" />
       <p className="text-sm text-slate-300">Partner:</p>
-      <select
-        value={selectedPartnerId ?? ""}
-        onChange={(e) =>
-          onSelect(e.target.value ? Number(e.target.value) : null)
-        }
-        className={`bg-slate-700 border ${borderClass} text-white text-sm rounded px-2 py-1.5 focus:ring-violet-500 focus:border-violet-500`}
-      >
-        <option value="">
-          {required ? "Select partner" : "Direct (no partner)"}
-        </option>
-        {partners.map((p) => (
-          <option key={p.id} value={p.id}>
-            {p.name}
-          </option>
-        ))}
-      </select>
+      <Select
+        value={selectedPartnerId !== null ? String(selectedPartnerId) : ""}
+        onChange={(v) => onSelect(v ? Number(v) : null)}
+        options={[
+          { value: "", label: required ? "Select partner" : "Direct (no partner)" },
+          ...partners.map((p) => ({ value: String(p.id), label: p.name })),
+        ]}
+        buttonClassName={`bg-slate-700 border ${borderClass} text-white text-sm rounded px-2 py-1.5 focus:ring-violet-500 focus:border-violet-500`}
+      />
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import {
   getSupplierRepository,
   getProductSupplierRepository,
+  getSupplierPurchaseRepository,
   type CreateSupplierData,
   type CreateSupplierLedgerEntryData,
   type SettleTransactionsData,
@@ -9,6 +10,8 @@ import {
   type SupplierLedgerEntryEntity,
   type SupplierBalance,
   type ProductSupplierItem,
+  type SupplierPurchase,
+  type CreateSupplierPurchaseData,
 } from "../repositories/index.js";
 import { toErrorString } from "../utils/errors.js";
 
@@ -99,6 +102,20 @@ export class SupplierService {
     } catch (e) {
       return { success: false, error: toErrorString(e) };
     }
+  }
+
+  createPurchase(data: CreateSupplierPurchaseData): SupplierPurchase | { success: false; error: string } {
+    try {
+      if (!data.supplier_id) return { success: false, error: "supplier_id is required" };
+      if (data.total_usd <= 0) return { success: false, error: "Amount must be greater than 0" };
+      return getSupplierPurchaseRepository().create(data);
+    } catch (e) {
+      return { success: false, error: toErrorString(e) };
+    }
+  }
+
+  getSupplierPurchases(supplierId: number): SupplierPurchase[] {
+    return getSupplierPurchaseRepository().getBySupplier(supplierId);
   }
 
   /**

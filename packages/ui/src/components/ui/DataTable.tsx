@@ -574,7 +574,7 @@ function DataTableInner<T>({
         aria-haspopup="true"
         aria-expanded={pickerOpen}
         data-testid="export-column-picker-button"
-        className="inline-flex items-center gap-1.5 rounded-lg bg-slate-700/40 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-700/70 transition-colors cursor-pointer"
+        className="inline-flex items-center gap-1.5 rounded-lg bg-violet-600/20 px-3 py-1.5 text-xs font-medium text-violet-400 hover:bg-violet-600/30 transition-colors cursor-pointer"
       >
         <SlidersHorizontal size={14} />
         Columns
@@ -607,7 +607,7 @@ function DataTableInner<T>({
                     type="checkbox"
                     checked={checked}
                     onChange={() => toggleColumn(col.key)}
-                    className="h-4 w-4 rounded border-slate-600 bg-slate-700 accent-orange-500 cursor-pointer"
+                    className="h-4 w-4 rounded border-slate-600 bg-slate-700 accent-violet-600 cursor-pointer"
                   />
                   <span className="truncate">{col.label || col.key}</span>
                 </label>
@@ -625,7 +625,7 @@ function DataTableInner<T>({
             <button
               type="button"
               onClick={selectAllColumns}
-              className="rounded px-2 py-1 text-[11px] font-medium text-orange-400 hover:bg-slate-700/60 transition-colors cursor-pointer"
+              className="rounded px-2 py-1 text-[11px] font-medium text-violet-400 hover:bg-slate-700/60 transition-colors cursor-pointer"
             >
               Select all
             </button>

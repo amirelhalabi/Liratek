@@ -12,6 +12,7 @@ import {
   type CreateFinancialServiceData,
   type FinancialServiceAnalytics,
   type UnsettledSummary,
+  getSupplierRepository,
 } from "../repositories/index.js";
 import { getItemCostService } from "./ItemCostService.js";
 import { DebtService, getDebtService } from "./DebtService.js";
@@ -21,6 +22,13 @@ import { financialLogger } from "../utils/logger.js";
 // =============================================================================
 // Types
 // =============================================================================
+
+export type FifoStatus = "paid" | "partial" | "unpaid";
+
+export interface TransactionWithFifoStatus extends FinancialServiceEntity {
+  fifo_status: FifoStatus;
+  fifo_paid_usd: number;
+}
 
 export interface FinancialServiceResult {
   success: boolean;
@@ -213,6 +221,100 @@ export class FinancialService {
       financialLogger.error(
         { error, provider },
         "Failed to get unsettled transactions",
+      );
+      return [];
+    }
+  }
+
+  /**
+   * Get all financial_services rows for a given provider, newest first,
+   * annotated with FIFO payment status derived from manual supplier_ledger entries.
+   * Powers the Transactions history tab in the Suppliers UI.
+   */
+  getAllByProvider(
+    provider: string,
+    limit?: number,
+  ): TransactionWithFifoStatus[] {
+    try {
+      const transactions = this.fsRepo.getAllByProvider(provider, limit);
+
+      const supplierRepo = getSupplierRepository();
+      const supplier = supplierRepo.getByProvider(provider);
+
+      if (!supplier) {
+        return transactions.map((t) => ({
+          ...t,
+          fifo_status: "unpaid" as FifoStatus,
+          fifo_paid_usd: 0,
+        }));
+      }
+
+      const pools = supplierRepo.getManualPaymentPools(supplier.id);
+
+      // Sort oldest-first to apply FIFO
+      const sorted = [...transactions].sort(
+        (a, b) =>
+          new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+      );
+
+      let sendPool = pools.send_pool_usd;
+      let receivePool = pools.receive_pool_usd;
+
+      const statusMap = new Map<
+        number,
+        { fifo_status: FifoStatus; fifo_paid_usd: number }
+      >();
+
+      for (const txn of sorted) {
+        // Batch-settled via old settle flow → always paid
+        if (txn.settlement_id !== null) {
+          const owed = txn.cost > 0 ? txn.cost : Math.abs(txn.amount);
+          statusMap.set(txn.id, { fifo_status: "paid", fifo_paid_usd: owed });
+          continue;
+        }
+
+        const isReceive = txn.service_type === "RECEIVE";
+        const owed = isReceive
+          ? Math.abs(txn.amount) + (txn.commission ?? 0)
+          : txn.cost > 0
+            ? txn.cost
+            : Math.abs(txn.amount);
+
+        if (owed === 0) {
+          statusMap.set(txn.id, { fifo_status: "paid", fifo_paid_usd: 0 });
+          continue;
+        }
+
+        const pool = isReceive ? receivePool : sendPool;
+
+        if (pool >= owed) {
+          statusMap.set(txn.id, { fifo_status: "paid", fifo_paid_usd: owed });
+          if (isReceive) receivePool -= owed;
+          else sendPool -= owed;
+        } else if (pool > 0) {
+          statusMap.set(txn.id, {
+            fifo_status: "partial",
+            fifo_paid_usd: pool,
+          });
+          if (isReceive) receivePool = 0;
+          else sendPool = 0;
+        } else {
+          statusMap.set(txn.id, { fifo_status: "unpaid", fifo_paid_usd: 0 });
+        }
+      }
+
+      // Return in original order (DESC by created_at for display)
+      return transactions.map((t) => ({
+        ...t,
+        ...(statusMap.get(t.id) ?? {
+          fifo_status: "unpaid" as FifoStatus,
+          fifo_paid_usd: 0,
+        }),
+      }));
+    } catch (error) {
+      financialLogger.error(
+        { error, provider },
+        "Failed to get all transactions for provider",
       );
       return [];
     }

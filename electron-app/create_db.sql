@@ -344,11 +344,26 @@ CREATE TABLE IF NOT EXISTS supplier_ledger (
   note TEXT,
   created_by INTEGER,
   transaction_id INTEGER,
+  is_auto INTEGER NOT NULL DEFAULT 0,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE,
   FOREIGN KEY (transaction_id) REFERENCES transactions(id),
   FOREIGN KEY (created_by) REFERENCES users(id)
 );
+
+-- Supplier Purchases (delivery batches for FIFO payment coverage)
+CREATE TABLE IF NOT EXISTS supplier_purchases (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  supplier_id INTEGER NOT NULL REFERENCES suppliers(id) ON DELETE CASCADE,
+  total_usd REAL NOT NULL CHECK(total_usd > 0),
+  paid_usd  REAL NOT NULL DEFAULT 0,
+  note      TEXT,
+  created_by INTEGER REFERENCES users(id),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_supplier_purchases_supplier_id ON supplier_purchases(supplier_id);
+CREATE INDEX IF NOT EXISTS idx_supplier_purchases_created_at  ON supplier_purchases(created_at);
 
 -- Maintenance / Repairs
 CREATE TABLE IF NOT EXISTS maintenance (
@@ -1130,7 +1145,29 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action);
 CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at);
 
 -- =============================================================================
--- 11. Migration Tracking
+-- 11. Hold Money
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS hold_money (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_name TEXT NOT NULL,
+    phone_number TEXT,
+    usd_amount REAL NOT NULL DEFAULT 0,
+    lbp_amount REAL NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'held' CHECK (status IN ('held', 'collected')),
+    notes TEXT,
+    created_by INTEGER REFERENCES users(id),
+    collected_by INTEGER REFERENCES users(id),
+    collected_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_hold_money_status ON hold_money(status);
+CREATE INDEX IF NOT EXISTS idx_hold_money_created_at ON hold_money(created_at);
+
+-- =============================================================================
+-- 12. Migration Tracking
 -- =============================================================================
 
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -1240,4 +1277,8 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (105, 'rename_wish_app_to_whish_app'),
     (106, 'add_bill_to_financial_service_type'),
     (107, 'fix_loto_liban_is_system'),
-    (108, 'link_product_suppliers_to_suppliers');
+    (108, 'link_product_suppliers_to_suppliers'),
+    (109, 'add_supplier_purchases'),
+    (110, 'supplier_ledger_is_auto'),
+    (111, 'add_hold_money'),
+    (112, 'add_phone_to_hold_money');

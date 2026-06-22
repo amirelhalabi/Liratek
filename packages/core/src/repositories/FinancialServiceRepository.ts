@@ -1691,6 +1691,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 amount_lbp: -20000,
                 note: `Auto: BILL commission from ${data.provider}`,
                 created_by: createdBy,
+                is_auto: true,
               });
             }
           } else {
@@ -1708,6 +1709,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
                 amount_lbp: currency === "LBP" ? ledgerAmount : 0,
                 note: `Auto: ${data.serviceType} via ${data.provider}${data.itemKey ? ` [${data.itemKey}]` : ""}`,
                 created_by: createdBy,
+                is_auto: true,
               });
             }
           }
@@ -1891,6 +1893,32 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
    */
   private getSaleCostSettleColumns(): string {
     return "id, provider, service_type, cost AS amount, currency, 0 AS commission, cost, price, paid_by, paid_amount, paid_currency, client_id, client_name, reference_number, phone_number, sender_name, sender_phone, receiver_name, receiver_phone, sender_client_id, receiver_client_id, omt_service_type, omt_fee, whish_fee, profit_rate, pay_fee, item_key, note, is_settled, settled_at, settlement_id, payment_method_fee, payment_method_fee_rate, created_at, created_by, edited_by, edited_at, partner_id, partner_mode";
+  }
+
+  /**
+   * Get ALL financial_services rows for a given supplier provider, ordered by
+   * created_at DESC. Returns up to `limit` rows (default 200).
+   *
+   * Row projection rules (mirrors getUnsettledBySupplier):
+   *  - SEND rows with cost > 0 (cost-flow sales) → amount = cost, commission = 0
+   *    via getSaleCostSettleColumns(), so the frontend's math stays consistent.
+   *  - All other rows → full columns via getColumns().
+   */
+  getAllByProvider(provider: string, limit = 200): FinancialServiceEntity[] {
+    return this.db
+      .prepare(
+        `SELECT ${this.getColumns()} FROM financial_services
+           WHERE provider = ?
+             AND NOT (service_type = 'SEND' AND cost > 0)
+         UNION ALL
+         SELECT ${this.getSaleCostSettleColumns()} FROM financial_services
+           WHERE provider = ?
+             AND service_type = 'SEND'
+             AND cost > 0
+         ORDER BY created_at DESC
+         LIMIT ?`,
+      )
+      .all(provider, provider, limit) as FinancialServiceEntity[];
   }
 
   /**

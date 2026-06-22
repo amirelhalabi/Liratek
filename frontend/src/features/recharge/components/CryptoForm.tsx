@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { User, Hash, Phone, ChevronDown } from "lucide-react";
+import { User, Hash, Phone } from "lucide-react";
 import {
   ServiceTypeTabs,
   DecimalInput,
   hasNewClientInfo,
   type PaymentLine,
+  Select,
 } from "@liratek/ui";
 import { PaymentSheet } from "./PaymentSheet";
 import { useSession } from "@/features/sessions/context/SessionContext";
@@ -352,21 +353,15 @@ export function CryptoForm({
           </div>
           <div className="flex items-center gap-2">
             {/* Compact payment method dropdown */}
-            <div className="relative">
-              <select
-                value={initialPaymentMethod}
-                onChange={(e) => {
-                  setInitialPaymentMethod(e.target.value);
-                  setPaymentInputKey((k) => k + 1);
-                }}
-                className="appearance-none bg-slate-900 border border-slate-600 rounded-lg pl-3 pr-8 py-2 text-white text-xs font-medium focus:outline-none focus:border-amber-500 transition-all cursor-pointer"
-              >
-                {paymentMethods.map((m) => (
-                  <option key={m.code} value={m.code}>{m.label}</option>
-                ))}
-              </select>
-              <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-            </div>
+            <Select
+              value={initialPaymentMethod}
+              onChange={(v) => {
+                setInitialPaymentMethod(v);
+                setPaymentInputKey((k) => k + 1);
+              }}
+              options={paymentMethods.map((m) => ({ value: m.code, label: m.label }))}
+              buttonClassName="bg-slate-900 border border-slate-600 rounded-lg pl-3 pr-8 py-2 text-white text-xs font-medium focus:outline-none focus:border-amber-500 transition-all cursor-pointer"
+            />
             <button
               type="button"
               onClick={() => {

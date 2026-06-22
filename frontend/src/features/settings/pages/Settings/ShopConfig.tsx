@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import logger from "@/utils/logger";
-import { appEvents, useApi, DecimalInput } from "@liratek/ui";
+import { appEvents, useApi, DecimalInput, Select } from "@liratek/ui";
 import {
   PanelLeft,
   LayoutGrid,
@@ -343,18 +343,18 @@ export default function ShopConfig() {
             <label className="block text-sm text-slate-400 mb-2">
               Receipt Printer
             </label>
-            <select
+            <Select
               value={receiptPrinter}
-              onChange={(e) => setReceiptPrinter(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white"
-            >
-              <option value="">Default (System Print Dialog)</option>
-              {printers.map((p) => (
-                <option key={p.name} value={p.name}>
-                  {p.displayName || p.name}
-                </option>
-              ))}
-            </select>
+              onChange={(v) => setReceiptPrinter(v)}
+              options={[
+                { value: "", label: "Default (System Print Dialog)" },
+                ...printers.map((p) => ({
+                  value: p.name,
+                  label: p.displayName || p.name,
+                })),
+              ]}
+              buttonClassName="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white"
+            />
             <p className="text-xs text-slate-500 mt-1">
               Leave empty to show the print dialog every time.
             </p>
@@ -363,18 +363,18 @@ export default function ShopConfig() {
             <label className="block text-sm text-slate-400 mb-2">
               Barcode Printer
             </label>
-            <select
+            <Select
               value={barcodePrinter}
-              onChange={(e) => setBarcodePrinter(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white"
-            >
-              <option value="">Default (System Print Dialog)</option>
-              {printers.map((p) => (
-                <option key={p.name} value={p.name}>
-                  {p.displayName || p.name}
-                </option>
-              ))}
-            </select>
+              onChange={(v) => setBarcodePrinter(v)}
+              options={[
+                { value: "", label: "Default (System Print Dialog)" },
+                ...printers.map((p) => ({
+                  value: p.name,
+                  label: p.displayName || p.name,
+                })),
+              ]}
+              buttonClassName="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white"
+            />
             <p className="text-xs text-slate-500 mt-1">
               Leave empty to show the print dialog every time.
             </p>

@@ -1,12 +1,13 @@
 import { useState, useEffect } from "react";
 import logger from "@/utils/logger";
-import { Phone, User, Search, X, CreditCard, ChevronDown } from "lucide-react";
+import { Phone, User, Search, X, CreditCard } from "lucide-react";
 import {
   ServiceTypeTabs,
   type ServiceTypeOption,
   useApi,
   hasNewClientInfo,
   type PaymentLine,
+  Select,
 } from "@liratek/ui";
 import type {
   FinancialTransaction,
@@ -566,33 +567,20 @@ export function TelecomForm({
             {/* Payment method dropdown — quick inline selection */}
             <div>
               <label
-                htmlFor="telecom-payment-method"
                 className="block text-xs font-medium text-slate-500 mb-2 uppercase tracking-wider"
               >
                 Payment Method
               </label>
-              <div className="relative">
-                <select
-                  id="telecom-payment-method"
-                  value={initialPaymentMethod}
-                  onChange={(e) => {
-                    setInitialPaymentMethod(e.target.value);
-                    setPaymentInputKey((k) => k + 1);
-                    setPaidBy(e.target.value);
-                  }}
-                  className={`w-full appearance-none bg-slate-900/80 border border-slate-600 rounded-xl pl-4 pr-10 py-3 text-white font-medium focus:outline-none focus:border-${accent}-500 focus:ring-1 focus:ring-${accent}-500/30 transition-all cursor-pointer`}
-                >
-                  {methods.map((m) => (
-                    <option key={m.code} value={m.code}>
-                      {m.label}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown
-                  size={16}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
-                />
-              </div>
+              <Select
+                value={initialPaymentMethod}
+                onChange={(v) => {
+                  setInitialPaymentMethod(v);
+                  setPaymentInputKey((k) => k + 1);
+                  setPaidBy(v);
+                }}
+                options={methods.map((m) => ({ value: m.code, label: m.label }))}
+                buttonClassName={`w-full bg-slate-900/80 border border-slate-600 rounded-xl pl-4 pr-10 py-3 text-white font-medium focus:outline-none focus:border-${accent}-500 focus:ring-1 focus:ring-${accent}-500/30 transition-all cursor-pointer`}
+              />
             </div>
 
             {/* Payment Sheet */}

@@ -21,6 +21,7 @@ import {
   Package,
   Tag,
   Settings,
+  Wallet,
 } from "lucide-react";
 import {
   canChargeToCustomerAccount,
@@ -38,6 +39,7 @@ import { toSnakeLegs } from "@/utils/paymentUtils";
 import { HistoryModal } from "./components/HistoryModal";
 import { PresetManagerModal } from "./components/PresetManagerModal";
 import { StatsCards } from "../../components/StatsCards";
+import { HoldMoneySection } from "../../components/HoldMoneySection";
 import { getExchangeRates } from "@/utils/exchangeRates";
 import { useSaveAsClient } from "@/shared/hooks/useSaveAsClient";
 import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
@@ -72,7 +74,13 @@ const SERVICE_CATEGORIES = [
   { value: "repair", label: "Repair", icon: "wrench" },
   { value: "activation", label: "Activation", icon: "zap" },
   { value: "other", label: "Other", icon: "tag" },
+  // Special category — selecting it swaps the form for the Hold Money UI
+  // (no presets / product search / cost-price; cash held in the General drawer).
+  { value: "hold_money", label: "Hold Money", icon: "wallet" },
 ] as const;
+
+/** The category that swaps the custom-service form for the Hold Money UI. */
+const HOLD_MONEY_CATEGORY = "hold_money";
 
 interface ServicePreset {
   id: number;
@@ -402,8 +410,17 @@ export default function CustomServices() {
         {/* New Service Form */}
         <div className="w-full bg-slate-800 rounded-xl border border-slate-700/50 shadow-xl p-5 flex flex-col">
           <h2 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
-            <Plus className="text-teal-400" size={20} />
-            New Service
+            {category === HOLD_MONEY_CATEGORY ? (
+              <>
+                <Wallet className="text-orange-400" size={20} />
+                Hold Money
+              </>
+            ) : (
+              <>
+                <Plus className="text-teal-400" size={20} />
+                New Service
+              </>
+            )}
           </h2>
 
           <div className="space-y-4">
@@ -440,6 +457,12 @@ export default function CustomServices() {
               </div>
             </div>
 
+            {/* Hold Money: special category — swap in its own UI */}
+            {category === HOLD_MONEY_CATEGORY && <HoldMoneySection />}
+
+            {/* Standard custom-service form (hidden for Hold Money) */}
+            {category !== HOLD_MONEY_CATEGORY && (
+              <>
             {/* Presets from DB — always visible under category */}
             {!description && !selectedProduct && (
               <div className="p-3 rounded-xl bg-purple-500/5 border border-purple-500/20 space-y-2">
@@ -525,7 +548,7 @@ export default function CustomServices() {
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
                 <Package size={12} className="inline mr-1" />
-                Search Item or Service *
+                Search Item or Service
               </label>
               {selectedProduct ? (
                 /* Product selected — show selection chip */
@@ -740,8 +763,8 @@ export default function CustomServices() {
               )}
             </div>
 
-            {/* Customer Name & Phone — inline row */}
-            <div className="grid grid-cols-2 gap-3">
+            {/* Customer Name, Phone & Note — single inline row */}
+            <div className="grid grid-cols-3 gap-3">
               <div className="relative">
                 <label
                   htmlFor="svc-client"
@@ -802,25 +825,23 @@ export default function CustomServices() {
                   disabled={!!clientId}
                 />
               </div>
-            </div>
-
-            {/* Note */}
-            <div>
-              <label
-                htmlFor="svc-note"
-                className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider"
-              >
-                Note (optional)
-              </label>
-              <input
-                id="svc-note"
-                type="text"
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-white focus:border-teal-500 focus:ring-2 focus:ring-teal-500/50 outline-none transition-all"
-                placeholder="Additional details..."
-                maxLength={1000}
-              />
+              <div>
+                <label
+                  htmlFor="svc-note"
+                  className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+                >
+                  <Tag size={12} /> Note (optional)
+                </label>
+                <input
+                  id="svc-note"
+                  type="text"
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-teal-500 transition-all"
+                  placeholder="Additional details..."
+                  maxLength={1000}
+                />
+              </div>
             </div>
 
             {/* Payment Method */}
@@ -849,29 +870,35 @@ export default function CustomServices() {
                   : {})}
               />
             </div>
-          </div>
-
-          <TransactionTimeOverride
-            value={transactionTime}
-            onChange={setTransactionTime}
-          />
-
-          {/* Submit */}
-          <button
-            onClick={handleSubmit}
-            disabled={isSubmitting}
-            className="w-full py-4 mt-6 rounded-xl font-bold text-lg bg-teal-600 hover:bg-teal-500 text-white shadow-lg shadow-teal-900/20 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isSubmitting ? (
-              <>
-                <RefreshCw size={18} className="animate-spin" /> Submitting...
-              </>
-            ) : (
-              <>
-                <Plus size={18} /> Submit Service
               </>
             )}
-          </button>
+          </div>
+
+          {category !== HOLD_MONEY_CATEGORY && (
+            <>
+              <TransactionTimeOverride
+                value={transactionTime}
+                onChange={setTransactionTime}
+              />
+
+              {/* Submit */}
+              <button
+                onClick={handleSubmit}
+                disabled={isSubmitting}
+                className="w-full py-4 mt-6 rounded-xl font-bold text-lg bg-teal-600 hover:bg-teal-500 text-white shadow-lg shadow-teal-900/20 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isSubmitting ? (
+                  <>
+                    <RefreshCw size={18} className="animate-spin" /> Submitting...
+                  </>
+                ) : (
+                  <>
+                    <Plus size={18} /> Submit Service
+                  </>
+                )}
+              </button>
+            </>
+          )}
         </div>
       </div>
 
