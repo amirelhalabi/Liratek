@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
 import { FolderOpen, Pencil } from "lucide-react";
 import UpdatesPanel from "./UpdatesPanel";
-import { appEvents, useApi, Select } from "@liratek/ui";
+import { appEvents, useApi, Select, ConfirmModal } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
+import { useAuth } from "@/features/auth/context/AuthContext";
 
 export default function Diagnostics() {
   const api = useApi();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [errors, setErrors] = useState<
     Array<{ id: number; endpoint: string; error: string; created_at: string }>
   >([]);
@@ -49,11 +52,11 @@ export default function Diagnostics() {
   const [savingConfig, setSavingConfig] = useState(false);
   const [dbPath, setDbPath] = useState<string | null>(null);
   const [dbPathSource, setDbPathSource] = useState<string | null>(null);
-  const [isJoinInstallation, setIsJoinInstallation] = useState(false);
   const [showDbPathEdit, setShowDbPathEdit] = useState(false);
   const [newDbPath, setNewDbPath] = useState("");
   useModalFocusFix(showDbPathEdit);
   const [dbPathChanging, setDbPathChanging] = useState(false);
+  const [showRestartConfirm, setShowRestartConfirm] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -261,15 +264,9 @@ export default function Diagnostics() {
     }
   };
 
-  const changeDbPath = async () => {
+  const doChangeDbPath = async () => {
     if (!newDbPath.trim()) return;
-    if (
-      !confirm(
-        "Changing the database path will restart the application. Continue?",
-      )
-    )
-      return;
-
+    setShowRestartConfirm(false);
     setDbPathChanging(true);
     try {
       const result = await window.api.database.changePath(newDbPath.trim());
@@ -349,15 +346,6 @@ export default function Diagnostics() {
       .catch(() => {
         setDbPath("IPC call failed");
       });
-    // Check if this is a join installation
-    window.api?.database
-      ?.isJoinInstallation?.()
-      .then((res) => {
-        if (res?.success) {
-          setIsJoinInstallation(res.isJoin);
-        }
-      })
-      .catch(() => {});
   }, []);
 
   return (
@@ -428,7 +416,7 @@ export default function Diagnostics() {
                 </span>
               )}
             </span>
-            {isJoinInstallation && (
+            {isAdmin && (
               <button
                 onClick={() => {
                   setNewDbPath(dbPath ?? "");
@@ -663,7 +651,7 @@ export default function Diagnostics() {
                 Cancel
               </button>
               <button
-                onClick={changeDbPath}
+                onClick={() => setShowRestartConfirm(true)}
                 disabled={
                   dbPathChanging || !newDbPath.trim() || newDbPath === dbPath
                 }
@@ -675,6 +663,18 @@ export default function Diagnostics() {
           </div>
         </div>
       )}
+
+      {/* Restart confirmation (shown before applying the new DB path) */}
+      <ConfirmModal
+        isOpen={showRestartConfirm}
+        title="Restart to change database?"
+        message={`LiraTek will close and reopen using the new database location (${newDbPath}). Any unsaved work will be lost.`}
+        confirmLabel="Restart Now"
+        cancelLabel="Cancel"
+        variant="warning"
+        onConfirm={doChangeDbPath}
+        onCancel={() => setShowRestartConfirm(false)}
+      />
     </div>
   );
 }

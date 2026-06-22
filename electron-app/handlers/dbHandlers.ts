@@ -468,8 +468,11 @@ export function registerDatabaseHandlers(): void {
   });
 
   // Browse for a database file (reuses native file dialog)
-  ipcMain.handle("database:browse", async () => {
+  ipcMain.handle("database:browse", async (e) => {
     try {
+      const auth = requireRole(e.sender.id, ["admin"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+
       const result = await dialog.showOpenDialog({
         title: "Select LiraTek Database",
         filters: [{ name: "Database", extensions: ["db", "sqlite"] }],
@@ -496,8 +499,11 @@ export function registerDatabaseHandlers(): void {
   });
 
   // Change the database path: validate, save previous, write new, relaunch
-  ipcMain.handle("database:changePath", async (_e, newPath: string) => {
+  ipcMain.handle("database:changePath", async (e, newPath: string) => {
     try {
+      const auth = requireRole(e.sender.id, ["admin"]);
+      if (!auth.ok) return { success: false, error: auth.error };
+
       if (!newPath || typeof newPath !== "string" || !newPath.trim()) {
         return { success: false, error: "Path is required" };
       }

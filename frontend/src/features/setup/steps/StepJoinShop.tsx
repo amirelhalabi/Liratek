@@ -35,10 +35,13 @@ export default function StepJoinShop() {
   };
 
   const handleJoin = async () => {
-    if (users.length === 0) {
-      setError("Add at least one staff user for this laptop");
-      return;
-    }
+    // Staff users are optional when joining an existing shop — the shop's
+    // existing accounts can already log in on this laptop. Also fold in a user
+    // that was typed but not explicitly added via the + button, so it isn't
+    // silently lost.
+    const pending =
+      newUser.username.trim() && newUser.password ? [{ ...newUser }] : [];
+    const allUsers = [...users, ...pending];
 
     setLoading(true);
     setError("");
@@ -46,7 +49,7 @@ export default function StepJoinShop() {
     try {
       const result = await window.api.setup.joinExistingShop({
         dbPath: payload.join_db_path!,
-        users,
+        users: allUsers,
       });
 
       if (!result.success) {
@@ -77,8 +80,8 @@ export default function StepJoinShop() {
           Join {payload.shop_name}
         </h2>
         <p className="text-slate-400 text-sm mt-1">
-          Add staff users for this laptop. They&apos;ll be able to log in and
-          use the shop&apos;s shared database.
+          Optionally add staff users for this laptop, or just join and log in
+          with the shop&apos;s existing accounts.
         </p>
       </div>
 
