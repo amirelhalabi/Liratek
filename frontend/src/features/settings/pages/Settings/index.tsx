@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Settings as SettingsIcon, Tag } from "lucide-react";
 import { PageHeader } from "@liratek/ui";
-import { useAuth } from "@/features/auth/context/AuthContext";
 import UsersManager from "./UsersManager";
 import Diagnostics from "./Diagnostics";
 import CurrencyManager from "./CurrencyManager";
@@ -25,8 +24,6 @@ type TabKey =
 
 export default function Settings() {
   const [active, setActive] = useState<TabKey>("shop");
-  const { user } = useAuth();
-  const isAdmin = user?.role === "admin";
 
   const tabs = [
     { key: "shop", label: "Shop Config" },
@@ -36,7 +33,7 @@ export default function Settings() {
     { key: "currencies", label: "Currencies & Rates" },
     { key: "users", label: "Users" },
     { key: "integrations", label: "Integrations" },
-    ...(isAdmin ? [{ key: "mobile-services", label: "Mobile Services" }] : []),
+    { key: "mobile-services", label: "Mobile Services" },
     { key: "diagnostics", label: "Diagnostics" },
   ] as { key: TabKey; label: string; icon?: typeof Tag }[];
 
@@ -65,7 +62,7 @@ export default function Settings() {
           {active === "currencies" && <CurrencyManager />}
           {active === "users" && <UsersManager />}
           {active === "integrations" && <IntegrationsConfig />}
-          {active === "mobile-services" && isAdmin && <MobileServicesManager />}
+          {active === "mobile-services" && <MobileServicesManager />}
           {active === "diagnostics" && <Diagnostics />}
         </div>
       </div>

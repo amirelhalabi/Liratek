@@ -24,7 +24,6 @@ import {
   AlertCircle,
   ToggleLeft,
 } from "lucide-react";
-import { useAuth } from "@/features/auth/context/AuthContext";
 import { useShopBase } from "@/hooks/useShopBase";
 import type {
   Partner,
@@ -851,7 +850,6 @@ function LedgerRow({ entry }: { entry: PartnerLedgerEntry }) {
 
 interface DetailPanelProps {
   partner: PartnerWithBalance;
-  isAdmin: boolean;
   onEdit: () => void;
   onSettle: () => void;
   onRecordTx: () => void;
@@ -861,7 +859,6 @@ interface DetailPanelProps {
 
 function DetailPanel({
   partner,
-  isAdmin,
   onEdit,
   onSettle,
   onRecordTx,
@@ -979,7 +976,7 @@ function DetailPanel({
               <Plus className="w-3.5 h-3.5" />
               Record Tx
             </button>
-            {isAdmin && partner.is_active === 1 && (
+            {partner.is_active === 1 && (
               <button
                 onClick={onDeactivate}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-red-900/60 hover:bg-red-700 text-red-300 hover:text-red-100 rounded-lg text-xs font-medium transition-colors"
@@ -988,7 +985,7 @@ function DetailPanel({
                 Deactivate
               </button>
             )}
-            {isAdmin && partner.is_active === 0 && (
+            {partner.is_active === 0 && (
               <button
                 onClick={onActivate}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-900/60 hover:bg-emerald-700 text-emerald-300 hover:text-emerald-100 rounded-lg text-xs font-medium transition-colors"
@@ -1328,9 +1325,6 @@ function PartnerCard({
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export function PartnersPage() {
-  const { user } = useAuth();
-  const isAdmin = user?.role === "admin";
-
   const [partners, setPartners] = useState<PartnerWithBalance[]>([]);
   const [loading, setLoading] = useState(true);
   const [includeInactive, setIncludeInactive] = useState(false);
@@ -1503,7 +1497,6 @@ export function PartnersPage() {
             <DetailPanel
               key={selectedPartner.id}
               partner={selectedPartner}
-              isAdmin={isAdmin}
               onEdit={() => setEditingPartner(selectedPartner)}
               onSettle={() => setSettlingPartner(selectedPartner)}
               onRecordTx={() => setRecordingTxPartner(selectedPartner)}

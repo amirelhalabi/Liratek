@@ -10,6 +10,7 @@ import { useSetup } from "../context/SetupContext";
 import { Plus, Trash2, Loader2 } from "lucide-react";
 import PasswordInput from "@/shared/components/PasswordInput";
 import { TextInput, Select } from "@liratek/ui";
+import { validatePassword } from "@/shared/utils/validatePassword";
 
 export default function StepJoinShop() {
   const { payload, setStep } = useSetup();
@@ -26,6 +27,12 @@ export default function StepJoinShop() {
 
   const addUser = () => {
     if (!newUser.username.trim() || !newUser.password) return;
+    const pw = validatePassword(newUser.password);
+    if (!pw.valid) {
+      setError(pw.errors.join(" "));
+      return;
+    }
+    setError("");
     setUsers((prev) => [...prev, { ...newUser }]);
     setNewUser({ username: "", password: "", role: "staff" });
   };
@@ -38,10 +45,16 @@ export default function StepJoinShop() {
     // Staff users are optional when joining an existing shop — the shop's
     // existing accounts can already log in on this laptop. Also fold in a user
     // that was typed but not explicitly added via the + button, so it isn't
-    // silently lost.
-    const pending =
-      newUser.username.trim() && newUser.password ? [{ ...newUser }] : [];
-    const allUsers = [...users, ...pending];
+    // silently lost (validating its password the same way the + button does).
+    const hasPending = !!(newUser.username.trim() && newUser.password);
+    if (hasPending) {
+      const pw = validatePassword(newUser.password);
+      if (!pw.valid) {
+        setError(pw.errors.join(" "));
+        return;
+      }
+    }
+    const allUsers = hasPending ? [...users, { ...newUser }] : users;
 
     setLoading(true);
     setError("");

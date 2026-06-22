@@ -240,9 +240,9 @@ function AppRoutes() {
         <Route
           path="/settings"
           element={
-            <ProtectedRoute>
+            <AdminRoute>
               <Settings />
-            </ProtectedRoute>
+            </AdminRoute>
           }
         />
         <Route

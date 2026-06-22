@@ -4560,6 +4560,26 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 113,
+    name: "normalize_staff_role",
+    description:
+      "Migrate legacy non-admin roles (e.g. cashier) to 'staff' so stored roles match the authorization layer (admin/staff)",
+    type: "typescript",
+    up(db) {
+      const res = db
+        .prepare(
+          `UPDATE users SET role = 'staff' WHERE role NOT IN ('admin', 'staff')`,
+        )
+        .run();
+      console.log(
+        `Migration v113: normalized ${res.changes} user role(s) to 'staff'`,
+      );
+    },
+    down() {
+      // Irreversible: original non-standard role names are not recoverable.
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

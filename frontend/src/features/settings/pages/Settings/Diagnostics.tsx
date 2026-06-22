@@ -3,12 +3,9 @@ import { FolderOpen, Pencil } from "lucide-react";
 import UpdatesPanel from "./UpdatesPanel";
 import { appEvents, useApi, Select, ConfirmModal } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
-import { useAuth } from "@/features/auth/context/AuthContext";
 
 export default function Diagnostics() {
   const api = useApi();
-  const { user } = useAuth();
-  const isAdmin = user?.role === "admin";
   const [errors, setErrors] = useState<
     Array<{ id: number; endpoint: string; error: string; created_at: string }>
   >([]);
@@ -416,19 +413,17 @@ export default function Diagnostics() {
                 </span>
               )}
             </span>
-            {isAdmin && (
-              <button
-                onClick={() => {
-                  setNewDbPath(dbPath ?? "");
-                  setShowDbPathEdit(true);
-                }}
-                className="inline-flex items-center gap-1 px-2 py-0.5 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white rounded transition-colors shrink-0"
-                title="Change database path"
-              >
-                <Pencil size={12} />
-                Edit
-              </button>
-            )}
+            <button
+              onClick={() => {
+                setNewDbPath(dbPath ?? "");
+                setShowDbPathEdit(true);
+              }}
+              className="inline-flex items-center gap-1 px-2 py-0.5 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white rounded transition-colors shrink-0"
+              title="Change database path"
+            >
+              <Pencil size={12} />
+              Edit
+            </button>
           </div>
 
           <div className="text-slate-400">Last backup</div>

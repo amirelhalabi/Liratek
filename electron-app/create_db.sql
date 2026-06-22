@@ -1281,4 +1281,5 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (109, 'add_supplier_purchases'),
     (110, 'supplier_ledger_is_auto'),
     (111, 'add_hold_money'),
-    (112, 'add_phone_to_hold_money');
+    (112, 'add_phone_to_hold_money'),
+    (113, 'normalize_staff_role');

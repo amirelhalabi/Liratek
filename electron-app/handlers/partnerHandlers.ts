@@ -158,10 +158,10 @@ export function registerPartnerHandlers(): void {
     },
   );
 
-  // Deactivate partner (admin only)
+  // Deactivate partner (admin + staff)
   ipcMain.handle("partners:deactivate", (event, id: number) => {
     try {
-      const auth = requireRole(event.sender.id, ["admin"]);
+      const auth = requireRole(event.sender.id, ["admin", "staff"]);
       if (!auth.ok) return { success: false, error: auth.error };
 
       getServiceInstance().deactivatePartner(id);
@@ -186,10 +186,10 @@ export function registerPartnerHandlers(): void {
     }
   });
 
-  // Activate partner (admin only)
+  // Activate partner (admin + staff)
   ipcMain.handle("partners:activate", (event, id: number) => {
     try {
-      const auth = requireRole(event.sender.id, ["admin"]);
+      const auth = requireRole(event.sender.id, ["admin", "staff"]);
       if (!auth.ok) return { success: false, error: auth.error };
 
       getServiceInstance().activatePartner(id);

@@ -10,7 +10,6 @@ import {
   X,
   Layers,
 } from "lucide-react";
-import { useAuth } from "@/features/auth/context/AuthContext";
 import { PageHeader, useApi, appEvents } from "@liratek/ui";
 import ProductForm from "./ProductForm";
 import type { Product } from "@liratek/ui";
@@ -152,8 +151,6 @@ function parseToonFile(text: string): ToonRecord[] {
 export default function ProductList() {
   const api = useApi();
   const [products, setProducts] = useState<Product[]>([]);
-  const { user } = useAuth();
-  const isAdmin = user?.role === "admin";
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -589,16 +586,14 @@ export default function ProductList() {
         title="Inventory"
         actions={
           <div className="flex items-center gap-2">
-            {isAdmin && (
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isImporting}
-                className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg font-medium transition-all disabled:opacity-50"
-              >
-                <Upload size={18} />
-                {isImporting ? "Importing..." : "Import .toon"}
-              </button>
-            )}
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isImporting}
+              className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg font-medium transition-all disabled:opacity-50"
+            >
+              <Upload size={18} />
+              {isImporting ? "Importing..." : "Import .toon"}
+            </button>
             <button
               onClick={() => setIsFormOpen(true)}
               className="flex items-center gap-2 bg-violet-600 hover:bg-violet-500 text-white px-4 py-2 rounded-lg font-medium transition-all shadow-lg shadow-violet-900/20"
@@ -697,31 +692,23 @@ export default function ProductList() {
               className: "p-4 border-b border-slate-700",
               width: "110px",
             },
-            ...(isAdmin
-              ? [
-                  {
-                    header: "Cost",
-                    sortKey: "cost_price",
-                    className: "p-4 border-b border-slate-700",
-                    width: "90px",
-                  },
-                ]
-              : []),
+            {
+              header: "Cost",
+              sortKey: "cost_price",
+              className: "p-4 border-b border-slate-700",
+              width: "90px",
+            },
             {
               header: "Retail",
               sortKey: "retail_price",
               className: "p-4 border-b border-slate-700",
               width: "90px",
             },
-            ...(isAdmin
-              ? [
-                  {
-                    header: "Profit %",
-                    sortKey: "profit_percent",
-                    className: "p-4 border-b border-slate-700",
-                  },
-                ]
-              : []),
+            {
+              header: "Profit %",
+              sortKey: "profit_percent",
+              className: "p-4 border-b border-slate-700",
+            },
             {
               header: "Stock",
               sortKey: "stock_quantity",
@@ -823,24 +810,20 @@ export default function ProductList() {
                     ? new Date(product.created_at).toLocaleDateString()
                     : "-"}
                 </td>
-                {isAdmin && (
-                  <td className="p-4 text-slate-400">
-                    ${(product.cost_price ?? 0).toFixed(2)}
-                  </td>
-                )}
+                <td className="p-4 text-slate-400">
+                  ${(product.cost_price ?? 0).toFixed(2)}
+                </td>
                 <td className="p-4 text-green-400 font-medium">
                   ${(product.retail_price ?? 0).toFixed(2)}
                 </td>
-                {isAdmin && (
-                  <td className="p-4 text-violet-400 font-medium">
-                    {(() => {
-                      const cp = product.cost_price || 0;
-                      const rp = product.retail_price || 0;
-                      if (cp <= 0) return rp > 0 ? "100%" : "0%";
-                      return `${(((rp - cp) / cp) * 100).toFixed(1)}%`;
-                    })()}
-                  </td>
-                )}
+                <td className="p-4 text-violet-400 font-medium">
+                  {(() => {
+                    const cp = product.cost_price || 0;
+                    const rp = product.retail_price || 0;
+                    if (cp <= 0) return rp > 0 ? "100%" : "0%";
+                    return `${(((rp - cp) / cp) * 100).toFixed(1)}%`;
+                  })()}
+                </td>
                 <td className="p-4">
                   <div
                     className={`font-medium ${(product.stock_quantity ?? 0) <= (product.min_stock_level ?? 5) ? "text-red-400" : "text-slate-300"}`}

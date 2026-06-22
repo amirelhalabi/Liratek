@@ -66,7 +66,6 @@ type SortOrder = "desc" | "asc";
 export default function Debts() {
   const api = useApi();
   const { user } = useAuth();
-  const isAdmin = user?.role === "admin";
   const { allMethods: methods } = usePaymentMethods();
   const { rate: EXCHANGE_RATE } = useExchangeRate("USD", "LBP");
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -869,25 +868,23 @@ export default function Debts() {
         icon={BookOpen}
         title="Debts"
         actions={
-          isAdmin ? (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setShowCreditModal(true)}
-                className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-medium transition-all"
-              >
-                <Plus size={18} />
-                Add Credit
-              </button>
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isImporting}
-                className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg font-medium transition-all disabled:opacity-50"
-              >
-                <Upload size={18} />
-                {isImporting ? "Importing..." : "Import Excel"}
-              </button>
-            </div>
-          ) : undefined
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowCreditModal(true)}
+              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-medium transition-all"
+            >
+              <Plus size={18} />
+              Add Credit
+            </button>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isImporting}
+              className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg font-medium transition-all disabled:opacity-50"
+            >
+              <Upload size={18} />
+              {isImporting ? "Importing..." : "Import Excel"}
+            </button>
+          </div>
         }
       />
 

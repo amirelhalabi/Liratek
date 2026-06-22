@@ -197,7 +197,7 @@ export class AuthService {
    * Create a new user (admin only operation)
    */
   async createUser(
-    data: { username: string; password: string; role: "admin" | "cashier" },
+    data: { username: string; password: string; role: "admin" | "staff" },
     actorRole: string,
   ): Promise<CreateUserResult> {
     // Authorization check
@@ -385,13 +385,13 @@ export class AuthService {
    */
   canPerformAction(
     userRole: string,
-    requiredRole: "admin" | "cashier",
+    requiredRole: "admin" | "staff",
   ): boolean {
     if (requiredRole === "admin") {
       return userRole === "admin";
     }
-    // Cashier actions can be performed by both admin and cashier
-    return userRole === "admin" || userRole === "cashier";
+    // Staff actions can be performed by both admin and staff
+    return userRole === "admin" || userRole === "staff";
   }
 }
 

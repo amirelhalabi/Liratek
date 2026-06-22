@@ -16,7 +16,6 @@ import { DrawerTopUpModal } from "../components/DrawerTopUpModal";
 import { InitialDrawerAmountsModal } from "../../closing/components/InitialDrawerAmountsModal";
 import { useCurrencyContext } from "@/contexts/CurrencyContext";
 import { useModules } from "@/contexts/ModuleContext";
-import { useAuth } from "@/features/auth/context/AuthContext";
 import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
 
 const DashboardChart = lazy(() => import("../components/DashboardChart"));
@@ -93,9 +92,8 @@ export default function Dashboard() {
   const api = useApi();
   const { formatAmount, getSymbol } = useCurrencyContext();
   const { isModuleEnabled } = useModules();
-  const { user } = useAuth();
   const { flags } = useFeatureFlags();
-  const checkpointsEnabled = user?.role === "admin" && flags.sessionManagement;
+  const checkpointsEnabled = flags.sessionManagement;
 
   const debtEnabled = isModuleEnabled("debts");
 

@@ -16,7 +16,7 @@ export interface UserEntity {
   id: number;
   username: string;
   password_hash: string;
-  role: "admin" | "cashier" | "staff";
+  role: "admin" | "staff";
   is_active: number; // SQLite boolean (0 or 1)
 }
 
@@ -26,14 +26,14 @@ export type SafeUser = Omit<UserEntity, "password_hash">;
 export interface CreateUserData {
   username: string;
   password_hash: string;
-  role: "admin" | "cashier";
+  role: "admin" | "staff";
   is_active?: number;
 }
 
 export interface UpdateUserData {
   username?: string;
   password_hash?: string;
-  role?: "admin" | "cashier";
+  role?: "admin" | "staff";
   is_active?: number;
 }
 
@@ -178,7 +178,7 @@ export class UserRepository extends BaseRepository<UserEntity> {
   /**
    * Count users by role
    */
-  countByRole(role: "admin" | "cashier"): number {
+  countByRole(role: "admin" | "staff"): number {
     try {
       const query = `SELECT COUNT(*) as count FROM ${this.tableName} WHERE role = ? AND is_active = 1`;
       const result = this.queryOne<{ count: number }>(query, role);

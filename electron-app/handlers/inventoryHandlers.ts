@@ -81,7 +81,7 @@ export function registerInventoryHandlers(): void {
   ipcMain.handle("inventory:create-product", (e, product: ProductInput) => {
     // Auth check
     try {
-      const auth = requireRole(e.sender.id, ["admin"]);
+      const auth = requireRole(e.sender.id, ["admin", "staff"]);
       if (!auth.ok) return { success: false, error: auth.error };
     } catch {}
 
@@ -140,7 +140,7 @@ export function registerInventoryHandlers(): void {
   ipcMain.handle("inventory:update-product", (e, product: ProductInput) => {
     // Auth check
     try {
-      const auth = requireRole(e.sender.id, ["admin"]);
+      const auth = requireRole(e.sender.id, ["admin", "staff"]);
       if (!auth.ok) return { success: false, error: auth.error };
     } catch {}
 
@@ -229,7 +229,7 @@ export function registerInventoryHandlers(): void {
   ipcMain.handle("inventory:delete-product", (e, id: number) => {
     // Auth check
     try {
-      const auth = requireRole(e.sender.id, ["admin"]);
+      const auth = requireRole(e.sender.id, ["admin", "staff"]);
       if (!auth.ok) return { success: false, error: auth.error };
     } catch {}
 
@@ -245,7 +245,7 @@ export function registerInventoryHandlers(): void {
 
   ipcMain.handle("inventory:batch-delete", (e, ids: number[]) => {
     try {
-      const auth = requireRole(e.sender.id, ["admin"]);
+      const auth = requireRole(e.sender.id, ["admin", "staff"]);
       if (!auth.ok) return { success: false, error: auth.error };
     } catch {}
 
@@ -269,7 +269,7 @@ export function registerInventoryHandlers(): void {
     (e, id: number, newQuantity: number) => {
       // Auth check
       try {
-        const auth = requireRole(e.sender.id, ["admin"]);
+        const auth = requireRole(e.sender.id, ["admin", "staff"]);
         if (!auth.ok) return { success: false, error: auth.error };
       } catch {}
 

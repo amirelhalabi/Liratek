@@ -429,8 +429,7 @@ export function registerAuthHandlers(): void {
           {
             username: validatedData.username,
             password: validatedData.password,
-            role:
-              validatedData.role === "staff" ? "cashier" : validatedData.role,
+            role: validatedData.role,
           },
           "admin",
         );
@@ -585,9 +584,8 @@ export function registerAuthHandlers(): void {
       try {
         // Direct database update for role change (not in AuthService yet)
         const db = getDatabase();
-        const role = v.data.role === "staff" ? "cashier" : v.data.role;
         db.prepare(`UPDATE users SET role = ? WHERE id = ?`).run(
-          role,
+          v.data.role,
           v.data.id,
         );
         audit(e.sender.id, {
