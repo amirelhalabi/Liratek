@@ -21,6 +21,23 @@ export interface Voucher {
   updated_at: string;
 }
 
+/** A single financial_services row as returned by the Suppliers history tab. */
+export interface SupplierTransaction {
+  id: number;
+  service_type: "SEND" | "RECEIVE";
+  amount: number;
+  currency: string;
+  commission: number;
+  cost: number;
+  omt_service_type: string | null;
+  omt_fee: number | null;
+  settlement_id: number | null;
+  is_settled: number;
+  fifo_status: "paid" | "partial" | "unpaid";
+  fifo_paid_usd: number;
+  created_at: string;
+}
+
 /**
  * LIRA-064: a single structured in/out payment leg for a transaction.
  *
@@ -918,6 +935,10 @@ export interface ElectronAPI {
         created_at: string;
       }>
     >;
+    getAllTransactions: (
+      provider: string,
+      limit?: number,
+    ) => Promise<SupplierTransaction[]>;
     getUnsettledSummary: () => Promise<
       Array<{
         provider: string;
@@ -949,6 +970,7 @@ export interface ElectronAPI {
       direction: "PAY" | "RECEIVE";
       payments: Array<{ method: string; currency_code: string; amount: number }>;
       note?: string;
+      exchange_rate?: number;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
     getProductBalances: () => Promise<
       Array<{ supplier_id: number; total_usd: number; total_lbp: number }>
@@ -960,8 +982,27 @@ export interface ElectronAPI {
         quantity: number;
         cost: number;
         total: number;
+        created_at: string;
       }>
     >;
+    getPurchases: (supplierId: number) => Promise<
+      Array<{
+        id: number;
+        supplier_id: number;
+        total_usd: number;
+        paid_usd: number;
+        status: "PAID" | "PARTIAL" | "UNPAID";
+        note: string | null;
+        created_by: number | null;
+        created_at: string;
+        updated_at: string;
+      }>
+    >;
+    createPurchase: (data: {
+      supplier_id: number;
+      total_usd: number;
+      note?: string;
+    }) => Promise<{ success: boolean; id?: number; error?: string } | { id: number; supplier_id: number; total_usd: number; paid_usd: number; status: "PAID" | "PARTIAL" | "UNPAID"; note: string | null; created_by: number | null; created_at: string; updated_at: string }>;
   };
 
   // Loto
@@ -2049,6 +2090,55 @@ export interface ElectronAPI {
       note?: string;
       category?: string;
     }) => Promise<{ success: boolean; data?: unknown; error?: string }>;
+  };
+
+  // Hold Money (cash held on behalf of a client)
+  holdMoney: {
+    list: (filter?: { status?: "held" | "collected" }) => Promise<{
+      success: boolean;
+      data?: Array<{
+        id: number;
+        client_name: string;
+        phone_number: string | null;
+        usd_amount: number;
+        lbp_amount: number;
+        status: "held" | "collected";
+        notes: string | null;
+        created_by: number | null;
+        collected_by: number | null;
+        collected_at: string | null;
+        created_at: string;
+        updated_at: string;
+      }>;
+      error?: string;
+    }>;
+    active: () => Promise<{
+      success: boolean;
+      data?: Array<{
+        id: number;
+        client_name: string;
+        phone_number: string | null;
+        usd_amount: number;
+        lbp_amount: number;
+        status: "held" | "collected";
+        notes: string | null;
+        created_by: number | null;
+        collected_by: number | null;
+        collected_at: string | null;
+        created_at: string;
+        updated_at: string;
+      }>;
+      error?: string;
+    }>;
+    create: (data: {
+      client_name: string;
+      phone_number?: string;
+      usd_amount?: number;
+      lbp_amount?: number;
+      notes?: string;
+      transaction_time?: string;
+    }) => Promise<{ success: boolean; id?: number; error?: string }>;
+    collect: (id: number) => Promise<{ success: boolean; error?: string }>;
   };
 
   // Service Presets

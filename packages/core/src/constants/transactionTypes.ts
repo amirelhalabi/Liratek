@@ -31,6 +31,10 @@ export const TRANSACTION_TYPES = {
   // Drawer adjustments
   DRAWER_TOPUP: "DRAWER_TOPUP",
 
+  // Hold Money (cash held on behalf of a client, returned on collection)
+  HOLD_MONEY: "HOLD_MONEY",
+  HOLD_MONEY_COLLECT: "HOLD_MONEY_COLLECT",
+
   // Debt & supplier
   DEBT_REPAYMENT: "DEBT_REPAYMENT",
   SUPPLIER_PAYMENT: "SUPPLIER_PAYMENT",

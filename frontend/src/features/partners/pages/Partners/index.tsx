@@ -34,7 +34,7 @@ import type {
   LedgerFilters,
   PartnerWithBalance,
 } from "@/types/electron";
-import { appEvents, PageHeader, DecimalInput } from "@liratek/ui";
+import { appEvents, PageHeader, DecimalInput, Select } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -265,16 +265,18 @@ function PartnerFormModal({
           <label className="text-xs text-slate-400 block mb-1">
             System Association
           </label>
-          <select
+          <Select
             value={systemAssociation}
-            onChange={(e) => setSystemAssociation(e.target.value)}
-            className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
-          >
-            <option value="">None</option>
-            <option value={partnerSystem}>
-              {partnerSystem === "WHISH" ? "Whish" : "OMT"} System
-            </option>
-          </select>
+            onChange={(v) => setSystemAssociation(v)}
+            options={[
+              { value: "", label: "None" },
+              {
+                value: partnerSystem,
+                label: partnerSystem === "WHISH" ? "Whish System" : "OMT System",
+              },
+            ]}
+            buttonClassName="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
+          />
           <p className="text-xs text-slate-500 mt-1">
             Associate this partner with a system to access transactions on that
             system's page.
@@ -398,14 +400,15 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
             <label className="text-xs text-slate-400 block mb-1">
               Currency
             </label>
-            <select
+            <Select
               value={currency}
-              onChange={(e) => setCurrency(e.target.value as "USD" | "LBP")}
-              className="bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
-            >
-              <option value="USD">USD</option>
-              <option value="LBP">LBP</option>
-            </select>
+              onChange={(v) => setCurrency(v as "USD" | "LBP")}
+              options={[
+                { value: "USD", label: "USD" },
+                { value: "LBP", label: "LBP" },
+              ]}
+              buttonClassName="bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
+            />
           </div>
         </div>
 
@@ -413,17 +416,15 @@ function SettleModal({ partner, onClose, onSettled }: SettleModalProps) {
           <label className="text-xs text-slate-400 block mb-1">
             Settlement Method
           </label>
-          <select
+          <Select
             value={method}
-            onChange={(e) => setMethod(e.target.value)}
-            className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
-          >
-            {SETTLEMENT_METHODS.map((m) => (
-              <option key={m.value} value={m.value}>
-                {m.label}
-              </option>
-            ))}
-          </select>
+            onChange={(v) => setMethod(v)}
+            options={SETTLEMENT_METHODS.map((m) => ({
+              value: m.value,
+              label: m.label,
+            }))}
+            buttonClassName="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
+          />
         </div>
 
         <div>
@@ -552,14 +553,15 @@ function RecordTxModal({ partner, onClose, onRecorded }: RecordTxModalProps) {
             <label className="text-xs text-slate-400 block mb-1">
               Currency
             </label>
-            <select
+            <Select
               value={currency}
-              onChange={(e) => setCurrency(e.target.value as "USD" | "LBP")}
-              className="bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
-            >
-              <option value="USD">USD</option>
-              <option value="LBP">LBP</option>
-            </select>
+              onChange={(v) => setCurrency(v as "USD" | "LBP")}
+              options={[
+                { value: "USD", label: "USD" },
+                { value: "LBP", label: "LBP" },
+              ]}
+              buttonClassName="bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
+            />
           </div>
         </div>
 
@@ -1146,40 +1148,37 @@ function DetailPanel({
           onChange={(e) => setFilterTo(e.target.value)}
           className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-violet-500"
         />
-        <select
+        <Select
           value={filterMode}
-          onChange={(e) =>
-            setFilterMode(e.target.value as "" | "FOR" | "THROUGH")
-          }
-          className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-violet-500"
-        >
-          <option value="">All modes</option>
-          <option value="FOR">FOR (our system)</option>
-          <option value="THROUGH">THROUGH (their system)</option>
-        </select>
-        <select
+          onChange={(v) => setFilterMode(v as "" | "FOR" | "THROUGH")}
+          options={[
+            { value: "", label: "All modes" },
+            { value: "FOR", label: "FOR (our system)" },
+            { value: "THROUGH", label: "THROUGH (their system)" },
+          ]}
+          buttonClassName="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-violet-500"
+        />
+        <Select
           value={filterProvider}
-          onChange={(e) =>
-            setFilterProvider(e.target.value as "" | "OMT" | "WHISH" | "BINANCE")
-          }
-          className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-violet-500"
-        >
-          <option value="">All providers</option>
-          <option value="OMT">OMT</option>
-          <option value="WHISH">Whish</option>
-          <option value="BINANCE">Binance</option>
-        </select>
-        <select
+          onChange={(v) => setFilterProvider(v as "" | "OMT" | "WHISH" | "BINANCE")}
+          options={[
+            { value: "", label: "All providers" },
+            { value: "OMT", label: "OMT" },
+            { value: "WHISH", label: "Whish" },
+            { value: "BINANCE", label: "Binance" },
+          ]}
+          buttonClassName="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-violet-500"
+        />
+        <Select
           value={filterDirection}
-          onChange={(e) =>
-            setFilterDirection(e.target.value as "" | "DEBIT" | "CREDIT")
-          }
-          className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-violet-500"
-        >
-          <option value="">All directions</option>
-          <option value="DEBIT">Debit (they owe us)</option>
-          <option value="CREDIT">Credit (we owe them)</option>
-        </select>
+          onChange={(v) => setFilterDirection(v as "" | "DEBIT" | "CREDIT")}
+          options={[
+            { value: "", label: "All directions" },
+            { value: "DEBIT", label: "Debit (they owe us)" },
+            { value: "CREDIT", label: "Credit (we owe them)" },
+          ]}
+          buttonClassName="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-violet-500"
+        />
         {(filterFrom ||
           filterTo ||
           filterMode ||

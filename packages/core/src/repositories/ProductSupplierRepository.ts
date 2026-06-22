@@ -21,6 +21,7 @@ export interface ProductSupplierItem {
   quantity: number;
   cost: number;
   total: number;
+  created_at: string;
 }
 
 const COLUMNS = "id, name, sort_order, is_active, supplier_id, created_at";
@@ -64,7 +65,8 @@ export class ProductSupplierRepository {
       .prepare(
         `SELECT p.id as product_id, p.name, p.stock_quantity as quantity,
                 p.cost_price_usd as cost,
-                ROUND(p.stock_quantity * p.cost_price_usd, 2) as total
+                ROUND(p.stock_quantity * p.cost_price_usd, 2) as total,
+                p.created_at
          FROM product_suppliers ps
          JOIN products p ON LOWER(p.supplier) = LOWER(ps.name) AND p.is_active = 1
          WHERE ps.supplier_id = ?

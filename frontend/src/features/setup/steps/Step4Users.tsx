@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useSetup } from "../context/SetupContext";
 import { Plus, Trash2 } from "lucide-react";
 import PasswordInput from "@/shared/components/PasswordInput";
-import { TextInput } from "@liratek/ui";
+import { TextInput, Select } from "@liratek/ui";
 import { validatePassword } from "@/shared/utils/validatePassword";
 
 export default function Step4Users() {
@@ -99,16 +99,15 @@ export default function Step4Users() {
             compact
           />
           <div className="flex gap-2">
-            <select
+            <Select
               value={newUser.role}
-              onChange={(e) =>
-                setNewUser((p) => ({ ...p, role: e.target.value }))
-              }
-              className={inputCls}
-            >
-              <option value="staff">Staff</option>
-              <option value="admin">Admin</option>
-            </select>
+              onChange={(v) => setNewUser((p) => ({ ...p, role: v }))}
+              options={[
+                { value: "staff", label: "Staff" },
+                { value: "admin", label: "Admin" },
+              ]}
+              buttonClassName={inputCls}
+            />
             <button
               onClick={addUser}
               className="px-3 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg transition-colors"

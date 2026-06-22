@@ -655,18 +655,21 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
    * Returns Record<drawerName, DrawerCheckpointStatus>
    */
   getLastCheckpointPerDrawer(): Record<string, DrawerCheckpointStatus> {
+    // Checkpoints are stored as AGGREGATED rows in daily_closings, with
+    // per-drawer amounts in daily_closing_amounts. Group by the amounts
+    // table's drawer_name to find the latest checkpoint per drawer.
     const rows = this.db
       .prepare(
-        `SELECT dc.drawer_name, dc.created_at as checked_at,
-                dca.currency_code, dca.physical_amount, dca.opening_amount
-         FROM daily_closings dc
-         JOIN daily_closing_amounts dca ON dca.closing_id = dc.id
-         WHERE dc.id IN (
-           SELECT MAX(id) FROM daily_closings
-           WHERE drawer_name != 'AGGREGATED'
-           GROUP BY drawer_name
+        `SELECT dc.created_at as checked_at,
+                dca.drawer_name, dca.currency_code, dca.physical_amount, dca.opening_amount
+         FROM daily_closing_amounts dca
+         JOIN daily_closings dc ON dc.id = dca.closing_id
+         WHERE dca.closing_id IN (
+           SELECT MAX(dca2.closing_id)
+           FROM daily_closing_amounts dca2
+           GROUP BY dca2.drawer_name
          )
-         ORDER BY dc.drawer_name, dca.currency_code`,
+         ORDER BY dca.drawer_name, dca.currency_code`,
       )
       .all() as {
       drawer_name: string;

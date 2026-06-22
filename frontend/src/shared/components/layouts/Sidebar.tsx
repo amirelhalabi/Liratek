@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useRef, useState } from "react";
 import { NavLink } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -28,6 +28,7 @@ import {
   Handshake,
   Truck,
   Gift,
+  Pin,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import clsx from "clsx";
@@ -35,6 +36,7 @@ import { useAuth } from "@/features/auth/context/AuthContext";
 import { useModules } from "@/contexts/ModuleContext";
 import { useShopName } from "@/hooks/useShopName";
 import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
+import { useSidebarFavorites } from "@/shared/hooks/useSidebarFavorites";
 
 // Map Lucide icon names (stored in DB) to actual icon components
 const iconMap: Record<string, LucideIcon> = {
@@ -68,47 +70,146 @@ interface SidebarProps {
   toggleSidebar: () => void;
 }
 
+type NavItem = {
+  to: string;
+  icon: LucideIcon;
+  label: string;
+  prefetch?: () => void;
+};
+
 export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const { enabledModules } = useModules();
   const shopName = useShopName();
   const { flags } = useFeatureFlags();
+  const { favorites, toggleFavorite, isFavorite } = useSidebarFavorites();
+
+  const [holdingRoute, setHoldingRoute] = useState<string | null>(null);
+  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Tracks whether the last hold ran to completion — suppresses the subsequent click event.
+  const holdCompletedRef = useRef(false);
+
+  const handleHoldStart = (route: string) => {
+    holdCompletedRef.current = false;
+    setHoldingRoute(route);
+    holdTimerRef.current = setTimeout(() => {
+      holdCompletedRef.current = true;
+      toggleFavorite(route);
+      setHoldingRoute(null);
+    }, 800);
+  };
+
+  const handleHoldEnd = () => {
+    if (holdTimerRef.current) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+    setHoldingRoute(null);
+  };
 
   // Consolidated module group: recharge + ipec_katch + binance → one "Mobile Recharge" link
   const CONSOLIDATED_KEYS = new Set(["recharge", "ipec_katch", "binance"]);
 
   // Build nav items from DB modules
-  const navItems = useMemo(() => {
+  const allNavItems = useMemo(() => {
     let consolidatedInserted = false;
     return enabledModules
       .filter((m) => !m.admin_only || isAdmin)
-      .filter((m) => m.route !== "") // Exclude closing (no route — it's a button)
-      .filter((m) => !["reports", "transactions"].includes(m.key)) // Exclude removed modules
-      .reduce<Array<{ to: string; icon: LucideIcon; label: string; prefetch?: () => void }>>(
-        (acc, m) => {
-          if (CONSOLIDATED_KEYS.has(m.key)) {
-            if (!consolidatedInserted) {
-              consolidatedInserted = true;
-              acc.push({
-                to: "/recharge",
-                icon: Smartphone,
-                label: "Mobile Recharge",
-                prefetch: () => import("@/features/recharge/pages/Recharge"),
-              });
-            }
-            return acc;
+      .filter((m) => m.route !== "")
+      .filter((m) => !["reports", "transactions"].includes(m.key))
+      .reduce<NavItem[]>((acc, m) => {
+        if (CONSOLIDATED_KEYS.has(m.key)) {
+          if (!consolidatedInserted) {
+            consolidatedInserted = true;
+            acc.push({
+              to: "/recharge",
+              icon: Smartphone,
+              label: "Mobile Recharge",
+              prefetch: () => import("@/features/recharge/pages/Recharge"),
+            });
           }
-          acc.push({
-            to: m.route,
-            icon: iconMap[m.icon] || Circle,
-            label: m.label,
-          });
           return acc;
-        },
-        [],
-      );
+        }
+        acc.push({
+          to: m.route,
+          icon: iconMap[m.icon] || Circle,
+          label: m.label,
+        });
+        return acc;
+      }, []);
   }, [enabledModules, isAdmin]);
+
+  // Split into favorites (FIFO order) and the rest (original DB order)
+  const favoriteItems = favorites
+    .map((route) => allNavItems.find((i) => i.to === route))
+    .filter((i): i is NavItem => i != null);
+  const restItems = allNavItems.filter((i) => !isFavorite(i.to));
+
+  const renderNavItem = (item: NavItem) => {
+    const isHolding = holdingRoute === item.to;
+    const isPinned = isFavorite(item.to);
+
+    return (
+      <div
+        key={item.to}
+        className="relative select-none"
+        onPointerDown={() => handleHoldStart(item.to)}
+        onPointerUp={handleHoldEnd}
+        onPointerLeave={handleHoldEnd}
+        onPointerCancel={handleHoldEnd}
+      >
+        <NavLink
+          to={item.to}
+          onMouseEnter={item.prefetch}
+          onClick={(e) => {
+            if (holdCompletedRef.current) {
+              e.preventDefault();
+              holdCompletedRef.current = false;
+            }
+          }}
+          className={({ isActive }) =>
+            clsx(
+              "flex items-center gap-3 py-3 rounded-xl transition-all font-medium whitespace-nowrap w-full",
+              isActive
+                ? "bg-violet-600 text-white shadow-lg shadow-violet-900/20"
+                : "text-slate-400 hover:bg-slate-800 hover:text-white",
+              isCollapsed ? "justify-center px-1" : "px-3",
+              isHolding && "opacity-75",
+            )
+          }
+          title={isCollapsed ? item.label : undefined}
+        >
+          {/* Icon — with small dot overlay when pinned + collapsed */}
+          <div className="relative min-w-[20px]">
+            <item.icon size={20} />
+            {isPinned && isCollapsed && (
+              <span className="absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full bg-violet-400" />
+            )}
+          </div>
+
+          {!isCollapsed && (
+            <>
+              <span className="flex-1 opacity-100 transition-opacity duration-200">
+                {item.label}
+              </span>
+              {isPinned && (
+                <Pin
+                  size={11}
+                  className="text-violet-400 opacity-50 shrink-0"
+                />
+              )}
+            </>
+          )}
+        </NavLink>
+
+        {/* Hold-to-favorite progress bar — fills left→right over 3 s */}
+        {isHolding && (
+          <span className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full bg-violet-400 sidebar-hold-fill" />
+        )}
+      </div>
+    );
+  };
 
   return (
     <aside
@@ -136,30 +237,17 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
       </div>
 
       <nav className="flex-1 p-3 overflow-y-auto overflow-x-hidden">
-        {navItems.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            onMouseEnter={item.prefetch}
-            className={({ isActive }) =>
-              clsx(
-                "flex items-center gap-3 py-3 rounded-xl transition-all font-medium whitespace-nowrap w-full",
-                isActive
-                  ? "bg-violet-600 text-white shadow-lg shadow-violet-900/20"
-                  : "text-slate-400 hover:bg-slate-800 hover:text-white",
-                isCollapsed ? "justify-center px-1" : "px-3",
-              )
-            }
-            title={isCollapsed ? item.label : undefined}
-          >
-            <item.icon size={20} className="min-w-[20px]" />
-            {!isCollapsed && (
-              <span className="opacity-100 transition-opacity duration-200">
-                {item.label}
-              </span>
-            )}
-          </NavLink>
-        ))}
+        {/* Pinned items */}
+        {favoriteItems.map(renderNavItem)}
+
+        {/* Divider — only shown when both groups are non-empty */}
+        {favoriteItems.length > 0 && restItems.length > 0 && (
+          <div className="my-1 mx-1 border-t border-slate-700/50" />
+        )}
+
+        {/* Regular items */}
+        {restItems.map(renderNavItem)}
+
         {isAdmin && flags.sessionManagement && (
           <NavLink
             to="/checkpoint-timeline"

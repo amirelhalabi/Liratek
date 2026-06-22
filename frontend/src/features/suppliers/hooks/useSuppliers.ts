@@ -13,6 +13,8 @@ export const SUPPLIER_KEYS = {
   productItems: (id: number) => ["supplier-product-items", id] as const,
   ledger: (id: number) => ["supplier-ledger", id] as const,
   unsettled: (provider: string) => ["supplier-unsettled", provider] as const,
+  allTransactions: (provider: string) => ["supplier-all-transactions", provider] as const,
+  purchases: (id: number) => ["supplier-purchases", id] as const,
 };
 
 // ── Queries ───────────────────────────────────────────────────────────────────
@@ -67,6 +69,15 @@ export function useUnsettledTransactionsQuery(provider: string | null) {
   });
 }
 
+export function useAllTransactionsQuery(provider: string | null) {
+  return useQuery({
+    queryKey: SUPPLIER_KEYS.allTransactions(provider ?? ""),
+    queryFn: () => window.api.suppliers.getAllTransactions(provider!),
+    enabled: !!provider,
+    select: (data) => data ?? [],
+  });
+}
+
 // ── Mutations ─────────────────────────────────────────────────────────────────
 
 export function useAddLedgerEntryMutation(supplierId: number | null) {
@@ -94,42 +105,22 @@ export function useAddLedgerEntryMutation(supplierId: number | null) {
   });
 }
 
-export function useSettleTransactionsMutation(
-  supplierId: number | null,
-  provider: string | null,
-) {
-  const api = useApi();
-  const queryClient = useQueryClient();
+export function useSupplierPurchasesQuery(supplierId: number | null) {
+  return useQuery({
+    queryKey: SUPPLIER_KEYS.purchases(supplierId ?? 0),
+    queryFn: () => window.api.suppliers.getPurchases(supplierId!),
+    enabled: !!supplierId,
+  });
+}
 
+export function useCreatePurchaseMutation(supplierId: number | null) {
+  const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (data: {
-      supplier_id: number;
-      financial_service_ids: number[];
-      amount_usd: number;
-      amount_lbp: number;
-      commission_usd: number;
-      commission_lbp: number;
-      drawer_name: string;
-      note?: string;
-      payments?: Array<{ method: string; currency_code: string; amount: number }>;
-    }) =>
-      (
-        api as unknown as {
-          settleTransactions: (d: typeof data) => Promise<{ success: boolean; error?: string }>;
-        }
-      ).settleTransactions(data),
+    mutationFn: (data: { supplier_id: number; total_usd: number; note?: string }) =>
+      window.api.suppliers.createPurchase(data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.all });
-      queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.balances });
       if (supplierId) {
-        queryClient.invalidateQueries({
-          queryKey: SUPPLIER_KEYS.ledger(supplierId),
-        });
-        if (provider) {
-          queryClient.invalidateQueries({
-            queryKey: SUPPLIER_KEYS.unsettled(provider),
-          });
-        }
+        queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.purchases(supplierId) });
       }
     },
   });
@@ -151,6 +142,7 @@ export function useSupplierCashflowMutation(
       direction: "PAY" | "RECEIVE";
       payments: Array<{ method: string; currency_code: string; amount: number }>;
       note?: string;
+      exchange_rate?: number;
     }) => window.api.suppliers.recordCashflow(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.all });
@@ -160,9 +152,15 @@ export function useSupplierCashflowMutation(
         queryClient.invalidateQueries({
           queryKey: SUPPLIER_KEYS.ledger(supplierId),
         });
+        queryClient.invalidateQueries({
+          queryKey: SUPPLIER_KEYS.purchases(supplierId),
+        });
         if (provider) {
           queryClient.invalidateQueries({
             queryKey: SUPPLIER_KEYS.unsettled(provider),
+          });
+          queryClient.invalidateQueries({
+            queryKey: SUPPLIER_KEYS.allTransactions(provider),
           });
         }
       }

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useApi } from "@liratek/ui";
+import { useApi, Select } from "@liratek/ui";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
 import {
   Wallet,
@@ -206,33 +206,29 @@ export function SettlementDrawerIntegration({
                 <label className="block text-xs text-slate-400 mb-1">
                   Payment Method
                 </label>
-                <select
+                <Select
                   value={paymentMethod}
-                  onChange={(e) => setPaymentMethod(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  onChange={(v) => setPaymentMethod(v)}
+                  options={methods.map((m) => ({ value: m.code, label: m.label }))}
+                  buttonClassName="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   disabled={isProcessing}
-                >
-                  {methods.map((m) => (
-                    <option key={m.code} value={m.code}>
-                      {m.label}
-                    </option>
-                  ))}
-                </select>
+                />
               </div>
               <div>
                 <label className="block text-xs text-slate-400 mb-1">
                   Drawer
                 </label>
-                <select
+                <Select
                   value={drawerName}
-                  onChange={(e) => setDrawerName(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  onChange={(v) => setDrawerName(v)}
+                  options={[
+                    { value: "Loto", label: "Loto Drawer" },
+                    { value: "General", label: "General Drawer" },
+                    { value: "OMT_System", label: "OMT System" },
+                  ]}
+                  buttonClassName="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   disabled={isProcessing}
-                >
-                  <option value="Loto">Loto Drawer</option>
-                  <option value="General">General Drawer</option>
-                  <option value="OMT_System">OMT System</option>
-                </select>
+                />
               </div>
             </div>
           </div>

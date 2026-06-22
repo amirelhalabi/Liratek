@@ -6,6 +6,7 @@ import {
   DecimalInput,
   hasNewClientInfo,
   type PaymentLine,
+  Select,
 } from "@liratek/ui";
 import { PaymentSheet } from "./PaymentSheet";
 import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
@@ -524,21 +525,15 @@ export function FinancialForm({
               </div>
             )}
             {/* Payment method quick-select */}
-            <div className="relative">
-              <select
-                value={initialPaymentMethod}
-                onChange={(e) => {
-                  setInitialPaymentMethod(e.target.value);
-                  setPaymentInputKey((k) => k + 1);
-                }}
-                className="appearance-none bg-slate-900 border border-slate-600 rounded-lg pl-3 pr-7 py-2 text-white text-xs font-medium focus:outline-none focus:border-violet-500 transition-all cursor-pointer"
-              >
-                {methods.map((m) => (
-                  <option key={m.code} value={m.code}>{m.label}</option>
-                ))}
-              </select>
-              <ChevronDown size={13} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-            </div>
+            <Select
+              value={initialPaymentMethod}
+              onChange={(v) => {
+                setInitialPaymentMethod(v);
+                setPaymentInputKey((k) => k + 1);
+              }}
+              options={methods.map((m) => ({ value: m.code, label: m.label }))}
+              buttonClassName="bg-slate-900 border border-slate-600 rounded-lg pl-3 pr-7 py-2 text-white text-xs font-medium focus:outline-none focus:border-violet-500 transition-all cursor-pointer"
+            />
             <button
               type="button"
               onClick={() => {

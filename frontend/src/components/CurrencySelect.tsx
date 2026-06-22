@@ -4,6 +4,7 @@
  * Reusable currency dropdown component that sources data from CurrencyContext.
  */
 
+import { Select } from "@liratek/ui";
 import { useCurrencyContext } from "@/contexts/CurrencyContext";
 
 interface CurrencySelectProps {
@@ -33,17 +34,12 @@ export default function CurrencySelect({
     overrideCurrencies ?? (showAll ? allCurrencies : activeCurrencies);
 
   return (
-    <select
+    <Select
       value={value}
-      onChange={(e) => onChange(e.target.value)}
+      onChange={(v) => onChange(v)}
+      options={list.map((c) => ({ value: c.code, label: `${c.code} — ${c.name}` }))}
       disabled={disabled}
-      className={`bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-1 focus:ring-violet-500 ${className}`}
-    >
-      {list.map((c) => (
-        <option key={c.code} value={c.code}>
-          {c.code} — {c.name}
-        </option>
-      ))}
-    </select>
+      buttonClassName={`bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-1 focus:ring-violet-500 ${className}`}
+    />
   );
 }

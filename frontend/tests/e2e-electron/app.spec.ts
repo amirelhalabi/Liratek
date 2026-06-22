@@ -258,11 +258,55 @@ test("Debts: add sale debt and settle", async ({ appPage }) => {
       .first(),
   ).toHaveValue("CUSTOMER_ACCOUNT", { timeout: 5000 });
 
+  // Diagnostic: buffer renderer crash / console / page errors BEFORE the click so
+  // the cause survives even if the Electron page detaches (a main- OR renderer-
+  // process crash closes the page). A pure main-process crash won't appear here —
+  // its stack is printed by the harness as `[electron] …` stderr lines.
+  const consoleErrors: string[] = [];
+  const pageErrors: string[] = [];
+  let pageCrashed = false;
+  appPage.on("console", (m) => {
+    if (m.type() === "error") consoleErrors.push(m.text());
+  });
+  appPage.on("pageerror", (e) => pageErrors.push(String(e?.message ?? e)));
+  appPage.on("crash", () => {
+    pageCrashed = true;
+  });
+
   // Complete sale on Customer Account
   await appPage.getByRole("button", { name: /Complete Sale/i }).click();
-  await expect(appPage.locator("text=Cart is empty")).toBeVisible({
-    timeout: 10_000,
-  });
+
+  try {
+    // The modal stays open ONLY when handleCompleteSale hits a failure — it shows a
+    // "Sale failed: <error>" / validation / "unexpected error" alert and does NOT
+    // clear the cart. Race the success signal against that alert.
+    const cartEmpty = appPage.locator("text=Cart is empty");
+    const failureAlert = appPage
+      .locator('[role="alert"]')
+      .filter({ hasText: /fail|error|debt|disabled|required|phone|anonymous/i });
+    await Promise.race([
+      cartEmpty.waitFor({ state: "visible", timeout: 12_000 }).catch(() => {}),
+      failureAlert
+        .first()
+        .waitFor({ state: "visible", timeout: 12_000 })
+        .catch(() => {}),
+    ]);
+    if (await failureAlert.first().isVisible().catch(() => false)) {
+      const msg = (await failureAlert.allTextContents().catch(() => [])).join(
+        " | ",
+      );
+      throw new Error(`alert: "${msg}"`);
+    }
+    await expect(cartEmpty).toBeVisible({ timeout: 8_000 });
+  } catch (err) {
+    throw new Error(
+      `Complete Sale did not complete on CUSTOMER_ACCOUNT. ` +
+        `pageCrashed=${pageCrashed}; ` +
+        `pageErrors=${JSON.stringify(pageErrors)}; ` +
+        `consoleErrors=${JSON.stringify(consoleErrors.slice(-8))}; ` +
+        `original=${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
 
   // Navigate to Debts and settle
   await navigateTo(appPage, "/debts");

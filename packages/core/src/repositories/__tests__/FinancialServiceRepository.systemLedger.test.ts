@@ -183,6 +183,7 @@ function createTestDb(baseSystem = "OMT"): Database.Database {
       note TEXT,
       created_by INTEGER,
       transaction_id INTEGER,
+      is_auto INTEGER NOT NULL DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 

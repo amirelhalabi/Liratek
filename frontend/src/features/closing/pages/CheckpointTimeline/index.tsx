@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { DateRangeFilter } from "@/shared/components/DateRangeFilter";
-import { PageHeader } from "@liratek/ui";
+import { PageHeader, Select } from "@liratek/ui";
 import { Clock, Eye, X, Check, TrendingUp, TrendingDown } from "lucide-react";
 import { DataTable, appEvents } from "@liratek/ui";
 import { DRAWER_CONFIGS, DRAWER_ORDER } from "../../config/drawers";
@@ -158,20 +158,17 @@ export default function CheckpointTimeline() {
             className="bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white text-sm focus:ring-2 focus:ring-violet-600 w-56"
           />
 
-          <select
+          <Select
             value={filters.drawer_name}
-            onChange={(e) =>
-              setFilters({ ...filters, drawer_name: e.target.value })
-            }
-            className="bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-violet-600"
-          >
-            <option value="">All Drawers</option>
-            {DRAWER_ORDER.map((d) => (
-              <option key={d} value={d}>
-                {DRAWER_CONFIGS[d]?.label ?? d}
-              </option>
-            ))}
-          </select>
+            onChange={(v) => setFilters({ ...filters, drawer_name: v })}
+            options={[
+              { value: "", label: "All Drawers" },
+              ...DRAWER_ORDER.map((d) => ({
+                value: d,
+                label: DRAWER_CONFIGS[d]?.label ?? d,
+              })),
+            ]}
+          />
 
           <DateRangeFilter
             from={filters.date_from}

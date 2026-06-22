@@ -227,6 +227,13 @@ export {
 } from "./CustomServiceService.js";
 export type { CustomServiceResult } from "./CustomServiceService.js";
 
+// Hold Money Service
+export {
+  HoldMoneyService,
+  getHoldMoneyService,
+  resetHoldMoneyService,
+} from "./HoldMoneyService.js";
+
 // Transaction Service
 export {
   TransactionService,

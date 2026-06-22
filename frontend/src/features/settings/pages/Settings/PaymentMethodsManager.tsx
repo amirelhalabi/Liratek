@@ -7,7 +7,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
-import { useApi } from "@liratek/ui";
+import { useApi, Select } from "@liratek/ui";
 import type { PaymentMethodEntity } from "@liratek/ui";
 
 interface FormData {
@@ -286,24 +286,16 @@ export default function PaymentMethodsManager() {
               >
                 Drawer
               </label>
-              <select
-                id="payment-method-drawer"
+              <Select
                 value={form.drawer_name}
-                onChange={(e) =>
-                  setForm({ ...form, drawer_name: e.target.value })
-                }
+                onChange={(v) => setForm({ ...form, drawer_name: v })}
+                options={drawers.map((d) => ({ value: d, label: d }))}
                 disabled={
                   !!editingId &&
                   methods.find((m) => m.id === editingId)?.is_system === 1
                 }
-                className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm disabled:opacity-50"
-              >
-                {drawers.map((d) => (
-                  <option key={d} value={d}>
-                    {d}
-                  </option>
-                ))}
-              </select>
+                buttonClassName="w-full bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-white text-sm disabled:opacity-50"
+              />
             </div>
             <div className="flex items-center gap-2 pt-5">
               <label className="flex items-center gap-2 cursor-pointer">

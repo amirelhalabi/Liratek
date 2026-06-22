@@ -7,6 +7,7 @@ import {
   SupplierLedgerEntrySchema,
   SupplierSettleSchema,
   SupplierCashflowSchema,
+  SupplierPurchaseCreateSchema,
   validatePayload,
 } from "../schemas/index.js";
 
@@ -82,6 +83,14 @@ export function registerSupplierHandlers(): void {
     return getFinancialService().getUnsettledByProvider(provider);
   });
 
+  /** Get all transactions for a provider (history tab) */
+  ipcMain.handle(
+    "suppliers:all-transactions",
+    (_e, provider: string, limit?: number) => {
+      return getFinancialService().getAllByProvider(provider, limit);
+    },
+  );
+
   /** Get per-provider unsettled summary (for dashboard + profits page) */
   ipcMain.handle("suppliers:unsettled-summary", () => {
     return getFinancialService().getUnsettledSummary();
@@ -119,6 +128,29 @@ export function registerSupplierHandlers(): void {
   /** Inventory items for a product supplier (name, qty, cost, total) */
   ipcMain.handle("suppliers:product-items", (_e, supplierId: number) => {
     return service.getProductItems(supplierId);
+  });
+
+  /** Get all purchase records for a product supplier */
+  ipcMain.handle("suppliers:purchases", (_e, supplierId: number) => {
+    return service.getSupplierPurchases(supplierId);
+  });
+
+  /** Log a delivery batch for a product supplier (admin only) */
+  ipcMain.handle("suppliers:purchase-create", (e, data: unknown) => {
+    const auth = requireRole(e.sender.id, ["admin"]);
+    if (!auth.ok) return { success: false, error: auth.error };
+
+    const v = validatePayload(SupplierPurchaseCreateSchema, data);
+    if (!v.ok) return { success: false, error: v.error };
+
+    const result = service.createPurchase({ ...v.data, created_by: auth.userId });
+    audit(e.sender.id, {
+      action: "create",
+      entity_type: "supplier_purchase",
+      summary: `Logged purchase of $${v.data.total_usd.toFixed(2)} for supplier #${v.data.supplier_id}`,
+      metadata: { supplier_id: v.data.supplier_id, total_usd: v.data.total_usd },
+    });
+    return result;
   });
 
   /** Pay a supplier / record a supplier paying us, via payment-method legs (admin only) */

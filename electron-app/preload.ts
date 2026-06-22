@@ -393,6 +393,8 @@ contextBridge.exposeInMainWorld("api", {
     }) => ipcRenderer.invoke("suppliers:add-ledger-entry", data),
     getUnsettledTransactions: (provider: string) =>
       ipcRenderer.invoke("suppliers:unsettled-transactions", provider),
+    getAllTransactions: (provider: string, limit?: number) =>
+      ipcRenderer.invoke("suppliers:all-transactions", provider, limit),
     getUnsettledSummary: () =>
       ipcRenderer.invoke("suppliers:unsettled-summary"),
     settleTransactions: (data: {
@@ -415,11 +417,19 @@ contextBridge.exposeInMainWorld("api", {
       direction: "PAY" | "RECEIVE";
       payments: Array<{ method: string; currency_code: string; amount: number }>;
       note?: string;
+      exchange_rate?: number;
     }) => ipcRenderer.invoke("suppliers:record-cashflow", data),
     getProductBalances: () =>
       ipcRenderer.invoke("suppliers:product-balances"),
     getProductItems: (supplierId: number) =>
       ipcRenderer.invoke("suppliers:product-items", supplierId),
+    getPurchases: (supplierId: number) =>
+      ipcRenderer.invoke("suppliers:purchases", supplierId),
+    createPurchase: (data: {
+      supplier_id: number;
+      total_usd: number;
+      note?: string;
+    }) => ipcRenderer.invoke("suppliers:purchase-create", data),
   },
 
   // Loto
@@ -1133,6 +1143,22 @@ contextBridge.exposeInMainWorld("api", {
       note?: string;
       category?: string;
     }) => ipcRenderer.invoke("custom-services:update-metadata", data),
+  },
+
+  // Hold Money (cash held on behalf of a client)
+  holdMoney: {
+    list: (filter?: { status?: "held" | "collected" }) =>
+      ipcRenderer.invoke("hold-money:list", filter),
+    active: () => ipcRenderer.invoke("hold-money:active"),
+    create: (data: {
+      client_name: string;
+      phone_number?: string;
+      usd_amount?: number;
+      lbp_amount?: number;
+      notes?: string;
+      transaction_time?: string;
+    }) => ipcRenderer.invoke("hold-money:create", data),
+    collect: (id: number) => ipcRenderer.invoke("hold-money:collect", id),
   },
 
   // Service Presets (digital accounts, repairs, etc.)

@@ -16,7 +16,7 @@ import {
   Settings,
 } from "lucide-react";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
-import { DecimalInput } from "@liratek/ui";
+import { DecimalInput, Select } from "@liratek/ui";
 import logger from "@/utils/logger";
 
 interface ServicePreset {
@@ -208,16 +208,17 @@ export function PresetManagerModal({
       </div>
       <div className="w-32">
         <label className="text-xs text-slate-400 block mb-1">Category</label>
-        <select
+        <Select
           value={form.category}
-          onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
-          className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-teal-500"
-        >
-          <option value="digital_account">Digital Account</option>
-          <option value="repair">Repair</option>
-          <option value="activation">Activation</option>
-          <option value="other">Other</option>
-        </select>
+          onChange={(v) => setForm((f) => ({ ...f, category: v }))}
+          options={[
+            { value: "digital_account", label: "Digital Account" },
+            { value: "repair", label: "Repair" },
+            { value: "activation", label: "Activation" },
+            { value: "other", label: "Other" },
+          ]}
+          buttonClassName="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-teal-500"
+        />
       </div>
       <div className="w-24">
         <label className="text-xs text-slate-400 block mb-1">Cost $</label>

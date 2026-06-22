@@ -47,6 +47,7 @@ export interface SupplierLedgerEntryEntity {
   note: string | null;
   created_by: number | null;
   transaction_id: number | null;
+  is_auto: number;
   created_at: string;
 }
 
@@ -83,6 +84,9 @@ export interface SupplierCashflowData {
   payments: Array<{ method: string; currency_code: string; amount: number }>;
   note?: string;
   created_by: number;
+  /** Exchange rate (1 USD = X LBP) used to convert LBP legs to USD when
+   *  applying FIFO coverage to supplier_purchases. Defaults to 89 000. */
+  exchange_rate?: number;
 }
 
 export interface CreateSupplierData {
@@ -102,6 +106,7 @@ export interface CreateSupplierLedgerEntryData {
   note?: string;
   created_by: number;
   drawer_name?: string;
+  is_auto?: boolean;
 }
 
 export interface SupplierBalance {
@@ -203,9 +208,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
 
       const stmt = this.db.prepare(`
         INSERT INTO supplier_ledger (
-          supplier_id, entry_type, amount_usd, amount_lbp, note, created_by,
+          supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, is_auto,
           created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       `);
       const res = stmt.run(
         data.supplier_id,
@@ -214,6 +219,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         amountLbp,
         data.note ?? null,
         data.created_by,
+        data.is_auto ? 1 : 0,
       );
       const entryId = Number(res.lastInsertRowid);
 
@@ -349,7 +355,7 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
   ): SupplierLedgerEntryEntity[] {
     try {
       return this.query<SupplierLedgerEntryEntity>(
-        `SELECT id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, created_at FROM supplier_ledger WHERE supplier_id = ? ORDER BY created_at DESC LIMIT ?`,
+        `SELECT id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, is_auto, created_at FROM supplier_ledger WHERE supplier_id = ? ORDER BY created_at DESC LIMIT ?`,
         supplierId,
         limit,
       );
@@ -358,6 +364,28 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         cause: e,
         entityId: supplierId,
       });
+    }
+  }
+
+  getManualPaymentPools(supplierId: number): {
+    send_pool_usd: number;
+    receive_pool_usd: number;
+  } {
+    try {
+      const row = this.db
+        .prepare(
+          `SELECT
+            ABS(COALESCE(SUM(CASE WHEN amount_usd < 0 THEN amount_usd ELSE 0 END), 0)) as send_pool_usd,
+            COALESCE(SUM(CASE WHEN amount_usd > 0 THEN amount_usd ELSE 0 END), 0) as receive_pool_usd
+          FROM supplier_ledger
+          WHERE supplier_id = ? AND is_auto = 0`,
+        )
+        .get(supplierId) as
+        | { send_pool_usd: number; receive_pool_usd: number }
+        | undefined;
+      return row ?? { send_pool_usd: 0, receive_pool_usd: 0 };
+    } catch (e) {
+      throw new DatabaseError("Failed to get manual payment pools", { cause: e });
     }
   }
 
@@ -608,6 +636,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         // PAY: cash out + reduce what we owe (−). RECEIVE: cash in + settle their
         // debt to us (+). Ledger and drawer share the same sign here.
         const sign = isPay ? -1 : 1;
+        const rate = data.exchange_rate && data.exchange_rate > 0
+          ? data.exchange_rate
+          : 89000;
 
         let usd = 0;
         let lbp = 0;
@@ -689,6 +720,40 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
             data.note ?? summary,
             data.created_by,
           );
+        }
+
+        // Apply FIFO coverage to supplier_purchases for PAY direction.
+        // LBP legs are converted to USD at the payment's exchange rate.
+        if (isPay) {
+          const totalUsdEquiv = usd + lbp / rate;
+          if (totalUsdEquiv > 0) {
+            const unpaid = this.db
+              .prepare(
+                `SELECT id, total_usd, paid_usd
+                 FROM supplier_purchases
+                 WHERE supplier_id = ? AND paid_usd < total_usd - 0.005
+                 ORDER BY created_at ASC`,
+              )
+              .all(data.supplier_id) as { id: number; total_usd: number; paid_usd: number }[];
+
+            const updatePurchase = this.db.prepare(
+              `UPDATE supplier_purchases
+               SET paid_usd = ?, updated_at = CURRENT_TIMESTAMP
+               WHERE id = ?`,
+            );
+
+            let remaining = totalUsdEquiv;
+            for (const row of unpaid) {
+              if (remaining <= 0) break;
+              const canAbsorb = row.total_usd - row.paid_usd;
+              const applied = Math.min(remaining, canAbsorb);
+              updatePurchase.run(
+                Math.min(row.paid_usd + applied, row.total_usd),
+                row.id,
+              );
+              remaining -= applied;
+            }
+          }
         }
 
         return { id: ledgerEntryId };

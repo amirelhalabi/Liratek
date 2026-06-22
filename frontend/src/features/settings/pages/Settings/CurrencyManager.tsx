@@ -11,8 +11,7 @@ import {
   TrendingUp,
   X,
 } from "lucide-react";
-import { useApi } from "@liratek/ui";
-import { DataTable } from "@liratek/ui";
+import { useApi, DataTable, Select } from "@liratek/ui";
 import { calculateProfitSpread } from "@/utils/currencyUtils";
 
 interface CurrencyRow {
@@ -501,19 +500,20 @@ function ExchangeRatesSection() {
                     <label className="block text-sm text-slate-400 mb-1">
                       Strength vs USD
                     </label>
-                    <select
-                      value={editForm.is_stronger}
-                      onChange={(e) =>
+                    <Select
+                      value={String(editForm.is_stronger)}
+                      onChange={(v) =>
                         setEditForm({
                           ...editForm,
-                          is_stronger: Number(e.target.value) as 1 | -1,
+                          is_stronger: Number(v) as 1 | -1,
                         })
                       }
-                      className="w-full bg-slate-900 border border-slate-700 rounded px-4 py-2 text-white"
-                    >
-                      <option value={1}>Weaker than USD (e.g. LBP)</option>
-                      <option value={-1}>Stronger than USD (e.g. EUR)</option>
-                    </select>
+                      options={[
+                        { value: "1", label: "Weaker than USD (e.g. LBP)" },
+                        { value: "-1", label: "Stronger than USD (e.g. EUR)" },
+                      ]}
+                      buttonClassName="w-full bg-slate-900 border border-slate-700 rounded px-4 py-2 text-white"
+                    />
                   </div>
                 </>
               )}
@@ -562,19 +562,20 @@ function ExchangeRatesSection() {
                   <label className="block text-sm text-slate-400 mb-1">
                     Strength vs USD
                   </label>
-                  <select
-                    value={editForm.is_stronger}
-                    onChange={(e) =>
+                  <Select
+                    value={String(editForm.is_stronger)}
+                    onChange={(v) =>
                       setEditForm({
                         ...editForm,
-                        is_stronger: Number(e.target.value) as 1 | -1,
+                        is_stronger: Number(v) as 1 | -1,
                       })
                     }
-                    className="w-full bg-slate-900 border border-slate-700 rounded px-4 py-2 text-white"
-                  >
-                    <option value={1}>Weaker than USD (e.g. LBP)</option>
-                    <option value={-1}>Stronger than USD (e.g. EUR)</option>
-                  </select>
+                    options={[
+                      { value: "1", label: "Weaker than USD (e.g. LBP)" },
+                      { value: "-1", label: "Stronger than USD (e.g. EUR)" },
+                    ]}
+                    buttonClassName="w-full bg-slate-900 border border-slate-700 rounded px-4 py-2 text-white"
+                  />
                 </div>
               )}
 

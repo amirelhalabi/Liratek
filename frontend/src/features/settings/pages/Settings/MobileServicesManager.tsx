@@ -18,7 +18,7 @@ import {
   FolderPlus,
 } from "lucide-react";
 import type { MobileServiceItem } from "@/types/electron";
-import { DecimalInput } from "@liratek/ui";
+import { DecimalInput, Select } from "@liratek/ui";
 import { parseCatalogToSeedData } from "@/features/recharge/utils/parseCatalogToSeedData";
 
 const PROVIDERS = ["iPick", "Katsh", "WHISH_APP", "OMT_APP", "VOUCHER"] as const;
@@ -416,18 +416,15 @@ export default function MobileServicesManager() {
 
       {/* ── Filter bar ─────────────────────────────────────────────── */}
       <div className="flex items-center gap-2">
-        <select
+        <Select
           value={providerFilter}
-          onChange={(e) => setProviderFilter(e.target.value)}
-          className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-violet-500"
-        >
-          <option value="">All Providers</option>
-          {PROVIDERS.map((p) => (
-            <option key={p} value={p}>
-              {p}
-            </option>
-          ))}
-        </select>
+          onChange={(v) => setProviderFilter(v)}
+          options={[
+            { value: "", label: "All Providers" },
+            ...PROVIDERS.map((p) => ({ value: p, label: p })),
+          ]}
+          buttonClassName="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-violet-500"
+        />
 
         <div className="relative flex-1">
           <Search

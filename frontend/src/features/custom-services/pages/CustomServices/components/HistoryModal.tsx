@@ -223,9 +223,13 @@ export function HistoryModal({
                       </td>
                       <td className="px-4 py-3">
                         <div className="text-sm text-white font-medium flex items-center gap-1 flex-wrap">
-                          <span className="inline-flex items-center gap-0.5 text-[11px] font-mono text-emerald-400 shrink-0">
-                            ↑ {formatCurrency(tx.price_usd, tx.price_lbp)}
-                          </span>
+                          {/* Hold Money carries no sale price — skip the in/out
+                              amount badge (it would read a meaningless ↑ $0.00). */}
+                          {tx.category !== "hold_money" && (
+                            <span className="inline-flex items-center gap-0.5 text-[11px] font-mono text-emerald-400 shrink-0">
+                              ↑ {formatCurrency(tx.price_usd, tx.price_lbp)}
+                            </span>
+                          )}
                           {tx.description}
                           {isRefunded && (
                             <span className="ml-2 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
@@ -257,8 +261,10 @@ export function HistoryModal({
                             <Tag size={10} />
                             {tx.category === "digital_account"
                               ? "Digital Account"
-                              : tx.category.charAt(0).toUpperCase() +
-                                tx.category.slice(1)}
+                              : tx.category === "hold_money"
+                                ? "Hold Money"
+                                : tx.category.charAt(0).toUpperCase() +
+                                  tx.category.slice(1)}
                           </span>
                         ) : (
                           <span className="text-xs text-slate-600">—</span>

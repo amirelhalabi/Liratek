@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Shield, ArrowLeftRight } from "lucide-react";
-import { PageHeader } from "@liratek/ui";
+import { PageHeader, Select } from "@liratek/ui";
 import { DateRangeFilter } from "@/shared/components/DateRangeFilter";
 import AuditLogViewer from "./AuditLogViewer";
 import TransactionsViewer from "./TransactionsViewer";
@@ -81,22 +81,17 @@ export default function AuditPage() {
                 placeholder="Search summary, client, user… (Enter)"
                 className={`${inputClass} w-64`}
               />
-              <select
+              <Select
                 value={txSelectedFilter}
-                onChange={(e) => setTxSelectedFilter(e.target.value)}
-                className={selectClass}
-              >
-                <option value="">All types</option>
-                {FILTER_GROUPS.map(({ group, options }) => (
-                  <optgroup key={group} label={group}>
-                    {options.map((o) => (
-                      <option key={o.label} value={o.label}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
+                onChange={setTxSelectedFilter}
+                options={[
+                  { value: "", label: "All types" },
+                  ...FILTER_GROUPS.flatMap(({ group, options }) => [
+                    { value: `__group_${group}`, label: group, disabled: true },
+                    ...options.map((o) => ({ value: o.label, label: o.label })),
+                  ]),
+                ]}
+              />
               <DateRangeFilter
                 from={txFrom}
                 to={txTo}
@@ -125,30 +120,24 @@ export default function AuditPage() {
               onChange={(e) => setAuditSearch(e.target.value)}
               className={`${inputClass} w-48`}
             />
-            <select
+            <Select
               value={auditAction}
-              onChange={(e) => setAuditAction(e.target.value)}
-              className={selectClass}
-            >
-              <option value="">All actions</option>
-              {ACTION_OPTIONS.map((a) => (
-                <option key={a} value={a}>
-                  {a.replace(/_/g, " ")}
-                </option>
-              ))}
-            </select>
-            <select
+              onChange={(v) => setAuditAction(v)}
+              options={[
+                { value: "", label: "All actions" },
+                ...ACTION_OPTIONS.map((a) => ({ value: a, label: a.replace(/_/g, " ") })),
+              ]}
+              buttonClassName={selectClass}
+            />
+            <Select
               value={auditEntityType}
-              onChange={(e) => setAuditEntityType(e.target.value)}
-              className={selectClass}
-            >
-              <option value="">All entities</option>
-              {ENTITY_TYPE_OPTIONS.map((et) => (
-                <option key={et} value={et}>
-                  {et.replace(/_/g, " ")}
-                </option>
-              ))}
-            </select>
+              onChange={(v) => setAuditEntityType(v)}
+              options={[
+                { value: "", label: "All entities" },
+                ...ENTITY_TYPE_OPTIONS.map((et) => ({ value: et, label: et.replace(/_/g, " ") })),
+              ]}
+              buttonClassName={selectClass}
+            />
             <label className="text-xs text-slate-400">From:</label>
             <input
               type="date"

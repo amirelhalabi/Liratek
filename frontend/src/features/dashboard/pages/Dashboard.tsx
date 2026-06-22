@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from "react";
-import { appEvents, PageHeader, useApi } from "@liratek/ui";
+import { appEvents, PageHeader, useApi, Select } from "@liratek/ui";
 import {
   Clock,
   BarChart2,
@@ -10,6 +10,7 @@ import {
   Plus,
   ClipboardCheck,
   Banknote,
+  HandCoins,
 } from "lucide-react";
 import { DrawerTopUpModal } from "../components/DrawerTopUpModal";
 import { InitialDrawerAmountsModal } from "../../closing/components/InitialDrawerAmountsModal";
@@ -171,6 +172,16 @@ export default function Dashboard() {
   const [initialBalancesSet, setInitialBalancesSet] = useState(true);
   const [showInitialDrawerModal, setShowInitialDrawerModal] = useState(false);
 
+  type ActiveHold = {
+    id: number;
+    client_name: string;
+    usd_amount: number;
+    lbp_amount: number;
+    created_at: string;
+  };
+  const [activeHolds, setActiveHolds] = useState<ActiveHold[]>([]);
+  const [collectingHoldId, setCollectingHoldId] = useState<number | null>(null);
+
   // State for dynamic Y-axis domains
   const [maxUsdSales, setMaxUsdSales] = useState(0);
   const [maxLbpSales, setMaxLbpSales] = useState(0);
@@ -259,6 +270,18 @@ export default function Dashboard() {
         // non-critical
       }
 
+      // Load active money holds (non-critical — surfaced as notification cards)
+      try {
+        if (window.api?.holdMoney) {
+          const holdsRes = await window.api.holdMoney.active();
+          if (holdsRes.success && holdsRes.data) {
+            setActiveHolds(holdsRes.data);
+          }
+        }
+      } catch {
+        // non-critical
+      }
+
       // Calculate max values for Y-axis domain
       if (chartType === "Sales" && formattedChartData.length > 0) {
         const currentMaxUsd = Math.max(
@@ -278,6 +301,35 @@ export default function Dashboard() {
       // logger.error('Failed to load dashboard data:', error);
     }
   }, [api, chartType, checkpointsEnabled]);
+
+  const handleCollectHold = useCallback(
+    async (hold: ActiveHold) => {
+      if (!window.api?.holdMoney) return;
+      setCollectingHoldId(hold.id);
+      try {
+        const res = await window.api.holdMoney.collect(hold.id);
+        if (res.success) {
+          appEvents.emit(
+            "notification:show",
+            `Returned hold to ${hold.client_name}.`,
+            "success",
+          );
+          await loadData();
+        } else {
+          appEvents.emit(
+            "notification:show",
+            res.error ?? "Failed to collect hold.",
+            "error",
+          );
+        }
+      } catch {
+        appEvents.emit("notification:show", "Failed to collect hold.", "error");
+      } finally {
+        setCollectingHoldId(null);
+      }
+    },
+    [loadData],
+  );
 
   // Check once on mount whether initial drawer amounts have been set
   useEffect(() => {
@@ -301,12 +353,17 @@ export default function Dashboard() {
     const offClosing = appEvents.on("closing:completed", () => {
       loadData();
     });
+    // Refresh after a money hold is created or collected
+    const offHold = appEvents.on("holdMoney:changed", () => {
+      loadData();
+    });
 
     return () => {
       clearTimeout(t);
       clearInterval(interval);
       unsubscribe();
       offClosing();
+      offHold();
     };
   }, [loadData]);
 
@@ -442,6 +499,50 @@ export default function Dashboard() {
               Set now →
             </span>
           </button>
+        )}
+
+        {/* Active money holds — one notification card per held amount */}
+        {activeHolds.length > 0 && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {activeHolds.map((hold) => (
+              <div
+                key={hold.id}
+                className="flex items-center gap-3 px-4 py-3 bg-orange-500/10 border border-orange-500/30 rounded-xl"
+              >
+                <Wallet className="w-5 h-5 text-orange-400 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-orange-200 truncate">
+                    Holding for {hold.client_name}
+                  </p>
+                  <div className="flex items-center gap-2 text-xs mt-0.5">
+                    {hold.usd_amount > 0 && (
+                      <span className="text-orange-300 font-mono">
+                        $
+                        {hold.usd_amount.toLocaleString(undefined, {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
+                      </span>
+                    )}
+                    {hold.lbp_amount > 0 && (
+                      <span className="text-orange-300 font-mono">
+                        {hold.lbp_amount.toLocaleString()} LBP
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleCollectHold(hold)}
+                  disabled={collectingHoldId === hold.id}
+                  className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25 disabled:opacity-50 transition-all flex items-center gap-1"
+                >
+                  <HandCoins size={13} />
+                  Collect
+                </button>
+              </div>
+            ))}
+          </div>
         )}
 
         {/* Scrollable content area */}
@@ -705,14 +806,15 @@ export default function Dashboard() {
                 <h3 className="text-lg font-bold text-white">
                   {chartType} Trend (Last 30 Days)
                 </h3>
-                <select
+                <Select
                   value={chartType}
-                  onChange={(e) => setChartType(e.target.value as ChartType)}
-                  className="bg-slate-700 text-xs text-white rounded p-1 border border-slate-600 focus:ring-violet-500 focus:border-violet-500"
-                >
-                  <option value="Sales">Sales</option>
-                  <option value="Profit">Profit</option>
-                </select>
+                  onChange={(v) => setChartType(v as ChartType)}
+                  options={[
+                    { value: "Sales", label: "Sales" },
+                    { value: "Profit", label: "Profit" },
+                  ]}
+                  buttonClassName="bg-slate-700 text-xs text-white rounded p-1 border border-slate-600 focus:ring-violet-500 focus:border-violet-500"
+                />
               </div>
               <div className="flex-1 w-full min-h-0">
                 <Suspense
