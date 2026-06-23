@@ -15,12 +15,7 @@ import {
   formatReceipt58mm,
   type ReceiptData,
 } from "@/features/sales/utils/receiptFormatter";
-import type {
-  Client,
-  CartItem,
-  SaleRequest,
-  VoucherOption,
-} from "@liratek/ui";
+import type { Client, CartItem, SaleRequest, VoucherOption } from "@liratek/ui";
 import { fetchClientVouchers } from "@/shared/utils/clientVouchers";
 import { useSession } from "@/features/sessions/context/SessionContext";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
@@ -225,9 +220,7 @@ export default function CheckoutModal({
   const isLbpTotal = totalCurrency === "LBP";
   /** Format a value in the job currency. */
   const fmtTotal = (v: number) =>
-    isLbpTotal
-      ? `${Math.round(v).toLocaleString()} LBP`
-      : `$${v.toFixed(2)}`;
+    isLbpTotal ? `${Math.round(v).toLocaleString()} LBP` : `$${v.toFixed(2)}`;
   const api = useApi();
   const { activeSession } = useSession();
   const [isLoading, setIsLoading] = useState(false);
@@ -314,7 +307,6 @@ export default function CheckoutModal({
       });
       return changed ? next : prev;
     });
-     
   }, [clientVouchers, giftCardKey]);
 
   /** Vouchers a line may pick: its own + any not selected by another line. */
@@ -322,8 +314,7 @@ export default function CheckoutModal({
     const usedByOthers = new Set(
       paymentLines
         .filter(
-          (l) =>
-            l.id !== line.id && l.method === "GIFT_CARD" && l.voucher_code,
+          (l) => l.id !== line.id && l.method === "GIFT_CARD" && l.voucher_code,
         )
         .map((l) => l.voucher_code as string),
     );
@@ -578,7 +569,9 @@ export default function CheckoutModal({
   // (which would fail server-side — CUSTOMER_ACCOUNT needs name + phone).
   useEffect(() => {
     if (!selectedClient || !canCreateDebt) return;
-    const hasCA = paymentMethodOptions.some((pm) => pm.code === "CUSTOMER_ACCOUNT");
+    const hasCA = paymentMethodOptions.some(
+      (pm) => pm.code === "CUSTOMER_ACCOUNT",
+    );
     if (!hasCA) return;
     setPaymentLines((prev) => {
       if (prev.length === 1 && prev[0].method !== "CUSTOMER_ACCOUNT") {
@@ -705,7 +698,10 @@ export default function CheckoutModal({
     }
 
     // Validation: Debt requires a complete profile for new debts
-    if (!isPaymentComplete(totalPaidInTotalCurrency, finalAmount) && !canCreateDebt) {
+    if (
+      !isPaymentComplete(totalPaidInTotalCurrency, finalAmount) &&
+      !canCreateDebt
+    ) {
       appEvents.emit(
         "notification:show",
         "To create or leave a debt, please ensure the client has a phone number (existing client) or provide both name and phone (new client).",
@@ -928,7 +924,10 @@ export default function CheckoutModal({
                     !selectedClient &&
                     !isAutoFilledFromSession &&
                     filteredClients.length > 0 && (
-                      <div data-testid="client-dropdown" className="absolute top-full left-0 right-0 mt-2 bg-slate-800 border border-slate-700 rounded-xl shadow-xl z-20 max-h-48 overflow-y-auto">
+                      <div
+                        data-testid="client-dropdown"
+                        className="absolute top-full left-0 right-0 mt-2 bg-slate-800 border border-slate-700 rounded-xl shadow-xl z-20 max-h-48 overflow-y-auto"
+                      >
                         {filteredClients.map((client) => (
                           <button
                             key={client.id}
@@ -984,7 +983,10 @@ export default function CheckoutModal({
                         Add {secondaryLabel.toLowerCase()} to enable debt.
                       </span>
                     </div>
-                    {!isPaymentComplete(totalPaidInTotalCurrency, finalAmount) &&
+                    {!isPaymentComplete(
+                      totalPaidInTotalCurrency,
+                      finalAmount,
+                    ) &&
                       !canCreateDebt && (
                         <div className="text-sm text-red-400 mt-1 ml-1">
                           Debts require a valid client phone. Provide both name
@@ -1181,93 +1183,93 @@ export default function CheckoutModal({
                   <div className="space-y-2">
                     {paymentLines.map((line, idx) => (
                       <div key={line.id} className="space-y-1">
-                      <div
-                        className="grid grid-cols-12 gap-2 items-center"
-                      >
-                        <div className="col-span-4">
-                          <select
-                            value={line.method}
-                            onChange={(e) =>
-                              setPaymentLines((prev) =>
-                                prev.map((p, i) =>
-                                  i === idx
-                                    ? { ...p, method: e.target.value }
-                                    : p,
-                                ),
-                              )
-                            }
-                            className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"
-                          >
-                            {paymentMethodOptions.map((pm) => (
-                              <option key={pm.code} value={pm.code}>
-                                {pm.label}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="col-span-3">
-                          <select
-                            value={line.currency_code}
-                            onChange={(e) =>
-                              setPaymentLines((prev) =>
-                                prev.map((p, i) =>
-                                  i === idx
-                                    ? {
-                                        ...p,
-                                        currency_code: e.target
-                                          .value as PaymentCurrencyCode,
-                                      }
-                                    : p,
-                                ),
-                              )
-                            }
-                            className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"
-                          >
-                            <option value="USD">USD</option>
-                            <option value="LBP">LBP</option>
-                          </select>
-                        </div>
-                        <div className="col-span-4">
-                          <div className="relative">
-                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs">
-                              {line.currency_code === "USD" ? "$" : "LBP"}
-                            </span>
-                            <DecimalInput
-                              key={`line-${line.id}`}
-                              value={line.amount}
-                              onChange={(v) =>
+                        <div className="grid grid-cols-12 gap-2 items-center">
+                          <div className="col-span-4">
+                            <select
+                              value={line.method}
+                              onChange={(e) =>
                                 setPaymentLines((prev) =>
                                   prev.map((p, i) =>
-                                    i === idx ? { ...p, amount: v } : p,
+                                    i === idx
+                                      ? { ...p, method: e.target.value }
+                                      : p,
                                   ),
                                 )
                               }
-                              className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-10 pr-3 py-2 text-white text-sm font-mono"
-                              placeholder="0"
-                            />
+                              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"
+                            >
+                              {paymentMethodOptions.map((pm) => (
+                                <option key={pm.code} value={pm.code}>
+                                  {pm.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="col-span-3">
+                            <select
+                              value={line.currency_code}
+                              onChange={(e) =>
+                                setPaymentLines((prev) =>
+                                  prev.map((p, i) =>
+                                    i === idx
+                                      ? {
+                                          ...p,
+                                          currency_code: e.target
+                                            .value as PaymentCurrencyCode,
+                                        }
+                                      : p,
+                                  ),
+                                )
+                              }
+                              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"
+                            >
+                              <option value="USD">USD</option>
+                              <option value="LBP">LBP</option>
+                            </select>
+                          </div>
+                          <div className="col-span-4">
+                            <div className="relative">
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs">
+                                {line.currency_code === "USD" ? "$" : "LBP"}
+                              </span>
+                              <DecimalInput
+                                key={`line-${line.id}`}
+                                value={line.amount}
+                                onChange={(v) =>
+                                  setPaymentLines((prev) =>
+                                    prev.map((p, i) =>
+                                      i === idx ? { ...p, amount: v } : p,
+                                    ),
+                                  )
+                                }
+                                className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-10 pr-3 py-2 text-white text-sm font-mono"
+                                placeholder="0"
+                              />
+                            </div>
+                          </div>
+                          <div className="col-span-1 flex justify-end">
+                            <button
+                              type="button"
+                              disabled={paymentLines.length === 1}
+                              onClick={() =>
+                                setPaymentLines((prev) =>
+                                  prev.filter((_, i) => i !== idx),
+                                )
+                              }
+                              className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent"
+                              title="Remove line"
+                            >
+                              <X size={16} />
+                            </button>
                           </div>
                         </div>
-                        <div className="col-span-1 flex justify-end">
-                          <button
-                            type="button"
-                            disabled={paymentLines.length === 1}
-                            onClick={() =>
-                              setPaymentLines((prev) =>
-                                prev.filter((_, i) => i !== idx),
-                              )
-                            }
-                            className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent"
-                            title="Remove line"
-                          >
-                            <X size={16} />
-                          </button>
-                        </div>
-                      </div>
 
-                      {/* Voucher picker — shown when this line pays by gift card */}
-                      {line.method === "GIFT_CARD" && (
-                        <div className="pl-1">{renderVoucherSelector(line)}</div>
-                      )}
+                        {/* Voucher picker — shown when this line pays by gift card */}
+                        {line.method === "GIFT_CARD" && (
+                          <div className="pl-1">
+                            {renderVoucherSelector(line)}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -1406,7 +1408,8 @@ export default function CheckoutModal({
                       {(() => {
                         // Change given, converted into the job currency.
                         const totalGiven = isLbpTotal
-                          ? changeGivenLBP + changeGivenUSD * effectiveExchangeRate
+                          ? changeGivenLBP +
+                            changeGivenUSD * effectiveExchangeRate
                           : changeGivenUSD +
                             changeGivenLBP / effectiveExchangeRate;
                         const diff = change - totalGiven;

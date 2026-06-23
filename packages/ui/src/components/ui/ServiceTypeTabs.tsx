@@ -104,9 +104,7 @@ export default function ServiceTypeTabs({
   const accent = accentClasses[accentColor];
 
   const container =
-    size === "sm"
-      ? "p-1 rounded-xl h-11"
-      : "p-1.5 rounded-2xl h-[60px]";
+    size === "sm" ? "p-1 rounded-xl h-11" : "p-1.5 rounded-2xl h-[60px]";
   const button =
     size === "sm" ? "py-1.5 px-2 rounded-lg" : "py-3 px-2 rounded-xl";
 
@@ -119,7 +117,8 @@ export default function ServiceTypeTabs({
         const active = value === option.id;
         // Custom hex color wins over the accent palette, except for the special
         // emerald TOP_UP tab which always keeps its own styling.
-        const useCustom = Boolean(customColor) && active && option.id !== "TOP_UP";
+        const useCustom =
+          Boolean(customColor) && active && option.id !== "TOP_UP";
 
         return (
           <button

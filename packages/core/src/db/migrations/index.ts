@@ -3349,12 +3349,24 @@ export const MIGRATIONS: Migration[] = [
         WHERE code = 'DEBT'
       `);
       // Migrate stored method codes in all tables
-      db.exec(`UPDATE payments SET method = 'CUSTOMER_ACCOUNT' WHERE method = 'DEBT'`);
-      db.exec(`UPDATE financial_services SET paid_by = 'CUSTOMER_ACCOUNT' WHERE paid_by = 'DEBT'`);
-      db.exec(`UPDATE recharges SET paid_by = 'CUSTOMER_ACCOUNT' WHERE paid_by = 'DEBT'`);
-      db.exec(`UPDATE maintenance SET paid_by = 'CUSTOMER_ACCOUNT' WHERE paid_by = 'DEBT'`);
-      db.exec(`UPDATE custom_services SET paid_by = 'CUSTOMER_ACCOUNT' WHERE paid_by = 'DEBT'`);
-      db.exec(`UPDATE expenses SET paid_by_method = 'CUSTOMER_ACCOUNT' WHERE paid_by_method = 'DEBT'`);
+      db.exec(
+        `UPDATE payments SET method = 'CUSTOMER_ACCOUNT' WHERE method = 'DEBT'`,
+      );
+      db.exec(
+        `UPDATE financial_services SET paid_by = 'CUSTOMER_ACCOUNT' WHERE paid_by = 'DEBT'`,
+      );
+      db.exec(
+        `UPDATE recharges SET paid_by = 'CUSTOMER_ACCOUNT' WHERE paid_by = 'DEBT'`,
+      );
+      db.exec(
+        `UPDATE maintenance SET paid_by = 'CUSTOMER_ACCOUNT' WHERE paid_by = 'DEBT'`,
+      );
+      db.exec(
+        `UPDATE custom_services SET paid_by = 'CUSTOMER_ACCOUNT' WHERE paid_by = 'DEBT'`,
+      );
+      db.exec(
+        `UPDATE expenses SET paid_by_method = 'CUSTOMER_ACCOUNT' WHERE paid_by_method = 'DEBT'`,
+      );
       console.log("Migration v86: DEBT renamed to CUSTOMER_ACCOUNT");
     },
     down(db: Database.Database) {
@@ -3363,12 +3375,24 @@ export const MIGRATIONS: Migration[] = [
         SET code = 'DEBT', label = 'Customer Account', is_system = 0
         WHERE code = 'CUSTOMER_ACCOUNT'
       `);
-      db.exec(`UPDATE payments SET method = 'DEBT' WHERE method = 'CUSTOMER_ACCOUNT'`);
-      db.exec(`UPDATE financial_services SET paid_by = 'DEBT' WHERE paid_by = 'CUSTOMER_ACCOUNT'`);
-      db.exec(`UPDATE recharges SET paid_by = 'DEBT' WHERE paid_by = 'CUSTOMER_ACCOUNT'`);
-      db.exec(`UPDATE maintenance SET paid_by = 'DEBT' WHERE paid_by = 'CUSTOMER_ACCOUNT'`);
-      db.exec(`UPDATE custom_services SET paid_by = 'DEBT' WHERE paid_by = 'CUSTOMER_ACCOUNT'`);
-      db.exec(`UPDATE expenses SET paid_by_method = 'DEBT' WHERE paid_by_method = 'CUSTOMER_ACCOUNT'`);
+      db.exec(
+        `UPDATE payments SET method = 'DEBT' WHERE method = 'CUSTOMER_ACCOUNT'`,
+      );
+      db.exec(
+        `UPDATE financial_services SET paid_by = 'DEBT' WHERE paid_by = 'CUSTOMER_ACCOUNT'`,
+      );
+      db.exec(
+        `UPDATE recharges SET paid_by = 'DEBT' WHERE paid_by = 'CUSTOMER_ACCOUNT'`,
+      );
+      db.exec(
+        `UPDATE maintenance SET paid_by = 'DEBT' WHERE paid_by = 'CUSTOMER_ACCOUNT'`,
+      );
+      db.exec(
+        `UPDATE custom_services SET paid_by = 'DEBT' WHERE paid_by = 'CUSTOMER_ACCOUNT'`,
+      );
+      db.exec(
+        `UPDATE expenses SET paid_by_method = 'DEBT' WHERE paid_by_method = 'CUSTOMER_ACCOUNT'`,
+      );
     },
   },
   {
@@ -3409,19 +3433,37 @@ export const MIGRATIONS: Migration[] = [
     type: "typescript" as const,
     up(db: Database.Database) {
       // Fix supplier provider name
-      db.prepare(`UPDATE suppliers SET provider = 'Katsh' WHERE provider = 'KATCH'`).run();
+      db.prepare(
+        `UPDATE suppliers SET provider = 'Katsh' WHERE provider = 'KATCH'`,
+      ).run();
       // Remove stale 'Katch' seed rows (real balance rows already use 'Katsh')
-      db.prepare(`DELETE FROM drawer_balances WHERE drawer_name = 'Katch'`).run();
-      db.prepare(`DELETE FROM currency_drawers WHERE drawer_name = 'Katch'`).run();
+      db.prepare(
+        `DELETE FROM drawer_balances WHERE drawer_name = 'Katch'`,
+      ).run();
+      db.prepare(
+        `DELETE FROM currency_drawers WHERE drawer_name = 'Katch'`,
+      ).run();
       // Ensure canonical 'Katsh' rows exist
-      db.prepare(`INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Katsh', 'USD', 0)`).run();
-      db.prepare(`INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Katsh', 'LBP', 0)`).run();
-      db.prepare(`INSERT OR IGNORE INTO currency_drawers (currency_code, drawer_name) VALUES ('USD', 'Katsh')`).run();
-      db.prepare(`INSERT OR IGNORE INTO currency_drawers (currency_code, drawer_name) VALUES ('LBP', 'Katsh')`).run();
-      console.log("Migration v88: stale 'Katch' drawer rows removed, supplier provider fixed");
+      db.prepare(
+        `INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Katsh', 'USD', 0)`,
+      ).run();
+      db.prepare(
+        `INSERT OR IGNORE INTO drawer_balances (drawer_name, currency_code, balance) VALUES ('Katsh', 'LBP', 0)`,
+      ).run();
+      db.prepare(
+        `INSERT OR IGNORE INTO currency_drawers (currency_code, drawer_name) VALUES ('USD', 'Katsh')`,
+      ).run();
+      db.prepare(
+        `INSERT OR IGNORE INTO currency_drawers (currency_code, drawer_name) VALUES ('LBP', 'Katsh')`,
+      ).run();
+      console.log(
+        "Migration v88: stale 'Katch' drawer rows removed, supplier provider fixed",
+      );
     },
     down(db: Database.Database) {
-      db.prepare(`UPDATE suppliers SET provider = 'KATCH' WHERE provider = 'Katsh'`).run();
+      db.prepare(
+        `UPDATE suppliers SET provider = 'KATCH' WHERE provider = 'Katsh'`,
+      ).run();
       console.log("Migration v88 rolled back");
     },
   },
@@ -3461,9 +3503,15 @@ export const MIGRATIONS: Migration[] = [
       `);
 
       db.exec(`CREATE INDEX IF NOT EXISTS idx_vouchers_code ON vouchers(code)`);
-      db.exec(`CREATE INDEX IF NOT EXISTS idx_vouchers_client_id ON vouchers(client_id)`);
-      db.exec(`CREATE INDEX IF NOT EXISTS idx_vouchers_status ON vouchers(status)`);
-      db.exec(`CREATE INDEX IF NOT EXISTS idx_vouchers_created_at ON vouchers(created_at)`);
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_vouchers_client_id ON vouchers(client_id)`,
+      );
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_vouchers_status ON vouchers(status)`,
+      );
+      db.exec(
+        `CREATE INDEX IF NOT EXISTS idx_vouchers_created_at ON vouchers(created_at)`,
+      );
 
       // 2. Register module (after custom_services at sort_order 12)
       db.prepare(
@@ -3482,12 +3530,16 @@ export const MIGRATIONS: Migration[] = [
          VALUES ('GIFT_CARD', 'Gift Card / Voucher', 'General', 0, 5, 1, 1)`,
       ).run();
 
-      console.log("Migration v89: vouchers module + GIFT_CARD payment method added");
+      console.log(
+        "Migration v89: vouchers module + GIFT_CARD payment method added",
+      );
     },
     down(db: Database.Database) {
       db.exec(`DROP TABLE IF EXISTS vouchers`);
       db.prepare(`DELETE FROM modules WHERE key = 'vouchers'`).run();
-      db.prepare(`DELETE FROM currency_modules WHERE module_key = 'vouchers'`).run();
+      db.prepare(
+        `DELETE FROM currency_modules WHERE module_key = 'vouchers'`,
+      ).run();
       db.prepare(`DELETE FROM payment_methods WHERE code = 'GIFT_CARD'`).run();
       console.log("Migration v89 rolled back");
     },
@@ -3716,7 +3768,9 @@ export const MIGRATIONS: Migration[] = [
         ALTER TABLE loto_tickets ADD COLUMN client_name TEXT;
         CREATE INDEX IF NOT EXISTS idx_loto_tickets_client_id ON loto_tickets(client_id);
       `);
-      console.log("Migration v94: added client_id and client_name to loto_tickets");
+      console.log(
+        "Migration v94: added client_id and client_name to loto_tickets",
+      );
     },
     down(db: Database.Database) {
       // SQLite does not support DROP COLUMN before v3.35; recreate the table
@@ -3730,7 +3784,9 @@ export const MIGRATIONS: Migration[] = [
         DROP TABLE loto_tickets;
         ALTER TABLE loto_tickets_v93 RENAME TO loto_tickets;
       `);
-      console.log("Migration v94 rolled back: removed client_id and client_name from loto_tickets");
+      console.log(
+        "Migration v94 rolled back: removed client_id and client_name from loto_tickets",
+      );
     },
   },
   {
@@ -3740,11 +3796,15 @@ export const MIGRATIONS: Migration[] = [
       "Rename the 'Katch' supplier display name to 'Katsh' to match the canonical drawer name.",
     type: "typescript" as const,
     up(db: Database.Database) {
-      db.prepare(`UPDATE suppliers SET name = 'Katsh' WHERE name = 'Katch'`).run();
+      db.prepare(
+        `UPDATE suppliers SET name = 'Katsh' WHERE name = 'Katch'`,
+      ).run();
       console.log("Migration v96: supplier name Katch → Katsh");
     },
     down(db: Database.Database) {
-      db.prepare(`UPDATE suppliers SET name = 'Katch' WHERE name = 'Katsh' AND provider = 'Katsh'`).run();
+      db.prepare(
+        `UPDATE suppliers SET name = 'Katch' WHERE name = 'Katsh' AND provider = 'Katsh'`,
+      ).run();
       console.log("Migration v96 rolled back: supplier name Katsh → Katch");
     },
   },
@@ -3755,11 +3815,15 @@ export const MIGRATIONS: Migration[] = [
       "Activate the USDT currency (is_active=1) so the Binance drawer appears in the closing checkpoint and currency lists. USDT was previously seeded as inactive because it was only needed as a FK anchor; now that Binance is a live operational drawer it must be visible.",
     type: "typescript" as const,
     up(db: Database.Database) {
-      db.prepare(`UPDATE currencies SET is_active = 1 WHERE code = 'USDT'`).run();
+      db.prepare(
+        `UPDATE currencies SET is_active = 1 WHERE code = 'USDT'`,
+      ).run();
       console.log("Migration v95: USDT currency activated");
     },
     down(db: Database.Database) {
-      db.prepare(`UPDATE currencies SET is_active = 0 WHERE code = 'USDT'`).run();
+      db.prepare(
+        `UPDATE currencies SET is_active = 0 WHERE code = 'USDT'`,
+      ).run();
       console.log("Migration v95 rolled back: USDT currency deactivated");
     },
   },
@@ -4120,7 +4184,9 @@ export const MIGRATIONS: Migration[] = [
     },
     down(_db) {
       // Irreversible cleanup — the removed rows were erroneous auto-entries.
-      console.log("Migration v102 rolled back (no-op; removed rows not restored)");
+      console.log(
+        "Migration v102 rolled back (no-op; removed rows not restored)",
+      );
     },
   },
   // ─────────────────────────────────────────────────────────────────────────────
@@ -4304,7 +4370,9 @@ export const MIGRATIONS: Migration[] = [
       db.exec(
         "UPDATE transactions SET metadata_json = REPLACE(metadata_json, 'WHISH_APP', 'WISH_APP') WHERE metadata_json LIKE '%WHISH_APP%';",
       );
-      console.log("Migration v105 rolled back: WHISH_APP relabeled to WISH_APP");
+      console.log(
+        "Migration v105 rolled back: WHISH_APP relabeled to WISH_APP",
+      );
     },
   },
   {
@@ -4402,7 +4470,8 @@ export const MIGRATIONS: Migration[] = [
   {
     version: 107,
     name: "fix_loto_liban_is_system",
-    description: "Set is_system = 1 for Loto Liban supplier so it appears under Companies, not Products.",
+    description:
+      "Set is_system = 1 for Loto Liban supplier so it appears under Companies, not Products.",
     type: "typescript",
     up(db) {
       db.exec(`UPDATE suppliers SET is_system = 1 WHERE provider = 'LOTO'`);
@@ -4414,27 +4483,42 @@ export const MIGRATIONS: Migration[] = [
   {
     version: 108,
     name: "link_product_suppliers_to_suppliers",
-    description: "Add supplier_id FK to product_suppliers so each inventory supplier has a ledger entry in suppliers (is_system=0). Backfills existing rows.",
+    description:
+      "Add supplier_id FK to product_suppliers so each inventory supplier has a ledger entry in suppliers (is_system=0). Backfills existing rows.",
     type: "typescript",
     up(db) {
       // Add the column
-      db.exec(`ALTER TABLE product_suppliers ADD COLUMN supplier_id INTEGER REFERENCES suppliers(id)`);
+      db.exec(
+        `ALTER TABLE product_suppliers ADD COLUMN supplier_id INTEGER REFERENCES suppliers(id)`,
+      );
 
       // Backfill: for every existing product_supplier, find-or-create a suppliers row
-      const rows = db.prepare(`SELECT id, name FROM product_suppliers`).all() as { id: number; name: string }[];
-      const findSupplier = db.prepare(`SELECT id FROM suppliers WHERE name = ? COLLATE NOCASE AND is_system = 0 LIMIT 1`);
-      const insertSupplier = db.prepare(
-        `INSERT INTO suppliers (name, is_active, is_system, created_at) VALUES (?, 1, 0, CURRENT_TIMESTAMP)`
+      const rows = db
+        .prepare(`SELECT id, name FROM product_suppliers`)
+        .all() as { id: number; name: string }[];
+      const findSupplier = db.prepare(
+        `SELECT id FROM suppliers WHERE name = ? COLLATE NOCASE AND is_system = 0 LIMIT 1`,
       );
-      const linkRow = db.prepare(`UPDATE product_suppliers SET supplier_id = ? WHERE id = ?`);
+      const insertSupplier = db.prepare(
+        `INSERT INTO suppliers (name, is_active, is_system, created_at) VALUES (?, 1, 0, CURRENT_TIMESTAMP)`,
+      );
+      const linkRow = db.prepare(
+        `UPDATE product_suppliers SET supplier_id = ? WHERE id = ?`,
+      );
 
       for (const row of rows) {
-        const existing = findSupplier.get(row.name) as { id: number } | undefined;
-        const supplierId = existing ? existing.id : Number(insertSupplier.run(row.name).lastInsertRowid);
+        const existing = findSupplier.get(row.name) as
+          | { id: number }
+          | undefined;
+        const supplierId = existing
+          ? existing.id
+          : Number(insertSupplier.run(row.name).lastInsertRowid);
         linkRow.run(supplierId, row.id);
       }
 
-      console.log(`Migration v108: linked ${rows.length} product_suppliers to suppliers`);
+      console.log(
+        `Migration v108: linked ${rows.length} product_suppliers to suppliers`,
+      );
     },
     down(db) {
       // Remove supplier_id column by rebuilding the table (SQLite limitation)
@@ -4455,7 +4539,8 @@ export const MIGRATIONS: Migration[] = [
   {
     version: 109,
     name: "add_supplier_purchases",
-    description: "Track delivery batches from product suppliers for FIFO payment coverage.",
+    description:
+      "Track delivery batches from product suppliers for FIFO payment coverage.",
     type: "typescript",
     up(db) {
       db.exec(`
@@ -4481,25 +4566,35 @@ export const MIGRATIONS: Migration[] = [
   {
     version: 110,
     name: "supplier_ledger_is_auto",
-    description: "Add is_auto flag to supplier_ledger to distinguish auto-entries from manual Pay/Receive entries",
+    description:
+      "Add is_auto flag to supplier_ledger to distinguish auto-entries from manual Pay/Receive entries",
     type: "typescript",
     up(db) {
-      db.exec(`ALTER TABLE supplier_ledger ADD COLUMN is_auto INTEGER NOT NULL DEFAULT 0`);
-      db.exec(`UPDATE supplier_ledger SET is_auto = 1 WHERE note LIKE 'Auto:%'`);
+      db.exec(
+        `ALTER TABLE supplier_ledger ADD COLUMN is_auto INTEGER NOT NULL DEFAULT 0`,
+      );
+      db.exec(
+        `UPDATE supplier_ledger SET is_auto = 1 WHERE note LIKE 'Auto:%'`,
+      );
       console.log("Migration v110: added is_auto to supplier_ledger");
     },
     down(db) {
       // SQLite doesn't support DROP COLUMN natively before 3.35 — data loss acceptable on rollback
-      db.exec(`CREATE TABLE supplier_ledger_backup AS SELECT id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, created_at FROM supplier_ledger`);
+      db.exec(
+        `CREATE TABLE supplier_ledger_backup AS SELECT id, supplier_id, entry_type, amount_usd, amount_lbp, note, created_by, transaction_id, created_at FROM supplier_ledger`,
+      );
       db.exec(`DROP TABLE supplier_ledger`);
       db.exec(`ALTER TABLE supplier_ledger_backup RENAME TO supplier_ledger`);
-      console.log("Migration v110 rolled back: removed is_auto from supplier_ledger");
+      console.log(
+        "Migration v110 rolled back: removed is_auto from supplier_ledger",
+      );
     },
   },
   {
     version: 111,
     name: "add_hold_money",
-    description: "Add hold_money table for holding cash on behalf of clients until collection",
+    description:
+      "Add hold_money table for holding cash on behalf of clients until collection",
     type: "typescript",
     up(db) {
       db.exec(`
@@ -4518,7 +4613,9 @@ export const MIGRATIONS: Migration[] = [
         )
       `);
       db.exec(`CREATE INDEX idx_hold_money_status ON hold_money(status)`);
-      db.exec(`CREATE INDEX idx_hold_money_created_at ON hold_money(created_at)`);
+      db.exec(
+        `CREATE INDEX idx_hold_money_created_at ON hold_money(created_at)`,
+      );
       console.log("Migration v111: hold_money table created");
     },
     down(db) {
@@ -4528,7 +4625,8 @@ export const MIGRATIONS: Migration[] = [
   {
     version: 112,
     name: "add_phone_to_hold_money",
-    description: "Add optional phone_number to hold_money (customer contact for collection)",
+    description:
+      "Add optional phone_number to hold_money (customer contact for collection)",
     type: "typescript",
     up(db) {
       db.exec(`ALTER TABLE hold_money ADD COLUMN phone_number TEXT`);

@@ -105,9 +105,7 @@ export function DrawerCard({
   ) => {
     const rawValue = getDisplayValue(drawer, currency.code);
     const showStatus = !!getExpectedValue;
-    const expected = showStatus
-      ? getExpectedValue!(drawer, currency.code)
-      : 0;
+    const expected = showStatus ? getExpectedValue!(drawer, currency.code) : 0;
     const physical = parseFloat(rawValue) || 0;
     const info = showStatus
       ? getVarianceStatus(physical, expected, varianceThresholdPct)

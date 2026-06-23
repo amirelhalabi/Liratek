@@ -196,13 +196,21 @@ export async function navigateTo(page: Page, route: string) {
   if (await overlayVisible()) {
     // 1. Escape closes popovers and modals that listen for keydown
     await page.keyboard.press("Escape");
-    await page.locator("div.fixed.inset-0").first().waitFor({ state: "hidden", timeout: 500 }).catch(() => {});
+    await page
+      .locator("div.fixed.inset-0")
+      .first()
+      .waitFor({ state: "hidden", timeout: 500 })
+      .catch(() => {});
 
     if (await overlayVisible()) {
       // 2. Click backdrop corner — closes modals with onClick={onClose} on the overlay div
       //    (e.g. HistoryModal for Expenses/Custom Services/Maintenance)
       await page.mouse.click(5, 5);
-      await page.locator("div.fixed.inset-0").first().waitFor({ state: "hidden", timeout: 500 }).catch(() => {});
+      await page
+        .locator("div.fixed.inset-0")
+        .first()
+        .waitFor({ state: "hidden", timeout: 500 })
+        .catch(() => {});
     }
 
     if (await overlayVisible()) {
@@ -210,14 +218,20 @@ export async function navigateTo(page: Page, route: string) {
       const cancelBtn = page.locator('button[title="Cancel Order"]').first();
       if (await cancelBtn.isVisible({ timeout: 300 }).catch(() => false)) {
         await cancelBtn.click();
-        await cancelBtn.waitFor({ state: "hidden", timeout: 500 }).catch(() => {});
+        await cancelBtn
+          .waitFor({ state: "hidden", timeout: 500 })
+          .catch(() => {});
       }
     }
 
     if (await overlayVisible()) {
       // 4. Final Escape as safety net
       await page.keyboard.press("Escape");
-      await page.locator("div.fixed.inset-0").first().waitFor({ state: "hidden", timeout: 500 }).catch(() => {});
+      await page
+        .locator("div.fixed.inset-0")
+        .first()
+        .waitFor({ state: "hidden", timeout: 500 })
+        .catch(() => {});
     }
   }
 
@@ -341,10 +355,7 @@ export const clientContexts: ClientContext = {
     await page.waitForSelector('[data-testid="client-dropdown"]', {
       timeout: 5000,
     });
-    await page
-      .locator('[data-testid^="client-option-"]')
-      .first()
-      .click();
+    await page.locator('[data-testid^="client-option-"]').first().click();
   },
 
   /**
@@ -370,9 +381,12 @@ export const clientContexts: ClientContext = {
         const clientName = clients.find((c) => c.id === cId)?.full_name ?? "";
         if (!clientName) return false;
         // getActiveSessions returns { success, sessions } or a plain array
-        const sessionList: { customer_name?: string }[] = Array.isArray(sessionsResult)
+        const sessionList: { customer_name?: string }[] = Array.isArray(
+          sessionsResult,
+        )
           ? sessionsResult
-          : (sessionsResult as { sessions?: { customer_name?: string }[] }).sessions ?? [];
+          : ((sessionsResult as { sessions?: { customer_name?: string }[] })
+              .sessions ?? []);
         return sessionList.some((s) => s.customer_name === clientName);
       }, clientId)
       .catch(() => false);
@@ -385,19 +399,23 @@ export const clientContexts: ClientContext = {
       'button[title="Start Customer Session"], button[title*="active session"]',
     );
     await fab.first().click({ timeout: 10_000 });
-    await page.locator('button:has-text("New Session")').waitFor({ state: "visible", timeout: 3000 }).catch(() => {});
+    await page
+      .locator('button:has-text("New Session")')
+      .waitFor({ state: "visible", timeout: 3000 })
+      .catch(() => {});
 
     // The click opens a dropdown — click "New Session" inside it
-    const newSessionBtn = page.locator('button:has-text("New Session")').first();
+    const newSessionBtn = page
+      .locator('button:has-text("New Session")')
+      .first();
     if (await newSessionBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
       await newSessionBtn.click();
     }
 
     // Wait for the StartSessionModal to appear
-    await page.waitForSelector(
-      'h2:has-text("New Customer Session")',
-      { timeout: 5000 },
-    );
+    await page.waitForSelector('h2:has-text("New Customer Session")', {
+      timeout: 5000,
+    });
 
     // Fetch the client's name so we can search by it
     const clientName: string = await page.evaluate((id) => {
@@ -410,17 +428,20 @@ export const clientContexts: ClientContext = {
     }, clientId);
 
     // StartSessionModal uses a plain input (id="customer-name"), not ClientAutocompleteInput
-    const nameInput = page.locator('#customer-name').first();
+    const nameInput = page.locator("#customer-name").first();
     const query = clientName.slice(0, 3);
     await nameInput.fill(query);
-    await page.locator("div.absolute button").waitFor({ state: "visible", timeout: 3000 }).catch(() => {});
+    await page
+      .locator("div.absolute button")
+      .waitFor({ state: "visible", timeout: 3000 })
+      .catch(() => {});
 
     // Click the matching client button in the inline dropdown
     if (clientName) {
       // Scope to div.absolute to avoid matching the session floating button,
       // which also displays the client name when a session is active.
       const clientBtn = page
-        .locator('div.absolute button')
+        .locator("div.absolute button")
         .filter({ hasText: clientName })
         .first();
       const btnVisible = await clientBtn
@@ -435,10 +456,10 @@ export const clientContexts: ClientContext = {
     await page.getByRole("button", { name: /Start Session/i }).click();
 
     // Wait for the modal to close
-    await page.waitForSelector(
-      'h2:has-text("New Customer Session")',
-      { state: "detached", timeout: 8000 },
-    );
+    await page.waitForSelector('h2:has-text("New Customer Session")', {
+      state: "detached",
+      timeout: 8000,
+    });
   },
 };
 

@@ -148,9 +148,10 @@ function smsCostPayments(
     .all() as Array<{ amount: number; drawer_name: string; note: string }>;
 }
 
-function latestTxnProfit(
-  db: Database.Database,
-): { profit_usd: number; profit_lbp: number } {
+function latestTxnProfit(db: Database.Database): {
+  profit_usd: number;
+  profit_lbp: number;
+} {
   return db
     .prepare(
       "SELECT profit_usd, profit_lbp FROM transactions ORDER BY id DESC LIMIT 1",

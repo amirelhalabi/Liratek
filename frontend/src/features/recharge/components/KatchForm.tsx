@@ -38,12 +38,22 @@ function calcReturnedCredits(denomination: number): number {
   return Math.floor(denomination / 0.5) * 0.5;
 }
 
-function calcPrice(item: ServiceItem, onlyDays: boolean, returnedCredits: number, sellRate: number): number {
+function calcPrice(
+  item: ServiceItem,
+  onlyDays: boolean,
+  returnedCredits: number,
+  sellRate: number,
+): number {
   const sellPrice = item.catalogSellPrice ?? 0;
   return onlyDays ? sellPrice - returnedCredits * sellRate : sellPrice;
 }
 
-function calcCost(item: ServiceItem, onlyDays: boolean, returnedCredits: number, costRate: number): number {
+function calcCost(
+  item: ServiceItem,
+  onlyDays: boolean,
+  returnedCredits: number,
+  costRate: number,
+): number {
   const cost = item.catalogCost ?? 0;
   return onlyDays ? cost - returnedCredits * costRate : cost;
 }
@@ -91,20 +101,34 @@ const ItemCard = memo(function ItemCard({
       >
         <div onClick={() => onCardClick(item)} className="cursor-pointer">
           <div className="flex items-center justify-between gap-2 mb-1">
-            <div className="text-white font-medium text-sm truncate">{item.label}</div>
+            <div className="text-white font-medium text-sm truncate">
+              {item.label}
+            </div>
             {qty > 0 && (
               <div className="flex items-center gap-1 shrink-0">
                 <button
-                  onClick={(e) => { e.stopPropagation(); onQtyDecrease(item); }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onQtyDecrease(item);
+                  }}
                   className="w-5 h-5 rounded-full bg-orange-500/20 hover:bg-orange-500/30 text-orange-400 flex items-center justify-center transition-colors cursor-pointer text-xs font-bold"
                   type="button"
-                >−</button>
-                <span className="w-4 text-center text-xs font-bold text-orange-400">{qty}</span>
+                >
+                  −
+                </button>
+                <span className="w-4 text-center text-xs font-bold text-orange-400">
+                  {qty}
+                </span>
                 <button
-                  onClick={(e) => { e.stopPropagation(); onQtyIncrease(item); }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onQtyIncrease(item);
+                  }}
                   className="w-5 h-5 rounded-full bg-orange-500/20 hover:bg-orange-500/30 text-orange-400 flex items-center justify-center transition-colors cursor-pointer text-xs font-bold"
                   type="button"
-                >+</button>
+                >
+                  +
+                </button>
               </div>
             )}
           </div>
@@ -114,15 +138,21 @@ const ItemCard = memo(function ItemCard({
             ) : item.subcategory === "mtc" || item.category === "mtc" ? (
               <MtcLogo className="h-4 w-auto" />
             ) : null}
-            <span className="text-slate-500 text-[10px] truncate max-w-full">{item.subcategory}</span>
+            <span className="text-slate-500 text-[10px] truncate max-w-full">
+              {item.subcategory}
+            </span>
           </div>
           <div className="mt-2 flex items-center justify-between">
             <span className="text-xs text-slate-400">Cost:</span>
-            <span className="text-xs text-white font-mono">{cost.toLocaleString()} LBP</span>
+            <span className="text-xs text-white font-mono">
+              {cost.toLocaleString()} LBP
+            </span>
           </div>
           <div className="flex items-center justify-between">
             <span className="text-xs text-slate-400">Sell:</span>
-            <span className="text-xs text-emerald-400 font-mono">{sellPrice.toLocaleString()} LBP</span>
+            <span className="text-xs text-emerald-400 font-mono">
+              {sellPrice.toLocaleString()} LBP
+            </span>
           </div>
         </div>
       </div>
@@ -139,20 +169,30 @@ const ItemCard = memo(function ItemCard({
                   onChange={(e) => onOnlyDaysChange(item, e.target.checked)}
                   className="w-4 h-4 rounded border-slate-600 text-orange-500 focus:ring-orange-500 cursor-pointer"
                 />
-                <label htmlFor={`onlydays-${item.key}`} className="text-xs text-slate-300 cursor-pointer select-none whitespace-nowrap">
+                <label
+                  htmlFor={`onlydays-${item.key}`}
+                  className="text-xs text-slate-300 cursor-pointer select-none whitespace-nowrap"
+                >
                   Only Days
                 </label>
               </div>
               {onlyDays && (
                 <div className="flex items-center gap-1.5 shrink-0">
-                  <span className="text-xs text-slate-400 whitespace-nowrap">Credits</span>
+                  <span className="text-xs text-slate-400 whitespace-nowrap">
+                    Credits
+                  </span>
                   <input
                     type="number"
                     step="0.5"
                     min="0"
                     max={parseFloat(item.label) || 0}
                     value={returnedCreditsUsd}
-                    onChange={(e) => onReturnedCreditsChange(item, parseFloat(e.target.value) || 0)}
+                    onChange={(e) =>
+                      onReturnedCreditsChange(
+                        item,
+                        parseFloat(e.target.value) || 0,
+                      )
+                    }
                     className="w-14 bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-orange-500"
                   />
                 </div>
@@ -253,7 +293,7 @@ function KatchFormInner({
     if (newClientReady && initialPaymentMethod !== "CUSTOMER_ACCOUNT") {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setInitialPaymentMethod("CUSTOMER_ACCOUNT");
-       
+
       setPaymentInputKey((k) => k + 1);
     }
   }, [clientId, clientName, clientPhone, initialPaymentMethod]);
@@ -270,19 +310,29 @@ function KatchFormInner({
   // Bill card state (LBP default per spec)
   const [billAmount, setBillAmount] = useState("");
   const [billCurrency, setBillCurrency] = useState<"USD" | "LBP">("LBP");
-  const [pendingBill, setPendingBill] = useState<{ amount: number; currency: "USD" | "LBP" } | null>(null);
-  const [historyTransactions, setHistoryTransactions] = useState<FinancialTransaction[]>([]);
+  const [pendingBill, setPendingBill] = useState<{
+    amount: number;
+    currency: "USD" | "LBP";
+  } | null>(null);
+  const [historyTransactions, setHistoryTransactions] = useState<
+    FinancialTransaction[]
+  >([]);
 
   // Lazy-load provider history only when the history modal is opened.
   useEffect(() => {
     if (showHistory && activeProvider) {
-      api.getOMTHistory(activeProvider).then((txs: FinancialTransaction[]) => {
-        setHistoryTransactions(
-          (txs ?? []).filter((tx: FinancialTransaction) => tx.provider === activeProvider),
-        );
-      }).catch((err: unknown) => {
-        logger.error("Failed to load Katch history:", err);
-      });
+      api
+        .getOMTHistory(activeProvider)
+        .then((txs: FinancialTransaction[]) => {
+          setHistoryTransactions(
+            (txs ?? []).filter(
+              (tx: FinancialTransaction) => tx.provider === activeProvider,
+            ),
+          );
+        })
+        .catch((err: unknown) => {
+          logger.error("Failed to load Katch history:", err);
+        });
     }
   }, [showHistory, activeProvider, api]);
 
@@ -311,7 +361,12 @@ function KatchFormInner({
     setCart((prev) => {
       if (prev.has(item.key)) return prev;
       const next = new Map(prev);
-      next.set(item.key, { item, quantity: 1, onlyDays: false, returnedCreditsUsd: 0 });
+      next.set(item.key, {
+        item,
+        quantity: 1,
+        onlyDays: false,
+        returnedCreditsUsd: 0,
+      });
       return next;
     });
   }, []);
@@ -339,36 +394,52 @@ function KatchFormInner({
       if (existing) {
         next.set(item.key, { ...existing, quantity: existing.quantity + 1 });
       } else {
-        next.set(item.key, { item, quantity: 1, onlyDays: false, returnedCreditsUsd: 0 });
+        next.set(item.key, {
+          item,
+          quantity: 1,
+          onlyDays: false,
+          returnedCreditsUsd: 0,
+        });
       }
       return next;
     });
   }, []);
 
-  const handleOnlyDaysChange = useCallback((item: ServiceItem, checked: boolean) => {
-    setCart((prev) => {
-      const existing = prev.get(item.key);
-      if (!existing) return prev;
-      let returnedCredits = 0;
-      if (checked) {
-        const denomination = parseFloat(item.label);
-        if (!isNaN(denomination)) returnedCredits = calcReturnedCredits(denomination);
-      }
-      const next = new Map(prev);
-      next.set(item.key, { ...existing, onlyDays: checked, returnedCreditsUsd: returnedCredits });
-      return next;
-    });
-  }, []);
+  const handleOnlyDaysChange = useCallback(
+    (item: ServiceItem, checked: boolean) => {
+      setCart((prev) => {
+        const existing = prev.get(item.key);
+        if (!existing) return prev;
+        let returnedCredits = 0;
+        if (checked) {
+          const denomination = parseFloat(item.label);
+          if (!isNaN(denomination))
+            returnedCredits = calcReturnedCredits(denomination);
+        }
+        const next = new Map(prev);
+        next.set(item.key, {
+          ...existing,
+          onlyDays: checked,
+          returnedCreditsUsd: returnedCredits,
+        });
+        return next;
+      });
+    },
+    [],
+  );
 
-  const handleReturnedCreditsChange = useCallback((item: ServiceItem, value: number) => {
-    setCart((prev) => {
-      const existing = prev.get(item.key);
-      if (!existing) return prev;
-      const next = new Map(prev);
-      next.set(item.key, { ...existing, returnedCreditsUsd: value });
-      return next;
-    });
-  }, []);
+  const handleReturnedCreditsChange = useCallback(
+    (item: ServiceItem, value: number) => {
+      setCart((prev) => {
+        const existing = prev.get(item.key);
+        if (!existing) return prev;
+        const next = new Map(prev);
+        next.set(item.key, { ...existing, returnedCreditsUsd: value });
+        return next;
+      });
+    },
+    [],
+  );
 
   const toggleCategoryCollapse = useCallback((category: string) => {
     setCollapsedCategories((prev) => {
@@ -395,11 +466,29 @@ function KatchFormInner({
   };
 
   const totalPrice = Array.from(cart.values()).reduce((sum, line) => {
-    return sum + calcPrice(line.item, line.onlyDays, line.returnedCreditsUsd, alfaCreditSellRate) * line.quantity;
+    return (
+      sum +
+      calcPrice(
+        line.item,
+        line.onlyDays,
+        line.returnedCreditsUsd,
+        alfaCreditSellRate,
+      ) *
+        line.quantity
+    );
   }, 0);
 
   const totalCost = Array.from(cart.values()).reduce((sum, line) => {
-    return sum + calcCost(line.item, line.onlyDays, line.returnedCreditsUsd, alfaCreditCostRate) * line.quantity;
+    return (
+      sum +
+      calcCost(
+        line.item,
+        line.onlyDays,
+        line.returnedCreditsUsd,
+        alfaCreditCostRate,
+      ) *
+        line.quantity
+    );
   }, 0);
 
   // Max discount = total commission (sell - cost), discount cannot exceed profit
@@ -412,13 +501,21 @@ function KatchFormInner({
 
   const getCartCountForCategory = (category: string): number =>
     Array.from(cart.values())
-      .filter((line) => line.item.category === category && line.item.provider === activeProvider)
+      .filter(
+        (line) =>
+          line.item.category === category &&
+          line.item.provider === activeProvider,
+      )
       .reduce((sum, line) => sum + line.quantity, 0);
 
   const handleAddItem = async () => {
     if (!newItemForm) return;
     setAddItemError("");
-    if (!newItemForm.label.trim() || !newItemForm.cost_lbp || !newItemForm.sell_lbp) {
+    if (
+      !newItemForm.label.trim() ||
+      !newItemForm.cost_lbp ||
+      !newItemForm.sell_lbp
+    ) {
       setAddItemError("Label, cost, and sell are required");
       return;
     }
@@ -522,8 +619,18 @@ function KatchFormInner({
 
       // Store each line item for replay at checkout
       const formDataItems = cartItems.flatMap((line) => {
-        const sellPrice = calcPrice(line.item, line.onlyDays, line.returnedCreditsUsd, alfaCreditSellRate);
-        const cost = calcCost(line.item, line.onlyDays, line.returnedCreditsUsd, alfaCreditCostRate);
+        const sellPrice = calcPrice(
+          line.item,
+          line.onlyDays,
+          line.returnedCreditsUsd,
+          alfaCreditSellRate,
+        );
+        const cost = calcCost(
+          line.item,
+          line.onlyDays,
+          line.returnedCreditsUsd,
+          alfaCreditCostRate,
+        );
         const commission = sellPrice - cost;
         return Array.from({ length: line.quantity }, () => ({
           provider: activeProvider,
@@ -581,19 +688,42 @@ function KatchFormInner({
 
       // Aggregate all items into one transaction
       const totalSellPrice = cartItems.reduce((sum, line) => {
-        return sum + calcPrice(line.item, line.onlyDays, line.returnedCreditsUsd, alfaCreditSellRate) * line.quantity;
+        return (
+          sum +
+          calcPrice(
+            line.item,
+            line.onlyDays,
+            line.returnedCreditsUsd,
+            alfaCreditSellRate,
+          ) *
+            line.quantity
+        );
       }, 0);
 
       const aggregatedCost = cartItems.reduce((sum, line) => {
-        return sum + calcCost(line.item, line.onlyDays, line.returnedCreditsUsd, alfaCreditCostRate) * line.quantity;
+        return (
+          sum +
+          calcCost(
+            line.item,
+            line.onlyDays,
+            line.returnedCreditsUsd,
+            alfaCreditCostRate,
+          ) *
+            line.quantity
+        );
       }, 0);
 
       const discountedTotal = totalSellPrice - discount;
-      const aggregatedCommission = Math.max(0, discountedTotal - aggregatedCost);
+      const aggregatedCommission = Math.max(
+        0,
+        discountedTotal - aggregatedCost,
+      );
 
       const noteLines = cartItems.flatMap((line) =>
         line.quantity > 1
-          ? [`${line.item.label} x${line.quantity}${line.onlyDays ? " [Only Days]" : ""}`]
+          ? [
+              `${line.item.label} x${line.quantity}${line.onlyDays ? " [Only Days]" : ""}`,
+            ]
           : [`${line.item.label}${line.onlyDays ? " [Only Days]" : ""}`],
       );
       const note = noteLines.join(", ");
@@ -740,10 +870,16 @@ function KatchFormInner({
         <div className="flex items-center gap-2 shrink-0">
           {totalItems > 0 && (
             <div className="text-right leading-tight">
-              <div className="text-xs text-white font-bold">{totalItems} items</div>
-              <div className="text-xs text-emerald-400 font-mono font-semibold">{totalPrice.toLocaleString()} LBP</div>
+              <div className="text-xs text-white font-bold">
+                {totalItems} items
+              </div>
+              <div className="text-xs text-emerald-400 font-mono font-semibold">
+                {totalPrice.toLocaleString()} LBP
+              </div>
               {exchangeRate > 0 && (
-                <div className="text-xs text-slate-400 font-mono">${(totalPrice / exchangeRate).toFixed(2)}</div>
+                <div className="text-xs text-slate-400 font-mono">
+                  ${(totalPrice / exchangeRate).toFixed(2)}
+                </div>
               )}
             </div>
           )}
@@ -799,235 +935,279 @@ function KatchFormInner({
           </div>
         </div>
       ) : (
-      <div className="space-y-6 pb-2">
-        {/* Bill card — always visible at top of grid */}
-        {!searchQuery && (
-          <div className="bg-slate-800 rounded-xl border border-violet-700/40 p-4">
-            <div className="text-center text-sm font-bold text-white tracking-widest mb-3">BILL</div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs text-slate-400">Currency</span>
-              <div className="flex items-center gap-1 bg-slate-900 rounded-lg border border-slate-600 p-0.5">
-                {(["USD", "LBP"] as const).map((cur) => (
-                  <button
-                    key={cur}
-                    type="button"
-                    onClick={() => { if (cur === billCurrency) return; setBillCurrency(cur); setBillAmount(""); }}
-                    className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all ${
-                      billCurrency === cur ? "bg-violet-600 text-white" : "text-slate-400 hover:text-slate-200"
-                    }`}
-                  >
-                    {cur}
-                  </button>
-                ))}
+        <div className="space-y-6 pb-2">
+          {/* Bill card — always visible at top of grid */}
+          {!searchQuery && (
+            <div className="bg-slate-800 rounded-xl border border-violet-700/40 p-4">
+              <div className="text-center text-sm font-bold text-white tracking-widest mb-3">
+                BILL
               </div>
-            </div>
-            <div className="mb-3">
-              <label className="text-xs text-slate-400 block mb-1">Amount ({billCurrency})</label>
-              <DecimalInput
-                value={parseFloat(billAmount.replace(/,/g, "")) || 0}
-                onChange={(n) => setBillAmount(n ? String(n) : "")}
-                decimals={billCurrency === "USD" ? 2 : 0}
-                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white font-mono text-sm focus:outline-none focus:border-violet-500"
-                placeholder={billCurrency === "LBP" ? "0" : "0.00"}
-              />
-            </div>
-            <button
-              type="button"
-              onClick={handleAddBill}
-              disabled={!billAmount || parseFloat(billAmount.replace(/,/g, "")) <= 0}
-              className="w-full py-2 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-lg transition-colors"
-            >
-              {activeSession ? "Add Bill to Cart" : pendingBill ? "Replace Bill" : "Add Bill"}
-            </button>
-            {pendingBill && !activeSession && (
-              <div className="mt-2 flex items-center justify-center gap-2 text-xs text-violet-300 font-mono">
-                <span>
-                  Pending:{" "}
-                  {pendingBill.currency === "LBP"
-                    ? `${Math.round(pendingBill.amount).toLocaleString()} LBP`
-                    : `$${pendingBill.amount.toFixed(2)}`}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setPendingBill(null)}
-                  className="text-slate-500 hover:text-red-400 transition-colors"
-                  aria-label="Clear pending bill"
-                >
-                  ✕
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-        {categories.map((category) => {
-          const allCategoryItems = getServiceItems(activeProvider, category);
-          const categoryItems = filterItemsBySearch(allCategoryItems);
-
-          // Skip category if no items match search
-          if (categoryItems.length === 0) return null;
-
-          return (
-            <div
-              key={category}
-              className="bg-slate-800 rounded-xl border border-slate-700/50 p-4"
-            >
-              <div
-                onClick={() => toggleCategoryCollapse(category)}
-                className="flex items-center justify-between cursor-pointer select-none"
-              >
-                <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-2">
-                  <span
-                    className="inline-block w-2.5 h-2.5 rounded-full"
-                    style={{ backgroundColor: getCategoryColor(category) }}
-                  />
-                  {category}
-                  {getCartCountForCategory(category) > 0 && (
-                    <span className="px-1.5 py-0.5 bg-orange-500/20 text-orange-400 text-[10px] font-bold rounded-full leading-none">
-                      {getCartCountForCategory(category)}
-                    </span>
-                  )}
-                </h3>
-                <div className="flex items-center gap-1.5">
-                  {isAdmin && (
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-slate-400">Currency</span>
+                <div className="flex items-center gap-1 bg-slate-900 rounded-lg border border-slate-600 p-0.5">
+                  {(["USD", "LBP"] as const).map((cur) => (
                     <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setAddItemError("");
-                        setNewItemForm(
-                          newItemForm?.category === category
-                            ? null
-                            : {
-                                provider: activeProvider as string,
-                                category,
-                                subcategory: "",
-                                label: "",
-                                cost_lbp: "",
-                                sell_lbp: "",
-                                sort_order: "0",
-                              },
-                        );
-                      }}
-                      className="p-1 rounded hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
+                      key={cur}
                       type="button"
-                      title="Add item"
+                      onClick={() => {
+                        if (cur === billCurrency) return;
+                        setBillCurrency(cur);
+                        setBillAmount("");
+                      }}
+                      className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all ${
+                        billCurrency === cur
+                          ? "bg-violet-600 text-white"
+                          : "text-slate-400 hover:text-slate-200"
+                      }`}
                     >
-                      <Plus className="w-3.5 h-3.5" />
+                      {cur}
                     </button>
-                  )}
-                  <ChevronDown
-                    className={`w-4 h-4 text-slate-400 transition-transform ${
-                      collapsedCategories.has(category) ? "-rotate-90" : ""
-                    }`}
-                  />
+                  ))}
                 </div>
               </div>
-              {newItemForm?.category === category && (
-                <div className="mt-3 border border-slate-600/40 rounded-lg p-3 bg-slate-900/50 space-y-2">
-                  {addItemError && (
-                    <p className="text-xs text-red-400">{addItemError}</p>
-                  )}
-                  <div className="flex items-end gap-2 flex-wrap">
-                    <div className="flex-1 min-w-24">
-                      <label className="text-slate-400 text-xs block mb-1">Subcategory</label>
-                      <input
-                        type="text"
-                        value={newItemForm.subcategory}
-                        onChange={(e) => setNewItemForm({ ...newItemForm, subcategory: e.target.value })}
-                        placeholder="e.g. pubg"
-                        className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500"
-                      />
-                    </div>
-                    <div className="flex-1 min-w-24">
-                      <label className="text-slate-400 text-xs block mb-1">Label</label>
-                      <input
-                        autoFocus
-                        type="text"
-                        value={newItemForm.label}
-                        onChange={(e) => setNewItemForm({ ...newItemForm, label: e.target.value })}
-                        placeholder="e.g. 60UC"
-                        className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500"
-                      />
-                    </div>
-                    <div className="w-28">
-                      <label className="text-slate-400 text-xs block mb-1">Cost</label>
-                      <DecimalInput
-                        value={parseFloat(newItemForm.cost_lbp) || 0}
-                        onChange={(n) =>
-                          setNewItemForm({
-                            ...newItemForm,
-                            cost_lbp: n ? String(n) : "",
-                          })
-                        }
-                        placeholder="LBP"
-                        className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500"
-                      />
-                    </div>
-                    <div className="w-28">
-                      <label className="text-slate-400 text-xs block mb-1">Sell</label>
-                      <DecimalInput
-                        value={parseFloat(newItemForm.sell_lbp) || 0}
-                        onChange={(n) =>
-                          setNewItemForm({
-                            ...newItemForm,
-                            sell_lbp: n ? String(n) : "",
-                          })
-                        }
-                        placeholder="LBP"
-                        className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500"
-                      />
-                    </div>
-                    <div className="w-16">
-                      <label className="text-slate-400 text-xs block mb-1">Order</label>
-                      <input
-                        type="number"
-                        value={newItemForm.sort_order}
-                        onChange={(e) => setNewItemForm({ ...newItemForm, sort_order: e.target.value })}
-                        className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500"
-                      />
-                    </div>
-                    <button
-                      onClick={handleAddItem}
-                      className="px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white rounded text-sm font-medium transition-colors"
-                      type="button"
-                    >
-                      Add
-                    </button>
-                    <button
-                      onClick={() => { setNewItemForm(null); setAddItemError(""); }}
-                      className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded text-sm transition-colors"
-                      type="button"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
+              <div className="mb-3">
+                <label className="text-xs text-slate-400 block mb-1">
+                  Amount ({billCurrency})
+                </label>
+                <DecimalInput
+                  value={parseFloat(billAmount.replace(/,/g, "")) || 0}
+                  onChange={(n) => setBillAmount(n ? String(n) : "")}
+                  decimals={billCurrency === "USD" ? 2 : 0}
+                  className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white font-mono text-sm focus:outline-none focus:border-violet-500"
+                  placeholder={billCurrency === "LBP" ? "0" : "0.00"}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={handleAddBill}
+                disabled={
+                  !billAmount || parseFloat(billAmount.replace(/,/g, "")) <= 0
+                }
+                className="w-full py-2 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-lg transition-colors"
+              >
+                {activeSession
+                  ? "Add Bill to Cart"
+                  : pendingBill
+                    ? "Replace Bill"
+                    : "Add Bill"}
+              </button>
+              {pendingBill && !activeSession && (
+                <div className="mt-2 flex items-center justify-center gap-2 text-xs text-violet-300 font-mono">
+                  <span>
+                    Pending:{" "}
+                    {pendingBill.currency === "LBP"
+                      ? `${Math.round(pendingBill.amount).toLocaleString()} LBP`
+                      : `$${pendingBill.amount.toFixed(2)}`}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setPendingBill(null)}
+                    className="text-slate-500 hover:text-red-400 transition-colors"
+                    aria-label="Clear pending bill"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+          {categories.map((category) => {
+            const allCategoryItems = getServiceItems(activeProvider, category);
+            const categoryItems = filterItemsBySearch(allCategoryItems);
+
+            // Skip category if no items match search
+            if (categoryItems.length === 0) return null;
+
+            return (
+              <div
+                key={category}
+                className="bg-slate-800 rounded-xl border border-slate-700/50 p-4"
+              >
+                <div
+                  onClick={() => toggleCategoryCollapse(category)}
+                  className="flex items-center justify-between cursor-pointer select-none"
+                >
+                  <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+                    <span
+                      className="inline-block w-2.5 h-2.5 rounded-full"
+                      style={{ backgroundColor: getCategoryColor(category) }}
+                    />
+                    {category}
+                    {getCartCountForCategory(category) > 0 && (
+                      <span className="px-1.5 py-0.5 bg-orange-500/20 text-orange-400 text-[10px] font-bold rounded-full leading-none">
+                        {getCartCountForCategory(category)}
+                      </span>
+                    )}
+                  </h3>
+                  <div className="flex items-center gap-1.5">
+                    {isAdmin && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setAddItemError("");
+                          setNewItemForm(
+                            newItemForm?.category === category
+                              ? null
+                              : {
+                                  provider: activeProvider as string,
+                                  category,
+                                  subcategory: "",
+                                  label: "",
+                                  cost_lbp: "",
+                                  sell_lbp: "",
+                                  sort_order: "0",
+                                },
+                          );
+                        }}
+                        className="p-1 rounded hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
+                        type="button"
+                        title="Add item"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    <ChevronDown
+                      className={`w-4 h-4 text-slate-400 transition-transform ${
+                        collapsedCategories.has(category) ? "-rotate-90" : ""
+                      }`}
+                    />
                   </div>
                 </div>
-              )}
-              {!collapsedCategories.has(category) && (
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 mt-3">
-                  {categoryItems.map((item) => {
-                    const inCart = cart.get(item.key);
-                    return (
-                      <ItemCard
-                        key={item.key}
-                        item={item}
-                        qty={inCart?.quantity ?? 0}
-                        isExpanded={expandedKeys.has(item.key)}
-                        onlyDays={inCart?.onlyDays ?? false}
-                        returnedCreditsUsd={inCart?.returnedCreditsUsd ?? 0}
-                        onCardClick={handleCardClick}
-                        onQtyDecrease={handleQtyDecrease}
-                        onQtyIncrease={handleQtyIncrease}
-                        onOnlyDaysChange={handleOnlyDaysChange}
-                        onReturnedCreditsChange={handleReturnedCreditsChange}
-                      />
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
+                {newItemForm?.category === category && (
+                  <div className="mt-3 border border-slate-600/40 rounded-lg p-3 bg-slate-900/50 space-y-2">
+                    {addItemError && (
+                      <p className="text-xs text-red-400">{addItemError}</p>
+                    )}
+                    <div className="flex items-end gap-2 flex-wrap">
+                      <div className="flex-1 min-w-24">
+                        <label className="text-slate-400 text-xs block mb-1">
+                          Subcategory
+                        </label>
+                        <input
+                          type="text"
+                          value={newItemForm.subcategory}
+                          onChange={(e) =>
+                            setNewItemForm({
+                              ...newItemForm,
+                              subcategory: e.target.value,
+                            })
+                          }
+                          placeholder="e.g. pubg"
+                          className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500"
+                        />
+                      </div>
+                      <div className="flex-1 min-w-24">
+                        <label className="text-slate-400 text-xs block mb-1">
+                          Label
+                        </label>
+                        <input
+                          autoFocus
+                          type="text"
+                          value={newItemForm.label}
+                          onChange={(e) =>
+                            setNewItemForm({
+                              ...newItemForm,
+                              label: e.target.value,
+                            })
+                          }
+                          placeholder="e.g. 60UC"
+                          className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500"
+                        />
+                      </div>
+                      <div className="w-28">
+                        <label className="text-slate-400 text-xs block mb-1">
+                          Cost
+                        </label>
+                        <DecimalInput
+                          value={parseFloat(newItemForm.cost_lbp) || 0}
+                          onChange={(n) =>
+                            setNewItemForm({
+                              ...newItemForm,
+                              cost_lbp: n ? String(n) : "",
+                            })
+                          }
+                          placeholder="LBP"
+                          className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500"
+                        />
+                      </div>
+                      <div className="w-28">
+                        <label className="text-slate-400 text-xs block mb-1">
+                          Sell
+                        </label>
+                        <DecimalInput
+                          value={parseFloat(newItemForm.sell_lbp) || 0}
+                          onChange={(n) =>
+                            setNewItemForm({
+                              ...newItemForm,
+                              sell_lbp: n ? String(n) : "",
+                            })
+                          }
+                          placeholder="LBP"
+                          className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500"
+                        />
+                      </div>
+                      <div className="w-16">
+                        <label className="text-slate-400 text-xs block mb-1">
+                          Order
+                        </label>
+                        <input
+                          type="number"
+                          value={newItemForm.sort_order}
+                          onChange={(e) =>
+                            setNewItemForm({
+                              ...newItemForm,
+                              sort_order: e.target.value,
+                            })
+                          }
+                          className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500"
+                        />
+                      </div>
+                      <button
+                        onClick={handleAddItem}
+                        className="px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white rounded text-sm font-medium transition-colors"
+                        type="button"
+                      >
+                        Add
+                      </button>
+                      <button
+                        onClick={() => {
+                          setNewItemForm(null);
+                          setAddItemError("");
+                        }}
+                        className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded text-sm transition-colors"
+                        type="button"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {!collapsedCategories.has(category) && (
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 mt-3">
+                    {categoryItems.map((item) => {
+                      const inCart = cart.get(item.key);
+                      return (
+                        <ItemCard
+                          key={item.key}
+                          item={item}
+                          qty={inCart?.quantity ?? 0}
+                          isExpanded={expandedKeys.has(item.key)}
+                          onlyDays={inCart?.onlyDays ?? false}
+                          returnedCreditsUsd={inCart?.returnedCreditsUsd ?? 0}
+                          onCardClick={handleCardClick}
+                          onQtyDecrease={handleQtyDecrease}
+                          onQtyIncrease={handleQtyIncrease}
+                          onOnlyDaysChange={handleOnlyDaysChange}
+                          onReturnedCreditsChange={handleReturnedCreditsChange}
+                        />
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       )}
 
       <PaymentSheet
@@ -1048,9 +1228,7 @@ function KatchFormInner({
         showDiscount={true}
         maxDiscount={maxDiscount}
         onDiscountChange={setDiscount}
-        hasClient={
-          !!clientId || (!!clientName.trim() && !!clientPhone.trim())
-        }
+        hasClient={!!clientId || (!!clientName.trim() && !!clientPhone.trim())}
         paymentInputKey={paymentInputKey}
         initialPaymentMethod={initialPaymentMethod}
         onPaymentChange={(lines) => {

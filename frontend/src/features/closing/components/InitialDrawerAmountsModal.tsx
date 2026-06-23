@@ -1,23 +1,11 @@
 import { useState, useEffect } from "react";
-import { X, Wallet } from "lucide-react";
+import { X, Wallet, Plus } from "lucide-react";
+import { DecimalInput } from "@liratek/ui";
 import { useModules } from "@/contexts/ModuleContext";
 import { useAuth } from "@/features/auth/context/AuthContext";
+import { useCurrencyContext } from "@/contexts/CurrencyContext";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { DRAWER_ORDER, DRAWER_CONFIGS } from "../config/drawers";
-
-// Hardcoded per-drawer currency support — mirrors what currency_drawers seeds at install
-const DRAWER_DEFAULT_CURRENCIES: Record<string, string[]> = {
-  General: ["USD", "LBP"],
-  OMT_System: ["USD", "LBP"],
-  OMT_App: ["USD"],
-  Whish_App: ["USD"],
-  Whish_System: ["USD"],
-  Binance: ["USDT"],
-  MTC: ["LBP"],
-  Alfa: ["LBP"],
-  iPick: ["USD"],
-  Katsh: ["USD"],
-};
 
 // Module required to show each drawer (mirrors Dashboard drawerModuleMap)
 const DRAWER_MODULE_REQUIREMENT: Record<string, string> = {
@@ -46,13 +34,6 @@ const DRAWER_ACCENT: Record<string, string> = {
   Katsh: "amber",
 };
 
-function formatCurrencyAmount(amount: number, currency: string): string {
-  if (currency === "LBP") {
-    return amount.toLocaleString("en-US", { maximumFractionDigits: 0 });
-  }
-  return amount.toFixed(2);
-}
-
 interface InitialDrawerAmountsModalProps {
   onClose: () => void;
   onSaved: () => void;
@@ -65,11 +46,23 @@ export function InitialDrawerAmountsModal({
   useModalFocusFix(true);
   const { isModuleEnabled } = useModules();
   const { user } = useAuth();
+  const { activeCurrencies, getDecimals } = useCurrencyContext();
 
-  // drawer → currency → string input value
-  const [amounts, setAmounts] = useState<Record<string, Record<string, string>>>(
-    {},
-  );
+  // drawer → currency → numeric input value
+  const [amounts, setAmounts] = useState<
+    Record<string, Record<string, number>>
+  >({});
+  // Currencies shown per drawer. Seeded from currency_drawers (the source of
+  // truth) and grown when the operator adds a currency.
+  const [drawerCurrencies, setDrawerCurrencyState] = useState<
+    Record<string, string[]>
+  >({});
+  // The currency set persisted in the DB at load time, used to detect which
+  // drawers gained a currency and need a currency_drawers update on save.
+  const [baselineCurrencies, setBaselineCurrencies] = useState<
+    Record<string, string[]>
+  >({});
+  const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -79,34 +72,73 @@ export function InitialDrawerAmountsModal({
     return !required || isModuleEnabled(required);
   });
 
-  // Pre-fill with current drawer_balances (so operator sees existing state)
+  // Load the configured currencies per drawer + current balances so the
+  // operator sees existing state and the real per-drawer currency set.
   useEffect(() => {
-    window.api.closing.getSystemExpectedBalancesDynamic().then((balances) => {
-      const initial: Record<string, Record<string, string>> = {};
+    Promise.all([
+      window.api.currencies.allDrawerCurrencies(),
+      window.api.closing.getSystemExpectedBalancesDynamic(),
+    ]).then(([configured, balances]) => {
+      const initialCurrencies: Record<string, string[]> = {};
+      const initialAmounts: Record<string, Record<string, number>> = {};
       for (const drawer of visibleDrawers) {
-        const currencies = DRAWER_DEFAULT_CURRENCIES[drawer] ?? ["USD"];
-        initial[drawer] = {};
+        const currencies = configured[drawer] ?? [];
+        initialCurrencies[drawer] = [...currencies];
+        initialAmounts[drawer] = {};
         for (const currency of currencies) {
-          const existing = balances[drawer]?.[currency] ?? 0;
-          initial[drawer][currency] =
-            existing === 0 ? "" : formatCurrencyAmount(existing, currency);
+          initialAmounts[drawer][currency] = balances[drawer]?.[currency] ?? 0;
         }
       }
-      setAmounts(initial);
+      setDrawerCurrencyState(initialCurrencies);
+      setBaselineCurrencies(initialCurrencies);
+      setAmounts(initialAmounts);
+      setLoaded(true);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function handleChange(drawer: string, currency: string, value: string) {
+  function handleChange(drawer: string, currency: string, value: number) {
     setAmounts((prev) => ({
       ...prev,
       [drawer]: { ...prev[drawer], [currency]: value },
     }));
   }
 
+  function handleAddCurrency(drawer: string, currency: string) {
+    if (!currency) return;
+    setDrawerCurrencyState((prev) => {
+      if (prev[drawer]?.includes(currency)) return prev;
+      return { ...prev, [drawer]: [...(prev[drawer] ?? []), currency] };
+    });
+    setAmounts((prev) => ({
+      ...prev,
+      [drawer]: { ...prev[drawer], [currency]: prev[drawer]?.[currency] ?? 0 },
+    }));
+  }
+
   async function handleSave() {
     setSaving(true);
     setError(null);
+
+    // Persist any newly-added currencies to currency_drawers first, so the
+    // drawer's currency set stays the single source of truth. Only drawers
+    // whose set grew need an update.
+    for (const drawer of visibleDrawers) {
+      const current = drawerCurrencies[drawer] ?? [];
+      const baseline = baselineCurrencies[drawer] ?? [];
+      const grew = current.some((c) => !baseline.includes(c));
+      if (grew) {
+        const res = await window.api.currencies.setDrawerCurrencies(
+          drawer,
+          current,
+        );
+        if (!res.success) {
+          setSaving(false);
+          setError(res.error ?? `Failed to add currency to ${drawer}`);
+          return;
+        }
+      }
+    }
 
     const amountRows: Array<{
       drawer_name: string;
@@ -116,15 +148,8 @@ export function InitialDrawerAmountsModal({
     }> = [];
 
     for (const drawer of visibleDrawers) {
-      const currencies = DRAWER_DEFAULT_CURRENCIES[drawer] ?? ["USD"];
-      for (const currency of currencies) {
-        const raw = amounts[drawer]?.[currency] ?? "";
-        const parsed = raw === "" ? 0 : parseFloat(raw.replace(/,/g, ""));
-        if (isNaN(parsed)) {
-          setError(`Invalid amount for ${drawer} (${currency})`);
-          setSaving(false);
-          return;
-        }
+      for (const currency of drawerCurrencies[drawer] ?? []) {
+        const parsed = amounts[drawer]?.[currency] ?? 0;
         amountRows.push({
           drawer_name: drawer,
           currency_code: currency,
@@ -182,49 +207,76 @@ export function InitialDrawerAmountsModal({
         <div className="overflow-y-auto flex-1 px-6 py-4">
           <div className="grid grid-cols-2 gap-3">
             {visibleDrawers.map((drawer) => {
-              const config = DRAWER_CONFIGS[drawer as keyof typeof DRAWER_CONFIGS];
-              const currencies = DRAWER_DEFAULT_CURRENCIES[drawer] ?? ["USD"];
+              const config =
+                DRAWER_CONFIGS[drawer as keyof typeof DRAWER_CONFIGS];
+              const currencies = drawerCurrencies[drawer] ?? [];
               const accent = DRAWER_ACCENT[drawer] ?? "slate";
+              const addable = activeCurrencies.filter(
+                (c) => !currencies.includes(c.code),
+              );
 
               return (
                 <div
                   key={drawer}
                   className={`bg-slate-800/60 rounded-xl border border-slate-700/40 border-l-4 border-l-${accent}-500 px-3 py-3`}
                 >
-                  <span className={`text-xs font-semibold text-${accent}-400 block mb-2`}>
+                  <span
+                    className={`text-xs font-semibold text-${accent}-400 block mb-2`}
+                  >
                     {config?.label ?? drawer}
                   </span>
-                  <div className={`grid gap-2 ${currencies.length === 1 ? "grid-cols-1" : "grid-cols-2"}`}>
+                  <div
+                    className={`grid gap-2 ${currencies.length <= 1 ? "grid-cols-1" : "grid-cols-2"}`}
+                  >
                     {currencies.map((currency) => (
                       <div key={currency}>
                         <label className="text-xs text-slate-500 block mb-1">
                           {currency}
                         </label>
-                        <input
-                          type="number"
-                          min="0"
-                          step={currency === "LBP" ? "1000" : "0.01"}
-                          value={amounts[drawer]?.[currency] ?? ""}
-                          onChange={(e) =>
-                            handleChange(drawer, currency, e.target.value)
-                          }
+                        <DecimalInput
+                          value={amounts[drawer]?.[currency] ?? 0}
+                          onChange={(v) => handleChange(drawer, currency, v)}
+                          decimals={getDecimals(currency)}
                           placeholder="0"
                           className="w-full bg-slate-900 border border-slate-600 rounded-lg px-2 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500 placeholder:text-slate-600"
                         />
                       </div>
                     ))}
                   </div>
+                  {addable.length > 0 && (
+                    <div className="relative mt-2">
+                      <Plus className="w-3 h-3 text-slate-500 absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <select
+                        value=""
+                        onChange={(e) =>
+                          handleAddCurrency(drawer, e.target.value)
+                        }
+                        className="w-full bg-slate-900/60 border border-dashed border-slate-600 rounded-lg pl-6 pr-2 py-1.5 text-xs text-slate-400 focus:outline-none focus:border-orange-500 cursor-pointer"
+                      >
+                        <option value="">Add currency</option>
+                        {addable.map((c) => (
+                          <option key={c.code} value={c.code}>
+                            {c.code}
+                            {c.name ? ` — ${c.name}` : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                 </div>
               );
             })}
           </div>
+          {loaded && visibleDrawers.length === 0 && (
+            <p className="text-sm text-slate-400 text-center py-6">
+              No drawers to configure.
+            </p>
+          )}
         </div>
 
         {/* Footer */}
         <div className="px-6 py-4 border-t border-slate-700/50 shrink-0">
-          {error && (
-            <p className="text-sm text-red-400 mb-3">{error}</p>
-          )}
+          {error && <p className="text-sm text-red-400 mb-3">{error}</p>}
           <div className="flex gap-3 justify-end">
             <button
               onClick={onClose}
@@ -234,7 +286,7 @@ export function InitialDrawerAmountsModal({
             </button>
             <button
               onClick={handleSave}
-              disabled={saving}
+              disabled={saving || !loaded}
               className="px-6 py-2 bg-orange-500 hover:bg-orange-600 disabled:bg-slate-700 disabled:text-slate-500 text-white text-sm font-semibold rounded-lg transition-colors"
             >
               {saving ? "Saving…" : "Save Amounts"}

@@ -710,7 +710,9 @@ describe("RechargeRepository.topUpFromSupplier()", () => {
   it("increases Katsh drawer balance and creates supplier_ledger TOP_UP entry", () => {
     // Arrange: seed a Katsh supplier
     const supplierRes = db
-      .prepare("INSERT INTO suppliers (name, provider, is_active) VALUES (?, ?, 1)")
+      .prepare(
+        "INSERT INTO suppliers (name, provider, is_active) VALUES (?, ?, 1)",
+      )
       .run("Katsh Supplier", "Katsh");
     const supplierId = Number(supplierRes.lastInsertRowid);
 
@@ -753,8 +755,9 @@ describe("RechargeRepository.topUpFromSupplier()", () => {
   });
 
   it("records a recharge row with paid_by = SUPPLIER and type = TOP_UP", () => {
-    db.prepare("INSERT INTO suppliers (name, provider, is_active) VALUES (?, ?, 1)")
-      .run("Katsh Supplier", "Katsh");
+    db.prepare(
+      "INSERT INTO suppliers (name, provider, is_active) VALUES (?, ?, 1)",
+    ).run("Katsh Supplier", "Katsh");
 
     rechargeRepo.topUpFromSupplier({
       provider: "Katsh",
@@ -774,8 +777,9 @@ describe("RechargeRepository.topUpFromSupplier()", () => {
   });
 
   it("creates a unified transaction row for the top-up", () => {
-    db.prepare("INSERT INTO suppliers (name, provider, is_active) VALUES (?, ?, 1)")
-      .run("Katsh Supplier", "Katsh");
+    db.prepare(
+      "INSERT INTO suppliers (name, provider, is_active) VALUES (?, ?, 1)",
+    ).run("Katsh Supplier", "Katsh");
 
     rechargeRepo.topUpFromSupplier({
       provider: "Katsh",
@@ -821,7 +825,9 @@ describe("RechargeRepository.topUpFromSupplier()", () => {
 
   it("handles LBP currency — sets amount_lbp in ledger and not amount_usd", () => {
     const supplierRes = db
-      .prepare("INSERT INTO suppliers (name, provider, is_active) VALUES (?, ?, 1)")
+      .prepare(
+        "INSERT INTO suppliers (name, provider, is_active) VALUES (?, ?, 1)",
+      )
       .run("Katsh Supplier", "Katsh");
     const supplierId = Number(supplierRes.lastInsertRowid);
 
@@ -870,7 +876,9 @@ describe("Supplier settlement flow for Katsh", () => {
   it("deducts from General drawer and creates PAYMENT entry, netting balance to 0", () => {
     // Arrange: seed supplier and a TOP_UP liability of $100
     const supplierRes = db
-      .prepare("INSERT INTO suppliers (name, provider, is_active) VALUES (?, ?, 1)")
+      .prepare(
+        "INSERT INTO suppliers (name, provider, is_active) VALUES (?, ?, 1)",
+      )
       .run("Katsh Supplier", "Katsh");
     const supplierId = Number(supplierRes.lastInsertRowid);
 
@@ -925,7 +933,9 @@ describe("Supplier settlement flow for Katsh", () => {
 
   it("creates a SUPPLIER_PAYMENT unified transaction on settlement", () => {
     const supplierRes = db
-      .prepare("INSERT INTO suppliers (name, provider, is_active) VALUES (?, ?, 1)")
+      .prepare(
+        "INSERT INTO suppliers (name, provider, is_active) VALUES (?, ?, 1)",
+      )
       .run("Katsh Supplier", "Katsh");
     const supplierId = Number(supplierRes.lastInsertRowid);
 

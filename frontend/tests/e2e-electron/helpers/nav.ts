@@ -34,14 +34,14 @@ export async function closeAllActiveSessions(page: Page): Promise<void> {
   // close. The FAB title changes from "*active session(s)*" to
   // "Start Customer Session" once activeSession becomes null.
   const noSessionFab = page.locator('button[title="Start Customer Session"]');
-  await noSessionFab.waitFor({ state: "visible", timeout: 6000 }).catch(
-    async () => {
+  await noSessionFab
+    .waitFor({ state: "visible", timeout: 6000 })
+    .catch(async () => {
       // FAB not visible on this page — no DOM signal available; minimal
       // fixed pause while SessionContext re-polls (IPC close already happened).
       // eslint-disable-next-line no-restricted-syntax
       await page.waitForTimeout(500);
-    },
-  );
+    });
 }
 
 /**
@@ -131,8 +131,7 @@ export async function goToPOSCheckout(
   // Fetch the product name so we can search for it
   const productName = await page
     .evaluate(
-      (id) =>
-        window.api.inventory.getProduct(id).then((p) => p?.name ?? ""),
+      (id) => window.api.inventory.getProduct(id).then((p) => p?.name ?? ""),
       productId,
     )
     .catch(() => "");
@@ -144,19 +143,22 @@ export async function goToPOSCheckout(
       .first();
 
     // Click the first matching product result
-    const productBtn = page
-      .locator("button", { hasText: productName })
-      .first();
+    const productBtn = page.locator("button", { hasText: productName }).first();
 
     await searchInput.fill(productName);
-    await productBtn.waitFor({ state: "visible", timeout: 5000 }).catch(() => {});
+    await productBtn
+      .waitFor({ state: "visible", timeout: 5000 })
+      .catch(() => {});
 
     const visible = await productBtn
       .isVisible({ timeout: 2000 })
       .catch(() => false);
     if (visible) {
       await productBtn.click();
-      await page.locator("button", { hasText: /Proceed to Checkout/i }).waitFor({ state: "visible", timeout: 5000 }).catch(() => {});
+      await page
+        .locator("button", { hasText: /Proceed to Checkout/i })
+        .waitFor({ state: "visible", timeout: 5000 })
+        .catch(() => {});
     }
   }
 
@@ -165,7 +167,9 @@ export async function goToPOSCheckout(
     .locator("button", { hasText: /Proceed to Checkout/i })
     .first()
     .click();
-  await page.waitForSelector('[data-testid="checkout-modal"]', { timeout: 5000 }).catch(() => {});
+  await page
+    .waitForSelector('[data-testid="checkout-modal"]', { timeout: 5000 })
+    .catch(() => {});
 }
 
 /**

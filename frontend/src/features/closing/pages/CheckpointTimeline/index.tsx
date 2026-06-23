@@ -116,7 +116,8 @@ export default function CheckpointTimeline() {
       const amount = totals[code];
       if (!amount) return;
       if (code === "USD") parts.push(`$${formatCurrency(amount, code)}`);
-      else if (code === "LBP") parts.push(`${formatCurrency(amount, code)} LBP`);
+      else if (code === "LBP")
+        parts.push(`${formatCurrency(amount, code)} LBP`);
       else parts.push(`${formatCurrency(amount, code)} ${code}`);
     });
     Object.entries(totals).forEach(([code, amount]) => {
@@ -198,7 +199,12 @@ export default function CheckpointTimeline() {
         ) : checkpoints.length === 0 ? (
           <div className="p-8 text-center text-slate-400">
             <Clock size={48} className="mx-auto mb-4 opacity-50" />
-            <p>No checkpoints found for {filters.date_from === filters.date_to ? filters.date_from : `${filters.date_from} – ${filters.date_to}`}</p>
+            <p>
+              No checkpoints found for{" "}
+              {filters.date_from === filters.date_to
+                ? filters.date_from
+                : `${filters.date_from} – ${filters.date_to}`}
+            </p>
           </div>
         ) : (
           <DataTable
@@ -220,9 +226,22 @@ export default function CheckpointTimeline() {
                 sortKey: "amount",
                 className: "p-2 text-xs font-semibold uppercase text-slate-400",
               },
-              { header: "User", sortKey: "user_name", width: "120px", className: "p-2 text-xs font-semibold uppercase text-slate-400" },
-              { header: "Notes", sortKey: "notes", className: "p-2 text-xs font-semibold uppercase text-slate-400" },
-              { header: "", width: "80px", className: "p-2 text-xs font-semibold uppercase text-slate-400" },
+              {
+                header: "User",
+                sortKey: "user_name",
+                width: "120px",
+                className: "p-2 text-xs font-semibold uppercase text-slate-400",
+              },
+              {
+                header: "Notes",
+                sortKey: "notes",
+                className: "p-2 text-xs font-semibold uppercase text-slate-400",
+              },
+              {
+                header: "",
+                width: "80px",
+                className: "p-2 text-xs font-semibold uppercase text-slate-400",
+              },
             ]}
             data={displayedCheckpoints}
             loading={loading}
@@ -238,7 +257,8 @@ export default function CheckpointTimeline() {
             className="w-full text-left"
             theadClassName="bg-slate-900 text-slate-400 text-xs uppercase"
             getSortValue={(row, key) => {
-              if (key === "created_at") return new Date(row.created_at).getTime();
+              if (key === "created_at")
+                return new Date(row.created_at).getTime();
               if (key === "drawer_name") return row.drawer_name;
               if (key === "user_name") return row.user_name;
               if (key === "notes") return row.notes ?? "";
@@ -260,17 +280,13 @@ export default function CheckpointTimeline() {
                   <td className="p-2 text-slate-300 font-mono">
                     {formatTime(checkpoint.created_at)}
                   </td>
-                  <td className="p-2 text-slate-300">
-                    {drawerLabel}
-                  </td>
+                  <td className="p-2 text-slate-300">{drawerLabel}</td>
                   <td className="p-2">
                     <span className="text-emerald-400 font-mono font-medium">
                       {getAmountDisplay(checkpoint)}
                     </span>
                   </td>
-                  <td className="p-2 text-slate-300">
-                    {checkpoint.user_name}
-                  </td>
+                  <td className="p-2 text-slate-300">{checkpoint.user_name}</td>
                   <td className="p-2 text-slate-400 italic max-w-xs truncate">
                     {checkpoint.notes || "—"}
                   </td>

@@ -114,10 +114,7 @@ function createTestDb(): Database.Database {
   return db;
 }
 
-function drawer(
-  db: Database.Database,
-  currency: string,
-): number {
+function drawer(db: Database.Database, currency: string): number {
   const row = db
     .prepare(
       `SELECT balance FROM drawer_balances WHERE drawer_name = 'General' AND currency_code = ?`,
@@ -141,8 +138,9 @@ describe("HoldMoneyRepository (LIRA-060)", () => {
   });
 
   afterEach(() => {
-    delete (globalThis as unknown as { __LIRATEK_TEST_DB__?: Database.Database })
-      .__LIRATEK_TEST_DB__;
+    delete (
+      globalThis as unknown as { __LIRATEK_TEST_DB__?: Database.Database }
+    ).__LIRATEK_TEST_DB__;
     db.close();
     resetHoldMoneyRepository();
     resetTransactionRepository();

@@ -101,7 +101,9 @@ export default function Select({
                 <>
                   <span
                     className={`block truncate ${
-                      selected && !option.disabled ? "font-medium" : "font-normal"
+                      selected && !option.disabled
+                        ? "font-medium"
+                        : "font-normal"
                     }`}
                   >
                     {option.label}

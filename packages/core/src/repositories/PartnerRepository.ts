@@ -382,9 +382,12 @@ export class PartnerRepository extends BaseRepository<Partner> {
         `,
         )
         .get(partnerId) as {
-        usd_for: number; lbp_for: number;
-        usd_through: number; lbp_through: number;
-        usd_other: number; lbp_other: number;
+        usd_for: number;
+        lbp_for: number;
+        usd_through: number;
+        lbp_through: number;
+        usd_other: number;
+        lbp_other: number;
       };
 
       return {

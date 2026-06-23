@@ -32,18 +32,30 @@ type WindowApi = {
       list: (
         search?: string,
         includeInactive?: boolean,
-      ) => Promise<Array<{ id: number; name: string; provider: string | null }>>;
+      ) => Promise<
+        Array<{ id: number; name: string; provider: string | null }>
+      >;
       getLedger: (
         supplierId: number,
         limit?: number,
       ) => Promise<
-        Array<{ entry_type: string; amount_usd: number; amount_lbp: number; note: string }>
+        Array<{
+          entry_type: string;
+          amount_usd: number;
+          amount_lbp: number;
+          note: string;
+        }>
       >;
     };
     financial: {
       list: (filters?: Record<string, unknown>) => Promise<{
         success: boolean;
-        data?: Array<{ id: number; service_type: string; amount: number; currency: string }>;
+        data?: Array<{
+          id: number;
+          service_type: string;
+          amount: number;
+          currency: string;
+        }>;
       }>;
     };
   };
@@ -124,7 +136,10 @@ test.describe("LIRA-062 — Katsh/iPick Bill card", () => {
     });
 
     // The LBP/USD toggle should be present inside the Bill card.
-    const lbpToggle = appPage.locator("button").filter({ hasText: /^LBP$/ }).first();
+    const lbpToggle = appPage
+      .locator("button")
+      .filter({ hasText: /^LBP$/ })
+      .first();
     await expect(lbpToggle).toBeVisible({ timeout: 5_000 });
   });
 

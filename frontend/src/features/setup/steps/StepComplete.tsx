@@ -24,10 +24,31 @@ export default function StepComplete() {
         return;
       }
 
-      // Apply initial drawer amounts if the operator set any in step 6
-      if (payload.drawer_amounts && payload.drawer_amounts.length > 0 && window.api) {
+      // Auto-login with new admin credentials BEFORE applying the initial
+      // drawer amounts: closing:create-checkpoint is an admin-only IPC, so it
+      // needs an authenticated session — which login() establishes in the main
+      // process. Running the checkpoint first (pre-login) silently fails the
+      // requireRole check, leaving the dashboard showing "amounts not set".
+      const loginResult = await login(
+        payload.admin_username,
+        payload.admin_password,
+      );
+      if (!loginResult.success) {
+        setError(loginResult.error ?? "Login after setup failed");
+        return;
+      }
+
+      // Apply initial drawer amounts if the operator set any in step 6.
+      // user_id must be the admin's real id: the seed admin (id=1) is deleted
+      // when a custom username is chosen, so a hardcoded 1 would violate the
+      // daily_closings.created_by FK and roll the checkpoint back.
+      if (
+        payload.drawer_amounts &&
+        payload.drawer_amounts.length > 0 &&
+        window.api
+      ) {
         await window.api.closing.createCheckpoint({
-          user_id: 1, // admin user created in step 1 (always id=1 on fresh install)
+          user_id: result.adminUserId ?? 1,
           drawer_name: "AGGREGATED",
           notes: "Initial drawer amounts from setup",
           amounts: payload.drawer_amounts.map((d) => ({
@@ -37,16 +58,6 @@ export default function StepComplete() {
             physical_amount: d.amount,
           })),
         });
-      }
-
-      // Auto-login with new admin credentials
-      const loginResult = await login(
-        payload.admin_username,
-        payload.admin_password,
-      );
-      if (!loginResult.success) {
-        setError(loginResult.error ?? "Login after setup failed");
-        return;
       }
 
       // Refresh all module/feature-flag contexts so they pick up the
@@ -169,14 +180,14 @@ export default function StepComplete() {
           disabled={loading}
           className="flex-1 px-6 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold rounded-xl transition-colors text-sm flex items-center justify-center gap-2"
         >
-        {loading ? (
-          <>
-            <Loader2 size={16} className="animate-spin" />
-            Setting up…
-          </>
-        ) : (
-          "Launch App →"
-        )}
+          {loading ? (
+            <>
+              <Loader2 size={16} className="animate-spin" />
+              Setting up…
+            </>
+          ) : (
+            "Launch App →"
+          )}
         </button>
       </div>
     </div>

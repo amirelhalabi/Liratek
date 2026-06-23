@@ -3,7 +3,8 @@
 The core feature, supplier-ledger fix, transaction-based profits + refund fix, rules 13/14
 refactor, and **5 e2e specs** are **DONE, green, and committed** on branch
 **`feat/session-basket-payment`** (7 commits ahead of `main`). What's below is **optional**
-+ housekeeping.
+
+- housekeeping.
 
 ## Current state / housekeeping
 

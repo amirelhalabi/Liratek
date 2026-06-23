@@ -46,7 +46,8 @@ export function registerVoucherHandlers(): void {
       voucherLogger.error({ error }, "voucher:create failed");
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Failed to create voucher",
+        error:
+          error instanceof Error ? error.message : "Failed to create voucher",
       };
     }
   });
@@ -62,7 +63,8 @@ export function registerVoucherHandlers(): void {
       voucherLogger.error({ error }, "voucher:get-all failed");
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Failed to load vouchers",
+        error:
+          error instanceof Error ? error.message : "Failed to load vouchers",
       };
     }
   });
@@ -78,7 +80,8 @@ export function registerVoucherHandlers(): void {
       voucherLogger.error({ error }, "voucher:validate failed");
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Failed to validate voucher",
+        error:
+          error instanceof Error ? error.message : "Failed to validate voucher",
       };
     }
   });
@@ -94,7 +97,8 @@ export function registerVoucherHandlers(): void {
       voucherLogger.error({ error }, "voucher:cancel failed");
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Failed to cancel voucher",
+        error:
+          error instanceof Error ? error.message : "Failed to cancel voucher",
       };
     }
   });

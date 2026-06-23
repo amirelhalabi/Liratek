@@ -14,9 +14,7 @@ import {
 } from "../utils/payments.js";
 
 function fmtPaymentMethod(method: string): string {
-  return method
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (c) => c.toUpperCase());
+  return method.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 export interface LotoTicket {

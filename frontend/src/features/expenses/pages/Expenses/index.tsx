@@ -1,7 +1,13 @@
 import { useState, useEffect, useRef } from "react";
 import logger from "@/utils/logger";
 import { Plus, Banknote, History } from "lucide-react";
-import { PageHeader, Select, useApi, MultiPaymentInput, type PaymentLine } from "@liratek/ui";
+import {
+  PageHeader,
+  Select,
+  useApi,
+  MultiPaymentInput,
+  type PaymentLine,
+} from "@liratek/ui";
 import { HistoryModal } from "./components/HistoryModal";
 import { StatsCards } from "../../components/StatsCards";
 import { TransactionTimeOverride } from "@/shared/components/TransactionTimeOverride";

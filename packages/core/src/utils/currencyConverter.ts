@@ -152,10 +152,10 @@ export function computeLegProfitUsd(
     // LBP-like: spread is in LBP/USD — must convert profit to USD
     if (fromCurrencyIsUsd) {
       // USD → LBP: amountIn is in USD; profit in LBP = amountIn × spread/2; ÷market_rate → USD
-      return amountIn * (spread / 2) / market_rate;
+      return (amountIn * (spread / 2)) / market_rate;
     } else {
       // LBP → USD: amountIn is in LBP; convert to USD first, then apply spread ratio
-      return amountIn * (spread / 2) / (market_rate * market_rate);
+      return (amountIn * (spread / 2)) / (market_rate * market_rate);
     }
   } else {
     // EUR-like: spread is in USD/EUR

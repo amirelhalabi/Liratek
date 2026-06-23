@@ -443,7 +443,9 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           if (amt <= 0) continue;
           if (r.method === "CUSTOMER_ACCOUNT") {
             if (!sale.client_id) {
-              throw new Error("Client is required to return change as store credit");
+              throw new Error(
+                "Client is required to return change as store credit",
+              );
             }
             getDebtService().addCredit({
               clientId: sale.client_id,
@@ -467,8 +469,12 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
           }
         }
 
-        const changeUsd = deferPayment ? 0 : Math.abs(sale.change_given_usd || 0);
-        const changeLbp = deferPayment ? 0 : Math.abs(sale.change_given_lbp || 0);
+        const changeUsd = deferPayment
+          ? 0
+          : Math.abs(sale.change_given_usd || 0);
+        const changeLbp = deferPayment
+          ? 0
+          : Math.abs(sale.change_given_lbp || 0);
         if (changeUsd) {
           insertPayment.run(
             txnId,
@@ -1293,9 +1299,9 @@ export class SalesRepository extends BaseRepository<SaleEntity> {
 
         allData.forEach((row) => {
           const entry = combined.get(row.date) || { usd: 0, lbp: 0 };
-          if (row.currency === 'USD') {
+          if (row.currency === "USD") {
             entry.usd += row.daily_amount ?? 0;
-          } else if (row.currency === 'LBP') {
+          } else if (row.currency === "LBP") {
             entry.lbp += row.daily_amount ?? 0;
           }
           combined.set(row.date, entry);

@@ -126,7 +126,8 @@ function describeBalance(
     currency === "USD"
       ? `$${abs.toFixed(2)}`
       : `${Math.round(abs).toLocaleString()} LBP`;
-  if (amount > BALANCE_EPS) return { text: `You owe ${money}`, cls: "text-red-400" };
+  if (amount > BALANCE_EPS)
+    return { text: `You owe ${money}`, cls: "text-red-400" };
   if (amount < -BALANCE_EPS)
     return { text: `They owe you ${money}`, cls: "text-green-400" };
   return { text: "Settled", cls: "text-slate-400" };
@@ -151,7 +152,9 @@ export default function SuppliersPage() {
   const [selectedSupplierId, setSelectedSupplierId] = useState<number | null>(
     null,
   );
-  const [activeTab, setActiveTab] = useState<"settle" | "manual" | "items">("settle");
+  const [activeTab, setActiveTab] = useState<"settle" | "manual" | "items">(
+    "settle",
+  );
   // Pay / Receive (LIRA-059): cashflow against the supplier via payment legs
   const [cashflowDirection, setCashflowDirection] = useState<"PAY" | "RECEIVE">(
     "PAY",
@@ -164,10 +167,14 @@ export default function SuppliersPage() {
   const { data: exchangeRate = 90000 } = useQuery({
     queryKey: ["exchange-rate-sell"],
     queryFn: async () => {
-      const getRatesApi = (api as unknown as { getRates?: () => Promise<unknown> })?.getRates;
+      const getRatesApi = (
+        api as unknown as { getRates?: () => Promise<unknown> }
+      )?.getRates;
       if (!getRatesApi) return 90000;
       const ratesList = await getRatesApi();
-      const { sellRate } = getExchangeRates(ratesList as Parameters<typeof getExchangeRates>[0]);
+      const { sellRate } = getExchangeRates(
+        ratesList as Parameters<typeof getExchangeRates>[0],
+      );
       return sellRate;
     },
   });
@@ -198,11 +205,17 @@ export default function SuppliersPage() {
   // ── Derived data (pure computations, no state) ────────────────────────────
   const suppliers = (suppliersQuery.data ?? []) as Supplier[];
   const balances = (balancesQuery.data ?? []) as SupplierBalance[];
-  const productBalances = (productBalancesQuery.data ?? []) as SupplierBalance[];
+  const productBalances = (productBalancesQuery.data ??
+    []) as SupplierBalance[];
   const ledger = (ledgerQuery.data ?? []) as LedgerEntry[];
   const allTxns = (allTxnsQuery.data ?? []) as SupplierTxn[];
   const productItems = (productItemsQuery.data ?? []) as Array<{
-    product_id: number; name: string; quantity: number; cost: number; total: number; created_at: string;
+    product_id: number;
+    name: string;
+    quantity: number;
+    cost: number;
+    total: number;
+    created_at: string;
   }>;
 
   const sortedSuppliers = useMemo(
@@ -229,7 +242,8 @@ export default function SuppliersPage() {
   }, [productBalances]);
 
   // Use the right balance source depending on which tab we're viewing
-  const activeBalanceMap = viewCategory === "products" ? productBalanceBySupplier : balanceBySupplier;
+  const activeBalanceMap =
+    viewCategory === "products" ? productBalanceBySupplier : balanceBySupplier;
 
   const totalOwed = useMemo(() => {
     let usd = 0;
@@ -302,7 +316,13 @@ export default function SuppliersPage() {
       payCurrency: "USD",
       defaultDirection: usd >= 0 ? "PAY" : "RECEIVE",
     };
-  }, [isProductSupplier, productItems, activeBalanceMap, selectedSupplierId, exchangeRate]);
+  }, [
+    isProductSupplier,
+    productItems,
+    activeBalanceMap,
+    selectedSupplierId,
+    exchangeRate,
+  ]);
 
   // FIFO payment coverage per product item.
   // totalPaid = totalProductCosts − currentBalance (balance = costs − payments).
@@ -384,13 +404,17 @@ export default function SuppliersPage() {
       <div className="grid grid-cols-2 gap-4">
         <div className="bg-slate-800 rounded-xl border border-slate-700/50 p-4">
           <div className="text-xs text-slate-400 mb-1">Total Owed (USD)</div>
-          <div className={`text-2xl font-bold font-mono ${totalOwed.usd < 0 ? "text-green-400" : "text-red-400"}`}>
+          <div
+            className={`text-2xl font-bold font-mono ${totalOwed.usd < 0 ? "text-green-400" : "text-red-400"}`}
+          >
             ${totalOwed.usd.toFixed(2)}
           </div>
         </div>
         <div className="bg-slate-800 rounded-xl border border-slate-700/50 p-4">
           <div className="text-xs text-slate-400 mb-1">Total Owed (LBP)</div>
-          <div className={`text-2xl font-bold font-mono ${totalOwed.lbp < 0 ? "text-green-400" : "text-red-400"}`}>
+          <div
+            className={`text-2xl font-bold font-mono ${totalOwed.lbp < 0 ? "text-green-400" : "text-red-400"}`}
+          >
             {totalOwed.lbp.toLocaleString()} LBP
           </div>
         </div>
@@ -435,7 +459,9 @@ export default function SuppliersPage() {
                   key={s.id}
                   onClick={() => {
                     setSelectedSupplierId(s.id);
-                    setActiveTab(viewCategory === "products" ? "items" : "settle");
+                    setActiveTab(
+                      viewCategory === "products" ? "items" : "settle",
+                    );
                   }}
                   className={`w-full text-left p-3 rounded-lg transition-colors ${
                     active ? "bg-slate-700" : "hover:bg-slate-700/50"
@@ -512,7 +538,9 @@ export default function SuppliersPage() {
                           ) : (
                             <>
                               {Math.abs(usd) > BALANCE_EPS && (
-                                <span className={`font-semibold ${usdInfo.cls}`}>
+                                <span
+                                  className={`font-semibold ${usdInfo.cls}`}
+                                >
                                   {usdInfo.text}
                                 </span>
                               )}
@@ -521,7 +549,9 @@ export default function SuppliersPage() {
                                   <span className="text-slate-600"> · </span>
                                 )}
                               {Math.abs(lbp) > BALANCE_EPS && (
-                                <span className={`font-semibold ${lbpInfo.cls}`}>
+                                <span
+                                  className={`font-semibold ${lbpInfo.cls}`}
+                                >
                                   {lbpInfo.text}
                                 </span>
                               )}
@@ -582,7 +612,9 @@ export default function SuppliersPage() {
               {selectedSupplier.is_active !== 0 && activeTab === "items" && (
                 <div>
                   {productItemsQuery.isLoading ? (
-                    <div className="text-slate-400 text-sm py-6 text-center">Loading items…</div>
+                    <div className="text-slate-400 text-sm py-6 text-center">
+                      Loading items…
+                    </div>
                   ) : itemsWithCoverage.length === 0 ? (
                     <div className="text-slate-500 text-sm py-6 text-center">
                       No inventory items found for {selectedSupplier.name}.
@@ -604,11 +636,21 @@ export default function SuppliersPage() {
                             key={item.product_id}
                             className="grid grid-cols-12 px-4 py-2.5 text-sm items-center hover:bg-slate-700/30"
                           >
-                            <div className="col-span-3 text-white font-medium truncate">{item.name}</div>
-                            <div className="col-span-1 text-right font-mono text-slate-300">{item.quantity}</div>
-                            <div className="col-span-2 text-right font-mono text-slate-300">${item.cost.toFixed(2)}</div>
-                            <div className="col-span-1 text-right font-mono text-orange-300 font-semibold">${item.total.toFixed(2)}</div>
-                            <div className="col-span-1 text-right font-mono text-slate-300 text-xs">${item.paid.toFixed(2)}</div>
+                            <div className="col-span-3 text-white font-medium truncate">
+                              {item.name}
+                            </div>
+                            <div className="col-span-1 text-right font-mono text-slate-300">
+                              {item.quantity}
+                            </div>
+                            <div className="col-span-2 text-right font-mono text-slate-300">
+                              ${item.cost.toFixed(2)}
+                            </div>
+                            <div className="col-span-1 text-right font-mono text-orange-300 font-semibold">
+                              ${item.total.toFixed(2)}
+                            </div>
+                            <div className="col-span-1 text-right font-mono text-slate-300 text-xs">
+                              ${item.paid.toFixed(2)}
+                            </div>
                             <div className="col-span-2 text-right">
                               {item.status === "PAID" && (
                                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">
@@ -636,12 +678,29 @@ export default function SuppliersPage() {
                       </div>
                       <div className="flex justify-between px-4 py-2.5 bg-slate-900/40 border-t border-slate-700 text-xs text-slate-400">
                         <span>
-                          {itemsWithCoverage.filter((i) => i.status === "PAID").length} paid ·{" "}
-                          {itemsWithCoverage.filter((i) => i.status === "PARTIAL").length} partial ·{" "}
-                          {itemsWithCoverage.filter((i) => i.status === "UNPAID").length} unpaid
+                          {
+                            itemsWithCoverage.filter((i) => i.status === "PAID")
+                              .length
+                          }{" "}
+                          paid ·{" "}
+                          {
+                            itemsWithCoverage.filter(
+                              (i) => i.status === "PARTIAL",
+                            ).length
+                          }{" "}
+                          partial ·{" "}
+                          {
+                            itemsWithCoverage.filter(
+                              (i) => i.status === "UNPAID",
+                            ).length
+                          }{" "}
+                          unpaid
                         </span>
                         <span className="font-mono font-bold text-white">
-                          Outstanding: ${itemsWithCoverage.reduce((s, i) => s + (i.total - i.paid), 0).toFixed(2)}
+                          Outstanding: $
+                          {itemsWithCoverage
+                            .reduce((s, i) => s + (i.total - i.paid), 0)
+                            .toFixed(2)}
                         </span>
                       </div>
                     </div>
@@ -653,7 +712,9 @@ export default function SuppliersPage() {
               {selectedSupplier.is_active !== 0 && activeTab === "settle" && (
                 <div className="space-y-3">
                   {allTxnsQuery.isLoading ? (
-                    <div className="text-slate-400 text-sm py-6 text-center">Loading transactions…</div>
+                    <div className="text-slate-400 text-sm py-6 text-center">
+                      Loading transactions…
+                    </div>
                   ) : allTxns.length === 0 ? (
                     <div className="text-slate-500 text-sm py-6 text-center">
                       No transactions found for {selectedSupplier.name}
@@ -661,9 +722,19 @@ export default function SuppliersPage() {
                   ) : (
                     <div className="border border-slate-700 rounded-xl overflow-hidden">
                       <div className="grid grid-cols-12 gap-2 bg-slate-900/60 text-slate-300 text-xs font-semibold px-3 py-2">
-                        <div className={hasOmtFee ? "col-span-2" : "col-span-3"}>Type</div>
-                        <div className={`${hasOmtFee ? "col-span-2" : "col-span-3"} text-right`}>Amount</div>
-                        {hasOmtFee && <div className="col-span-2 text-right">OMT Fee</div>}
+                        <div
+                          className={hasOmtFee ? "col-span-2" : "col-span-3"}
+                        >
+                          Type
+                        </div>
+                        <div
+                          className={`${hasOmtFee ? "col-span-2" : "col-span-3"} text-right`}
+                        >
+                          Amount
+                        </div>
+                        {hasOmtFee && (
+                          <div className="col-span-2 text-right">OMT Fee</div>
+                        )}
                         <div className="col-span-2 text-right">Commission</div>
                         <div className="col-span-2 text-right">Status</div>
                         <div className="col-span-2">Date</div>
@@ -674,10 +745,14 @@ export default function SuppliersPage() {
                             key={t.id}
                             className="grid grid-cols-12 gap-2 px-3 py-2.5 text-sm border-t border-slate-700 items-center hover:bg-slate-700/30"
                           >
-                            <div className={`${hasOmtFee ? "col-span-2" : "col-span-3"} text-xs text-slate-300`}>
+                            <div
+                              className={`${hasOmtFee ? "col-span-2" : "col-span-3"} text-xs text-slate-300`}
+                            >
                               {t.omt_service_type || t.service_type}
                             </div>
-                            <div className={`${hasOmtFee ? "col-span-2" : "col-span-3"} text-right font-mono text-white`}>
+                            <div
+                              className={`${hasOmtFee ? "col-span-2" : "col-span-3"} text-right font-mono text-white`}
+                            >
                               {t.currency === "LBP"
                                 ? `${Math.round(Math.abs(t.amount)).toLocaleString()} LBP`
                                 : `$${Math.abs(t.amount).toFixed(2)}`}
@@ -688,11 +763,15 @@ export default function SuppliersPage() {
                               </div>
                             )}
                             <div className="col-span-2 text-right font-mono text-emerald-400">
-                              {t.commission > 0
-                                ? t.currency === "LBP"
-                                  ? `${Math.round(t.commission).toLocaleString()} LBP`
-                                  : `$${t.commission.toFixed(4)}`
-                                : <span className="text-slate-600">—</span>}
+                              {t.commission > 0 ? (
+                                t.currency === "LBP" ? (
+                                  `${Math.round(t.commission).toLocaleString()} LBP`
+                                ) : (
+                                  `$${t.commission.toFixed(4)}`
+                                )
+                              ) : (
+                                <span className="text-slate-600">—</span>
+                              )}
                             </div>
                             <div className="col-span-2 text-right">
                               {t.settlement_id != null ? (
@@ -721,21 +800,38 @@ export default function SuppliersPage() {
                       </div>
                       <div className="flex justify-between px-4 py-2.5 bg-slate-900/40 border-t border-slate-700 text-xs text-slate-400">
                         <span>
-                          {allTxns.filter(t => t.fifo_status === "paid").length} paid ·{" "}
-                          {allTxns.filter(t => t.fifo_status === "partial").length} partial ·{" "}
-                          {allTxns.filter(t => t.fifo_status === "unpaid").length} unpaid
+                          {
+                            allTxns.filter((t) => t.fifo_status === "paid")
+                              .length
+                          }{" "}
+                          paid ·{" "}
+                          {
+                            allTxns.filter((t) => t.fifo_status === "partial")
+                              .length
+                          }{" "}
+                          partial ·{" "}
+                          {
+                            allTxns.filter((t) => t.fifo_status === "unpaid")
+                              .length
+                          }{" "}
+                          unpaid
                         </span>
                         <span className="font-mono font-bold text-white">
                           {(() => {
                             const outstandingUsd = allTxns
-                              .filter(t => t.currency !== "LBP")
+                              .filter((t) => t.currency !== "LBP")
                               .reduce((s, t) => {
-                                const owed = t.service_type === "RECEIVE"
-                                  ? Math.abs(t.amount) + t.commission
-                                  : t.cost > 0 ? t.cost : Math.abs(t.amount);
+                                const owed =
+                                  t.service_type === "RECEIVE"
+                                    ? Math.abs(t.amount) + t.commission
+                                    : t.cost > 0
+                                      ? t.cost
+                                      : Math.abs(t.amount);
                                 return s + Math.max(0, owed - t.fifo_paid_usd);
                               }, 0);
-                            return outstandingUsd > 0 ? `Outstanding: $${outstandingUsd.toFixed(2)}` : "Fully covered";
+                            return outstandingUsd > 0
+                              ? `Outstanding: $${outstandingUsd.toFixed(2)}`
+                              : "Fully covered";
                           })()}
                         </span>
                       </div>
@@ -820,59 +916,60 @@ export default function SuppliersPage() {
 
               {/* Ledger history */}
               <div className="mt-6">
-                <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 px-1">Payments</h3>
-              <div className="border border-slate-700 rounded-xl overflow-hidden">
-                <div className="grid grid-cols-12 gap-2 bg-slate-900/60 text-slate-400 text-xs font-semibold px-3 py-2">
-                  <div className="col-span-2">Type</div>
-                  <div className="col-span-2 text-right">USD</div>
-                  <div className="col-span-2 text-right">LBP</div>
-                  <div className="col-span-4">Note</div>
-                  <div className="col-span-2">Date</div>
-                </div>
-                <div className="max-h-[30vh] overflow-y-auto">
-                  {ledger.map((row) => (
-                    <div
-                      key={row.id}
-                      className="grid grid-cols-12 gap-2 px-3 py-2 text-sm border-t border-slate-700 items-center"
-                    >
-                      <div className="col-span-2 flex items-center gap-1">
-                        <EntryTypeBadge type={row.entry_type} />
-                      </div>
+                <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 px-1">
+                  Payments
+                </h3>
+                <div className="border border-slate-700 rounded-xl overflow-hidden">
+                  <div className="grid grid-cols-12 gap-2 bg-slate-900/60 text-slate-400 text-xs font-semibold px-3 py-2">
+                    <div className="col-span-2">Type</div>
+                    <div className="col-span-2 text-right">USD</div>
+                    <div className="col-span-2 text-right">LBP</div>
+                    <div className="col-span-4">Note</div>
+                    <div className="col-span-2">Date</div>
+                  </div>
+                  <div className="max-h-[30vh] overflow-y-auto">
+                    {ledger.map((row) => (
                       <div
-                        className={`col-span-2 text-right font-mono ${row.amount_usd < 0 ? "text-green-400" : row.amount_usd > 0 ? "text-red-400" : "text-slate-500"}`}
+                        key={row.id}
+                        className="grid grid-cols-12 gap-2 px-3 py-2 text-sm border-t border-slate-700 items-center"
                       >
-                        {row.amount_usd !== 0
-                          ? `${row.amount_usd > 0 ? "+" : ""}${row.amount_usd.toFixed(2)}`
-                          : "—"}
+                        <div className="col-span-2 flex items-center gap-1">
+                          <EntryTypeBadge type={row.entry_type} />
+                        </div>
+                        <div
+                          className={`col-span-2 text-right font-mono ${row.amount_usd < 0 ? "text-green-400" : row.amount_usd > 0 ? "text-red-400" : "text-slate-500"}`}
+                        >
+                          {row.amount_usd !== 0
+                            ? `${row.amount_usd > 0 ? "+" : ""}${row.amount_usd.toFixed(2)}`
+                            : "—"}
+                        </div>
+                        <div
+                          className={`col-span-2 text-right font-mono ${row.amount_lbp < 0 ? "text-green-400" : row.amount_lbp > 0 ? "text-red-400" : "text-slate-500"}`}
+                        >
+                          {row.amount_lbp !== 0
+                            ? `${row.amount_lbp > 0 ? "+" : ""}${row.amount_lbp.toLocaleString()}`
+                            : "—"}
+                        </div>
+                        <div className="col-span-4 text-slate-300 truncate text-xs">
+                          {row.note || ""}
+                        </div>
+                        <div className="col-span-2 text-slate-400 text-xs">
+                          {new Date(row.created_at).toLocaleString()}
+                        </div>
                       </div>
-                      <div
-                        className={`col-span-2 text-right font-mono ${row.amount_lbp < 0 ? "text-green-400" : row.amount_lbp > 0 ? "text-red-400" : "text-slate-500"}`}
-                      >
-                        {row.amount_lbp !== 0
-                          ? `${row.amount_lbp > 0 ? "+" : ""}${row.amount_lbp.toLocaleString()}`
-                          : "—"}
+                    ))}
+                    {ledger.length === 0 && (
+                      <div className="text-slate-500 text-sm p-3">
+                        No payment entries yet.
                       </div>
-                      <div className="col-span-4 text-slate-300 truncate text-xs">
-                        {row.note || ""}
-                      </div>
-                      <div className="col-span-2 text-slate-400 text-xs">
-                        {new Date(row.created_at).toLocaleString()}
-                      </div>
-                    </div>
-                  ))}
-                  {ledger.length === 0 && (
-                    <div className="text-slate-500 text-sm p-3">
-                      No payment entries yet.
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
-              </div>
               </div>
             </>
           )}
         </div>
       </div>
-
     </div>
   );
 }

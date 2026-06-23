@@ -109,7 +109,8 @@ describe("ensureRechargeClient", () => {
       paymentLines: [debtLine(100)],
     });
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toBe("Phone number already registered");
+    if (!result.ok)
+      expect(result.error).toBe("Phone number already registered");
   });
 
   it("falls back to no-client when creation fails but CUSTOMER_ACCOUNT is not used", async () => {
@@ -137,7 +138,8 @@ describe("ensureRechargeClient", () => {
       paymentLines: [debtLine(100)],
     });
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toMatch(/IPC offline|customer account/i);
+    if (!result.ok)
+      expect(result.error).toMatch(/IPC offline|customer account/i);
   });
 
   it("falls back to no-client when the IPC call throws but CUSTOMER_ACCOUNT is not used", async () => {

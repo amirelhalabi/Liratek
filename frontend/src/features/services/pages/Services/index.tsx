@@ -640,7 +640,8 @@ export default function Services() {
     // Validate: client name + phone required when debt is used (single or split)
     const hasDebtLeg =
       (!isSplitPayment && paidByMethod === "CUSTOMER_ACCOUNT") ||
-      (isSplitPayment && paymentLines.some((p) => p.method === "CUSTOMER_ACCOUNT"));
+      (isSplitPayment &&
+        paymentLines.some((p) => p.method === "CUSTOMER_ACCOUNT"));
     // For SEND: check sender; for RECEIVE: check receiver
     const primaryName = serviceType === "SEND" ? senderName : receiverName;
     const primaryPhone = serviceType === "SEND" ? senderPhone : receiverPhone;
@@ -852,7 +853,15 @@ export default function Services() {
               ),
             }
           : returnLegs.length > 0
-            ? { payments: returnLegs.map((l) => ({ method: l.method, currencyCode: l.currencyCode, amount: l.amount, direction: "OUT" as const })), paidByMethod }
+            ? {
+                payments: returnLegs.map((l) => ({
+                  method: l.method,
+                  currencyCode: l.currencyCode,
+                  amount: l.amount,
+                  direction: "OUT" as const,
+                })),
+                paidByMethod,
+              }
             : { paidByMethod }),
         // Payment method fee — single non-cash SEND: pass explicit fields
         // Multi-payment: total PM fee derived from per-leg fees above (baked into amounts)
@@ -1069,7 +1078,8 @@ export default function Services() {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [showHistory]);
 
-  const systemTopUpProvider = baseSystem === "OMT" ? "OMT_SYSTEM" : "WHISH_SYSTEM" as const;
+  const systemTopUpProvider =
+    baseSystem === "OMT" ? "OMT_SYSTEM" : ("WHISH_SYSTEM" as const);
   const systemDrawerName = baseSystem === "OMT" ? "OMT_System" : "Whish_System";
 
   const handleSystemTopUpClick = useCallback(async () => {
@@ -2112,7 +2122,9 @@ export default function Services() {
                           <span
                             className={`text-sm font-mono font-semibold ${tx.service_type === "SEND" ? "text-red-400" : "text-emerald-400"}`}
                           >
-                            {tx.service_type === "SEND" ? "↓ Send" : "↑ Receive"}
+                            {tx.service_type === "SEND"
+                              ? "↓ Send"
+                              : "↑ Receive"}
                           </span>
                         </div>
                         {omtLabel && (

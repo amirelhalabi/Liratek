@@ -314,7 +314,9 @@ describe("MultiPaymentInput", () => {
       fireEvent.change(firstAmount, { target: { value: "60" } });
 
       const summary = screen.getByTestId("payment-summary");
-      expect(within(summary).getByText(/Remaining \(Debt\)/i)).toBeInTheDocument();
+      expect(
+        within(summary).getByText(/Remaining \(Debt\)/i),
+      ).toBeInTheDocument();
       // |100 - 60| = 40 → "$40.00".
       expect(within(summary).getByText("$40.00")).toBeInTheDocument();
     });
@@ -330,7 +332,9 @@ describe("MultiPaymentInput", () => {
 
       const summary = screen.getByTestId("payment-summary");
       expect(within(summary).getByTestId("return-change")).toBeInTheDocument();
-      expect(within(summary).getByText(/Return \/ Change/i)).toBeInTheDocument();
+      expect(
+        within(summary).getByText(/Return \/ Change/i),
+      ).toBeInTheDocument();
       // |100 - 150| = 50 → CASH return auto-fills the USD field with "50.00".
       expect(screen.getByTestId("return-usd")).toHaveValue("50.00");
     });
@@ -363,7 +367,12 @@ describe("MultiPaymentInput", () => {
 
     it("detects a CUSTOMER_ACCOUNT line in a payment set", () => {
       const lines: PaymentLine[] = [
-        { id: "1", method: "CUSTOMER_ACCOUNT", currencyCode: "USD", amount: 100 },
+        {
+          id: "1",
+          method: "CUSTOMER_ACCOUNT",
+          currencyCode: "USD",
+          amount: 100,
+        },
       ];
       expect(lines.some((l) => l.method === "CUSTOMER_ACCOUNT")).toBe(true);
     });

@@ -310,7 +310,9 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       params.push(filters.service_type);
     }
     if (filters?.has_item_key === true) {
-      conditions.push("json_extract(t.metadata_json, '$.item_key') IS NOT NULL");
+      conditions.push(
+        "json_extract(t.metadata_json, '$.item_key') IS NOT NULL",
+      );
     } else if (filters?.has_item_key === false) {
       conditions.push("json_extract(t.metadata_json, '$.item_key') IS NULL");
     }

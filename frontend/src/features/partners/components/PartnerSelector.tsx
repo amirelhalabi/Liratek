@@ -86,7 +86,10 @@ export function PartnerSelector({
         value={selectedPartnerId !== null ? String(selectedPartnerId) : ""}
         onChange={(v) => onSelect(v ? Number(v) : null)}
         options={[
-          { value: "", label: required ? "Select partner" : "Direct (no partner)" },
+          {
+            value: "",
+            label: required ? "Select partner" : "Direct (no partner)",
+          },
           ...partners.map((p) => ({ value: String(p.id), label: p.name })),
         ]}
         buttonClassName={`bg-slate-700 border ${borderClass} text-white text-sm rounded px-2 py-1.5 focus:ring-violet-500 focus:border-violet-500`}

@@ -20,9 +20,7 @@ export function getUsdLbpSellRate(
       .prepare(
         `SELECT sell_rate, market_rate FROM exchange_rates WHERE to_code = ? LIMIT 1`,
       )
-      .get(toCode) as
-      | { sell_rate?: number; market_rate?: number }
-      | undefined;
+      .get(toCode) as { sell_rate?: number; market_rate?: number } | undefined;
     return row?.sell_rate ?? row?.market_rate ?? FALLBACK_USD_LBP_RATE;
   } catch {
     return FALLBACK_USD_LBP_RATE;

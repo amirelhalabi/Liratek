@@ -21,7 +21,13 @@ import type { MobileServiceItem } from "@/types/electron";
 import { DecimalInput, Select } from "@liratek/ui";
 import { parseCatalogToSeedData } from "@/features/recharge/utils/parseCatalogToSeedData";
 
-const PROVIDERS = ["iPick", "Katsh", "WHISH_APP", "OMT_APP", "VOUCHER"] as const;
+const PROVIDERS = [
+  "iPick",
+  "Katsh",
+  "WHISH_APP",
+  "OMT_APP",
+  "VOUCHER",
+] as const;
 
 const PROVIDER_COLORS: Record<
   string,
@@ -857,11 +863,17 @@ export default function MobileServicesManager() {
                                                   C:
                                                 </span>
                                                 <DecimalInput
-                                                  value={parseFloat(editing.cost_lbp) || 0}
+                                                  value={
+                                                    parseFloat(
+                                                      editing.cost_lbp,
+                                                    ) || 0
+                                                  }
                                                   onChange={(n) =>
                                                     setEditing({
                                                       ...editing,
-                                                      cost_lbp: n ? String(n) : "",
+                                                      cost_lbp: n
+                                                        ? String(n)
+                                                        : "",
                                                     })
                                                   }
                                                   onKeyDown={(e) => {
@@ -878,11 +890,17 @@ export default function MobileServicesManager() {
                                                   S:
                                                 </span>
                                                 <DecimalInput
-                                                  value={parseFloat(editing.sell_lbp) || 0}
+                                                  value={
+                                                    parseFloat(
+                                                      editing.sell_lbp,
+                                                    ) || 0
+                                                  }
                                                   onChange={(n) =>
                                                     setEditing({
                                                       ...editing,
-                                                      sell_lbp: n ? String(n) : "",
+                                                      sell_lbp: n
+                                                        ? String(n)
+                                                        : "",
                                                     })
                                                   }
                                                   onKeyDown={(e) => {

@@ -54,7 +54,8 @@ test.describe("Session checkout — one debt entry for CUSTOMER_ACCOUNT basket",
           started_by: "admin",
         });
         let sessionId = started.sessionId;
-        if (!sessionId) sessionId = (await w.api.session.getActive()).session?.id;
+        if (!sessionId)
+          sessionId = (await w.api.session.getActive()).session?.id;
 
         const clients = await w.api.clients.getAll("");
         const clientId = clients.find((c) => c.phone_number === phone)?.id;

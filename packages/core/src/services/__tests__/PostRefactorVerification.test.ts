@@ -1343,7 +1343,12 @@ describe("Post-Refactor Verification", () => {
 
       expect(service.hasOpeningBalanceToday()).toBe(false);
 
-      service.createCheckpoint({ user_id: 1, drawer_name: "AGGREGATED", notes: "First", amounts: [] });
+      service.createCheckpoint({
+        user_id: 1,
+        drawer_name: "AGGREGATED",
+        notes: "First",
+        amounts: [],
+      });
 
       expect(service.hasOpeningBalanceToday()).toBe(true);
     });

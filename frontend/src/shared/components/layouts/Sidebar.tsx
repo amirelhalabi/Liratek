@@ -218,10 +218,12 @@ export default function Sidebar({ isCollapsed, toggleSidebar }: SidebarProps) {
         isCollapsed ? "w-15" : "w-64",
       )}
     >
-      <div className={clsx(
-        "h-12 flex items-center border-b border-slate-700",
-        isCollapsed ? "justify-center px-1" : "justify-between px-4",
-      )}>
+      <div
+        className={clsx(
+          "h-12 flex items-center border-b border-slate-700",
+          isCollapsed ? "justify-center px-1" : "justify-between px-4",
+        )}
+      >
         {!isCollapsed && (
           <h1 className="text-xl font-bold bg-gradient-to-r from-violet-400 to-indigo-400 bg-clip-text text-transparent whitespace-nowrap overflow-hidden">
             {shopName}

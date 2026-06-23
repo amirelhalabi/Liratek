@@ -143,12 +143,18 @@ export function registerSupplierHandlers(): void {
     const v = validatePayload(SupplierPurchaseCreateSchema, data);
     if (!v.ok) return { success: false, error: v.error };
 
-    const result = service.createPurchase({ ...v.data, created_by: auth.userId });
+    const result = service.createPurchase({
+      ...v.data,
+      created_by: auth.userId,
+    });
     audit(e.sender.id, {
       action: "create",
       entity_type: "supplier_purchase",
       summary: `Logged purchase of $${v.data.total_usd.toFixed(2)} for supplier #${v.data.supplier_id}`,
-      metadata: { supplier_id: v.data.supplier_id, total_usd: v.data.total_usd },
+      metadata: {
+        supplier_id: v.data.supplier_id,
+        total_usd: v.data.total_usd,
+      },
     });
     return result;
   });

@@ -26,7 +26,11 @@ export interface SetupPayload {
   whatsapp_phone: string;
   whatsapp_api_key: string;
   // Step 6 - Initial drawer amounts (optional)
-  drawer_amounts: Array<{ drawer_name: string; currency_code: string; amount: number }>;
+  drawer_amounts: Array<{
+    drawer_name: string;
+    currency_code: string;
+    amount: number;
+  }>;
   // Step 3 - Database path (optional, network mode)
   database_path?: string | null;
   database_type?: "local" | "network";

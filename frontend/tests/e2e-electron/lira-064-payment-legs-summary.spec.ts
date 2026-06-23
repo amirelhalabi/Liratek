@@ -497,7 +497,10 @@ async function readNewestPaymentLegsShape(appPage: Page): Promise<string> {
     if (typeof leg.method !== "string") return "missing-method";
 
     // The structured legs must NOT be baked into the stored summary text.
-    if (typeof newest.summary === "string" && /\bin:|\bout:/.test(newest.summary)) {
+    if (
+      typeof newest.summary === "string" &&
+      /\bin:|\bout:/.test(newest.summary)
+    ) {
       return "summary-contains-legs";
     }
 

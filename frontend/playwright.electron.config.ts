@@ -27,9 +27,7 @@ export default defineConfig({
   // --user-data-dir values. Sequential boots (1 worker) are reliable everywhere.
   // Override with PWTEST_WORKERS=2 on macOS/Linux or CI environments that
   // support concurrent Electron instances.
-  workers: process.env.PWTEST_WORKERS
-    ? Number(process.env.PWTEST_WORKERS)
-    : 1,
+  workers: process.env.PWTEST_WORKERS ? Number(process.env.PWTEST_WORKERS) : 1,
   use: {
     trace: "off",
   },

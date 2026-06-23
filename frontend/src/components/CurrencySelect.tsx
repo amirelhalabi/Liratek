@@ -37,7 +37,10 @@ export default function CurrencySelect({
     <Select
       value={value}
       onChange={(v) => onChange(v)}
-      options={list.map((c) => ({ value: c.code, label: `${c.code} — ${c.name}` }))}
+      options={list.map((c) => ({
+        value: c.code,
+        label: `${c.code} — ${c.name}`,
+      }))}
       disabled={disabled}
       buttonClassName={`bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-1 focus:ring-violet-500 ${className}`}
     />

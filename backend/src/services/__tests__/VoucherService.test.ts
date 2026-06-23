@@ -8,10 +8,7 @@
 
 import { jest } from "@jest/globals";
 import { VoucherService, VoucherRepository } from "@liratek/core";
-import {
-  resetAllMocks,
-  mockStatement,
-} from "../../__mocks__/better-sqlite3";
+import { resetAllMocks, mockStatement } from "../../__mocks__/better-sqlite3";
 
 jest.mock("better-sqlite3");
 

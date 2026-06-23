@@ -192,7 +192,12 @@ test.describe("Session basket payment allocation — no cash bleed, gift-card re
           paidByMethod: "CASH",
           // $30 CASH (settles the service) + $50 charged to the customer account.
           payments: [
-            { method: "CASH", currency_code: "USD", amount: 30, direction: "IN" },
+            {
+              method: "CASH",
+              currency_code: "USD",
+              amount: 30,
+              direction: "IN",
+            },
             {
               method: "CUSTOMER_ACCOUNT",
               currency_code: "USD",

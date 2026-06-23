@@ -293,7 +293,10 @@ export function registerSessionHandlers() {
           const existing = clientRepo.findByPhone(data.customer_phone);
           if (!existing) {
             clientRepo.createClient(
-              { full_name: data.customer_name, phone_number: data.customer_phone },
+              {
+                full_name: data.customer_name,
+                phone_number: data.customer_phone,
+              },
               auth.userId,
             );
           }

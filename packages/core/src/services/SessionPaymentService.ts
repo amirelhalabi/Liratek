@@ -120,7 +120,8 @@ export class SessionPaymentService {
     const rate = exchangeRate > 0 ? exchangeRate : 1;
 
     // Resolve the session's client for the debt / store-credit entry.
-    const sessionClientId = input.clientId ?? this.resolveSessionClientId(sessionId);
+    const sessionClientId =
+      input.clientId ?? this.resolveSessionClientId(sessionId);
 
     const result: RecordBasketPaymentResult = {
       drawerInUsd: 0,

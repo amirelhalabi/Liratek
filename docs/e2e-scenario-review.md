@@ -12,16 +12,16 @@ This document captures the component-level E2E test catalog, the review question
 
 **Used in:** Expenses, Custom Services, Debts, Loto, Sessions, Maintenance, POS
 
-| Scenario | Where (original) |
-|----------|-----------------|
-| Single payment line fills full amount | All 7 |
-| Split across cash USD + cash LBP | Expenses, Custom Services, Maintenance, POS |
-| Add CUSTOMER_ACCOUNT line — only when client attached | Debts, Custom Services (C3/C4 only) |
-| Customer account auto-selected when client is picked | Recharge, Sessions |
-| Remove a payment line | All |
-| Total exceeds invoice amount → submit blocked | All |
-| Total is zero → submit blocked | All |
-| Partial payment creates debt entry | Debts, Custom Services, Maintenance |
+| Scenario                                              | Where (original)                            |
+| ----------------------------------------------------- | ------------------------------------------- |
+| Single payment line fills full amount                 | All 7                                       |
+| Split across cash USD + cash LBP                      | Expenses, Custom Services, Maintenance, POS |
+| Add CUSTOMER_ACCOUNT line — only when client attached | Debts, Custom Services (C3/C4 only)         |
+| Customer account auto-selected when client is picked  | Recharge, Sessions                          |
+| Remove a payment line                                 | All                                         |
+| Total exceeds invoice amount → submit blocked         | All                                         |
+| Total is zero → submit blocked                        | All                                         |
+| Partial payment creates debt entry                    | Debts, Custom Services, Maintenance         |
 
 ---
 
@@ -31,15 +31,15 @@ This document captures the component-level E2E test catalog, the review question
 
 **Used in:** Recharge (x4), Custom Services, Debts, Sessions
 
-| Scenario | Where (original) |
-|----------|-----------------|
-| Search by partial name → results appear | All |
-| Search by phone number → results appear | All |
-| Select result → parent form autofills name/phone | Recharge forms, Custom Services |
-| No results → empty state shown | All |
-| Clear selection → form resets | Recharge, Custom Services |
+| Scenario                                         | Where (original)                    |
+| ------------------------------------------------ | ----------------------------------- |
+| Search by partial name → results appear          | All                                 |
+| Search by phone number → results appear          | All                                 |
+| Select result → parent form autofills name/phone | Recharge forms, Custom Services     |
+| No results → empty state shown                   | All                                 |
+| Clear selection → form resets                    | Recharge, Custom Services           |
 | Session already has client → field pre-populated | Recharge (C4), Custom Services (C4) |
-| Client has open debt → debt badge visible | Debts |
+| Client has open debt → debt badge visible        | Debts                               |
 
 ---
 
@@ -49,13 +49,13 @@ This document captures the component-level E2E test catalog, the review question
 
 **Used in:** Recharge, Maintenance, Custom Services, Sessions
 
-| Scenario | Where (original) |
-|----------|-----------------|
-| Hidden when client selected via autocomplete (C3/C4) | Recharge, Custom Services, Maintenance |
-| Visible when name/phone typed manually (C1/C2) | All 4 |
+| Scenario                                                | Where (original)                       |
+| ------------------------------------------------------- | -------------------------------------- |
+| Hidden when client selected via autocomplete (C3/C4)    | Recharge, Custom Services, Maintenance |
+| Visible when name/phone typed manually (C1/C2)          | All 4                                  |
 | Checked + submit → new client appears in Clients module | Recharge, Custom Services, Maintenance |
-| Unchecked + submit → no client created | All |
-| Duplicate name/phone → warning shown, checkbox disabled | All |
+| Unchecked + submit → no client created                  | All                                    |
+| Duplicate name/phone → warning shown, checkbox disabled | All                                    |
 
 ---
 
@@ -65,14 +65,14 @@ This document captures the component-level E2E test catalog, the review question
 
 **Used in:** Recharge (x5), Custom Services, Exchange, Expenses, Maintenance, Loto, POS
 
-| Scenario | Where (original) |
-|----------|-----------------|
-| Collapsed by default → shows "now" | All |
-| Expand, pick a past date/time → saved on submit | Recharge, Custom Services, Exchange |
-| Pick a future date/time → blocked | All |
-| Collapse after picking → value retained | All |
-| Submit without changing → timestamp is today | All |
-| Override date shows correctly in history table | Recharge history, Custom Services history |
+| Scenario                                        | Where (original)                          |
+| ----------------------------------------------- | ----------------------------------------- |
+| Collapsed by default → shows "now"              | All                                       |
+| Expand, pick a past date/time → saved on submit | Recharge, Custom Services, Exchange       |
+| Pick a future date/time → blocked               | All                                       |
+| Collapse after picking → value retained         | All                                       |
+| Submit without changing → timestamp is today    | All                                       |
+| Override date shows correctly in history table  | Recharge history, Custom Services history |
 
 ---
 
@@ -82,16 +82,16 @@ This document captures the component-level E2E test catalog, the review question
 
 **Used in:** 17 locations
 
-| Scenario | Where (original) |
-|----------|-----------------|
+| Scenario                            | Where (original)                      |
+| ----------------------------------- | ------------------------------------- |
 | Render list → rows appear correctly | Recharge history, Maintenance history |
-| Sort by column ascending/descending | Exchange history, Expenses history |
-| Pagination → navigate pages | Custom Services history |
-| Shift+click multi-row select | Debts, Inventory |
-| Export to Excel → file downloads | Recharge, Maintenance |
-| Export to PDF → file downloads | Recharge, Maintenance |
-| Empty state → "no records" message | Any fresh module |
-| Date range filter narrows rows | Exchange, Expenses |
+| Sort by column ascending/descending | Exchange history, Expenses history    |
+| Pagination → navigate pages         | Custom Services history               |
+| Shift+click multi-row select        | Debts, Inventory                      |
+| Export to Excel → file downloads    | Recharge, Maintenance                 |
+| Export to PDF → file downloads      | Recharge, Maintenance                 |
+| Empty state → "no records" message  | Any fresh module                      |
+| Date range filter narrows rows      | Exchange, Expenses                    |
 
 ---
 
@@ -101,13 +101,13 @@ This document captures the component-level E2E test catalog, the review question
 
 **Used in:** Recharge, Custom Services, Exchange, Expenses, Loto, Maintenance, Sessions
 
-| Scenario | Where (original) |
-|----------|-----------------|
-| Set From date → older rows disappear | Recharge, Expenses |
-| Set To date → newer rows disappear | Exchange, Maintenance |
-| From > To → table empties or error shown | Any |
-| Clear both dates → all rows return | Any |
-| Boundary date (From = To) → only that day's rows | Custom Services |
+| Scenario                                         | Where (original)      |
+| ------------------------------------------------ | --------------------- |
+| Set From date → older rows disappear             | Recharge, Expenses    |
+| Set To date → newer rows disappear               | Exchange, Maintenance |
+| From > To → table empties or error shown         | Any                   |
+| Clear both dates → all rows return               | Any                   |
+| Boundary date (From = To) → only that day's rows | Custom Services       |
 
 ---
 
@@ -117,12 +117,12 @@ This document captures the component-level E2E test catalog, the review question
 
 **Used in:** Recharge history, Custom Services history, Exchange history, Expenses history, Maintenance history
 
-| Scenario | Where (original) |
-|----------|-----------------|
-| Popover opens on click | Recharge, Expenses |
-| Shows correct before/after values | Custom Services, Exchange |
-| Multiple edits show full timeline | Maintenance |
-| Record never edited → badge hidden | Any |
+| Scenario                           | Where (original)          |
+| ---------------------------------- | ------------------------- |
+| Popover opens on click             | Recharge, Expenses        |
+| Shows correct before/after values  | Custom Services, Exchange |
+| Multiple edits show full timeline  | Maintenance               |
+| Record never edited → badge hidden | Any                       |
 
 ---
 
@@ -132,13 +132,13 @@ This document captures the component-level E2E test catalog, the review question
 
 **Used in:** Inventory (delete product), POS (void sale, remove cart item), and other modules with void actions
 
-| Scenario | Where (original) |
-|----------|-----------------|
-| Opens on destructive action click | Inventory delete, POS void |
-| Cancel → nothing changes | All |
-| Confirm → action executes | Inventory delete |
-| Keyboard focus works after close (Electron Windows bug) | All |
-| Danger variant shows red styling | Void actions (vague) |
+| Scenario                                                | Where (original)           |
+| ------------------------------------------------------- | -------------------------- |
+| Opens on destructive action click                       | Inventory delete, POS void |
+| Cancel → nothing changes                                | All                        |
+| Confirm → action executes                               | Inventory delete           |
+| Keyboard focus works after close (Electron Windows bug) | All                        |
+| Danger variant shows red styling                        | Void actions (vague)       |
 
 ---
 
@@ -148,12 +148,12 @@ This document captures the component-level E2E test catalog, the review question
 
 **Used in:** POS, Maintenance
 
-| Scenario | POS | Maintenance |
-|----------|-----|-------------|
-| Assign client mid-checkout (C1 → client selected) | ✓ | ✓ |
-| Payment method auto-switches to CUSTOMER_ACCOUNT | ✓ | ✓ |
-| Partial payment → debt created | ✓ | ✓ |
-| Override transaction time before submitting | ✓ | ✓ |
+| Scenario                                          | POS | Maintenance |
+| ------------------------------------------------- | --- | ----------- |
+| Assign client mid-checkout (C1 → client selected) | ✓   | ✓           |
+| Payment method auto-switches to CUSTOMER_ACCOUNT  | ✓   | ✓           |
+| Partial payment → debt created                    | ✓   | ✓           |
+| Override transaction time before submitting       | ✓   | ✓           |
 
 ---
 
@@ -219,6 +219,7 @@ This document captures the component-level E2E test catalog, the review question
 
 **Q — S27–S34: Most scenarios only cover 2–3 of 17 locations. Is the sampling sufficient?**
 → **Acceptable if DataTable is fully shared** (same sorting, export, and pagination config across all modules). If the component has per-module configuration differences, each configured variant needs its own test. Specific notes:
+
 - **S30 (shift+click multi-select):** Only valid in modules where multi-select is enabled. Confirm which modules have it — if only Debts and Inventory, those are correct.
 - **S31/S32 (export):** Add at least one more representative location to confirm export is not module-specific.
 - **S34 (date range filter):** Align with all 7 DateRangeFilter locations, not just Exchange and Expenses.
@@ -260,25 +261,25 @@ This document captures the component-level E2E test catalog, the review question
 
 ## Change Summary Table
 
-| Scenario | Change |
-|----------|--------|
-| S2 (MultiPaymentInput split) | Expand to all 7 |
-| S3 (CUSTOMER_ACCOUNT line) | Expand to Debts, Custom Services, Sessions, Maintenance, POS |
-| S4 (auto-select CUSTOMER_ACCOUNT) | Verify and clarify which modules wire client → payment auto-switch |
-| S8 (partial payment → debt) | Add Sessions and POS; keep Expenses and Loto excluded |
-| S11, S13 (ClientAutocomplete autofill + clear) | Expand to all 6 locations |
-| S14 (pre-populated from session) | Verify if Debts is session-aware; Sessions itself stays excluded |
-| S15 (debt badge) | Expand to all 6 unless design decision says otherwise |
-| S16, S18 (SaveAsClientCheckbox) | Add Sessions to both |
-| S22 (TransactionTimeOverride past date) | Expand to all 8 locations |
-| S26 (override shows in history) | Expand to all 7 history locations |
-| S30 (DataTable multi-select) | Confirm which modules have multi-select enabled |
-| S31/S32 (DataTable export) | Add 1 more representative location |
-| S34 (DataTable date range) | Align with all 7 DateRangeFilter locations |
-| S40 (EditHistoryPopover opens) | Expand to all 5 locations |
-| S44 (ConfirmModal opens) | Replace "any" with explicit verified module list |
-| S46 (ConfirmModal confirms) | Add POS void sale |
-| S48 (ConfirmModal danger variant) | Replace "void actions" with specific module list |
+| Scenario                                       | Change                                                             |
+| ---------------------------------------------- | ------------------------------------------------------------------ |
+| S2 (MultiPaymentInput split)                   | Expand to all 7                                                    |
+| S3 (CUSTOMER_ACCOUNT line)                     | Expand to Debts, Custom Services, Sessions, Maintenance, POS       |
+| S4 (auto-select CUSTOMER_ACCOUNT)              | Verify and clarify which modules wire client → payment auto-switch |
+| S8 (partial payment → debt)                    | Add Sessions and POS; keep Expenses and Loto excluded              |
+| S11, S13 (ClientAutocomplete autofill + clear) | Expand to all 6 locations                                          |
+| S14 (pre-populated from session)               | Verify if Debts is session-aware; Sessions itself stays excluded   |
+| S15 (debt badge)                               | Expand to all 6 unless design decision says otherwise              |
+| S16, S18 (SaveAsClientCheckbox)                | Add Sessions to both                                               |
+| S22 (TransactionTimeOverride past date)        | Expand to all 8 locations                                          |
+| S26 (override shows in history)                | Expand to all 7 history locations                                  |
+| S30 (DataTable multi-select)                   | Confirm which modules have multi-select enabled                    |
+| S31/S32 (DataTable export)                     | Add 1 more representative location                                 |
+| S34 (DataTable date range)                     | Align with all 7 DateRangeFilter locations                         |
+| S40 (EditHistoryPopover opens)                 | Expand to all 5 locations                                          |
+| S44 (ConfirmModal opens)                       | Replace "any" with explicit verified module list                   |
+| S46 (ConfirmModal confirms)                    | Add POS void sale                                                  |
+| S48 (ConfirmModal danger variant)              | Replace "void actions" with specific module list                   |
 
 ---
 
@@ -288,26 +289,26 @@ Reflects changes merged to main after the review above.
 
 ### Implemented
 
-| Scenario | What changed |
-|----------|-------------|
-| S11 — ClientAutocomplete autofills name/phone | Custom Services, Debts, Sessions: replaced custom inline search with `<ClientAutocompleteInput>` — autofill now works in all 6 locations |
-| S13 — Clear selection → form resets | Custom Services, Debts, Sessions: clear on `<ClientAutocompleteInput>` resets the form; Sessions clear button also calls `resetSaveAsClient()` |
-| S15 — Debt badge visible | `ClientAutocompleteInput` gained `showDebtBadge?: boolean`; passed as `showDebtBadge` in Custom Services, Debts, Sessions — badge now appears in all locations, not just Debts |
-| S3 — CUSTOMER_ACCOUNT line when client attached | Custom Services: `paymentInputKey` + `paymentInitialMethod` state added; selecting a client via autocomplete remounts `MultiPaymentInput` with `initialMethod = CUSTOMER_ACCOUNT` if available |
-| S4 — Auto-switch to CUSTOMER_ACCOUNT on client pick | Custom Services: wired up (see S3 above). Clear client resets payment method to default. |
-| S16 — SaveAsClientCheckbox hidden when C3/C4 | Sessions: already present in `StartSessionModal`; clear button now also calls `resetSaveAsClient()` confirming the hide/show cycle works |
-| S18 — Checked + submit → new client created | Sessions: confirmed already handled by `StartSessionModal` |
+| Scenario                                            | What changed                                                                                                                                                                                   |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S11 — ClientAutocomplete autofills name/phone       | Custom Services, Debts, Sessions: replaced custom inline search with `<ClientAutocompleteInput>` — autofill now works in all 6 locations                                                       |
+| S13 — Clear selection → form resets                 | Custom Services, Debts, Sessions: clear on `<ClientAutocompleteInput>` resets the form; Sessions clear button also calls `resetSaveAsClient()`                                                 |
+| S15 — Debt badge visible                            | `ClientAutocompleteInput` gained `showDebtBadge?: boolean`; passed as `showDebtBadge` in Custom Services, Debts, Sessions — badge now appears in all locations, not just Debts                 |
+| S3 — CUSTOMER_ACCOUNT line when client attached     | Custom Services: `paymentInputKey` + `paymentInitialMethod` state added; selecting a client via autocomplete remounts `MultiPaymentInput` with `initialMethod = CUSTOMER_ACCOUNT` if available |
+| S4 — Auto-switch to CUSTOMER_ACCOUNT on client pick | Custom Services: wired up (see S3 above). Clear client resets payment method to default.                                                                                                       |
+| S16 — SaveAsClientCheckbox hidden when C3/C4        | Sessions: already present in `StartSessionModal`; clear button now also calls `resetSaveAsClient()` confirming the hide/show cycle works                                                       |
+| S18 — Checked + submit → new client created         | Sessions: confirmed already handled by `StartSessionModal`                                                                                                                                     |
 
 ### Correctly Excluded (not implemented by design)
 
-| Scenario | Reason |
-|----------|--------|
-| S4 — auto-switch in Debts | Debts operates on already-selected clients — there is no "pick a client then pay" flow; payment input is independent |
-| S4 — auto-switch in Maintenance | Maintenance delegates payment to `CheckoutModal`, which handles this internally |
-| S4 — auto-switch in POS | POS already handled inside `CheckoutModal` |
+| Scenario                                | Reason                                                                                                                                                                                     |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| S4 — auto-switch in Debts               | Debts operates on already-selected clients — there is no "pick a client then pay" flow; payment input is independent                                                                       |
+| S4 — auto-switch in Maintenance         | Maintenance delegates payment to `CheckoutModal`, which handles this internally                                                                                                            |
+| S4 — auto-switch in POS                 | POS already handled inside `CheckoutModal`                                                                                                                                                 |
 | S8 — partial payment → debt in Sessions | Frontend (`SessionCheckoutModal`) already supports CUSTOMER_ACCOUNT per item; debt creation on partial payment is a backend concern in the session checkout handler, not a frontend change |
-| S8 — partial payment → debt in Loto | Payouts are one-directional; debt concept does not apply |
-| S8 — partial payment → debt in Expenses | Expenses are outgoing payments; no receivable debt is generated |
+| S8 — partial payment → debt in Loto     | Payouts are one-directional; debt concept does not apply                                                                                                                                   |
+| S8 — partial payment → debt in Expenses | Expenses are outgoing payments; no receivable debt is generated                                                                                                                            |
 
 ### Still Open (not yet addressed)
 
@@ -320,6 +321,7 @@ All items resolved — see section below.
 ### S2 — Split USD + LBP in Debts, Loto, Sessions
 
 **Investigation findings:**
+
 - **Debts**: `MultiPaymentInput` rendered with no `maxLines` or restricting props — split payment fully supported.
 - **Loto**: Same — no restrictions in either the ticket sale form or the settlement/payout modal.
 - **Sessions**: Does NOT use `MultiPaymentInput` at all. Payment is set per-cart-item via individual dropdowns, not a shared payment input.
@@ -374,6 +376,7 @@ No code investigation needed — doc update only.
 ### S30 — DataTable multi-select: which modules
 
 **Investigation findings:**
+
 - **Inventory / ProductList**: passes `onShiftSelect` prop → true shift+click range select enabled.
 - **Settings / CategoriesManager**: passes `selectAll` prop only → select-all/deselect-all, no shift+click range.
 - **Debts**: no `onShiftSelect` or `selectAll` prop — was incorrectly listed in the original catalog.
@@ -401,6 +404,7 @@ No code investigation needed — doc update only.
 
 **Investigation findings:**
 ConfirmModal appears in exactly 3 files for 4 distinct destructive actions:
+
 1. **Inventory / ProductList** — delete single product (`danger`)
 2. **Inventory / ProductList** — batch delete selected products (`danger`)
 3. **POS / SaleDetailModal** — refund sale (`danger`)
@@ -430,16 +434,16 @@ This section is the authoritative, updated version of the catalog with all revie
 
 ### MultiPaymentInput
 
-| # | Scenario | Locations |
-|---|----------|-----------|
-| S1 | Single payment line fills full amount | All 6 (Expenses, Custom Services, Debts, Loto, Maintenance, POS) |
-| S2 | Split across cash USD + cash LBP | All 6 |
-| S3 | CUSTOMER_ACCOUNT line appears when client attached | Debts, Custom Services, Sessions, Maintenance, POS |
-| S4 | Customer account auto-selected when client is picked | Custom Services (implemented); Debts/Maintenance/POS delegate to CheckoutModal; Sessions per-item |
-| S5 | Remove a payment line | All 6 |
-| S6 | Total exceeds invoice amount → submit blocked | All 6 |
-| S7 | Total is zero → submit blocked | All 6 |
-| S8 | Partial payment creates debt entry | Debts, Custom Services, Maintenance, POS (client must be attached; threshold > $0.05) |
+| #   | Scenario                                             | Locations                                                                                         |
+| --- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| S1  | Single payment line fills full amount                | All 6 (Expenses, Custom Services, Debts, Loto, Maintenance, POS)                                  |
+| S2  | Split across cash USD + cash LBP                     | All 6                                                                                             |
+| S3  | CUSTOMER_ACCOUNT line appears when client attached   | Debts, Custom Services, Sessions, Maintenance, POS                                                |
+| S4  | Customer account auto-selected when client is picked | Custom Services (implemented); Debts/Maintenance/POS delegate to CheckoutModal; Sessions per-item |
+| S5  | Remove a payment line                                | All 6                                                                                             |
+| S6  | Total exceeds invoice amount → submit blocked        | All 6                                                                                             |
+| S7  | Total is zero → submit blocked                       | All 6                                                                                             |
+| S8  | Partial payment creates debt entry                   | Debts, Custom Services, Maintenance, POS (client must be attached; threshold > $0.05)             |
 
 > Sessions excluded from S1–S8: does not use `MultiPaymentInput` — payment is per-cart-item.
 
@@ -447,55 +451,55 @@ This section is the authoritative, updated version of the catalog with all revie
 
 ### ClientAutocompleteInput
 
-| # | Scenario | Locations |
-|---|----------|-----------|
-| S9 | Search by partial name → results appear | All 6 (Recharge x4, Custom Services, Debts, Sessions) |
-| S10 | Search by phone number → results appear | All 6 |
-| S11 | Select result → parent form autofills name/phone | All 6 |
-| S12 | No results → empty state shown | All 6 |
-| S13 | Clear selection → form resets | All 6 |
-| S14 | Session client → field pre-populated (C4) | Recharge (C4), Custom Services (C4) only — Debts is session-agnostic, Sessions itself is the source |
-| S15 | Client has open debt → debt badge visible | All 6 (`showDebtBadge` prop passed everywhere) |
+| #   | Scenario                                         | Locations                                                                                           |
+| --- | ------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| S9  | Search by partial name → results appear          | All 6 (Recharge x4, Custom Services, Debts, Sessions)                                               |
+| S10 | Search by phone number → results appear          | All 6                                                                                               |
+| S11 | Select result → parent form autofills name/phone | All 6                                                                                               |
+| S12 | No results → empty state shown                   | All 6                                                                                               |
+| S13 | Clear selection → form resets                    | All 6                                                                                               |
+| S14 | Session client → field pre-populated (C4)        | Recharge (C4), Custom Services (C4) only — Debts is session-agnostic, Sessions itself is the source |
+| S15 | Client has open debt → debt badge visible        | All 6 (`showDebtBadge` prop passed everywhere)                                                      |
 
 ---
 
 ### SaveAsClientCheckbox
 
-| # | Scenario | Locations |
-|---|----------|-----------|
-| S16 | Hidden when client selected via autocomplete (C3/C4) | Recharge, Custom Services, Maintenance, Sessions |
-| S17 | Visible when name/phone typed manually (C1/C2) | Recharge, Custom Services, Maintenance, Sessions |
-| S18 | Checked + submit → new client in Clients module | Recharge, Custom Services, Maintenance, Sessions |
-| S19 | Unchecked + submit → no client created | All 4 |
-| S20 | Duplicate name/phone → warning shown, checkbox disabled | All 4 |
+| #   | Scenario                                                | Locations                                        |
+| --- | ------------------------------------------------------- | ------------------------------------------------ |
+| S16 | Hidden when client selected via autocomplete (C3/C4)    | Recharge, Custom Services, Maintenance, Sessions |
+| S17 | Visible when name/phone typed manually (C1/C2)          | Recharge, Custom Services, Maintenance, Sessions |
+| S18 | Checked + submit → new client in Clients module         | Recharge, Custom Services, Maintenance, Sessions |
+| S19 | Unchecked + submit → no client created                  | All 4                                            |
+| S20 | Duplicate name/phone → warning shown, checkbox disabled | All 4                                            |
 
 ---
 
 ### TransactionTimeOverride
 
-| # | Scenario | Locations |
-|---|----------|-----------|
-| S21 | Collapsed by default → shows "now" | All 8 (Recharge x5, Custom Services, Exchange, Expenses, Maintenance, Loto, POS) |
-| S22 | Expand, pick a past date/time → saved on submit | All 8 |
-| S23 | Pick a future date/time → blocked | All 8 |
-| S24 | Collapse after picking → value retained | All 8 |
-| S25 | Submit without changing → timestamp is today | All 8 |
-| S26 | Override date shows correctly in history table | Recharge, Custom Services, Exchange, Expenses, Maintenance, Loto, POS (all 7 with history views) |
+| #   | Scenario                                        | Locations                                                                                        |
+| --- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| S21 | Collapsed by default → shows "now"              | All 8 (Recharge x5, Custom Services, Exchange, Expenses, Maintenance, Loto, POS)                 |
+| S22 | Expand, pick a past date/time → saved on submit | All 8                                                                                            |
+| S23 | Pick a future date/time → blocked               | All 8                                                                                            |
+| S24 | Collapse after picking → value retained         | All 8                                                                                            |
+| S25 | Submit without changing → timestamp is today    | All 8                                                                                            |
+| S26 | Override date shows correctly in history table  | Recharge, Custom Services, Exchange, Expenses, Maintenance, Loto, POS (all 7 with history views) |
 
 ---
 
 ### DataTable
 
-| # | Scenario | Locations |
-|---|----------|-----------|
-| S27 | Render list → rows appear correctly | Recharge, Maintenance (representative) |
-| S28 | Sort by column ascending/descending | Exchange, Expenses (representative) |
-| S29 | Pagination → navigate pages | Custom Services (large dataset) |
-| S30 | Shift+click multi-row select | Inventory / ProductList only (only module with `onShiftSelect` enabled) |
-| S31 | Export to Excel → file downloads | Recharge, Maintenance, + 1 additional |
-| S32 | Export to PDF → file downloads | Recharge, Maintenance, + 1 additional |
-| S33 | Empty state → "no records" message | Any fresh module |
-| S34 | Date range filter narrows rows | Recharge, Custom Services, Exchange, Expenses, Loto, Maintenance, Sessions (all 7) |
+| #   | Scenario                            | Locations                                                                          |
+| --- | ----------------------------------- | ---------------------------------------------------------------------------------- |
+| S27 | Render list → rows appear correctly | Recharge, Maintenance (representative)                                             |
+| S28 | Sort by column ascending/descending | Exchange, Expenses (representative)                                                |
+| S29 | Pagination → navigate pages         | Custom Services (large dataset)                                                    |
+| S30 | Shift+click multi-row select        | Inventory / ProductList only (only module with `onShiftSelect` enabled)            |
+| S31 | Export to Excel → file downloads    | Recharge, Maintenance, + 1 additional                                              |
+| S32 | Export to PDF → file downloads      | Recharge, Maintenance, + 1 additional                                              |
+| S33 | Empty state → "no records" message  | Any fresh module                                                                   |
+| S34 | Date range filter narrows rows      | Recharge, Custom Services, Exchange, Expenses, Loto, Maintenance, Sessions (all 7) |
 
 > CategoriesManager (Settings): has select-all checkbox but NOT shift+click range select — test select-all separately, do not group with S30.
 
@@ -503,44 +507,44 @@ This section is the authoritative, updated version of the catalog with all revie
 
 ### DateRangeFilter
 
-| # | Scenario | Locations |
-|---|----------|-----------|
-| S35 | Set From date → older rows disappear | Recharge, Expenses (representative) |
-| S36 | Set To date → newer rows disappear | Exchange, Maintenance (representative) |
-| S37 | From > To → table empties or error shown | Any |
-| S38 | Clear both dates → all rows return | Any |
-| S39 | Boundary date (From = To) → only that day's rows | Custom Services |
+| #   | Scenario                                         | Locations                              |
+| --- | ------------------------------------------------ | -------------------------------------- |
+| S35 | Set From date → older rows disappear             | Recharge, Expenses (representative)    |
+| S36 | Set To date → newer rows disappear               | Exchange, Maintenance (representative) |
+| S37 | From > To → table empties or error shown         | Any                                    |
+| S38 | Clear both dates → all rows return               | Any                                    |
+| S39 | Boundary date (From = To) → only that day's rows | Custom Services                        |
 
 ---
 
 ### EditHistoryPopover
 
-| # | Scenario | Locations |
-|---|----------|-----------|
-| S40 | Popover opens on click | All 5 (Recharge, Custom Services, Exchange, Expenses, Maintenance) |
-| S41 | Shows correct before/after values | Custom Services, Exchange (representative) |
-| S42 | Multiple edits show full timeline | Maintenance |
-| S43 | Record never edited → badge hidden | Any |
+| #   | Scenario                           | Locations                                                          |
+| --- | ---------------------------------- | ------------------------------------------------------------------ |
+| S40 | Popover opens on click             | All 5 (Recharge, Custom Services, Exchange, Expenses, Maintenance) |
+| S41 | Shows correct before/after values  | Custom Services, Exchange (representative)                         |
+| S42 | Multiple edits show full timeline  | Maintenance                                                        |
+| S43 | Record never edited → badge hidden | Any                                                                |
 
 ---
 
 ### ConfirmModal
 
-| # | Scenario | Locations |
-|---|----------|-----------|
-| S44 | Opens on destructive action click | Inventory delete product, Inventory batch delete, POS refund sale, POS clear cart |
-| S45 | Cancel → nothing changes | All 4 |
-| S46 | Confirm → action executes | Inventory delete product, POS refund sale |
-| S47 | Keyboard focus works after close (Electron Windows bug) | All 4 |
-| S48 | Danger variant shows red styling | All 4 (all usages are `danger`) |
+| #   | Scenario                                                | Locations                                                                         |
+| --- | ------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| S44 | Opens on destructive action click                       | Inventory delete product, Inventory batch delete, POS refund sale, POS clear cart |
+| S45 | Cancel → nothing changes                                | All 4                                                                             |
+| S46 | Confirm → action executes                               | Inventory delete product, POS refund sale                                         |
+| S47 | Keyboard focus works after close (Electron Windows bug) | All 4                                                                             |
+| S48 | Danger variant shows red styling                        | All 4 (all usages are `danger`)                                                   |
 
 ---
 
 ### CheckoutModal
 
-| # | Scenario | POS | Maintenance |
-|---|----------|-----|-------------|
-| S49 | Assign client mid-checkout (C1 → client selected) | ✓ | ✓ |
-| S50 | Payment method auto-switches to CUSTOMER_ACCOUNT | ✓ | ✓ |
-| S51 | Partial payment → debt created | ✓ | ✓ |
-| S52 | Override transaction time before submitting | ✓ | ✓ |
+| #   | Scenario                                          | POS | Maintenance |
+| --- | ------------------------------------------------- | --- | ----------- |
+| S49 | Assign client mid-checkout (C1 → client selected) | ✓   | ✓           |
+| S50 | Payment method auto-switches to CUSTOMER_ACCOUNT  | ✓   | ✓           |
+| S51 | Partial payment → debt created                    | ✓   | ✓           |
+| S52 | Override transaction time before submitting       | ✓   | ✓           |

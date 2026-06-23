@@ -56,10 +56,7 @@ type AuthApi = {
     }>;
   };
   profits: {
-    summary: (
-      from: string,
-      to: string,
-    ) => Promise<unknown>;
+    summary: (from: string, to: string) => Promise<unknown>;
   };
 };
 
@@ -112,9 +109,9 @@ test.describe("LIRA-071 — Profits page + data is admin-only", () => {
 
     await navigateTo(appPage, "/profits");
     // Profits page renders its PageHeader title — the page is reachable.
-    await expect(
-      appPage.locator("text=Profits").first(),
-    ).toBeVisible({ timeout: 10_000 });
+    await expect(appPage.locator("text=Profits").first()).toBeVisible({
+      timeout: 10_000,
+    });
     // We did NOT get bounced back to the home grid / dashboard.
     expect(appPage.url()).toContain("/profits");
 

@@ -87,8 +87,12 @@ export function ExportBar({
     <div className="flex items-center justify-between px-1 py-1">
       {/* Left: consumer-provided actions then row count */}
       <div className="flex items-center gap-3">
-        {headerActions && <div className="flex items-center gap-1">{headerActions}</div>}
-        {countLabel && <span className="text-xs text-slate-500">{countLabel}</span>}
+        {headerActions && (
+          <div className="flex items-center gap-1">{headerActions}</div>
+        )}
+        {countLabel && (
+          <span className="text-xs text-slate-500">{countLabel}</span>
+        )}
       </div>
 
       {/* Right: export buttons */}

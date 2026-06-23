@@ -385,7 +385,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         | undefined;
       return row ?? { send_pool_usd: 0, receive_pool_usd: 0 };
     } catch (e) {
-      throw new DatabaseError("Failed to get manual payment pools", { cause: e });
+      throw new DatabaseError("Failed to get manual payment pools", {
+        cause: e,
+      });
     }
   }
 
@@ -421,7 +423,9 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         ORDER BY s.name ASC
       `);
     } catch (e) {
-      throw new DatabaseError("Failed to get product supplier balances", { cause: e });
+      throw new DatabaseError("Failed to get product supplier balances", {
+        cause: e,
+      });
     }
   }
 
@@ -636,9 +640,10 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
         // PAY: cash out + reduce what we owe (−). RECEIVE: cash in + settle their
         // debt to us (+). Ledger and drawer share the same sign here.
         const sign = isPay ? -1 : 1;
-        const rate = data.exchange_rate && data.exchange_rate > 0
-          ? data.exchange_rate
-          : 89000;
+        const rate =
+          data.exchange_rate && data.exchange_rate > 0
+            ? data.exchange_rate
+            : 89000;
 
         let usd = 0;
         let lbp = 0;
@@ -734,7 +739,11 @@ export class SupplierRepository extends BaseRepository<SupplierEntity> {
                  WHERE supplier_id = ? AND paid_usd < total_usd - 0.005
                  ORDER BY created_at ASC`,
               )
-              .all(data.supplier_id) as { id: number; total_usd: number; paid_usd: number }[];
+              .all(data.supplier_id) as {
+              id: number;
+              total_usd: number;
+              paid_usd: number;
+            }[];
 
             const updatePurchase = this.db.prepare(
               `UPDATE supplier_purchases

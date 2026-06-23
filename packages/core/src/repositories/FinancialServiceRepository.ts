@@ -611,11 +611,7 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
           const head = `${data.provider} ${data.serviceType}: ${primaryName ? `${primaryName} — ` : ""}${data.amount} ${currency}`;
           // When the customer paid in a currency different from the service-denominated
           // currency, surface that on the audit row so it's visible at a glance.
-          if (
-            paidCurrency &&
-            paidAmount != null &&
-            paidCurrency !== currency
-          ) {
+          if (paidCurrency && paidAmount != null && paidCurrency !== currency) {
             const fmtPaid =
               paidCurrency === "LBP"
                 ? `${Math.round(paidAmount).toLocaleString()} LBP`
@@ -1095,7 +1091,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             // +totalCollected stays intact (the reserve stays on the transaction).
           } else if (data.payments && data.payments.length > 0) {
             // Validate: DEBT leg requires client name + phone (for debt_ledger client_id)
-            const hasDebtLeg = data.payments.some((p) => p.method === "CUSTOMER_ACCOUNT");
+            const hasDebtLeg = data.payments.some(
+              (p) => p.method === "CUSTOMER_ACCOUNT",
+            );
             if (hasDebtLeg && !data.clientId) {
               if (!data.clientName?.trim()) {
                 throw new Error("Client name is required when paying by debt");
@@ -1149,7 +1147,9 @@ export class FinancialServiceRepository extends BaseRepository<FinancialServiceE
             }
 
             // Handle DEBT legs: insert into debt_ledger linked to this transaction
-            const debtLegs = data.payments.filter((p) => p.method === "CUSTOMER_ACCOUNT");
+            const debtLegs = data.payments.filter(
+              (p) => p.method === "CUSTOMER_ACCOUNT",
+            );
             if (debtLegs.length > 0) {
               // Resolve clientId — use existing or find/create from name+phone
               let resolvedClientId = data.clientId;

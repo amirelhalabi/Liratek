@@ -39,9 +39,7 @@ describe("Session file encryption", () => {
 
   it("refuses to write a plaintext session in packaged builds", () => {
     // writeSessionFile must throw or log an error in packaged builds
-    expect(sessionSource).toMatch(
-      /refusing to persist session as plaintext/i,
-    );
+    expect(sessionSource).toMatch(/refusing to persist session as plaintext/i);
   });
 
   it("does not have the old base64 fallback wording", () => {

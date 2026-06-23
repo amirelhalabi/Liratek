@@ -1,7 +1,4 @@
-import {
-  canChargeToCustomerAccount,
-  hasNewClientInfo,
-} from "@liratek/ui";
+import { canChargeToCustomerAccount, hasNewClientInfo } from "@liratek/ui";
 
 describe("canChargeToCustomerAccount", () => {
   it("is true when both name and phone are present", () => {
@@ -12,9 +9,9 @@ describe("canChargeToCustomerAccount", () => {
 
   it("is false with a name but no phone (the session-checkout bug)", () => {
     expect(canChargeToCustomerAccount({ name: "Amir Halabi" })).toBe(false);
-    expect(
-      canChargeToCustomerAccount({ name: "Amir Halabi", phone: "" }),
-    ).toBe(false);
+    expect(canChargeToCustomerAccount({ name: "Amir Halabi", phone: "" })).toBe(
+      false,
+    );
     expect(
       canChargeToCustomerAccount({ name: "Amir Halabi", phone: "   " }),
     ).toBe(false);
@@ -29,9 +26,9 @@ describe("canChargeToCustomerAccount", () => {
 
   it("is false when nothing is provided", () => {
     expect(canChargeToCustomerAccount({})).toBe(false);
-    expect(
-      canChargeToCustomerAccount({ name: null, phone: undefined }),
-    ).toBe(false);
+    expect(canChargeToCustomerAccount({ name: null, phone: undefined })).toBe(
+      false,
+    );
   });
 
   it("ignores clientId — a client id alone is not enough", () => {
@@ -44,9 +41,9 @@ describe("canChargeToCustomerAccount", () => {
 
 describe("hasNewClientInfo", () => {
   it("is true for a brand-new client with name + phone and no clientId", () => {
-    expect(
-      hasNewClientInfo({ name: "Amir Halabi", phone: "03123456" }),
-    ).toBe(true);
+    expect(hasNewClientInfo({ name: "Amir Halabi", phone: "03123456" })).toBe(
+      true,
+    );
     expect(
       hasNewClientInfo({ clientId: null, name: "Amir", phone: "03" }),
     ).toBe(true);

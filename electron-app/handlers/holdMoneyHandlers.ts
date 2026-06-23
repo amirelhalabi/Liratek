@@ -28,7 +28,8 @@ export function registerHoldMoneyHandlers(): void {
         customServiceLogger.error({ error }, "hold-money:list failed");
         return {
           success: false,
-          error: error instanceof Error ? error.message : "Failed to list holds",
+          error:
+            error instanceof Error ? error.message : "Failed to list holds",
         };
       }
     },
@@ -43,7 +44,9 @@ export function registerHoldMoneyHandlers(): void {
       return {
         success: false,
         error:
-          error instanceof Error ? error.message : "Failed to list active holds",
+          error instanceof Error
+            ? error.message
+            : "Failed to list active holds",
       };
     }
   });

@@ -7,14 +7,14 @@
 
 ## Summary
 
-| Ticket | Title | Existing e2e | New spec | Effort | Priority |
-| --- | --- | --- | --- | --- | --- |
-| LIRA-059 | Suppliers: bidirectional balance + supplier-pays-us (`recordCashflow`) | **none** | `lira-059-supplier-cashflow-bidirectional.spec.ts` (NEW) | M | High |
-| LIRA-056 | KATSH/iPick supplier-credit top-up + settle (no source-drawer deduction) | **none** | `lira-056-supplier-credit-topup-settle.spec.ts` (NEW) | M | High |
-| LIRA-061 | cost/price SEND must book settleable SALE_COST (not TOP_UP) | partial (Katsh only) | `lira-061-sale-cost-supplier-ledger.spec.ts` (EXTEND) | M | High |
-| LIRA-057 | Whish App top-up Via Partner / From Client | **none** | `lira-057-whish-topup-partner-client.spec.ts` (NEW) | M | High |
-| LIRA-064 | Transactions table structured in/out payment legs | partial (1 IN leg) | `lira-064-payment-legs-summary.spec.ts` (EXTEND) | M | Medium |
-| LIRA-063 | OMT/Whish App optional name/phone (persisted when provided) | partial (OMT_APP SEND) | `lira-063-omt-whish-optional-client.spec.ts` (EXTEND) | S | Medium |
+| Ticket   | Title                                                                    | Existing e2e           | New spec                                                 | Effort | Priority |
+| -------- | ------------------------------------------------------------------------ | ---------------------- | -------------------------------------------------------- | ------ | -------- |
+| LIRA-059 | Suppliers: bidirectional balance + supplier-pays-us (`recordCashflow`)   | **none**               | `lira-059-supplier-cashflow-bidirectional.spec.ts` (NEW) | M      | High     |
+| LIRA-056 | KATSH/iPick supplier-credit top-up + settle (no source-drawer deduction) | **none**               | `lira-056-supplier-credit-topup-settle.spec.ts` (NEW)    | M      | High     |
+| LIRA-061 | cost/price SEND must book settleable SALE_COST (not TOP_UP)              | partial (Katsh only)   | `lira-061-sale-cost-supplier-ledger.spec.ts` (EXTEND)    | M      | High     |
+| LIRA-057 | Whish App top-up Via Partner / From Client                               | **none**               | `lira-057-whish-topup-partner-client.spec.ts` (NEW)      | M      | High     |
+| LIRA-064 | Transactions table structured in/out payment legs                        | partial (1 IN leg)     | `lira-064-payment-legs-summary.spec.ts` (EXTEND)         | M      | Medium   |
+| LIRA-063 | OMT/Whish App optional name/phone (persisted when provided)              | partial (OMT_APP SEND) | `lira-063-omt-whish-optional-client.spec.ts` (EXTEND)    | S      | Medium   |
 
 Recommended order: **059 → 056 → 061 → 057 → 064 → 063** (highest-risk, zero-coverage money flows first; 059 first because it builds the reusable supplier-balance/drawer-delta helpers the others reuse).
 
@@ -68,7 +68,7 @@ patterns into helpers (used across 056/057/059/061):
 
 ---
 
-## LIRA-059 — Suppliers bidirectional balance + supplier-pays-us *(NEW, do first)*
+## LIRA-059 — Suppliers bidirectional balance + supplier-pays-us _(NEW, do first)_
 
 **Flow:** `suppliers.recordCashflow({supplier_id, direction:"PAY"|"RECEIVE", payments[], note?})` →
 `supplierHandlers.ts:115` (admin) → `SupplierRepository.recordSupplierCashflow` (`:538-644`): PAY → one
@@ -77,14 +77,15 @@ patterns into helpers (used across 056/057/059/061):
 Σ ledger rows. Seed a positive owed balance with no drawer effect via `addLedgerEntry({entry_type:"TOP_UP"})`.
 
 **Scenarios:**
-1. **PAY (CASH) pays down a positive balance** — seed `TOP_UP +100` on OMT; `recordCashflow PAY 100 CASH/USD` → ledger newest `PAYMENT` `amount_usd=-100`; `generalDrawer.usd −100` (proves it hits **General**, not the provider drawer — the original bug); balance −100. *Zero pending txns needed.*
+
+1. **PAY (CASH) pays down a positive balance** — seed `TOP_UP +100` on OMT; `recordCashflow PAY 100 CASH/USD` → ledger newest `PAYMENT` `amount_usd=-100`; `generalDrawer.usd −100` (proves it hits **General**, not the provider drawer — the original bug); balance −100. _Zero pending txns needed._
 2. **RECEIVE (supplier pays us)** — `recordCashflow RECEIVE 30 CASH/USD` → ledger newest `SUPPLIER_PAYS_US` `amount_usd=+30` (proves v103 CHECK at runtime); `generalDrawer.usd +30`; balance +30.
 3. **Bidirectional/overpay → negative** — fresh supplier, `TOP_UP +50`, `PAY 70` → balance delta −20 and strictly below the pre-seed baseline (green "they owe you").
 4. **Companies/Products split** — `suppliers.create({name})` → row `is_system===0`; a system provider has `is_system===1`. (Optional `/suppliers` DOM check for the tabs.)
 
 ---
 
-## LIRA-056 — KATSH/iPick supplier-credit top-up + settle *(NEW)*
+## LIRA-056 — KATSH/iPick supplier-credit top-up + settle _(NEW)_
 
 **Flow:** `recharge.topUpFromSupplier({provider, amount, currency})` → `rechargeHandlers.ts:246` →
 `RechargeRepository.topUpFromSupplier` (`:858-954`): provider drawer **+amount**, one supplier_ledger
@@ -93,18 +94,20 @@ drawer deducted** (the core regression). Settlement: `suppliers.addLedgerEntry({
 → drawer **debit** + negative `PAYMENT` ledger row; ledger nets to 0.
 
 **Scenarios:**
+
 1. **Katsh top-up** — `topUpFromSupplier({provider:'Katsh', amount:100, currency:'USD'})` → Katsh drawer **+100**, **General unchanged** (key invariant), ledger `TOP_UP +100`, supplier balance +100.
 2. **Settle** — `addLedgerEntry({supplier_id, entry_type:'PAYMENT', amount_usd:100, drawer_name:'General'})` → General **−100**, ledger `PAYMENT −100`, balance nets to baseline.
 3. **iPick top-up** — same as #1 for iPick (proves the provider→drawer map + no-deduction for both).
 
 ---
 
-## LIRA-061 — cost/price SEND books settleable SALE_COST *(EXTEND existing spec)*
+## LIRA-061 — cost/price SEND books settleable SALE_COST _(EXTEND existing spec)_
 
 **Existing:** Katsh SEND → `SALE_COST` (not `TOP_UP`), surfaces in `getUnsettledTransactions`, UI badge.
 **Gaps:** iPick SEND; the actual **settle** path; the **pay-down** path; drawer-money invariants; the **WISH_APP bug**.
 
 **Add scenarios:**
+
 1. **iPick SEND** (`omt.addTransaction({provider:'iPick', serviceType:'SEND', cost:90, price:100, paidByMethod:'CASH'})`) → ledger newest `SALE_COST 90`, no `TOP_UP`; iPick drawer **−90**, General **+100**; appears in `getUnsettledTransactions('iPick')` (amount 90, commission 0).
 2. **Per-transaction settle** — grab the unsettled row id, `settleTransactions({supplier_id, financial_service_ids:[id], amount_usd:90, ..., drawer_name:'General', payments:[{CASH,USD,90}]})` → `SETTLEMENT −90` ledger row, row leaves the unsettled list (`settlement_id` stamped), balance nets to 0.
 3. **Cumulative pay-down** — fresh SEND cost 50/price 70, then `recordCashflow PAY 50 CASH/USD` → `PAYMENT −50`, balance back to baseline. (Note: pay-down does **not** stamp `settlement_id`, so assert balance, not disappearance.)
@@ -112,7 +115,7 @@ drawer deducted** (the core regression). Settlement: `suppliers.addLedgerEntry({
 
 ---
 
-## LIRA-057 — Whish App top-up Via Partner / From Client *(NEW)*
+## LIRA-057 — Whish App top-up Via Partner / From Client _(NEW)_
 
 **Flow — Via Partner:** `recharge.topUpFromPartner({provider:'WHISH_APP', partnerId, amount, currency})`
 → `RechargeRepository.topUpFromPartner` (`:962-1056`): Whish_App drawer **+amount**, one `partner_ledger`
@@ -123,6 +126,7 @@ partner → `{success:false,'Partner not found'}`, no mutation.
 General balance (`Insufficient balance in General drawer`); **no** partner_ledger entry.
 
 **Scenarios:**
+
 1. **Via Partner (USD)** — create partner; `topUpFromPartner 50 USD` → Whish_App **+50**, General **unchanged**, one `WHISH_TOPUP`/`CREDIT` partner_ledger entry (amount 50), partner balance **−50**.
 2. **Via Partner guard** — unknown `partnerId` → `{success:false, /Partner not found/}`, drawers unchanged.
 3. **From Client (USD)** — `fundGeneralDrawer` first; `topUpFromClient {amount:40, cashPaid:30}` → Whish_App **+40**, General **−30** (⇒ profit 10), no partner_ledger entry.
@@ -130,27 +134,29 @@ General balance (`Insufficient balance in General drawer`); **no** partner_ledge
 
 ---
 
-## LIRA-064 — structured in/out payment legs *(EXTEND existing spec)*
+## LIRA-064 — structured in/out payment legs _(EXTEND existing spec)_
 
 **Existing:** one USD IN leg shape + viewer renders `in: $X`; summary not polluted.
 **Gaps:** OUT legs, mixed currency, same-currency summing, internal-leg exclusion.
 
 **Add scenarios (drive via `session.checkout` payment legs):**
+
 1. **Mixed IN + OUT change** — payments `[$40 IN, 100,000 LBP IN, 50,000 LBP OUT]` → row has both in-legs + the OUT leg (`signed_amount −50000`); viewer cell shows `in: $40 + 100,000 LBP · out: 50,000 LBP`.
 2. **Same-currency summing** — `[$30 IN, $20 IN]` → two backend legs, viewer collapses to a single `in: $50` (no `$30`/`$20`).
-3. **Internal-leg exclusion** — an OMT SEND basket → the row's legs contain **only** the customer CASH `$52` in-leg (count 1, currency in {USD,LBP}, method not in the internal set). *Positive-only assertion — see blocker.*
+3. **Internal-leg exclusion** — an OMT SEND basket → the row's legs contain **only** the customer CASH `$52` in-leg (count 1, currency in {USD,LBP}, method not in the internal set). _Positive-only assertion — see blocker._
 
 ---
 
-## LIRA-063 — OMT/Whish App optional name/phone *(EXTEND existing spec, do last)*
+## LIRA-063 — OMT/Whish App optional name/phone _(EXTEND existing spec, do last)_
 
 **Existing:** OMT_APP SEND, empty name/phone → proceeds, `client_id` null, `—` in table.
 **Gaps:** the other 3 provider×serviceType combos; the **persisted-when-provided** case (never tested).
 
 **Add scenarios (IPC-driven):**
+
 1. **All four combos empty** — `omt.addTransaction` for `{OMT_APP,WISH_APP}×{SEND,RECEIVE}` with name/phone omitted → each `{success:true}`; `omt.getById(id)` → `client_name`/`phone_number`/`client_id` all null.
-2. **Provided is persisted** — OMT_APP SEND + WISH_APP RECEIVE with a **unique** name+phone → `omt.getById` shows `client_name`/`phone_number` saved and `client_id` non-null (auto-create). *Use a unique phone to avoid matching an earlier auto-created client.*
-3. *(Optional)* WISH_APP SEND UI parity — form opens PaymentSheet with empty name/phone.
+2. **Provided is persisted** — OMT_APP SEND + WISH_APP RECEIVE with a **unique** name+phone → `omt.getById` shows `client_name`/`phone_number` saved and `client_id` non-null (auto-create). _Use a unique phone to avoid matching an earlier auto-created client._
+3. _(Optional)_ WISH_APP SEND UI parity — form opens PaymentSheet with empty name/phone.
 
 > Note: `omt.addTransaction`'s `electron.d.ts` type is **stale** — cast `window as unknown as {...}` and pass the rich `CreateFinancialServiceData` shape (as `lira-supplier-secondary-system.spec.ts` does).
 

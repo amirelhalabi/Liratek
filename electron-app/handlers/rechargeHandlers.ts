@@ -225,7 +225,11 @@ export function registerRechargeHandlers(): void {
       if (!auth.ok) return { success: false, error: auth.error };
 
       rechargeLogger.info(
-        { provider: data.provider, amount: data.amount, currency: data.currency },
+        {
+          provider: data.provider,
+          amount: data.amount,
+          currency: data.currency,
+        },
         "Processing external app top-up",
       );
       const result = rechargeService.topUpAppExternal({
@@ -236,7 +240,11 @@ export function registerRechargeHandlers(): void {
         action: "create",
         entity_type: "recharge_topup",
         summary: `External top-up ${data.provider}: ${data.amount} ${data.currency}`,
-        metadata: { provider: data.provider, amount: data.amount, currency: data.currency },
+        metadata: {
+          provider: data.provider,
+          amount: data.amount,
+          currency: data.currency,
+        },
       });
       return result;
     },
@@ -260,7 +268,11 @@ export function registerRechargeHandlers(): void {
       if (!v.ok) return { success: false, error: v.error };
 
       rechargeLogger.info(
-        { provider: v.data.provider, amount: v.data.amount, currency: v.data.currency },
+        {
+          provider: v.data.provider,
+          amount: v.data.amount,
+          currency: v.data.currency,
+        },
         "Processing supplier top-up",
       );
       const result = rechargeService.topUpFromSupplier({

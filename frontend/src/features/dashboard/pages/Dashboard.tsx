@@ -407,33 +407,153 @@ export default function Dashboard() {
     Katsh: () => isModuleEnabled("ipec_katch"),
   };
 
-  const DRAWER_COLORS: Record<string, { label: string; btn: string; borderL: string; glow: string; hoverShadow: string }> = {
-    General:      { label: "text-blue-400",    btn: "text-blue-400    hover:text-white hover:bg-slate-700", borderL: "border-l-blue-500",    glow: "bg-blue-500",    hoverShadow: "hover:shadow-blue-500/20 hover:border-blue-500/50" },
-    OMT_System:   { label: "text-green-400",   btn: "text-green-400   hover:text-white hover:bg-slate-700", borderL: "border-l-green-500",   glow: "bg-green-500",   hoverShadow: "hover:shadow-green-500/20 hover:border-green-500/50" },
-    OMT_App:      { label: "text-lime-400",    btn: "text-lime-400    hover:text-white hover:bg-slate-700", borderL: "border-l-lime-500",    glow: "bg-lime-500",    hoverShadow: "hover:shadow-lime-500/20 hover:border-lime-500/50" },
-    Whish_App:    { label: "text-emerald-400", btn: "text-emerald-400 hover:text-white hover:bg-slate-700", borderL: "border-l-emerald-500", glow: "bg-emerald-500", hoverShadow: "hover:shadow-emerald-500/20 hover:border-emerald-500/50" },
-    Whish_System: { label: "text-fuchsia-400", btn: "text-fuchsia-400 hover:text-white hover:bg-slate-700", borderL: "border-l-fuchsia-500", glow: "bg-fuchsia-500", hoverShadow: "hover:shadow-fuchsia-500/20 hover:border-fuchsia-500/50" },
-    Binance:      { label: "text-yellow-400",  btn: "text-yellow-400  hover:text-white hover:bg-slate-700", borderL: "border-l-yellow-500",  glow: "bg-yellow-500",  hoverShadow: "hover:shadow-yellow-500/20 hover:border-yellow-500/50" },
-    MTC:          { label: "text-orange-400",  btn: "text-orange-400  hover:text-white hover:bg-slate-700", borderL: "border-l-orange-500",  glow: "bg-orange-500",  hoverShadow: "hover:shadow-orange-500/20 hover:border-orange-500/50" },
-    Alfa:         { label: "text-red-400",     btn: "text-red-400     hover:text-white hover:bg-slate-700", borderL: "border-l-red-500",     glow: "bg-red-500",     hoverShadow: "hover:shadow-red-500/20 hover:border-red-500/50" },
-    iPick:        { label: "text-sky-400",     btn: "text-sky-400     hover:text-white hover:bg-slate-700", borderL: "border-l-sky-500",     glow: "bg-sky-500",     hoverShadow: "hover:shadow-sky-500/20 hover:border-sky-500/50" },
-    Katsh:        { label: "text-amber-400",   btn: "text-amber-400   hover:text-white hover:bg-slate-700", borderL: "border-l-amber-500",   glow: "bg-amber-500",   hoverShadow: "hover:shadow-amber-500/20 hover:border-amber-500/50" },
+  const DRAWER_COLORS: Record<
+    string,
+    {
+      label: string;
+      btn: string;
+      borderL: string;
+      glow: string;
+      hoverShadow: string;
+    }
+  > = {
+    General: {
+      label: "text-blue-400",
+      btn: "text-blue-400    hover:text-white hover:bg-slate-700",
+      borderL: "border-l-blue-500",
+      glow: "bg-blue-500",
+      hoverShadow: "hover:shadow-blue-500/20 hover:border-blue-500/50",
+    },
+    OMT_System: {
+      label: "text-green-400",
+      btn: "text-green-400   hover:text-white hover:bg-slate-700",
+      borderL: "border-l-green-500",
+      glow: "bg-green-500",
+      hoverShadow: "hover:shadow-green-500/20 hover:border-green-500/50",
+    },
+    OMT_App: {
+      label: "text-lime-400",
+      btn: "text-lime-400    hover:text-white hover:bg-slate-700",
+      borderL: "border-l-lime-500",
+      glow: "bg-lime-500",
+      hoverShadow: "hover:shadow-lime-500/20 hover:border-lime-500/50",
+    },
+    Whish_App: {
+      label: "text-emerald-400",
+      btn: "text-emerald-400 hover:text-white hover:bg-slate-700",
+      borderL: "border-l-emerald-500",
+      glow: "bg-emerald-500",
+      hoverShadow: "hover:shadow-emerald-500/20 hover:border-emerald-500/50",
+    },
+    Whish_System: {
+      label: "text-fuchsia-400",
+      btn: "text-fuchsia-400 hover:text-white hover:bg-slate-700",
+      borderL: "border-l-fuchsia-500",
+      glow: "bg-fuchsia-500",
+      hoverShadow: "hover:shadow-fuchsia-500/20 hover:border-fuchsia-500/50",
+    },
+    Binance: {
+      label: "text-yellow-400",
+      btn: "text-yellow-400  hover:text-white hover:bg-slate-700",
+      borderL: "border-l-yellow-500",
+      glow: "bg-yellow-500",
+      hoverShadow: "hover:shadow-yellow-500/20 hover:border-yellow-500/50",
+    },
+    MTC: {
+      label: "text-orange-400",
+      btn: "text-orange-400  hover:text-white hover:bg-slate-700",
+      borderL: "border-l-orange-500",
+      glow: "bg-orange-500",
+      hoverShadow: "hover:shadow-orange-500/20 hover:border-orange-500/50",
+    },
+    Alfa: {
+      label: "text-red-400",
+      btn: "text-red-400     hover:text-white hover:bg-slate-700",
+      borderL: "border-l-red-500",
+      glow: "bg-red-500",
+      hoverShadow: "hover:shadow-red-500/20 hover:border-red-500/50",
+    },
+    iPick: {
+      label: "text-sky-400",
+      btn: "text-sky-400     hover:text-white hover:bg-slate-700",
+      borderL: "border-l-sky-500",
+      glow: "bg-sky-500",
+      hoverShadow: "hover:shadow-sky-500/20 hover:border-sky-500/50",
+    },
+    Katsh: {
+      label: "text-amber-400",
+      btn: "text-amber-400   hover:text-white hover:bg-slate-700",
+      borderL: "border-l-amber-500",
+      glow: "bg-amber-500",
+      hoverShadow: "hover:shadow-amber-500/20 hover:border-amber-500/50",
+    },
   };
-  const DRAWER_COLOR_DEFAULT = { label: "text-slate-400", btn: "text-slate-400 hover:text-white hover:bg-slate-700", borderL: "border-l-violet-500", glow: "bg-violet-500", hoverShadow: "hover:shadow-violet-500/20 hover:border-violet-500/50" };
+  const DRAWER_COLOR_DEFAULT = {
+    label: "text-slate-400",
+    btn: "text-slate-400 hover:text-white hover:bg-slate-700",
+    borderL: "border-l-violet-500",
+    glow: "bg-violet-500",
+    hoverShadow: "hover:shadow-violet-500/20 hover:border-violet-500/50",
+  };
 
-  type CardAccent = { labelColor: string; borderL: string; glow: string; hoverShadow: string };
+  type CardAccent = {
+    labelColor: string;
+    borderL: string;
+    glow: string;
+    hoverShadow: string;
+  };
   const FINANCIAL_ACCENTS: Record<string, CardAccent> = {
-    "Sales Revenue (Today)":  { labelColor: "text-violet-400",  borderL: "border-l-violet-500",  glow: "bg-violet-500",  hoverShadow: "hover:shadow-violet-500/20 hover:border-violet-500/50" },
-    "Cash Collected (Today)": { labelColor: "text-emerald-400", borderL: "border-l-emerald-500", glow: "bg-emerald-500", hoverShadow: "hover:shadow-emerald-500/20 hover:border-emerald-500/50" },
-    "Orders Processed":       { labelColor: "text-sky-400",     borderL: "border-l-sky-500",     glow: "bg-sky-500",     hoverShadow: "hover:shadow-sky-500/20 hover:border-sky-500/50" },
-    "Total Debt":             { labelColor: "text-rose-400",    borderL: "border-l-rose-500",    glow: "bg-rose-500",    hoverShadow: "hover:shadow-rose-500/20 hover:border-rose-500/50" },
+    "Sales Revenue (Today)": {
+      labelColor: "text-violet-400",
+      borderL: "border-l-violet-500",
+      glow: "bg-violet-500",
+      hoverShadow: "hover:shadow-violet-500/20 hover:border-violet-500/50",
+    },
+    "Cash Collected (Today)": {
+      labelColor: "text-emerald-400",
+      borderL: "border-l-emerald-500",
+      glow: "bg-emerald-500",
+      hoverShadow: "hover:shadow-emerald-500/20 hover:border-emerald-500/50",
+    },
+    "Orders Processed": {
+      labelColor: "text-sky-400",
+      borderL: "border-l-sky-500",
+      glow: "bg-sky-500",
+      hoverShadow: "hover:shadow-sky-500/20 hover:border-sky-500/50",
+    },
+    "Total Debt": {
+      labelColor: "text-rose-400",
+      borderL: "border-l-rose-500",
+      glow: "bg-rose-500",
+      hoverShadow: "hover:shadow-rose-500/20 hover:border-rose-500/50",
+    },
   };
   const STOCK_ACCENTS: Record<string, CardAccent> = {
-    "Stock Budget":       { labelColor: "text-amber-400", borderL: "border-l-amber-500", glow: "bg-amber-500", hoverShadow: "hover:shadow-amber-500/20 hover:border-amber-500/50" },
-    "Stock Count":        { labelColor: "text-cyan-400",  borderL: "border-l-cyan-500",  glow: "bg-cyan-500",  hoverShadow: "hover:shadow-cyan-500/20 hover:border-cyan-500/50" },
-    "Monthly Net Profit": { labelColor: "text-green-400", borderL: "border-l-green-500", glow: "bg-green-500", hoverShadow: "hover:shadow-green-500/20 hover:border-green-500/50" },
+    "Stock Budget": {
+      labelColor: "text-amber-400",
+      borderL: "border-l-amber-500",
+      glow: "bg-amber-500",
+      hoverShadow: "hover:shadow-amber-500/20 hover:border-amber-500/50",
+    },
+    "Stock Count": {
+      labelColor: "text-cyan-400",
+      borderL: "border-l-cyan-500",
+      glow: "bg-cyan-500",
+      hoverShadow: "hover:shadow-cyan-500/20 hover:border-cyan-500/50",
+    },
+    "Monthly Net Profit": {
+      labelColor: "text-green-400",
+      borderL: "border-l-green-500",
+      glow: "bg-green-500",
+      hoverShadow: "hover:shadow-green-500/20 hover:border-green-500/50",
+    },
   };
-  const ACCENT_DEFAULT: CardAccent = { labelColor: "text-slate-400", borderL: "border-l-slate-500", glow: "bg-slate-500", hoverShadow: "hover:shadow-slate-500/20 hover:border-slate-500/50" };
+  const ACCENT_DEFAULT: CardAccent = {
+    labelColor: "text-slate-400",
+    borderL: "border-l-slate-500",
+    glow: "bg-slate-500",
+    hoverShadow: "hover:shadow-slate-500/20 hover:border-slate-500/50",
+  };
 
   // Drawer Balances (Row 2) — dynamic from drawer_balances table
   // Filter out drawers whose associated module/PM is disabled
@@ -490,7 +610,8 @@ export default function Dashboard() {
                 Starting drawer amounts not set
               </p>
               <p className="text-xs text-amber-400/70">
-                Set the opening cash for each active drawer so balances are accurate from day one.
+                Set the opening cash for each active drawer so balances are
+                accurate from day one.
               </p>
             </div>
             <span className="text-xs text-amber-400 group-hover:text-amber-300 font-medium shrink-0">
@@ -554,28 +675,35 @@ export default function Dashboard() {
                   key={stat.label}
                   className={`relative bg-slate-800 p-4 rounded-xl border border-slate-700/40 border-l-2 ${accent.borderL} shadow-lg ${accent.hoverShadow} hover:shadow-xl transition-all duration-200 overflow-hidden`}
                 >
-                  <div className={`absolute -top-5 -right-5 w-20 h-20 rounded-full blur-2xl opacity-15 pointer-events-none ${accent.glow}`} />
+                  <div
+                    className={`absolute -top-5 -right-5 w-20 h-20 rounded-full blur-2xl opacity-15 pointer-events-none ${accent.glow}`}
+                  />
                   <div className="relative">
-                    <h3 className={`text-xs font-bold uppercase tracking-wider mb-2 ${accent.labelColor}`}>
+                    <h3
+                      className={`text-xs font-bold uppercase tracking-wider mb-2 ${accent.labelColor}`}
+                    >
                       {stat.label}
                     </h3>
                     {stat.singleValue && (
-                      <p className="text-xl font-bold text-white">{stat.singleValue}</p>
+                      <p className="text-xl font-bold text-white">
+                        {stat.singleValue}
+                      </p>
                     )}
-                    {stat.usdValue !== undefined && stat.lbpValue !== undefined && (
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1">
-                          <p className="text-base font-bold text-emerald-400">
-                            {formatAmount(stat.usdValue, "USD")}
-                          </p>
+                    {stat.usdValue !== undefined &&
+                      stat.lbpValue !== undefined && (
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1">
+                            <p className="text-base font-bold text-emerald-400">
+                              {formatAmount(stat.usdValue, "USD")}
+                            </p>
+                          </div>
+                          <div className="flex-1">
+                            <p className="text-base font-bold text-violet-400 text-right">
+                              {formatAmount(stat.lbpValue, "LBP")}
+                            </p>
+                          </div>
                         </div>
-                        <div className="flex-1">
-                          <p className="text-base font-bold text-violet-400 text-right">
-                            {formatAmount(stat.lbpValue, "LBP")}
-                          </p>
-                        </div>
-                      </div>
-                    )}
+                      )}
                   </div>
                 </div>
               );
@@ -595,9 +723,12 @@ export default function Dashboard() {
                 const raw = drawerBalances[key];
                 const label = key === "General" ? "General" : "OMT System";
                 const nonZero = raw
-                  ? Object.fromEntries(Object.entries(raw).filter(([, v]) => v !== 0))
+                  ? Object.fromEntries(
+                      Object.entries(raw).filter(([, v]) => v !== 0),
+                    )
                   : null;
-                const display = nonZero && Object.keys(nonZero).length > 0 ? nonZero : raw;
+                const display =
+                  nonZero && Object.keys(nonZero).length > 0 ? nonZero : raw;
                 return (
                   <div
                     key={key}
@@ -609,9 +740,14 @@ export default function Dashboard() {
                     {display ? (
                       <div className="flex items-baseline gap-3 flex-wrap">
                         {Object.entries(display)
-                          .sort(([a], [b]) => CURRENCY_ORDER(a) - CURRENCY_ORDER(b))
+                          .sort(
+                            ([a], [b]) => CURRENCY_ORDER(a) - CURRENCY_ORDER(b),
+                          )
                           .map(([code, amount]) => (
-                            <span key={code} className="text-sm font-bold text-emerald-400">
+                            <span
+                              key={code}
+                              className="text-sm font-bold text-emerald-400"
+                            >
                               {formatAmount(amount, code)}
                             </span>
                           ))}
@@ -643,62 +779,73 @@ export default function Dashboard() {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
                 {drawerCards.map((stat) => {
-                  const accent = DRAWER_COLORS[stat.name] ?? DRAWER_COLOR_DEFAULT;
+                  const accent =
+                    DRAWER_COLORS[stat.name] ?? DRAWER_COLOR_DEFAULT;
                   return (
-                  <div
-                    key={stat.label}
-                    className={`relative bg-slate-800 rounded-xl border border-slate-700/40 border-l-2 ${accent.borderL} shadow-lg ${accent.hoverShadow} hover:shadow-xl transition-all duration-200 overflow-hidden`}
-                  >
-                    {/* Corner glow orb */}
-                    <div className={`absolute -top-5 -right-5 w-20 h-20 rounded-full blur-2xl opacity-15 pointer-events-none ${accent.glow}`} />
+                    <div
+                      key={stat.label}
+                      className={`relative bg-slate-800 rounded-xl border border-slate-700/40 border-l-2 ${accent.borderL} shadow-lg ${accent.hoverShadow} hover:shadow-xl transition-all duration-200 overflow-hidden`}
+                    >
+                      {/* Corner glow orb */}
+                      <div
+                        className={`absolute -top-5 -right-5 w-20 h-20 rounded-full blur-2xl opacity-15 pointer-events-none ${accent.glow}`}
+                      />
 
-                    <div className="relative p-3">
-                      <div className="flex items-center justify-between gap-1 mb-1">
-                        <h3 className={`text-[11px] font-bold uppercase tracking-widest truncate ${accent.label}`}>
-                          {stat.label}
-                        </h3>
-                        {checkpointsEnabled && (
-                          <button
-                            onClick={() =>
-                              appEvents.emit("checkpoint:open", {
-                                drawerName: stat.name,
-                              })
-                            }
-                            className={`p-1 ${accent.btn} rounded transition-colors shrink-0`}
-                            title="Checkpoint"
+                      <div className="relative p-3">
+                        <div className="flex items-center justify-between gap-1 mb-1">
+                          <h3
+                            className={`text-[11px] font-bold uppercase tracking-widest truncate ${accent.label}`}
                           >
-                            <ClipboardCheck size={12} />
-                          </button>
-                        )}
-                      </div>
-                      {checkpointsEnabled && (
-                        <div className="flex items-center gap-1 mb-2.5">
-                          <span
-                            className={`w-1.5 h-1.5 rounded-full shrink-0 ${stalenessDotColor(stat.checkedAt)}`}
-                          />
-                          <span
-                            className={`text-[10px] truncate ${stalenessTextColor(stat.checkedAt)}`}
-                          >
-                            {stat.checkedAt
-                              ? formatCheckpointTime(stat.checkedAt)
-                              : "Never"}
-                          </span>
+                            {stat.label}
+                          </h3>
+                          {checkpointsEnabled && (
+                            <button
+                              onClick={() =>
+                                appEvents.emit("checkpoint:open", {
+                                  drawerName: stat.name,
+                                })
+                              }
+                              className={`p-1 ${accent.btn} rounded transition-colors shrink-0`}
+                              title="Checkpoint"
+                            >
+                              <ClipboardCheck size={12} />
+                            </button>
+                          )}
                         </div>
-                      )}
-                      <div className="space-y-0.5">
-                        {Object.entries(stat.currencies)
-                          .sort(([a], [b]) => CURRENCY_ORDER(a) - CURRENCY_ORDER(b))
-                          .map(([code, amount]) => (
-                            <p key={code} className="text-sm font-bold text-white">
-                              {formatAmount(amount, code)}
-                            </p>
-                          ))}
-                        {Object.keys(stat.currencies).length === 0 && (
-                          <p className="text-xs text-slate-500">No balance</p>
+                        {checkpointsEnabled && (
+                          <div className="flex items-center gap-1 mb-2.5">
+                            <span
+                              className={`w-1.5 h-1.5 rounded-full shrink-0 ${stalenessDotColor(stat.checkedAt)}`}
+                            />
+                            <span
+                              className={`text-[10px] truncate ${stalenessTextColor(stat.checkedAt)}`}
+                            >
+                              {stat.checkedAt
+                                ? formatCheckpointTime(stat.checkedAt)
+                                : "Never"}
+                            </span>
+                          </div>
                         )}
+                        <div className="space-y-0.5">
+                          {Object.entries(stat.currencies)
+                            .sort(
+                              ([a], [b]) =>
+                                CURRENCY_ORDER(a) - CURRENCY_ORDER(b),
+                            )
+                            .map(([code, amount]) => (
+                              <p
+                                key={code}
+                                className="text-sm font-bold text-white"
+                              >
+                                {formatAmount(amount, code)}
+                              </p>
+                            ))}
+                          {Object.keys(stat.currencies).length === 0 && (
+                            <p className="text-xs text-slate-500">No balance</p>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
                   );
                 })}
               </div>
@@ -719,28 +866,35 @@ export default function Dashboard() {
                     key={stat.label}
                     className={`relative bg-slate-800 p-4 rounded-xl border border-slate-700/40 border-l-2 ${accent.borderL} shadow-lg ${accent.hoverShadow} hover:shadow-xl transition-all duration-200 overflow-hidden`}
                   >
-                    <div className={`absolute -top-5 -right-5 w-20 h-20 rounded-full blur-2xl opacity-15 pointer-events-none ${accent.glow}`} />
+                    <div
+                      className={`absolute -top-5 -right-5 w-20 h-20 rounded-full blur-2xl opacity-15 pointer-events-none ${accent.glow}`}
+                    />
                     <div className="relative">
-                      <h3 className={`text-xs font-bold uppercase tracking-wider mb-2 ${accent.labelColor}`}>
+                      <h3
+                        className={`text-xs font-bold uppercase tracking-wider mb-2 ${accent.labelColor}`}
+                      >
                         {stat.label}
                       </h3>
                       {stat.singleValue && (
-                        <p className="text-xl font-bold text-white">{stat.singleValue}</p>
+                        <p className="text-xl font-bold text-white">
+                          {stat.singleValue}
+                        </p>
                       )}
-                      {stat.usdValue !== undefined && stat.lbpValue !== undefined && (
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1">
-                            <p className="text-base font-bold text-emerald-400">
-                              {formatAmount(stat.usdValue, "USD")}
-                            </p>
+                      {stat.usdValue !== undefined &&
+                        stat.lbpValue !== undefined && (
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1">
+                              <p className="text-base font-bold text-emerald-400">
+                                {formatAmount(stat.usdValue, "USD")}
+                              </p>
+                            </div>
+                            <div className="flex-1">
+                              <p className="text-base font-bold text-violet-400 text-right">
+                                {formatAmount(stat.lbpValue, "LBP")}
+                              </p>
+                            </div>
                           </div>
-                          <div className="flex-1">
-                            <p className="text-base font-bold text-violet-400 text-right">
-                              {formatAmount(stat.lbpValue, "LBP")}
-                            </p>
-                          </div>
-                        </div>
-                      )}
+                        )}
                     </div>
                   </div>
                 );

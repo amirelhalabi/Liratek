@@ -21,7 +21,11 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { TransactionTimeOverride } from "../TransactionTimeOverride";
 
 /** Build a `datetime-local` string (YYYY-MM-DDTHH:mm) offset N days from now. */
-function offsetLocalDatetime(offsetDays: number, hour = 10, minute = 0): string {
+function offsetLocalDatetime(
+  offsetDays: number,
+  hour = 10,
+  minute = 0,
+): string {
   const d = new Date();
   d.setDate(d.getDate() + offsetDays);
   const pad = (n: number) => n.toString().padStart(2, "0");

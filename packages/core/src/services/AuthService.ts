@@ -383,10 +383,7 @@ export class AuthService {
   /**
    * Validate if a user can perform an action based on role
    */
-  canPerformAction(
-    userRole: string,
-    requiredRole: "admin" | "staff",
-  ): boolean {
+  canPerformAction(userRole: string, requiredRole: "admin" | "staff"): boolean {
     if (requiredRole === "admin") {
       return userRole === "admin";
     }

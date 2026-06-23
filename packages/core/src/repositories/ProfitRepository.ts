@@ -295,7 +295,10 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
   }
 
   /** Settled financial-service commissions (OMT/WHISH family) grouped by currency. */
-  getFinancialSettledByCurrency(fromDt: string, toDt: string): FinCurrencyRow[] {
+  getFinancialSettledByCurrency(
+    fromDt: string,
+    toDt: string,
+  ): FinCurrencyRow[] {
     return this.db
       .prepare(
         `SELECT
@@ -361,10 +364,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
   }
 
   /** Recharges (MTC/Alfa) revenue/cost/profit grouped by currency. */
-  getRechargesByCurrency(
-    fromDt: string,
-    toDt: string,
-  ): RechargeCurrencyRow[] {
+  getRechargesByCurrency(fromDt: string, toDt: string): RechargeCurrencyRow[] {
     return this.db
       .prepare(
         `SELECT
@@ -479,10 +479,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
   }
 
   /** Recharge revenue/cost/profit grouped by carrier. */
-  getRechargesByCarrier(
-    fromDt: string,
-    toDt: string,
-  ): RechargeByCarrierRow[] {
+  getRechargesByCarrier(fromDt: string, toDt: string): RechargeByCarrierRow[] {
     return this.db
       .prepare(
         `SELECT
@@ -511,7 +508,12 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
    * Daily profit breakdown for a date range (for charts). Returns one row per
    * calendar day in [from, to], with every category LEFT-JOINed by day.
    */
-  getByDate(from: string, to: string, fromDt: string, toDt: string): ProfitByDateRow[] {
+  getByDate(
+    from: string,
+    to: string,
+    fromDt: string,
+    toDt: string,
+  ): ProfitByDateRow[] {
     return this.db
       .prepare(
         `WITH dates AS (
@@ -904,10 +906,7 @@ export class ProfitRepository extends BaseRepository<{ id: number }> {
   // ---------------------------------------------------------------------------
 
   /** Completed-but-not-fully-paid sales with their potential (deferred) profit. */
-  getPendingSaleProfit(
-    fromDt: string,
-    toDt: string,
-  ): PendingSaleProfitRow[] {
+  getPendingSaleProfit(fromDt: string, toDt: string): PendingSaleProfitRow[] {
     return this.db
       .prepare(
         `SELECT

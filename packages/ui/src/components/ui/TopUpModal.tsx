@@ -152,7 +152,9 @@ export default function TopUpModal({
   const [whishMode, setWhishMode] = useState<"partner" | "client">("partner");
   const [amount, setAmount] = useState<string>("");
   const [cashPaid, setCashPaid] = useState<string>("");
-  const [cashPaidCurrency, setCashPaidCurrency] = useState<"USD" | "LBP">("USD");
+  const [cashPaidCurrency, setCashPaidCurrency] = useState<"USD" | "LBP">(
+    "USD",
+  );
   const [currency, setCurrency] = useState<TopUpCurrency>("USD");
   const [sourceDrawer, setSourceDrawer] = useState<string>(defaultSourceDrawer);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -502,7 +504,8 @@ export default function TopUpModal({
                           value={fmtCommas(manualFee)}
                           onChange={(e) => {
                             const cleaned = e.target.value.replace(/,/g, "");
-                            if (isPartialDecimal(cleaned)) setManualFee(cleaned);
+                            if (isPartialDecimal(cleaned))
+                              setManualFee(cleaned);
                           }}
                           disabled={isSubmitting}
                           placeholder={
@@ -658,7 +661,10 @@ export default function TopUpModal({
                   <div className="flex gap-1">
                     <button
                       type="button"
-                      onClick={() => { setCashPaidCurrency("USD"); setCashPaid(""); }}
+                      onClick={() => {
+                        setCashPaidCurrency("USD");
+                        setCashPaid("");
+                      }}
                       disabled={isSubmitting}
                       className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
                         cashPaidCurrency === "USD"
@@ -670,7 +676,10 @@ export default function TopUpModal({
                     </button>
                     <button
                       type="button"
-                      onClick={() => { setCashPaidCurrency("LBP"); setCashPaid(""); }}
+                      onClick={() => {
+                        setCashPaidCurrency("LBP");
+                        setCashPaid("");
+                      }}
                       disabled={isSubmitting}
                       className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
                         cashPaidCurrency === "LBP"
@@ -715,137 +724,142 @@ export default function TopUpModal({
                   </p>
                 )}
               </div>
-
             </>
           )}
 
           {/* Mode Toggle — only shown when external top-up is supported and not a supplier credit */}
-          {!isWhishTopUp && !isCustomerTopUp && !isSupplierCredit && onConfirmExternal && (
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setMode("external")}
-                disabled={isSubmitting}
-                className={`flex-1 py-2 px-3 text-sm font-medium rounded-lg transition-colors flex items-center justify-center gap-1.5 ${
-                  mode === "external"
-                    ? "bg-emerald-600 text-white"
-                    : "bg-slate-700 text-slate-300 hover:bg-slate-600"
-                } disabled:opacity-50`}
-              >
-                <PlusCircle size={14} />
-                External (Cash In)
-              </button>
-              <button
-                type="button"
-                onClick={() => setMode("from_drawer")}
-                disabled={isSubmitting}
-                className={`flex-1 py-2 px-3 text-sm font-medium rounded-lg transition-colors flex items-center justify-center gap-1.5 ${
-                  mode === "from_drawer"
-                    ? "bg-violet-600 text-white"
-                    : "bg-slate-700 text-slate-300 hover:bg-slate-600"
-                } disabled:opacity-50`}
-              >
-                <ArrowRightLeft size={14} />
-                From Drawer
-              </button>
-            </div>
-          )}
+          {!isWhishTopUp &&
+            !isCustomerTopUp &&
+            !isSupplierCredit &&
+            onConfirmExternal && (
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setMode("external")}
+                  disabled={isSubmitting}
+                  className={`flex-1 py-2 px-3 text-sm font-medium rounded-lg transition-colors flex items-center justify-center gap-1.5 ${
+                    mode === "external"
+                      ? "bg-emerald-600 text-white"
+                      : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                  } disabled:opacity-50`}
+                >
+                  <PlusCircle size={14} />
+                  External (Cash In)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMode("from_drawer")}
+                  disabled={isSubmitting}
+                  className={`flex-1 py-2 px-3 text-sm font-medium rounded-lg transition-colors flex items-center justify-center gap-1.5 ${
+                    mode === "from_drawer"
+                      ? "bg-violet-600 text-white"
+                      : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                  } disabled:opacity-50`}
+                >
+                  <ArrowRightLeft size={14} />
+                  From Drawer
+                </button>
+              </div>
+            )}
 
           {!isWhishTopUp && !isCustomerTopUp && (
             <>
-          {/* Currency Selector */}
-          <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1.5">
-              Currency
-            </label>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setCurrency("USD")}
-                disabled={isSubmitting}
-                className={`flex-1 px-3 py-2 rounded-lg font-medium transition-all text-sm ${
-                  currency === "USD"
-                    ? "bg-violet-600 text-white"
-                    : "bg-slate-700 text-slate-300 hover:bg-slate-600"
-                } disabled:opacity-50`}
-              >
-                USD
-              </button>
-              <button
-                type="button"
-                onClick={() => setCurrency("LBP")}
-                disabled={isSubmitting}
-                className={`flex-1 px-3 py-2 rounded-lg font-medium transition-all text-sm ${
-                  currency === "LBP"
-                    ? "bg-violet-600 text-white"
-                    : "bg-slate-700 text-slate-300 hover:bg-slate-600"
-                } disabled:opacity-50`}
-              >
-                LBP
-              </button>
-            </div>
-          </div>
+              {/* Currency Selector */}
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1.5">
+                  Currency
+                </label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCurrency("USD")}
+                    disabled={isSubmitting}
+                    className={`flex-1 px-3 py-2 rounded-lg font-medium transition-all text-sm ${
+                      currency === "USD"
+                        ? "bg-violet-600 text-white"
+                        : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                    } disabled:opacity-50`}
+                  >
+                    USD
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCurrency("LBP")}
+                    disabled={isSubmitting}
+                    className={`flex-1 px-3 py-2 rounded-lg font-medium transition-all text-sm ${
+                      currency === "LBP"
+                        ? "bg-violet-600 text-white"
+                        : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                    } disabled:opacity-50`}
+                  >
+                    LBP
+                  </button>
+                </div>
+              </div>
 
-          {/* Amount Input */}
-          <div>
-            <label className="block text-sm font-medium text-slate-400 mb-2">
-              Amount
-            </label>
-            <div className="relative">
-              <input
-                type="text"
-                inputMode="decimal"
-                autoComplete="off"
-                value={fmtCommas(amount)}
-                onChange={(e) => {
-                  const cleaned = e.target.value.replace(/,/g, "");
-                  if (isPartialDecimal(cleaned)) setAmount(cleaned);
-                }}
-                placeholder={currency === "LBP" ? "0" : "0.00"}
-                disabled={isSubmitting}
-                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white text-lg font-mono focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500/30 disabled:opacity-50"
-                autoFocus
-              />
-              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 text-sm">
-                {currency}
-              </span>
-            </div>
-            {mode === "from_drawer" && !isSupplierCredit && amount && parseFloat(amount) > sourceBalance && (
-              <p className="text-xs text-red-400 mt-1 flex items-center gap-1">
-                <AlertTriangle size={12} />
-                Amount exceeds source drawer balance
-              </p>
-            )}
-          </div>
+              {/* Amount Input */}
+              <div>
+                <label className="block text-sm font-medium text-slate-400 mb-2">
+                  Amount
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    autoComplete="off"
+                    value={fmtCommas(amount)}
+                    onChange={(e) => {
+                      const cleaned = e.target.value.replace(/,/g, "");
+                      if (isPartialDecimal(cleaned)) setAmount(cleaned);
+                    }}
+                    placeholder={currency === "LBP" ? "0" : "0.00"}
+                    disabled={isSubmitting}
+                    className="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white text-lg font-mono focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500/30 disabled:opacity-50"
+                    autoFocus
+                  />
+                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 text-sm">
+                    {currency}
+                  </span>
+                </div>
+                {mode === "from_drawer" &&
+                  !isSupplierCredit &&
+                  amount &&
+                  parseFloat(amount) > sourceBalance && (
+                    <p className="text-xs text-red-400 mt-1 flex items-center gap-1">
+                      <AlertTriangle size={12} />
+                      Amount exceeds source drawer balance
+                    </p>
+                  )}
+              </div>
 
-          {/* Source Drawer Selector — only in from_drawer mode (hidden for supplier credit) */}
-          {mode === "from_drawer" && !isSupplierCredit && (
-            <div>
-              <label className="block text-sm font-medium text-slate-400 mb-2">
-                From Drawer
-              </label>
-              <select
-                value={sourceDrawer}
-                onChange={(e) => setSourceDrawer(e.target.value)}
-                disabled={isSubmitting}
-                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500/30 disabled:opacity-50"
-              >
-                {availableDrawers.map((drawer) => (
-                  <option key={drawer.name} value={drawer.name}>
-                    {drawer.name}
-                  </option>
-                ))}
-              </select>
-              <p className="text-xs text-slate-500 mt-1">
-                Selected drawer balance:{" "}
-                <span className="text-white font-medium">
-                  {currency === "USD"
-                    ? `$${sourceBalance.toFixed(2)}`
-                    : `${sourceBalance.toLocaleString()} LBP`}
-                </span>
-              </p>
-            </div>
-          )}
+              {/* Source Drawer Selector — only in from_drawer mode (hidden for supplier credit) */}
+              {mode === "from_drawer" && !isSupplierCredit && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-400 mb-2">
+                    From Drawer
+                  </label>
+                  <select
+                    value={sourceDrawer}
+                    onChange={(e) => setSourceDrawer(e.target.value)}
+                    disabled={isSubmitting}
+                    className="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500/30 disabled:opacity-50"
+                  >
+                    {availableDrawers.map((drawer) => (
+                      <option key={drawer.name} value={drawer.name}>
+                        {drawer.name}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Selected drawer balance:{" "}
+                    <span className="text-white font-medium">
+                      {currency === "USD"
+                        ? `$${sourceBalance.toFixed(2)}`
+                        : `${sourceBalance.toLocaleString()} LBP`}
+                    </span>
+                  </p>
+                </div>
+              )}
             </>
           )}
 

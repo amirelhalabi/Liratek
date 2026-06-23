@@ -42,31 +42,52 @@ export default function Login() {
   };
 
   return (
-    <div className={clsx(
-      "min-h-screen flex items-center justify-center p-4 relative overflow-hidden transition-colors",
-      theme === "dark"
-        ? "bg-gradient-to-br from-slate-900 via-slate-900 to-slate-950"
-        : "bg-gradient-to-br from-gray-50 via-gray-50 to-gray-100"
-    )}>
+    <div
+      className={clsx(
+        "min-h-screen flex items-center justify-center p-4 relative overflow-hidden transition-colors",
+        theme === "dark"
+          ? "bg-gradient-to-br from-slate-900 via-slate-900 to-slate-950"
+          : "bg-gradient-to-br from-gray-50 via-gray-50 to-gray-100",
+      )}
+    >
       {/* Subtle background pattern */}
-      <div className={clsx("absolute inset-0", theme === "dark" ? "opacity-10" : "opacity-5")}>
-        <div className={clsx("absolute top-0 left-1/4 w-72 h-72 rounded-full mix-blend-multiply filter blur-3xl", theme === "dark" ? "bg-violet-600" : "bg-violet-400")}></div>
-        <div className={clsx("absolute -bottom-8 right-1/4 w-72 h-72 rounded-full mix-blend-multiply filter blur-3xl", theme === "dark" ? "bg-indigo-600" : "bg-indigo-400")}></div>
+      <div
+        className={clsx(
+          "absolute inset-0",
+          theme === "dark" ? "opacity-10" : "opacity-5",
+        )}
+      >
+        <div
+          className={clsx(
+            "absolute top-0 left-1/4 w-72 h-72 rounded-full mix-blend-multiply filter blur-3xl",
+            theme === "dark" ? "bg-violet-600" : "bg-violet-400",
+          )}
+        ></div>
+        <div
+          className={clsx(
+            "absolute -bottom-8 right-1/4 w-72 h-72 rounded-full mix-blend-multiply filter blur-3xl",
+            theme === "dark" ? "bg-indigo-600" : "bg-indigo-400",
+          )}
+        ></div>
       </div>
 
-      <div className={clsx(
-        "relative rounded-2xl shadow-2xl w-full max-w-md overflow-hidden transition-colors backdrop-blur-xl",
-        theme === "dark"
-          ? "bg-slate-800/80 border border-slate-700/50"
-          : "bg-white/80 border border-gray-200/50"
-      )}>
-        {/* Header */}
-        <div className={clsx(
-          "bg-gradient-to-r p-10 text-center relative overflow-hidden",
+      <div
+        className={clsx(
+          "relative rounded-2xl shadow-2xl w-full max-w-md overflow-hidden transition-colors backdrop-blur-xl",
           theme === "dark"
-            ? "from-violet-600 to-indigo-600"
-            : "from-violet-500 to-indigo-500"
-        )}>
+            ? "bg-slate-800/80 border border-slate-700/50"
+            : "bg-white/80 border border-gray-200/50",
+        )}
+      >
+        {/* Header */}
+        <div
+          className={clsx(
+            "bg-gradient-to-r p-10 text-center relative overflow-hidden",
+            theme === "dark"
+              ? "from-violet-600 to-indigo-600"
+              : "from-violet-500 to-indigo-500",
+          )}
+        >
           {/* Decorative gradient overlay */}
           <div className="absolute inset-0 opacity-20 bg-gradient-to-b from-white to-transparent"></div>
 
@@ -74,9 +95,7 @@ export default function Login() {
             <h1 className="text-4xl font-bold text-white whitespace-nowrap mb-2">
               {shopName}
             </h1>
-            <p className="font-medium text-white">
-              Management System
-            </p>
+            <p className="font-medium text-white">Management System</p>
           </div>
         </div>
 
@@ -84,12 +103,14 @@ export default function Login() {
         <div className="p-8 relative z-10">
           <form onSubmit={handleSubmit} className="space-y-5">
             {error && (
-              <div className={clsx(
-                "p-4 rounded-lg flex items-start gap-3 text-sm animate-in fade-in border",
-                theme === "dark"
-                  ? "bg-red-500/15 border-red-500/40 text-red-300"
-                  : "bg-red-500/10 border-red-500/30 text-red-600"
-              )}>
+              <div
+                className={clsx(
+                  "p-4 rounded-lg flex items-start gap-3 text-sm animate-in fade-in border",
+                  theme === "dark"
+                    ? "bg-red-500/15 border-red-500/40 text-red-300"
+                    : "bg-red-500/10 border-red-500/30 text-red-600",
+                )}
+              >
                 <AlertCircle size={18} className="mt-0.5 flex-shrink-0" />
                 <span>{error}</span>
               </div>
@@ -154,14 +175,47 @@ export default function Login() {
             </button>
           </form>
 
-          <div className={clsx(
-            "mt-8 pt-6 text-center text-xs",
-            theme === "dark"
-              ? "border-t border-slate-700/50 text-slate-400"
-              : "border-t border-gray-300/50 text-gray-600"
-          )}>
+          <div
+            className={clsx(
+              "mt-8 pt-6 text-center text-xs",
+              theme === "dark"
+                ? "border-t border-slate-700/50 text-slate-400"
+                : "border-t border-gray-300/50 text-gray-600",
+            )}
+          >
             <p>
-              <span className={theme === "dark" ? "text-slate-500" : "text-gray-500"}>Version</span> {__APP_VERSION__} <span className={clsx("mx-2", theme === "dark" ? "text-slate-600" : "text-gray-400")}>•</span> <span className={theme === "dark" ? "text-slate-300" : "text-gray-700"}>Licensed to</span> <span className={theme === "dark" ? "text-slate-300" : "text-gray-800 font-medium"}>{shopName}</span>
+              <span
+                className={
+                  theme === "dark" ? "text-slate-500" : "text-gray-500"
+                }
+              >
+                Version
+              </span>{" "}
+              {__APP_VERSION__}{" "}
+              <span
+                className={clsx(
+                  "mx-2",
+                  theme === "dark" ? "text-slate-600" : "text-gray-400",
+                )}
+              >
+                •
+              </span>{" "}
+              <span
+                className={
+                  theme === "dark" ? "text-slate-300" : "text-gray-700"
+                }
+              >
+                Licensed to
+              </span>{" "}
+              <span
+                className={
+                  theme === "dark"
+                    ? "text-slate-300"
+                    : "text-gray-800 font-medium"
+                }
+              >
+                {shopName}
+              </span>
             </p>
           </div>
         </div>

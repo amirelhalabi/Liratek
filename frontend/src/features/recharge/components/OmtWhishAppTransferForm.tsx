@@ -81,8 +81,7 @@ function OmtWhishAppTransferFormInner({
   const [initialPaymentMethod, setInitialPaymentMethod] = useState("CASH");
 
   // Auto-promote CUSTOMER_ACCOUNT when name+phone are present for a new client
-  const activeClientName =
-    serviceType === "SEND" ? senderName : receiverName;
+  const activeClientName = serviceType === "SEND" ? senderName : receiverName;
   const activeClientPhone =
     serviceType === "SEND" ? senderPhone : receiverPhone;
   useEffect(() => {

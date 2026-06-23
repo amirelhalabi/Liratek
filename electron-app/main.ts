@@ -484,8 +484,7 @@ async function registerHandlers() {
       await import("./handlers/drawerTopUpHandlers.js");
     const partnerHandlers = await import("./handlers/partnerHandlers.js");
     const voucherHandlers = await import("./handlers/voucherHandlers.js");
-    const holdMoneyHandlers =
-      await import("./handlers/holdMoneyHandlers.js");
+    const holdMoneyHandlers = await import("./handlers/holdMoneyHandlers.js");
 
     // Register all handlers
     authHandlers.registerAuthHandlers();

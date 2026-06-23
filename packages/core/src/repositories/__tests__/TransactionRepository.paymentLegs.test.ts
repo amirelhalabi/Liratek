@@ -134,15 +134,17 @@ describe("TransactionRepository.getRecent — structured payment legs (LIRA-064)
 
   beforeEach(() => {
     db = createTestDb();
-    (globalThis as unknown as { __LIRATEK_TEST_DB__?: Database.Database }).__LIRATEK_TEST_DB__ =
-      db;
+    (
+      globalThis as unknown as { __LIRATEK_TEST_DB__?: Database.Database }
+    ).__LIRATEK_TEST_DB__ = db;
     resetTransactionRepository();
     repo = new TransactionRepository();
   });
 
   afterEach(() => {
-    delete (globalThis as unknown as { __LIRATEK_TEST_DB__?: Database.Database })
-      .__LIRATEK_TEST_DB__;
+    delete (
+      globalThis as unknown as { __LIRATEK_TEST_DB__?: Database.Database }
+    ).__LIRATEK_TEST_DB__;
     db.close();
     resetTransactionRepository();
   });
@@ -222,21 +224,55 @@ describe("TransactionRepository.getRecent — structured payment legs (LIRA-064)
   // ── Internal-leg filtering (customer cash only) ────────────────────────────
 
   it("Binance SEND: shows only customer cash (in $100 / out 180k LBP), not the USDT crypto leg", () => {
-    insertTxn(db, { id: 1, type: "FINANCIAL_SERVICE", summary: "BINANCE SEND: 98 USDT" });
+    insertTxn(db, {
+      id: 1,
+      type: "FINANCIAL_SERVICE",
+      summary: "BINANCE SEND: 98 USDT",
+    });
     // Customer pays $100 cash; shop sends 98 USDT (internal crypto leg) and
     // returns 180,000 LBP change.
-    insertLeg(db, 1, { method: "CASH", currency: "USD", amount: 100, note: "Binance SEND payment" });
-    insertLeg(db, 1, { method: "BINANCE", currency: "USDT", amount: -98, drawer: "Binance", note: "Crypto sent to customer" });
-    insertLeg(db, 1, { method: "CASH", currency: "LBP", amount: -180_000, note: "Change returned" });
-    insertLeg(db, 1, { method: "COMMISSION", currency: "USD", amount: 0, drawer: "Binance", note: "Commission (Binance fee: $2)" });
+    insertLeg(db, 1, {
+      method: "CASH",
+      currency: "USD",
+      amount: 100,
+      note: "Binance SEND payment",
+    });
+    insertLeg(db, 1, {
+      method: "BINANCE",
+      currency: "USDT",
+      amount: -98,
+      drawer: "Binance",
+      note: "Crypto sent to customer",
+    });
+    insertLeg(db, 1, {
+      method: "CASH",
+      currency: "LBP",
+      amount: -180_000,
+      note: "Change returned",
+    });
+    insertLeg(db, 1, {
+      method: "COMMISSION",
+      currency: "USD",
+      amount: 0,
+      drawer: "Binance",
+      note: "Commission (Binance fee: $2)",
+    });
 
     const row = repo.getRecent(10).find((r) => r.id === 1)!;
 
     expect(row.payments).toHaveLength(2);
     const inLeg = row.payments.find((p) => p.direction === "in")!;
     const outLeg = row.payments.find((p) => p.direction === "out")!;
-    expect(inLeg).toMatchObject({ amount: 100, currency_code: "USD", method: "CASH" });
-    expect(outLeg).toMatchObject({ amount: 180_000, currency_code: "LBP", method: "CASH" });
+    expect(inLeg).toMatchObject({
+      amount: 100,
+      currency_code: "USD",
+      method: "CASH",
+    });
+    expect(outLeg).toMatchObject({
+      amount: 180_000,
+      currency_code: "LBP",
+      method: "CASH",
+    });
     // The USDT crypto leg and the zero-delta commission row are NOT surfaced.
     expect(row.payments.some((p) => p.currency_code === "USDT")).toBe(false);
     expect(row.payments.some((p) => p.method === "COMMISSION")).toBe(false);
@@ -245,49 +281,135 @@ describe("TransactionRepository.getRecent — structured payment legs (LIRA-064)
   it("filters out cost-flow, system-reserve, and fee/transfer internal legs", () => {
     insertTxn(db, { id: 1, type: "FINANCIAL_SERVICE", summary: "OMT/Katsh" });
     // Customer cash in (kept):
-    insertLeg(db, 1, { method: "CASH", currency: "USD", amount: 60, note: "payment" });
+    insertLeg(db, 1, {
+      method: "CASH",
+      currency: "USD",
+      amount: 60,
+      note: "payment",
+    });
     // Internal legs (all filtered):
-    insertLeg(db, 1, { method: "Katsh", currency: "USD", amount: -48, drawer: "Katsh", note: "Cost: Katsh" });
-    insertLeg(db, 1, { method: "OMT", currency: "USD", amount: 100, drawer: "OMT_System", note: "OMT system debt" });
-    insertLeg(db, 1, { method: "PM_FEE", currency: "USD", amount: 0.5, note: "Payment method fee (1%)" });
-    insertLeg(db, 1, { method: "TRANSFER", currency: "USD", amount: 100, drawer: "OMT_System", note: "transfer" });
-    insertLeg(db, 1, { method: "CREDIT_RETURN", currency: "USD", amount: 3, drawer: "MTC", note: "Returned credits: 3 USD" });
+    insertLeg(db, 1, {
+      method: "Katsh",
+      currency: "USD",
+      amount: -48,
+      drawer: "Katsh",
+      note: "Cost: Katsh",
+    });
+    insertLeg(db, 1, {
+      method: "OMT",
+      currency: "USD",
+      amount: 100,
+      drawer: "OMT_System",
+      note: "OMT system debt",
+    });
+    insertLeg(db, 1, {
+      method: "PM_FEE",
+      currency: "USD",
+      amount: 0.5,
+      note: "Payment method fee (1%)",
+    });
+    insertLeg(db, 1, {
+      method: "TRANSFER",
+      currency: "USD",
+      amount: 100,
+      drawer: "OMT_System",
+      note: "transfer",
+    });
+    insertLeg(db, 1, {
+      method: "CREDIT_RETURN",
+      currency: "USD",
+      amount: 3,
+      drawer: "MTC",
+      note: "Returned credits: 3 USD",
+    });
 
     const row = repo.getRecent(10).find((r) => r.id === 1)!;
 
     expect(row.payments).toHaveLength(1);
-    expect(row.payments[0]).toMatchObject({ direction: "in", amount: 60, method: "CASH" });
+    expect(row.payments[0]).toMatchObject({
+      direction: "in",
+      amount: 60,
+      method: "CASH",
+    });
   });
 
   it("MTC CREDIT_TRANSFER: hides telecom stock + SMS legs, keeps cash in/out", () => {
-    insertTxn(db, { id: 1, type: "RECHARGE", summary: "Recharge: MTC CREDIT_TRANSFER 600,000 LBP" });
+    insertTxn(db, {
+      id: 1,
+      type: "RECHARGE",
+      summary: "Recharge: MTC CREDIT_TRANSFER 600,000 LBP",
+    });
     // Customer pays $10 cash, gets 300,000 LBP change. The credits ($6) and SMS
     // cost ($0.32) leave the MTC provider-stock drawer (internal, not cash out).
-    insertLeg(db, 1, { method: "CASH", currency: "USD", amount: 10, note: "MTC credit" });
-    insertLeg(db, 1, { method: "MTC", currency: "USD", amount: -6, drawer: "MTC", note: "Telecom balance sent" });
-    insertLeg(db, 1, { method: "SMS_COST", currency: "USD", amount: -0.32, drawer: "MTC", note: "SMS cost: 2 × $0.16" });
-    insertLeg(db, 1, { method: "CASH", currency: "LBP", amount: -300_000, note: "Change returned" });
+    insertLeg(db, 1, {
+      method: "CASH",
+      currency: "USD",
+      amount: 10,
+      note: "MTC credit",
+    });
+    insertLeg(db, 1, {
+      method: "MTC",
+      currency: "USD",
+      amount: -6,
+      drawer: "MTC",
+      note: "Telecom balance sent",
+    });
+    insertLeg(db, 1, {
+      method: "SMS_COST",
+      currency: "USD",
+      amount: -0.32,
+      drawer: "MTC",
+      note: "SMS cost: 2 × $0.16",
+    });
+    insertLeg(db, 1, {
+      method: "CASH",
+      currency: "LBP",
+      amount: -300_000,
+      note: "Change returned",
+    });
 
     const row = repo.getRecent(10).find((r) => r.id === 1)!;
 
     expect(row.payments).toHaveLength(2);
     const inLeg = row.payments.find((p) => p.direction === "in")!;
     const outLeg = row.payments.find((p) => p.direction === "out")!;
-    expect(inLeg).toMatchObject({ amount: 10, currency_code: "USD", method: "CASH" });
-    expect(outLeg).toMatchObject({ amount: 300_000, currency_code: "LBP", method: "CASH" });
+    expect(inLeg).toMatchObject({
+      amount: 10,
+      currency_code: "USD",
+      method: "CASH",
+    });
+    expect(outLeg).toMatchObject({
+      amount: 300_000,
+      currency_code: "LBP",
+      method: "CASH",
+    });
     // No MTC stock leg ($6) or SMS cost ($0.32) leaks into the customer summary.
     expect(row.payments.some((p) => p.method === "MTC")).toBe(false);
     expect(row.payments.some((p) => p.method === "SMS_COST")).toBe(false);
   });
 
   it("keeps a legitimate customer wallet payment (WHISH → Whish_App)", () => {
-    insertTxn(db, { id: 1, type: "FINANCIAL_SERVICE", summary: "paid by Whish" });
+    insertTxn(db, {
+      id: 1,
+      type: "FINANCIAL_SERVICE",
+      summary: "paid by Whish",
+    });
     // A customer paying via the WHISH method hits the Whish_App wallet drawer —
     // this IS customer cash and must NOT be confused with a Whish_System leg.
-    insertLeg(db, 1, { method: "WHISH", currency: "USD", amount: 25, drawer: "Whish_App", note: "payment" });
+    insertLeg(db, 1, {
+      method: "WHISH",
+      currency: "USD",
+      amount: 25,
+      drawer: "Whish_App",
+      note: "payment",
+    });
 
     const row = repo.getRecent(10).find((r) => r.id === 1)!;
     expect(row.payments).toHaveLength(1);
-    expect(row.payments[0]).toMatchObject({ direction: "in", amount: 25, method: "WHISH" });
+    expect(row.payments[0]).toMatchObject({
+      direction: "in",
+      amount: 25,
+      method: "WHISH",
+    });
   });
 });

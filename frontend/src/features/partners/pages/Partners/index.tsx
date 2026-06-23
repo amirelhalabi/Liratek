@@ -271,7 +271,8 @@ function PartnerFormModal({
               { value: "", label: "None" },
               {
                 value: partnerSystem,
-                label: partnerSystem === "WHISH" ? "Whish System" : "OMT System",
+                label:
+                  partnerSystem === "WHISH" ? "Whish System" : "OMT System",
               },
             ]}
             buttonClassName="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
@@ -808,7 +809,9 @@ function LedgerRow({ entry }: { entry: PartnerLedgerEntry }) {
               {entry.fs_phone_number && (
                 <div className="flex gap-2">
                   <span className="text-slate-500 w-20 shrink-0">Phone</span>
-                  <span className="text-slate-200">{entry.fs_phone_number}</span>
+                  <span className="text-slate-200">
+                    {entry.fs_phone_number}
+                  </span>
                 </div>
               )}
               {entry.fs_provider && (
@@ -1157,7 +1160,9 @@ function DetailPanel({
         />
         <Select
           value={filterProvider}
-          onChange={(v) => setFilterProvider(v as "" | "OMT" | "WHISH" | "BINANCE")}
+          onChange={(v) =>
+            setFilterProvider(v as "" | "OMT" | "WHISH" | "BINANCE")
+          }
           options={[
             { value: "", label: "All providers" },
             { value: "OMT", label: "OMT" },

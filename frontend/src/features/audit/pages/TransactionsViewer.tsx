@@ -1,4 +1,11 @@
-import { useEffect, useState, useCallback, useMemo, Fragment, type CSSProperties } from "react";
+import {
+  useEffect,
+  useState,
+  useCallback,
+  useMemo,
+  Fragment,
+  type CSSProperties,
+} from "react";
 import {
   getRecentTransactions,
   voidTransaction,
@@ -126,7 +133,11 @@ function getTypeLabel(row: TransactionRow): string {
 
     if (row.type === "CHECKPOINT") {
       const notes = meta.notes as string | undefined;
-      if (notes && (notes.toLowerCase().includes("initial") || notes.toLowerCase().includes("setup"))) {
+      if (
+        notes &&
+        (notes.toLowerCase().includes("initial") ||
+          notes.toLowerCase().includes("setup"))
+      ) {
         return "Initial Setup";
       }
     }
@@ -207,10 +218,16 @@ function getTypeColor(row: TransactionRow): string {
   if (row.type === "CHECKPOINT") {
     try {
       const meta = JSON.parse(row.metadata_json ?? "{}") as { notes?: string };
-      if (meta.notes && (meta.notes.toLowerCase().includes("initial") || meta.notes.toLowerCase().includes("setup"))) {
+      if (
+        meta.notes &&
+        (meta.notes.toLowerCase().includes("initial") ||
+          meta.notes.toLowerCase().includes("setup"))
+      ) {
         return "text-orange-400";
       }
-    } catch { /* fall through */ }
+    } catch {
+      /* fall through */
+    }
   }
   return TYPE_COLORS[row.type] ?? "text-slate-300";
 }
@@ -219,7 +236,11 @@ function getTypeColor(row: TransactionRow): string {
 // Amount formatter
 // ---------------------------------------------------------------------------
 
-function formatAmount(usd: number, lbp: number, metaJson?: string | null): string {
+function formatAmount(
+  usd: number,
+  lbp: number,
+  metaJson?: string | null,
+): string {
   const parts: string[] = [];
   if (usd) parts.push(`$${usd.toLocaleString()}`);
   if (lbp) parts.push(`${lbp.toLocaleString()} LBP`);
@@ -228,10 +249,17 @@ function formatAmount(usd: number, lbp: number, metaJson?: string | null): strin
       const meta = JSON.parse(metaJson) as Record<string, unknown>;
       const amt = meta.amount;
       const cur = meta.currency;
-      if (typeof amt === "number" && amt && typeof cur === "string" && cur !== "USD") {
+      if (
+        typeof amt === "number" &&
+        amt &&
+        typeof cur === "string" &&
+        cur !== "USD"
+      ) {
         parts.push(`${amt.toFixed(2)} ${cur}`);
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
   return parts.join(" + ") || "—";
 }
@@ -243,7 +271,9 @@ function formatAmount(usd: number, lbp: number, metaJson?: string | null): strin
 /** Format a single payment amount with its currency, e.g. "$50" or "100,000 LBP". */
 function formatLegAmount(leg: TransactionPaymentLeg): string {
   const value = leg.amount.toLocaleString();
-  return leg.currency_code === "USD" ? `$${value}` : `${value} ${leg.currency_code}`;
+  return leg.currency_code === "USD"
+    ? `$${value}`
+    : `${value} ${leg.currency_code}`;
 }
 
 /**
@@ -252,7 +282,9 @@ function formatLegAmount(leg: TransactionPaymentLeg): string {
  * can skip rendering. Same-currency legs on the same side are summed so the
  * label stays compact (e.g. two USD cash legs → one "$50").
  */
-function formatPaymentLegs(legs: TransactionPaymentLeg[] | undefined): string | null {
+function formatPaymentLegs(
+  legs: TransactionPaymentLeg[] | undefined,
+): string | null {
   if (!legs || legs.length === 0) return null;
 
   const sumByCurrency = (side: "in" | "out"): string[] => {
@@ -314,8 +346,10 @@ function formatCheckpointAmounts(metaJson: string | null): string | null {
       .map(([drawer, entries]) => {
         const amtStr = entries
           .map((e) => {
-            if (e.currency_code === "USD") return `$${e.physical_amount.toLocaleString()}`;
-            if (e.currency_code === "LBP") return `${e.physical_amount.toLocaleString()} L`;
+            if (e.currency_code === "USD")
+              return `$${e.physical_amount.toLocaleString()}`;
+            if (e.currency_code === "LBP")
+              return `${e.physical_amount.toLocaleString()} L`;
             return `${e.physical_amount.toLocaleString()} ${e.currency_code}`;
           })
           .join(" + ");
@@ -327,12 +361,15 @@ function formatCheckpointAmounts(metaJson: string | null): string | null {
   }
 }
 
-function checkpointPhysicalTotals(metaJson: string | null): { usd: number; lbp: number } | null {
+function checkpointPhysicalTotals(
+  metaJson: string | null,
+): { usd: number; lbp: number } | null {
   if (!metaJson) return null;
   try {
     const meta = JSON.parse(metaJson) as { amounts?: CheckpointAmountEntry[] };
     if (!meta.amounts) return null;
-    let usd = 0, lbp = 0;
+    let usd = 0,
+      lbp = 0;
     for (const e of meta.amounts) {
       if (e.currency_code === "USD") usd += e.physical_amount;
       else if (e.currency_code === "LBP") lbp += e.physical_amount;
@@ -417,12 +454,21 @@ interface CashFlowBadgeProps {
   metaJson?: string | null;
 }
 
-function CashFlowBadge({ type, amountUsd, amountLbp, metaJson }: CashFlowBadgeProps) {
+function CashFlowBadge({
+  type,
+  amountUsd,
+  amountLbp,
+  metaJson,
+}: CashFlowBadgeProps) {
   // Supplier credit (e.g. a bill commission owed to us): a receivable, not drawer
   // cash. Show a distinct amber "credit" marker instead of the green cash-in
   // arrow, and a positive magnitude (defensive abs for any legacy signed rows).
   if (isSupplierCredit(type, metaJson)) {
-    const amountStr = formatAmount(Math.abs(amountUsd), Math.abs(amountLbp), metaJson);
+    const amountStr = formatAmount(
+      Math.abs(amountUsd),
+      Math.abs(amountLbp),
+      metaJson,
+    );
     return (
       <span className="inline-flex items-center gap-1 text-[11px] font-mono">
         <span className="text-amber-400">+</span>
@@ -567,7 +613,7 @@ export default function TransactionsViewer({
   // where we render the fold toggle).
   const sandwichMeta = useMemo(() => {
     const firstId = new Map<number, number>(); // sessionId → max rowId
-    const count = new Map<number, number>();   // sessionId → count
+    const count = new Map<number, number>(); // sessionId → count
     for (const [rowId, sessionId] of sandwichedMap) {
       count.set(sessionId, (count.get(sessionId) ?? 0) + 1);
       const cur = firstId.get(sessionId);
@@ -690,31 +736,33 @@ export default function TransactionsViewer({
                 {row.summary}
               </span>
             )}
-            {row.type === "CHECKPOINT" && (() => {
-              const amountDetail = formatCheckpointAmounts(row.metadata_json);
-              if (!amountDetail) return null;
-              return (
-                <span className="text-[10px] font-mono text-slate-500 truncate max-w-[480px]">
-                  {amountDetail}
-                </span>
-              );
-            })()}
-            {row.type !== "CHECKPOINT" && (() => {
-              const legs = formatPaymentLegs(row.payments);
-              const rate = row.exchange_rate
-                ? `@ ${Math.round(row.exchange_rate).toLocaleString()}`
-                : null;
-              const text = [legs, rate].filter(Boolean).join(" · ");
-              if (!text) return null;
-              return (
-                <span
-                  data-testid="payment-legs"
-                  className="text-[11px] font-mono text-slate-500 truncate max-w-[480px]"
-                >
-                  {text}
-                </span>
-              );
-            })()}
+            {row.type === "CHECKPOINT" &&
+              (() => {
+                const amountDetail = formatCheckpointAmounts(row.metadata_json);
+                if (!amountDetail) return null;
+                return (
+                  <span className="text-[10px] font-mono text-slate-500 truncate max-w-[480px]">
+                    {amountDetail}
+                  </span>
+                );
+              })()}
+            {row.type !== "CHECKPOINT" &&
+              (() => {
+                const legs = formatPaymentLegs(row.payments);
+                const rate = row.exchange_rate
+                  ? `@ ${Math.round(row.exchange_rate).toLocaleString()}`
+                  : null;
+                const text = [legs, rate].filter(Boolean).join(" · ");
+                if (!text) return null;
+                return (
+                  <span
+                    data-testid="payment-legs"
+                    className="text-[11px] font-mono text-slate-500 truncate max-w-[480px]"
+                  >
+                    {text}
+                  </span>
+                );
+              })()}
           </div>
         </td>
         <td className="p-2 truncate" style={{ width: 160 }}>
@@ -734,7 +782,11 @@ export default function TransactionsViewer({
             {row.type === "CHECKPOINT"
               ? (() => {
                   const totals = checkpointPhysicalTotals(row.metadata_json);
-                  return formatAmount(totals?.usd ?? row.amount_usd, totals?.lbp ?? row.amount_lbp, null);
+                  return formatAmount(
+                    totals?.usd ?? row.amount_usd,
+                    totals?.lbp ?? row.amount_lbp,
+                    null,
+                  );
                 })()
               : formatAmount(
                   credit ? Math.abs(row.amount_usd) : row.amount_usd,
@@ -910,7 +962,8 @@ export default function TransactionsViewer({
                         padding: "1px 6px",
                         borderRadius: "9999px",
                         background: "hsla(var(--session-hue), 78%, 62%, 0.15)",
-                        border: "1px solid hsla(var(--session-hue), 78%, 62%, 0.45)",
+                        border:
+                          "1px solid hsla(var(--session-hue), 78%, 62%, 0.45)",
                         color: "hsla(var(--session-hue), 78%, 62%, 0.9)",
                         fontSize: "9px",
                         fontFamily: "monospace",
@@ -968,7 +1021,8 @@ export default function TransactionsViewer({
                         padding: "1px 6px",
                         borderRadius: "9999px",
                         background: "hsla(var(--session-hue), 78%, 62%, 0.15)",
-                        border: "1px solid hsla(var(--session-hue), 78%, 62%, 0.45)",
+                        border:
+                          "1px solid hsla(var(--session-hue), 78%, 62%, 0.45)",
                         color: "hsla(var(--session-hue), 78%, 62%, 0.9)",
                         fontSize: "9px",
                         fontFamily: "monospace",

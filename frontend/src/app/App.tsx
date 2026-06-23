@@ -335,31 +335,31 @@ function App() {
     // ErrorBoundary catches any unhandled render crash and shows a recovery screen
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
-      <ThemeProvider>
-        {/* HashRouter is recommended for Electron to avoid path issues in production */}
-        <ApiProvider adapter={backendApiAdapter}>
-          <ModuleProvider>
-            <CurrencyProvider>
-              <FeatureFlagProvider>
-                <HashRouter>
-                  <ActiveModuleProvider>
-                    <AuthProvider>
-                      <SessionProvider>
-                        {/* Mounted below AuthProvider so the catalog seed/load
+        <ThemeProvider>
+          {/* HashRouter is recommended for Electron to avoid path issues in production */}
+          <ApiProvider adapter={backendApiAdapter}>
+            <ModuleProvider>
+              <CurrencyProvider>
+                <FeatureFlagProvider>
+                  <HashRouter>
+                    <ActiveModuleProvider>
+                      <AuthProvider>
+                        <SessionProvider>
+                          {/* Mounted below AuthProvider so the catalog seed/load
                             runs with an authenticated session (seeding requires
                             admin/staff role) and re-runs when the user logs in. */}
-                        <MobileServiceItemsProvider>
-                          <AppRoutes />
-                        </MobileServiceItemsProvider>
-                      </SessionProvider>
-                    </AuthProvider>
-                  </ActiveModuleProvider>
-                </HashRouter>
-              </FeatureFlagProvider>
-            </CurrencyProvider>
-          </ModuleProvider>
-        </ApiProvider>
-      </ThemeProvider>
+                          <MobileServiceItemsProvider>
+                            <AppRoutes />
+                          </MobileServiceItemsProvider>
+                        </SessionProvider>
+                      </AuthProvider>
+                    </ActiveModuleProvider>
+                  </HashRouter>
+                </FeatureFlagProvider>
+              </CurrencyProvider>
+            </ModuleProvider>
+          </ApiProvider>
+        </ThemeProvider>
       </QueryClientProvider>
     </ErrorBoundary>
   );

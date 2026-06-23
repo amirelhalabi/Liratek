@@ -204,7 +204,9 @@ test("Expenses: record an expense", async ({ appPage }) => {
   // Amount — use data-testid prefix to avoid matching exchange-rate input
   // (whose placeholder "89,000" contains "0" and would be matched first by
   //  getByPlaceholder("0") since it now always renders in the header)
-  const amountInput = appPage.locator('[data-testid^="payment-amount-"]').first();
+  const amountInput = appPage
+    .locator('[data-testid^="payment-amount-"]')
+    .first();
   await amountInput.click();
   await amountInput.fill("35");
 
@@ -241,9 +243,9 @@ test("Debts: add sale debt and settle", async ({ appPage }) => {
   );
   await expect(clientField).toBeVisible({ timeout: 5000 });
   await clientField.fill("E2E Test");
-  await expect(
-    appPage.locator('[data-testid="client-dropdown"]'),
-  ).toBeVisible({ timeout: 5000 });
+  await expect(appPage.locator('[data-testid="client-dropdown"]')).toBeVisible({
+    timeout: 5000,
+  });
   await appPage.locator('[data-testid^="client-option-"]').first().click();
 
   // Wait for the CUSTOMER_ACCOUNT auto-switch effect to commit before completing
@@ -283,7 +285,9 @@ test("Debts: add sale debt and settle", async ({ appPage }) => {
     const cartEmpty = appPage.locator("text=Cart is empty");
     const failureAlert = appPage
       .locator('[role="alert"]')
-      .filter({ hasText: /fail|error|debt|disabled|required|phone|anonymous/i });
+      .filter({
+        hasText: /fail|error|debt|disabled|required|phone|anonymous/i,
+      });
     await Promise.race([
       cartEmpty.waitFor({ state: "visible", timeout: 12_000 }).catch(() => {}),
       failureAlert
@@ -291,7 +295,12 @@ test("Debts: add sale debt and settle", async ({ appPage }) => {
         .waitFor({ state: "visible", timeout: 12_000 })
         .catch(() => {}),
     ]);
-    if (await failureAlert.first().isVisible().catch(() => false)) {
+    if (
+      await failureAlert
+        .first()
+        .isVisible()
+        .catch(() => false)
+    ) {
       const msg = (await failureAlert.allTextContents().catch(() => [])).join(
         " | ",
       );

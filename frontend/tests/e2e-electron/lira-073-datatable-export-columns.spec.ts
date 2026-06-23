@@ -84,9 +84,9 @@ test.describe("LIRA-073 — DataTable export customizable columns", () => {
     }
 
     // The "Actions" column is excluded from the picker entirely.
-    await expect(
-      menu.getByTestId("export-column-option-Actions"),
-    ).toHaveCount(0);
+    await expect(menu.getByTestId("export-column-option-Actions")).toHaveCount(
+      0,
+    );
 
     // ── User can ADD a column before exporting ──────────────────────────────
     const amountCheckbox = menu

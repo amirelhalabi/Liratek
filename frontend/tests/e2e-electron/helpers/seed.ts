@@ -50,9 +50,7 @@ export async function seedProduct(
     data,
   );
   if (!result.success || result.id == null) {
-    throw new Error(
-      `seedProduct failed: ${result.error ?? "no id returned"}`,
-    );
+    throw new Error(`seedProduct failed: ${result.error ?? "no id returned"}`);
   }
   return result.id;
 }
@@ -128,9 +126,7 @@ export async function seedExpense(
     { ...data, today },
   );
   if (!result.success || result.id == null) {
-    throw new Error(
-      `seedExpense failed: ${result.error ?? "no id returned"}`,
-    );
+    throw new Error(`seedExpense failed: ${result.error ?? "no id returned"}`);
   }
   return result.id;
 }

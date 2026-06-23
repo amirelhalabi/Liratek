@@ -170,7 +170,11 @@ export function ClientAutocompleteInput({
   }
 
   return (
-    <div ref={containerRef} className="relative" data-testid="client-autocomplete-input">
+    <div
+      ref={containerRef}
+      className="relative"
+      data-testid="client-autocomplete-input"
+    >
       <input
         ref={inputRef}
         id={id}
@@ -190,7 +194,10 @@ export function ClientAutocompleteInput({
         autoFocus={autoFocus}
       />
       {showDropdown && filtered.length > 0 && (
-        <div data-testid="client-dropdown" className="absolute z-50 top-full left-0 right-0 mt-1 bg-slate-800 border border-slate-600 rounded-lg shadow-xl max-h-48 overflow-y-auto">
+        <div
+          data-testid="client-dropdown"
+          className="absolute z-50 top-full left-0 right-0 mt-1 bg-slate-800 border border-slate-600 rounded-lg shadow-xl max-h-48 overflow-y-auto"
+        >
           {filtered.map((client, idx) => (
             <button
               key={client.id}
@@ -212,7 +219,10 @@ export function ClientAutocompleteInput({
                   </span>
                 )}
                 {showDebtBadge && debtMap.has(client.id) && (
-                  <span className="px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-400 text-[10px] font-bold" data-testid={`client-debt-badge-${client.id}`}>
+                  <span
+                    className="px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-400 text-[10px] font-bold"
+                    data-testid={`client-debt-badge-${client.id}`}
+                  >
                     ${debtMap.get(client.id)!.toFixed(2)}
                   </span>
                 )}

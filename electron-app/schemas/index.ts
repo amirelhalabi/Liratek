@@ -61,8 +61,15 @@ const PRICE_GT_COST_MSG = {
   path: ["retail_price"],
 } as const;
 
-function priceGtCostCheck(d: { retail_price: number; cost_price: number }): boolean {
-  return !(d.retail_price > 0 && d.cost_price > 0 && d.retail_price <= d.cost_price);
+function priceGtCostCheck(d: {
+  retail_price: number;
+  cost_price: number;
+}): boolean {
+  return !(
+    d.retail_price > 0 &&
+    d.cost_price > 0 &&
+    d.retail_price <= d.cost_price
+  );
 }
 
 const ProductBaseShape = z.object({
@@ -87,18 +94,18 @@ export const ProductCreateSchema = ProductBaseShape.refine(
 /** Update: id is required to identify the row to modify. */
 export const ProductUpdateSchema = ProductBaseShape.extend({
   id: z.number().int().positive("Product ID is required for updates"),
-}).refine(
-  (d) => priceGtCostCheck(d),
-  { message: PRICE_GT_COST_MSG.message, path: ["retail_price"] },
-);
+}).refine((d) => priceGtCostCheck(d), {
+  message: PRICE_GT_COST_MSG.message,
+  path: ["retail_price"],
+});
 
 /** @deprecated Use ProductCreateSchema or ProductUpdateSchema instead. */
 export const ProductInputSchema = ProductBaseShape.extend({
   id: z.number().int().positive().optional(),
-}).refine(
-  (d) => priceGtCostCheck(d),
-  { message: PRICE_GT_COST_MSG.message, path: ["retail_price"] },
-);
+}).refine((d) => priceGtCostCheck(d), {
+  message: PRICE_GT_COST_MSG.message,
+  path: ["retail_price"],
+});
 
 export const BatchUpdateSchema = z.object({
   ids: z.array(z.number().int().positive()).min(1),
@@ -391,7 +398,9 @@ export const LotoCheckpointSettleSchema = z.object({
 });
 
 export const LotoCheckpointsSettleBatchSchema = z.object({
-  checkpointIds: z.array(z.number().int().positive()).min(1, "At least one checkpoint required"),
+  checkpointIds: z
+    .array(z.number().int().positive())
+    .min(1, "At least one checkpoint required"),
   totalSales: z.number().nonnegative(),
   totalCommission: z.number().nonnegative(),
   settledAt: z.string().optional(),

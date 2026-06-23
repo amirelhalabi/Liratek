@@ -50,14 +50,18 @@ test.describe.serial("CheckoutModal", () => {
     await expect(clientSearch).toBeVisible({ timeout: 5000 });
     await clientSearch.fill(clientName.slice(0, 4));
 
-    await expect(appPage.locator('[data-testid="client-dropdown"]')).toBeVisible({ timeout: 5000 });
+    await expect(
+      appPage.locator('[data-testid="client-dropdown"]'),
+    ).toBeVisible({ timeout: 5000 });
     await appPage.locator('[data-testid^="client-option-"]').first().click();
 
     // After selection the name populates the input's value (not a text node).
     await expect(clientSearch).toHaveValue(clientName, { timeout: 5000 });
 
     await appPage.keyboard.press("Escape");
-    await expect(appPage.locator('[data-testid="checkout-modal"]')).not.toBeVisible({ timeout: 5000 });
+    await expect(
+      appPage.locator('[data-testid="checkout-modal"]'),
+    ).not.toBeVisible({ timeout: 5000 });
   });
 
   // -------------------------------------------------------------------------
@@ -80,7 +84,9 @@ test.describe.serial("CheckoutModal", () => {
     await expect(clientSearch).toBeVisible({ timeout: 5000 });
     await clientSearch.fill(clientName.slice(0, 4));
 
-    await expect(appPage.locator('[data-testid="client-dropdown"]')).toBeVisible({ timeout: 5000 });
+    await expect(
+      appPage.locator('[data-testid="client-dropdown"]'),
+    ).toBeVisible({ timeout: 5000 });
     await appPage.locator('[data-testid^="client-option-"]').first().click();
 
     // CUSTOMER_ACCOUNT should auto-switch after client is selected.
@@ -88,10 +94,14 @@ test.describe.serial("CheckoutModal", () => {
     const paymentSelect = appPage
       .locator('[data-testid="checkout-modal"] select')
       .first();
-    await expect(paymentSelect).toHaveValue("CUSTOMER_ACCOUNT", { timeout: 5000 });
+    await expect(paymentSelect).toHaveValue("CUSTOMER_ACCOUNT", {
+      timeout: 5000,
+    });
 
     await appPage.keyboard.press("Escape");
-    await expect(appPage.locator('[data-testid="checkout-modal"]')).not.toBeVisible({ timeout: 5000 });
+    await expect(
+      appPage.locator('[data-testid="checkout-modal"]'),
+    ).not.toBeVisible({ timeout: 5000 });
   });
 
   // -------------------------------------------------------------------------
@@ -115,14 +125,18 @@ test.describe.serial("CheckoutModal", () => {
     await expect(clientSearch).toBeVisible({ timeout: 5000 });
     await clientSearch.fill(clientName.slice(0, 4));
 
-    await expect(appPage.locator('[data-testid="client-dropdown"]')).toBeVisible({ timeout: 5000 });
+    await expect(
+      appPage.locator('[data-testid="client-dropdown"]'),
+    ).toBeVisible({ timeout: 5000 });
     await appPage.locator('[data-testid^="client-option-"]').first().click();
 
     // CUSTOMER_ACCOUNT is auto-selected when a client is picked; verify it
     const paymentSelect = appPage
       .locator('[data-testid="checkout-modal"] select')
       .first();
-    await expect(paymentSelect).toHaveValue("CUSTOMER_ACCOUNT", { timeout: 5000 });
+    await expect(paymentSelect).toHaveValue("CUSTOMER_ACCOUNT", {
+      timeout: 5000,
+    });
 
     // Complete the sale
     await expect(checkoutPO.completeBtn).toBeVisible({ timeout: 5000 });
@@ -188,7 +202,9 @@ test.describe.serial("CheckoutModal", () => {
     await checkoutPO.complete();
 
     // Verify cart is cleared (sale completed)
-    await expect(appPage.locator("text=Cart is empty")).toBeVisible({ timeout: 10_000 });
+    await expect(appPage.locator("text=Cart is empty")).toBeVisible({
+      timeout: 10_000,
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -215,13 +231,17 @@ test.describe.serial("CheckoutModal", () => {
     await priceInput.fill("50");
 
     // Click "Proceed to Checkout"
-    const checkoutBtn = appPage.locator("button", { hasText: /Proceed to Checkout/i }).first();
+    const checkoutBtn = appPage
+      .locator("button", { hasText: /Proceed to Checkout/i })
+      .first();
     await expect(checkoutBtn).toBeVisible({ timeout: 5000 });
     await checkoutBtn.click();
     await checkoutPO.expectOpen();
 
     // Close modal
     await appPage.keyboard.press("Escape");
-    await expect(appPage.locator('[data-testid="checkout-modal"]')).not.toBeVisible({ timeout: 5000 });
+    await expect(
+      appPage.locator('[data-testid="checkout-modal"]'),
+    ).not.toBeVisible({ timeout: 5000 });
   });
 });

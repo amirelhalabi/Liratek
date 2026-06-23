@@ -203,7 +203,9 @@ export default function CustomServices() {
     setClientId(client.id);
     if (client.phone_number) setPhoneNumber(client.phone_number);
     resetSaveAsClient();
-    const hasCustomerAccount = methods.some((m) => m.code === "CUSTOMER_ACCOUNT");
+    const hasCustomerAccount = methods.some(
+      (m) => m.code === "CUSTOMER_ACCOUNT",
+    );
     const chargeable = canChargeToCustomerAccount({
       name: client.full_name,
       phone: client.phone_number,
@@ -246,7 +248,9 @@ export default function CustomServices() {
       alert("Please enter a cost or price.");
       return;
     }
-    const hasDebtLine = paymentLines.some((l) => l.method === "CUSTOMER_ACCOUNT");
+    const hasDebtLine = paymentLines.some(
+      (l) => l.method === "CUSTOMER_ACCOUNT",
+    );
     if (hasDebtLine && !clientId) {
       alert("Please select a client for debt payment.");
       return;
@@ -463,413 +467,422 @@ export default function CustomServices() {
             {/* Standard custom-service form (hidden for Hold Money) */}
             {category !== HOLD_MONEY_CATEGORY && (
               <>
-            {/* Presets from DB — always visible under category */}
-            {!description && !selectedProduct && (
-              <div className="p-3 rounded-xl bg-purple-500/5 border border-purple-500/20 space-y-2">
-                <span className="block text-xs font-medium text-purple-400 uppercase tracking-wider">
-                  Presets
-                </span>
-                {(() => {
-                  const categoryPresets = presets.filter(
-                    (p) => !category || p.category === category,
-                  );
-                  if (categoryPresets.length === 0) {
-                    const label =
-                      SERVICE_CATEGORIES.find((c) => c.value === category)
-                        ?.label ?? "this category";
-                    return (
-                      <p className="text-xs text-slate-500">
-                        No presets for {label}. Add presets via the Presets
-                        manager.
-                      </p>
-                    );
-                  }
-                  return (
-                    <div className="flex flex-wrap gap-2">
-                      {categoryPresets.map((preset) => (
+                {/* Presets from DB — always visible under category */}
+                {!description && !selectedProduct && (
+                  <div className="p-3 rounded-xl bg-purple-500/5 border border-purple-500/20 space-y-2">
+                    <span className="block text-xs font-medium text-purple-400 uppercase tracking-wider">
+                      Presets
+                    </span>
+                    {(() => {
+                      const categoryPresets = presets.filter(
+                        (p) => !category || p.category === category,
+                      );
+                      if (categoryPresets.length === 0) {
+                        const label =
+                          SERVICE_CATEGORIES.find((c) => c.value === category)
+                            ?.label ?? "this category";
+                        return (
+                          <p className="text-xs text-slate-500">
+                            No presets for {label}. Add presets via the Presets
+                            manager.
+                          </p>
+                        );
+                      }
+                      return (
+                        <div className="flex flex-wrap gap-2">
+                          {categoryPresets.map((preset) => (
+                            <button
+                              key={preset.id}
+                              type="button"
+                              onClick={() => {
+                                setDescription(preset.name);
+                                setCategory(preset.category);
+                                // Single-currency model: pick the preset's currency
+                                // (prefer USD when present) and clear the other.
+                                const usePreset =
+                                  preset.price_usd > 0 || preset.cost_usd > 0
+                                    ? "USD"
+                                    : preset.price_lbp > 0 ||
+                                        preset.cost_lbp > 0
+                                      ? "LBP"
+                                      : currency;
+                                setCurrency(usePreset);
+                                if (usePreset === "USD") {
+                                  setCostUsd(
+                                    preset.cost_usd > 0
+                                      ? String(preset.cost_usd)
+                                      : "",
+                                  );
+                                  setPriceUsd(
+                                    preset.price_usd > 0
+                                      ? String(preset.price_usd)
+                                      : "",
+                                  );
+                                  setCostLbp("");
+                                  setPriceLbp("");
+                                } else {
+                                  setCostLbp(
+                                    preset.cost_lbp > 0
+                                      ? String(preset.cost_lbp)
+                                      : "",
+                                  );
+                                  setPriceLbp(
+                                    preset.price_lbp > 0
+                                      ? String(preset.price_lbp)
+                                      : "",
+                                  );
+                                  setCostUsd("");
+                                  setPriceUsd("");
+                                }
+                              }}
+                              className="px-3 py-2 rounded-lg text-xs font-medium bg-slate-900/60 border border-slate-700 text-slate-300 hover:border-purple-500/40 hover:text-white transition-all"
+                            >
+                              <span className="block">{preset.name}</span>
+                              <span className="text-[10px] text-slate-500">
+                                Cost: ${preset.cost_usd.toFixed(2)} · Price: $
+                                {preset.price_usd.toFixed(2)}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+                {/* Search Bar / Item Selector — replaces description field */}
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
+                    <Package size={12} className="inline mr-1" />
+                    Search Item or Service
+                  </label>
+                  {selectedProduct ? (
+                    /* Product selected — show selection chip */
+                    <div className="flex items-center gap-2 bg-teal-500/10 border border-teal-500/30 rounded-lg px-4 py-2.5">
+                      <Package size={14} className="text-teal-400" />
+                      <span className="text-white font-medium text-sm flex-1">
+                        {selectedProduct.name}
+                      </span>
+                      <button
+                        onClick={() => {
+                          clearProduct();
+                          setDescription("");
+                          setCostUsd("");
+                          setPriceUsd("");
+                        }}
+                        className="text-slate-400 hover:text-white transition-colors"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ) : !description ? (
+                    /* No selection yet — show SearchBar */
+                    <div ref={productSearchRef}>
+                      <SearchBar<ProductSearchResult>
+                        placeholder="Search inventory by name or barcode..."
+                        onSearch={async (query) => {
+                          const results =
+                            await window.api.inventory.getProducts(query);
+                          return results.slice(0, 8).map((p: any) => ({
+                            id: p.id as number,
+                            name: p.name as string,
+                            cost_price: (p.cost_price ??
+                              p.cost_price_usd ??
+                              0) as number,
+                            retail_price: (p.retail_price ??
+                              p.selling_price_usd ??
+                              0) as number,
+                            barcode: (p.barcode ?? "") as string,
+                          }));
+                        }}
+                        onSelect={(product) => {
+                          setSelectedProduct({
+                            id: product.id,
+                            name: product.name,
+                          });
+                          setDescription(product.name);
+                          // Products are priced in USD — switch to USD entry.
+                          setCurrency("USD");
+                          setCostLbp("");
+                          setPriceLbp("");
+                          setCostUsd(
+                            product.cost_price > 0
+                              ? String(product.cost_price)
+                              : "",
+                          );
+                          setPriceUsd(
+                            product.retail_price > 0
+                              ? String(product.retail_price)
+                              : "",
+                          );
+                        }}
+                        onFreeText={(text) => {
+                          setDescription(text);
+                        }}
+                        renderItem={(item) => (
+                          <div className="flex items-center justify-between w-full">
+                            <span className="font-medium">{item.name}</span>
+                            <span className="text-slate-400 text-xs">
+                              Cost: ${item.cost_price.toFixed(2)} | Price: $
+                              {item.retail_price.toFixed(2)}
+                            </span>
+                          </div>
+                        )}
+                        getKey={(item) => item.id}
+                        ringColor="ring-teal-500/50"
+                        noResultsMessage="No items found. Press Enter to use as description."
+                      />
+                    </div>
+                  ) : (
+                    /* Free text description entered (no product match) */
+                    <div className="relative">
+                      <input
+                        id="svc-description"
+                        type="text"
+                        value={description}
+                        onChange={(e) => setDescription(e.target.value)}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-white focus:border-teal-500 focus:ring-2 focus:ring-teal-500/50 outline-none transition-all"
+                        placeholder="e.g., Phone screen repair, SIM activation"
+                        maxLength={500}
+                      />
+                      <button
+                        onClick={() => setDescription("")}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+                        type="button"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Cost & Price — Single Currency (USD/LBP toggle) */}
+                <div className="p-4 rounded-xl bg-teal-400/5 border border-teal-400/20 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="block text-xs font-medium text-teal-400 uppercase tracking-wider">
+                      Cost / Price
+                    </span>
+                    {/* Currency toggle */}
+                    <div className="flex items-center gap-1 bg-slate-900 rounded-lg border border-slate-600 p-0.5">
+                      {(["USD", "LBP"] as const).map((cur) => (
                         <button
-                          key={preset.id}
+                          key={cur}
                           type="button"
                           onClick={() => {
-                            setDescription(preset.name);
-                            setCategory(preset.category);
-                            // Single-currency model: pick the preset's currency
-                            // (prefer USD when present) and clear the other.
-                            const usePreset =
-                              preset.price_usd > 0 || preset.cost_usd > 0
-                                ? "USD"
-                                : preset.price_lbp > 0 || preset.cost_lbp > 0
-                                  ? "LBP"
-                                  : currency;
-                            setCurrency(usePreset);
-                            if (usePreset === "USD") {
-                              setCostUsd(
-                                preset.cost_usd > 0
-                                  ? String(preset.cost_usd)
-                                  : "",
-                              );
-                              setPriceUsd(
-                                preset.price_usd > 0
-                                  ? String(preset.price_usd)
-                                  : "",
-                              );
+                            setCurrency(cur);
+                            // One currency at a time — clear the other currency.
+                            if (cur === "USD") {
                               setCostLbp("");
                               setPriceLbp("");
                             } else {
-                              setCostLbp(
-                                preset.cost_lbp > 0
-                                  ? String(preset.cost_lbp)
-                                  : "",
-                              );
-                              setPriceLbp(
-                                preset.price_lbp > 0
-                                  ? String(preset.price_lbp)
-                                  : "",
-                              );
                               setCostUsd("");
                               setPriceUsd("");
                             }
                           }}
-                          className="px-3 py-2 rounded-lg text-xs font-medium bg-slate-900/60 border border-slate-700 text-slate-300 hover:border-purple-500/40 hover:text-white transition-all"
+                          className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all ${
+                            currency === cur
+                              ? "bg-teal-600 text-white"
+                              : "text-slate-400 hover:text-slate-200"
+                          }`}
                         >
-                          <span className="block">{preset.name}</span>
-                          <span className="text-[10px] text-slate-500">
-                            Cost: ${preset.cost_usd.toFixed(2)} · Price: $
-                            {preset.price_usd.toFixed(2)}
-                          </span>
+                          {cur}
                         </button>
                       ))}
                     </div>
-                  );
-                })()}
-              </div>
-            )}
-            {/* Search Bar / Item Selector — replaces description field */}
-            <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider">
-                <Package size={12} className="inline mr-1" />
-                Search Item or Service
-              </label>
-              {selectedProduct ? (
-                /* Product selected — show selection chip */
-                <div className="flex items-center gap-2 bg-teal-500/10 border border-teal-500/30 rounded-lg px-4 py-2.5">
-                  <Package size={14} className="text-teal-400" />
-                  <span className="text-white font-medium text-sm flex-1">
-                    {selectedProduct.name}
-                  </span>
-                  <button
-                    onClick={() => {
-                      clearProduct();
-                      setDescription("");
-                      setCostUsd("");
-                      setPriceUsd("");
-                    }}
-                    className="text-slate-400 hover:text-white transition-colors"
-                  >
-                    <X size={14} />
-                  </button>
-                </div>
-              ) : !description ? (
-                /* No selection yet — show SearchBar */
-                <div ref={productSearchRef}>
-                  <SearchBar<ProductSearchResult>
-                    placeholder="Search inventory by name or barcode..."
-                    onSearch={async (query) => {
-                      const results =
-                        await window.api.inventory.getProducts(query);
-                      return results.slice(0, 8).map((p: any) => ({
-                        id: p.id as number,
-                        name: p.name as string,
-                        cost_price: (p.cost_price ??
-                          p.cost_price_usd ??
-                          0) as number,
-                        retail_price: (p.retail_price ??
-                          p.selling_price_usd ??
-                          0) as number,
-                        barcode: (p.barcode ?? "") as string,
-                      }));
-                    }}
-                    onSelect={(product) => {
-                      setSelectedProduct({
-                        id: product.id,
-                        name: product.name,
-                      });
-                      setDescription(product.name);
-                      // Products are priced in USD — switch to USD entry.
-                      setCurrency("USD");
-                      setCostLbp("");
-                      setPriceLbp("");
-                      setCostUsd(
-                        product.cost_price > 0
-                          ? String(product.cost_price)
-                          : "",
-                      );
-                      setPriceUsd(
-                        product.retail_price > 0
-                          ? String(product.retail_price)
-                          : "",
-                      );
-                    }}
-                    onFreeText={(text) => {
-                      setDescription(text);
-                    }}
-                    renderItem={(item) => (
-                      <div className="flex items-center justify-between w-full">
-                        <span className="font-medium">{item.name}</span>
-                        <span className="text-slate-400 text-xs">
-                          Cost: ${item.cost_price.toFixed(2)} | Price: $
-                          {item.retail_price.toFixed(2)}
-                        </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label
+                        htmlFor="svc-cost"
+                        className="block text-[10px] text-slate-500 mb-1 uppercase"
+                      >
+                        Cost {currency}
+                      </label>
+                      <div className="relative">
+                        {currency === "USD" && (
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">
+                            $
+                          </span>
+                        )}
+                        <DecimalInput
+                          id="svc-cost"
+                          value={
+                            parseFloat(
+                              currency === "USD" ? costUsd : costLbp,
+                            ) || 0
+                          }
+                          onChange={(n) => {
+                            const v = n ? String(n) : "";
+                            if (currency === "USD") setCostUsd(v);
+                            else setCostLbp(v);
+                          }}
+                          className={`w-full bg-slate-900/80 border border-slate-700 rounded-lg ${currency === "USD" ? "pl-8" : "pl-3"} pr-3 py-2.5 text-white font-mono text-sm focus:ring-2 focus:ring-teal-500 outline-none transition-all`}
+                          placeholder={currency === "USD" ? "0.00" : "0"}
+                        />
                       </div>
-                    )}
-                    getKey={(item) => item.id}
-                    ringColor="ring-teal-500/50"
-                    noResultsMessage="No items found. Press Enter to use as description."
-                  />
-                </div>
-              ) : (
-                /* Free text description entered (no product match) */
-                <div className="relative">
-                  <input
-                    id="svc-description"
-                    type="text"
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-white focus:border-teal-500 focus:ring-2 focus:ring-teal-500/50 outline-none transition-all"
-                    placeholder="e.g., Phone screen repair, SIM activation"
-                    maxLength={500}
-                  />
-                  <button
-                    onClick={() => setDescription("")}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
-                    type="button"
-                  >
-                    <X size={14} />
-                  </button>
-                </div>
-              )}
-            </div>
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="svc-price"
+                        className="block text-[10px] text-slate-500 mb-1 uppercase"
+                      >
+                        Price {currency}
+                      </label>
+                      <div className="relative">
+                        {currency === "USD" && (
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">
+                            $
+                          </span>
+                        )}
+                        <DecimalInput
+                          id="svc-price"
+                          value={
+                            parseFloat(
+                              currency === "USD" ? priceUsd : priceLbp,
+                            ) || 0
+                          }
+                          onChange={(n) => {
+                            const v = n ? String(n) : "";
+                            if (currency === "USD") setPriceUsd(v);
+                            else setPriceLbp(v);
+                          }}
+                          className={`w-full bg-slate-900/80 border border-slate-700 rounded-lg ${currency === "USD" ? "pl-8" : "pl-3"} pr-3 py-2.5 text-white font-mono text-sm focus:ring-2 focus:ring-teal-500 outline-none transition-all`}
+                          placeholder={currency === "USD" ? "0.00" : "0"}
+                        />
+                      </div>
+                    </div>
+                  </div>
 
-            {/* Cost & Price — Single Currency (USD/LBP toggle) */}
-            <div className="p-4 rounded-xl bg-teal-400/5 border border-teal-400/20 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="block text-xs font-medium text-teal-400 uppercase tracking-wider">
-                  Cost / Price
-                </span>
-                {/* Currency toggle */}
-                <div className="flex items-center gap-1 bg-slate-900 rounded-lg border border-slate-600 p-0.5">
-                  {(["USD", "LBP"] as const).map((cur) => (
-                    <button
-                      key={cur}
-                      type="button"
-                      onClick={() => {
-                        setCurrency(cur);
-                        // One currency at a time — clear the other currency.
-                        if (cur === "USD") {
-                          setCostLbp("");
-                          setPriceLbp("");
-                        } else {
-                          setCostUsd("");
-                          setPriceUsd("");
+                  {/* Profit indicator */}
+                  {(costUsdVal > 0 ||
+                    priceUsdVal > 0 ||
+                    costLbpVal > 0 ||
+                    priceLbpVal > 0) && (
+                    <div className="flex items-center gap-2 pt-1">
+                      <TrendingUp
+                        size={14}
+                        className={
+                          profitUsd >= 0 && profitLbp >= 0
+                            ? "text-emerald-400"
+                            : "text-red-400"
                         }
-                      }}
-                      className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all ${
-                        currency === cur
-                          ? "bg-teal-600 text-white"
-                          : "text-slate-400 hover:text-slate-200"
-                      }`}
-                    >
-                      {cur}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label
-                    htmlFor="svc-cost"
-                    className="block text-[10px] text-slate-500 mb-1 uppercase"
-                  >
-                    Cost {currency}
-                  </label>
-                  <div className="relative">
-                    {currency === "USD" && (
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">
-                        $
+                      />
+                      <span
+                        className={`text-sm font-bold ${profitUsd >= 0 && profitLbp >= 0 ? "text-emerald-400" : "text-red-400"}`}
+                      >
+                        Profit: {formatCurrency(profitUsd, profitLbp)}
                       </span>
-                    )}
-                    <DecimalInput
-                      id="svc-cost"
-                      value={parseFloat(currency === "USD" ? costUsd : costLbp) || 0}
-                      onChange={(n) => {
-                        const v = n ? String(n) : "";
-                        if (currency === "USD") setCostUsd(v);
-                        else setCostLbp(v);
-                      }}
-                      className={`w-full bg-slate-900/80 border border-slate-700 rounded-lg ${currency === "USD" ? "pl-8" : "pl-3"} pr-3 py-2.5 text-white font-mono text-sm focus:ring-2 focus:ring-teal-500 outline-none transition-all`}
-                      placeholder={currency === "USD" ? "0.00" : "0"}
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label
-                    htmlFor="svc-price"
-                    className="block text-[10px] text-slate-500 mb-1 uppercase"
-                  >
-                    Price {currency}
-                  </label>
-                  <div className="relative">
-                    {currency === "USD" && (
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">
-                        $
-                      </span>
-                    )}
-                    <DecimalInput
-                      id="svc-price"
-                      value={parseFloat(currency === "USD" ? priceUsd : priceLbp) || 0}
-                      onChange={(n) => {
-                        const v = n ? String(n) : "";
-                        if (currency === "USD") setPriceUsd(v);
-                        else setPriceLbp(v);
-                      }}
-                      className={`w-full bg-slate-900/80 border border-slate-700 rounded-lg ${currency === "USD" ? "pl-8" : "pl-3"} pr-3 py-2.5 text-white font-mono text-sm focus:ring-2 focus:ring-teal-500 outline-none transition-all`}
-                      placeholder={currency === "USD" ? "0.00" : "0"}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Profit indicator */}
-              {(costUsdVal > 0 ||
-                priceUsdVal > 0 ||
-                costLbpVal > 0 ||
-                priceLbpVal > 0) && (
-                <div className="flex items-center gap-2 pt-1">
-                  <TrendingUp
-                    size={14}
-                    className={
-                      profitUsd >= 0 && profitLbp >= 0
-                        ? "text-emerald-400"
-                        : "text-red-400"
-                    }
-                  />
-                  <span
-                    className={`text-sm font-bold ${profitUsd >= 0 && profitLbp >= 0 ? "text-emerald-400" : "text-red-400"}`}
-                  >
-                    Profit: {formatCurrency(profitUsd, profitLbp)}
-                  </span>
-                </div>
-              )}
-            </div>
-
-            {/* Customer Name, Phone & Note — single inline row */}
-            <div className="grid grid-cols-3 gap-3">
-              <div className="relative">
-                <label
-                  htmlFor="svc-client"
-                  className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
-                >
-                  <User size={12} /> Customer Name
-                  {paymentLines.some((l) => l.method === "CUSTOMER_ACCOUNT") && (
-                    <span className="text-red-400 ml-1">*</span>
+                    </div>
                   )}
-                </label>
-                {clientId ? (
-                  <div className="flex items-center gap-2 bg-teal-500/10 border border-teal-500/30 rounded-lg px-4 py-2.5">
-                    <User size={14} className="text-teal-400" />
-                    <span className="text-white font-medium text-sm flex-1 truncate">
-                      {clientName}
-                    </span>
-                    <button
-                      onClick={clearClient}
-                      className="text-slate-400 hover:text-white transition-colors"
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
-                ) : (
-                  <ClientAutocompleteInput
-                    id="svc-client"
-                    value={clientName}
-                    onChange={(v) => {
-                      setClientName(v);
-                      if (!v) clearClient();
-                    }}
-                    onClientSelect={selectClient}
-                    placeholder="Search or type name..."
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-teal-500 transition-all"
-                    showDebtBadge
-                  />
-                )}
-                <SaveAsClientCheckbox
-                  checked={saveAsClient}
-                  onChange={setSaveAsClient}
-                  hidden={!!clientId || !showSaveAsClient}
-                />
-              </div>
-              <div>
-                <label
-                  htmlFor="svc-phone"
-                  className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
-                >
-                  <Phone size={12} /> Phone
-                </label>
-                <input
-                  id="svc-phone"
-                  type="tel"
-                  value={phoneNumber}
-                  onChange={(e) => setPhoneNumber(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-teal-500 transition-all"
-                  placeholder="e.g., 03 123 456"
-                  disabled={!!clientId}
-                />
-              </div>
-              <div>
-                <label
-                  htmlFor="svc-note"
-                  className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
-                >
-                  <Tag size={12} /> Note (optional)
-                </label>
-                <input
-                  id="svc-note"
-                  type="text"
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-teal-500 transition-all"
-                  placeholder="Additional details..."
-                  maxLength={1000}
-                />
-              </div>
-            </div>
+                </div>
 
-            {/* Payment Method */}
-            <div>
-              <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">
-                Payment Method
-              </label>
-              <MultiPaymentInput
-                key={paymentInputKey}
-                totalAmount={priceUsdVal || costUsdVal}
-                currency="USD"
-                onChange={setPaymentLines}
-                onReturnChange={setReturnLegs}
-                requiresClientForDebt={true}
-                hasClient={!!clientId || !!clientName}
-                paymentMethods={methods}
-                currencies={[
-                  { code: "USD", symbol: "$" },
-                  { code: "LBP", symbol: "LBP" },
-                ]}
-                exchangeRate={exchangeRate}
-                clientId={clientId}
-                fetchClientVouchers={fetchClientVouchers}
-                {...(paymentInitialMethod
-                  ? { initialMethod: paymentInitialMethod }
-                  : {})}
-              />
-            </div>
+                {/* Customer Name, Phone & Note — single inline row */}
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="relative">
+                    <label
+                      htmlFor="svc-client"
+                      className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+                    >
+                      <User size={12} /> Customer Name
+                      {paymentLines.some(
+                        (l) => l.method === "CUSTOMER_ACCOUNT",
+                      ) && <span className="text-red-400 ml-1">*</span>}
+                    </label>
+                    {clientId ? (
+                      <div className="flex items-center gap-2 bg-teal-500/10 border border-teal-500/30 rounded-lg px-4 py-2.5">
+                        <User size={14} className="text-teal-400" />
+                        <span className="text-white font-medium text-sm flex-1 truncate">
+                          {clientName}
+                        </span>
+                        <button
+                          onClick={clearClient}
+                          className="text-slate-400 hover:text-white transition-colors"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ) : (
+                      <ClientAutocompleteInput
+                        id="svc-client"
+                        value={clientName}
+                        onChange={(v) => {
+                          setClientName(v);
+                          if (!v) clearClient();
+                        }}
+                        onClientSelect={selectClient}
+                        placeholder="Search or type name..."
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-teal-500 transition-all"
+                        showDebtBadge
+                      />
+                    )}
+                    <SaveAsClientCheckbox
+                      checked={saveAsClient}
+                      onChange={setSaveAsClient}
+                      hidden={!!clientId || !showSaveAsClient}
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="svc-phone"
+                      className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+                    >
+                      <Phone size={12} /> Phone
+                    </label>
+                    <input
+                      id="svc-phone"
+                      type="tel"
+                      value={phoneNumber}
+                      onChange={(e) => setPhoneNumber(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-teal-500 transition-all"
+                      placeholder="e.g., 03 123 456"
+                      disabled={!!clientId}
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="svc-note"
+                      className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider flex items-center gap-1"
+                    >
+                      <Tag size={12} /> Note (optional)
+                    </label>
+                    <input
+                      id="svc-note"
+                      type="text"
+                      value={note}
+                      onChange={(e) => setNote(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-teal-500 transition-all"
+                      placeholder="Additional details..."
+                      maxLength={1000}
+                    />
+                  </div>
+                </div>
+
+                {/* Payment Method */}
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-1.5">
+                    Payment Method
+                  </label>
+                  <MultiPaymentInput
+                    key={paymentInputKey}
+                    totalAmount={priceUsdVal || costUsdVal}
+                    currency="USD"
+                    onChange={setPaymentLines}
+                    onReturnChange={setReturnLegs}
+                    requiresClientForDebt={true}
+                    hasClient={!!clientId || !!clientName}
+                    paymentMethods={methods}
+                    currencies={[
+                      { code: "USD", symbol: "$" },
+                      { code: "LBP", symbol: "LBP" },
+                    ]}
+                    exchangeRate={exchangeRate}
+                    clientId={clientId}
+                    fetchClientVouchers={fetchClientVouchers}
+                    {...(paymentInitialMethod
+                      ? { initialMethod: paymentInitialMethod }
+                      : {})}
+                  />
+                </div>
               </>
             )}
           </div>
@@ -889,7 +902,8 @@ export default function CustomServices() {
               >
                 {isSubmitting ? (
                   <>
-                    <RefreshCw size={18} className="animate-spin" /> Submitting...
+                    <RefreshCw size={18} className="animate-spin" />{" "}
+                    Submitting...
                   </>
                 ) : (
                   <>

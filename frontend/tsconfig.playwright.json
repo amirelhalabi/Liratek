@@ -19,8 +19,5 @@
       "@liratek/core": ["../packages/core/dist/index.d.ts"]
     }
   },
-  "include": [
-    "src/types/electron.d.ts",
-    "tests/e2e-electron/**/*.ts"
-  ]
+  "include": ["src/types/electron.d.ts", "tests/e2e-electron/**/*.ts"]
 }

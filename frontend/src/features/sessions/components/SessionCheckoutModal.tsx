@@ -137,10 +137,7 @@ function resolveInitialMethod(
   hasClient: boolean,
   methods: Array<{ code: string }>,
 ): string {
-  if (
-    hasClient &&
-    methods.some((m) => m.code === "CUSTOMER_ACCOUNT")
-  ) {
+  if (hasClient && methods.some((m) => m.code === "CUSTOMER_ACCOUNT")) {
     return "CUSTOMER_ACCOUNT";
   }
   return "CASH";
@@ -344,7 +341,8 @@ export function SessionCheckoutModal({
   ]);
 
   // Primary method is the first non-zero leg's method, or CASH as fallback
-  const primaryMethod = allPaymentLegs.find((l) => l.amount > 0)?.method ?? "CASH";
+  const primaryMethod =
+    allPaymentLegs.find((l) => l.amount > 0)?.method ?? "CASH";
 
   // A CUSTOMER_ACCOUNT (charge-to-account) leg — whether auto-selected or chosen
   // manually — requires a chargeable client (name + phone). Block checkout
@@ -363,7 +361,8 @@ export function SessionCheckoutModal({
     () =>
       usdPaymentLines.reduce((sum, l) => {
         if (l.currencyCode === "USD") return sum + (l.amount || 0);
-        if (l.currencyCode === "LBP") return sum + (l.amount || 0) / exchangeRate;
+        if (l.currencyCode === "LBP")
+          return sum + (l.amount || 0) / exchangeRate;
         return sum;
       }, 0),
     [usdPaymentLines, exchangeRate],
@@ -373,7 +372,8 @@ export function SessionCheckoutModal({
     () =>
       lbpPaymentLines.reduce((sum, l) => {
         if (l.currencyCode === "LBP") return sum + (l.amount || 0);
-        if (l.currencyCode === "USD") return sum + (l.amount || 0) * exchangeRate;
+        if (l.currencyCode === "USD")
+          return sum + (l.amount || 0) * exchangeRate;
         return sum;
       }, 0),
     [lbpPaymentLines, exchangeRate],

@@ -211,7 +211,9 @@ export function PaymentSheet({
               }}
               requiresClientForDebt={requiresClientForDebt}
               hasClient={hasClient}
-              {...(initialPaymentMethod !== undefined ? { initialMethod: initialPaymentMethod } : {})}
+              {...(initialPaymentMethod !== undefined
+                ? { initialMethod: initialPaymentMethod }
+                : {})}
               showPmFee={showPmFee}
               {...(pmFeeRate !== undefined ? { pmFeeRate } : {})}
               {...(onPmFeesChange ? { onPmFeesChange } : {})}

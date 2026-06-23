@@ -65,7 +65,9 @@ let getAllMock: ClientsApiMock["getAll"];
 let getDebtorsMock: DebtApiMock["getDebtors"];
 
 beforeEach(() => {
-  getAllMock = jest.fn<Promise<Client[]>, [string]>().mockResolvedValue(CLIENTS);
+  getAllMock = jest
+    .fn<Promise<Client[]>, [string]>()
+    .mockResolvedValue(CLIENTS);
   getDebtorsMock = jest
     .fn<Promise<Array<{ id: number; total_debt_usd: number }>>, []>()
     .mockResolvedValue([{ id: 1, total_debt_usd: 35 }]);
@@ -291,9 +293,7 @@ describe("ClientAutocompleteInput", () => {
 
   it("disabled: renders a plain input with no autocomplete dropdown", async () => {
     const onChangeSpy = jest.fn();
-    render(
-      <Harness disabled placeholder="Plain" onChangeSpy={onChangeSpy} />,
-    );
+    render(<Harness disabled placeholder="Plain" onChangeSpy={onChangeSpy} />);
     const input = screen.getByPlaceholderText("Plain");
     // No autocomplete wrapper/testids in disabled mode.
     expect(

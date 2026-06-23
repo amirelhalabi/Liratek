@@ -42,7 +42,12 @@ export class SupplierPurchaseRepository {
         `INSERT INTO supplier_purchases (supplier_id, total_usd, note, created_by)
          VALUES (?, ?, ?, ?)`,
       )
-      .run(data.supplier_id, data.total_usd, data.note ?? null, data.created_by ?? null);
+      .run(
+        data.supplier_id,
+        data.total_usd,
+        data.note ?? null,
+        data.created_by ?? null,
+      );
     return this.getById(Number(res.lastInsertRowid))!;
   }
 

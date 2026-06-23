@@ -139,8 +139,10 @@ export class MaintenanceService {
           // Process payments only on first transition to paid status.
           // Deferred (session basket): always create the unified transaction (so
           // the basket can link + back-fill it) even with no payment lines.
-          if ((defer || (isPaidStatus && params.payments?.length)) &&
-              !this.repo.hasPayments(params.id)) {
+          if (
+            (defer || (isPaidStatus && params.payments?.length)) &&
+            !this.repo.hasPayments(params.id)
+          ) {
             this.repo.processPayments(params.id, params.payments ?? [], {
               currency: params.currency ?? "USD",
               finalAmount: jobFinalAmount,

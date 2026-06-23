@@ -58,7 +58,8 @@ test.describe("Session checkout — profit counted (transaction-based)", () => {
           started_by: "admin",
         });
         let sessionId = started.sessionId;
-        if (!sessionId) sessionId = (await w.api.session.getActive()).session?.id;
+        if (!sessionId)
+          sessionId = (await w.api.session.getActive()).session?.id;
 
         const checkout = await w.api.session.checkout({
           sessionId,

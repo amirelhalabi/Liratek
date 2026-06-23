@@ -82,9 +82,7 @@ type Api = {
         phone?: string;
         notes?: string;
       }) => Promise<{ success?: boolean; data?: { id: number } }>;
-      getBalance: (
-        partnerId: number,
-      ) => Promise<{ usd: number; lbp: number }>;
+      getBalance: (partnerId: number) => Promise<{ usd: number; lbp: number }>;
       getLedger: (
         partnerId: number,
         filters?: Record<string, unknown>,
@@ -359,7 +357,9 @@ test.describe("LIRA-057 — Whish App top-up Via Partner / From Client", () => {
     );
 
     expect(result.topUpOk).toBe(false);
-    expect(result.topUpError).toMatch(/Insufficient balance in General drawer/i);
+    expect(result.topUpError).toMatch(
+      /Insufficient balance in General drawer/i,
+    );
     // Atomic rejection: neither drawer moved.
     expect(result.whishDelta).toBeCloseTo(0, 2);
     expect(result.generalDelta).toBeCloseTo(0, 2);

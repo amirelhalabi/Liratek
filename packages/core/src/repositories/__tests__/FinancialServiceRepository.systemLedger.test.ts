@@ -218,7 +218,8 @@ function supplierLedgerFor(db: Database.Database, provider: string) {
 
 function seedPartner(db: Database.Database): number {
   return Number(
-    db.prepare("INSERT INTO partners (name) VALUES ('P')").run().lastInsertRowid,
+    db.prepare("INSERT INTO partners (name) VALUES ('P')").run()
+      .lastInsertRowid,
   );
 }
 

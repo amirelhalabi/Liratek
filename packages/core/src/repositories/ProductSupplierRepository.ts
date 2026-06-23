@@ -78,7 +78,9 @@ export class ProductSupplierRepository {
   /** Find a product_suppliers row by linked supplier_id. */
   findByLinkedSupplierId(supplierId: number): ProductSupplier | undefined {
     return this.db
-      .prepare(`SELECT ${COLUMNS} FROM product_suppliers WHERE supplier_id = ? LIMIT 1`)
+      .prepare(
+        `SELECT ${COLUMNS} FROM product_suppliers WHERE supplier_id = ? LIMIT 1`,
+      )
       .get(supplierId) as ProductSupplier | undefined;
   }
 
@@ -147,7 +149,9 @@ export class ProductSupplierRepository {
 
     return this.db.transaction(() => {
       const existing = this.db
-        .prepare(`SELECT id FROM product_suppliers WHERE name = ? COLLATE NOCASE`)
+        .prepare(
+          `SELECT id FROM product_suppliers WHERE name = ? COLLATE NOCASE`,
+        )
         .get(trimmed) as { id: number } | undefined;
       if (existing) return existing.id;
 
@@ -174,7 +178,9 @@ export class ProductSupplierRepository {
   /** Find or create a suppliers row (is_system=0) for the given product supplier name. */
   private _findOrCreateLinkedSupplier(name: string): number {
     const existing = this.db
-      .prepare(`SELECT id FROM suppliers WHERE name = ? COLLATE NOCASE AND is_system = 0 LIMIT 1`)
+      .prepare(
+        `SELECT id FROM suppliers WHERE name = ? COLLATE NOCASE AND is_system = 0 LIMIT 1`,
+      )
       .get(name) as { id: number } | undefined;
     if (existing) return existing.id;
 

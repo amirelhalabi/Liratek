@@ -57,7 +57,11 @@ export function useModalFocusFix(isOpen: boolean): void {
 
       function handlePostCloseMouseDown(e: MouseEvent) {
         if (postCloseTimer !== null) clearTimeout(postCloseTimer);
-        document.removeEventListener("mousedown", handlePostCloseMouseDown, true);
+        document.removeEventListener(
+          "mousedown",
+          handlePostCloseMouseDown,
+          true,
+        );
         const target = e.target as HTMLElement | null;
         if (!target) return;
         const tag = target.tagName;
@@ -78,7 +82,11 @@ export function useModalFocusFix(isOpen: boolean): void {
       // Fallback: if the user doesn't click within 300 ms, cycle focus anyway
       // so the window is unambiguously active for keyboard input.
       postCloseTimer = setTimeout(() => {
-        document.removeEventListener("mousedown", handlePostCloseMouseDown, true);
+        document.removeEventListener(
+          "mousedown",
+          handlePostCloseMouseDown,
+          true,
+        );
         try {
           window.api?.display?.fixFocus?.();
         } catch {

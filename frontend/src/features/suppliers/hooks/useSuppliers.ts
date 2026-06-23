@@ -1,8 +1,4 @@
-import {
-  useQuery,
-  useMutation,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useApi } from "@liratek/ui";
 
 // ── Shared query keys ─────────────────────────────────────────────────────────
@@ -13,7 +9,8 @@ export const SUPPLIER_KEYS = {
   productItems: (id: number) => ["supplier-product-items", id] as const,
   ledger: (id: number) => ["supplier-ledger", id] as const,
   unsettled: (provider: string) => ["supplier-unsettled", provider] as const,
-  allTransactions: (provider: string) => ["supplier-all-transactions", provider] as const,
+  allTransactions: (provider: string) =>
+    ["supplier-all-transactions", provider] as const,
   purchases: (id: number) => ["supplier-purchases", id] as const,
 };
 
@@ -63,7 +60,12 @@ export function useUnsettledTransactionsQuery(provider: string | null) {
   const api = useApi();
   return useQuery({
     queryKey: SUPPLIER_KEYS.unsettled(provider ?? ""),
-    queryFn: () => (api as unknown as { getUnsettledTransactions: (p: string) => Promise<unknown[]> }).getUnsettledTransactions(provider!),
+    queryFn: () =>
+      (
+        api as unknown as {
+          getUnsettledTransactions: (p: string) => Promise<unknown[]>;
+        }
+      ).getUnsettledTransactions(provider!),
     enabled: !!provider,
     select: (data) => data ?? [],
   });
@@ -116,11 +118,16 @@ export function useSupplierPurchasesQuery(supplierId: number | null) {
 export function useCreatePurchaseMutation(supplierId: number | null) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (data: { supplier_id: number; total_usd: number; note?: string }) =>
-      window.api.suppliers.createPurchase(data),
+    mutationFn: (data: {
+      supplier_id: number;
+      total_usd: number;
+      note?: string;
+    }) => window.api.suppliers.createPurchase(data),
     onSuccess: () => {
       if (supplierId) {
-        queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.purchases(supplierId) });
+        queryClient.invalidateQueries({
+          queryKey: SUPPLIER_KEYS.purchases(supplierId),
+        });
       }
     },
   });
@@ -140,14 +147,20 @@ export function useSupplierCashflowMutation(
     mutationFn: (data: {
       supplier_id: number;
       direction: "PAY" | "RECEIVE";
-      payments: Array<{ method: string; currency_code: string; amount: number }>;
+      payments: Array<{
+        method: string;
+        currency_code: string;
+        amount: number;
+      }>;
       note?: string;
       exchange_rate?: number;
     }) => window.api.suppliers.recordCashflow(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.all });
       queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.balances });
-      queryClient.invalidateQueries({ queryKey: SUPPLIER_KEYS.productBalances });
+      queryClient.invalidateQueries({
+        queryKey: SUPPLIER_KEYS.productBalances,
+      });
       if (supplierId) {
         queryClient.invalidateQueries({
           queryKey: SUPPLIER_KEYS.ledger(supplierId),

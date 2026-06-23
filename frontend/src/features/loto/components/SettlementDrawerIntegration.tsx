@@ -209,7 +209,10 @@ export function SettlementDrawerIntegration({
                 <Select
                   value={paymentMethod}
                   onChange={(v) => setPaymentMethod(v)}
-                  options={methods.map((m) => ({ value: m.code, label: m.label }))}
+                  options={methods.map((m) => ({
+                    value: m.code,
+                    label: m.label,
+                  }))}
                   buttonClassName="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   disabled={isProcessing}
                 />

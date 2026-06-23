@@ -84,9 +84,7 @@ type SupplierApi = {
       // RAW array, newest-first (ORDER BY created_at DESC).
       getLedger: (supplierId: number, limit?: number) => Promise<LedgerRow[]>;
       // RAW array of per-supplier balances (positive = we owe the supplier).
-      getBalances: (
-        includeInactive?: boolean,
-      ) => Promise<SupplierBalanceRow[]>;
+      getBalances: (includeInactive?: boolean) => Promise<SupplierBalanceRow[]>;
       // RAW array. For cost/price SEND rows: amount = cost, commission = 0.
       getUnsettledTransactions: (provider: string) => Promise<UnsettledRow[]>;
       // {success,...} envelope. drawer_name omitted from electron.d.ts but
@@ -167,8 +165,7 @@ test.describe("LIRA-061 — cost/price SEND books SALE_COST in supplier ledger",
       if (!katsh) return { found: false } as const;
 
       const ledger = await w.api.suppliers.getLedger(katsh.id, 100);
-      const unsettled =
-        await w.api.suppliers.getUnsettledTransactions("Katsh");
+      const unsettled = await w.api.suppliers.getUnsettledTransactions("Katsh");
 
       return {
         found: true,
@@ -319,8 +316,7 @@ test.describe("LIRA-061 — cost/price SEND books SALE_COST in supplier ledger",
           error: created?.error ?? null,
           ipickDrawerDelta:
             Math.round((ipickDrawerAfter - ipickDrawerBefore) * 100) / 100,
-          generalDelta:
-            Math.round((generalAfter - generalBefore) * 100) / 100,
+          generalDelta: Math.round((generalAfter - generalBefore) * 100) / 100,
           supplierBalDelta:
             Math.round((supplierBalAfter - supplierBalBefore) * 100) / 100,
           saleCostAdded: saleCostCountAfter - saleCostCountBefore,
@@ -400,7 +396,11 @@ test.describe("LIRA-061 — cost/price SEND books SALE_COST in supplier ledger",
           itemKey,
         })) as SuccessEnvelope;
         if (created?.success === false) {
-          return { found: true, createOk: false, error: created.error } as const;
+          return {
+            found: true,
+            createOk: false,
+            error: created.error,
+          } as const;
         }
 
         // Capture the NEW unsettled row (id not present before, net pay = cost).
@@ -471,8 +471,7 @@ test.describe("LIRA-061 — cost/price SEND books SALE_COST in supplier ledger",
           captured: true,
           ok: settled?.success ?? true,
           error: settled?.error ?? null,
-          generalDelta:
-            Math.round((generalAfter - generalBefore) * 100) / 100,
+          generalDelta: Math.round((generalAfter - generalBefore) * 100) / 100,
           balDelta: Math.round((balAfter - balBefore) * 100) / 100,
           settlementAdded: settlementCountAfter - settlementCountBefore,
           newRowCount: newRows.length,
@@ -551,7 +550,11 @@ test.describe("LIRA-061 — cost/price SEND books SALE_COST in supplier ledger",
           itemKey,
         })) as SuccessEnvelope;
         if (created?.success === false) {
-          return { found: true, createOk: false, error: created.error } as const;
+          return {
+            found: true,
+            createOk: false,
+            error: created.error,
+          } as const;
         }
 
         const afterSendBal = balUsd(
@@ -596,8 +599,7 @@ test.describe("LIRA-061 — cost/price SEND books SALE_COST in supplier ledger",
         ).length;
         // Target THIS pay-down's new ledger row by id-set diff (never index 0).
         const newRows = ledgerAfter.filter((l) => !ledgerIdsBefore.has(l.id));
-        const payRow =
-          newRows.find((l) => l.entry_type === "PAYMENT") ?? null;
+        const payRow = newRows.find((l) => l.entry_type === "PAYMENT") ?? null;
 
         return {
           found: true,
@@ -605,11 +607,9 @@ test.describe("LIRA-061 — cost/price SEND books SALE_COST in supplier ledger",
           ok: paid?.success ?? true,
           error: paid?.error ?? null,
           sendRaisedBy: Math.round((afterSendBal - baselineBal) * 100) / 100,
-          payDownBalDelta:
-            Math.round((finalBal - afterSendBal) * 100) / 100,
+          payDownBalDelta: Math.round((finalBal - afterSendBal) * 100) / 100,
           balVsBaseline: Math.round((finalBal - baselineBal) * 100) / 100,
-          generalDelta:
-            Math.round((generalAfter - generalBefore) * 100) / 100,
+          generalDelta: Math.round((generalAfter - generalBefore) * 100) / 100,
           paymentAdded: paymentCountAfter - paymentCountBefore,
           payRowType: payRow?.entry_type ?? null,
           payRowUsd: payRow?.amount_usd ?? null,
@@ -735,8 +735,7 @@ test.describe("LIRA-061 — cost/price SEND books SALE_COST in supplier ledger",
           error: created?.error ?? null,
           whishDrawerDelta:
             Math.round((whishDrawerAfter - whishDrawerBefore) * 100) / 100,
-          generalDelta:
-            Math.round((generalAfter - generalBefore) * 100) / 100,
+          generalDelta: Math.round((generalAfter - generalBefore) * 100) / 100,
           supplierBalDelta:
             Math.round((supplierBalAfter - supplierBalBefore) * 100) / 100,
           saleCostAdded: saleCostCountAfter - saleCostCountBefore,

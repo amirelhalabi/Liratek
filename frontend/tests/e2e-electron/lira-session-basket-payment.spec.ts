@@ -23,7 +23,11 @@ type TxnRow = {
   id: number;
   type: string;
   session_id: number | null;
-  payments?: Array<{ direction: "in" | "out"; amount: number; currency_code: string }>;
+  payments?: Array<{
+    direction: "in" | "out";
+    amount: number;
+    currency_code: string;
+  }>;
 };
 
 type Api = {
@@ -71,7 +75,9 @@ test.describe("Session basket payment — one payment, posted once", () => {
         sessionId = active.session?.id;
       }
 
-      const beforeGeneral = generalUsd(await w.api.dashboard.getDrawerBalances());
+      const beforeGeneral = generalUsd(
+        await w.api.dashboard.getDrawerBalances(),
+      );
 
       const mkService = (label: string, price: number) => ({
         id: `e2e-${label}`,
@@ -101,7 +107,9 @@ test.describe("Session basket payment — one payment, posted once", () => {
         userId: 1,
       });
 
-      const afterGeneral = generalUsd(await w.api.dashboard.getDrawerBalances());
+      const afterGeneral = generalUsd(
+        await w.api.dashboard.getDrawerBalances(),
+      );
 
       // Inspect the session's transaction rows + their (shared) basket legs.
       const recent = await w.api.transactions.getRecent(50);

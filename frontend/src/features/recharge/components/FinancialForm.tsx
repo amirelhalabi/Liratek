@@ -117,7 +117,7 @@ export function FinancialForm({
     if (newClientReady && initialPaymentMethod !== "CUSTOMER_ACCOUNT") {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setInitialPaymentMethod("CUSTOMER_ACCOUNT");
-       
+
       setPaymentInputKey((k) => k + 1);
     }
   }, [clientId, clientName, clientPhone, initialPaymentMethod]);
@@ -220,13 +220,21 @@ export function FinancialForm({
 
   const getCartCountForCategory = (category: string): number =>
     Array.from(cart.values())
-      .filter((line) => line.item.category === category && line.item.provider === activeProvider)
+      .filter(
+        (line) =>
+          line.item.category === category &&
+          line.item.provider === activeProvider,
+      )
       .reduce((sum, line) => sum + line.quantity, 0);
 
   const handleAddItem = async () => {
     if (!newItemForm) return;
     setAddItemError("");
-    if (!newItemForm.label.trim() || !newItemForm.cost_lbp || !newItemForm.sell_lbp) {
+    if (
+      !newItemForm.label.trim() ||
+      !newItemForm.cost_lbp ||
+      !newItemForm.sell_lbp
+    ) {
       setAddItemError("Label, cost, and sell are required");
       return;
     }
@@ -517,10 +525,16 @@ export function FinancialForm({
           <div className="flex items-center gap-2 ml-auto shrink-0">
             {totalItems > 0 && (
               <div className="text-right leading-tight">
-                <div className="text-xs text-white font-bold">{totalItems} items</div>
-                <div className="text-xs text-emerald-400 font-mono font-semibold">{totalPrice.toLocaleString()} LBP</div>
+                <div className="text-xs text-white font-bold">
+                  {totalItems} items
+                </div>
+                <div className="text-xs text-emerald-400 font-mono font-semibold">
+                  {totalPrice.toLocaleString()} LBP
+                </div>
                 {exchangeRate > 0 && (
-                  <div className="text-xs text-slate-400 font-mono">${(totalPrice / exchangeRate).toFixed(2)}</div>
+                  <div className="text-xs text-slate-400 font-mono">
+                    ${(totalPrice / exchangeRate).toFixed(2)}
+                  </div>
                 )}
               </div>
             )}
@@ -634,28 +648,44 @@ export function FinancialForm({
                       )}
                       <div className="flex items-end gap-2 flex-wrap">
                         <div className="flex-1 min-w-24">
-                          <label className="text-slate-400 text-xs block mb-1">Subcategory</label>
+                          <label className="text-slate-400 text-xs block mb-1">
+                            Subcategory
+                          </label>
                           <input
                             type="text"
                             value={newItemForm.subcategory}
-                            onChange={(e) => setNewItemForm({ ...newItemForm, subcategory: e.target.value })}
+                            onChange={(e) =>
+                              setNewItemForm({
+                                ...newItemForm,
+                                subcategory: e.target.value,
+                              })
+                            }
                             placeholder="e.g. pubg"
                             className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500"
                           />
                         </div>
                         <div className="flex-1 min-w-24">
-                          <label className="text-slate-400 text-xs block mb-1">Label</label>
+                          <label className="text-slate-400 text-xs block mb-1">
+                            Label
+                          </label>
                           <input
                             autoFocus
                             type="text"
                             value={newItemForm.label}
-                            onChange={(e) => setNewItemForm({ ...newItemForm, label: e.target.value })}
+                            onChange={(e) =>
+                              setNewItemForm({
+                                ...newItemForm,
+                                label: e.target.value,
+                              })
+                            }
                             placeholder="e.g. 60UC"
                             className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500"
                           />
                         </div>
                         <div className="w-28">
-                          <label className="text-slate-400 text-xs block mb-1">Cost</label>
+                          <label className="text-slate-400 text-xs block mb-1">
+                            Cost
+                          </label>
                           <DecimalInput
                             value={parseFloat(newItemForm.cost_lbp) || 0}
                             onChange={(n) =>
@@ -669,7 +699,9 @@ export function FinancialForm({
                           />
                         </div>
                         <div className="w-28">
-                          <label className="text-slate-400 text-xs block mb-1">Sell</label>
+                          <label className="text-slate-400 text-xs block mb-1">
+                            Sell
+                          </label>
                           <DecimalInput
                             value={parseFloat(newItemForm.sell_lbp) || 0}
                             onChange={(n) =>
@@ -683,11 +715,18 @@ export function FinancialForm({
                           />
                         </div>
                         <div className="w-16">
-                          <label className="text-slate-400 text-xs block mb-1">Order</label>
+                          <label className="text-slate-400 text-xs block mb-1">
+                            Order
+                          </label>
                           <input
                             type="number"
                             value={newItemForm.sort_order}
-                            onChange={(e) => setNewItemForm({ ...newItemForm, sort_order: e.target.value })}
+                            onChange={(e) =>
+                              setNewItemForm({
+                                ...newItemForm,
+                                sort_order: e.target.value,
+                              })
+                            }
                             className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-white text-sm focus:outline-none focus:border-orange-500"
                           />
                         </div>
@@ -699,7 +738,10 @@ export function FinancialForm({
                           Add
                         </button>
                         <button
-                          onClick={() => { setNewItemForm(null); setAddItemError(""); }}
+                          onClick={() => {
+                            setNewItemForm(null);
+                            setAddItemError("");
+                          }}
                           className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded text-sm transition-colors"
                           type="button"
                         >

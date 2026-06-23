@@ -216,11 +216,17 @@ export function MobileServiceItemsProvider({
   // Avoids re-running sortItems() on every getItems() call.
   const sortedSlices = useMemo(() => {
     const cache = new Map<string, ServiceItem[]>();
-    for (const [provider, provItems] of Object.entries(itemsByProvider) as [ProviderKey, ServiceItem[]][]) {
+    for (const [provider, provItems] of Object.entries(itemsByProvider) as [
+      ProviderKey,
+      ServiceItem[],
+    ][]) {
       cache.set(`${provider}|`, sortItems(provItems));
       const cats = [...new Set(provItems.map((i) => i.category))];
       for (const cat of cats) {
-        cache.set(`${provider}|${cat}`, sortItems(provItems.filter((i) => i.category === cat)));
+        cache.set(
+          `${provider}|${cat}`,
+          sortItems(provItems.filter((i) => i.category === cat)),
+        );
       }
     }
     return cache;

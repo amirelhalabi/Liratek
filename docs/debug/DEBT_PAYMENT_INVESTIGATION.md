@@ -11,18 +11,19 @@ transactions table, but the client's credit balance **appears unchanged** in the
 ## What I've Confirmed
 
 ### 1. Payment method code used is "DEBT"
+
 Migration v9 seeded `DEBT` into `payment_methods` without specifying `is_active`, so it
 inherited the column default of `1`. Migration v76 renamed its label from "Debt (On Tab)"
 to "Customer Account" but **never changed** `is_active`. Result in existing databases:
 
 | code             | label            | is_active | affects_drawer |
-|------------------|------------------|-----------|----------------|
+| ---------------- | ---------------- | --------- | -------------- |
 | DEBT             | Customer Account | 1         | 0              |
 | CUSTOMER_ACCOUNT | Customer Account | 0         | 0              |
 
 So the "Customer Account" button in the payment dropdown sends code `"DEBT"` to the backend.
-That is consistent with the UI warning the user saw: *"Client is required when using DEBT
-payment method"* — `MultiPaymentInput` checks `line.method === "DEBT"`.
+That is consistent with the UI warning the user saw: _"Client is required when using DEBT
+payment method"_ — `MultiPaymentInput` checks `line.method === "DEBT"`.
 
 ---
 
@@ -57,8 +58,15 @@ The repository path for `useCostPriceFlow` (Katsh has `cost > 0`) + single DEBT 
 // FinancialServiceRepository.ts ~line 615
 if (paidBy === "DEBT") {
   // clientId is now present → no throw
-  db.prepare(`INSERT INTO debt_ledger (...) VALUES (...)`)
-    .run(clientId, "Service Debt", 0, price_lbp, txnId, note, createdBy);
+  db.prepare(`INSERT INTO debt_ledger (...) VALUES (...)`).run(
+    clientId,
+    "Service Debt",
+    0,
+    price_lbp,
+    txnId,
+    note,
+    createdBy,
+  );
 }
 ```
 
@@ -112,10 +120,12 @@ payments from a financial service would make the history much clearer.
 ## What Needs to Be Done (Fix Plan)
 
 ### Fix 1 — Refresh debtors list after DEBT transaction (UX / data freshness)
+
 After a successful Katsh (or any financial service) DEBT transaction, the Debts page
 left-panel list should reflect the updated balance.
 
 Options:
+
 - **A. Custom DOM event:** fire a `"debt-ledger-changed"` event after any DEBT transaction
   succeeds; the Debts page subscribes to that event and calls `loadDebtors()`.
 - **B. Polling / refetch on focus:** the Debts page re-fetches when the window regains
@@ -126,6 +136,7 @@ Options:
 Option A is the cleanest.
 
 ### Fix 2 — Use `CREDIT_USED` transaction type instead of `Service Debt` for DEBT payments
+
 In `FinancialServiceRepository.ts`, change the cost/price flow DEBT insert (single payment
 ~line 620, multi-payment ~line 591) from `"Service Debt"` to `"CREDIT_USED"`:
 
@@ -168,10 +179,10 @@ spending against the balance, not a deposit.
 
 ## Files Involved
 
-| File | Relevance |
-|------|-----------|
-| `frontend/src/features/recharge/components/KatchForm.tsx` | Fixed A + B |
-| `packages/core/src/repositories/FinancialServiceRepository.ts` | DEBT ledger insert (Fix 2) |
-| `frontend/src/features/debts/pages/Debts/index.tsx` | Stale data (Fix 1), filteredDebtors |
-| `packages/core/src/db/migrations/index.ts` | v76 renamed DEBT → "Customer Account" |
-| `electron-app/create_db.sql` | DEBT is_active=0 (discrepancy with migration path) |
+| File                                                           | Relevance                                          |
+| -------------------------------------------------------------- | -------------------------------------------------- |
+| `frontend/src/features/recharge/components/KatchForm.tsx`      | Fixed A + B                                        |
+| `packages/core/src/repositories/FinancialServiceRepository.ts` | DEBT ledger insert (Fix 2)                         |
+| `frontend/src/features/debts/pages/Debts/index.tsx`            | Stale data (Fix 1), filteredDebtors                |
+| `packages/core/src/db/migrations/index.ts`                     | v76 renamed DEBT → "Customer Account"              |
+| `electron-app/create_db.sql`                                   | DEBT is_active=0 (discrepancy with migration path) |

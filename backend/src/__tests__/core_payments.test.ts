@@ -15,7 +15,13 @@ describe("@liratek/core payments utils", () => {
   });
 
   it("flags CUSTOMER_ACCOUNT as non drawer-affecting (fallback)", () => {
-    const all: PaymentMethod[] = ["CASH", "CUSTOMER_ACCOUNT", "OMT", "WHISH", "BINANCE"];
+    const all: PaymentMethod[] = [
+      "CASH",
+      "CUSTOMER_ACCOUNT",
+      "OMT",
+      "WHISH",
+      "BINANCE",
+    ];
     const affecting = all.filter(isDrawerAffectingMethod);
 
     expect(affecting).toEqual(["CASH", "OMT", "WHISH", "BINANCE"]);

@@ -68,7 +68,10 @@ function statusBadge(status: string): { label: string; className: string } {
         className: "bg-amber-500/20 text-amber-400",
       };
     case "Ready":
-      return { label: "Ready", className: "bg-emerald-500/20 text-emerald-400" };
+      return {
+        label: "Ready",
+        className: "bg-emerald-500/20 text-emerald-400",
+      };
     case "Delivered":
       return {
         label: "Delivered",
@@ -130,13 +133,11 @@ export default function Maintenance() {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setClientName(activeSession.customer_name);
       if (activeSession.customer_phone) {
-         
         setClientPhone(activeSession.customer_phone);
       }
     } else if (!activeSession && !editingJob) {
-       
       setClientName("");
-       
+
       setClientPhone("");
     }
   }, [activeSession, editingJob]);
@@ -339,8 +340,7 @@ export default function Maintenance() {
 
     // If session is active, add to cart instead of submitting
     if (activeSession) {
-      const finalAmt =
-        paymentData.final_amount || parseFloat(price) || 0;
+      const finalAmt = paymentData.final_amount || parseFloat(price) || 0;
       const amountLabel =
         cur === "LBP"
           ? `${Math.round(finalAmt).toLocaleString()} LBP`
@@ -397,299 +397,301 @@ export default function Maintenance() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
           {/* Right: Jobs list with status tabs */}
           <div className="order-2 lg:col-span-2">
-          <div className="bg-slate-800/60 rounded-xl border border-slate-700/50 p-4">
-            <h3 className="text-sm font-semibold text-slate-300 mb-3 flex items-center gap-2">
-              <Clock size={14} className="text-amber-400" />
-              Jobs ({filteredJobs.length})
-            </h3>
+            <div className="bg-slate-800/60 rounded-xl border border-slate-700/50 p-4">
+              <h3 className="text-sm font-semibold text-slate-300 mb-3 flex items-center gap-2">
+                <Clock size={14} className="text-amber-400" />
+                Jobs ({filteredJobs.length})
+              </h3>
 
-            {/* Status tabs */}
-            <div className="flex flex-wrap gap-2 mb-3">
-              {STATUS_TABS.map((tab) => {
-                const count = jobs.filter((j) => tab.match(j.status)).length;
-                return (
-                  <button
-                    key={tab.key}
-                    onClick={() => setStatusTab(tab.key)}
-                    className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                      statusTab === tab.key
-                        ? "bg-violet-600 text-white"
-                        : "bg-slate-900/60 text-slate-400 border border-slate-700 hover:text-slate-200 hover:border-slate-600"
-                    }`}
-                  >
-                    {tab.label}
-                    <span className="ml-1.5 opacity-70">{count}</span>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Jobs list */}
-            {filteredJobs.length === 0 ? (
-              <div className="py-8 text-center text-sm text-slate-500">
-                No jobs in this status
-              </div>
-            ) : (
-              <div className="space-y-2 max-h-64 overflow-auto custom-scrollbar">
-                {filteredJobs.map((job) => {
-                  const badge = statusBadge(job.status);
-                  const canTransition =
-                    job.status === "Received" || job.status === "In_Progress";
+              {/* Status tabs */}
+              <div className="flex flex-wrap gap-2 mb-3">
+                {STATUS_TABS.map((tab) => {
+                  const count = jobs.filter((j) => tab.match(j.status)).length;
                   return (
                     <button
-                      key={job.id}
-                      onClick={() => handleEdit(job)}
-                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-all hover:bg-slate-700/70 ${
-                        editingJob?.id === job.id
-                          ? "bg-violet-600/20 border border-violet-500/50"
-                          : "bg-slate-900/50 border border-slate-700/40"
+                      key={tab.key}
+                      onClick={() => setStatusTab(tab.key)}
+                      className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                        statusTab === tab.key
+                          ? "bg-violet-600 text-white"
+                          : "bg-slate-900/60 text-slate-400 border border-slate-700 hover:text-slate-200 hover:border-slate-600"
                       }`}
                     >
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium text-white truncate">
-                            {job.device_name}
-                          </span>
-                          <span
-                            className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${badge.className}`}
-                          >
-                            {badge.label}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          {job.client_name && (
-                            <span className="text-xs text-slate-500 truncate">
-                              {job.client_name}
-                            </span>
-                          )}
-                          {job.created_at && (
-                            <span className="text-[10px] text-slate-600">
-                              {new Date(job.created_at).toLocaleDateString()}
-                            </span>
-                          )}
-                        </div>
-                        {job.issue_description && (
-                          <p className="text-[11px] text-slate-500 mt-0.5 truncate">
-                            {job.issue_description.length > 60
-                              ? job.issue_description.slice(0, 60) + "..."
-                              : job.issue_description}
-                          </p>
-                        )}
-                      </div>
-                      {canTransition && (
-                        <button
-                          onClick={(e) => handleStatusTransition(job, e)}
-                          className="text-[10px] px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors whitespace-nowrap"
-                          title={
-                            job.status === "Received"
-                              ? "Mark In Progress"
-                              : "Mark Ready"
-                          }
-                        >
-                          {job.status === "Received" ? "Start" : "Ready"}
-                        </button>
-                      )}
-                      {job.currency === "LBP"
-                        ? (job.price_lbp ?? 0) > 0 && (
-                            <span className="text-xs font-mono text-emerald-400">
-                              {(job.price_lbp ?? 0).toLocaleString()} LBP
-                            </span>
-                          )
-                        : (job.price_usd ?? 0) > 0 && (
-                            <span className="text-xs font-mono text-emerald-400">
-                              ${job.price_usd?.toFixed(2)}
-                            </span>
-                          )}
-                      <ChevronRight size={14} className="text-slate-600" />
+                      {tab.label}
+                      <span className="ml-1.5 opacity-70">{count}</span>
                     </button>
                   );
                 })}
               </div>
-            )}
+
+              {/* Jobs list */}
+              {filteredJobs.length === 0 ? (
+                <div className="py-8 text-center text-sm text-slate-500">
+                  No jobs in this status
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-64 overflow-auto custom-scrollbar">
+                  {filteredJobs.map((job) => {
+                    const badge = statusBadge(job.status);
+                    const canTransition =
+                      job.status === "Received" || job.status === "In_Progress";
+                    return (
+                      <button
+                        key={job.id}
+                        onClick={() => handleEdit(job)}
+                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-all hover:bg-slate-700/70 ${
+                          editingJob?.id === job.id
+                            ? "bg-violet-600/20 border border-violet-500/50"
+                            : "bg-slate-900/50 border border-slate-700/40"
+                        }`}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-white truncate">
+                              {job.device_name}
+                            </span>
+                            <span
+                              className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${badge.className}`}
+                            >
+                              {badge.label}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            {job.client_name && (
+                              <span className="text-xs text-slate-500 truncate">
+                                {job.client_name}
+                              </span>
+                            )}
+                            {job.created_at && (
+                              <span className="text-[10px] text-slate-600">
+                                {new Date(job.created_at).toLocaleDateString()}
+                              </span>
+                            )}
+                          </div>
+                          {job.issue_description && (
+                            <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+                              {job.issue_description.length > 60
+                                ? job.issue_description.slice(0, 60) + "..."
+                                : job.issue_description}
+                            </p>
+                          )}
+                        </div>
+                        {canTransition && (
+                          <button
+                            onClick={(e) => handleStatusTransition(job, e)}
+                            className="text-[10px] px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors whitespace-nowrap"
+                            title={
+                              job.status === "Received"
+                                ? "Mark In Progress"
+                                : "Mark Ready"
+                            }
+                          >
+                            {job.status === "Received" ? "Start" : "Ready"}
+                          </button>
+                        )}
+                        {job.currency === "LBP"
+                          ? (job.price_lbp ?? 0) > 0 && (
+                              <span className="text-xs font-mono text-emerald-400">
+                                {(job.price_lbp ?? 0).toLocaleString()} LBP
+                              </span>
+                            )
+                          : (job.price_usd ?? 0) > 0 && (
+                              <span className="text-xs font-mono text-emerald-400">
+                                ${job.price_usd?.toFixed(2)}
+                              </span>
+                            )}
+                        <ChevronRight size={14} className="text-slate-600" />
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
-        </div>
           {/* Left: New/Edit Job Form */}
           <div className="order-1 lg:col-span-1 bg-slate-800 rounded-xl border border-slate-700/50 shadow-xl p-5 flex flex-col overflow-hidden">
-          <h2 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
-            <Plus className="text-violet-400" size={20} />
-            {editingJob ? "Edit Job" : "New Repair Job"}
-          </h2>
+            <h2 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
+              <Plus className="text-violet-400" size={20} />
+              {editingJob ? "Edit Job" : "New Repair Job"}
+            </h2>
 
-          <div className="space-y-3 flex-1 overflow-auto pr-1 custom-scrollbar">
-            {/* Device Info */}
-            <div>
-              <label
-                htmlFor="maintenance-device-name"
-                className="text-xs text-slate-400 block mb-1"
-              >
-                Device Name / Model *
-              </label>
-              <input
-                id="maintenance-device-name"
-                type="text"
-                value={deviceName}
-                onChange={(e) => setDeviceName(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
-                placeholder="e.g., iPhone 13 Pro Max"
-                ref={deviceNameRef}
-              />
-            </div>
+            <div className="space-y-3 flex-1 overflow-auto pr-1 custom-scrollbar">
+              {/* Device Info */}
+              <div>
+                <label
+                  htmlFor="maintenance-device-name"
+                  className="text-xs text-slate-400 block mb-1"
+                >
+                  Device Name / Model *
+                </label>
+                <input
+                  id="maintenance-device-name"
+                  type="text"
+                  value={deviceName}
+                  onChange={(e) => setDeviceName(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
+                  placeholder="e.g., iPhone 13 Pro Max"
+                  ref={deviceNameRef}
+                />
+              </div>
 
-            {/* Issue Description */}
-            <div>
-              <label
-                htmlFor="maintenance-issue"
-                className="text-xs text-slate-400 block mb-1"
-              >
-                Issue Description *
-              </label>
-              <textarea
-                id="maintenance-issue"
-                value={issue}
-                onChange={(e) => setIssue(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500 resize-none h-24"
-                placeholder="e.g., Broken Screen, Battery Replacement..."
-              />
-            </div>
+              {/* Issue Description */}
+              <div>
+                <label
+                  htmlFor="maintenance-issue"
+                  className="text-xs text-slate-400 block mb-1"
+                >
+                  Issue Description *
+                </label>
+                <textarea
+                  id="maintenance-issue"
+                  value={issue}
+                  onChange={(e) => setIssue(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500 resize-none h-24"
+                  placeholder="e.g., Broken Screen, Battery Replacement..."
+                />
+              </div>
 
-            {/* Cost & Price — single currency (USD/LBP toggle) */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-xs text-slate-400">Repair Cost / Price</span>
-                {/* Currency toggle */}
-                <div className="flex items-center gap-1 bg-slate-900 rounded-lg border border-slate-600 p-0.5">
-                  {(["USD", "LBP"] as const).map((cur) => (
-                    <button
-                      key={cur}
-                      type="button"
-                      onClick={() => {
-                        if (cur === currency) return;
-                        setCurrency(cur);
-                        // One currency at a time — clear amounts on switch.
-                        setCost("");
-                        setPrice("");
-                      }}
-                      className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all ${
-                        currency === cur
-                          ? "bg-violet-600 text-white"
-                          : "text-slate-400 hover:text-slate-200"
-                      }`}
+              {/* Cost & Price — single currency (USD/LBP toggle) */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-xs text-slate-400">
+                    Repair Cost / Price
+                  </span>
+                  {/* Currency toggle */}
+                  <div className="flex items-center gap-1 bg-slate-900 rounded-lg border border-slate-600 p-0.5">
+                    {(["USD", "LBP"] as const).map((cur) => (
+                      <button
+                        key={cur}
+                        type="button"
+                        onClick={() => {
+                          if (cur === currency) return;
+                          setCurrency(cur);
+                          // One currency at a time — clear amounts on switch.
+                          setCost("");
+                          setPrice("");
+                        }}
+                        className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all ${
+                          currency === cur
+                            ? "bg-violet-600 text-white"
+                            : "text-slate-400 hover:text-slate-200"
+                        }`}
+                      >
+                        {cur}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label
+                      htmlFor="maintenance-cost"
+                      className="text-[10px] text-slate-500 block mb-1 uppercase"
                     >
-                      {cur}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label
-                    htmlFor="maintenance-cost"
-                    className="text-[10px] text-slate-500 block mb-1 uppercase"
-                  >
-                    Repair Cost ({currency})
-                  </label>
-                  <div className="relative">
-                    {currency === "USD" && (
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm">
-                        $
-                      </span>
-                    )}
-                    <DecimalInput
-                      id="maintenance-cost"
-                      value={parseFloat(cost) || 0}
-                      onChange={(n) => setCost(n ? String(n) : "")}
-                      className={`w-full bg-slate-900 border border-slate-600 rounded-lg ${currency === "USD" ? "pl-7" : "pl-3"} pr-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-orange-500`}
-                      placeholder={currency === "USD" ? "0.00" : "0"}
-                    />
+                      Repair Cost ({currency})
+                    </label>
+                    <div className="relative">
+                      {currency === "USD" && (
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm">
+                          $
+                        </span>
+                      )}
+                      <DecimalInput
+                        id="maintenance-cost"
+                        value={parseFloat(cost) || 0}
+                        onChange={(n) => setCost(n ? String(n) : "")}
+                        className={`w-full bg-slate-900 border border-slate-600 rounded-lg ${currency === "USD" ? "pl-7" : "pl-3"} pr-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-orange-500`}
+                        placeholder={currency === "USD" ? "0.00" : "0"}
+                      />
+                    </div>
                   </div>
-                </div>
-                <div>
-                  <label
-                    htmlFor="maintenance-price"
-                    className="text-[10px] text-emerald-400 block mb-1 uppercase"
-                  >
-                    Price to Client ({currency})
-                  </label>
-                  <div className="relative">
-                    {currency === "USD" && (
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-500 text-sm">
-                        $
-                      </span>
-                    )}
-                    <DecimalInput
-                      id="maintenance-price"
-                      value={parseFloat(price) || 0}
-                      onChange={(n) => setPrice(n ? String(n) : "")}
-                      className={`w-full bg-slate-900 border border-emerald-500/50 rounded-lg ${currency === "USD" ? "pl-7" : "pl-3"} pr-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-emerald-500`}
-                      placeholder={currency === "USD" ? "0.00" : "0"}
-                    />
+                  <div>
+                    <label
+                      htmlFor="maintenance-price"
+                      className="text-[10px] text-emerald-400 block mb-1 uppercase"
+                    >
+                      Price to Client ({currency})
+                    </label>
+                    <div className="relative">
+                      {currency === "USD" && (
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-500 text-sm">
+                          $
+                        </span>
+                      )}
+                      <DecimalInput
+                        id="maintenance-price"
+                        value={parseFloat(price) || 0}
+                        onChange={(n) => setPrice(n ? String(n) : "")}
+                        className={`w-full bg-slate-900 border border-emerald-500/50 rounded-lg ${currency === "USD" ? "pl-7" : "pl-3"} pr-3 py-2 text-white text-sm font-mono focus:outline-none focus:border-emerald-500`}
+                        placeholder={currency === "USD" ? "0.00" : "0"}
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
+
+              {/* Client Info */}
+              <div>
+                <label
+                  htmlFor="maintenance-client-name"
+                  className="text-xs text-slate-400 block mb-1"
+                >
+                  Client Name
+                </label>
+                <input
+                  id="maintenance-client-name"
+                  type="text"
+                  value={clientName}
+                  onChange={(e) => setClientName(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
+                  placeholder="Walk-in Client"
+                />
+              </div>
+              <div>
+                <label
+                  htmlFor="maintenance-client-phone"
+                  className="text-xs text-slate-400 block mb-1"
+                >
+                  Phone Number
+                </label>
+                <input
+                  id="maintenance-client-phone"
+                  type="text"
+                  value={clientPhone}
+                  onChange={(e) => setClientPhone(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
+                  placeholder="Optional"
+                />
+              </div>
+              <SaveAsClientCheckbox
+                checked={saveAsClient}
+                onChange={setSaveAsClient}
+                hidden={!showSaveAsClient}
+              />
             </div>
 
-            {/* Client Info */}
-            <div>
-              <label
-                htmlFor="maintenance-client-name"
-                className="text-xs text-slate-400 block mb-1"
-              >
-                Client Name
-              </label>
-              <input
-                id="maintenance-client-name"
-                type="text"
-                value={clientName}
-                onChange={(e) => setClientName(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
-                placeholder="Walk-in Client"
-              />
-            </div>
-            <div>
-              <label
-                htmlFor="maintenance-client-phone"
-                className="text-xs text-slate-400 block mb-1"
-              >
-                Phone Number
-              </label>
-              <input
-                id="maintenance-client-phone"
-                type="text"
-                value={clientPhone}
-                onChange={(e) => setClientPhone(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-orange-500"
-                placeholder="Optional"
-              />
-            </div>
-            <SaveAsClientCheckbox
-              checked={saveAsClient}
-              onChange={setSaveAsClient}
-              hidden={!showSaveAsClient}
+            <TransactionTimeOverride
+              value={transactionTime}
+              onChange={setTransactionTime}
             />
-          </div>
 
-          <TransactionTimeOverride
-            value={transactionTime}
-            onChange={setTransactionTime}
-          />
-
-          {/* Action Buttons */}
-          <div className="flex gap-3 mt-6">
-            <button
-              onClick={handleSaveDraft}
-              className="flex-1 py-3 rounded-xl font-bold text-slate-300 hover:text-white hover:bg-slate-700 transition-colors border border-slate-600"
-            >
-              Save as Draft
-            </button>
-            <button
-              onClick={() => setIsCheckoutOpen(true)}
-              className="flex-[2] py-3 rounded-xl font-bold text-white bg-violet-600 hover:bg-violet-500 shadow-lg shadow-violet-900/20 transition-all flex items-center justify-center gap-2"
-            >
-              <DollarSign size={18} />
-              Proceed to Checkout
-            </button>
+            {/* Action Buttons */}
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={handleSaveDraft}
+                className="flex-1 py-3 rounded-xl font-bold text-slate-300 hover:text-white hover:bg-slate-700 transition-colors border border-slate-600"
+              >
+                Save as Draft
+              </button>
+              <button
+                onClick={() => setIsCheckoutOpen(true)}
+                className="flex-[2] py-3 rounded-xl font-bold text-white bg-violet-600 hover:bg-violet-500 shadow-lg shadow-violet-900/20 transition-all flex items-center justify-center gap-2"
+              >
+                <DollarSign size={18} />
+                Proceed to Checkout
+              </button>
+            </div>
           </div>
-        </div>
         </div>
       </div>
 

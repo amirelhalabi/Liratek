@@ -335,7 +335,10 @@ describe("RechargeRepository.topUpFromClient()", () => {
     expect(result.success).toBe(true);
 
     expect(balance(db, "Whish_App", "LBP")).toBeCloseTo(5_000_000, 0);
-    expect(balance(db, "General", "LBP")).toBeCloseTo(10_000_000 - 4_900_000, 0);
+    expect(balance(db, "General", "LBP")).toBeCloseTo(
+      10_000_000 - 4_900_000,
+      0,
+    );
 
     const txn = db
       .prepare("SELECT * FROM transactions WHERE type = 'RECHARGE_TOPUP'")

@@ -32,7 +32,6 @@ function formatTime(ts: string): string {
   }
 }
 
-
 export interface AuditLogViewerProps {
   action: string;
   entityType: string;
@@ -118,11 +117,35 @@ export default function AuditLogViewer({
     <>
       <DataTable<AuditLogEntry>
         columns={[
-          { header: "Time", sortKey: "created_at", width: "140px", className: "p-2 text-xs font-semibold uppercase text-slate-400" },
-          { header: "Summary", sortKey: "summary", className: "p-2 text-xs font-semibold uppercase text-slate-400" },
-          { header: "User", sortKey: "username", width: "90px", className: "p-2 text-xs font-semibold uppercase text-slate-400" },
-          { header: "Action", sortKey: "action", width: "120px", className: "p-2 text-xs font-semibold uppercase text-slate-400" },
-          { header: "Entity", sortKey: "entity_type", width: "160px", className: "p-2 text-xs font-semibold uppercase text-slate-400" },
+          {
+            header: "Time",
+            sortKey: "created_at",
+            width: "140px",
+            className: "p-2 text-xs font-semibold uppercase text-slate-400",
+          },
+          {
+            header: "Summary",
+            sortKey: "summary",
+            className: "p-2 text-xs font-semibold uppercase text-slate-400",
+          },
+          {
+            header: "User",
+            sortKey: "username",
+            width: "90px",
+            className: "p-2 text-xs font-semibold uppercase text-slate-400",
+          },
+          {
+            header: "Action",
+            sortKey: "action",
+            width: "120px",
+            className: "p-2 text-xs font-semibold uppercase text-slate-400",
+          },
+          {
+            header: "Entity",
+            sortKey: "entity_type",
+            width: "160px",
+            className: "p-2 text-xs font-semibold uppercase text-slate-400",
+          },
         ]}
         data={rows}
         loading={loading}
@@ -141,37 +164,39 @@ export default function AuditLogViewer({
         className="w-full text-left"
         theadClassName="bg-slate-900 text-slate-400 text-xs uppercase"
         renderRow={(row) => (
-            <tr
-              key={row.id}
-              className="border-t border-slate-800 text-xs hover:bg-slate-800/50 transition-colors"
-            >
-              <td className="p-2 truncate" style={{ width: 140 }}>
-                {formatTime(row.created_at)}
-              </td>
-              <td className="p-2">
-                <span className="text-slate-400 truncate block max-w-[480px]">
-                  {row.summary}
-                </span>
-              </td>
-              <td className="p-2 truncate" style={{ width: 90 }}>
-                <span className="text-slate-300">{row.username}</span>
-                <span className="text-slate-600 ml-1 text-[10px]">{row.role}</span>
-              </td>
-              <td className="p-2" style={{ width: 120 }}>
-                <span className={ACTION_COLORS[row.action] || "text-slate-300"}>
-                  {row.action.replace(/_/g, " ")}
-                </span>
-              </td>
-              <td className="p-2 truncate" style={{ width: 160 }}>
-                <span className="text-slate-300">
-                  {row.entity_type.replace(/_/g, " ")}
-                </span>
-                {row.entity_id && (
-                  <span className="text-slate-500 ml-1">#{row.entity_id}</span>
-                )}
-              </td>
-            </tr>
-          )}
+          <tr
+            key={row.id}
+            className="border-t border-slate-800 text-xs hover:bg-slate-800/50 transition-colors"
+          >
+            <td className="p-2 truncate" style={{ width: 140 }}>
+              {formatTime(row.created_at)}
+            </td>
+            <td className="p-2">
+              <span className="text-slate-400 truncate block max-w-[480px]">
+                {row.summary}
+              </span>
+            </td>
+            <td className="p-2 truncate" style={{ width: 90 }}>
+              <span className="text-slate-300">{row.username}</span>
+              <span className="text-slate-600 ml-1 text-[10px]">
+                {row.role}
+              </span>
+            </td>
+            <td className="p-2" style={{ width: 120 }}>
+              <span className={ACTION_COLORS[row.action] || "text-slate-300"}>
+                {row.action.replace(/_/g, " ")}
+              </span>
+            </td>
+            <td className="p-2 truncate" style={{ width: 160 }}>
+              <span className="text-slate-300">
+                {row.entity_type.replace(/_/g, " ")}
+              </span>
+              {row.entity_id && (
+                <span className="text-slate-500 ml-1">#{row.entity_id}</span>
+              )}
+            </td>
+          </tr>
+        )}
       />
       {total != null && rows.length < total && (
         <div className="flex justify-center p-3">

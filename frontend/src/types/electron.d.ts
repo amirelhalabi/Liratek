@@ -299,23 +299,21 @@ export interface ElectronAPI {
     getProductByBarcode: (
       barcode: string,
     ) => Promise<import("@liratek/core").Product | null>;
-    createProduct: (
-      product: {
-        barcode?: string | null;
-        name: string;
-        category: string;
-        category_id?: number | null;
-        cost_price: number;
-        retail_price: number;
-        whish_price?: number;
-        stock_quantity?: number;
-        min_stock_level?: number;
-        image_url?: string | null;
-        item_type?: string;
-        supplier?: string | null;
-        is_active?: number;
-      },
-    ) => Promise<{
+    createProduct: (product: {
+      barcode?: string | null;
+      name: string;
+      category: string;
+      category_id?: number | null;
+      cost_price: number;
+      retail_price: number;
+      whish_price?: number;
+      stock_quantity?: number;
+      min_stock_level?: number;
+      image_url?: string | null;
+      item_type?: string;
+      supplier?: string | null;
+      is_active?: number;
+    }) => Promise<{
       success: boolean;
       id?: number;
       error?: string;
@@ -392,14 +390,12 @@ export interface ElectronAPI {
   clients: {
     getAll: (search?: string) => Promise<Array<import("@liratek/core").Client>>;
     get: (id: number) => Promise<import("@liratek/core").Client | null>;
-    create: (
-      client: {
-        full_name: string;
-        phone_number: string;
-        notes?: string | null;
-        whatsapp_opt_in?: boolean | number;
-      },
-    ) => Promise<{ success: boolean; id?: number; error?: string }>;
+    create: (client: {
+      full_name: string;
+      phone_number: string;
+      notes?: string | null;
+      whatsapp_opt_in?: boolean | number;
+    }) => Promise<{ success: boolean; id?: number; error?: string }>;
     update: (
       client: Partial<import("@liratek/core").Client> & { id: number },
     ) => Promise<{ success: boolean; error?: string }>;
@@ -968,7 +964,11 @@ export interface ElectronAPI {
     recordCashflow: (data: {
       supplier_id: number;
       direction: "PAY" | "RECEIVE";
-      payments: Array<{ method: string; currency_code: string; amount: number }>;
+      payments: Array<{
+        method: string;
+        currency_code: string;
+        amount: number;
+      }>;
       note?: string;
       exchange_rate?: number;
     }) => Promise<{ success: boolean; id?: number; error?: string }>;
@@ -1002,7 +1002,20 @@ export interface ElectronAPI {
       supplier_id: number;
       total_usd: number;
       note?: string;
-    }) => Promise<{ success: boolean; id?: number; error?: string } | { id: number; supplier_id: number; total_usd: number; paid_usd: number; status: "PAID" | "PARTIAL" | "UNPAID"; note: string | null; created_by: number | null; created_at: string; updated_at: string }>;
+    }) => Promise<
+      | { success: boolean; id?: number; error?: string }
+      | {
+          id: number;
+          supplier_id: number;
+          total_usd: number;
+          paid_usd: number;
+          status: "PAID" | "PARTIAL" | "UNPAID";
+          note: string | null;
+          created_by: number | null;
+          created_at: string;
+          updated_at: string;
+        }
+    >;
   };
 
   // Loto
@@ -1691,6 +1704,10 @@ export interface ElectronAPI {
       code: string,
     ) => Promise<{ code: string; name: string; is_active: number } | null>;
     allDrawerCurrencies: () => Promise<Record<string, string[]>>;
+    setDrawerCurrencies: (
+      drawerName: string,
+      currencies: string[],
+    ) => Promise<{ success: boolean; error?: string }>;
   };
 
   // Transactions
@@ -1873,7 +1890,7 @@ export interface ElectronAPI {
       extra_users?: { username: string; password: string; role: string }[];
       whatsapp_phone?: string;
       whatsapp_api_key?: string;
-    }) => Promise<{ success: boolean; error?: string }>;
+    }) => Promise<{ success: boolean; adminUserId?: number; error?: string }>;
     reset: () => Promise<{ success: boolean; error?: string }>;
     testDatabasePath: (
       path: string,

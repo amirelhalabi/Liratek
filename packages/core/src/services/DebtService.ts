@@ -340,8 +340,7 @@ export class DebtService {
     const balance = this.debtRepo.getClientBalance(clientId);
 
     if (amountUsd > 0) {
-      const availableUsd =
-        balance.balance_usd < 0 ? -balance.balance_usd : 0;
+      const availableUsd = balance.balance_usd < 0 ? -balance.balance_usd : 0;
       if (amountUsd > availableUsd + 0.01) {
         return {
           success: false,
@@ -350,8 +349,7 @@ export class DebtService {
       }
     }
     if (amountLbp > 0) {
-      const availableLbp =
-        balance.balance_lbp < 0 ? -balance.balance_lbp : 0;
+      const availableLbp = balance.balance_lbp < 0 ? -balance.balance_lbp : 0;
       if (amountLbp > availableLbp + 0.01) {
         return {
           success: false,

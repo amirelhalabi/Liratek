@@ -49,7 +49,9 @@ type Api = {
       getLedger: (
         partnerId: number,
         filters?: Record<string, unknown>,
-      ) => Promise<{ entries?: Array<{ transaction_type: string; amount: number }> }>;
+      ) => Promise<{
+        entries?: Array<{ transaction_type: string; amount: number }>;
+      }>;
     };
   };
 };
@@ -69,7 +71,9 @@ test.describe("Secondary OMT/WHISH system — no supplier-ledger pollution", () 
 
       // 1. Create a partner to route the secondary-system transaction through.
       // partners:create returns { success, data: { id, ... } }.
-      const created = await w.api.partners.create({ name: "E2E Secondary Partner" });
+      const created = await w.api.partners.create({
+        name: "E2E Secondary Partner",
+      });
       const partnerId = created.data?.id;
 
       // 2. WHISH SEND THROUGH the partner.
@@ -91,7 +95,9 @@ test.describe("Secondary OMT/WHISH system — no supplier-ledger pollution", () 
         : [];
       // partners:get-ledger returns a statement { partner, balance, breakdown, entries }.
       const partnerStatement =
-        partnerId != null ? await w.api.partners.getLedger(partnerId) : undefined;
+        partnerId != null
+          ? await w.api.partners.getLedger(partnerId)
+          : undefined;
 
       // 4. Default suppliers list (page) — should hide the secondary WHISH.
       const visibleSuppliers = await w.api.suppliers.list("", false);

@@ -97,7 +97,7 @@ export function CryptoForm({
     if (newClientReady && initialPaymentMethod !== "CUSTOMER_ACCOUNT") {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setInitialPaymentMethod("CUSTOMER_ACCOUNT");
-       
+
       setPaymentInputKey((k) => k + 1);
     }
   }, [
@@ -213,12 +213,16 @@ export function CryptoForm({
             </div>
             <div className="flex items-center justify-between text-xs pt-1">
               <span className="text-slate-400">Shop Fee:</span>
-              <span className={`font-mono font-bold ${fee > 0 ? "text-emerald-400" : "text-slate-500"}`}>
+              <span
+                className={`font-mono font-bold ${fee > 0 ? "text-emerald-400" : "text-slate-500"}`}
+              >
                 ${fee.toFixed(2)}
               </span>
             </div>
             <div className="flex items-center justify-between text-xs pt-1">
-              <span className="text-slate-300 font-medium">Customer Payout:</span>
+              <span className="text-slate-300 font-medium">
+                Customer Payout:
+              </span>
               <span className="text-white font-mono font-bold">
                 ${payout.toFixed(2)}
               </span>
@@ -234,7 +238,9 @@ export function CryptoForm({
             </div>
             <div className="flex items-center justify-between text-xs pt-1">
               <span className="text-slate-400">Shop Profit (Fee):</span>
-              <span className={`font-mono font-bold ${fee > 0 ? "text-emerald-400" : "text-slate-500"}`}>
+              <span
+                className={`font-mono font-bold ${fee > 0 ? "text-emerald-400" : "text-slate-500"}`}
+              >
                 ${fee.toFixed(2)}
               </span>
             </div>
@@ -340,14 +346,19 @@ export function CryptoForm({
             <div className="text-xs text-slate-400">
               {cryptoType === "RECEIVE" ? "Payout" : "Total"}:{" "}
               <span className="text-emerald-400 font-mono font-semibold">
-                ${cryptoType === "RECEIVE" ? payout.toFixed(2) : sendTotal.toFixed(2)}
+                $
+                {cryptoType === "RECEIVE"
+                  ? payout.toFixed(2)
+                  : sendTotal.toFixed(2)}
               </span>
             </div>
             {exchangeRate > 0 && parsedAmount > 0 && (
               <div className="text-xs text-slate-500 font-mono">
-                ≈ {(
+                ≈{" "}
+                {(
                   (cryptoType === "RECEIVE" ? payout : sendTotal) * exchangeRate
-                ).toLocaleString()} LBP
+                ).toLocaleString()}{" "}
+                LBP
               </div>
             )}
           </div>
@@ -359,7 +370,10 @@ export function CryptoForm({
                 setInitialPaymentMethod(v);
                 setPaymentInputKey((k) => k + 1);
               }}
-              options={paymentMethods.map((m) => ({ value: m.code, label: m.label }))}
+              options={paymentMethods.map((m) => ({
+                value: m.code,
+                label: m.label,
+              }))}
               buttonClassName="bg-slate-900 border border-slate-600 rounded-lg pl-3 pr-8 py-2 text-white text-xs font-medium focus:outline-none focus:border-amber-500 transition-all cursor-pointer"
             />
             <button
@@ -391,7 +405,9 @@ export function CryptoForm({
         onClose={() => setShowPaymentSheet(false)}
         onConfirm={handleCryptoSubmit}
         isSubmitting={isSubmitting}
-        title={cryptoType === "RECEIVE" ? "Confirm Cash Out" : "Confirm Payment"}
+        title={
+          cryptoType === "RECEIVE" ? "Confirm Cash Out" : "Confirm Payment"
+        }
         subtitle={
           cryptoType === "RECEIVE"
             ? `Cash Out — Payout $${payout.toFixed(2)}`

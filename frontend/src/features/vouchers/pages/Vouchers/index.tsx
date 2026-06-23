@@ -136,8 +136,10 @@ export function VouchersPage() {
 
     const name = clientQuery.trim();
     const phone = clientPhone.trim();
-    if (!name) return { ok: false, error: "Enter a client name or select a client" };
-    if (!phone) return { ok: false, error: "Enter a phone number for the new client" };
+    if (!name)
+      return { ok: false, error: "Enter a client name or select a client" };
+    if (!phone)
+      return { ok: false, error: "Enter a phone number for the new client" };
 
     const created = await window.api.clients.create({
       full_name: name,
@@ -348,9 +350,7 @@ export function VouchersPage() {
             {/* Amount + currency toggle */}
             <div className="mb-3">
               <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs text-slate-400">
-                  Amount *
-                </label>
+                <label className="text-xs text-slate-400">Amount *</label>
                 <div className="flex items-center gap-1 bg-slate-900 rounded-lg border border-slate-600 p-0.5">
                   {(["USD", "LBP"] as const).map((cur) => (
                     <button

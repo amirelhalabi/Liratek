@@ -153,7 +153,9 @@ describe("DataTable", () => {
       />,
     );
 
-    const firstNameUnsorted = within(dataRows()[0]).getByText(/Charlie|Alpha|Bravo/);
+    const firstNameUnsorted = within(dataRows()[0]).getByText(
+      /Charlie|Alpha|Bravo/,
+    );
     expect(firstNameUnsorted).toHaveTextContent("Charlie");
 
     // Click "Name" header → ascending.
@@ -254,7 +256,9 @@ describe("DataTable", () => {
       />,
     );
 
-    const checkbox = screen.getByTestId("select-all-checkbox") as HTMLInputElement;
+    const checkbox = screen.getByTestId(
+      "select-all-checkbox",
+    ) as HTMLInputElement;
     expect(checkbox).toBeInTheDocument();
     expect(checkbox.checked).toBe(false);
 
@@ -274,7 +278,9 @@ describe("DataTable", () => {
       />,
     );
 
-    let checkbox = screen.getByTestId("select-all-checkbox") as HTMLInputElement;
+    let checkbox = screen.getByTestId(
+      "select-all-checkbox",
+    ) as HTMLInputElement;
     expect(checkbox.checked).toBe(true);
     expect(checkbox.indeterminate).toBe(false);
 

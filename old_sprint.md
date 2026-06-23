@@ -257,22 +257,22 @@ Medium-Large — ~6-8 hours total:
 
 ## Sell Prices & Dev Mode Testing (Medium Priority)
 
-| ID     | Task                              | Status | Notes                                                    |
-| ------ | --------------------------------- | ------ | -------------------------------------------------------- |
+| ID     | Task                              | Status      | Notes                                                                                                                                                                                                                                                                             |
+| ------ | --------------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | CS-005 | Update remaining sell prices      | IN PROGRESS | 62/199 priced in mobileServices.ts (copied Katsh sells onto matched iPick items). 137 left at 0: 121 with no Katsh counterpart (Steam, Xbox, Razer, alfa bundles, ARMY DSL, Wise, Validity alfa) + 16 gaming items where Katsh sell < iPick cost (match rejected, manual pricing) |
-| CS-006 | Dev mode full transaction testing | TODO   | End-to-end test of all transaction types in dev mode     |
-| CS-007 | Price validation (cost < sell)    | DONE   | ✅ Validation added to InventoryService (create + update) and Zod schemas (ProductCreateSchema, ProductUpdateSchema) |
+| CS-006 | Dev mode full transaction testing | TODO        | End-to-end test of all transaction types in dev mode                                                                                                                                                                                                                              |
+| CS-007 | Price validation (cost < sell)    | DONE        | ✅ Validation added to InventoryService (create + update) and Zod schemas (ProductCreateSchema, ProductUpdateSchema)                                                                                                                                                              |
 
 ---
 
 ## Summary
 
-| Priority  | Total  | Done   | Remaining |
-| --------- | ------ | ------ | --------- |
-| Highest   | 1      | 1      | 0         |
-| High      | 5      | 5      | 0         |
-| Medium    | 4      | 2      | 2 (CS-005 in progress, CS-006 TODO) |
-| **Total** | **10** | **7**  | **3**     |
+| Priority  | Total  | Done  | Remaining                           |
+| --------- | ------ | ----- | ----------------------------------- |
+| Highest   | 1      | 1     | 0                                   |
+| High      | 5      | 5     | 0                                   |
+| Medium    | 4      | 2     | 2 (CS-005 in progress, CS-006 TODO) |
+| **Total** | **10** | **7** | **3**                               |
 
 ---
 

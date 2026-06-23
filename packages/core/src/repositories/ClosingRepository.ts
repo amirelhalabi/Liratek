@@ -180,9 +180,7 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
    */
   hasInitialBalancesSet(): boolean {
     const row = this.db
-      .prepare(
-        `SELECT COUNT(*) as cnt FROM drawer_balances WHERE balance != 0`,
-      )
+      .prepare(`SELECT COUNT(*) as cnt FROM drawer_balances WHERE balance != 0`)
       .get() as { cnt: number };
     return row.cnt > 0;
   }
@@ -318,7 +316,11 @@ export class ClosingRepository extends BaseRepository<DailyClosingEntity> {
           amount_usd: netUsd,
           amount_lbp: netLbp,
           summary: `Checkpoint: ${data.drawer_name} for ${closingDate}`,
-          metadata_json: { amounts: data.amounts, adjustments, notes: data.notes },
+          metadata_json: {
+            amounts: data.amounts,
+            adjustments,
+            notes: data.notes,
+          },
         });
 
         // 4. Post the reconciliation entries to the journal + live balances.

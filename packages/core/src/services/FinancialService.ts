@@ -54,9 +54,10 @@ export class FinancialService {
    * CUSTOMER_ACCOUNT portion of this transaction's payments.
    * Returns {success:true} when there's nothing to validate or the credit is sufficient.
    */
-  private validateCustomerAccountPayment(
-    data: CreateFinancialServiceData,
-  ): { success: boolean; error?: string } {
+  private validateCustomerAccountPayment(data: CreateFinancialServiceData): {
+    success: boolean;
+    error?: string;
+  } {
     // Multi-payment array (preferred — comes from MultiPaymentInput in the UI)
     if (data.payments && data.payments.length > 0) {
       const { usd, lbp } = sumCustomerAccountByCurrency(data.payments);

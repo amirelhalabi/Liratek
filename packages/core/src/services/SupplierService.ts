@@ -104,10 +104,14 @@ export class SupplierService {
     }
   }
 
-  createPurchase(data: CreateSupplierPurchaseData): SupplierPurchase | { success: false; error: string } {
+  createPurchase(
+    data: CreateSupplierPurchaseData,
+  ): SupplierPurchase | { success: false; error: string } {
     try {
-      if (!data.supplier_id) return { success: false, error: "supplier_id is required" };
-      if (data.total_usd <= 0) return { success: false, error: "Amount must be greater than 0" };
+      if (!data.supplier_id)
+        return { success: false, error: "supplier_id is required" };
+      if (data.total_usd <= 0)
+        return { success: false, error: "Amount must be greater than 0" };
       return getSupplierPurchaseRepository().create(data);
     } catch (e) {
       return { success: false, error: toErrorString(e) };
@@ -127,7 +131,10 @@ export class SupplierService {
       if (!data.supplier_id)
         return { success: false, error: "supplier_id is required" };
       if (!data.payments?.length)
-        return { success: false, error: "At least one payment leg is required" };
+        return {
+          success: false,
+          error: "At least one payment leg is required",
+        };
       const res = this.repo.recordSupplierCashflow(data);
       return { success: true, id: res.id };
     } catch (e) {

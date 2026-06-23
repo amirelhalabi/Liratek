@@ -541,7 +541,10 @@ export function registerLotoHandlers(): void {
       lotoLogger.error({ error }, "loto:checkpoints:settle-batch failed");
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Failed to settle checkpoints",
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to settle checkpoints",
       };
     }
   });

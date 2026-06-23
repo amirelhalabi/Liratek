@@ -261,7 +261,9 @@ export function ServiceDebtDetailModal({
               })}
               {/* Debt/Account charge row (from debt_ledger — not in payments table) */}
               {debtAmount > 0 &&
-                !customerPayments.some((p) => p.method === "CUSTOMER_ACCOUNT") && (
+                !customerPayments.some(
+                  (p) => p.method === "CUSTOMER_ACCOUNT",
+                ) && (
                   <div
                     className={`flex items-center justify-between px-3 py-2 rounded-lg ${
                       isCreditor

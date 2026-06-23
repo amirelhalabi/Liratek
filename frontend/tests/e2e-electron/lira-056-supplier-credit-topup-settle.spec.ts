@@ -85,9 +85,7 @@ type Api = {
         limit?: number,
       ) => Promise<SupplierLedgerRow[]>;
       // RAW array of per-supplier balances.
-      getBalances: (
-        includeInactive?: boolean,
-      ) => Promise<SupplierBalanceRow[]>;
+      getBalances: (includeInactive?: boolean) => Promise<SupplierBalanceRow[]>;
       // entry_type union + drawer_name (electron.d.ts omits drawer_name — the
       // handler/schema accept it and the repo debits that drawer for PAYMENT).
       addLedgerEntry: (data: {
@@ -166,8 +164,7 @@ test.describe("LIRA-056 — supplier-credit top-up + settle (no source-drawer de
           error: res?.error ?? null,
           katshDrawerDelta:
             Math.round((katshDrawerAfter - katshDrawerBefore) * 100) / 100,
-          generalDelta:
-            Math.round((generalAfter - generalBefore) * 100) / 100,
+          generalDelta: Math.round((generalAfter - generalBefore) * 100) / 100,
           supplierBalDelta:
             Math.round((supplierBalAfter - supplierBalBefore) * 100) / 100,
           topUpAdded: topUpCountAfter - topUpCountBefore,
@@ -261,8 +258,7 @@ test.describe("LIRA-056 — supplier-credit top-up + settle (no source-drawer de
           found: true,
           ok: res?.success ?? true,
           error: res?.error ?? null,
-          generalDelta:
-            Math.round((generalAfter - generalBefore) * 100) / 100,
+          generalDelta: Math.round((generalAfter - generalBefore) * 100) / 100,
           katshDrawerDelta:
             Math.round((katshDrawerAfter - katshDrawerBefore) * 100) / 100,
           supplierBalDelta:
@@ -356,8 +352,7 @@ test.describe("LIRA-056 — supplier-credit top-up + settle (no source-drawer de
           error: res?.error ?? null,
           ipickDrawerDelta:
             Math.round((ipickDrawerAfter - ipickDrawerBefore) * 100) / 100,
-          generalDelta:
-            Math.round((generalAfter - generalBefore) * 100) / 100,
+          generalDelta: Math.round((generalAfter - generalBefore) * 100) / 100,
           supplierBalDelta:
             Math.round((supplierBalAfter - supplierBalBefore) * 100) / 100,
           topUpAdded: topUpCountAfter - topUpCountBefore,

@@ -11,17 +11,17 @@ fast, trustworthy e2e suite that runs in CI again.
 
 ## 1. Current state (measured)
 
-| Signal | Value | Source |
-|---|---|---|
-| Runs in CI today? | **No** — `e2e-tests` job is hard-disabled with `if: false` | `.github/workflows/ci.yml:131-135` |
-| Spec files | 10 | `frontend/tests/e2e-electron/**/*.spec.ts` |
-| `test()` blocks | ~114 | suite-wide |
-| `waitForTimeout` calls | **293** | suite-wide |
-| Hard-sleep time baked in | **~168.6 s** of unconditional sleeping | sum of all `waitForTimeout(ms)` |
-| Conditional "silent pass" guards | **63** `isVisible(...).catch(() => false)` | suite-wide |
-| Component-level specs booting full Electron | **9 of 10** files | see §4 table |
-| Retries | `0` (while `trace: "on-first-retry"` — never fires) | `playwright.electron.config.ts:18,31` |
-| Parallelism | `fullyParallel: false`, shared Electron instance per worker | `playwright.electron.config.ts:24`, `fixtures.ts:55-150` |
+| Signal                                      | Value                                                       | Source                                                   |
+| ------------------------------------------- | ----------------------------------------------------------- | -------------------------------------------------------- |
+| Runs in CI today?                           | **No** — `e2e-tests` job is hard-disabled with `if: false`  | `.github/workflows/ci.yml:131-135`                       |
+| Spec files                                  | 10                                                          | `frontend/tests/e2e-electron/**/*.spec.ts`               |
+| `test()` blocks                             | ~114                                                        | suite-wide                                               |
+| `waitForTimeout` calls                      | **293**                                                     | suite-wide                                               |
+| Hard-sleep time baked in                    | **~168.6 s** of unconditional sleeping                      | sum of all `waitForTimeout(ms)`                          |
+| Conditional "silent pass" guards            | **63** `isVisible(...).catch(() => false)`                  | suite-wide                                               |
+| Component-level specs booting full Electron | **9 of 10** files                                           | see §4 table                                             |
+| Retries                                     | `0` (while `trace: "on-first-retry"` — never fires)         | `playwright.electron.config.ts:18,31`                    |
+| Parallelism                                 | `fullyParallel: false`, shared Electron instance per worker | `playwright.electron.config.ts:24`, `fixtures.ts:55-150` |
 
 ### Per-file hard-wait concentration
 
@@ -45,6 +45,7 @@ fast, trustworthy e2e suite that runs in CI again.
 ## 2. Goals & non-goals
 
 **Goals**
+
 - The suite tells the truth: a green run means the behavior works; a failure is real.
 - **Fastest, most efficient execution.** Minimize total Electron boots and bootstrap cost by
   **grouping similar/related tests into shared spec files** so they run together off one boot +
@@ -53,7 +54,8 @@ fast, trustworthy e2e suite that runs in CI again.
 - Faster wall-clock also falls out of the correctness fixes (removing the ~169s of hard sleeps).
 
 **Non-goals**
-- **Running e2e in CI (for now).** Per team decision, e2e is *not* required in CI at this time;
+
+- **Running e2e in CI (for now).** Per team decision, e2e is _not_ required in CI at this time;
   it must stay fast and runnable locally / on demand. The broken CI recipe is documented but
   parked (see §5 "Deferred").
 - Rewriting the app to be more testable (out of scope, except the one polling note in §6).
@@ -70,13 +72,15 @@ fast, trustworthy e2e suite that runs in CI again.
    (`fixtures.ts:221`), multiplied across ~114 tests.
 
 2. **63 conditional assertions create false confidence.** The dominant pattern is:
+
    ```ts
    const visible = await x.isVisible({ timeout }).catch(() => false);
    if (visible) { expect(...) }
    ```
+
    If the element never appears (exactly the regression we want to catch), the `if` is skipped
    and the test **passes green**. `CheckoutModal.spec.ts` S49–S52 are almost entirely guarded
-   this way. This is *why* nobody trusted the suite enough to keep it on.
+   this way. This is _why_ nobody trusted the suite enough to keep it on.
 
 3. **Wrong layer of the test pyramid.** 9 of 10 spec files exercise **components**
    (DataTable, ConfirmModal, DateRangeFilter, MultiPaymentInput, …) by booting a full
@@ -110,22 +114,22 @@ fast, trustworthy e2e suite that runs in CI again.
 
 E2E should keep only true cross-cutting journeys. Component specs move down to RTL/jest in
 `frontend/src/**/__tests__`. **Important:** only `MultiPaymentInput` has an RTL test today —
-the rest require *writing* unit tests as part of the move (not just deleting the e2e file).
+the rest require _writing_ unit tests as part of the move (not just deleting the e2e file).
 
-| e2e spec | Nature | RTL test exists? | Action |
-|---|---|---|---|
-| `app.spec.ts` | POS sale, exchange, debt, expense journeys | n/a | **Keep as e2e** (the core suite). Harden it. |
-| `components/MultiPaymentInput.spec.ts` (75 waits) | component | ✅ `shared/components/__tests__/MultiPaymentInput.test.tsx` + `Services.multi-payment.test.tsx` | **Delete e2e**; fold any missing cases into existing RTL. Triple-covered today. |
-| `components/ConfirmModal.spec.ts` | component | ❌ | Write RTL → delete e2e |
-| `components/DataTable.spec.ts` | component | ❌ | Write RTL → delete e2e |
-| `components/DateRangeFilter.spec.ts` | component | ❌ | Write RTL → delete e2e |
-| `components/ClientAutocompleteInput.spec.ts` | component | ❌ | Write RTL (mock IPC search) → delete e2e |
-| `components/EditHistoryPopover.spec.ts` | component | ❌ | Write RTL → delete e2e |
-| `components/SaveAsClientCheckbox.spec.ts` | component | ❌ | Write RTL → delete e2e |
-| `components/TransactionTimeOverride.spec.ts` | component | ❌ | Write RTL → delete e2e |
-| `components/CheckoutModal.spec.ts` | component + flow | ❌ | Split: pure UI → RTL; the "partial payment → debt row created" path stays e2e in `app.spec.ts` |
+| e2e spec                                          | Nature                                     | RTL test exists?                                                                                | Action                                                                                         |
+| ------------------------------------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `app.spec.ts`                                     | POS sale, exchange, debt, expense journeys | n/a                                                                                             | **Keep as e2e** (the core suite). Harden it.                                                   |
+| `components/MultiPaymentInput.spec.ts` (75 waits) | component                                  | ✅ `shared/components/__tests__/MultiPaymentInput.test.tsx` + `Services.multi-payment.test.tsx` | **Delete e2e**; fold any missing cases into existing RTL. Triple-covered today.                |
+| `components/ConfirmModal.spec.ts`                 | component                                  | ❌                                                                                              | Write RTL → delete e2e                                                                         |
+| `components/DataTable.spec.ts`                    | component                                  | ❌                                                                                              | Write RTL → delete e2e                                                                         |
+| `components/DateRangeFilter.spec.ts`              | component                                  | ❌                                                                                              | Write RTL → delete e2e                                                                         |
+| `components/ClientAutocompleteInput.spec.ts`      | component                                  | ❌                                                                                              | Write RTL (mock IPC search) → delete e2e                                                       |
+| `components/EditHistoryPopover.spec.ts`           | component                                  | ❌                                                                                              | Write RTL → delete e2e                                                                         |
+| `components/SaveAsClientCheckbox.spec.ts`         | component                                  | ❌                                                                                              | Write RTL → delete e2e                                                                         |
+| `components/TransactionTimeOverride.spec.ts`      | component                                  | ❌                                                                                              | Write RTL → delete e2e                                                                         |
+| `components/CheckoutModal.spec.ts`                | component + flow                           | ❌                                                                                              | Split: pure UI → RTL; the "partial payment → debt row created" path stays e2e in `app.spec.ts` |
 
-**Net effect:** e2e shrinks from 10 files to ~1–2 journey files; component coverage *improves*
+**Net effect:** e2e shrinks from 10 files to ~1–2 journey files; component coverage _improves_
 (7 components gain their first unit tests) while running in milliseconds instead of a full app boot.
 
 ---
@@ -135,20 +139,23 @@ the rest require *writing* unit tests as part of the move (not just deleting the
 Each phase is independently shippable and leaves CI green. Recommended PR boundaries.
 
 ### Phase 0 — Baseline & safety net (no behavior change)
+
 - Record current wall-clock locally: `yarn workspace @liratek/frontend test:e2e` (note time).
 - Add this doc (done).
 - **Acceptance:** baseline numbers captured in the PR description.
 
 ### Phase 1 — Make the signal honest (highest leverage, do first)
+
 - Remove the 63 `isVisible().catch(() => false)` → conditional-`expect` guards. Each becomes a
   deterministic arrange → act → **assert**. Where a precondition is genuinely
   environment-dependent, convert to an explicit `test.skip(condition, reason)` — never a silent pass.
 - Convert the class-based assertions (e.g. `ConfirmModal.po.ts:38` `toHaveClass(/bg-red-600/)`)
   to semantic checks (role, `data-variant`, text) where practical.
 - **Acceptance:** zero `.catch(() => false)`-guarded assertions remain in specs; suite may go
-  red — that red is *information*, triaged in Phase 2/4.
+  red — that red is _information_, triaged in Phase 2/4.
 
 ### Phase 2 — Kill the hard waits (speed + stability, same change)
+
 - Replace `waitForTimeout` with web-first assertions (`expect(locator).toBeVisible()`,
   `toHaveValue()`, `toBeEnabled()`) and `page.waitForResponse` / `waitForFunction`.
 - Start with `navigateTo()` (`fixtures.ts:161-222`): drop the trailing `waitForTimeout(3000)`
@@ -159,16 +166,18 @@ Each phase is independently shippable and leaves CI green. Recommended PR bounda
   commented exceptions remain. Wall-clock measurably down vs Phase 0 baseline.
 
 ### Phase 3 — Programmatic bootstrap & seeding
+
 - Replace UI-driven `completeSetup()` with programmatic setup: seed the DB / app config
   directly (extend the existing `helpers/seed.ts` IPC pattern, or add a test-only setup IPC /
   pre-seeded DB fixture). Removes the most brittle + slow part of every worker's startup.
-- In `app.spec.ts`, replace UI-driven "create product"/"create client" *prerequisite* steps
+- In `app.spec.ts`, replace UI-driven "create product"/"create client" _prerequisite_ steps
   with `seedProduct`/`seedClient`, while keeping **one** explicit UI-create test per entity for
   real coverage.
 - **Acceptance:** no spec depends on Tailwind-class/`nth()`/placeholder selectors for bootstrap;
   worker startup time down.
 
 ### Phase 4 — Pyramid migration (per §4 table)
+
 - For each component spec: write/extend the RTL test in `frontend/src/**/__tests__`, confirm
   parity, then delete the e2e component spec and its page object.
 - Keep `app.spec.ts` (+ any genuinely cross-cutting flow) as the e2e core.
@@ -176,6 +185,7 @@ Each phase is independently shippable and leaves CI green. Recommended PR bounda
   `yarn workspace @liratek/frontend test` covers what the deleted specs covered.
 
 ### Phase 5 — Consolidate & group remaining e2e specs (fastest execution)
+
 **Boots = spec files.** Each spec file launches its own Electron app and runs its own
 `completeSetup()` — workers don't share an instance (`playwright.electron.config.ts:19-24`,
 `fixtures.ts`). Boot + bootstrap dominates runtime, so fewer, well-grouped files = fewer boots
@@ -195,6 +205,7 @@ Each phase is independently shippable and leaves CI green. Recommended PR bounda
   more than once; wall-clock measurably down vs the Phase 0 baseline.
 
 ### Phase 6 — Guardrails (prevent regression)
+
 - ESLint rule banning `waitForTimeout` and class/`nth()` selectors in `e2e-electron/**`, with an
   allowlist-by-comment escape hatch. (Runs in the existing, enabled `lint` CI job — no e2e job
   needed.)
@@ -203,7 +214,9 @@ Each phase is independently shippable and leaves CI green. Recommended PR bounda
 - **Acceptance:** a PR reintroducing a hard wait or class selector fails the `lint` job.
 
 ### Deferred — CI re-enablement (out of scope for now)
+
 Not doing this now (team decision); captured so it's ready when wanted:
+
 - The `e2e-tests` job (`ci.yml:131`) is broken regardless of `if:` — to revive it, build
   `electron-app` (`cd electron-app && npm run build`), invoke with
   `--config playwright.electron.config.ts`, and align the webServer/preview wiring with the
@@ -260,6 +273,6 @@ Not doing this now (team decision); captured so it's ready when wanted:
 
 - Is the §6.2 app-side polling change in scope, or should tests keep working around it?
 - Target local wall-clock budget for the full e2e run (drives how aggressively we group)?
-- Any component in §4 we want to *keep* at e2e level for a specific reason?
+- Any component in §4 we want to _keep_ at e2e level for a specific reason?
 
 > Resolved: **e2e in CI** — out of scope for now (kept local/on-demand; see §5 "Deferred").

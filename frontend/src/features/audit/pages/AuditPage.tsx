@@ -12,8 +12,10 @@ import {
 
 type TabKey = "audit" | "transactions";
 
-const selectClass = "bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white text-sm focus:ring-2 focus:ring-violet-600";
-const inputClass  = "bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white text-sm focus:ring-2 focus:ring-violet-600";
+const selectClass =
+  "bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white text-sm focus:ring-2 focus:ring-violet-600";
+const inputClass =
+  "bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white text-sm focus:ring-2 focus:ring-violet-600";
 
 export default function AuditPage() {
   const [active, setActive] = useState<TabKey>("transactions");
@@ -125,7 +127,10 @@ export default function AuditPage() {
               onChange={(v) => setAuditAction(v)}
               options={[
                 { value: "", label: "All actions" },
-                ...ACTION_OPTIONS.map((a) => ({ value: a, label: a.replace(/_/g, " ") })),
+                ...ACTION_OPTIONS.map((a) => ({
+                  value: a,
+                  label: a.replace(/_/g, " "),
+                })),
               ]}
               buttonClassName={selectClass}
             />
@@ -134,7 +139,10 @@ export default function AuditPage() {
               onChange={(v) => setAuditEntityType(v)}
               options={[
                 { value: "", label: "All entities" },
-                ...ENTITY_TYPE_OPTIONS.map((et) => ({ value: et, label: et.replace(/_/g, " ") })),
+                ...ENTITY_TYPE_OPTIONS.map((et) => ({
+                  value: et,
+                  label: et.replace(/_/g, " "),
+                })),
               ]}
               buttonClassName={selectClass}
             />

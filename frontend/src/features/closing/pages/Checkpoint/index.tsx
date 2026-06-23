@@ -79,10 +79,7 @@ export default function CheckpointModal({
   } = useCurrencies();
 
   const drawerAmounts = useDrawerAmounts({ currencies });
-  const {
-    systemExpected,
-    fetchSystemExpected,
-  } = useSystemExpected();
+  const { systemExpected, fetchSystemExpected } = useSystemExpected();
 
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
@@ -178,7 +175,8 @@ export default function CheckpointModal({
     if (saving) return "Saving...";
     if (overallStatus === "match" || diffs.length === 0)
       return "Save Checkpoint — Balanced";
-    if (diffs.length > 2) return `Save — Variance in ${diffs.length} currencies`;
+    if (diffs.length > 2)
+      return `Save — Variance in ${diffs.length} currencies`;
     const summary = diffs
       .map(
         (d) =>
@@ -296,7 +294,9 @@ export default function CheckpointModal({
     });
     const hasNotes = notes.trim().length > 0;
     if (hasInput || hasNotes) {
-      if (confirm("You have unsaved changes. Are you sure you want to close?")) {
+      if (
+        confirm("You have unsaved changes. Are you sure you want to close?")
+      ) {
         onClose();
       }
     } else {

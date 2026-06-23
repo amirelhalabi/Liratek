@@ -16,20 +16,26 @@ test.describe.configure({ retries: 0 });
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /** Returns the current USD balance of the named drawer via IPC. */
-async function getMtcUsdBalance(appPage: import("@playwright/test").Page): Promise<number> {
-  const balances = await appPage.evaluate(() =>
-    (window as any).api.recharge.getDrawerBalances() as Promise<
-      Array<{ name: string; usdBalance: number }>
-    >,
+async function getMtcUsdBalance(
+  appPage: import("@playwright/test").Page,
+): Promise<number> {
+  const balances = await appPage.evaluate(
+    () =>
+      (window as any).api.recharge.getDrawerBalances() as Promise<
+        Array<{ name: string; usdBalance: number }>
+      >,
   );
   return balances.find((b) => b.name === "MTC")?.usdBalance ?? 0;
 }
 
-async function getAlfaUsdBalance(appPage: import("@playwright/test").Page): Promise<number> {
-  const balances = await appPage.evaluate(() =>
-    (window as any).api.recharge.getDrawerBalances() as Promise<
-      Array<{ name: string; usdBalance: number }>
-    >,
+async function getAlfaUsdBalance(
+  appPage: import("@playwright/test").Page,
+): Promise<number> {
+  const balances = await appPage.evaluate(
+    () =>
+      (window as any).api.recharge.getDrawerBalances() as Promise<
+        Array<{ name: string; usdBalance: number }>
+      >,
   );
   return balances.find((b) => b.name === "Alfa")?.usdBalance ?? 0;
 }
@@ -77,7 +83,10 @@ test.describe("Recharge — CREDIT_TRANSFER SMS cost deduction", () => {
 
     // MTC is the default provider; CREDIT_TRANSFER is the default type.
     // Click MTC tab to be explicit in case a previous test left a different provider.
-    const mtcTab = appPage.locator("button").filter({ hasText: /^MTC$/ }).first();
+    const mtcTab = appPage
+      .locator("button")
+      .filter({ hasText: /^MTC$/ })
+      .first();
     await expect(mtcTab).toBeVisible({ timeout: 8_000 });
     await mtcTab.click();
 
@@ -97,7 +106,10 @@ test.describe("Recharge — CREDIT_TRANSFER SMS cost deduction", () => {
   }) => {
     await navigateTo(appPage, "/recharge");
 
-    const mtcTab = appPage.locator("button").filter({ hasText: /^MTC$/ }).first();
+    const mtcTab = appPage
+      .locator("button")
+      .filter({ hasText: /^MTC$/ })
+      .first();
     await expect(mtcTab).toBeVisible({ timeout: 8_000 });
     await mtcTab.click();
 
@@ -118,7 +130,10 @@ test.describe("Recharge — CREDIT_TRANSFER SMS cost deduction", () => {
     await navigateTo(appPage, "/recharge");
 
     // Switch to Alfa provider
-    const alfaTab = appPage.locator("button").filter({ hasText: /^Alfa$/ }).first();
+    const alfaTab = appPage
+      .locator("button")
+      .filter({ hasText: /^Alfa$/ })
+      .first();
     await expect(alfaTab).toBeVisible({ timeout: 8_000 });
     await alfaTab.click();
 
@@ -137,7 +152,10 @@ test.describe("Recharge — CREDIT_TRANSFER SMS cost deduction", () => {
   }) => {
     await navigateTo(appPage, "/recharge");
 
-    const mtcTab = appPage.locator("button").filter({ hasText: /^MTC$/ }).first();
+    const mtcTab = appPage
+      .locator("button")
+      .filter({ hasText: /^MTC$/ })
+      .first();
     await expect(mtcTab).toBeVisible({ timeout: 8_000 });
     await mtcTab.click();
 

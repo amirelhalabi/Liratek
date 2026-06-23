@@ -288,9 +288,7 @@ function debtRows(
   }>;
 }
 
-function paymentRows(
-  db: Database.Database,
-): Array<{
+function paymentRows(db: Database.Database): Array<{
   session_id: number | null;
   method: string;
   drawer_name: string;

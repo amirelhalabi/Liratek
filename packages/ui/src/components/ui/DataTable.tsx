@@ -1,4 +1,10 @@
-import React, { useRef, useMemo, useCallback, useState, useEffect } from "react";
+import React, {
+  useRef,
+  useMemo,
+  useCallback,
+  useState,
+  useEffect,
+} from "react";
 import { createPortal } from "react-dom";
 import {
   useReactTable,
@@ -463,7 +469,10 @@ function DataTableInner<T>({
   const [pickerOpen, setPickerOpen] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const [pickerPos, setPickerPos] = useState<{ top: number; left: number } | null>(null);
+  const [pickerPos, setPickerPos] = useState<{
+    top: number;
+    left: number;
+  } | null>(null);
 
   // Close the picker on outside-click / Escape while it is open.
   useEffect(() => {
@@ -538,7 +547,14 @@ function DataTableInner<T>({
     }
 
     return { headers, rows };
-  }, [exportableColumns, selectedColumnKeys, table, renderRow, exportRow, extractCells]);
+  }, [
+    exportableColumns,
+    selectedColumnKeys,
+    table,
+    renderRow,
+    exportRow,
+    extractCells,
+  ]);
 
   const countLabel = showRowCount
     ? `Showing ${data.length} of ${totalRowCount ?? data.length} entries`
@@ -556,7 +572,11 @@ function DataTableInner<T>({
   ).length;
 
   const columnPicker = showColumnPicker ? (
-    <div className="relative" ref={pickerRef} data-testid="export-column-picker">
+    <div
+      className="relative"
+      ref={pickerRef}
+      data-testid="export-column-picker"
+    >
       <button
         type="button"
         onClick={() => {
@@ -583,56 +603,63 @@ function DataTableInner<T>({
         </span>
       </button>
 
-      {pickerOpen && pickerPos && createPortal(
-        <div
-          ref={dropdownRef}
-          role="menu"
-          data-testid="export-column-picker-menu"
-          style={{ position: "fixed", top: pickerPos.top, left: pickerPos.left, zIndex: 9999 }}
-          className="w-56 rounded-lg border border-slate-700 bg-slate-800 p-2 shadow-xl"
-        >
-          <div className="px-1 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-            Export columns
-          </div>
-          <div className="max-h-64 overflow-y-auto pr-0.5">
-            {exportableColumns.map((col) => {
-              const checked = selectedColumnKeys.has(col.key);
-              return (
-                <label
-                  key={col.key}
-                  data-testid={`export-column-option-${col.key}`}
-                  className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-sm text-slate-200 hover:bg-slate-700/60"
-                >
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={() => toggleColumn(col.key)}
-                    className="h-4 w-4 rounded border-slate-600 bg-slate-700 accent-violet-600 cursor-pointer"
-                  />
-                  <span className="truncate">{col.label || col.key}</span>
-                </label>
-              );
-            })}
-          </div>
-          <div className="mt-1.5 flex items-center justify-between border-t border-slate-700 pt-1.5">
-            <button
-              type="button"
-              onClick={resetColumnsToDefault}
-              className="rounded px-2 py-1 text-[11px] font-medium text-slate-400 hover:bg-slate-700/60 hover:text-slate-200 transition-colors cursor-pointer"
-            >
-              Reset
-            </button>
-            <button
-              type="button"
-              onClick={selectAllColumns}
-              className="rounded px-2 py-1 text-[11px] font-medium text-violet-400 hover:bg-slate-700/60 transition-colors cursor-pointer"
-            >
-              Select all
-            </button>
-          </div>
-        </div>,
-        document.body
-      )}
+      {pickerOpen &&
+        pickerPos &&
+        createPortal(
+          <div
+            ref={dropdownRef}
+            role="menu"
+            data-testid="export-column-picker-menu"
+            style={{
+              position: "fixed",
+              top: pickerPos.top,
+              left: pickerPos.left,
+              zIndex: 9999,
+            }}
+            className="w-56 rounded-lg border border-slate-700 bg-slate-800 p-2 shadow-xl"
+          >
+            <div className="px-1 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              Export columns
+            </div>
+            <div className="max-h-64 overflow-y-auto pr-0.5">
+              {exportableColumns.map((col) => {
+                const checked = selectedColumnKeys.has(col.key);
+                return (
+                  <label
+                    key={col.key}
+                    data-testid={`export-column-option-${col.key}`}
+                    className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-sm text-slate-200 hover:bg-slate-700/60"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleColumn(col.key)}
+                      className="h-4 w-4 rounded border-slate-600 bg-slate-700 accent-violet-600 cursor-pointer"
+                    />
+                    <span className="truncate">{col.label || col.key}</span>
+                  </label>
+                );
+              })}
+            </div>
+            <div className="mt-1.5 flex items-center justify-between border-t border-slate-700 pt-1.5">
+              <button
+                type="button"
+                onClick={resetColumnsToDefault}
+                className="rounded px-2 py-1 text-[11px] font-medium text-slate-400 hover:bg-slate-700/60 hover:text-slate-200 transition-colors cursor-pointer"
+              >
+                Reset
+              </button>
+              <button
+                type="button"
+                onClick={selectAllColumns}
+                className="rounded px-2 py-1 text-[11px] font-medium text-violet-400 hover:bg-slate-700/60 transition-colors cursor-pointer"
+              >
+                Select all
+              </button>
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   ) : null;
 

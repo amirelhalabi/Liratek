@@ -78,8 +78,12 @@ export function registerSetupHandlers() {
         };
       }
 
-      // Run everything in a transaction
-      db.transaction(() => {
+      // Run everything in a transaction. The callback returns the admin user's
+      // real id so the caller can attribute the initial drawer checkpoint to a
+      // valid user: when a custom username is chosen we delete the seed admin
+      // (id=1) and insert a fresh row (id>=2), so a hardcoded user_id=1 would
+      // violate the daily_closings.created_by FK and silently roll back.
+      const adminUserId = db.transaction(() => {
         // 1. Create admin user (replace default seed if present)
         const existingAdmin = db
           .prepare("SELECT id FROM users WHERE username = ? LIMIT 1")
@@ -87,18 +91,23 @@ export function registerSetupHandlers() {
 
         const passwordHash = hashPassword(payload.admin_password);
 
+        let resolvedAdminId: number;
         if (existingAdmin) {
           db.prepare(
             "UPDATE users SET password_hash = ?, role = 'admin', is_active = 1 WHERE id = ?",
           ).run(passwordHash, existingAdmin.id);
+          resolvedAdminId = existingAdmin.id;
         } else {
           // Remove the default admin/admin123 seed if it exists
           db.prepare(
             "DELETE FROM users WHERE username = 'admin' AND role = 'admin'",
           ).run();
-          db.prepare(
-            "INSERT INTO users (username, password_hash, role, is_active) VALUES (?, ?, 'admin', 1)",
-          ).run(payload.admin_username, passwordHash);
+          const insertResult = db
+            .prepare(
+              "INSERT INTO users (username, password_hash, role, is_active) VALUES (?, ?, 'admin', 1)",
+            )
+            .run(payload.admin_username, passwordHash);
+          resolvedAdminId = Number(insertResult.lastInsertRowid);
         }
 
         // 2. Save shop name
@@ -210,6 +219,8 @@ export function registerSetupHandlers() {
         db.prepare(
           "INSERT OR REPLACE INTO system_settings (key_name, value) VALUES ('setup_complete', '1')",
         ).run();
+
+        return resolvedAdminId;
       })();
 
       try {
@@ -230,7 +241,7 @@ export function registerSetupHandlers() {
         // Never block setup on audit failure
       }
 
-      return { success: true };
+      return { success: true, adminUserId };
     } catch (error) {
       return {
         success: false,

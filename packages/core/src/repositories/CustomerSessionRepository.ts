@@ -189,9 +189,7 @@ export class CustomerSessionRepository {
       // on upgraded DBs. Null it explicitly so both paths behave identically and
       // no payment row is left pointing at a deleted session.
       this.db
-        .prepare(
-          `UPDATE payments SET session_id = NULL WHERE session_id = ?`,
-        )
+        .prepare(`UPDATE payments SET session_id = NULL WHERE session_id = ?`)
         .run(sessionId);
       this.db
         .prepare(`DELETE FROM ${this.tableName} WHERE id = ?`)

@@ -32,24 +32,37 @@ function findSqliteDirs() {
     path.join(ROOT, "node_modules", "better-sqlite3"),
     path.join(ROOT, "electron-app", "node_modules", "better-sqlite3"),
     path.join(ROOT, "packages", "core", "node_modules", "better-sqlite3"),
-    path.join(ROOT, "node_modules", "@liratek", "core", "node_modules", "better-sqlite3"),
+    path.join(
+      ROOT,
+      "node_modules",
+      "@liratek",
+      "core",
+      "node_modules",
+      "better-sqlite3",
+    ),
   ];
   return candidates.filter((p) => fs.existsSync(path.join(p, "binding.gyp")));
 }
 
 function rebuild(sqliteDir, electronVersion, prebuildBin) {
-  console.log(`[REBUILD] ${path.relative(ROOT, sqliteDir)} → electron@${electronVersion}`);
+  console.log(
+    `[REBUILD] ${path.relative(ROOT, sqliteDir)} → electron@${electronVersion}`,
+  );
   const result = spawnSync(
     process.execPath,
     [
       prebuildBin,
-      "-r", "electron",
-      "-t", electronVersion,
-      "--arch", process.arch,
-      "--platform", process.platform,
+      "-r",
+      "electron",
+      "-t",
+      electronVersion,
+      "--arch",
+      process.arch,
+      "--platform",
+      process.platform,
       "--force",
     ],
-    { cwd: sqliteDir, stdio: "inherit" }
+    { cwd: sqliteDir, stdio: "inherit" },
   );
 
   if (result.error) {
@@ -57,7 +70,9 @@ function rebuild(sqliteDir, electronVersion, prebuildBin) {
     process.exit(1);
   }
   if (result.status !== 0) {
-    console.error(`[REBUILD] prebuild-install exited with code ${result.status}`);
+    console.error(
+      `[REBUILD] prebuild-install exited with code ${result.status}`,
+    );
     process.exit(result.status ?? 1);
   }
 }

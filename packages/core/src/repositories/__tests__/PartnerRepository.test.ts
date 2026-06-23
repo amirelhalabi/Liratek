@@ -480,9 +480,27 @@ describe("PartnerRepository", () => {
   describe("getLedgerEntries() — filters", () => {
     it("filters by FOR mode", () => {
       const p = repo.create({ name: "ModeFilter" });
-      repo.addLedgerEntry({ partner_id: p.id, transaction_type: "FOR_OMT_SEND", amount: 100, currency: "USD", direction: "DEBIT" });
-      repo.addLedgerEntry({ partner_id: p.id, transaction_type: "THROUGH_WHISH_RECEIVE", amount: 50, currency: "USD", direction: "CREDIT" });
-      repo.addLedgerEntry({ partner_id: p.id, transaction_type: "SETTLEMENT", amount: 30, currency: "USD", direction: "CREDIT" });
+      repo.addLedgerEntry({
+        partner_id: p.id,
+        transaction_type: "FOR_OMT_SEND",
+        amount: 100,
+        currency: "USD",
+        direction: "DEBIT",
+      });
+      repo.addLedgerEntry({
+        partner_id: p.id,
+        transaction_type: "THROUGH_WHISH_RECEIVE",
+        amount: 50,
+        currency: "USD",
+        direction: "CREDIT",
+      });
+      repo.addLedgerEntry({
+        partner_id: p.id,
+        transaction_type: "SETTLEMENT",
+        amount: 30,
+        currency: "USD",
+        direction: "CREDIT",
+      });
 
       const forEntries = repo.getLedgerEntries(p.id, { mode: "FOR" });
       expect(forEntries).toHaveLength(1);
@@ -491,8 +509,20 @@ describe("PartnerRepository", () => {
 
     it("filters by THROUGH mode", () => {
       const p = repo.create({ name: "ThroughFilter" });
-      repo.addLedgerEntry({ partner_id: p.id, transaction_type: "FOR_OMT_SEND", amount: 100, currency: "USD", direction: "DEBIT" });
-      repo.addLedgerEntry({ partner_id: p.id, transaction_type: "THROUGH_WHISH_RECEIVE", amount: 50, currency: "USD", direction: "CREDIT" });
+      repo.addLedgerEntry({
+        partner_id: p.id,
+        transaction_type: "FOR_OMT_SEND",
+        amount: 100,
+        currency: "USD",
+        direction: "DEBIT",
+      });
+      repo.addLedgerEntry({
+        partner_id: p.id,
+        transaction_type: "THROUGH_WHISH_RECEIVE",
+        amount: 50,
+        currency: "USD",
+        direction: "CREDIT",
+      });
 
       const throughEntries = repo.getLedgerEntries(p.id, { mode: "THROUGH" });
       expect(throughEntries).toHaveLength(1);
@@ -501,8 +531,18 @@ describe("PartnerRepository", () => {
 
     it("filters by direction DEBIT", () => {
       const p = repo.create({ name: "DirFilter" });
-      repo.addLedgerEntry({ partner_id: p.id, amount: 100, currency: "USD", direction: "DEBIT" });
-      repo.addLedgerEntry({ partner_id: p.id, amount: 50, currency: "USD", direction: "CREDIT" });
+      repo.addLedgerEntry({
+        partner_id: p.id,
+        amount: 100,
+        currency: "USD",
+        direction: "DEBIT",
+      });
+      repo.addLedgerEntry({
+        partner_id: p.id,
+        amount: 50,
+        currency: "USD",
+        direction: "CREDIT",
+      });
 
       const debits = repo.getLedgerEntries(p.id, { direction: "DEBIT" });
       expect(debits).toHaveLength(1);
@@ -511,11 +551,32 @@ describe("PartnerRepository", () => {
 
     it("combines mode + direction filters", () => {
       const p = repo.create({ name: "ComboFilter" });
-      repo.addLedgerEntry({ partner_id: p.id, transaction_type: "FOR_OMT_SEND", amount: 100, currency: "USD", direction: "DEBIT" });
-      repo.addLedgerEntry({ partner_id: p.id, transaction_type: "FOR_OMT_RECEIVE", amount: 80, currency: "USD", direction: "CREDIT" });
-      repo.addLedgerEntry({ partner_id: p.id, transaction_type: "THROUGH_WHISH_SEND", amount: 60, currency: "USD", direction: "DEBIT" });
+      repo.addLedgerEntry({
+        partner_id: p.id,
+        transaction_type: "FOR_OMT_SEND",
+        amount: 100,
+        currency: "USD",
+        direction: "DEBIT",
+      });
+      repo.addLedgerEntry({
+        partner_id: p.id,
+        transaction_type: "FOR_OMT_RECEIVE",
+        amount: 80,
+        currency: "USD",
+        direction: "CREDIT",
+      });
+      repo.addLedgerEntry({
+        partner_id: p.id,
+        transaction_type: "THROUGH_WHISH_SEND",
+        amount: 60,
+        currency: "USD",
+        direction: "DEBIT",
+      });
 
-      const result = repo.getLedgerEntries(p.id, { mode: "FOR", direction: "DEBIT" });
+      const result = repo.getLedgerEntries(p.id, {
+        mode: "FOR",
+        direction: "DEBIT",
+      });
       expect(result).toHaveLength(1);
       expect(result[0].transaction_type).toBe("FOR_OMT_SEND");
     });
@@ -536,11 +597,29 @@ describe("PartnerRepository", () => {
     it("correctly buckets FOR, THROUGH, and other entries", () => {
       const p = repo.create({ name: "BreakdownFull" });
       // FOR: net +$100 (100 DEBIT, 0 CREDIT)
-      repo.addLedgerEntry({ partner_id: p.id, transaction_type: "FOR_OMT_SEND", amount: 100, currency: "USD", direction: "DEBIT" });
+      repo.addLedgerEntry({
+        partner_id: p.id,
+        transaction_type: "FOR_OMT_SEND",
+        amount: 100,
+        currency: "USD",
+        direction: "DEBIT",
+      });
       // THROUGH: net -$50 (0 DEBIT, 50 CREDIT)
-      repo.addLedgerEntry({ partner_id: p.id, transaction_type: "THROUGH_WHISH_RECEIVE", amount: 50, currency: "USD", direction: "CREDIT" });
+      repo.addLedgerEntry({
+        partner_id: p.id,
+        transaction_type: "THROUGH_WHISH_RECEIVE",
+        amount: 50,
+        currency: "USD",
+        direction: "CREDIT",
+      });
       // Settlement (other): net -$30 (0 DEBIT, 30 CREDIT)
-      repo.addLedgerEntry({ partner_id: p.id, transaction_type: "SETTLEMENT", amount: 30, currency: "USD", direction: "CREDIT" });
+      repo.addLedgerEntry({
+        partner_id: p.id,
+        transaction_type: "SETTLEMENT",
+        amount: 30,
+        currency: "USD",
+        direction: "CREDIT",
+      });
 
       const bd = repo.getBalanceBreakdown(p.id);
       expect(bd.usd.for).toBeCloseTo(100, 2);
@@ -551,8 +630,20 @@ describe("PartnerRepository", () => {
 
     it("tracks LBP separately from USD", () => {
       const p = repo.create({ name: "BreakdownLBP" });
-      repo.addLedgerEntry({ partner_id: p.id, transaction_type: "FOR_OMT_SEND", amount: 5_000_000, currency: "LBP", direction: "DEBIT" });
-      repo.addLedgerEntry({ partner_id: p.id, transaction_type: "FOR_OMT_SEND", amount: 100, currency: "USD", direction: "DEBIT" });
+      repo.addLedgerEntry({
+        partner_id: p.id,
+        transaction_type: "FOR_OMT_SEND",
+        amount: 5_000_000,
+        currency: "LBP",
+        direction: "DEBIT",
+      });
+      repo.addLedgerEntry({
+        partner_id: p.id,
+        transaction_type: "FOR_OMT_SEND",
+        amount: 100,
+        currency: "USD",
+        direction: "DEBIT",
+      });
 
       const bd = repo.getBalanceBreakdown(p.id);
       expect(bd.lbp.for).toBeCloseTo(5_000_000, 0);

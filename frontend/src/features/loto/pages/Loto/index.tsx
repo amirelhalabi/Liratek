@@ -8,7 +8,14 @@ import { useApi, PageHeader, DecimalInput } from "@liratek/ui";
 import { MultiPaymentInput, type PaymentLine } from "@liratek/ui";
 import { getExchangeRates } from "@/utils/exchangeRates";
 import { useSession } from "@/features/sessions/context/SessionContext";
-import { Ticket, Plus, History, ClipboardCheck, Trophy, Phone } from "lucide-react";
+import {
+  Ticket,
+  Plus,
+  History,
+  ClipboardCheck,
+  Trophy,
+  Phone,
+} from "lucide-react";
 import { StatsCards } from "../../components/StatsCards";
 import { CheckpointHistory } from "../../components/CheckpointHistory";
 import { CheckpointScheduler } from "../../components/CheckpointScheduler";
@@ -73,7 +80,6 @@ export function LotoPage() {
   const commissionAmount = saleAmount
     ? parseFloat(saleAmount) * commissionRate
     : 0;
-
 
   useEffect(() => {
     loadSettings();

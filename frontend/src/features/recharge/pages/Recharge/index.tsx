@@ -1,4 +1,10 @@
-import { useState, useEffect, useCallback, useMemo, startTransition } from "react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  startTransition,
+} from "react";
 import logger from "@/utils/logger";
 import { useApi } from "@liratek/ui";
 import { useCurrencyContext } from "@/contexts/CurrencyContext";
@@ -46,8 +52,11 @@ export default function MobileRecharge() {
     linkTransaction,
     addToCart: addToSessionCart,
   } = useSession();
-  const { getCategoriesForProvider, getItems: getServiceItems, refresh: refreshItems } =
-    useMobileServiceItems();
+  const {
+    getCategoriesForProvider,
+    getItems: getServiceItems,
+    refresh: refreshItems,
+  } = useMobileServiceItems();
 
   const [activeProvider, setActiveProvider] = useState<AnyProvider>(
     PROVIDER_CONFIGS[0].key,
@@ -128,13 +137,7 @@ export default function MobileRecharge() {
     }>
   >([]);
   const [topUpData, setTopUpData] = useState<{
-    provider:
-      | "MTC"
-      | "Alfa"
-      | "OMT_APP"
-      | "WHISH_APP"
-      | "iPick"
-      | "Katsh";
+    provider: "MTC" | "Alfa" | "OMT_APP" | "WHISH_APP" | "iPick" | "Katsh";
     destinationDrawer: string;
     defaultSourceDrawer: string;
     availableDrawers: Array<{
@@ -219,7 +222,8 @@ export default function MobileRecharge() {
   }, [activeProvider]);
 
   const activeConfig = useMemo(
-    () => PROVIDER_CONFIGS.find((p: ProviderConfig) => p.key === activeProvider),
+    () =>
+      PROVIDER_CONFIGS.find((p: ProviderConfig) => p.key === activeProvider),
     [activeProvider],
   );
 
@@ -290,7 +294,11 @@ export default function MobileRecharge() {
     if (!activeConfig) return undefined;
     const drawer = drawerBalances.find((d) => d.name === activeConfig.drawer);
     return drawer
-      ? { usdBalance: drawer.usdBalance, lbpBalance: drawer.lbpBalance, usdtBalance: drawer.usdtBalance }
+      ? {
+          usdBalance: drawer.usdBalance,
+          lbpBalance: drawer.lbpBalance,
+          usdtBalance: drawer.usdtBalance,
+        }
       : undefined;
   }, [activeConfig, drawerBalances]);
 
@@ -338,7 +346,11 @@ export default function MobileRecharge() {
 
   const handleTelecomSubmit = useCallback(async () => {
     if (!activeProvider || !telecomAmount) return;
-    if (rechargeType === "DAYS" && (!(parseFloat(telecomDaysCostUsd) > 0) || !telecomPrice)) return;
+    if (
+      rechargeType === "DAYS" &&
+      (!(parseFloat(telecomDaysCostUsd) > 0) || !telecomPrice)
+    )
+      return;
 
     const amount = parseFloat(telecomAmount);
     const price =
@@ -532,13 +544,7 @@ export default function MobileRecharge() {
       {
         drawer: string;
         defaultSource: string;
-        type:
-          | "MTC"
-          | "Alfa"
-          | "OMT_APP"
-          | "WHISH_APP"
-          | "iPick"
-          | "Katsh";
+        type: "MTC" | "Alfa" | "OMT_APP" | "WHISH_APP" | "iPick" | "Katsh";
       }
     > = {
       MTC: { drawer: "MTC", defaultSource: "General", type: "MTC" },
@@ -1256,7 +1262,8 @@ export default function MobileRecharge() {
             paymentMethods={
               cryptoType === "RECEIVE"
                 ? methods.filter(
-                    (pm) => pm.code === "CASH" || pm.code === "CUSTOMER_ACCOUNT",
+                    (pm) =>
+                      pm.code === "CASH" || pm.code === "CUSTOMER_ACCOUNT",
                   )
                 : methods
             }

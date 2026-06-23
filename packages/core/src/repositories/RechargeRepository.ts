@@ -421,7 +421,10 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
       const cashCurrency = data.cashPaidCurrency;
 
       if (credits <= 0) {
-        return { success: false, error: "Credits amount must be greater than 0" };
+        return {
+          success: false,
+          error: "Credits amount must be greater than 0",
+        };
       }
 
       // Validate the General drawer can cover the cash paid to the customer
@@ -459,9 +462,10 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
 
         // Create unified transaction record
         getTransactionRepository().createTransaction({
-          type: data.provider === "MTC"
-            ? TRANSACTION_TYPES.MTC_TOPUP
-            : TRANSACTION_TYPES.ALFA_TOPUP,
+          type:
+            data.provider === "MTC"
+              ? TRANSACTION_TYPES.MTC_TOPUP
+              : TRANSACTION_TYPES.ALFA_TOPUP,
           source_table: "recharges",
           source_id: rechargeId,
           user_id: data.userId,
@@ -505,7 +509,13 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
       })();
 
       rechargeLogger.info(
-        { provider: data.provider, credits, cashPaid, cashCurrency, destDrawer },
+        {
+          provider: data.provider,
+          credits,
+          cashPaid,
+          cashCurrency,
+          destDrawer,
+        },
         `${data.provider} top-up from customer: +${credits} credits, -${cashPaid} ${cashCurrency} cash`,
       );
 
@@ -549,7 +559,11 @@ export class RechargeRepository extends BaseRepository<RechargeEntity> {
 
       for (const row of rows) {
         if (!drawerMap.has(row.drawer_name)) {
-          drawerMap.set(row.drawer_name, { usdBalance: 0, lbpBalance: 0, usdtBalance: 0 });
+          drawerMap.set(row.drawer_name, {
+            usdBalance: 0,
+            lbpBalance: 0,
+            usdtBalance: 0,
+          });
         }
         const drawer = drawerMap.get(row.drawer_name)!;
         if (row.currency_code === "USD") drawer.usdBalance = row.balance;

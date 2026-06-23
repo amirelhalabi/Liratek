@@ -1025,7 +1025,8 @@ export default function Debts() {
                             <span
                               className={`font-mono text-2xl font-bold ${isCredit ? "text-emerald-400" : "text-red-400"}`}
                             >
-                              {isCredit ? "+" : "-"}{Math.abs(netLbp).toLocaleString()} LBP
+                              {isCredit ? "+" : "-"}
+                              {Math.abs(netLbp).toLocaleString()} LBP
                             </span>
                           </>
                         )}

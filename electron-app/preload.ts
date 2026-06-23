@@ -415,12 +415,15 @@ contextBridge.exposeInMainWorld("api", {
     recordCashflow: (data: {
       supplier_id: number;
       direction: "PAY" | "RECEIVE";
-      payments: Array<{ method: string; currency_code: string; amount: number }>;
+      payments: Array<{
+        method: string;
+        currency_code: string;
+        amount: number;
+      }>;
       note?: string;
       exchange_rate?: number;
     }) => ipcRenderer.invoke("suppliers:record-cashflow", data),
-    getProductBalances: () =>
-      ipcRenderer.invoke("suppliers:product-balances"),
+    getProductBalances: () => ipcRenderer.invoke("suppliers:product-balances"),
     getProductItems: (supplierId: number) =>
       ipcRenderer.invoke("suppliers:product-items", supplierId),
     getPurchases: (supplierId: number) =>

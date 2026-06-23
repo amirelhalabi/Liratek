@@ -207,7 +207,14 @@ export class HoldMoneyRepository extends BaseRepository<HoldMoneyEntity> {
         });
 
         // 2. Cash out ← General drawer (one leg per currency)
-        this.postLegs(txnId, usd, lbp, -1, `${noteText} (returned)`, collectedBy);
+        this.postLegs(
+          txnId,
+          usd,
+          lbp,
+          -1,
+          `${noteText} (returned)`,
+          collectedBy,
+        );
 
         // 3. Mark collected
         this.db

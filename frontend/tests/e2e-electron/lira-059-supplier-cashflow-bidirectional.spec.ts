@@ -136,7 +136,10 @@ test.describe("LIRA-059 — supplier bidirectional cashflow", () => {
       const beforeGeneral = generalUsd(
         await w.api.dashboard.getDrawerBalances(),
       );
-      const beforeBalance = balUsd(await w.api.suppliers.getBalances(true), omt.id);
+      const beforeBalance = balUsd(
+        await w.api.suppliers.getBalances(true),
+        omt.id,
+      );
 
       // PAY $100 CASH/USD → General debited, ledger PAYMENT (negative).
       const pay = await w.api.suppliers.recordCashflow({
@@ -149,7 +152,10 @@ test.describe("LIRA-059 — supplier bidirectional cashflow", () => {
       const afterGeneral = generalUsd(
         await w.api.dashboard.getDrawerBalances(),
       );
-      const afterBalance = balUsd(await w.api.suppliers.getBalances(true), omt.id);
+      const afterBalance = balUsd(
+        await w.api.suppliers.getBalances(true),
+        omt.id,
+      );
 
       // Find the PAYMENT row this action created (target by captured cashflow id
       // when available; else by the newest PAYMENT row).
@@ -208,7 +214,10 @@ test.describe("LIRA-059 — supplier bidirectional cashflow", () => {
       const beforeGeneral = generalUsd(
         await w.api.dashboard.getDrawerBalances(),
       );
-      const beforeBalance = balUsd(await w.api.suppliers.getBalances(true), omt.id);
+      const beforeBalance = balUsd(
+        await w.api.suppliers.getBalances(true),
+        omt.id,
+      );
 
       // RECEIVE $30 CASH/USD → supplier pays us; General credited, ledger
       // SUPPLIER_PAYS_US (positive — proves the migration-v103 CHECK at runtime).
@@ -222,7 +231,10 @@ test.describe("LIRA-059 — supplier bidirectional cashflow", () => {
       const afterGeneral = generalUsd(
         await w.api.dashboard.getDrawerBalances(),
       );
-      const afterBalance = balUsd(await w.api.suppliers.getBalances(true), omt.id);
+      const afterBalance = balUsd(
+        await w.api.suppliers.getBalances(true),
+        omt.id,
+      );
 
       const ledger = await w.api.suppliers.getLedger(omt.id, 100);
       const receiveRow =
@@ -260,63 +272,60 @@ test.describe("LIRA-059 — supplier bidirectional cashflow", () => {
   test("overpay drives a fresh supplier balance NEGATIVE (they owe you): +$50 TOP_UP then PAY $70 → −$20", async ({
     appPage,
   }) => {
-    const result = await appPage.evaluate(
-      async (companyName: string) => {
-        const w = window as unknown as Api;
+    const result = await appPage.evaluate(async (companyName: string) => {
+      const w = window as unknown as Api;
 
-        const balUsd = (rows: BalanceRow[], id: number): number =>
-          rows.find((b) => b.supplier_id === id)?.total_usd ?? 0;
+      const balUsd = (rows: BalanceRow[], id: number): number =>
+        rows.find((b) => b.supplier_id === id)?.total_usd ?? 0;
 
-        // Fresh manually-created supplier (Companies/Products, is_system=0) so
-        // the negative-balance assertion is isolated from the shared OMT row.
-        const created = await w.api.suppliers.create({
-          name: companyName,
-          note: "LIRA-059 overpay scenario",
-        });
-        if (!created.success || created.id == null) {
-          return { created: false, error: created.error ?? null } as const;
-        }
-        const supplierId = created.id;
+      // Fresh manually-created supplier (Companies/Products, is_system=0) so
+      // the negative-balance assertion is isolated from the shared OMT row.
+      const created = await w.api.suppliers.create({
+        name: companyName,
+        note: "LIRA-059 overpay scenario",
+      });
+      if (!created.success || created.id == null) {
+        return { created: false, error: created.error ?? null } as const;
+      }
+      const supplierId = created.id;
 
-        // Pre-seed baseline (a brand-new supplier has 0, but snapshot anyway so
-        // the assertion is a delta, never an absolute).
-        const baselineBalance = balUsd(
-          await w.api.suppliers.getBalances(true),
-          supplierId,
-        );
+      // Pre-seed baseline (a brand-new supplier has 0, but snapshot anyway so
+      // the assertion is a delta, never an absolute).
+      const baselineBalance = balUsd(
+        await w.api.suppliers.getBalances(true),
+        supplierId,
+      );
 
-        // Seed +$50 owed (no drawer effect), then PAY $70 (overpay).
-        const seed = await w.api.suppliers.addLedgerEntry({
-          supplier_id: supplierId,
-          entry_type: "TOP_UP",
-          amount_usd: 50,
-          amount_lbp: 0,
-          note: "LIRA-059 overpay seed +$50",
-        });
-        const pay = await w.api.suppliers.recordCashflow({
-          supplier_id: supplierId,
-          direction: "PAY",
-          payments: [{ method: "CASH", currency_code: "USD", amount: 70 }],
-          note: "LIRA-059 overpay PAY $70",
-        });
+      // Seed +$50 owed (no drawer effect), then PAY $70 (overpay).
+      const seed = await w.api.suppliers.addLedgerEntry({
+        supplier_id: supplierId,
+        entry_type: "TOP_UP",
+        amount_usd: 50,
+        amount_lbp: 0,
+        note: "LIRA-059 overpay seed +$50",
+      });
+      const pay = await w.api.suppliers.recordCashflow({
+        supplier_id: supplierId,
+        direction: "PAY",
+        payments: [{ method: "CASH", currency_code: "USD", amount: 70 }],
+        note: "LIRA-059 overpay PAY $70",
+      });
 
-        const finalBalance = balUsd(
-          await w.api.suppliers.getBalances(true),
-          supplierId,
-        );
+      const finalBalance = balUsd(
+        await w.api.suppliers.getBalances(true),
+        supplierId,
+      );
 
-        return {
-          created: true as const,
-          seedOk: seed.success,
-          payOk: pay.success,
-          payError: pay.error ?? null,
-          baselineBalance,
-          finalBalance,
-          balanceDelta: Math.round((finalBalance - baselineBalance) * 100) / 100,
-        };
-      },
-      COMPANY_SUPPLIER_NAME,
-    );
+      return {
+        created: true as const,
+        seedOk: seed.success,
+        payOk: pay.success,
+        payError: pay.error ?? null,
+        baselineBalance,
+        finalBalance,
+        balanceDelta: Math.round((finalBalance - baselineBalance) * 100) / 100,
+      };
+    }, COMPANY_SUPPLIER_NAME);
 
     expect(result.created).toBe(true);
     if (!result.created) return;
@@ -334,26 +343,23 @@ test.describe("LIRA-059 — supplier bidirectional cashflow", () => {
   test("Companies/Products vs System split: created supplier is_system=0, OMT provider is_system=1", async ({
     appPage,
   }) => {
-    const result = await appPage.evaluate(
-      async (companyName: string) => {
-        const w = window as unknown as Api;
+    const result = await appPage.evaluate(async (companyName: string) => {
+      const w = window as unknown as Api;
 
-        // The supplier created in the overpay scenario above is a
-        // Companies/Products row; resolve it (includeInactive for robustness).
-        const all = await w.api.suppliers.list("", true);
-        const company = all.find((s) => s.name === companyName) ?? null;
-        const omt = all.find((s) => s.provider === "OMT") ?? null;
+      // The supplier created in the overpay scenario above is a
+      // Companies/Products row; resolve it (includeInactive for robustness).
+      const all = await w.api.suppliers.list("", true);
+      const company = all.find((s) => s.name === companyName) ?? null;
+      const omt = all.find((s) => s.provider === "OMT") ?? null;
 
-        return {
-          companyFound: company != null,
-          companyIsSystem: company?.is_system ?? null,
-          companyProvider: company?.provider ?? null,
-          omtFound: omt != null,
-          omtIsSystem: omt?.is_system ?? null,
-        };
-      },
-      COMPANY_SUPPLIER_NAME,
-    );
+      return {
+        companyFound: company != null,
+        companyIsSystem: company?.is_system ?? null,
+        companyProvider: company?.provider ?? null,
+        omtFound: omt != null,
+        omtIsSystem: omt?.is_system ?? null,
+      };
+    }, COMPANY_SUPPLIER_NAME);
 
     expect(result.companyFound).toBe(true);
     expect(result.omtFound).toBe(true);

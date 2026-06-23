@@ -67,7 +67,9 @@ test.describe("Session basket payouts — money handed out is recorded", () => {
         sessionId = active.session?.id;
       }
 
-      const beforeGeneral = generalUsd(await w.api.dashboard.getDrawerBalances());
+      const beforeGeneral = generalUsd(
+        await w.api.dashboard.getDrawerBalances(),
+      );
 
       // Binance RECEIVE: $100 USDT in, $2 fee → shop pays customer $98 cash out.
       // It is a NEGATIVE-amount cart item (money leaves the basket) and carries
@@ -99,7 +101,9 @@ test.describe("Session basket payouts — money handed out is recorded", () => {
         userId: 1,
       });
 
-      const afterGeneral = generalUsd(await w.api.dashboard.getDrawerBalances());
+      const afterGeneral = generalUsd(
+        await w.api.dashboard.getDrawerBalances(),
+      );
 
       return {
         checkoutOk: checkout.success,
@@ -138,7 +142,9 @@ test.describe("Session basket payouts — money handed out is recorded", () => {
         sessionId = active.session?.id;
       }
 
-      const beforeGeneral = generalLbp(await w.api.dashboard.getDrawerBalances());
+      const beforeGeneral = generalLbp(
+        await w.api.dashboard.getDrawerBalances(),
+      );
 
       // Loto cash prize of 1,000,000 LBP. The loto item DEFERS its own General
       // −prize payout in session mode; the basket OUT leg below is what posts it
@@ -172,7 +178,9 @@ test.describe("Session basket payouts — money handed out is recorded", () => {
         userId: 1,
       });
 
-      const afterGeneral = generalLbp(await w.api.dashboard.getDrawerBalances());
+      const afterGeneral = generalLbp(
+        await w.api.dashboard.getDrawerBalances(),
+      );
 
       return {
         checkoutOk: checkout.success,

@@ -278,7 +278,11 @@ export function HistoryModal({
                     {/* Type */}
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-2">
-                        <Icon width={14} height={14} className="text-slate-400 shrink-0" />
+                        <Icon
+                          width={14}
+                          height={14}
+                          className="text-slate-400 shrink-0"
+                        />
                         <span
                           className={`text-sm font-mono font-semibold ${tx.service_type === "SEND" ? "text-red-400" : "text-emerald-400"}`}
                         >
