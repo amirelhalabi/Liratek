@@ -17,6 +17,7 @@ import { InitialDrawerAmountsModal } from "../../closing/components/InitialDrawe
 import { useCurrencyContext } from "@/contexts/CurrencyContext";
 import { useModules } from "@/contexts/ModuleContext";
 import { useFeatureFlags } from "@/contexts/FeatureFlagContext";
+import { parseDbDate } from "@/shared/utils/parseDbDate";
 
 const DashboardChart = lazy(() => import("../components/DashboardChart"));
 
@@ -35,19 +36,6 @@ function CURRENCY_ORDER(code: string): number {
   if (code === "USD") return 0;
   if (code === "LBP") return 1;
   return 2;
-}
-
-/**
- * Parse a timestamp into a Date. SQLite `CURRENT_TIMESTAMP` values arrive as
- * UTC formatted "YYYY-MM-DD HH:MM:SS" with no timezone marker, which JS would
- * otherwise interpret as *local* time — making fresh records look hours old.
- * If no timezone info is present, treat the value as UTC.
- */
-function parseDbDate(iso: string): Date {
-  // Already carries a timezone designator (trailing Z or ±hh:mm offset).
-  if (/[zZ]$|[+-]\d{2}:?\d{2}$/.test(iso)) return new Date(iso);
-  // SQLite space-separated form (or bare ISO) → pin to UTC.
-  return new Date(`${iso.replace(" ", "T")}Z`);
 }
 
 /**

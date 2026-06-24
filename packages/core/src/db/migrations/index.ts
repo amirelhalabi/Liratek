@@ -4678,6 +4678,109 @@ export const MIGRATIONS: Migration[] = [
       // Irreversible: original non-standard role names are not recoverable.
     },
   },
+  {
+    version: 114,
+    name: "allow_alfa_gift_recharge_type",
+    description:
+      "Add 'ALFA_GIFT' to the recharges.recharge_type CHECK. Alfa gift-card sales record into the recharges table with recharge_type='ALFA_GIFT', which the old CHECK(recharge_type IN ('CREDIT_TRANSFER','VOUCHER','DAYS','TOP_UP')) rejected with SQLITE_CONSTRAINT_CHECK. Recreates the table (SQLite can't ALTER a CHECK), preserving all rows + ids + indexes — mirrors migration v97.",
+    type: "typescript" as const,
+    up(db: Database.Database) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS recharges_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          carrier TEXT NOT NULL,
+          recharge_type TEXT CHECK(recharge_type IN ('CREDIT_TRANSFER', 'VOUCHER', 'DAYS', 'TOP_UP', 'ALFA_GIFT')) NOT NULL DEFAULT 'CREDIT_TRANSFER',
+          amount DECIMAL(10, 2) NOT NULL,
+          cost DECIMAL(10, 2) NOT NULL DEFAULT 0,
+          price DECIMAL(10, 2) NOT NULL DEFAULT 0,
+          default_price_to_client REAL DEFAULT NULL,
+          currency_code TEXT NOT NULL DEFAULT 'USD',
+          paid_by TEXT DEFAULT 'CASH',
+          phone_number TEXT,
+          client_id INTEGER,
+          client_name TEXT,
+          note TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          created_by INTEGER DEFAULT 1,
+          edited_by TEXT DEFAULT NULL,
+          edited_at TEXT DEFAULT NULL,
+          is_refunded INTEGER DEFAULT 0,
+          refunded_at TEXT DEFAULT NULL,
+          FOREIGN KEY (client_id) REFERENCES clients(id),
+          FOREIGN KEY (created_by) REFERENCES users(id)
+        );
+
+        INSERT INTO recharges_new (
+          id, carrier, recharge_type, amount, cost, price, default_price_to_client,
+          currency_code, paid_by, phone_number, client_id, client_name, note,
+          created_at, created_by, edited_by, edited_at, is_refunded, refunded_at
+        )
+        SELECT
+          id, carrier, recharge_type, amount, cost, price, default_price_to_client,
+          currency_code, paid_by, phone_number, client_id, client_name, note,
+          created_at, created_by, edited_by, edited_at, is_refunded, refunded_at
+        FROM recharges;
+
+        DROP TABLE recharges;
+        ALTER TABLE recharges_new RENAME TO recharges;
+
+        CREATE INDEX IF NOT EXISTS idx_recharges_carrier ON recharges(carrier);
+        CREATE INDEX IF NOT EXISTS idx_recharges_created_at ON recharges(created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_recharges_carrier_date ON recharges(carrier, created_at);
+        CREATE INDEX IF NOT EXISTS idx_recharges_date ON recharges(created_at);
+      `);
+      console.log("Migration v114: added 'ALFA_GIFT' to recharges.recharge_type CHECK");
+    },
+    down(db: Database.Database) {
+      // Restore the pre-ALFA_GIFT CHECK. Throws if ALFA_GIFT rows exist
+      // (expected — you can't roll back after recording gift sales).
+      db.exec(`
+        CREATE TABLE recharges_old (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          carrier TEXT NOT NULL,
+          recharge_type TEXT CHECK(recharge_type IN ('CREDIT_TRANSFER', 'VOUCHER', 'DAYS', 'TOP_UP')) NOT NULL DEFAULT 'CREDIT_TRANSFER',
+          amount DECIMAL(10, 2) NOT NULL,
+          cost DECIMAL(10, 2) NOT NULL DEFAULT 0,
+          price DECIMAL(10, 2) NOT NULL DEFAULT 0,
+          default_price_to_client REAL DEFAULT NULL,
+          currency_code TEXT NOT NULL DEFAULT 'USD',
+          paid_by TEXT DEFAULT 'CASH',
+          phone_number TEXT,
+          client_id INTEGER,
+          client_name TEXT,
+          note TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          created_by INTEGER DEFAULT 1,
+          edited_by TEXT DEFAULT NULL,
+          edited_at TEXT DEFAULT NULL,
+          is_refunded INTEGER DEFAULT 0,
+          refunded_at TEXT DEFAULT NULL,
+          FOREIGN KEY (client_id) REFERENCES clients(id),
+          FOREIGN KEY (created_by) REFERENCES users(id)
+        );
+
+        INSERT INTO recharges_old (
+          id, carrier, recharge_type, amount, cost, price, default_price_to_client,
+          currency_code, paid_by, phone_number, client_id, client_name, note,
+          created_at, created_by, edited_by, edited_at, is_refunded, refunded_at
+        )
+        SELECT
+          id, carrier, recharge_type, amount, cost, price, default_price_to_client,
+          currency_code, paid_by, phone_number, client_id, client_name, note,
+          created_at, created_by, edited_by, edited_at, is_refunded, refunded_at
+        FROM recharges;
+
+        DROP TABLE recharges;
+        ALTER TABLE recharges_old RENAME TO recharges;
+
+        CREATE INDEX IF NOT EXISTS idx_recharges_carrier ON recharges(carrier);
+        CREATE INDEX IF NOT EXISTS idx_recharges_created_at ON recharges(created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_recharges_carrier_date ON recharges(carrier, created_at);
+        CREATE INDEX IF NOT EXISTS idx_recharges_date ON recharges(created_at);
+      `);
+      console.log("Migration v114 rolled back: removed 'ALFA_GIFT' from recharges.recharge_type CHECK");
+    },
+  },
 ];
 // =============================================================================
 // Migration Runner

@@ -419,7 +419,7 @@ CREATE TABLE IF NOT EXISTS expenses (
 CREATE TABLE IF NOT EXISTS recharges (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     carrier TEXT NOT NULL,
-    recharge_type TEXT CHECK(recharge_type IN ('CREDIT_TRANSFER', 'VOUCHER', 'DAYS', 'TOP_UP')) NOT NULL DEFAULT 'CREDIT_TRANSFER',
+    recharge_type TEXT CHECK(recharge_type IN ('CREDIT_TRANSFER', 'VOUCHER', 'DAYS', 'TOP_UP', 'ALFA_GIFT')) NOT NULL DEFAULT 'CREDIT_TRANSFER',
     amount DECIMAL(10, 2) NOT NULL,
     cost DECIMAL(10, 2) NOT NULL DEFAULT 0,
     price DECIMAL(10, 2) NOT NULL DEFAULT 0,
@@ -1282,4 +1282,5 @@ INSERT OR IGNORE INTO schema_migrations (version, name) VALUES
     (110, 'supplier_ledger_is_auto'),
     (111, 'add_hold_money'),
     (112, 'add_phone_to_hold_money'),
-    (113, 'normalize_staff_role');
+    (113, 'normalize_staff_role'),
+    (114, 'allow_alfa_gift_recharge_type');

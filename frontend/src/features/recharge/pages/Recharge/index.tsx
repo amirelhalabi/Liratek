@@ -102,6 +102,7 @@ export default function MobileRecharge() {
   >("");
   const [giftAmountUsd, setGiftAmountUsd] = useState("");
   const [giftPriceLbp, setGiftPriceLbp] = useState("");
+  const [giftCostLbp, setGiftCostLbp] = useState("");
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
   const [returnLegs, setReturnLegs] = useState<PaymentLine[]>([]);
 
@@ -397,7 +398,7 @@ export default function MobileRecharge() {
         label,
         amount: price,
         currency: "LBP",
-        ipcChannel: "recharge:create",
+        ipcChannel: "recharge:process",
         formData: {
           provider: activeProvider,
           type: rechargeType,
@@ -741,28 +742,121 @@ export default function MobileRecharge() {
     [loadFinancialData, loadDrawerBalances],
   );
 
+  const resetGiftForm = useCallback(() => {
+    setGiftTierKey("");
+    setGiftAmountUsd("");
+    setGiftPriceLbp("");
+    setGiftCostLbp("");
+    setTelecomClientName("");
+    setTelecomClientPhone("");
+    setTelecomClientId(null);
+    setPaymentLines([]);
+    setReturnLegs([]);
+    setTelecomTransactionTime(undefined);
+  }, []);
+
   const handleAlfaGiftSubmit = useCallback(async () => {
     if (!giftTierKey) return;
+
+    // amount = USD face value of the tier; price/cost are in LBP. These mirror
+    // the RechargeData shape (type/amount/cost/price) the `recharge:process`
+    // handler validates — the previous payload (rechargeType/giftTier/amountUsd/
+    // priceLbp) silently failed Zod validation, so no gift sale was ever
+    // recorded. Cost is propagated from the selected card so the recorded margin
+    // matches what the operator saw.
+    const amount = parseFloat(giftAmountUsd);
+    const price = parseFloat(giftPriceLbp);
+    const cost = parseFloat(giftCostLbp);
+
+    const clientResult = await ensureRechargeClient({
+      clientId: telecomClientId,
+      name: telecomClientName,
+      phone: telecomClientPhone,
+      paymentLines,
+    });
+    if (!clientResult.ok) {
+      alert(clientResult.error);
+      return;
+    }
+    const resolvedClientId = clientResult.id;
+    if (resolvedClientId && resolvedClientId !== telecomClientId) {
+      setTelecomClientId(resolvedClientId);
+    }
+
+    // If a customer session is active, defer into the session basket instead of
+    // submitting directly (the basket owns the single payment at checkout, so no
+    // payment fields are attached here).
+    if (activeSession) {
+      addToSessionCart({
+        module: "recharge_alfa",
+        label: `Alfa Gift ${giftTierKey} - ${price.toLocaleString()} LBP`,
+        amount: price,
+        currency: "LBP",
+        ipcChannel: "recharge:process",
+        formData: {
+          provider: "Alfa",
+          type: "ALFA_GIFT",
+          amount,
+          cost,
+          price,
+          currency: "LBP",
+          clientId: resolvedClientId || undefined,
+          clientName: telecomClientName || undefined,
+        },
+      });
+      resetGiftForm();
+      return;
+    }
+
     setIsSubmitting(true);
     try {
-      await api.processRecharge({
+      const result = await api.processRecharge({
         provider: "Alfa",
-        rechargeType: "ALFA_GIFT",
-        giftTier: giftTierKey,
-        amountUsd: parseFloat(giftAmountUsd),
-        priceLbp: parseFloat(giftPriceLbp),
+        type: "ALFA_GIFT",
+        amount,
+        cost,
+        price,
+        currency: "LBP",
+        paid_by_method: paidBy,
+        payments:
+          paymentLines.length > 0
+            ? toCamelLegs(paymentLines, returnLegs)
+            : undefined,
+        clientId: resolvedClientId || undefined,
+        clientName: telecomClientName || undefined,
         transaction_time: telecomTransactionTime,
       });
-      setGiftTierKey("");
-      setGiftAmountUsd("");
-      setGiftPriceLbp("");
-      setTelecomTransactionTime(undefined);
+      if (result && !result.success) {
+        alert(result.error || "Failed to process Alfa gift");
+        return;
+      }
+      resetGiftForm();
+      loadFinancialData();
+      loadDrawerBalances();
     } catch (err) {
       logger.error("Failed to submit alfa gift:", err);
     } finally {
       setIsSubmitting(false);
     }
-  }, [giftTierKey, giftAmountUsd, giftPriceLbp, api, telecomTransactionTime]);
+  }, [
+    giftTierKey,
+    giftAmountUsd,
+    giftPriceLbp,
+    giftCostLbp,
+    activeSession,
+    addToSessionCart,
+    paidBy,
+    paymentLines,
+    returnLegs,
+    telecomClientId,
+    telecomClientName,
+    telecomClientPhone,
+    api,
+    loadFinancialData,
+    loadDrawerBalances,
+    telecomTransactionTime,
+    resetGiftForm,
+  ]);
 
   const handleCryptoSubmit = useCallback(async () => {
     const fee = parseFloat(cryptoFee) || 0;
@@ -1115,6 +1209,8 @@ export default function MobileRecharge() {
             setGiftAmountUsd={setGiftAmountUsd}
             giftPriceLbp={giftPriceLbp}
             setGiftPriceLbp={setGiftPriceLbp}
+            giftCostLbp={giftCostLbp}
+            setGiftCostLbp={setGiftCostLbp}
             handleAlfaGiftSubmit={handleAlfaGiftSubmit}
             paymentLines={paymentLines}
             setPaymentLines={setPaymentLines}

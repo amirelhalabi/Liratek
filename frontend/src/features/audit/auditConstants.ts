@@ -166,11 +166,11 @@ export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
       { label: "Maintenance", type: "MAINTENANCE" },
       { label: "Expense", type: "EXPENSE" },
       { label: "Debt Repayment", type: "DEBT_REPAYMENT" },
-      { label: "Supplier Payment", type: "SUPPLIER_PAYMENT" },
+      // SUPPLIER_PAYMENT and CLIENT_CREATED are intentionally hidden from the
+      // transactions table (see HIDDEN_TRANSACTION_TYPES in TransactionsViewer).
       { label: "Supplier Settlement", type: "SUPPLIER_SETTLEMENT" },
       { label: "Checkpoint", type: "CHECKPOINT" },
       { label: "Refund", type: "REFUND" },
-      { label: "Client Created", type: "CLIENT_CREATED" },
       { label: "Client Updated", type: "CLIENT_UPDATED" },
       { label: "Client Deleted", type: "CLIENT_DELETED" },
     ],

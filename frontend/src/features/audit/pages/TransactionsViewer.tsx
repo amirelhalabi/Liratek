@@ -14,6 +14,7 @@ import {
 } from "@/api/backendApi";
 import { DataTable } from "@liratek/ui";
 import { FILTER_GROUPS } from "../auditConstants";
+import { parseDbDate } from "@/shared/utils/parseDbDate";
 
 // LIRA-064: structured in/out payment leg joined from the payments table.
 // Mirrors TransactionPaymentLeg in the backend / electron.d.ts. The data is
@@ -52,6 +53,15 @@ type TransactionRow = {
 };
 
 const ALL_OPTIONS = FILTER_GROUPS.flatMap((g) => g.options);
+
+// Transaction types hidden from the table for now: auto-generated
+// supplier-ledger payment siblings (SUPPLIER_PAYMENT) and client-activity log
+// noise (CLIENT_CREATED), neither useful in the operator-facing list. They are
+// also removed from the filter dropdown (see auditConstants FILTER_GROUPS).
+// NOTE: SUPPLIER_PAYMENT + is_credit rows are real commission revenue
+// ("Supplier Credit") and are kept visible — see the isSupplierCredit guard in
+// the load filter below.
+const HIDDEN_TRANSACTION_TYPES = new Set(["SUPPLIER_PAYMENT", "CLIENT_CREATED"]);
 
 // ---------------------------------------------------------------------------
 // Type label helpers
@@ -581,32 +591,12 @@ export default function TransactionsViewer({
   // to the session. Detection is order-independent: a non-session row is
   // sandwiched when its id falls strictly between the min and max id of any
   // session's rows.
-  const sandwichedMap = useMemo(() => {
-    const ranges = new Map<number, { min: number; max: number }>();
-    for (const row of rows) {
-      if (row.session_id != null) {
-        const r = ranges.get(row.session_id);
-        if (!r) {
-          ranges.set(row.session_id, { min: row.id, max: row.id });
-        } else {
-          if (row.id < r.min) r.min = row.id;
-          if (row.id > r.max) r.max = row.id;
-        }
-      }
-    }
-    const result = new Map<number, number>(); // rowId → sessionId
-    for (const row of rows) {
-      if (row.session_id == null) {
-        for (const [sessionId, { min, max }] of ranges) {
-          if (row.id > min && row.id < max) {
-            result.set(row.id, sessionId);
-            break;
-          }
-        }
-      }
-    }
-    return result;
-  }, [rows]);
+  // The "System Transactions" fold/button is disabled: the system rows it used
+  // to collapse (chiefly SUPPLIER_PAYMENT) are now hidden outright via
+  // HIDDEN_TRANSACTION_TYPES, so any remaining non-session rows just render
+  // inline. An empty map means no row is treated as sandwiched, so the ⚙ toggle
+  // never appears in the session-grouped view.
+  const sandwichedMap = useMemo(() => new Map<number, number>(), []);
 
   // For each session's sandwiched group: how many rows, and which has the
   // highest id (= the one shown first in the default created_at DESC sort,
@@ -639,8 +629,20 @@ export default function TransactionsViewer({
         filters.has_item_key = activeOption.has_item_key;
       if (search) filters.search = search;
 
-      const res = await getRecentTransactions(Number(limit) || 50, filters);
-      setRows((res as TransactionRow[]) || []);
+      // Over-fetch then slice: hiding rows client-side would otherwise shrink
+      // the list below the requested count (the SQL LIMIT runs before this
+      // filter). SUPPLIER_PAYMENT is special-cased — its is_credit variant is
+      // real commission revenue and stays visible.
+      const requested = Number(limit) || 50;
+      const res = await getRecentTransactions(requested * 3, filters);
+      const visible = ((res as TransactionRow[]) || []).filter(
+        (r) =>
+          !(
+            HIDDEN_TRANSACTION_TYPES.has(r.type) &&
+            !isSupplierCredit(r.type, r.metadata_json)
+          ),
+      );
+      setRows(visible.slice(0, requested));
     } finally {
       setLoading(false);
     }
@@ -711,7 +713,7 @@ export default function TransactionsViewer({
           {row.created_at
             ? (() => {
                 try {
-                  return new Date(row.created_at).toLocaleString("en-GB", {
+                  return parseDbDate(row.created_at).toLocaleString("en-GB", {
                     day: "2-digit",
                     month: "short",
                     hour: "2-digit",
@@ -909,7 +911,7 @@ export default function TransactionsViewer({
       tbodyClassName=""
       getSortValue={(row, key) => {
         if (key === "created_at")
-          return row.created_at ? new Date(row.created_at).getTime() : 0;
+          return row.created_at ? parseDbDate(row.created_at).getTime() : 0;
         if (key === "amount_usd") return row.amount_usd ?? 0;
         if (key === "reverses_id") return row.reverses_id ?? 0;
         return String((row as Record<string, unknown>)[key] ?? "");

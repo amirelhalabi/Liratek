@@ -22,7 +22,7 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
   const [customerNotes, setCustomerNotes] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [todaySessionNames, setTodaySessionNames] = useState<string[]>([]);
+  const [activeSessionNames, setActiveSessionNames] = useState<string[]>([]);
   const [loadingNames, setLoadingNames] = useState(false);
   const {
     saveAsClient,
@@ -32,15 +32,18 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
     resetSaveAsClient,
   } = useSaveAsClient(customerName, customerPhone);
 
-  // Fetch today's session names when modal opens
+  // Fetch the names of currently OPEN sessions when the modal opens. We only
+  // block on active sessions (not closed ones), so the same customer can be
+  // served multiple times a day — each visit re-opened once the prior one is
+  // closed. Two simultaneously-open sessions for one customer stay blocked.
   useEffect(() => {
     if (isOpen) {
       setLoadingNames(true);
-      const fetchTodayNames = async () => {
+      const fetchActiveNames = async () => {
         try {
-          const result = await window.api.session.getTodaySessions();
+          const result = await window.api.session.getActiveSessions();
           if (result.success && result.sessions) {
-            setTodaySessionNames(
+            setActiveSessionNames(
               result.sessions
                 .map((s) => s.customer_name?.trim().toLowerCase())
                 .filter((n): n is string => !!n),
@@ -52,7 +55,7 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
           setLoadingNames(false);
         }
       };
-      fetchTodayNames();
+      fetchActiveNames();
     }
   }, [isOpen]);
 
@@ -64,14 +67,14 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
       setCustomerNotes("");
       setSelectedClient(null);
       setError(null);
-      setTodaySessionNames([]);
+      setActiveSessionNames([]);
       resetSaveAsClient();
     }
   }, [isOpen]);
 
   const isDuplicateName =
     customerName.trim().length > 0 &&
-    todaySessionNames.includes(customerName.trim().toLowerCase());
+    activeSessionNames.includes(customerName.trim().toLowerCase());
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -82,7 +85,7 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
     }
 
     if (isDuplicateName) {
-      setError("A session with this name already exists today");
+      setError("This customer already has an open session. Close it first.");
       return;
     }
 
@@ -156,8 +159,8 @@ export function StartSessionModal({ isOpen, onClose }: StartSessionModalProps) {
           {isDuplicateName && (
             <div className="p-3 bg-amber-900/30 border border-amber-700 rounded-md">
               <p className="text-sm text-amber-400">
-                A session with this name already exists today. Please use a
-                different name.
+                This customer already has an open session. Close it before
+                starting a new one.
               </p>
             </div>
           )}

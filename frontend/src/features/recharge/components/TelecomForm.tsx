@@ -65,6 +65,8 @@ interface TelecomFormProps {
   setGiftAmountUsd: (val: string) => void;
   giftPriceLbp: string;
   setGiftPriceLbp: (val: string) => void;
+  giftCostLbp: string;
+  setGiftCostLbp: (val: string) => void;
   handleAlfaGiftSubmit: () => void;
   paymentLines: PaymentLine[];
   setPaymentLines: (lines: PaymentLine[]) => void;
@@ -122,6 +124,8 @@ export function TelecomForm({
   setGiftAmountUsd,
   giftPriceLbp,
   setGiftPriceLbp,
+  giftCostLbp,
+  setGiftCostLbp,
   handleAlfaGiftSubmit,
   paymentLines,
   setPaymentLines,
@@ -211,10 +215,11 @@ export function TelecomForm({
   void _paidBy;
   void clientName;
   void setClientName;
-  // Gift price/value are derived into giftItems and written via their setters in
-  // onSelect; the raw prop values are no longer read directly here.
+  // Gift price/value/cost are derived into giftItems and written via their
+  // setters in onSelect; the raw prop values are no longer read directly here.
   void giftAmountUsd;
   void giftPriceLbp;
+  void giftCostLbp;
 
   const accent = isMTC ? "cyan" : "red";
 
@@ -272,6 +277,7 @@ export function TelecomForm({
             setGiftTierKey(item.id as keyof typeof ALFA_GIFT_TIERS);
             setGiftAmountUsd(String(item.valueUsd ?? ""));
             setGiftPriceLbp(String(item.sellLbp));
+            setGiftCostLbp(String(item.costLbp));
           }}
           accent={accent}
           showProfit={isAdmin}

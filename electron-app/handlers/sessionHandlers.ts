@@ -116,6 +116,11 @@ function processCartItem(
       };
     }
 
+    // "recharge:create" is a legacy channel some session-cart items still carry
+    // (it was the recharge cart item's ipcChannel before it was corrected to
+    // "recharge:process"). Accept both so already-stored carts — and any cart
+    // built by a not-yet-rebuilt renderer — check out instead of throwing.
+    case "recharge:create":
     case "recharge:process": {
       data.userId = userId;
       const rechargeService = getRechargeService();
