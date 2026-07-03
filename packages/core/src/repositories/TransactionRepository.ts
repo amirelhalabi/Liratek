@@ -94,6 +94,9 @@ const INTERNAL_LEG_METHODS = new Set([
   "COMMISSION", // reporting-only fee row (zero delta)
   "PM_FEE", // payment-method fee audit row
   "TRANSFER", // shop→system drawer transfer leg
+  "RESERVE", // cash reserved out of General/wallet for provider settlement (SEND / debt repayment)
+  "OMT_APP", // shop-wallet side of an app transfer (customer cash side stays visible)
+  "WHISH_APP", // shop-wallet side of an app transfer (customer cash side stays visible)
   "CREDIT_RETURN", // returned telecom credits to a provider drawer
   "CREDIT_USED", // on-account charge (also lives in debt_ledger)
   "SMS_COST", // telecom SMS cost consumed from the provider stock drawer
@@ -106,6 +109,59 @@ const INTERNAL_LEG_METHODS = new Set([
 const PROVIDER_STOCK_DRAWERS = new Set(["MTC", "Alfa", "Katsh", "iPick"]);
 // Customer cash is always denominated in one of these; USDT/crypto legs are internal.
 const CUSTOMER_CASH_CURRENCIES = new Set(["USD", "LBP"]);
+
+/**
+ * ONE definition of "customer-facing cash leg" (rule 14). The JS predicate is
+ * used by the per-row leg attachment (toLeg); the SQL builder mirrors it from
+ * the SAME constant sets for aggregate queries (D1 cash-flow report). Change
+ * the rule here, in both forms, or the report and the in/out column diverge.
+ */
+function isInternalLegJs(p: {
+  method: string;
+  drawer_name: string;
+  currency_code: string;
+  amount: number;
+  note: string | null;
+}): boolean {
+  const note = p.note ?? "";
+  return (
+    p.amount === 0 || // reporting-only row (e.g. COMMISSION, zero delta)
+    INTERNAL_LEG_METHODS.has(p.method) || // fee / transfer / credit / SMS markers
+    PROVIDER_STOCK_DRAWERS.has(p.drawer_name) || // MTC/Alfa/Katsh/iPick stock
+    p.drawer_name.endsWith("_System") || // OMT_System / Whish_System reserve
+    !CUSTOMER_CASH_CURRENCIES.has(p.currency_code) || // USDT / crypto leg
+    note.startsWith("Cost:") || // cost/price-flow provider cost outflow
+    note.endsWith("(cost outflow)") || // custom-service hidden cost outflow
+    note.startsWith("Crypto ") // Binance crypto sent/received leg
+  );
+}
+
+/** SQL mirror of isInternalLegJs, negated (keeps customer-cash legs). Values
+ *  come from module constants, never user input. */
+function customerCashLegSql(a: string): string {
+  const methods = [...INTERNAL_LEG_METHODS].map((m) => `'${m}'`).join(", ");
+  const drawers = [...PROVIDER_STOCK_DRAWERS].map((d) => `'${d}'`).join(", ");
+  const currencies = [...CUSTOMER_CASH_CURRENCIES]
+    .map((c) => `'${c}'`)
+    .join(", ");
+  return `${a}.amount != 0
+      AND ${a}.method NOT IN (${methods})
+      AND ${a}.drawer_name NOT IN (${drawers})
+      AND ${a}.drawer_name NOT LIKE '%\\_System' ESCAPE '\\'
+      AND ${a}.currency_code IN (${currencies})
+      AND COALESCE(${a}.note, '') NOT LIKE 'Cost:%'
+      AND COALESCE(${a}.note, '') NOT LIKE '%(cost outflow)'
+      AND COALESCE(${a}.note, '') NOT LIKE 'Crypto %'`;
+}
+
+/** One row of the D1 currency in/out by-date report. */
+export interface CashFlowByDateRow {
+  /** Business date (YYYY-MM-DD): transaction_time when set, else created_at. */
+  date: string;
+  currency_code: string;
+  total_in: number;
+  total_out: number;
+}
 
 export interface CreateTransactionInput {
   type: TransactionType;
@@ -269,6 +325,42 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
   /**
    * Get recent transactions with optional filters.
    */
+  /**
+   * D1 — currency in/out by business date. Aggregates customer-facing cash
+   * legs (same rule as the transactions table's in/out column) per date and
+   * currency. transactions.created_at IS the business date: createTransaction
+   * COALESCEs the caller's transaction_time into it, so backdated entries
+   * already land on their business date. Session-basket legs (no transaction
+   * of their own) bucket by their payment date.
+   */
+  getCashFlowByDate(from: string, to: string): CashFlowByDateRow[] {
+    return this.query<CashFlowByDateRow>(
+      `SELECT
+         l.date,
+         l.currency_code,
+         ROUND(SUM(CASE WHEN l.amount > 0 THEN l.amount ELSE 0 END), 2) AS total_in,
+         ROUND(SUM(CASE WHEN l.amount < 0 THEN -l.amount ELSE 0 END), 2) AS total_out
+       FROM (
+         SELECT substr(t.created_at, 1, 10) AS date,
+                p.currency_code, p.amount, p.method, p.drawer_name, p.note
+           FROM payments p
+           JOIN transactions t ON t.id = p.transaction_id
+          WHERE t.status = 'ACTIVE'
+         UNION ALL
+         SELECT substr(p.created_at, 1, 10) AS date,
+                p.currency_code, p.amount, p.method, p.drawer_name, p.note
+           FROM payments p
+          WHERE p.transaction_id IS NULL AND p.session_id IS NOT NULL
+       ) l
+       WHERE l.date BETWEEN ? AND ?
+         AND ${customerCashLegSql("l")}
+       GROUP BY l.date, l.currency_code
+       ORDER BY l.date DESC`,
+      from,
+      to,
+    );
+  }
+
   getRecent(limit = 50, filters?: TransactionFilters): TransactionWithUser[] {
     const conditions: string[] = [];
     const params: unknown[] = [];
@@ -390,20 +482,8 @@ export class TransactionRepository extends BaseRepository<TransactionEntity> {
       amount: number;
       note: string | null;
     }): TransactionPaymentLeg | null => {
-      // Surface only customer-facing cash. Internal ledger legs (provider/system
-      // drawer movements, crypto legs, cost outflows, fee/transfer rows) are not
-      // money the customer handed over or got back, so they're filtered out.
-      const note = p.note ?? "";
-      const isInternalLeg =
-        p.amount === 0 || // reporting-only row (e.g. COMMISSION, zero delta)
-        INTERNAL_LEG_METHODS.has(p.method) || // fee / transfer / credit / SMS markers
-        PROVIDER_STOCK_DRAWERS.has(p.drawer_name) || // MTC/Alfa/Katsh/iPick stock
-        p.drawer_name.endsWith("_System") || // OMT_System / Whish_System reserve
-        !CUSTOMER_CASH_CURRENCIES.has(p.currency_code) || // USDT / crypto leg
-        note.startsWith("Cost:") || // cost/price-flow provider cost outflow
-        note.endsWith("(cost outflow)") || // custom-service hidden cost outflow
-        note.startsWith("Crypto "); // Binance crypto sent/received leg
-      if (isInternalLeg) return null;
+      // Surface only customer-facing cash — shared rule (see isInternalLegJs).
+      if (isInternalLegJs(p)) return null;
       return {
         direction: p.amount < 0 ? "out" : "in",
         amount: Math.abs(p.amount),

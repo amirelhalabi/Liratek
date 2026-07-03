@@ -65,6 +65,16 @@ export class TransactionService {
   // Read
   // ---------------------------------------------------------------------------
 
+  /** D1 — currency in/out by business date (customer-facing cash legs). */
+  getCashFlowByDate(from: string, to: string) {
+    try {
+      return this.repo.getCashFlowByDate(from, to);
+    } catch (error) {
+      logger.error({ error }, "TransactionService.getCashFlowByDate error");
+      throw error;
+    }
+  }
+
   getRecent(
     limit?: number,
     filters?: TransactionFilters,

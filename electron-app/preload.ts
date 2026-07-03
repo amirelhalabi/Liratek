@@ -801,6 +801,8 @@ contextBridge.exposeInMainWorld("api", {
     // See RecentTransaction / TransactionPaymentLeg in electron.d.ts.
     getRecent: (limit?: number, filters?: Record<string, unknown>) =>
       ipcRenderer.invoke("transactions:get-recent", limit, filters),
+    getCashFlowByDate: (from: string, to: string) =>
+      ipcRenderer.invoke("transactions:cash-flow-by-date", from, to),
     getById: (id: number) => ipcRenderer.invoke("transactions:get-by-id", id),
     getByClient: (clientId: number, limit?: number) =>
       ipcRenderer.invoke("transactions:get-by-client", clientId, limit),

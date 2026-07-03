@@ -77,14 +77,21 @@ function createTestDb(): Database.Database {
 
 function insertTxn(
   db: Database.Database,
-  opts: { id: number; type?: string; summary?: string; createdAt?: string },
+  opts: {
+    id: number;
+    type?: string;
+    summary?: string;
+    createdAt?: string;
+    status?: string;
+  },
 ): void {
   db.prepare(
     `INSERT INTO transactions (id, type, status, user_id, summary, created_at)
-     VALUES (?, ?, 'ACTIVE', 1, ?, ?)`,
+     VALUES (?, ?, ?, 1, ?, ?)`,
   ).run(
     opts.id,
     opts.type ?? "SALE",
+    opts.status ?? "ACTIVE",
     opts.summary ?? null,
     opts.createdAt ?? `2026-06-17 10:0${opts.id}:00`,
   );
@@ -333,6 +340,40 @@ describe("TransactionRepository.getRecent — structured payment legs (LIRA-064)
     });
   });
 
+  it("OMT SEND: hides the RESERVE settlement leg — the row shows customer cash IN only (C2)", () => {
+    insertTxn(db, {
+      id: 1,
+      type: "FINANCIAL_SERVICE",
+      summary: "OMT SEND: $37",
+    });
+    // Customer cash in (kept):
+    insertLeg(db, 1, { method: "CASH", currency: "USD", amount: 37 });
+    // Internal settlement legs (both filtered): General reserve + system debt.
+    // Pre-C2 the RESERVE leg leaked into the row as a bogus "out: $37".
+    insertLeg(db, 1, {
+      method: "RESERVE",
+      currency: "USD",
+      amount: -37,
+      note: "Cash reserve for settlement",
+    });
+    insertLeg(db, 1, {
+      method: "OMT",
+      currency: "USD",
+      amount: 37,
+      drawer: "OMT_System",
+      note: "OMT system debt",
+    });
+
+    const row = repo.getRecent(10).find((r) => r.id === 1)!;
+
+    expect(row.payments).toHaveLength(1);
+    expect(row.payments[0]).toMatchObject({
+      direction: "in",
+      amount: 37,
+      method: "CASH",
+    });
+  });
+
   it("MTC CREDIT_TRANSFER: hides telecom stock + SMS legs, keeps cash in/out", () => {
     insertTxn(db, {
       id: 1,
@@ -411,5 +452,105 @@ describe("TransactionRepository.getRecent — structured payment legs (LIRA-064)
       amount: 25,
       method: "WHISH",
     });
+  });
+});
+
+describe("TransactionRepository.getCashFlowByDate — D1 currency in/out report", () => {
+  let db: Database.Database;
+  let repo: TransactionRepository;
+
+  beforeEach(() => {
+    db = createTestDb();
+    (
+      globalThis as unknown as { __LIRATEK_TEST_DB__?: Database.Database }
+    ).__LIRATEK_TEST_DB__ = db;
+    resetTransactionRepository();
+    repo = new TransactionRepository();
+  });
+
+  afterEach(() => {
+    delete (
+      globalThis as unknown as { __LIRATEK_TEST_DB__?: Database.Database }
+    ).__LIRATEK_TEST_DB__;
+    db.close();
+    resetTransactionRepository();
+  });
+
+  const rowFor = (
+    rows: ReturnType<TransactionRepository["getCashFlowByDate"]>,
+    date: string,
+    currency: string,
+  ) => rows.find((r) => r.date === date && r.currency_code === currency);
+
+  it("aggregates customer cash in/out per date and currency", () => {
+    insertTxn(db, { id: 1, createdAt: "2024-03-05 10:00:00" });
+    insertPayment(db, 1, "CASH", "USD", 100);
+    insertPayment(db, 1, "CASH", "USD", -20); // change back
+    insertPayment(db, 1, "CASH", "LBP", 1_500_000);
+    insertTxn(db, { id: 2, createdAt: "2024-03-06 09:00:00" });
+    insertPayment(db, 2, "CASH", "USD", 40);
+
+    const rows = repo.getCashFlowByDate("2024-03-01", "2024-03-31");
+
+    expect(rowFor(rows, "2024-03-05", "USD")).toMatchObject({
+      total_in: 100,
+      total_out: 20,
+    });
+    expect(rowFor(rows, "2024-03-05", "LBP")).toMatchObject({
+      total_in: 1_500_000,
+      total_out: 0,
+    });
+    expect(rowFor(rows, "2024-03-06", "USD")).toMatchObject({
+      total_in: 40,
+      total_out: 0,
+    });
+  });
+
+  it("excludes internal legs — same rule as the in/out column (rule 14 mirror)", () => {
+    insertTxn(db, { id: 1, createdAt: "2024-03-05 10:00:00" });
+    insertPayment(db, 1, "CASH", "USD", 60); // the only customer leg
+    insertLeg(db, 1, { method: "RESERVE", currency: "USD", amount: -60 });
+    insertLeg(db, 1, {
+      method: "OMT",
+      currency: "USD",
+      amount: 60,
+      drawer: "OMT_System",
+    });
+    insertLeg(db, 1, {
+      method: "Katsh",
+      currency: "USD",
+      amount: -48,
+      drawer: "Katsh",
+      note: "Cost: Katsh",
+    });
+    insertLeg(db, 1, { method: "BINANCE", currency: "USDT", amount: -20 });
+    insertLeg(db, 1, { method: "PM_FEE", currency: "USD", amount: 0.5 });
+
+    const rows = repo.getCashFlowByDate("2024-03-01", "2024-03-31");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      date: "2024-03-05",
+      currency_code: "USD",
+      total_in: 60,
+      total_out: 0,
+    });
+  });
+
+  it("buckets by created_at — which carries the backdated business date", () => {
+    // createTransaction COALESCEs the caller's transaction_time INTO
+    // created_at, so a backdated entry's created_at IS its business date.
+    insertTxn(db, { id: 1, createdAt: "2024-04-01 12:00:00" });
+    insertPayment(db, 1, "CASH", "USD", 30);
+
+    const rows = repo.getCashFlowByDate("2024-04-01", "2024-04-01");
+    expect(rows).toHaveLength(1);
+    expect(rows[0].total_in).toBe(30);
+  });
+
+  it("excludes VOIDED transactions", () => {
+    insertTxn(db, { id: 1, createdAt: "2024-03-05 10:00:00", status: "VOIDED" });
+    insertPayment(db, 1, "CASH", "USD", 500);
+
+    expect(repo.getCashFlowByDate("2024-03-01", "2024-03-31")).toHaveLength(0);
   });
 });

@@ -20,6 +20,14 @@ export function registerTransactionHandlers(): void {
     },
   );
 
+  /** D1 — currency in/out by business date (Cash Report on /audit) */
+  ipcMain.handle(
+    "transactions:cash-flow-by-date",
+    (_e, from: string, to: string) => {
+      return txnService.getCashFlowByDate(from, to);
+    },
+  );
+
   /** Get a single transaction by ID */
   ipcMain.handle("transactions:get-by-id", (_e, id: number) => {
     return txnService.getById(id);

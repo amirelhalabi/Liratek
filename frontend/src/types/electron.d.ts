@@ -420,6 +420,7 @@ export interface ElectronAPI {
         clientsSkipped: number;
         clientsDiscarded: number;
         entriesImported: number;
+        duplicatesSkipped: number;
         errors: string[];
       };
     }>;
@@ -1722,6 +1723,17 @@ export interface ElectronAPI {
       limit?: number,
       filters?: Record<string, unknown>,
     ) => Promise<RecentTransaction[]>;
+    getCashFlowByDate: (
+      from: string,
+      to: string,
+    ) => Promise<
+      Array<{
+        date: string;
+        currency_code: string;
+        total_in: number;
+        total_out: number;
+      }>
+    >;
   };
 
   // Profits
