@@ -38,20 +38,18 @@ export default function StepComplete() {
         return;
       }
 
-      // Apply initial drawer amounts if the operator set any in step 6.
+      // Record the initial setup checkpoint (A4): ALWAYS written, so the
+      // checkpoint timeline starts with a baseline row — even when the
+      // operator skipped the drawer amounts (all drawers start at zero).
       // user_id must be the admin's real id: the seed admin (id=1) is deleted
       // when a custom username is chosen, so a hardcoded 1 would violate the
       // daily_closings.created_by FK and roll the checkpoint back.
-      if (
-        payload.drawer_amounts &&
-        payload.drawer_amounts.length > 0 &&
-        window.api
-      ) {
+      if (window.api) {
         await window.api.closing.createCheckpoint({
           user_id: result.adminUserId ?? 1,
           drawer_name: "AGGREGATED",
           notes: "Initial drawer amounts from setup",
-          amounts: payload.drawer_amounts.map((d) => ({
+          amounts: (payload.drawer_amounts ?? []).map((d) => ({
             drawer_name: d.drawer_name,
             currency_code: d.currency_code,
             expected_amount: d.amount,

@@ -1210,6 +1210,15 @@ export default function Services() {
                         );
                         setCurrency("USD");
                         setCashoutMethod("CASH");
+                        // A2: the other party's fields are hidden per mode —
+                        // clear them so stale values never reach the payload.
+                        if (type === "SEND") {
+                          setReceiverName("");
+                          setReceiverPhone("");
+                        } else {
+                          setSenderName("");
+                          setSenderPhone("");
+                        }
                       }}
                       className={`flex-1 py-3 font-bold text-sm tracking-wide transition-all flex items-center justify-center gap-1.5 border-r border-slate-700/40 last:border-r-0 ${
                         isDisabled
@@ -1677,8 +1686,11 @@ export default function Services() {
                 </div>
               )}
 
-              {/* Sender/Receiver Info — single 4-column row */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              {/* Sender/Receiver Info — only the mode's own party (A2):
+                  SEND collects the sender, RECEIVE collects the receiver. */}
+              <div className="grid grid-cols-2 gap-2">
+                {serviceType === "SEND" && (
+                <>
                 <div>
                   <label
                     htmlFor="service-sender-name"
@@ -1728,6 +1740,10 @@ export default function Services() {
                     }
                   />
                 </div>
+                </>
+                )}
+                {serviceType === "RECEIVE" && (
+                <>
                 <div>
                   <label
                     htmlFor="service-receiver-name"
@@ -1777,6 +1793,8 @@ export default function Services() {
                     }
                   />
                 </div>
+                </>
+                )}
               </div>
               <SaveAsClientCheckbox
                 checked={saveAsClient}
@@ -1801,6 +1819,35 @@ export default function Services() {
                   placeholder="Optional"
                 />
               </div>
+
+              {/* Client details in the confirm/summary step (A3) */}
+              {(() => {
+                const activeName =
+                  serviceType === "SEND" ? senderName : receiverName;
+                const activePhone =
+                  serviceType === "SEND" ? senderPhone : receiverPhone;
+                if (!activeName.trim() && !activePhone.trim()) return null;
+                return (
+                  <div
+                    data-testid="client-summary"
+                    className="flex items-center gap-2 rounded-lg bg-slate-800/60 border border-slate-700/50 px-3 py-2 text-xs text-slate-300"
+                  >
+                    <User size={12} className="text-slate-400" />
+                    <span className="font-medium text-white">
+                      {activeName.trim() || "—"}
+                    </span>
+                    {activePhone.trim() && (
+                      <>
+                        <span className="text-slate-500">·</span>
+                        <span className="font-mono">{activePhone.trim()}</span>
+                      </>
+                    )}
+                    <span className="ml-auto uppercase tracking-wider text-slate-500">
+                      {serviceType === "SEND" ? "Sender" : "Receiver"}
+                    </span>
+                  </div>
+                );
+              })()}
 
               {/* Payment Method */}
               <div>

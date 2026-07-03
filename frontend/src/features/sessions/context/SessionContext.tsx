@@ -224,13 +224,6 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     );
   }, [cartItems]);
 
-  // Load active sessions on mount (only when customer sessions feature is enabled)
-  useEffect(() => {
-    if (flags.customerSessions) {
-      refreshActiveSessions();
-    }
-  }, [flags.customerSessions]);
-
   const refreshActiveSessions = useCallback(async () => {
     try {
       const data = await window.api.session.getActiveSessions();
@@ -261,6 +254,18 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       logger.error("Failed to load sessions:", err);
     }
   }, [activeSession]);
+
+  // Load active sessions on mount and keep them fresh with a light poll (only
+  // when customer sessions feature is enabled). Sessions can be started/closed
+  // outside this renderer's UI actions (IPC callers, another surface) — without
+  // the poll, a session closed elsewhere leaves a stale `activeSession` and the
+  // floating session window stays open indefinitely, swallowing clicks.
+  useEffect(() => {
+    if (!flags.customerSessions) return;
+    refreshActiveSessions();
+    const timer = setInterval(refreshActiveSessions, 7_000);
+    return () => clearInterval(timer);
+  }, [flags.customerSessions, refreshActiveSessions]);
 
   const refreshSessionTransactions = useCallback(async () => {
     if (!activeSession) {

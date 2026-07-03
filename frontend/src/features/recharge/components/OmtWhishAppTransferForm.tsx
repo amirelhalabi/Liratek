@@ -62,7 +62,11 @@ function OmtWhishAppTransferFormInner({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPaymentSheet, setShowPaymentSheet] = useState(false);
   const showHistory = showHistoryProp ?? false;
-  const { sellRate: exchangeRate } = useSellRate();
+  const { sellRate, buyRate } = useSellRate();
+  // SEND is Money IN (customer pays us) → sell rate. RECEIVE is Money OUT
+  // (we pay the customer's cashout) → buy rate; paying out at the sell rate
+  // would hand the customer our exchange margin on cross-currency legs.
+  const exchangeRate = serviceType === "RECEIVE" ? buyRate : sellRate;
   const [paymentLines, setPaymentLines] = useState<any[]>([]);
   const [returnLegs, setReturnLegs] = useState<any[]>([]);
   const isSplitPayment = paymentLines.length > 1;
@@ -112,9 +116,14 @@ function OmtWhishAppTransferFormInner({
     if (serviceType === "SEND") {
       setSenderName(customerName || "");
       setSenderPhone(customerPhone || "");
+      // A2: the receiver fields are hidden in SEND — clear stale values
+      setReceiverName("");
+      setReceiverPhone("");
     } else {
       setReceiverName(customerName || "");
       setReceiverPhone(customerPhone || "");
+      setSenderName("");
+      setSenderPhone("");
     }
   }, [serviceType, customerName, customerPhone]);
 
@@ -504,8 +513,11 @@ function OmtWhishAppTransferFormInner({
           </div>
         )}
 
-      {/* Sender / Receiver Info — always show all four fields in one row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      {/* Sender / Receiver Info — only the mode's own party (A2):
+          SEND collects the sender, RECEIVE collects the receiver. */}
+      <div className="grid grid-cols-2 gap-3">
+        {serviceType === "SEND" && (
+        <>
         <div>
           <label
             htmlFor="sender-name"
@@ -563,6 +575,10 @@ function OmtWhishAppTransferFormInner({
             placeholder="Sender phone"
           />
         </div>
+        </>
+        )}
+        {serviceType === "RECEIVE" && (
+        <>
         <div>
           <label
             htmlFor="receiver-name"
@@ -620,6 +636,8 @@ function OmtWhishAppTransferFormInner({
             placeholder="Receiver phone"
           />
         </div>
+        </>
+        )}
       </div>
       <SaveAsClientCheckbox
         checked={saveAsClient}
@@ -695,6 +713,18 @@ function OmtWhishAppTransferFormInner({
           activeSession ? "Add to Cart" : `Pay $${totalAmount.toFixed(2)}`
         }
         summary={[
+          // Client details in the confirm step (A3)
+          ...(activeClientName.trim()
+            ? [
+                {
+                  label: serviceType === "SEND" ? "Sender" : "Receiver",
+                  value: activeClientName.trim(),
+                },
+              ]
+            : []),
+          ...(activeClientPhone.trim()
+            ? [{ label: "Phone", value: activeClientPhone.trim() }]
+            : []),
           { label: "Transfer Amount", value: `$${parsedAmount.toFixed(2)}` },
           ...(providerFee > 0
             ? [

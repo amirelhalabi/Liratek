@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useApi, MultiPaymentInput, type PaymentLine } from "@liratek/ui";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
-import { getExchangeRates } from "@/utils/exchangeRates";
+import { useSellRate } from "@/hooks/useSellRate";
 import {
   Calculator,
   CheckCircle,
@@ -52,7 +52,7 @@ export function SettlementVerification({
 }: SettlementVerificationProps) {
   const api = useApi();
   const { methods } = usePaymentMethods();
-  const [exchangeRate, setExchangeRate] = useState(90000);
+  const { sellRate: exchangeRate } = useSellRate();
   const [showDialog, setShowDialog] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -68,21 +68,6 @@ export function SettlementVerification({
   const [isProcessing, setIsProcessing] = useState(false);
   const [settlementSuccess, setSettlementSuccess] = useState(false);
   const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([]);
-
-  // Load exchange rate
-  useEffect(() => {
-    (async () => {
-      try {
-        const getRatesApi = (api as any)?.getRates;
-        if (!getRatesApi) return;
-        const ratesList = await getRatesApi();
-        const { sellRate } = getExchangeRates(ratesList);
-        setExchangeRate(sellRate);
-      } catch {
-        // silent
-      }
-    })();
-  }, []);
 
   useEffect(() => {
     if (showDialog) {

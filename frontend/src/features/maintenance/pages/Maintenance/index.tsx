@@ -7,6 +7,7 @@ import {
   History,
   Clock,
   ChevronRight,
+  Trash2,
 } from "lucide-react";
 import CheckoutModal from "@/features/sales/pages/POS/components/CheckoutModal";
 import { PageHeader, useApi, DecimalInput } from "@liratek/ui";
@@ -268,8 +269,13 @@ export default function Maintenance() {
   };
 
   const handleVoid = async (id: number) => {
-    if (confirm("Are you sure you want to void this job?")) {
-      await api.deleteMaintenanceJob(id);
+    if (confirm("Delete this job?")) {
+      const res = await api.deleteMaintenanceJob(id);
+      if (!res.success) {
+        // Paid jobs are money history — deletion is blocked backend-side.
+        alert(res.error || "Failed to delete job");
+        return;
+      }
       const data = await api.getMaintenanceJobs(filter);
       setJobs(data);
     }
@@ -500,6 +506,16 @@ export default function Maintenance() {
                                 ${job.price_usd?.toFixed(2)}
                               </span>
                             )}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleVoid(job.id);
+                          }}
+                          className="text-[10px] px-2 py-1 rounded bg-red-500/10 hover:bg-red-500/20 text-red-400 transition-colors"
+                          title="Delete job"
+                        >
+                          <Trash2 size={12} />
+                        </button>
                         <ChevronRight size={14} className="text-slate-600" />
                       </button>
                     );

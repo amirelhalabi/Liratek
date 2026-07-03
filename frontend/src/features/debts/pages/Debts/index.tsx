@@ -546,6 +546,9 @@ export default function Debts() {
             `\u2022 Clients already existed: ${r.clientsSkipped}\n` +
             `\u2022 Clients discarded (no phone): ${r.clientsDiscarded}\n` +
             `\u2022 Debt entries imported: ${r.entriesImported}\n` +
+            (r.duplicatesSkipped > 0
+              ? `\u2022 Duplicates skipped (already imported): ${r.duplicatesSkipped}\n`
+              : "") +
             (r.errors.length > 0
               ? `\n\u26A0\uFE0F ${r.errors.length} errors occurred. Check console for details.`
               : ""),

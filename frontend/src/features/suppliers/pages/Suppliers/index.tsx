@@ -1,15 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  useApi,
   MultiPaymentInput,
   PageHeader,
   type PaymentLine,
 } from "@liratek/ui";
 import { Truck } from "lucide-react";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
-import { getExchangeRates } from "@/utils/exchangeRates";
+import { useSellRate } from "@/hooks/useSellRate";
 import { useShopBase } from "@/hooks/useShopBase";
-import { useQuery } from "@tanstack/react-query";
 import {
   useSuppliersQuery,
   useSupplierBalancesQuery,
@@ -141,7 +139,6 @@ function balanceColor(amount: number): string {
 }
 
 export default function SuppliersPage() {
-  const api = useApi();
   const { methods } = usePaymentMethods();
   const { partnerSystem } = useShopBase();
 
@@ -164,20 +161,7 @@ export default function SuppliersPage() {
   const [cashflowKey, setCashflowKey] = useState(0);
 
   // ── Exchange rate ─────────────────────────────────────────────────────────
-  const { data: exchangeRate = 90000 } = useQuery({
-    queryKey: ["exchange-rate-sell"],
-    queryFn: async () => {
-      const getRatesApi = (
-        api as unknown as { getRates?: () => Promise<unknown> }
-      )?.getRates;
-      if (!getRatesApi) return 90000;
-      const ratesList = await getRatesApi();
-      const { sellRate } = getExchangeRates(
-        ratesList as Parameters<typeof getExchangeRates>[0],
-      );
-      return sellRate;
-    },
-  });
+  const { sellRate: exchangeRate } = useSellRate();
 
   // ── Server queries ────────────────────────────────────────────────────────
   const suppliersQuery = useSuppliersQuery();

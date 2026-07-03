@@ -8,7 +8,7 @@ import {
   DollarSign,
   Printer,
 } from "lucide-react";
-import { appEvents } from "@liratek/ui";
+import { appEvents, EXCHANGE_RATE } from "@liratek/ui";
 import {
   formatReceipt58mm,
   type ReceiptData,
@@ -190,7 +190,7 @@ export default function SaleDetailModal({
       payment_lbp: sale.paid_lbp,
       change_usd: sale.change_given_usd ?? 0,
       change_lbp: sale.change_given_lbp ?? 0,
-      exchange_rate: sale.exchange_rate_snapshot || 90000,
+      exchange_rate: sale.exchange_rate_snapshot || EXCHANGE_RATE,
       timestamp: sale.created_at,
     };
 

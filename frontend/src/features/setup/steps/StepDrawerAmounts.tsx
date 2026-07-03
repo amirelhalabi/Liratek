@@ -135,7 +135,10 @@ export default function StepDrawerAmounts() {
                 className={`grid gap-3 ${currencies.length <= 1 ? "grid-cols-1 max-w-xs" : "grid-cols-2"}`}
               >
                 {currencies.map((currency) => (
-                  <div key={currency}>
+                  <div
+                    key={currency}
+                    data-testid={`setup-amount-${drawer}-${currency}`}
+                  >
                     <label className="text-xs text-slate-400 block mb-1">
                       {currency}
                     </label>

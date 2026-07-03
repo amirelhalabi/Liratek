@@ -50,13 +50,24 @@ export const ENTITY_TYPE_OPTIONS = [
 
 export type FilterOption = {
   label: string;
-  type: string;
+  /** Unified transaction type — omitted for client-side-only filters. */
+  type?: string;
   provider?: string;
   service_type?: string;
   has_item_key?: boolean;
+  /** B6: keep only transactions with a physical-cash (CASH) payment leg. */
+  cash_only?: boolean;
 };
 
 export const FILTER_GROUPS: { group: string; options: FilterOption[] }[] = [
+  {
+    group: "Cash",
+    options: [
+      // B6: "what touched the till?" — transactions with a CASH payment leg
+      // (CASH legs post to the General drawer). Filtered client-side.
+      { label: "Cash only (till)", cash_only: true },
+    ],
+  },
   {
     group: "Financial — System",
     options: [

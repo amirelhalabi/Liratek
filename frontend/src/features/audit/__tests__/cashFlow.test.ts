@@ -1,0 +1,80 @@
+/**
+ * C2 — OMT/WHISH in/out semantics (LEFT_TO_DO).
+ *
+ * The transactions-table badge direction for FINANCIAL_SERVICE must follow the
+ * service direction: SEND/BILL take customer cash (in), RECEIVE pays the
+ * customer out of the drawers (out). The pre-C2 code returned "in" for EVERY
+ * FINANCIAL_SERVICE row — the RECEIVE cases below fail against it.
+ */
+import { getCashFlowDirection, isCashTransaction } from "../cashFlow";
+
+const meta = (service_type: string) => JSON.stringify({ service_type });
+
+describe("getCashFlowDirection — FINANCIAL_SERVICE service_type branch", () => {
+  it("SEND is cash in (customer pays us)", () => {
+    expect(getCashFlowDirection("FINANCIAL_SERVICE", meta("SEND"))).toBe("in");
+  });
+
+  it("RECEIVE is cash out (shop pays the customer)", () => {
+    expect(getCashFlowDirection("FINANCIAL_SERVICE", meta("RECEIVE"))).toBe(
+      "out",
+    );
+  });
+
+  it("BILL is cash in (customer pays for the bill)", () => {
+    expect(getCashFlowDirection("FINANCIAL_SERVICE", meta("BILL"))).toBe("in");
+  });
+
+  it("falls back to 'in' when metadata is missing or malformed", () => {
+    expect(getCashFlowDirection("FINANCIAL_SERVICE", null)).toBe("in");
+    expect(getCashFlowDirection("FINANCIAL_SERVICE", undefined)).toBe("in");
+    expect(getCashFlowDirection("FINANCIAL_SERVICE", "not-json{")).toBe("in");
+    expect(getCashFlowDirection("FINANCIAL_SERVICE", "{}")).toBe("in");
+  });
+});
+
+describe("getCashFlowDirection — unchanged types (guard against regressions)", () => {
+  it.each([
+    ["SALE", "in"],
+    ["RECHARGE", "in"],
+    ["DEBT_REPAYMENT", "in"],
+    ["EXPENSE", "out"],
+    ["LOTO_SETTLEMENT", "out"],
+    ["EXCHANGE", "both"],
+    // B7: loto rows were unmapped → blank badge on every ticket sale / payout
+    ["LOTO", "in"],
+    ["LOTO_CASH_PRIZE", "out"],
+  ] as const)("%s → %s", (type, expected) => {
+    expect(getCashFlowDirection(type)).toBe(expected);
+  });
+
+  it("RECHARGE_TOPUP: 'out' from drawer, 'in' when partner/client funded", () => {
+    expect(getCashFlowDirection("RECHARGE_TOPUP")).toBe("out");
+    expect(
+      getCashFlowDirection("RECHARGE_TOPUP", JSON.stringify({ partnerId: 3 })),
+    ).toBe("in");
+    expect(
+      getCashFlowDirection("RECHARGE_TOPUP", JSON.stringify({ cashPaid: 10 })),
+    ).toBe("in");
+  });
+
+  it("unknown types render no badge", () => {
+    expect(getCashFlowDirection("CLIENT_CREATED")).toBeNull();
+  });
+});
+
+describe("isCashTransaction — the 'Cash only (till)' filter predicate (B6)", () => {
+  it("true when any leg is CASH", () => {
+    expect(isCashTransaction([{ method: "CASH" }])).toBe(true);
+    expect(isCashTransaction([{ method: "OMT" }, { method: "CASH" }])).toBe(
+      true,
+    );
+  });
+
+  it("false for wallet-only / on-account / empty transactions", () => {
+    expect(isCashTransaction([{ method: "OMT" }])).toBe(false);
+    expect(isCashTransaction([{ method: "WHISH" }])).toBe(false);
+    expect(isCashTransaction([])).toBe(false);
+    expect(isCashTransaction(undefined)).toBe(false);
+  });
+});

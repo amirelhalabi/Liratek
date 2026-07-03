@@ -8,7 +8,7 @@ import {
 } from "@liratek/ui";
 import { useModalFocusFix } from "@/shared/hooks/useModalFocusFix";
 import { usePaymentMethods } from "@/hooks/usePaymentMethods";
-import { getExchangeRates } from "@/utils/exchangeRates";
+import { useSellRate } from "@/hooks/useSellRate";
 import { useShopBase } from "@/hooks/useShopBase";
 
 type Supplier = {
@@ -93,7 +93,7 @@ export default function SupplierLedger() {
   const api = useApi();
   const { methods } = usePaymentMethods();
   const { partnerSystem } = useShopBase();
-  const [exchangeRate, setExchangeRate] = useState(90000);
+  const { sellRate: exchangeRate } = useSellRate();
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [balances, setBalances] = useState<SupplierBalance[]>([]);
   const [selectedSupplierId, setSelectedSupplierId] = useState<number | null>(
@@ -105,6 +105,12 @@ export default function SupplierLedger() {
   const [entryType, setEntryType] = useState<
     "TOP_UP" | "PAYMENT" | "ADJUSTMENT"
   >("PAYMENT");
+  // B4: ADJUSTMENT direction — an opening/corrective balance can go either way.
+  // "WE_OWE" books positive amounts (shop owes supplier, like TOP_UP);
+  // "OWES_US" books negative amounts (supplier owes the shop).
+  const [adjustmentDirection, setAdjustmentDirection] = useState<
+    "WE_OWE" | "OWES_US"
+  >("WE_OWE");
   const [amountUSD, setAmountUSD] = useState<number>(0);
   const [amountLBP, setAmountLBP] = useState<number>(0);
   const [note, setNote] = useState<string>("");
@@ -124,21 +130,6 @@ export default function SupplierLedger() {
     [],
   );
   const [activeTab, setActiveTab] = useState<"settle" | "manual">("settle");
-
-  // Load exchange rate
-  useEffect(() => {
-    (async () => {
-      try {
-        const getRatesApi = (api as any)?.getRates;
-        if (!getRatesApi) return;
-        const ratesList = await getRatesApi();
-        const { sellRate } = getExchangeRates(ratesList);
-        setExchangeRate(sellRate);
-      } catch {
-        // silent
-      }
-    })();
-  }, []);
 
   // System suppliers first, then user-created; exclude partner system supplier (tracked via Partners page)
   const sortedSuppliers = useMemo(
@@ -308,8 +299,16 @@ export default function SupplierLedger() {
     } = {
       supplier_id: selectedSupplierId,
       entry_type: entryType,
-      amount_usd: amountUSD || 0,
-      amount_lbp: amountLBP || 0,
+      // B4: ADJUSTMENT carries the chosen direction as its sign — negative
+      // means the supplier owes the shop (opening balances go either way).
+      amount_usd:
+        entryType === "ADJUSTMENT" && adjustmentDirection === "OWES_US"
+          ? -(amountUSD || 0)
+          : amountUSD || 0,
+      amount_lbp:
+        entryType === "ADJUSTMENT" && adjustmentDirection === "OWES_US"
+          ? -(amountLBP || 0)
+          : amountLBP || 0,
     };
     if (note.trim()) payload.note = note.trim();
     if (withdrawFromDrawer && entryType === "PAYMENT") {
@@ -656,6 +655,37 @@ export default function SupplierLedger() {
                         className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white"
                       />
                     </div>
+                    {entryType === "ADJUSTMENT" && (
+                      <div className="col-span-12 flex items-center gap-2">
+                        <span className="text-xs text-slate-400">
+                          Direction:
+                        </span>
+                        <button
+                          type="button"
+                          data-testid="adjustment-we-owe"
+                          onClick={() => setAdjustmentDirection("WE_OWE")}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                            adjustmentDirection === "WE_OWE"
+                              ? "bg-red-500/20 text-red-300 border border-red-500/40"
+                              : "bg-slate-950 text-slate-400 border border-slate-700 hover:text-white"
+                          }`}
+                        >
+                          We owe supplier
+                        </button>
+                        <button
+                          type="button"
+                          data-testid="adjustment-owes-us"
+                          onClick={() => setAdjustmentDirection("OWES_US")}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                            adjustmentDirection === "OWES_US"
+                              ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                              : "bg-slate-950 text-slate-400 border border-slate-700 hover:text-white"
+                          }`}
+                        >
+                          Supplier owes us
+                        </button>
+                      </div>
+                    )}
                     {entryType === "PAYMENT" && (
                       <div className="col-span-12">
                         <label className="flex items-center gap-2 text-slate-300 cursor-pointer">

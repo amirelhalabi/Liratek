@@ -14,6 +14,7 @@ import {
 } from "@/api/backendApi";
 import { DataTable } from "@liratek/ui";
 import { FILTER_GROUPS } from "../auditConstants";
+import { getCashFlowDirection, isCashTransaction } from "../cashFlow";
 import { parseDbDate } from "@/shared/utils/parseDbDate";
 
 // LIRA-064: structured in/out payment leg joined from the payments table.
@@ -394,51 +395,6 @@ function checkpointPhysicalTotals(
 // Cash flow direction
 // ---------------------------------------------------------------------------
 
-function getCashFlowDirection(
-  type: string,
-  metaJson?: string | null,
-): "in" | "out" | "both" | null {
-  switch (type) {
-    case "SALE":
-    case "FINANCIAL_SERVICE":
-    case "RECHARGE":
-    case "CUSTOM_SERVICE":
-    case "MAINTENANCE":
-    case "DEBT_REPAYMENT":
-    case "SUPPLIER_PAYMENT":
-    case "MTC_TOPUP":
-    case "ALFA_TOPUP":
-      return "in";
-    case "RECHARGE_TOPUP": {
-      // RECHARGE_TOPUP covers two opposite flows. The classic "from drawer"
-      // top-up spends cash (out). But Whish App credit-acquisition top-ups —
-      // funded by a partner (partnerId) or bought from a client (cashPaid) —
-      // increase the provider drawer, so they are inflows (like MTC/ALFA_TOPUP).
-      if (metaJson) {
-        try {
-          const m = JSON.parse(metaJson) as {
-            partnerId?: number | null;
-            cashPaid?: number | null;
-          };
-          if (m.partnerId != null || m.cashPaid != null) return "in";
-        } catch {
-          /* fall through to default "out" */
-        }
-      }
-      return "out";
-    }
-    case "EXPENSE":
-    case "LOTO_MONTHLY_FEE":
-    case "LOTO_SETTLEMENT":
-    case "SUPPLIER_SETTLEMENT":
-      return "out";
-    case "EXCHANGE":
-      return "both";
-    default:
-      return null;
-  }
-}
-
 /**
  * A supplier credit booked in our favour with NO cash movement — e.g. the fixed
  * commission earned when selling an iPick/Katsh bill. The supplier_ledger stores
@@ -494,7 +450,11 @@ function CashFlowBadge({
 
   if (direction === "both") {
     return (
-      <span className="inline-flex items-center gap-1 text-[11px] font-mono">
+      <span
+        data-testid="cash-flow-badge"
+        data-direction="both"
+        className="inline-flex items-center gap-1 text-[11px] font-mono"
+      >
         <span className="text-emerald-400">↓</span>
         <span className="text-emerald-400">/</span>
         <span className="text-red-400">↑</span>
@@ -505,7 +465,11 @@ function CashFlowBadge({
 
   if (direction === "in") {
     return (
-      <span className="inline-flex items-center gap-1 text-[11px] font-mono">
+      <span
+        data-testid="cash-flow-badge"
+        data-direction="in"
+        className="inline-flex items-center gap-1 text-[11px] font-mono"
+      >
         <span className="text-emerald-400">↓</span>
         <span className="text-emerald-400">{amountStr}</span>
       </span>
@@ -513,7 +477,11 @@ function CashFlowBadge({
   }
 
   return (
-    <span className="inline-flex items-center gap-1 text-[11px] font-mono">
+    <span
+      data-testid="cash-flow-badge"
+      data-direction="out"
+      className="inline-flex items-center gap-1 text-[11px] font-mono"
+    >
       <span className="text-red-400">↑</span>
       <span className="text-red-400">{amountStr}</span>
     </span>
@@ -635,13 +603,17 @@ export default function TransactionsViewer({
       // real commission revenue and stays visible.
       const requested = Number(limit) || 50;
       const res = await getRecentTransactions(requested * 3, filters);
-      const visible = ((res as TransactionRow[]) || []).filter(
+      let visible = ((res as TransactionRow[]) || []).filter(
         (r) =>
           !(
             HIDDEN_TRANSACTION_TYPES.has(r.type) &&
             !isSupplierCredit(r.type, r.metadata_json)
           ),
       );
+      // B6: "Cash only (till)" — keep transactions with a CASH payment leg.
+      if (activeOption?.cash_only) {
+        visible = visible.filter((r) => isCashTransaction(r.payments));
+      }
       setRows(visible.slice(0, requested));
     } finally {
       setLoading(false);

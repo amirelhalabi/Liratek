@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { Shield, ArrowLeftRight } from "lucide-react";
+import { Shield, ArrowLeftRight, Banknote } from "lucide-react";
 import { PageHeader, Select } from "@liratek/ui";
 import { DateRangeFilter } from "@/shared/components/DateRangeFilter";
 import AuditLogViewer from "./AuditLogViewer";
 import TransactionsViewer from "./TransactionsViewer";
+import CashReportModal from "../components/CashReportModal";
 import {
   ACTION_OPTIONS,
   ENTITY_TYPE_OPTIONS,
@@ -28,6 +29,7 @@ export default function AuditPage() {
   const [txSearchInput, setTxSearchInput] = useState("");
   const [txSearch, setTxSearch] = useState("");
   const [txFrom, setTxFrom] = useState("");
+  const [showCashReport, setShowCashReport] = useState(false);
   const [txTo, setTxTo] = useState("");
 
   // Audit filters
@@ -100,6 +102,13 @@ export default function AuditPage() {
                 onFromChange={setTxFrom}
                 onToChange={setTxTo}
               />
+              <button
+                data-testid="open-cash-report"
+                onClick={() => setShowCashReport(true)}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-slate-900 border border-slate-700 text-emerald-300 hover:bg-slate-800 hover:text-emerald-200 transition-colors"
+              >
+                <Banknote size={15} /> Cash Report
+              </button>
             </div>
             <div className="flex items-center gap-2">
               <label className="text-sm text-slate-400">Rows:</label>
@@ -195,6 +204,9 @@ export default function AuditPage() {
           />
         )}
       </div>
+      {showCashReport && (
+        <CashReportModal onClose={() => setShowCashReport(false)} />
+      )}
     </div>
   );
 }

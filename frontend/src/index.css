@@ -430,8 +430,8 @@ select {
 
 /* === SCROLLBAR === */
 ::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
+  width: 10px;
+  height: 10px;
 }
 
 html:not(.dark) ::-webkit-scrollbar-track {
